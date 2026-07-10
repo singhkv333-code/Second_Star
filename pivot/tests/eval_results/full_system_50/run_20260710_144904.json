@@ -1,0 +1,40 @@
+{
+ "ts": "20260710_144904",
+ "elapsed_s": 8.9,
+ "base": "http://localhost:8000",
+ "user_id": 660,
+ "sessions_file": "tests/eval_prompts/full_system_50.json",
+ "only": "sector_outlook",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "analysis-hard",
+   "name": "sector_outlook",
+   "why": "Sector outlook must use screen/compare data + news, structured, with a defended view \u2014 not a vague blurb.",
+   "conv": "s_320ecdfd0c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "what's your outlook on the Indian pharma sector for the next 6 months?",
+     "response": "## Pharma \u2014 ranked by ROE\n\nRanked by return on equity \u2014 a profitability screen, not a buy list.\n\n| Rank | Company | ROE | Market cap |\n|---:|---|---:|---:|\n| 1 | JEENA SIKHO LIFECARE LTD (`JSLL`) | 59.92% | \u20b96,926 Cr |\n| 2 | GlaxoSmithKline Pharmaceuticals Limited (`GLAXO`) | 49.11% | \u20b939,505 Cr |\n| 3 | Abbott India Limited (`ABBOTINDIA`) | 34.46% | \u20b955,705 Cr |\n| 4 | Thyrocare Technologies Limited (`THYROCARE`) | 28.75% | \u20b98,603 Cr |\n| 5 | Indraprastha Medical Corporation Limited (`INDRAMEDCO`) | 27.47% | \u20b93,511 Cr |\n\n**Highest ROE:** `JSLL` at 59.92% ROE.\n\n_showing names above ~\u20b93,000 Cr market cap (say 'include small caps' to widen); sector + P/E from company profiles (yfinance) \u2014 not the MC ratios DB_",
+     "tools_called": [
+      "screen_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "screen_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 6068,
+     "latency_server_ms": 5592,
+     "input_tokens": 40340,
+     "output_tokens": 203,
+     "cost_usd": 0.006977,
+     "llm_calls": 1
+    }
+   ]
+  }
+ ]
+}

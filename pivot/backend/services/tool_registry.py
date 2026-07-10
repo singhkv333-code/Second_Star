@@ -30,10 +30,52 @@ logger = logging.getLogger(__name__)
 #
 # Each entry has the OpenAI function-calling shape (we reuse the existing
 # tools.py definitions; this file simply curates the visible set).
+#
+# The visible set is DERIVED, not hand-maintained (chat-kernel Phase 0,
+# 2026-07-10): a tool is visible iff it has a real handler — legacy
+# handlers minus `_generic_confirm` stubs, plus the v2 handler table —
+# and is not explicitly hidden below. The old hand-list drifted from the
+# dispatcher twice; this derivation cannot.
+#
+# Doctrine notes that used to live on the hand-list (still true):
+#   - Option strategy REGISTRATION happens on the card's POST
+#     /option-strategies — there is deliberately NO place-options-order
+#     chat tool.
+#   - `run_backtest` (legacy single-indicator) stays out of chat: its
+#     `trigger_condition` field trapped the LLM in clarification loops.
+#     backtest_workflow / backtest_dsl_tree carry chat backtests.
+#   - The propose_* macros exist for decode speed (~30x) — never fold
+#     them back into propose_workflow.
 
-# Tools that have a real backing implementation in tool_executor.py.
-# Keep this list aligned with the dispatcher in tool_executor.py:18.
-_REAL_TOOLS: set[str] = {
+# Handlers that exist but must NOT be shown to the model.
+from backend.agents.consolidated_handlers import SUPERSEDED_BY_CONSOLIDATION
+
+_HIDDEN_TOOLS: frozenset = frozenset({
+    # Deterministic helper only meant to be invoked from inside a
+    # compose_multistep plan (server resolves $step_id refs first).
+    # Exposed directly, the LLM called it standalone with empty `from`,
+    # which failed silently.
+    "extract_winner_symbol",
+    # Handler exists but returns placeholder data — stub by behaviour.
+    "get_upcoming_events",
+}) | SUPERSEDED_BY_CONSOLIDATION
+# ^ Chat-kernel Phase 1: the 23 narrow tools replaced by the 5
+# consolidated view-enum tools stay callable (cards, REST, macros,
+# compose_multistep) but are no longer shown to the LLM — overlapping
+# sibling tools were the probe's #1 misroute cause.
+
+
+def _real_tools() -> set[str]:
+    """The derived LLM-visible tool set. Requires v2 registration."""
+    from backend.agents.tool_executor import HANDLERS, STUB_TOOLS
+    _ensure_v2_tools_registered()
+    return ((set(HANDLERS) - STUB_TOOLS) | set(_V2_HANDLERS)) - _HIDDEN_TOOLS
+
+
+# Pre-consolidation hand-maintained list (frozen 2026-07-10), kept ONLY
+# to compute the tripwire snapshot below. Do not add new tools here —
+# implement a real handler and they become visible.
+_PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     # Trade execution
     "place_market_order", "place_limit_order",
     "create_gtt_order", "create_sl_order", "create_oco_order", "create_dip_buy",
@@ -73,6 +115,10 @@ _REAL_TOOLS: set[str] = {
     # meant the router selected them but they never reached the model
     # (only find_tool's lazy-load could surface them, wasting a hop).
     "screen_fundamentals", "fetch_fundamentals", "get_symbol_news",
+    # Chat-kernel 2026-07-10: historical fundamentals (12y annual) with
+    # series/max/min/cagr/yoy aggregation — the "which year did X have
+    # max profit" class. Registered via _ensure_v2_tools_registered.
+    "query_financials",
     "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
     # IPO P2: open-day reminder workflow proposal. Same shape as
     # propose_workflow's output (workflow_draft_card) — the FE renders
@@ -175,6 +221,24 @@ _REAL_TOOLS: set[str] = {
 }
 
 
+# The tripwire snapshot the derivation is checked against
+# (tests/test_tool_registry_derivation.py). Every deliberate visibility
+# change is an explicit term here — reviewable in the diff — while
+# accidental drift still trips the test.
+_REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = (
+    (
+        _PRE_CONSOLIDATION_SNAPSHOT  # (already includes query_financials)
+        # Chat-kernel Phase 1 + round 2: consolidated view-enum tools...
+        | {"get_market_data", "get_portfolio", "manage_automation",
+           "get_indicators", "place_order", "calculate", "get_ipo"}
+    )
+    # ...replacing the 23 narrow tools they supersede. (Parenthesised:
+    # `-` binds tighter than `|`, so without the parens the subtraction
+    # only applied to the 5-name union term.)
+    - SUPERSEDED_BY_CONSOLIDATION
+)
+
+
 # Tools intentionally excluded because their implementation is a stub:
 #   modify_order, place_futures_order, place_options_order,
 #   place_multileg_options, roll_futures_position, get_margin_required,
@@ -194,6 +258,10 @@ class ToolResult:
     data: dict
     error: str | None = None
     logiccard: dict | None = None
+    # Structured route hint (chat-kernel 2026-07-10): set when the tool
+    # raised ToolRedirect — the chat loop prefers this over regex-scanning
+    # the error prose for "use <tool>".
+    redirect_to: str | None = None
 
     def to_llm_string(self) -> str:
         """Compact JSON string the model sees as the tool result."""
@@ -205,9 +273,8 @@ class ToolResult:
 def get_tool_schema() -> list[dict]:
     """The full tool list shown to the LLM on every turn."""
     from backend.agents.tools import ALL_TOOLS
-    # Make sure the v2-only tools are registered as soon as we ask for the schema.
-    _ensure_v2_tools_registered()
-    return [defn for name, defn in ALL_TOOLS.items() if name in _REAL_TOOLS]
+    real = _real_tools()  # registers v2 tools as a side effect
+    return [defn for name, defn in ALL_TOOLS.items() if name in real]
 
 
 async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -> ToolResult:
@@ -231,6 +298,15 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
         try:
             data = await _V2_HANDLERS[name](merged)
         except Exception as e:
+            from backend.services.tool_errors import ToolRedirect
+            if isinstance(e, ToolRedirect):
+                # Typed route hint — the chat loop reads redirect_to
+                # directly instead of regex-scanning the prose (which a
+                # truncation once severed). Prose still goes to the LLM.
+                return ToolResult(
+                    name=name, args=merged, success=False, data={},
+                    error=str(e)[:600], redirect_to=e.redirect_to,
+                )
             logger.exception("v2 tool %s failed: %s", name, e)
             # Cap is generous (600, not 200) because several tools append a
             # ROUTE HINT at the END of long explanatory errors ("...Use
@@ -244,7 +320,7 @@ async def execute(name: str, args: dict, *, kite_token: str, db, user_id: int) -
             return ToolResult(name=name, args=merged, success=False, data={}, error=str(e)[:600])
         return ToolResult(name=name, args=merged, success=True, data=data)
 
-    if name not in _REAL_TOOLS:
+    if name not in _real_tools():
         return ToolResult(
             name=name, args=args, success=False, data={},
             error=f"tool '{name}' is not currently available",
@@ -570,6 +646,18 @@ def _ensure_v2_tools_registered() -> None:
         ["product"],
     )
 
+    # Historical fundamentals query (chat-kernel Phase 0.5, 2026-07-10):
+    # one general tool over the mc.* DB — 26 ratios + statement lines x
+    # 12 annual years with latest/series/max/min/cagr/yoy aggregation.
+    from backend.services.financials_query import (
+        TOOL_DESCRIPTION as _FQ_DESC,
+        TOOL_NAME as _FQ_NAME,
+        TOOL_PROPERTIES as _FQ_PROPS,
+        TOOL_REQUIRED as _FQ_REQ,
+        query_financials as _query_financials,
+    )
+    tool(_FQ_NAME, _FQ_DESC, _FQ_PROPS, _FQ_REQ)
+
     # Register handlers
     from backend.services._v2_tools import (
         get_price_history, get_52wk_range, get_product_spec,
@@ -618,6 +706,7 @@ def _ensure_v2_tools_registered() -> None:
         "extract_winner_symbol": _extract_winner_sync,
         "web_search_brief": web_search_brief,
         "regime_compare_metrics": _regime_compare_async,
+        "query_financials": _query_financials,
         # find_tool's schema is registered in agents/tools.py; the
         # handler lives here next to the search index.
         "find_tool": _find_tool_handler,

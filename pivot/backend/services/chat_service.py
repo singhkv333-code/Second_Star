@@ -345,6 +345,20 @@ _AGENT_INTENT_RE = re.compile(
     r"\b(?:and|then)\b"
     # Explicit "automatically execute" phrasing
     r"|\bautomatic(?:ally)?\s+execut"
+    # Macro-EVENT contingency (chat-kernel round 1.5, 2026-07-10): "when
+    # RBI cuts rates buy X", "after the MPC decision...", "if CPI comes
+    # in above 6%...". These need trigger.scheduled_macro / trigger.event
+    # — a WORKFLOW — but the bare "buy \d+ TICKER" automation pattern was
+    # winning, the automation scope surgery then stripped every workflow
+    # builder, and the model had to burn a find_tool reconnaissance hop
+    # (measured: 5 LLM calls / 217K input tok / 26.4s / $0.054 on one
+    # turn — the 2026-07-10 eval judge's #1 fix).
+    r"|\b(?:when(?:ever)?|if|after|once|before)\b[^\.]{0,60}"
+    r"\b(?:rbi|mpc|monetary\s+policy|repo\s+rate|"
+    r"rate\s+(?:cut|hike|decision)|cpi|wpi|"
+    r"inflation\s+(?:print|data|number)|fomc|"
+    r"fed\s+(?:cuts?|hikes?|decision|meeting)|"
+    r"union\s+budget|budget\s+(?:day|announcement)|election\s+results?)\b"
     # Conditional rule with PERCENTAGE move (relative — needs runtime
     # fetch of a baseline). Absolute-price conditionals are GTTs,
     # which are automation.
@@ -502,6 +516,8 @@ _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
+    # consolidated equivalents (chat-kernel Phase 1 + round 2)
+    "get_indicators", "get_market_data", "query_financials", "calculate",
 })
 _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     # workflow / macro drafters — a construction ask is not a contingent
@@ -517,7 +533,8 @@ _CONSTRUCTION_FORCE_OUT: frozenset[str] = frozenset({
     "propose_holding_action",
     # immediate order tools — a build is register-not-execute via the card
     # actions, never a live order this turn.
-    "place_market_order", "place_limit_order", "create_gtt_order",
+    "place_market_order", "place_limit_order", "place_order",
+    "create_gtt_order",
     "create_sl_order", "create_oco_order", "create_dip_buy",
     "place_basket_order", "create_sip", "squareoff_all_intraday",
     "squareoff_symbol",
@@ -586,13 +603,168 @@ _ROUTE_HINT_RE = re.compile(
 )
 
 
+# ── Read-intent gates (51-sweep work order, 2026-07-10) ──────────────
+# The sweep found the model FABRICATING agents on "what agents do I have
+# running?" (tools_called=[]) and clarifying instead of reading on
+# portfolio/series/analyse asks. These gates make the read STRUCTURAL:
+# force the right tool into scope, force tool_choice=required, drop the
+# bare ASK_USER escape, and pin a one-line directive.
+
+_LIFECYCLE_READ_RE = re.compile(
+    r"\b(?:what|which|list|show(?:\s+me)?)\b[^.?!]{0,50}"
+    r"\b(?:agents?|automations?|workflows?|sips?|strategies)\b"
+    r"|\b(?:agents?|automations?|workflows?|sips?|strategies)\b"
+    r"[^.?!]{0,30}\b(?:running|active|do\s+i\s+have)\b"
+    r"|\bmy\s+(?:running\s+|active\s+)?(?:agents?|automations?|workflows?)\b",
+    re.IGNORECASE,
+)
+_PORTFOLIO_READ_RE = re.compile(
+    r"\bhow(?:'s|\s+is)\s+my\s+portfolio\b"
+    r"|\bmy\s+portfolio\s+(?:doing|performing|looking)\b"
+    r"|\b(?:show|check)\s+my\s+(?:portfolio|holdings|positions)\b"
+    r"|\bam\s+i\s+(?:in\s+)?(?:profit|loss|up\s+or\s+down)\b"
+    r"|\bmy\s+(?:p&l|pnl|overall\s+returns?)\b",
+    re.IGNORECASE,
+)
+_FIN_SERIES_DIRECT_RE = re.compile(
+    r"\b(?:year\s+by\s+year|per\s+year|yearly|annually|"
+    r"(?:over|for|across)\s+the\s+last\s+\d+\s+years?)\b",
+    re.IGNORECASE,
+)
+_SINGLE_ANALYSE_RE = re.compile(
+    r"\b(?:analy[sz]e|analysis\s+of|deep\s+dive\s+(?:on|into))\b",
+    re.IGNORECASE,
+)
+_COMPARISON_MARKER_RE = re.compile(
+    r"\b(?:vs\.?|versus|compare|compared|better\s+than|against)\b",
+    re.IGNORECASE,
+)
+
+
+def _read_intent_gate(
+    message: str, selected_names: Optional[set],
+) -> Optional[tuple[set, str, str]]:
+    """(new_selected_names, tool_choice, directive) when a read gate
+    fires, else None. First match wins; gates are mutually exclusive in
+    practice."""
+    if selected_names is None:
+        return None
+    msg = message or ""
+    if _LIFECYCLE_READ_RE.search(msg):
+        return (
+            selected_names | {"manage_automation"},
+            "required",
+            "## Lifecycle read — call the tool, never recall\n"
+            "The user asks what automations/SIPs/agents they have. You "
+            "MUST call manage_automation(action='list', ...) and report "
+            "ONLY what it returns. If it returns none, say none are "
+            "running. NEVER name agents from memory or conversation — "
+            "that fabricates.",
+        )
+    if _PORTFOLIO_READ_RE.search(msg):
+        return (
+            selected_names | {"get_portfolio"},
+            "required",
+            "## Portfolio read — call the tool, never recall\n"
+            "Call get_portfolio(view='summary') and report only its real "
+            "numbers (paper-labeled). If empty, say the portfolio is "
+            "empty. Do not ask clarifying questions first.",
+        )
+    if (_FIN_SERIES_DIRECT_RE.search(msg)
+            and "query_financials" in selected_names):
+        return (
+            selected_names,
+            "required",
+            "## Series ask is fully specified — JUST DO IT\n"
+            "The user named the metric and window. Call query_financials "
+            "now. Do NOT offer alternative metrics or comparisons first.",
+        )
+    if (_SINGLE_ANALYSE_RE.search(msg)
+            and not _COMPARISON_MARKER_RE.search(msg)):
+        return (
+            (selected_names
+             | {"fetch_fundamentals", "get_market_data",
+                "get_symbol_news", "get_indicators"})
+            - {"compare_performance", "get_correlation_matrix"},
+            "required",
+            "## Single-stock analysis — fundamentals+price+news flow\n"
+            "This is a ONE-stock analysis: start with get_market_data / "
+            "fetch_fundamentals / get_symbol_news (comparison tools are "
+            "out of scope this turn), then write the full sectioned "
+            "ANALYSIS with a defended view.",
+        )
+    return None
+
+
+def _summary_bridge_block(conv_id: str, user_id: int,
+                          history_override) -> str:
+    """Chat-kernel A2 (2026-07-10): bridge the 6-turn context cliff.
+
+    The ChatSummary rows have existed since migration 0022 but were
+    WRITE-ONLY — generated for the UI, never injected into a turn (the
+    2026-07-03 platform audit's #2 chat finding). When older turns were
+    truncated away by CONV_PROMPT_WINDOW_TURNS, inject the stored
+    summary READ-ONLY (one indexed PG lookup; generation stays off the
+    hot path — the /chat router refreshes it in a background task).
+    """
+    overflow = (
+        history_override is not None
+        and len(history_override) > CONV_PROMPT_WINDOW_TURNS * 2
+    )
+    if not overflow:
+        try:
+            overflow = default_store().history_overflows(conv_id)
+        except Exception:
+            overflow = False
+    if not overflow:
+        return ""
+    # ChatSummary rows key on the RAW client conversation id (the router
+    # persists Conversation with it); handle() receives the u{uid}::
+    # namespaced form — strip the namespace for the lookup.
+    raw_id = conv_id.split("::", 1)[1] if "::" in conv_id else conv_id
+    if not raw_id:
+        return ""
+    try:
+        from backend.database import SessionLocal
+        from backend.models import ChatSummary
+
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(ChatSummary.summary)
+                .filter(
+                    ChatSummary.conversation_id == raw_id,
+                    ChatSummary.user_id == user_id,
+                )
+                .first()
+            )
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001 — the bridge must never break a turn
+        logger.warning("summary bridge lookup failed: %s", e)
+        return ""
+    if not row or not row[0]:
+        return ""
+    return (
+        "## Earlier in this conversation (summary of truncated turns)\n"
+        + str(row[0])[:1200]
+        + "\n(The turns shown below are the most recent ones; when this "
+        "summary conflicts with them, the visible turns win.)"
+    )
+
+
 def _redirect_target_for_failure(
     tool_name: str, error: str, user_message: str,
+    structured: Optional[str] = None,
 ) -> Optional[str]:
     """Pick the tool to redirect to after ``tool_name`` failed, or None.
 
-    Primary signal: an explicit "use <tool>" hint in the error string
-    (tools emit these to steer the LLM to the right shape).
+    Primary signal (chat-kernel 2026-07-10): the tool's own typed
+    ``redirect_to`` (raised as ToolRedirect, threaded through
+    GuardedToolResult) — cannot be severed by truncation.
+
+    Secondary signal: an explicit "use <tool>" hint in the error string
+    (legacy raise-sites still emit these to steer the LLM).
 
     Backstop: a ``propose_dsl_workflow`` failure on a RECURRING-SCHEDULE
     ask ("buy INFY every Friday and sell at 10% profit") → route to
@@ -610,6 +782,8 @@ def _redirect_target_for_failure(
     message contains a session-anchor phrase, redirect to propose_workflow
     which supports trigger.market_relative_time(anchor='open'/'close').
     """
+    if structured:
+        return structured
     m = _ROUTE_HINT_RE.search(error or "")
     if m:
         return m.group(1)
@@ -854,7 +1028,7 @@ _HEDGE_STRIP_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_scheduled_order",
     "propose_threshold_order", "propose_basket_allocation",
     "propose_holding_action", "propose_dsl_workflow",
-    "place_market_order", "place_limit_order",
+    "place_market_order", "place_limit_order", "place_order",
     "create_gtt_order", "create_sl_order", "create_oco_order",
     "create_dip_buy", "place_basket_order", "create_sip",
 })
@@ -1336,7 +1510,8 @@ _ORDER_AND_MACRO_TOOLS: frozenset[str] = frozenset({
     "propose_workflow", "propose_scheduled_order",
     "propose_threshold_order", "propose_basket_allocation",
     "propose_holding_action",
-    "place_market_order", "place_limit_order", "create_gtt_order",
+    "place_market_order", "place_limit_order", "place_order",
+    "create_gtt_order",
     "create_sl_order", "create_oco_order", "create_dip_buy",
     "place_basket_order", "create_sip", "create_strategy",
     "squareoff_all_intraday", "squareoff_symbol",
@@ -2087,8 +2262,10 @@ _ANALYSIS_INTENT_RE = re.compile(
     r"fairly\s*valued|a\s+buy|a\s+sell|worth\s+buying)|"
     # Risk / quality asks: "how risky is X" / "is X risky"
     r"how\s+risky\s+(?:is|are)|(?:is|are)\s+\w+\s+(?:risky|safe|quality)|"
-    # "X vs Y" comparison with 'vs' / 'versus' / explicit "comparison"
-    r"\bvs\.?\b|\bversus\b|\bcomparison\b|"
+    # "X vs Y" comparison — the VERB too: "compare it with ONGC" fell to
+    # analytical_short (≤120w) and produced the thinnest reply of all
+    # (user-reported 2026-07-10) because only the noun forms matched.
+    r"\bcompare\b|\bvs\.?\b|\bversus\b|\bcomparison\b|"
     # Dividend play / income angle: "good dividend play" / "dividend stock"
     r"dividend\s+(?:play|stock|pick|yield)|"
     # "which one is better" / "which has better" pattern
@@ -2163,6 +2340,22 @@ _SMALLTALK_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Ranked-list DATA reads — "top gainers/losers/movers", "most active",
+# "biggest gainers today", "who's moving". The tool returns a ranked list that
+# reads best as a compact table (rank · symbol · LTP · change%); the default
+# analytical_short class (≤120 words, prose-only, no headings) forces the model
+# to cram two tables into a 120-word budget and it truncates mid-table. Route
+# these to the table-friendly 'list_read' budget instead. (Fundamental screens —
+# "cheapest banks by P/E" — are handled separately via the analysis subhint.)
+_LIST_READ_RE = re.compile(
+    r"\b(?:top|biggest|best|worst|leading)\s+(?:\d+\s+)?"
+    r"(?:gainers?|losers?|movers?|advancers?|decliners?)\b"
+    r"|\bgainers?\s+(?:and|&|/|,)\s*losers?\b"
+    r"|\bmost\s+active\b"
+    r"|\bwho'?s\s+moving\b",
+    re.IGNORECASE,
+)
+
 
 def _classify_reply_class(message: str, intent_kind: str) -> str:
     """Return one of {'draft', 'automation', 'backtest', 'explainer',
@@ -2201,6 +2394,10 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     # (apply-the-data-and-reason), not an explain-concept ask.
     if _ANALYSIS_INTENT_RE.search(msg):
         return "analysis"
+    # Ranked-list reads (movers / gainers-losers / most-active) need a table,
+    # not the ≤120-word prose cap — check BEFORE the analytical_short fallback.
+    if _LIST_READ_RE.search(msg):
+        return "list_read"
     if _EXPLAINER_INTENT_RE.search(msg):
         return "explainer"
     return "analytical_short"
@@ -2276,6 +2473,18 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "prose. No `##` headings. Do NOT append unsolicited live "
         "prices — recite them only if the user asked."
     )),
+    # LIST — a ranked-list read (top movers, gainers/losers, most active). The
+    # tool returned a ranked list; render it as a compact markdown TABLE, not
+    # terse prose. This class exists so the two-table layout isn't crushed into
+    # the ≤120-word analytical_short budget (which truncated the table mid-row).
+    "list_read": (3500, (
+        "REPLY-CLASS: LIST. The tool returned a ranked list. Render it as a "
+        "compact markdown TABLE — columns rank · symbol · LTP · change%. If the "
+        "user asked for both gainers AND losers, give ONE table per group. "
+        "Include EVERY row the tool returned and FINISH every row — never stop "
+        "a table mid-line. Add at most one short sentence of read (what's "
+        "leading). Do NOT append prices for unrelated names."
+    )),
     # STRATEGY — the text that accompanies a build_strategy /
     # propose_basket_allocation card. The previous 3800-token cap still
     # truncated a hedge-honest "this isn't risk neutral, here's the
@@ -2343,6 +2552,10 @@ _INDEPENDENT_INTENT_RE = re.compile(
     r"|\bhow\s+(?:does|do|is|are|much|many)\b"
     r"|\bwhy\s+(?:is|does|do|are|should)\b"
     r"|\bdefine\b|\bexplain\b|\bcompare\b|\boverview\b"
+    # Analysis verbs are a fresh READ intent even while a draft is active
+    # (live repro 2026-07-10: "Analyze reliance." right after an agent
+    # draft re-emitted the draft instead of running the analysis flow).
+    r"|\banaly[sz]e\b|\bdeep\s+dive\b|\banalysis\s+(?:of|on)\b"
     # Portfolio / exposure introspection. The "over" / "under" branch
     # also matches their compound forms ("overexposed", "underweight",
     # "overweight") — \w* allows the suffix without breaking the leading
@@ -2625,6 +2838,137 @@ def _is_independent_prompt(message: str) -> bool:
     return False
 
 
+# ── Meta-turn classification (2026-07-10 follow-up rework) ─────────────
+# The draft/clarify funnels used to be capture-by-default: any turn that
+# didn't match the narrow "independent prompt" allowlist was forced into
+# "AMENDMENT TURN — re-emit IMMEDIATELY", and any turn during a clarify
+# flow was folded as an answer. Live repro of the user-reported failures:
+#   * "What time interval are you taking to calculate the RSI?"  → the
+#     same draft was re-emitted instead of an answer.
+#   * "You didn't ask me the number of shares. You just created the
+#     agent." → the clarify state machine consumed it as an answer and
+#     emitted its next scripted question (0 LLM hops).
+# These regexes give questions and meta-feedback their own lane: keep the
+# draft/clarify state, hand the turn to the LLM with the draft as CONTEXT
+# (not as a mandate), tool_choice=auto.
+
+_META_FEEDBACK_RE = re.compile(
+    # "you didn't / never / should have (asked) …", "without asking me"
+    r"\byou\s+(?:didn'?t|did\s+not|never|should\s+(?:have|not)|shouldn'?t"
+    r"|just\s+(?:created|built|made|placed|went))\b"
+    r"|\bwithout\s+asking(?:\s+me)?\b"
+    r"|\bwhy\s+did(?:n'?t)?\s+you\b"
+    r"|\bi\s+(?:didn'?t|did\s+not|never)\s+(?:say|ask|tell|approve|confirm"
+    r"|want)\b",
+    re.IGNORECASE,
+)
+
+_META_QUESTION_RE = re.compile(
+    r"^\s*(?:what|which|how|why|when|where|who|whose|does|do|is|are|am"
+    r"|can|could|will|would|should)\b[^?]{0,180}\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _followup_turn_kind(message: str) -> Optional[str]:
+    """'meta_feedback' | 'question' | None.
+
+    Fires ONLY for turns that must escape the amendment/clarify capture:
+    a complaint about how the assistant acted, or an interrogative that
+    carries no amendment verb ("can you make it 20 shares?" still matches
+    _DEPENDENT_INTENT_RE and stays an amendment)."""
+    msg = (message or "").strip()
+    if not msg:
+        return None
+    if _META_FEEDBACK_RE.search(msg):
+        return "meta_feedback"
+    if _META_QUESTION_RE.match(msg) and not _DEPENDENT_INTENT_RE.search(msg):
+        return "question"
+    return None
+
+
+def _safe_draft_json(draft: object, budget: int = 1800) -> str:
+    """Valid-JSON dump of a draft under `budget` chars.
+
+    The old ``json.dumps(draft)[:1800]`` cut MID-JSON; the model re-parsed
+    the fragment and regenerated corrupted params (live repro: a MACD
+    signal drifting 12,2 → 12,1 across re-emits). Drop bulky non-identity
+    fields, then the largest remaining values, until the dump fits."""
+    try:
+        if not isinstance(draft, dict):
+            s = json.dumps(draft, default=str)
+            return s if len(s) <= budget else "{}"
+        d = {k: v for k, v in draft.items()
+             if k not in ("payoff", "chart", "chart_data", "history",
+                          "preview", "equity_curve")}
+        while True:
+            s = json.dumps(d, default=str)
+            if len(s) <= budget or not d:
+                return s
+            biggest = max(
+                d, key=lambda k: len(json.dumps(d[k], default=str))
+            )
+            d.pop(biggest)
+    except Exception:  # noqa: BLE001 — a hint must never break the turn
+        return "{}"
+
+
+_ENGINE_FACTS = (
+    "Engine facts you may state plainly: indicators (RSI / SMA / EMA / "
+    "MACD) are computed on DAILY bars — RSI(14) means 14 trading DAYS — "
+    "unless the draft names another interval; price/indicator triggers "
+    "are evaluated about once a minute during market hours (09:15–15:30 "
+    "IST); scheduled triggers fire on their cron schedule; event triggers "
+    "are checked every few minutes. Orders are REGISTERED for the user's "
+    "confirmation (paper mode fills a simulated book) — nothing executes "
+    "against a live broker account on its own."
+)
+
+
+def _meta_turn_hint(kind: str, active, message: str) -> LLMMessage:
+    """System hint for a question / meta-feedback turn while a draft or
+    clarify flow is on screen: answer conversationally, keep the draft."""
+    if active is not None:
+        ctx = (
+            f"A `{active.tool_name}` draft is on screen — it STAYS on "
+            "screen; do not touch it unless the user's message fully "
+            f"specifies a change. DRAFT JSON: "
+            f"{_safe_draft_json(active.draft)}. "
+        )
+    else:
+        ctx = (
+            "You are mid-questionnaire (your last turn asked the user a "
+            "question). "
+        )
+    if kind == "meta_feedback":
+        body = (
+            "The user is giving META-FEEDBACK about how you handled the "
+            "last step (e.g. you built something without collecting a "
+            "parameter). Do NOT re-emit the unchanged draft. Do NOT treat "
+            "their message as a questionnaire answer. Respond in plain "
+            "prose: briefly acknowledge (one clause, no over-apologising), "
+            "state what the draft currently assumes for the parameter they "
+            "raised, and ask ONE short question for the missing value. If "
+            "their message itself fully specifies the correction, apply it "
+            "by re-emitting the tool with that one field changed."
+        )
+    else:
+        body = (
+            "The user is asking a QUESTION — about the draft's parameters, "
+            "what it will do, or how the system works. ANSWER it directly "
+            "in plain prose, grounded in the draft JSON and the engine "
+            "facts below. Do NOT re-emit the draft. Do NOT call a build "
+            "tool. Do NOT echo their question back at them. Do NOT answer "
+            "with a card. After answering, you may add one short line "
+            "inviting them to tweak or activate the draft. "
+            + _ENGINE_FACTS
+        )
+    return LLMMessage(
+        role="system",
+        content=f"META TURN — NOT an amendment, NOT a clarify answer. {ctx}{body}",
+    )
+
+
 def _analysis_subhint(message: str) -> str:
     """GAN R2 R1/R8: extra structure directive appended to the ANALYSIS
     reply-class hint based on the SHAPE of the analytical ask (screen /
@@ -2651,6 +2995,35 @@ def _analysis_subhint(message: str) -> str:
             "first sentence with a number, then back it with the stack, "
             "RSI/momentum, and recent range. Use a small `Period | Level | "
             "Price vs MA` table for the 20/50/200-DMA."
+        )
+    # 51-sweep: sector-OUTLOOK asks were answered with a bare ROE table
+    # and no view — the one thing an outlook ask is FOR.
+    if re.search(r"\b(?:outlook|prospects?|view)\b[^.?!]{0,60}\bsector\b"
+                 r"|\bsector\b[^.?!]{0,40}\b(?:outlook|prospects?|view)\b",
+                 message, re.IGNORECASE):
+        return (
+            " THIS IS a SECTOR OUTLOOK ask — a data table alone is an "
+            "INVALID answer. You MUST end with a `## View` section: your "
+            "defended 6-month stance for the sector (constructive / "
+            "neutral / cautious) with the 2-3 numbers that justify it and "
+            "what would change your mind, then the not-advice line."
+        )
+    # 2026-07-10: "compare X with Y" was landing in analytical_short and
+    # producing a 4-row metric table with a two-line takeaway — far below
+    # the analysis bar. A comparison is a FULL analysis of two names.
+    if re.search(r"\bcompare\b|\bvs\.?\b|\bversus\b|\bcomparison\b",
+                 message, re.IGNORECASE):
+        return (
+            " THIS IS a HEAD-TO-HEAD COMPARISON — a single metric table is "
+            "an INVALID answer. Structure it as: `## Head-to-head` "
+            "(performance table: return windows, volatility, Sharpe, max "
+            "drawdown, with a Winner column), `## Fundamentals` (P/E, ROE, "
+            "ROCE, D/E, dividend yield side-by-side — call fetch_fundamentals "
+            "for BOTH names if not already in context), `## What separates "
+            "them` (2-3 sentences on business/valuation drivers behind the "
+            "numbers), and `## Verdict` — ONE defended pick for a stated "
+            "investor profile with what would flip it, then the not-advice "
+            "line."
         )
     return ""
 
@@ -3032,7 +3405,6 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
     confirm/invalidate → caveat contract, seeded with REAL NSE names so
     the model cannot punt or invent a generic staples basket."""
     cap = extract_capital_inr(message)
-    notional = cap if cap else 100_000
     weights = basket_weights(s)
     split = ", ".join(f"{tk} {w}%" for tk, w in weights)
     winner_syms = ", ".join(tk for tk, _w in weights)
@@ -3097,10 +3469,11 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
 _THEMATIC_BASKET_TOOLS: frozenset[str] = frozenset({
     "build_strategy",
     "screen_fundamentals", "fetch_fundamentals", "get_live_price",
+    "get_market_data",
 })
 _VAGUE_SIP_TOOLS: frozenset[str] = frozenset({
     "propose_scheduled_order", "create_sip", "screen_fundamentals",
-    "get_live_price",
+    "get_live_price", "get_market_data",
 })
 
 
@@ -3905,7 +4278,13 @@ def _summarise_tool_result(g: GuardedToolResult) -> str:
                 "Decide whether to call a different tool, call "
                 "ASK_USER for clarification, or finish with a brief "
                 "explanation. Do not retry the same call with the "
-                "same arguments."
+                "same arguments. If the error names a specific field "
+                "with an expected type or allowed_values, repair that "
+                "one field from the user's own words and re-call ONCE. "
+                "When you explain a failure to the user, diagnose from "
+                "your own knowledge of markets and systems (likely "
+                "causes, what to check) — never quote internal error "
+                "text, tool names, or schema fields at them."
             )
         return json.dumps({
             "error": g.error or "tool failed",
@@ -4356,6 +4735,16 @@ class ChatService:
         if _RESUME_CANCEL_RE.match(text):
             self.store.clear_clarify(conv_id)
             trace.event("clarify.cancelled")
+            return None
+        # A question or meta-complaint mid-questionnaire is NOT an answer
+        # (live repro 2026-07-10: "You didn't ask me the number of shares…"
+        # was folded into the current slot and the next scripted question
+        # fired with 0 LLM hops). Keep the clarify state — the card stays
+        # on screen — and fall through to the LLM turn, where the meta
+        # lane answers and re-invites the pending question.
+        if _followup_turn_kind(text) is not None:
+            trace.event("clarify.meta_diverted",
+                        kind=_followup_turn_kind(text))
             return None
 
         questions = [
@@ -5478,6 +5867,21 @@ class ChatService:
         # always-include floor + fallback read tools, so we never
         # ship a turn with zero tools.
         selected_names = select_tool_names(message)
+        # Chat-kernel round 3: a bare amendment turn ("make it 10 years")
+        # matches no router rule, so the tool that served the PRIOR turn
+        # falls out of scope and the model burns a find_tool hop to
+        # recover it (measured on revenue_cagr_compare/1). Union the
+        # prior turn's READ tools back in — mutating/drafting tools are
+        # deliberately excluded (they have their own draft-followup
+        # machinery, and widening order scope from a stale turn would be
+        # a safety regression).
+        _prior_read_tools = [
+            t for t in self.store.get_last_tools(conv_id)
+            if t.startswith(("get_", "query_", "compare_", "screen_"))
+            or t == "calculate"
+        ]
+        if selected_names is not None and _prior_read_tools:
+            selected_names = selected_names | set(_prior_read_tools)
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -5560,7 +5964,7 @@ class ChatService:
         #   backtest   → narrow to run_backtest + price-history reads.
         #   other      → leave the broad surface alone.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
-            "place_market_order", "place_limit_order",
+            "place_market_order", "place_limit_order", "place_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
@@ -5610,7 +6014,7 @@ class ChatService:
                     - {"propose_workflow", "run_backtest"}
                 )
                 | {"backtest_workflow", "get_price_history",
-                   "get_live_price", "get_52wk_range"}
+                   "get_live_price", "get_52wk_range", "get_market_data"}
             )
         # Advisory questions in "other" intent: strip workflow macros.
         # WHY: "should I reduce that exposure?" after portfolio data was
@@ -5783,6 +6187,7 @@ class ChatService:
                     # hallucinate a place_market_order on an options ticker…
                     _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
                         "place_market_order", "place_limit_order",
+                        "place_order",
                         "create_gtt_order", "create_sl_order",
                         "create_oco_order", "create_dip_buy",
                         "place_basket_order", "create_sip",
@@ -5814,7 +6219,7 @@ class ChatService:
         # remove ASK_USER from scope so the model cannot escape to it.
         if _named_option_build and selected_names is not None:
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
                 "critique_option_strategy",
             })
@@ -5851,7 +6256,7 @@ class ChatService:
             selected_names = (selected_names | frozenset({
                 "propose_dsl_workflow",
             })) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "create_sl_order",
             })
             tooldefs = [
@@ -5885,6 +6290,23 @@ class ChatService:
                 ]
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
+
+        # 51-sweep read gates: lifecycle/portfolio/series/analyse reads
+        # become STRUCTURAL — right tool in scope, tool forced, ASK_USER
+        # dropped, directive pinned. After the specific guards so hedge/
+        # notify/option flows keep precedence.
+        _read_gate = _read_intent_gate(message, selected_names)
+        if _read_gate is not None:
+            selected_names, agent_tool_choice, _read_gate_directive = \
+                _read_gate
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            trace.event("read_gate.scope_forced")
+        else:
+            _read_gate_directive = None
 
         # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
         # MIRROR of handle_stream(); keep both in sync. Only fires when no
@@ -5957,6 +6379,13 @@ class ChatService:
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
+        # A ranked-list read just formats the tool's rows into a table — no deep
+        # reasoning is needed, and on a reasoning model 'medium' effort spends
+        # most of max_output on reasoning, starving (and truncating) the visible
+        # table. Drop to 'minimal' — formatting rows needs no reasoning, and any
+        # reasoning here just eats the budget and truncates the table.
+        if reply_class == "list_read":
+            effort = "minimal"
         # Scoped retry budget for propose_workflow only — see the
         # documented escape hatch at the bottom of the Change-1 plan.
         # propose_workflow's failures are usually mechanical (unknown
@@ -6004,12 +6433,25 @@ class ChatService:
         # promotes the matching parked draft instead of defaulting to
         # whatever was most recent.
         active = self._select_active_draft(conv_id, message, trace)
-        if active is not None and _is_independent_prompt(message):
+        # A fired READ gate is a fresh top-level read intent by definition
+        # ("Analyze reliance." while an agent draft is active) — it must
+        # evict the draft exactly like an independent prompt, or the
+        # amendment hint below overrides the gate and re-emits the draft.
+        if active is not None and (_is_independent_prompt(message)
+                                   or _read_gate is not None):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
-                        reason="independent_prompt",
+                        reason=("read_gate" if _read_gate is not None
+                                else "independent_prompt"),
                         tool=active.tool_name)
             active = None
+
+        # Question / meta-feedback turns get their own lane (2026-07-10):
+        # the draft stays on screen as CONTEXT, the LLM answers in prose.
+        _meta_kind = _followup_turn_kind(message) if (
+            active is not None
+            or (history and _looks_like_clarification_followup(history))
+        ) else None
 
         # Build the workflow-hint payload once, reused below.
         # WHY extended to all macro tools: previously only "propose_workflow"
@@ -6018,8 +6460,9 @@ class ChatService:
         # the tool. Now any active macro-draft type (threshold, scheduled, etc.)
         # triggers the hint, naming the CORRECT tool to re-emit.
         workflow_hint = ""
-        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
-            draft_json = json.dumps(active.draft, default=str)[:1800]
+        if (active is not None and _meta_kind is None
+                and active.tool_name in _MACRO_AMENDMENT_TOOLS):
+            draft_json = _safe_draft_json(active.draft)
             tool_label = active.tool_name
             hint_verb = (
                 "Re-emit propose_workflow with the SAME steps shape, only "
@@ -6086,7 +6529,10 @@ class ChatService:
             if (_is_rupee_notional_resize(message)
                     and selected_names is not None
                     and "get_live_price" not in selected_names):
-                selected_names = selected_names | {"get_live_price"}
+                # get_market_data is the visible consolidated equivalent;
+                # get_live_price stays for the hidden direct dispatch path.
+                selected_names = selected_names | {"get_live_price",
+                                                   "get_market_data"}
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
 
@@ -6097,7 +6543,21 @@ class ChatService:
         if _confusion_menu:
             agent_tool_choice = "auto"
 
-        if (history and _looks_like_clarification_followup(history)
+        if _meta_kind is not None:
+            # META lane — a question about the draft/system or feedback
+            # about how we acted. Answer conversationally; never re-emit.
+            followup_hint = _meta_turn_hint(_meta_kind, active, message)
+            agent_tool_choice = "auto"
+            if _meta_kind == "question":
+                # ASK_USER out of scope: with it available the model
+                # parroted the user's own question back via ask_user
+                # (live repro). Feedback turns KEEP it — asking for the
+                # missing parameter is the right move there.
+                tooldefs = [t for t in tooldefs
+                            if t.name != ASK_USER_TOOL_NAME]
+            trace.event("followup.meta_lane", kind=_meta_kind,
+                        has_draft=active is not None)
+        elif (history and _looks_like_clarification_followup(history)
                 and not _confusion_menu):
             # CLARIFICATION-FOLLOWUP path — the user is answering a
             # question we asked. Carry the original intent forward.
@@ -6208,9 +6668,20 @@ class ChatService:
         # the domain mechanics (options/backtest/baskets/…) only on turns
         # that need them. Placed right after the cached core so mechanics
         # sit high, before per-turn user/reply-class context.
+        _summary_block = _summary_bridge_block(
+            conv_id, getattr(ctx, "user_id", 0), history_override,
+        )
+        if _summary_block:
+            base_messages_summary = LLMMessage(
+                role="system", content=_summary_block,
+            )
+        else:
+            base_messages_summary = None
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_messages.append(LLMMessage(role="system", content=_mod_block))
+        if base_messages_summary is not None:
+            base_messages.append(base_messages_summary)
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
@@ -6226,6 +6697,9 @@ class ChatService:
         # notify-only alert, at-open/close, unsupported rail, confusion).
         for _g in _deterministic_guards:
             base_messages.append(LLMMessage(role="system", content=_g))
+        if _read_gate_directive:
+            base_messages.append(
+                LLMMessage(role="system", content=_read_gate_directive))
         # R1: affirmation with no draft + no pending resolution. Prevents
         # the model from fabricating "the draft above is what you'll
         # activate" when there is no draft on screen (screenshot 10).
@@ -6266,6 +6740,30 @@ class ChatService:
             base_messages.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint is not None:
             base_messages.append(followup_hint)
+        # Chat-kernel Phase A3 (2026-07-10): bare amendment of a READ
+        # answer — "make it 10 years" after a revenue-CAGR reply. There
+        # is NO active draft, so the draft-amendment machinery must not
+        # engage; without a hint the model either burned a find_tool hop
+        # or asked "which draft/workflow?" (both live-observed). Tell it
+        # plainly: re-run the prior read with the changed parameter.
+        elif (active is None
+                and _prior_read_tools
+                and _DEPENDENT_INTENT_RE.search(message)
+                and not _is_question_shaped(message)):
+            base_messages.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Amendment of the previous ANSWER (no draft exists)\n"
+                    f"The previous turn answered using "
+                    f"{', '.join(_prior_read_tools[:3])}. The user's "
+                    "current message changes ONE parameter of that same "
+                    "question (a period, a symbol, a threshold). Re-call "
+                    "the SAME tool with the amended parameter and answer "
+                    "directly. There is NO workflow or draft to amend — "
+                    "do NOT ask which one."
+                ),
+            ))
+            agent_tool_choice = "required"
 
         # WHY this directive: when we stripped macro tools because the
         # request is underspec / filler, the model would fall back to
@@ -6653,6 +7151,9 @@ class ChatService:
                     ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
+                        # Round 3: persist for the next turn's scope
+                        # union (bare-amendment recovery, both paths).
+                        self.store.set_last_tools(conv_id, tools_called)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
@@ -6695,8 +7196,15 @@ class ChatService:
                         hop_drafted_card = True
                     # A successful screen with rows → deterministic table
                     # reply below (same values verbatim), no narration hop.
+                    # EXCEPT sector-OUTLOOK asks (51-sweep): the user asked
+                    # for a VIEW — a bare ranked table is an invalid answer,
+                    # so those turns keep the LLM narration hop (the ANALYSIS
+                    # directive mandates the ## View section).
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")):
+                            and guarded.data and guarded.data.get("results")
+                            and not re.search(
+                                r"\b(?:outlook|prospects?|view)\b",
+                                message, re.IGNORECASE)):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
@@ -6749,6 +7257,7 @@ class ChatService:
                 # surfaced.
                 target_tool = _redirect_target_for_failure(
                     guarded.name, guarded.error or "", message,
+                    structured=getattr(guarded, "redirect_to", None),
                 )
                 if target_tool and not last_was_macro_draft:
                     trace.event(
@@ -7419,6 +7928,21 @@ class ChatService:
             return
 
         selected_names = select_tool_names(message)
+        # Chat-kernel round 3: a bare amendment turn ("make it 10 years")
+        # matches no router rule, so the tool that served the PRIOR turn
+        # falls out of scope and the model burns a find_tool hop to
+        # recover it (measured on revenue_cagr_compare/1). Union the
+        # prior turn's READ tools back in — mutating/drafting tools are
+        # deliberately excluded (they have their own draft-followup
+        # machinery, and widening order scope from a stale turn would be
+        # a safety regression).
+        _prior_read_tools = [
+            t for t in self.store.get_last_tools(conv_id)
+            if t.startswith(("get_", "query_", "compare_", "screen_"))
+            or t == "calculate"
+        ]
+        if selected_names is not None and _prior_read_tools:
+            selected_names = selected_names | set(_prior_read_tools)
         intent_kind = _classify_intent(message)
 
         # F&O amendment scope: when the active draft is an OPTION strategy
@@ -7475,7 +7999,7 @@ class ChatService:
         # Streaming mirror of the non-streaming intent routing.
         # See handle() for the full rationale.
         _IMMEDIATE_ORDER_TOOLS = frozenset({
-            "place_market_order", "place_limit_order",
+            "place_market_order", "place_limit_order", "place_order",
             "create_gtt_order", "create_sl_order", "create_oco_order",
             "create_dip_buy", "place_basket_order",
             "create_sip", "squareoff_all_intraday", "squareoff_symbol",
@@ -7511,7 +8035,7 @@ class ChatService:
                     - {"propose_workflow", "run_backtest"}
                 )
                 | {"backtest_workflow", "get_price_history",
-                   "get_live_price", "get_52wk_range"}
+                   "get_live_price", "get_52wk_range", "get_market_data"}
             )
         # Mirror of non-streaming advisory-strip — see handle() for WHY.
         if (intent_kind == "other"
@@ -7592,6 +8116,7 @@ class ChatService:
                 if mentions_fno:
                     _UNDERSPEC_STRIP = _UNDERSPEC_STRIP | frozenset({
                         "place_market_order", "place_limit_order",
+                        "place_order",
                         "create_gtt_order", "create_sl_order",
                         "create_oco_order", "create_dip_buy",
                         "place_basket_order", "create_sip",
@@ -7614,7 +8139,7 @@ class ChatService:
         _hedge_request = _is_hedge_request(message) or _hedge_followup
         if _named_option_build and selected_names is not None:
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
                 "critique_option_strategy",
             })
@@ -7647,7 +8172,7 @@ class ChatService:
             selected_names = (selected_names | frozenset({
                 "propose_dsl_workflow",
             })) - frozenset({
-                "place_market_order", "place_limit_order",
+                "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "create_sl_order",
             })
             tooldefs = [
@@ -7675,6 +8200,20 @@ class ChatService:
                 ]
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
+
+        # 51-sweep read gates (streaming mirror of handle()).
+        _read_gate = _read_intent_gate(message, selected_names)
+        if _read_gate is not None:
+            selected_names, agent_tool_choice, _read_gate_directive = \
+                _read_gate
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            trace.event("read_gate.scope_forced")
+        else:
+            _read_gate_directive = None
 
         # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
         # MIRROR of handle(); keep both in sync. Only fires when no
@@ -7728,6 +8267,11 @@ class ChatService:
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
         max_output = _budget_tokens
+        # List reads only format a table — drop reasoning effort to 'low' so
+        # reasoning tokens don't eat the output budget and truncate the table
+        # (mirror of the non-streaming path).
+        if reply_class == "list_read":
+            effort = "minimal"
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
         _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
@@ -7753,18 +8297,28 @@ class ChatService:
         # path — see handle() for full rationale. Track C #2: named
         # back-references promote the matching parked draft.
         active = self._select_active_draft(conv_id, message, trace)
-        if active is not None and _is_independent_prompt(message):
+        # Read-gate eviction — see handle() for WHY.
+        if active is not None and (_is_independent_prompt(message)
+                                   or _read_gate is not None):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
-                        reason="independent_prompt",
+                        reason=("read_gate" if _read_gate is not None
+                                else "independent_prompt"),
                         tool=active.tool_name)
             active = None
+        # Meta lane (question / feedback while draft or clarify active) —
+        # see handle() for WHY.
+        _meta_kind = _followup_turn_kind(message) if (
+            active is not None
+            or (history and _looks_like_clarification_followup(history))
+        ) else None
         # Mirror of non-streaming workflow_hint — extended to all macro
         # draft types (propose_threshold_order, propose_scheduled_order, etc.).
         # See handle() for WHY.
         workflow_hint = ""
-        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
-            draft_json = json.dumps(active.draft, default=str)[:1800]
+        if (active is not None and _meta_kind is None
+                and active.tool_name in _MACRO_AMENDMENT_TOOLS):
+            draft_json = _safe_draft_json(active.draft)
             tool_label = active.tool_name
             hint_verb = (
                 "Re-emit propose_workflow with the SAME steps shape, only "
@@ -7819,7 +8373,10 @@ class ChatService:
             if (_is_rupee_notional_resize(message)
                     and selected_names is not None
                     and "get_live_price" not in selected_names):
-                selected_names = selected_names | {"get_live_price"}
+                # get_market_data is the visible consolidated equivalent;
+                # get_live_price stays for the hidden direct dispatch path.
+                selected_names = selected_names | {"get_live_price",
+                                                   "get_market_data"}
                 tooldefs = _registry_tools_as_tooldefs(selected_names)
                 cache_key = cache_key_for(selected_names)
 
@@ -7828,7 +8385,17 @@ class ChatService:
         if _confusion_menu:
             agent_tool_choice = "auto"
 
-        if (history and _looks_like_clarification_followup(history)
+        if _meta_kind is not None:
+            # META lane — mirror of handle(). Answer, never re-emit.
+            followup_hint_msg = _meta_turn_hint(_meta_kind, active, message)
+            agent_tool_choice = "auto"
+            if _meta_kind == "question":
+                # See handle(): ASK_USER available → question parroted back.
+                tooldefs = [t for t in tooldefs
+                            if t.name != ASK_USER_TOOL_NAME]
+            trace.event("followup.meta_lane", kind=_meta_kind,
+                        has_draft=active is not None)
+        elif (history and _looks_like_clarification_followup(history)
                 and not _confusion_menu):
             last_assistant = next(
                 (h for h in reversed(history)
@@ -7901,9 +8468,20 @@ class ChatService:
         ]
         # Intent packs (streaming mirror of handle()): core always loaded,
         # domain mechanics injected only when the turn needs them.
+        _summary_block = _summary_bridge_block(
+            conv_id, getattr(ctx, "user_id", 0), history_override,
+        )
+        if _summary_block:
+            base_messages_summary = LLMMessage(
+                role="system", content=_summary_block,
+            )
+        else:
+            base_messages_summary = None
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_msgs.append(LLMMessage(role="system", content=_mod_block))
+        if base_messages_summary is not None:
+            base_msgs.append(base_messages_summary)
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
@@ -7916,6 +8494,9 @@ class ChatService:
         # GAN R2 R2–R6: deterministic guard directives (streaming mirror).
         for _g in _deterministic_guards:
             base_msgs.append(LLMMessage(role="system", content=_g))
+        if _read_gate_directive:
+            base_msgs.append(
+                LLMMessage(role="system", content=_read_gate_directive))
         # R1: affirmation-no-state hint (streaming mirror).
         if _affirm_no_state:
             base_msgs.append(LLMMessage(
@@ -7947,6 +8528,26 @@ class ChatService:
             base_msgs.append(LLMMessage(role="system", content=mode_pin))
         if followup_hint_msg is not None:
             base_msgs.append(followup_hint_msg)
+        # Mirror of non-streaming A3 read-amendment hint (chat-kernel
+        # 2026-07-10): bare amendment of a READ answer, no active draft.
+        elif (active is None
+                and _prior_read_tools
+                and _DEPENDENT_INTENT_RE.search(message)
+                and not _is_question_shaped(message)):
+            base_msgs.append(LLMMessage(
+                role="system",
+                content=(
+                    "## Amendment of the previous ANSWER (no draft exists)\n"
+                    f"The previous turn answered using "
+                    f"{', '.join(_prior_read_tools[:3])}. The user's "
+                    "current message changes ONE parameter of that same "
+                    "question (a period, a symbol, a threshold). Re-call "
+                    "the SAME tool with the amended parameter and answer "
+                    "directly. There is NO workflow or draft to amend — "
+                    "do NOT ask which one."
+                ),
+            ))
+            agent_tool_choice = "required"
         # Mirror of non-streaming underspec/filler hint.
         if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
             base_msgs.append(LLMMessage(
@@ -7971,7 +8572,6 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
-        accumulated_text = ""
         # Mirror of the non-streaming path's compact-draft tracker.
         last_was_macro_draft = False
         # Track the most recent tool error so the streaming
@@ -8125,7 +8725,6 @@ class ChatService:
                 return
 
             hop_text = "".join(text_parts)
-            accumulated_text = hop_text  # final hop's text wins
 
             # No tool calls → final hop. Wrap up.
             if not tc_acc:
@@ -8308,6 +8907,9 @@ class ChatService:
                     ))
                     if guarded.name not in tools_called:
                         tools_called.append(guarded.name)
+                        # Round 3: persist for the next turn's scope
+                        # union (bare-amendment recovery, both paths).
+                        self.store.set_last_tools(conv_id, tools_called)
                     if guarded.logiccard:
                         logiccard = guarded.logiccard
                     if guarded.data:
@@ -8333,8 +8935,12 @@ class ChatService:
                     if guarded.name in _STASH_DRAFT_TOOLS:
                         hop_drafted_card = True
                     # Screen rows → deterministic table reply (mirror).
+                    # EXCEPT sector-OUTLOOK asks — see handle().
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")):
+                            and guarded.data and guarded.data.get("results")
+                            and not re.search(
+                                r"\b(?:outlook|prospects?|view)\b",
+                                message, re.IGNORECASE)):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
@@ -8370,6 +8976,7 @@ class ChatService:
                 # shape backstop (see _redirect_target_for_failure).
                 target_tool = _redirect_target_for_failure(
                     guarded.name, guarded.error or "", message,
+                    structured=getattr(guarded, "redirect_to", None),
                 )
                 if target_tool and not last_was_macro_draft:
                     trace.event(
@@ -9304,6 +9911,7 @@ _ACTION_TOOL_NAMES = {
     "propose_scheduled_order", "propose_threshold_order",
     "propose_basket_allocation", "propose_holding_action",
     "register_workflow", "place_market_order", "place_limit_order",
+    "place_order",
     "create_sip", "create_gtt_order", "cancel_order", "modify_order",
     "build_strategy",
 }
@@ -9340,6 +9948,10 @@ async def _llm_clarification(
         ),
         "place_market_order": "place an immediate market order via the broker",
         "place_limit_order": "place a limit order with a target price",
+        "place_order": (
+            "register a buy/sell order (market, or limit when a price "
+            "is given) for you to confirm in your broker app"
+        ),
         "create_sip": "set up a recurring investment on a schedule",
         "create_gtt_order": "place a long-lived limit / stop order",
         "run_backtest": (
@@ -9691,7 +10303,7 @@ def _format_recoverable_failure_question(
             )
 
         return _conversational_unsupported_reply(msg_lc)
-    if tool_name in {"place_market_order", "place_limit_order"}:
+    if tool_name in {"place_market_order", "place_limit_order", "place_order"}:
         return (
             "I couldn't place that order from what was given — could you "
             "confirm the symbol, quantity, and (for limit orders) the "
@@ -9703,7 +10315,7 @@ def _format_recoverable_failure_question(
     # actual problem — the ticker isn't in the data feed. Naming the
     # symbol gives the user something to act on.
     if tool_name in {"get_live_price", "get_ohlc", "get_52wk_range",
-                     "get_index_level"}:
+                     "get_index_level", "get_market_data"}:
         # Extract the symbol the user mentioned for a specific message.
         # WHY this is careful: the prior blind first-uppercased-token
         # grab surfaced Hinglish filler ("ACTUALLY", "NAHI") as a

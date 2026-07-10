@@ -42,7 +42,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -340,7 +340,6 @@ def screen_from_enrich(
     finally:
         s.close()
 
-    col = {"ticker": 0, "name": 1, "industry": 2, "market_cap": 3}
     metric_idx = {m: 4 + i for i, m in enumerate(metric_fields)}
     results: list[dict] = []
     for r in rows:

@@ -1,0 +1,155 @@
+{
+ "ts": "20260710_144637",
+ "elapsed_s": 63.1,
+ "base": "http://localhost:8000",
+ "user_id": 659,
+ "sessions_file": "tests/eval_prompts/full_system_50.json",
+ "only": "build_condor,nifty_chain",
+ "n_sessions": 2,
+ "n_turns": 2,
+ "sessions": [
+  {
+   "category": "fno-easy",
+   "name": "nifty_chain",
+   "why": "option_chain_card with real strikes/OI/IV/max-pain/PCR; honest tag if mock feed.",
+   "conv": "s_337c148556",
+   "turns": [
+    {
+     "i": 0,
+     "say": "show me the nifty option chain",
+     "response": "OPTION DATA IS MOCK/NOT LIVE, so treat these strikes and premiums as a rough layout, not current market pricing.\n\nNIFTY nearest expiry is 2026-07-14. Spot is 23,456, ATM 23,500, max pain 23,500, PCR 1.0, expected move \u00b1296 points or 1.26%.\n\n| Strike | Call OI | Put OI | Read |\n|---|---:|---:|---|\n| 23,300 | 37,55,420 | 37,55,420 | Lower support zone |\n| 23,350 | 38,23,565 | 38,23,565 | Support building |\n| 23,400 | 38,91,709 | 38,91,709 | Near-ATM pivot |\n| 23,450 | 39,59,854 | 39,59,854 | Near-ATM pivot |\n| 23,500 | 59,58,000 | 59,58,000 | Highest pinning OI |\n\nTop OI sits at 23,500 on both sides, so the chain is centered there.\n\n| Metric | Value |\n| --- | --- |\n| Underlying | NIFTY |\n| Spot/forward | \u20b923,456 |\n| ATM strike | \u20b923,500 |\n| Max pain | \u20b923,500 |\n| PCR (OI) | 1.0 |\n| PCR (volume) | 1.0 |\n| Expected move (1\u03c3) | \u20b923,183 \u2013 \u20b923,776 (\u00b11.26%) |\n\n| Side | Strike | Open interest |\n| --- | --- | --- |\n| Call (resistance) | \u20b923,500 | 5,958,000 |\n| Call (resistance) | \u20b923,450 | 3,959,854 |\n| Call (resistance) | \u20b923,550 | 3,903,856 |\n| Put (support) | \u20b923,500 | 5,958,000 |\n| Put (support) | \u20b923,450 | 3,959,854 |\n| Put (support) | \u20b923,550 | 3,903,856 |\n\nSource: mock; as of 2026-07-10T14:47:22+05:30.",
+     "tools_called": [
+      "get_option_chain"
+     ],
+     "render_hint": "option_chain_card",
+     "raw_keys": [
+      "_render_hint",
+      "asof",
+      "atm_strike",
+      "data_status",
+      "disclosure",
+      "exchange",
+      "expected_move",
+      "expiries",
+      "expiry",
+      "forward",
+      "forward_source",
+      "get_option_chain",
+      "lot_size",
+      "max_pain",
+      "pcr_oi",
+      "pcr_volume",
+      "research_only",
+      "rows",
+      "segment",
+      "source"
+     ],
+     "card_digest": {
+      "underlying": "NIFTY",
+      "expiry": "2026-07-14",
+      "rows": 17,
+      "atm": 23500.0,
+      "forward": 23479.46,
+      "expected_move": {
+       "low": 23183.41,
+       "high": 23775.5,
+       "abs": 296.05,
+       "pct": 1.26
+      },
+      "research_only": true
+     },
+     "logiccard": null,
+     "latency_wall_ms": 12551,
+     "latency_server_ms": 12053,
+     "input_tokens": 76990,
+     "output_tokens": 957,
+     "cost_usd": 0.014708,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "fno-hard",
+   "name": "build_condor",
+   "why": "build_option_strategy iron condor on NIFTY: real strikes, max P/L, breakevens, PoP; option_strategy_card.",
+   "conv": "s_c1bf364c24",
+   "turns": [
+    {
+     "i": 0,
+     "say": "build me an iron condor on nifty",
+     "response": "Mock data warning: the option chain here is not live, so these strikes and payoffs can differ from the\n\n| Leg | Type | Side | Strike | Premium |\n| --- | --- | --- | --- | --- |\n| 1 | CE | SELL | \u20b923,750 | \u20b930 |\n| 2 | PE | SELL | \u20b923,250 | \u20b937 |\n| 3 | CE | BUY | \u20b923,850 | \u20b916 |\n| 4 | PE | BUY | \u20b923,100 | \u20b914 |\n\nProbability of profit (market-implied): 61.3%.",
+     "tools_called": [
+      "build_option_strategy"
+     ],
+     "render_hint": "option_strategy_card",
+     "raw_keys": [
+      "_render_hint",
+      "build_option_strategy",
+      "candidates",
+      "computed",
+      "critique",
+      "data_status",
+      "editable",
+      "locked",
+      "stale_note",
+      "summary",
+      "validation"
+     ],
+     "card_digest": {
+      "template": "iron_condor",
+      "legs": [
+       {
+        "t": "CE",
+        "s": "SELL",
+        "k": 23750.0,
+        "mid": 29.55
+       },
+       {
+        "t": "PE",
+        "s": "SELL",
+        "k": 23250.0,
+        "mid": 37.395
+       },
+       {
+        "t": "CE",
+        "s": "BUY",
+        "k": 23850.0,
+        "mid": 15.525
+       },
+       {
+        "t": "PE",
+        "s": "BUY",
+        "k": 23100.0,
+        "mid": 14.315
+       }
+      ],
+      "qty_lots": 1,
+      "max_loss": 7338.18,
+      "max_profit": 2411.83,
+      "pop": 0.6125,
+      "breakevens": [
+       23235.4,
+       23747.72
+      ],
+      "capital": 7338.18,
+      "margin": 7338.18,
+      "verdict": "caution",
+      "flags": [
+       "warn",
+       "info"
+      ],
+      "candidates": [],
+      "mcx_blocked": true
+     },
+     "logiccard": null,
+     "latency_wall_ms": 9982,
+     "latency_server_ms": 9321,
+     "input_tokens": 75882,
+     "output_tokens": 446,
+     "cost_usd": 0.012859,
+     "llm_calls": 3
+    }
+   ]
+  }
+ ]
+}

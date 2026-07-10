@@ -729,6 +729,11 @@ class _DailyPnlPoint(BaseModel):
     pnl: float
 
 
+class _NavPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    nav: float
+
+
 class _StrategyReturn(BaseModel):
     workflow_id: str
     name: str
@@ -736,6 +741,15 @@ class _StrategyReturn(BaseModel):
     # available; null when the agent has no forward-test track record yet
     # (never seeded).
     return_pct: Optional[float] = None
+    # The same sparkline/headline data GET /workflows/{id}/performance serves,
+    # batched here for EVERY workflow so the Agents tab can render every card
+    # from this one response instead of firing one /performance call per card
+    # (plus a /workflow + backtest fallback for idle agents) on first paint.
+    series: list[_NavPoint] = Field(default_factory=list)
+    run_count: int = 0
+    success_rate: Optional[float] = None
+    last_run_at: Optional[datetime] = None
+    has_data: bool = False
 
 
 class _WorkflowsSummaryResponse(BaseModel):
@@ -870,16 +884,32 @@ def workflows_summary(
             prev_nav = nav
         total_pnl = round(total_pnl, 2)
 
-    # ── Per-active-agent returns from linked ForwardIdea scorecard ───
+    # ── Per-agent sparkline + returns + run stats, batched for EVERY
+    # workflow ── The Agents tab used to fire one GET
+    # /workflows/{id}/performance per card (plus a GET /workflow +
+    # backtest-draft fallback for any card with no live NAV yet) — up to 3N
+    # backend round trips on first paint. Computing the same fields here for
+    # every workflow in ONE request lets the FE render every card off this
+    # one response instead.
     strategy_returns: list[_StrategyReturn] = []
-    active_wfs = [w for w in wfs if w.status == WorkflowStatus.active]
-    if active_wfs and account is not None:
+    if wfs:
+        wf_ids = [str(w.id) for w in wfs]
+
+        run_rows = (
+            db.query(WorkflowRun.workflow_id, WorkflowRun.status)
+            .filter(WorkflowRun.workflow_id.in_([w.id for w in wfs]))
+            .all()
+        )
+        runs_by_wf: dict[str, list] = {}
+        for run_wf_id, status in run_rows:
+            runs_by_wf.setdefault(str(run_wf_id), []).append(status)
+
         ideas = (
             db.query(ForwardIdea)
             .filter(
                 ForwardIdea.user_id == user_id,
                 ForwardIdea.origin_kind == "workflow",
-                ForwardIdea.workflow_id.in_([str(w.id) for w in active_wfs]),
+                ForwardIdea.workflow_id.in_(wf_ids),
             )
             .all()
         )
@@ -889,25 +919,66 @@ def workflows_summary(
             existing = idea_by_wf.get(str(idea.workflow_id))
             if existing is None or idea.created_at > existing.created_at:
                 idea_by_wf[str(idea.workflow_id)] = idea
-        for w in active_wfs:
-            idea = idea_by_wf.get(str(w.id))
-            # LIVE return (marked on read) so this matches the agent's
-            # Positions panel and the portfolio, not a stale EOD scorecard.
-            ret = _live_idea_return_pct(db, idea) if idea is not None else None
+
+        idea_ids = [idea.id for idea in idea_by_wf.values()]
+        snaps_by_idea: dict[str, list] = {}
+        if idea_ids:
+            snap_rows = (
+                db.query(PaperIdeaNavSnapshot)
+                .filter(PaperIdeaNavSnapshot.idea_id.in_(idea_ids))
+                .order_by(PaperIdeaNavSnapshot.as_of_date.asc())
+                .all()
+            )
+            for snap in snap_rows:
+                snaps_by_idea.setdefault(str(snap.idea_id), []).append(snap)
+
+        today = now.date().isoformat()
+        for w in wfs:
+            wf_id = str(w.id)
+            statuses = runs_by_wf.get(wf_id, [])
+            run_count = len(statuses)
+            succeeded = sum(1 for s in statuses if s == RunStatus.succeeded)
+            success_rate = (
+                round(succeeded / run_count * 100.0, 2) if run_count > 0 else None
+            )
+
+            idea = idea_by_wf.get(wf_id)
+            series: list[_NavPoint] = []
+            ret: Optional[float] = None
+            if idea is not None:
+                # LIVE return (marked on read) so this matches the agent's
+                # Positions panel and the portfolio, not a stale EOD scorecard.
+                ret = _live_idea_return_pct(db, idea)
+                for snap in snaps_by_idea.get(str(idea.id), []):
+                    series.append(
+                        _NavPoint(date=snap.as_of_date.isoformat(), nav=float(snap.idea_nav))
+                    )
+                # Pin a live "today" point onto the EOD series so the
+                # sparkline ends at the current mark (mirrors
+                # GET /workflows/{id}/performance).
+                try:
+                    from backend.paper.idea_valuation import compute_idea_nav
+
+                    live_nav = float(compute_idea_nav(db, idea)["idea_nav"])
+                    if series and series[-1].date == today:
+                        series[-1] = _NavPoint(date=today, nav=live_nav)
+                    else:
+                        series.append(_NavPoint(date=today, nav=live_nav))
+                except Exception:  # noqa: BLE001 — sparkline tail is best-effort
+                    logger.debug(
+                        "live idea nav tail failed for %s", idea.id, exc_info=True
+                    )
+
             strategy_returns.append(
                 _StrategyReturn(
-                    workflow_id=str(w.id),
+                    workflow_id=wf_id,
                     name=str(w.name),
                     return_pct=ret,
-                )
-            )
-    else:
-        for w in active_wfs:
-            strategy_returns.append(
-                _StrategyReturn(
-                    workflow_id=str(w.id),
-                    name=str(w.name),
-                    return_pct=None,
+                    series=series,
+                    run_count=run_count,
+                    success_rate=success_rate,
+                    last_run_at=w.last_run_at,
+                    has_data=bool(series) or run_count > 0,
                 )
             )
 
@@ -1265,11 +1336,8 @@ async def run_workflow(
 
 
 # ── Per-agent performance (sparkline + headline metrics) ──────────────
-
-
-class _NavPoint(BaseModel):
-    date: str  # YYYY-MM-DD
-    nav: float
+# `_NavPoint` is defined earlier in the file (next to `_StrategyReturn`,
+# which reuses it for the batched per-workflow series in /workflows/summary).
 
 
 class _WorkflowPerformanceResponse(BaseModel):

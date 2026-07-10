@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -23,7 +23,7 @@ from backend.core.data.intervals import (
     is_intraday,
     normalize_interval,
 )
-from backend.market.yfinance_service import fetch_price_history, resolve_symbol
+from backend.market.yfinance_service import fetch_price_history
 
 if TYPE_CHECKING:
     pass

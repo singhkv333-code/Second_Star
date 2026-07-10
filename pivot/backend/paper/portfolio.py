@@ -41,9 +41,25 @@ PriceFn = Callable[[str], Optional[Decimal]]
 def _live_mark_fn(price_fn: Optional[PriceFn]) -> PriceFn:
     """The live mark-on-read resolver — the SAME ``marks.get_mark_price`` the
     agent Positions view uses, so the portfolio and the agent panels can never
-    disagree on a symbol's price. Tests inject an offline ``price_fn``."""
+    disagree on a symbol's price. Tests inject an offline ``price_fn``.
+
+    Market-hours gate (2026-07-10): when the NSE is CLOSED, per-symbol live
+    network marks are BOTH pointless (prices are frozen) and pathologically
+    slow — a 50-position book (many expired option legs) turned /paper/summary
+    and /paper/holdings into ~20s hangs that never resolved the Home portfolio
+    card. Closed → return None per symbol so each position values at its stored
+    ``last_price`` (the scheduler's last intraday mark = the correct close),
+    with zero network. During market hours the live resolver runs, backed by a
+    short per-symbol cache in ``marks`` so a burst of concurrent portfolio
+    reads marks each symbol once."""
     if price_fn is not None:
         return price_fn
+    try:
+        from backend.utils.time_utils import is_market_open
+        if not is_market_open():
+            return lambda sym: None
+    except Exception:  # noqa: BLE001 — never let the gate break a read
+        pass
     from backend.paper import marks
     return lambda sym: marks.get_mark_price(sym)
 

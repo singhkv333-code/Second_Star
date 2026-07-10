@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ArrowUp, Check, ChevronLeft, ChevronRight, Square } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Square } from "lucide-react";
 
 // ─── How it works ───────────────────────────────────────────────────────
 

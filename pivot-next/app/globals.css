@@ -548,6 +548,101 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   animation: wittyShimmer 2.4s linear infinite;
 }
 
+/* ── shadcn `shimmer` text utility (ui.shadcn.com/docs/utils/shimmer) ──
+   Sweeps a bright band across the glyphs via background-clip:text. Drives
+   the chat "backend steps" waiting indicator: the active step shimmers so
+   the user reads it as work-in-progress, not static text. Theme-aware —
+   the base is the muted text colour, the moving highlight is the primary
+   text colour, so it reads on both light and dark. */
+@keyframes tw-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.shimmer {
+  /* Notion-style: grey letters with a LIGHTER washed-out band sweeping
+     through — never a dark/white flash. The highlight mixes the base
+     grey toward the page background, so it reads as a soft silver band
+     in light mode and a soft dim band in dark mode. */
+  --shimmer-base: var(--text-tertiary);
+  --shimmer-highlight: color-mix(in srgb, var(--text-tertiary) 25%, var(--bg-primary));
+  --shimmer-duration: 2.2s;
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 40%,
+    var(--shimmer-highlight) 50%,
+    var(--shimmer-base) 60%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  /* repeat, NOT no-repeat: with no-repeat the 200% gradient slides fully
+     out of the text box mid-cycle and transparent glyphs render as blank
+     white (the "turns completely white" bug). Both gradient ends are the
+     base colour so the tile seam is invisible. */
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: tw-shimmer var(--shimmer-duration) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    color: var(--shimmer-base);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* ── Chat backend-steps waiting indicator (Notion-AI style) ────────────
+   A vertical timeline that GROWS downward while the system works: one
+   plain word per step, a small dot per row, a thin connector line
+   linking the dots. No chips, no ticks, nothing fades away — earlier
+   steps simply settle into the muted colour; the newest word shimmers. */
+@keyframes chatStepIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.chat-step {
+  animation: chatStepIn 320ms var(--ease-quartr) both;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+.chat-step-dot {
+  /* Soft grey for EVERY dot, active included — the Notion reference is
+     grey-on-grey throughout, never a black accent. */
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-tertiary) 65%, var(--bg-primary));
+}
+/* Connector: every row except the first draws a short line ABOVE its
+   dot, joining it to the previous row's dot. */
+.chat-step + .chat-step::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -12px;
+  width: 1px;
+  height: 20px;
+  background: var(--glass-border);
+}
+.chat-step-label {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
+  color: var(--text-tertiary);
+}
+/* The capitalised lead word ("Querying", "Fetching") carries a touch more
+   weight than its supporting words ("fundamentals", "market data"). */
+.chat-step-word {
+  font-weight: 550;
+}
+
 /* Hide native browser clear button on the topbar global search; we
    render a Lucide X clear control next to the input that matches the
    rest of the chrome's typography. */

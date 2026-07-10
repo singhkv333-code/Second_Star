@@ -188,7 +188,7 @@ def _resolve_market_relative_time(cfg: dict[str, object]) -> tuple[str, str]:
         offset_min = int(cfg.get("offset_minutes", 0))
     except (TypeError, ValueError) as e:
         raise InvalidCronError(
-            f"trigger.market_relative_time: offset_minutes must be int"
+            "trigger.market_relative_time: offset_minutes must be int"
         ) from e
 
     # Add the signed offset to the anchor wall-clock to land on the
@@ -677,6 +677,24 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
             max_instances=1,
             coalesce=True,
         )
+    # Hourly catch-up (2026-07-10): a token that dies INTRADAY (Kite login
+    # elsewhere, api_key rotation, transient failure at 07:40) used to stay
+    # dead until the next morning — the ticker autostart only considers
+    # ACTIVE sessions, so once marked inactive nothing retried. This job is
+    # a no-op when the token still validates (one cheap profile call per
+    # opted-in session), and `next_run_time` fires it once ~30s after every
+    # server start so a restart also self-heals immediately.
+    scheduler.add_job(
+        refresh_kite_sessions,
+        trigger="interval",
+        hours=1,
+        id="kite_auto_relogin_hourly",
+        name="Pivot — Kite auto-relogin (hourly catch-up)",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=_dt.now() + _td(seconds=30),
+    )
 
     # Scheduled-macro watcher — only when the feature flag is on. Gated at
     # registration (not self-gated inside) so the job doesn't even exist

@@ -24,7 +24,7 @@ that lands with the backtest phase and are deliberately NOT offered):
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy.orm import Session
 

@@ -194,19 +194,22 @@ def _resolve_earnings_listing(symbol: str) -> tuple[str, str]:
 
 def _fetch_yf_earnings_df(yf_mod: Any, ticker: str) -> Any:
     """Single yfinance ``get_earnings_dates`` call for a concrete ticker.
-    Returns the DataFrame (possibly empty) or None on error."""
-    try:
+    Returns the DataFrame (possibly empty) or None on error.
+
+    Earnings dates are yfinance-only (Kite has no forward-earnings feed), so
+    this is bounded by a hard wall-clock — on a cloud IP the call would
+    otherwise hang and stall whatever background job invoked it."""
+    from backend.market.net_timeout import call_bounded
+
+    def _fetch() -> Any:
         t = yf_mod.Ticker(ticker)
         get_dates = getattr(t, "get_earnings_dates", None)
         if callable(get_dates):
             return get_dates(limit=8)
         return getattr(t, "earnings_dates", None)  # very old yfinance
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "[earnings_calendar] yfinance fetch failed ticker=%s err=%s",
-            ticker, exc,
-        )
-        return None
+
+    return call_bounded(_fetch, timeout=8, default=None,
+                        label=f"yf.earnings {ticker}")
 
 
 def _default_fetch_yfinance_rows(symbol: str) -> list[dict[str, Any]]:

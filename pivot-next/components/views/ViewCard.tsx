@@ -165,27 +165,28 @@ export function CategoryGlyph({
 //            best-run number (we don't fabricate per-horizon returns yet).
 // ---------------------------------------------------------------------------
 
-const TOGGLE_HORIZONS = ["3M", "6M", "1Y"] as const;
-
 type HorizonConfig =
   | { mode: "fixed"; label: string }
   | { mode: "toggle"; options: readonly string[]; defaultIdx: number };
 
-/** Decide whether a view's timeline is fixed (single label) or flexible (toggle). */
+/** Decide how to render a view's timeline.
+ *
+ * The timeline is the belief's EXPECTED RESOLUTION HORIZON — how long until the
+ * event is expected to happen / the card expires — NOT the strategy's holding
+ * period and NOT a promise of gains within that window. It is a single fixed
+ * label. A 3M/6M/1Y *chooser* is only ever shown when a view genuinely carries
+ * DIFFERENT strategies for different horizons (available_horizons.length > 1) —
+ * we never render a chooser that changes nothing. */
 function horizonConfig(view: ViewSummary): HorizonConfig {
   const th = (view.time_horizon ?? "").trim();
-  const episodic = /episode|day|week|by\s|until|expir/i.test(th);
-  // A hard resolution date, or an episodic/dated horizon, means the window is
-  // pinned — show it as one duration, not a chooser.
-  if (view.resolution_date || (episodic && th)) {
-    return { mode: "fixed", label: th || "Fixed window" };
+  const avail = view.available_horizons?.filter(Boolean) ?? null;
+  // Only a real multi-horizon strategy set earns an interactive toggle.
+  if (avail && avail.length > 1) {
+    return { mode: "toggle", options: avail, defaultIdx: 0 };
   }
-  // Otherwise the belief is open / structural → a flexible timeline chooser.
-  const s = th.toLowerCase();
-  let defaultIdx = 2; // default to 1Y (matches the mockup)
-  if (/\b3\b|quarter|3m|90/.test(s)) defaultIdx = 0;
-  else if (/\b6\b|half|6m|180/.test(s)) defaultIdx = 1;
-  return { mode: "toggle", options: TOGGLE_HORIZONS, defaultIdx };
+  // Everything else: one fixed resolution-horizon label, no fake chooser.
+  const label = (avail && avail[0]) || th || "Open-ended";
+  return { mode: "fixed", label };
 }
 
 function TimelineLabel(): React.ReactElement {
@@ -409,14 +410,21 @@ export function ViewCard({
   const be = view.best_expression;
   const title = view.short_title ?? view.plain_one_liner ?? view.title;
 
-  // ── The hero number — honest by construction ────────────────────────────
-  // The single best past occurrence of the headline strategy (best_episode_pct),
-  // falling back to the expression's total realised return. Never a fabricated
-  // "chance" — a real, realised track number.
+  // ── The hero number — the AVERAGE GAIN (mean of the winning occurrences) ──
+  // This is the "average of all gaining turns" metric, NOT the single best run
+  // and NOT a fabricated chance. Falls back to the realised total return, then
+  // the best occurrence, when no gain/loss split exists.
+  const avgGain =
+    typeof be?.gain_loss?.avg_gain_pct === "number"
+      ? be.gain_loss.avg_gain_pct
+      : null;
   const bestRun =
     typeof view.best_episode_pct === "number" ? view.best_episode_pct : null;
-  const heroPct = bestRun ?? be?.total_return_pct ?? null;
+  const heroPct = avgGain ?? be?.total_return_pct ?? bestRun ?? null;
   const heroColor = "var(--text-primary)";
+  // Honest context for the average-gain headline: how often it actually won.
+  const hitPct =
+    typeof be?.pct_positive === "number" ? Math.round(be.pct_positive) : null;
 
   const stopAnd = (intent: StanceIntent) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -488,9 +496,11 @@ export function ViewCard({
               lineHeight: 1.4,
             }}
           >
-            Expected return
+            Average gain
             <span style={{ display: "block", color: "var(--text-disabled)" }}>
-              best strategy if yes is true
+              {hitPct != null
+                ? `per winning turn · ${hitPct}% of turns won`
+                : "best strategy if yes is true"}
             </span>
           </div>
         </div>

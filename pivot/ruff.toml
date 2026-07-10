@@ -1,0 +1,9 @@
+# Ruff config for the backend. The project never enforced these stylistic
+# rules, so they are relaxed rather than mass-rewriting the whole tree:
+#   E741  ambiguous single-char names (e, l, i in dense math/loops)
+#   E402  module import not at top (deliberate lazy imports break cycles)
+#   E701/E702  multiple statements on one line (compact guards)
+# The correctness rules (F-series: unused imports/vars, undefined names) stay
+# ON and are fixed in the code.
+[lint]
+ignore = ["E741", "E402", "E701", "E702"]

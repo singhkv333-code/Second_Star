@@ -16,6 +16,7 @@
 import { Fragment, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   DailyPnlPoint,
   StrategyReturn,
@@ -653,57 +654,64 @@ function PnlHeatmap({
           <Skeleton className="h-full w-full rounded-md" style={{ minHeight: 96 }} />
         </div>
       ) : (
-        <div style={gridStyle} role="img" aria-label="Daily profit and loss heatmap, last six months">
-          {monthLabels.map((m) => (
-            <span
-              key={`${m.col}-${m.text}`}
-              style={{ ...labelStyle, gridColumn: m.col + 2, gridRow: 1, alignSelf: "end", paddingBottom: 2 }}
-            >
-              {m.text}
-            </span>
-          ))}
-
-          {(["Mon", null, "Wed", null, "Fri"] as const).map((label, i) =>
-            label ? (
+        <TooltipProvider delayDuration={150}>
+          <div style={gridStyle} role="img" aria-label="Daily profit and loss heatmap, last six months">
+            {monthLabels.map((m) => (
               <span
-                key={`rl-${i}`}
-                style={{ ...labelStyle, gridColumn: 1, gridRow: i + 2, alignSelf: "center", paddingRight: 4 }}
+                key={`${m.col}-${m.text}`}
+                style={{ ...labelStyle, gridColumn: m.col + 2, gridRow: 1, alignSelf: "end", paddingBottom: 2 }}
               >
-                {label}
+                {m.text}
               </span>
-            ) : null,
-          )}
+            ))}
 
-          {cells.map((cell, i) => {
-            const col = Math.floor(i / MARKET_DAYS);
-            const row = i % MARKET_DAYS;
-            const bin = binFor(cell.pnl, cell.hasData);
-            const colors = cellColor(bin);
-            const dateLabel = cell.date.toLocaleDateString("en-IN", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            });
-            const pnlLabel = cell.hasData ? formatInr(cell.pnl, true) : "—";
-            return (
-              <div
-                key={i}
-                className="heatmap-cell"
-                title={`${dateLabel} — ${pnlLabel}`}
-                style={{
-                  gridColumn: col + 2,
-                  gridRow: row + 2,
-                  aspectRatio: "1 / 1",
-                  borderRadius: 3,
-                  ...({
-                    "--cell-light": colors.light,
-                    "--cell-dark": colors.dark,
-                  } as React.CSSProperties),
-                }}
-              />
-            );
-          })}
-        </div>
+            {(["Mon", null, "Wed", null, "Fri"] as const).map((label, i) =>
+              label ? (
+                <span
+                  key={`rl-${i}`}
+                  style={{ ...labelStyle, gridColumn: 1, gridRow: i + 2, alignSelf: "center", paddingRight: 4 }}
+                >
+                  {label}
+                </span>
+              ) : null,
+            )}
+
+            {cells.map((cell, i) => {
+              const col = Math.floor(i / MARKET_DAYS);
+              const row = i % MARKET_DAYS;
+              const bin = binFor(cell.pnl, cell.hasData);
+              const colors = cellColor(bin);
+              const dateLabel = cell.date.toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+              const pnlLabel = cell.hasData ? formatInr(cell.pnl, true) : "—";
+              return (
+                <Tooltip key={i}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className="heatmap-cell"
+                      style={{
+                        gridColumn: col + 2,
+                        gridRow: row + 2,
+                        aspectRatio: "1 / 1",
+                        borderRadius: 3,
+                        ...({
+                          "--cell-light": colors.light,
+                          "--cell-dark": colors.dark,
+                        } as React.CSSProperties),
+                      }}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {dateLabel} — {pnlLabel}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </TooltipProvider>
       )}
 
       <div className="flex items-center justify-end gap-1.5 text-[9.5px] text-muted-foreground">

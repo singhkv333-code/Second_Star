@@ -487,9 +487,9 @@ def test_roll_option_position_honest_on_unquotable(monkeypatch, db):
 
 
 def test_roll_tool_registered():
-    from backend.services.tool_registry import _REAL_TOOLS, get_tool_schema
+    from backend.services.tool_registry import _real_tools, get_tool_schema
     names = {t["function"]["name"] for t in get_tool_schema()}
-    assert "roll_option_position" in _REAL_TOOLS
+    assert "roll_option_position" in _real_tools()
     assert "roll_option_position" in names
     assert "register_workflow" in names
     assert "get_workflow_status" in names

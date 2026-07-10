@@ -654,7 +654,12 @@ function StocksScreen({
   // prices land, and hard-caps at 6 tries so a truly dead source can't loop.
   const warmTriesRef = useRef(0);
   useEffect(() => {
-    const warming = rows.length > 0 && rows.every((r) => r.price == null);
+    // Coverage-based, not "every row missing": the backend can land some
+    // rows priced and others not (e.g. a Kite-overlaid subset resolves faster
+    // than a slow yfinance batch), and stopping as soon as ONE row has a
+    // price left the rest stuck on "—" forever.
+    const missing = rows.length > 0 ? rows.filter((r) => r.price == null).length : 0;
+    const warming = rows.length > 0 && missing / rows.length > 0.1;
     if (!warming) {
       warmTriesRef.current = 0;
       return;

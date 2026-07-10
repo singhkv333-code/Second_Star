@@ -276,8 +276,53 @@ class ConversationStore:
     def clear(self, conv_id: str) -> None:
         try:
             redis_client.delete(self._key(conv_id))
+            redis_client.delete(f"chat:last_tools:{conv_id}")
         except Exception as e:
             logger.warning("conv history clear failed: %s", e)
+
+    # ── Last-turn tools (chat-kernel round 3, 2026-07-10) ───────────
+    # A bare amendment turn ("make it 10 years") carries none of the
+    # keywords the regex router keys on, so the tool that served the
+    # PRIOR turn falls out of scope and the model burns a find_tool
+    # reconnaissance hop to get it back (measured twice on 2026-07-10:
+    # revenue_cagr_compare/1). Persisting the prior turn's called tools
+    # lets the router union them back in for the follow-up turn.
+
+    def history_overflows(self, conv_id: str) -> bool:
+        """True when the stored transcript is longer than the prompt
+        window — i.e. older turns exist that the model will not see.
+        Used by the A2 summary bridge (one cheap LLEN)."""
+        if not conv_id:
+            return False
+        try:
+            return int(redis_client.llen(self._key(conv_id)) or 0) > (
+                CONV_PROMPT_WINDOW_TURNS * 2
+            )
+        except Exception:
+            return False
+
+    def set_last_tools(self, conv_id: str, tools: list[str]) -> None:
+        if not conv_id or not tools:
+            return
+        try:
+            redis_client.set(
+                f"chat:last_tools:{conv_id}",
+                json.dumps(tools[-6:]),
+                ex=15 * 60,
+            )
+        except Exception as e:
+            logger.warning("last_tools set failed: %s", e)
+
+    def get_last_tools(self, conv_id: str) -> list[str]:
+        if not conv_id:
+            return []
+        try:
+            raw = redis_client.get(f"chat:last_tools:{conv_id}")
+            out = json.loads(raw) if raw else []
+            return [t for t in out if isinstance(t, str)][:6]
+        except Exception as e:
+            logger.warning("last_tools get failed: %s", e)
+            return []
 
     # ── Pending tool call (Change 2 — deterministic resume) ─────────
 

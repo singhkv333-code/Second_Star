@@ -378,7 +378,6 @@ def _slow_aggregate(
     in the lookback window. Acceptable for live (one call per minute)
     but too slow for backtest — the accessor short-circuit above
     handles that case."""
-    import math
     # Collect source values across offset = 0 .. bars-1.
     src_values: list[Optional[float]] = []
     second_values: list[Optional[float]] = []

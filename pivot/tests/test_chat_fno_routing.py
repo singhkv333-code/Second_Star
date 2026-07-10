@@ -102,10 +102,16 @@ async def test_suggest_tool_emits_strategy_card(db):
     assert data["summary"]["critique_verdict"] in ("ok", "caution", "risky")
     assert data["candidates"]
     assert data["editable"]["book"] == "paper"
-    # The LLM-facing string keeps the decision quad even after the
-    # 6000-char truncation (summary leads the JSON).
+    # The LLM-facing string keeps the decision-critical fields even after
+    # the 6000-char truncation. Since the 51-sweep mock-data honesty fix,
+    # a stale_note deliberately LEADS the JSON when the feed isn't live
+    # (data honesty outranks everything), with summary right behind it.
     llm_view = res.to_llm_string()
-    assert '"summary"' in llm_view[:200]
+    assert '"summary"' in llm_view[:500]
+    if '"data_status": "mock"' in llm_view[:100]:
+        assert '"stale_note"' in llm_view[:120], (
+            "mock cards must lead with the stale warning"
+        )
 
 
 @pytest.mark.asyncio

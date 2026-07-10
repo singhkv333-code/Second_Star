@@ -15,7 +15,7 @@
  *      no fabricated benchmark; honest loading / error / empty states. The
  *      footer strip below it is per-user (real total return + concentration).
  *   3. Holdings table (sortable, ticker tag with sector subtext).
- *   4. Asset Allocation — donut + legend across Market Cap / Sectors / Stocks.
+ *   4. Asset Allocation — donut + legend across Sectors / Stocks.
  *   5. Diversification Score — your score vs community median, narrative line.
  *
  * Theme tokens are pulled from globals.css so light + dark both work.
@@ -64,21 +64,6 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 // ---------------------------------------------------------------------------
 // Static reference maps (Quartr parity)
 // ---------------------------------------------------------------------------
-
-/** Approximate Indian market-cap classification for the demo tickers.
- *  Mirrors frontend-quartr/.../AssetAllocation.jsx. */
-const MARKET_CAP_MAP: Record<string, string> = {
-  RELIANCE: "Largecap",
-  HDFCBANK: "Largecap",
-  INFY: "Largecap",
-  TCS: "Largecap",
-  AXISBANK: "Largecap",
-  ITC: "Largecap",
-  ASIANPAINT: "Largecap",
-  BAJFINANCE: "Largecap",
-  TATASTEEL: "Midcap",
-  NIFTYBEES: "Index ETF",
-};
 
 /** Light sector mapping so the "Sectors" tab in Asset Allocation has
  *  something to render even though the backend Holding type has no
@@ -177,10 +162,16 @@ export function PortfolioTab(): React.ReactElement {
   // prevMode === mode and we must NOT bump — children already fetch at key=0).
   const prevModeRef = useRef(mode);
 
+  // Stamp of the last successful/attempted fetch — drives the stale-on-return
+  // refetch below (keep-alive tabs stay mounted, so "came back to this tab"
+  // never remounts the component).
+  const lastFetchAtRef = useRef(0);
+
   // Fetches summary + holdings only; does NOT bump scoresReloadKey. Called by
   // the mode-change effect on every run (including initial mount) and indirectly
   // by `load()` below for full reloads (Retry button).
   const loadSummary = (): void => {
+    lastFetchAtRef.current = Date.now();
     setState({ kind: "loading" });
     Promise.all([getPortfolioSummary(), getPortfolioHoldings()])
       .then(([sumRes, holdRes]) => {
@@ -215,8 +206,41 @@ export function PortfolioTab(): React.ReactElement {
     }
   }, [mode]);
 
+  // Keep the ref pointing at the latest `load` so the mount-once listeners
+  // below never call a stale closure.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // 1. A trade/deploy anywhere in the app (order ticket, chat confirm,
+    //    basket/opinion deploy, agent launch) broadcasts this event from
+    //    lib/api — refetch everything so positions show up immediately.
+    const onDirty = (): void => loadRef.current();
+    window.addEventListener("pivot:portfolio-dirty", onDirty);
+    // 2. Keep-alive tabs never remount, so returning to Portfolio shows
+    //    whatever was fetched last. When this tab becomes visible again and
+    //    the data is older than 15s, refetch.
+    const el = rootRef.current;
+    let observer: IntersectionObserver | null = null;
+    if (el && typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && Date.now() - lastFetchAtRef.current > 15_000) {
+            loadRef.current();
+          }
+        }
+      });
+      observer.observe(el);
+    }
+    return () => {
+      window.removeEventListener("pivot:portfolio-dirty", onDirty);
+      observer?.disconnect();
+    };
+  }, []);
+
   return (
-    <div data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
+    <div ref={rootRef} data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
       {/* Page title + Overview/History toggle */}
       <div className="flex items-center justify-between" style={{ marginBottom: 18 }}>
         <h1
@@ -1501,8 +1525,19 @@ function HoldingRow({
   const ltp = liveQuote.ltp ?? h.last_price;
   const value = ltp * h.quantity;
   const sector = SECTOR_MAP[h.tradingsymbol];
-  const pnlPos = h.pnl >= 0;
-  const dayPos = h.day_change_percentage >= 0;
+  // Total P&L and Day P&L are re-derived from the live LTP rather than the
+  // one-time snapshot fields — otherwise these cells sit frozen at whatever
+  // they were on page load while the LTP cell next to them keeps moving.
+  // Mirrors the backend's own formulas: unrealized_pnl = qty*(mark-avg_cost);
+  // day_pnl = qty*(mark-prev_close), with prev_close backed out from the
+  // snapshot's per-share day_change (last_price - prev_close = day_change).
+  const invested = h.average_price * h.quantity;
+  const livePnl = (ltp - h.average_price) * h.quantity;
+  const prevClose = h.last_price - h.day_change;
+  const liveDayPnlPerShare = ltp - prevClose;
+  const liveDayChangePct = invested ? ((liveDayPnlPerShare * h.quantity) / invested) * 100 : h.day_change_percentage;
+  const pnlPos = livePnl >= 0;
+  const dayPos = liveDayChangePct >= 0;
   // Kite-style quick-action bar, revealed while the row is hovered.
   const [hovered, setHovered] = useState(false);
 
@@ -1619,7 +1654,7 @@ function HoldingRow({
           color: pnlPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
-        {fmtRupee(h.pnl, { sign: true, max: 0 })}
+        {fmtRupee(livePnl, { sign: true, max: 0 })}
       </td>
       <td
         style={{
@@ -1631,7 +1666,7 @@ function HoldingRow({
           color: dayPos ? "var(--color-profit)" : "var(--color-loss)",
         }}
       >
-        {fmtPct(h.day_change_percentage)}
+        {fmtPct(liveDayChangePct)}
       </td>
       <NumCell strong>{fmtRupee(value)}</NumCell>
     </tr>
@@ -1663,11 +1698,13 @@ function NumCell({
 }
 
 // ---------------------------------------------------------------------------
-// AssetAllocation — donut + legend across Market Cap / Sectors / Stocks
+// AssetAllocation — donut + legend across Sectors / Stocks
 // ---------------------------------------------------------------------------
 
-const ALLOC_TABS: { id: "marketcap" | "sectors" | "stocks"; label: string }[] = [
-  { id: "marketcap", label: "Market Cap" },
+// Market-cap allocation was removed — holdings carry no reliable market-cap
+// tier (the fundamentals source has market_cap 100% NULL), so it only ever
+// showed "Unclassified". Sectors + Stocks are the honest breakdowns.
+const ALLOC_TABS: { id: "sectors" | "stocks"; label: string }[] = [
   { id: "sectors", label: "Sectors" },
   { id: "stocks", label: "Stocks" },
 ];
@@ -1707,7 +1744,7 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startA:
 }
 
 function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElement {
-  const [tab, setTab] = useState<"marketcap" | "sectors" | "stocks">("marketcap");
+  const [tab, setTab] = useState<"sectors" | "stocks">("sectors");
   const [hover, setHover] = useState<AllocRow | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -1727,7 +1764,6 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 
   const data = useMemo(() => {
     if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
-    if (tab === "marketcap") return aggregate(holdings, (h) => MARKET_CAP_MAP[h.tradingsymbol] ?? "Other");
     if (tab === "sectors") return aggregate(holdings, (h) => SECTOR_MAP[h.tradingsymbol] ?? "Other");
     return aggregate(holdings, (h) => h.tradingsymbol);
   }, [holdings, tab]);
@@ -2108,7 +2144,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Diversification"
           score={div.score}
           color="var(--pivot-blue)"
-          explainer={div.explainer}
           rows={[
             { label: "Holdings", value: String(div.components.n_holdings) },
             { label: "Sectors", value: String(div.components.n_sectors) },
@@ -2131,7 +2166,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Portfolio Score"
           score={pf.score}
           color="var(--color-profit)"
-          explainer={pf.explainer}
           rows={[
             {
               label: "Diversification",
@@ -2177,7 +2211,6 @@ function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactEl
           title="Community Score"
           score={comm.score}
           color="var(--text-secondary)"
-          explainer={comm.explainer}
           rows={[
             {
               label: "Percentile",
@@ -2203,13 +2236,11 @@ function ScoreCard({
   title,
   score,
   color,
-  explainer,
   rows,
 }: {
   title: string;
   score: number;
   color: string;
-  explainer: string;
   rows: ScoreRow[];
 }): React.ReactElement {
   const clamped = Math.max(0, Math.min(100, score));
@@ -2294,18 +2325,6 @@ function ScoreCard({
           </div>
         ))}
       </div>
-
-      <p
-        style={{
-          fontSize: 12,
-          lineHeight: 1.55,
-          color: "var(--text-secondary)",
-          paddingTop: 12,
-          borderTop: "1px solid var(--glass-border)",
-        }}
-      >
-        {explainer}
-      </p>
     </Card>
   );
 }

@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date as date_cls, datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import pandas as pd
 from pydantic import TypeAdapter

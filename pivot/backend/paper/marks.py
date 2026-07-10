@@ -1,14 +1,21 @@
 """Mark-price resolution for paper fills.
 
 A paper order needs a price to fill against. Priority:
-  1. Real Kite live quote — only when a genuine session exists (not mock,
-     not the placeholder token). In mock mode get_live_quote returns a
-     flat ₹100 for every symbol, which is useless for a portfolio, so we
-     skip it there.
-  2. yfinance last close — real per-symbol price, no auth, works in the
-     default mock/dev environment. (Network; tests inject a price_fn and
+  1. Real Kite live quote — this user's own session first, then ANY active
+     Kite session app-wide (mirrors the screener's `_market_token`: Kite
+     market DATA isn't user-specific, so we don't skip straight to
+     yfinance just because THIS user hasn't personally logged into Kite
+     today). Skipped entirely in mock mode, where get_live_quote returns a
+     flat ₹100 for every symbol — useless for a portfolio.
+  2. yfinance last close — real per-symbol price, no auth, works when no
+     Kite session exists anywhere. (Network; tests inject a price_fn and
      never reach here.)
-  3. None — the broker rejects the order with reason 'price_unavailable'.
+  3. The screener's shared, Redis-cached market-metrics price (real, up to
+     ~10 min stale) — covers the window where yfinance is transiently rate
+     limited (Yahoo 429s routinely outlast a single request's retry
+     budget) but the symbol has been priced recently by anyone's screener
+     read. Never fabricated — just a slightly older real observation.
+  4. None — the broker rejects the order with reason 'price_unavailable'.
 
 P1 marks at fill time only. The intraday/EOD mark-to-market loop that
 revalues open positions + snapshots NAV is P3.
@@ -91,9 +98,32 @@ def user_kite_token(db, user_id: int) -> str:
     return "mock_token"
 
 
+# Short-TTL per-symbol mark cache. A single Portfolio view fires 3 concurrent
+# reads (Home card + header + Portfolio tab), each marking the whole book; the
+# Positions panels add more. Without this, every reader re-pays the per-symbol
+# Kite/chain round trip. 30s is long enough to collapse a burst into one mark
+# per symbol, short enough that an intraday price stays fresh. Caches None too
+# (a symbol that can't be priced shouldn't be retried every read within the
+# window). Process-local; cleared on restart. time.time() is fine here (this
+# is request-path code, not a resumable workflow).
+import time as _time
+
+_MARK_CACHE: dict[str, tuple[float, Optional[Decimal]]] = {}
+_MARK_TTL_S = 30.0
+
+
 def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     sym = str(symbol).upper()
 
+    hit = _MARK_CACHE.get(sym)
+    if hit is not None and (_time.time() - hit[0]) < _MARK_TTL_S:
+        return hit[1]
+    price = _get_mark_price_uncached(sym, token)
+    _MARK_CACHE[sym] = (_time.time(), price)
+    return price
+
+
+def _get_mark_price_uncached(sym: str, token: str) -> Optional[Decimal]:
     # 0. Option contracts mark through the chain (F&O P2) — the equity
     # paths below can't price them (yfinance has no NFO symbols; a Kite
     # equity quote would need the NFO:/MCX: prefix the chain service
@@ -103,19 +133,42 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
         mark = get_option_mark(sym)
         if mark is not None:
             return mark
+        # The option chain is the ONLY source that can price an NFO leg. The
+        # equity paths below CANNOT — yfinance has no NFO symbols, and a
+        # "NSE:<sym>" Kite quote is the wrong segment — so falling through is
+        # a guaranteed-useless 404+retry storm. With dozens of expired option
+        # legs in a book that was ~0.3-0.4s EACH (yfinance retries), turning
+        # /paper/summary + /paper/holdings into ~20s hangs that never resolved
+        # the Home portfolio card (2026-07-10). Return None → the caller falls
+        # back to the position's stored last_price (fast, and correct for an
+        # illiquid/expired leg).
+        return None
 
-    # 1. Real Kite live quote (only trust a genuine session).
+    # 1. Real Kite live quote — this user's own session first, then ANY
+    # active Kite session app-wide (mirrors the screener's `_market_token`:
+    # Kite market DATA isn't user-specific, only order EXECUTION is, so a
+    # paper mark shouldn't fall back to yfinance just because THIS user
+    # hasn't personally logged into Kite today while someone else has).
     from backend.kite.auth import KITE_MOCK_MODE
-    if not KITE_MOCK_MODE and token and token != "mock_token":
+    if not KITE_MOCK_MODE:
+        candidate_tokens = [token] if token and token != "mock_token" else []
         try:
-            from backend.kite.market_data import get_live_quote
-            inst = f"NSE:{sym}"
-            quotes = get_live_quote(token, [inst]) or {}
-            lp = (quotes.get(inst) or {}).get("last_price")
-            if lp and float(lp) > 0:
-                return to_money(lp)
+            from backend.routers.screener import _market_token
+            global_token = _market_token()
+            if global_token and global_token not in candidate_tokens:
+                candidate_tokens.append(global_token)
         except Exception:
             pass
+        for tok in candidate_tokens:
+            try:
+                from backend.kite.market_data import get_live_quote
+                inst = f"NSE:{sym}"
+                quotes = get_live_quote(tok, [inst]) or {}
+                lp = (quotes.get(inst) or {}).get("last_price")
+                if lp and float(lp) > 0:
+                    return to_money(lp)
+            except Exception:
+                continue
 
     # 2. yfinance last close — real per-symbol price for mock/dev.
     try:
@@ -128,5 +181,26 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     except Exception:
         pass
 
-    # 3. No price.
+    # 3. Shared screener market-metrics cache (Redis, ~10 min TTL) — a REAL
+    # price recently observed by the screener's own warm/top-up pipeline.
+    # Covers a transient yfinance rate-limit that would otherwise reject a
+    # perfectly normal paper order for a symbol that's actually been priced
+    # moments ago (e.g. while the user was just browsing the Screener).
+    try:
+        import json
+
+        from backend.cache import redis_client
+        from backend.routers.screener import _METRICS_CACHE_KEY
+
+        raw = redis_client.get(_METRICS_CACHE_KEY)
+        if raw:
+            parsed = json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
+            rec = (parsed.get("m") or {}).get(sym)
+            price = rec.get("price") if rec else None
+            if price and float(price) > 0:
+                return to_money(price)
+    except Exception:
+        pass
+
+    # 4. No price.
     return None

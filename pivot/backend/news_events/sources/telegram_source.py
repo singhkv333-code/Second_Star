@@ -17,7 +17,6 @@ import logging
 import re
 from typing import Any, Optional
 
-from backend.news_events.config import get_source
 from backend.news_events.sources.base import FetchedItem
 
 logger = logging.getLogger(__name__)

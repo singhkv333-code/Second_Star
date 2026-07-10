@@ -17,7 +17,35 @@ logger = logging.getLogger(__name__)
 
 async def execute_tool(tool_name: str, arguments: dict,
                        kite_token: str, db, user_id: int) -> dict:
-    handlers = {
+    handler = HANDLERS.get(tool_name)
+    if not handler:
+        return {"success": False, "error": f"Unknown tool: {tool_name}",
+                "data": {}, "logiccard": None}
+    # Late-bind through module globals so monkeypatching
+    # `tool_executor._foo` keeps working (HANDLERS captured the original
+    # references at import — a Phase-0 regression caught by
+    # tests/test_tool_defaults.py). Handlers defined in other modules
+    # (consolidated_handlers) fall back to the stored reference.
+    handler = globals().get(handler.__name__, handler)
+    # Merge declarative defaults — user-supplied values win.
+    merged = {**get_tool_defaults(tool_name), **(arguments or {})}
+    try:
+        return await handler(merged, kite_token, db, user_id)
+    except Exception as e:
+        logger.error(f"Tool {tool_name} failed: {e}")
+        return {"success": False, "error": str(e), "data": {}, "logiccard": None}
+
+
+def _build_handlers() -> dict:
+    """Single name → handler map for every legacy chat tool.
+
+    Module-level (via ``HANDLERS`` below) so the registry can DERIVE the
+    LLM-visible tool set from it instead of hand-maintaining a parallel
+    list: a tool is real iff its handler is not the ``_generic_confirm``
+    stub (see ``STUB_TOOLS``). Implementing a real handler makes the tool
+    visible automatically; no second list to keep aligned.
+    """
+    return {
         "place_market_order":         _place_market_order,
         "place_limit_order":          _place_limit_order,
         "create_gtt_order":           _create_gtt_order,
@@ -119,17 +147,6 @@ async def execute_tool(tool_name: str, arguments: dict,
         "get_scheduler_status":       _get_scheduler_status,
         "list_upcoming_jobs":         _list_upcoming_jobs,
     }
-    handler = handlers.get(tool_name)
-    if not handler:
-        return {"success": False, "error": f"Unknown tool: {tool_name}",
-                "data": {}, "logiccard": None}
-    # Merge declarative defaults — user-supplied values win.
-    merged = {**get_tool_defaults(tool_name), **(arguments or {})}
-    try:
-        return await handler(merged, kite_token, db, user_id)
-    except Exception as e:
-        logger.error(f"Tool {tool_name} failed: {e}")
-        return {"success": False, "error": str(e), "data": {}, "logiccard": None}
 
 
 def _lc(type_, action, symbol, details, explanation, *, register_payload=None):
@@ -559,7 +576,7 @@ async def _delete_sip(a, kt, db, uid):
 async def _pause_all_sips(a, kt, db, uid):
     from backend.models import SIPSchedule
     db.query(SIPSchedule).filter(SIPSchedule.user_id == uid,
-                                 SIPSchedule.is_active == True).update({"is_active": False})
+                                 SIPSchedule.is_active).update({"is_active": False})
     db.commit()
     return {"success": True, "data": {"message": "All SIPs paused"}, "logiccard": None}
 
@@ -1353,13 +1370,39 @@ async def _get_live_price(a, kt, db, uid):
                          "source": "kite"},
                 "logiccard": None}
 
-    # Fallback: yfinance for the NSE listing.
+    # Kite REST tier — a live quote when the WS ticker isn't running or this
+    # symbol isn't in its universe. Works on cloud IPs where the yfinance
+    # fallback below hangs (Yahoo drops datacenter egress).
+    try:
+        from backend.kite.live_quote import get_kite_quote
+        kq = get_kite_quote(sym, "NSE")
+        if kq and kq.get("last_price"):
+            ltp = float(kq["last_price"])
+            prev = kq.get("prev_close") or ltp
+            change_pct = ((ltp - prev) / prev * 100) if prev else 0.0
+            return {"success": True,
+                    "data": {"symbol": sym, "ltp": round(ltp, 2),
+                             "change_pct": round(change_pct, 2),
+                             "source": "kite"},
+                    "logiccard": None}
+    except Exception:  # noqa: BLE001 — fall through to yfinance
+        pass
+
+    # Last-resort fallback: yfinance for the NSE listing. `fast_info` has no
+    # timeout arg and hangs on a cloud IP, so run it under a hard wall-clock
+    # bound — fail fast with a clean message instead of a gateway timeout.
     try:
         import yfinance as yf
-        ticker = yf.Ticker(f"{sym}.NS")
-        info = ticker.fast_info
-        last = float(info.last_price) if info.last_price is not None else None
-        prev = float(info.previous_close) if info.previous_close is not None else None
+        from backend.market.net_timeout import call_bounded
+
+        def _yf_price() -> tuple[float | None, float | None]:
+            info = yf.Ticker(f"{sym}.NS").fast_info
+            last = float(info.last_price) if info.last_price is not None else None
+            prev = float(info.previous_close) if info.previous_close is not None else None
+            return last, prev
+
+        res = call_bounded(_yf_price, timeout=6, default=None, label=f"yf.fast_info {sym}")
+        last, prev = res if res is not None else (None, None)
         if last is None:
             return {"success": False, "data": {"error": f"No price for {sym}"},
                     "logiccard": None}
@@ -1387,6 +1430,34 @@ async def _get_index_level(a, kt, db, uid):
                          "change_pct": d.get("change_pct", 0),
                          "source": "kite"},
                 "logiccard": None}
+
+    # Kite REST tier — the index instruments are quotable directly, so this
+    # works on cloud IPs where the yfinance fallback is throttled.
+    _KITE_INDEX_KEY = {
+        "NIFTY50": "NSE:NIFTY 50", "NIFTY": "NSE:NIFTY 50",
+        "NIFTY 50": "NSE:NIFTY 50",
+        "SENSEX": "BSE:SENSEX",
+        "BANKNIFTY": "NSE:NIFTY BANK", "BANK NIFTY": "NSE:NIFTY BANK",
+        "NIFTYBANK": "NSE:NIFTY BANK",
+        "MIDCAP": "NSE:NIFTY MIDCAP 100", "NIFTYMIDCAP": "NSE:NIFTY MIDCAP 100",
+        "NIFTY MIDCAP 100": "NSE:NIFTY MIDCAP 100",
+    }
+    kkey = _KITE_INDEX_KEY.get(str(idx).upper().strip())
+    if kkey:
+        try:
+            from backend.kite.live_quote import get_kite_quotes
+            kq = get_kite_quotes([kkey]).get(kkey)
+            if kq and kq.get("last_price"):
+                level = float(kq["last_price"])
+                prev = kq.get("prev_close") or level
+                change_pct = ((level - prev) / prev * 100) if prev else 0.0
+                return {"success": True,
+                        "data": {"index": idx, "level": round(level, 2),
+                                 "change_pct": round(change_pct, 2),
+                                 "source": "kite"},
+                        "logiccard": None}
+        except Exception:  # noqa: BLE001 — fall through to yfinance
+            pass
 
     # Fallback: yfinance via the same resolver the quote path uses
     # (NIFTY50->^NSEI, SENSEX->^BSESN, BANKNIFTY->^NSEBANK). Without this
@@ -2051,7 +2122,39 @@ async def _get_option_chain(a, kt, db, uid):
         **chain,
         "disclosure": SEBI_DISCLOSURE,
     }
+    # 51-sweep: the mock/stale feed printed a spot ~700pts off the live
+    # index with no visible flag. When the chain isn't Kite-live, say so
+    # LOUDLY — the model must relay this line and every strategy built
+    # on it inherits the caveat.
+    if (chain.get("source") or "").lower() != "kite":
+        payload = {
+            "data_status": "mock",
+            "stale_note": (
+                "OPTION DATA IS MOCK/NOT LIVE (no active Kite session): "
+                "strikes, premiums and the spot may be far from the real "
+                "market. Tell the user this explicitly before any numbers."
+            ),
+            **payload,
+        }
     return {"success": True, "data": payload, "logiccard": None}
+
+
+def _stale_options_note(db) -> Optional[str]:
+    """51-sweep: when there is no live Kite session, every option
+    strategy is priced off the MOCK chain (observed ~700pts off the
+    live index). Return the loud caveat, or None when live."""
+    try:
+        from backend.market.option_chain import get_system_kite
+        if get_system_kite(db) is not None:
+            return None
+    except Exception:
+        pass
+    return (
+        "OPTION DATA IS MOCK/NOT LIVE (no active Kite session): strikes, "
+        "premiums, spot and payoff numbers may be far from the real "
+        "market. State this to the user BEFORE any numbers, and advise "
+        "re-checking once the live feed is connected."
+    )
 
 
 def _strategy_card_payload(payload: dict) -> dict:
@@ -2121,7 +2224,16 @@ async def _suggest_option_strategy(a, kt, db, uid):
         )
     except StrategyResolutionError as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _build_option_strategy(a, kt, db, uid):
@@ -2165,7 +2277,16 @@ async def _build_option_strategy(a, kt, db, uid):
         )
     except StrategyResolutionError as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _critique_option_strategy(a, kt, db, uid):
@@ -2241,7 +2362,16 @@ async def _critique_option_strategy(a, kt, db, uid):
         )
     except (StrategyResolutionError, ValueError) as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _roll_option_position(a, kt, db, uid):
@@ -3205,3 +3335,24 @@ async def _get_scheduler_status(a, kt, db, uid):
 
 async def _list_upcoming_jobs(a, kt, db, uid):
     return await _get_scheduler_status(a, kt, db, uid)
+
+
+# ── Registry derivation surface ──────────────────────────────────────
+# Built once at import (all handler defs above are resolved by now).
+# STUB_TOOLS self-derives: anything still wired to `_generic_confirm`
+# is a placeholder and must NOT be shown to the LLM. Swapping a stub
+# for a real handler makes the tool visible with no other edit.
+HANDLERS: dict = _build_handlers()
+STUB_TOOLS: frozenset = frozenset(
+    name for name, fn in HANDLERS.items() if fn is _generic_confirm
+)
+
+# Consolidated view-enum tools (chat-kernel Phase 1, 2026-07-10).
+# Importing the module registers their schemas (tools.tool(...) at
+# import time); merging their handlers here makes them visible via the
+# registry derivation. The narrow tools they supersede stay in HANDLERS
+# as dispatch targets but are hidden from the LLM by tool_registry's
+# _HIDDEN_TOOLS (see SUPERSEDED_BY_CONSOLIDATION).
+from backend.agents.consolidated_handlers import CONSOLIDATED_HANDLERS  # noqa: E402
+
+HANDLERS.update(CONSOLIDATED_HANDLERS)

@@ -83,6 +83,12 @@ export default function LoginPage(): React.ReactElement {
       setServerError(mapLoginError(status, result.error.message));
       return;
     }
+    // Mark as a fresh sign-in so AppShell can show the paper-mode notice.
+    try {
+      sessionStorage.setItem("pivot:just-signed-in", "1");
+    } catch {
+      /* private mode — skip; no functional impact */
+    }
     armLoginIntro();
     router.replace("/");
   };

@@ -4,7 +4,6 @@ Uses yfinance for historical (free, no auth needed).
 Uses Kite for live quotes when connected.
 """
 import logging
-from datetime import datetime, timedelta
 from typing import Optional
 import yfinance as yf
 from backend.core.data.intervals import (

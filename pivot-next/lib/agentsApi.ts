@@ -35,6 +35,14 @@ export type StrategyReturn = {
   workflow_id: string;
   name: string;
   return_pct: number | null;
+  /** Same sparkline/headline fields GET /workflows/{id}/performance serves,
+   *  batched here for EVERY workflow so a card can render off this one
+   *  summary response instead of firing its own per-card request. */
+  series: WorkflowNavPoint[];
+  run_count: number;
+  success_rate: number | null;
+  last_run_at: string | null;
+  has_data: boolean;
 };
 
 export type WorkflowsSummary = {

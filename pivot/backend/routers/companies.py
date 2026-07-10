@@ -64,9 +64,21 @@ def search_companies(
     limit: int = Query(10, ge=1, le=50),
     authorization: Optional[str] = Header(None),
 ) -> CompanySearchResponse:
-    """Autosuggest matching companies by name or trading symbol."""
+    """Autosuggest across the FULL instrument palette: companies (by name or
+    trading symbol) plus ETFs, MCX commodities and indices, so the search bar
+    surfaces everything Pivot offers, not just equities."""
     _auth(authorization)
     hits = fdb.search_companies(q, limit=limit)
+
+    # Non-equity instruments (ETF / commodity / index). Strong hits (exact or
+    # prefix symbol, exact keyword like "gold etf") outrank the fuzzy company
+    # tail; weak substring hits append after companies. `sector` carries the
+    # type label so the FE dropdown needs no changes.
+    from backend.market.instrument_search import search_instruments
+
+    instruments = search_instruments(q, limit=limit)
+    strong = [i for i in instruments if i["_score"] <= 2]
+    weak = [i for i in instruments if i["_score"] > 2]
 
     # Resolve every row through the shared resolver, which keys off the
     # company's REAL website domain (NOT the precomputed mc.companies.logo_url
@@ -81,18 +93,33 @@ def search_companies(
         except Exception:
             return None
 
-    return CompanySearchResponse(
-        results=[
+    company_rows = [
+        CompanySearchResult(
+            symbol=h.symbol,
+            name=h.name,
+            sector=h.sector,
+            has_fundamentals=h.has_fundamentals,
+            logo_url=_logo(h),
+        )
+        for h in hits
+    ]
+    instrument_rows = {
+        tier: [
             CompanySearchResult(
-                symbol=h.symbol,
-                name=h.name,
-                sector=h.sector,
-                has_fundamentals=h.has_fundamentals,
-                logo_url=_logo(h),
+                symbol=i["symbol"], name=i["name"], sector=i["sector"],
+                has_fundamentals=False, logo_url=None,
             )
-            for h in hits
+            for i in group
         ]
-    )
+        for tier, group in (("strong", strong), ("weak", weak))
+    }
+    merged: list[CompanySearchResult] = []
+    seen: set[str] = set()
+    for row in instrument_rows["strong"] + company_rows + instrument_rows["weak"]:
+        if row.symbol not in seen:
+            seen.add(row.symbol)
+            merged.append(row)
+    return CompanySearchResponse(results=merged[:limit])
 
 
 @router.get("/logos", response_model=CompanyLogosResponse)

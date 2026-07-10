@@ -79,7 +79,8 @@ def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
         if acct_price_fn is None:
             from backend.paper.marks import get_mark_price, user_kite_token
             _tok = user_kite_token(db, int(acct.user_id))
-            acct_price_fn = lambda sym, _t=_tok: get_mark_price(sym, token=_t)
+            def acct_price_fn(sym, _t=_tok):
+                return get_mark_price(sym, token=_t)
         # Per-account SAVEPOINT: one bad account rolls back only its own
         # work and the pass continues, so a single failure can't abort the
         # whole tick (or the scheduler's end-of-pass commit).
@@ -129,7 +130,8 @@ def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
         if acct_price_fn is None:
             from backend.paper.marks import get_mark_price, user_kite_token
             _tok = user_kite_token(db, int(acct.user_id))
-            acct_price_fn = lambda sym, _t=_tok: get_mark_price(sym, token=_t)
+            def acct_price_fn(sym, _t=_tok):
+                return get_mark_price(sym, token=_t)
         try:
             with db.begin_nested():
                 n = mark_positions(db, acct.id, acct_price_fn)

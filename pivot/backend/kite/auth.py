@@ -6,7 +6,9 @@ frontend Kite Credentials panel.
 """
 import importlib
 import logging
+import os
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 import pyotp
@@ -123,6 +125,77 @@ _KITE_WEB_LOGIN = "https://kite.zerodha.com/api/login"
 _KITE_WEB_TWOFA = "https://kite.zerodha.com/api/twofa"
 _KITE_WEB_TIMEOUT = 12  # seconds
 
+# --- Auto-login safety guards (2026-07-11) ---------------------------------
+# The unattended TOTP replay locked a real Zerodha account: it fired on EVERY
+# server restart with no attempt cap, and a 2FA-type / clock-skew bug meant
+# each attempt failed. Zerodha locks an account after a few failed logins, so
+# a restart-storm of failed auto-logins = a lockout. These guards make a
+# re-lock structurally impossible:
+#   1. a hard kill-switch env flag (KITE_AUTO_LOGIN_DISABLED),
+#   2. a Redis-backed circuit-breaker that pauses auto-login after a couple of
+#      failures and SURVIVES restarts (the actual lockout vector),
+#   3. a clock-skew guard that refuses to send a TOTP the server clock will
+#      make invalid (never adds a failed 2FA attempt).
+_AUTO_LOGIN_MAX_FAILS = 2        # pause auto-login after this many failures
+_AUTO_LOGIN_COOLDOWN_S = 1800    # 30-min pause window (Redis TTL)
+_CLOCK_SKEW_LIMIT_S = 25         # refuse if local clock is >this far off Kite's
+
+
+def _breaker_key(kite_user_id: str) -> str:
+    return f"kite:autologin:fails:{kite_user_id}"
+
+
+def auto_login_blocked_reason(kite_user_id: str) -> Optional[str]:
+    """A human reason string if auto-login is currently blocked, else None.
+    Checked before any network call so a paused breaker never touches Kite."""
+    if os.getenv("KITE_AUTO_LOGIN_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        return "unattended auto-login is disabled (KITE_AUTO_LOGIN_DISABLED)"
+    try:
+        from backend.cache import redis_client
+        raw = redis_client.get(_breaker_key(kite_user_id))
+        n = int(raw) if raw is not None else 0
+        if n >= _AUTO_LOGIN_MAX_FAILS:
+            return (f"auto-login is paused after {n} failed attempts to avoid "
+                    "locking your Kite account")
+    except Exception:  # noqa: BLE001 — Redis is best-effort, never fatal
+        pass
+    return None
+
+
+def _record_auto_login_failure(kite_user_id: str) -> None:
+    """Increment the breaker; a short TTL means it self-clears after cooldown."""
+    try:
+        from backend.cache import redis_client
+        key = _breaker_key(kite_user_id)
+        redis_client.incr(key)
+        redis_client.expire(key, _AUTO_LOGIN_COOLDOWN_S)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _clear_auto_login_failures(kite_user_id: str) -> None:
+    try:
+        from backend.cache import redis_client
+        redis_client.delete(_breaker_key(kite_user_id))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _clock_skew_seconds(resp) -> Optional[float]:
+    """Local-clock minus Kite's server clock (from the HTTP Date header), in
+    seconds. None when unavailable. A large value means our TOTP codes will be
+    rejected — the classic silent cause of repeated failed 2FA."""
+    try:
+        date_hdr = resp.headers.get("Date")
+        if not date_hdr:
+            return None
+        server_dt = parsedate_to_datetime(date_hdr)
+        if server_dt.tzinfo is None:
+            server_dt = server_dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - server_dt).total_seconds()
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
     """Replay the Kite web-login flow to mint a fresh ``request_token`` with no
@@ -160,6 +233,16 @@ def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
             "re-enable 'stay connected'."
         )
 
+    # CIRCUIT-BREAKER / KILL-SWITCH: refuse to touch Kite at all when auto-login
+    # is paused. This is what prevents a restart-storm of failed logins from
+    # locking the account — the whole reason this guard exists.
+    blocked = auto_login_blocked_reason(kite_user_id)
+    if blocked:
+        raise NeedsManualLogin(
+            f"Kite {blocked}. Log in manually from the app (or `scripts/"
+            "kite_connect.py`); auto-login stays paused until then."
+        )
+
     api_key = settings.kite_api_key
     if not api_key:
         raise NeedsManualLogin(
@@ -182,6 +265,16 @@ def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
             raise NeedsManualLogin(
                 "Kite rejected the stored login (no 2FA challenge returned). "
                 "Re-check your Kite user id / password and reconnect."
+            )
+
+        # CLOCK-SKEW GUARD: if our clock is off vs Kite's, the TOTP we generate
+        # will be rejected — a silent, repeatable 2FA failure. Bail BEFORE the
+        # 2FA POST so we never spend a failed attempt on an invalid code.
+        skew = _clock_skew_seconds(r1)
+        if skew is not None and abs(skew) > _CLOCK_SKEW_LIMIT_S:
+            raise NeedsManualLogin(
+                f"Server clock is ~{int(skew)}s off Kite's — TOTP codes will be "
+                "rejected. Sync the clock (NTP) and log in manually."
             )
 
         # 2) TOTP 2FA step (sets the session auth cookie)
@@ -239,14 +332,20 @@ def totp_login(kite_user_id: str, password: str, totp_secret: str) -> str:
                 "Kite auto-login completed 2FA but no request_token came back "
                 "(the app may need re-authorising). Reconnect from the app."
             )
+        # Success → reset the breaker so a healthy account isn't held paused.
+        _clear_auto_login_failures(kite_user_id)
         return request_token
     except NeedsManualLogin:
+        # Pre-check bail-outs (breaker / clock / bad challenge) are NOT counted
+        # as login failures — they never hit Kite's 2FA, so they can't lock it.
         raise
-    except Exception as exc:  # network / HTTP / parse — surface as a re-login.
+    except Exception as exc:  # a REAL failed login/2FA (this is what locks) —
+        # trip the breaker so repeated restarts can't keep hammering Kite.
+        _record_auto_login_failure(kite_user_id)
         # Deliberately do NOT include credentials or the raw response body.
         raise NeedsManualLogin(
-            f"Kite auto-login failed ({type(exc).__name__}). Reconnect from "
-            "the app and re-enable 'stay connected'."
+            f"Kite auto-login failed ({type(exc).__name__}) — auto-login is now "
+            "paused; log in manually from the app."
         ) from exc
     finally:
         sess.close()
