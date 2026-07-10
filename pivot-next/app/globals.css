@@ -559,20 +559,28 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   100% { background-position: -100% 0; }
 }
 .shimmer {
+  /* Notion-style: grey letters with a LIGHTER washed-out band sweeping
+     through — never a dark/white flash. The highlight mixes the base
+     grey toward the page background, so it reads as a soft silver band
+     in light mode and a soft dim band in dark mode. */
   --shimmer-base: var(--text-tertiary);
-  --shimmer-highlight: var(--text-primary);
+  --shimmer-highlight: color-mix(in srgb, var(--text-tertiary) 25%, var(--bg-primary));
   --shimmer-duration: 2.2s;
   color: transparent;
   background-image: linear-gradient(
     100deg,
     var(--shimmer-base) 0%,
-    var(--shimmer-base) 42%,
+    var(--shimmer-base) 40%,
     var(--shimmer-highlight) 50%,
-    var(--shimmer-base) 58%,
+    var(--shimmer-base) 60%,
     var(--shimmer-base) 100%
   );
   background-size: 200% 100%;
-  background-repeat: no-repeat;
+  /* repeat, NOT no-repeat: with no-repeat the 200% gradient slides fully
+     out of the text box mid-cycle and transparent glyphs render as blank
+     white (the "turns completely white" bug). Both gradient ends are the
+     base colour so the tile seam is invisible. */
+  background-repeat: repeat;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -604,14 +612,13 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   min-height: 24px;
 }
 .chat-step-dot {
+  /* Soft grey for EVERY dot, active included — the Notion reference is
+     grey-on-grey throughout, never a black accent. */
   flex: 0 0 auto;
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--text-tertiary);
-}
-.chat-step.chat-step-active .chat-step-dot {
-  background: var(--text-primary);
+  background: color-mix(in srgb, var(--text-tertiary) 65%, var(--bg-primary));
 }
 /* Connector: every row except the first draws a short line ABOVE its
    dot, joining it to the previous row's dot. */
