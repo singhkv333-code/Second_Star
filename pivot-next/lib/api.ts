@@ -1847,6 +1847,13 @@ export type ConversationMessage = {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  /**
+   * Persisted card payload for assistant turns. Shape:
+   *   { _render_hint: "<hint>", card?: { ...raw_data fields... } }
+   * `card` may be absent for old rows or oversized payloads.
+   * Callers should guard with `tool_payload?.card`.
+   */
+  tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null;
 };
 
 /**

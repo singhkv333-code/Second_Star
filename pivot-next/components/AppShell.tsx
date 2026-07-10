@@ -525,6 +525,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
+              tool_payload: m.tool_payload,
             }));
       setResumeConv({ id: convId, messages });
       setChatActive(messages.length > 0);

@@ -619,7 +619,12 @@ type ChatDemoProps = {
 
 export type ResumeConversation = {
   id: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    /** Persisted card payload — present when the backend saved a card with this turn. */
+    tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null;
+  }>;
 };
 
 export type ChatDemoSeed = {
@@ -630,6 +635,157 @@ export type ChatDemoSeed = {
   /** Hardcoded workflow draft surfaced as the assistant's response. */
   draft: WorkflowDraft;
 };
+
+/**
+ * Pure function: maps a render-hint + raw_data → Message.
+ * Used by both the live SSE `done` path (resolveStreamingMessage) and
+ * the resume seed path (useState initializer).  No side-effects — callers
+ * handle toasts / onDraftFromChat after calling this.
+ *
+ * `rawData` should be the full raw_data object (with _render_hint at the
+ * top level).  For the resume path reconstruct it as:
+ *   { _render_hint: tp._render_hint, ...(tp.card ?? {}) }
+ *
+ * `logiccard` is the separate top-level logiccard field from the SSE done
+ * event; for the resume path pass undefined (the card data is spread into
+ * rawData or omitted).
+ */
+function hintToMessage(
+  responseText: string,
+  rawData: (Record<string, unknown> & { _render_hint?: string }) | null | undefined,
+  logiccard?: LogicCard | null,
+): Message {
+  const hint = rawData?._render_hint;
+
+  if (hint === "workflow_draft_card" && rawData) {
+    const r = rawData as unknown as {
+      name?: string;
+      description?: string;
+      steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
+      rationale?: string;
+      warnings?: string[];
+    };
+    if (r.name && r.steps) {
+      const draft: WorkflowDraft = {
+        name: r.name,
+        description: r.description ?? "",
+        steps: r.steps.map((s) => ({
+          step_type: s.step_type,
+          label: s.label,
+          config: s.config,
+        })),
+        rationale: r.rationale ?? "",
+        warnings: r.warnings ?? [],
+        _render_hint: "workflow_draft_card",
+      };
+      return { kind: "draft", draft, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "logic_card") {
+    // Live path: logiccard comes as a separate field on the done event.
+    // Resume path: card fields are spread into rawData; try rawData itself.
+    const card: LogicCard | null | undefined =
+      logiccard ?? (rawData as unknown as LogicCard | null | undefined);
+    if (card && typeof (card as { type?: unknown }).type === "string") {
+      return { kind: "logic_card", card, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "synthetic_security_card" && rawData) {
+    return {
+      kind: "synthetic_security",
+      payload: rawData as unknown as SyntheticSecurityPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "indicator_backtest_chart" && rawData) {
+    return {
+      kind: "indicator_backtest",
+      payload: rawData as unknown as IndicatorBacktestPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "financial_backtest_chart" && rawData) {
+    return {
+      kind: "financial_backtest",
+      payload: rawData as unknown as FinancialBacktestPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_application_card" && rawData) {
+    return {
+      kind: "ipo_application",
+      payload: rawData as unknown as IpoApplicationPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_list_card" && rawData) {
+    return {
+      kind: "ipo_list",
+      payload: rawData as unknown as IpoListPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_listed_card" && rawData) {
+    return {
+      kind: "ipo_listed",
+      payload: rawData as unknown as IpoListedPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "option_chain_card" && rawData) {
+    return {
+      kind: "option_chain",
+      payload: rawData as unknown as OptionChainPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "option_strategy_card" && rawData) {
+    return {
+      kind: "option_strategy",
+      payload: rawData as unknown as OptionStrategyPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "portfolio_greeks_card" && rawData) {
+    return {
+      kind: "portfolio_greeks",
+      payload: rawData as unknown as PortfolioGreeksPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "clarify_card" && rawData) {
+    // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }
+    const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
+    if (clarify && Array.isArray(clarify.questions)) {
+      return { kind: "clarify", card: clarify, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "strategy_builder_card" && rawData) {
+    // Fields are spread at the top level of rawData alongside the render hint.
+    const card = rawData as unknown as StrategyBuilderCardData;
+    if (Array.isArray(card.constituents)) {
+      return { kind: "strategy_builder", card, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  return { kind: "assistant", text: responseText };
+}
 
 /** Per-mount session id. Generated once on component mount; sent
  * with every chat request so the backend keys its Redis-stored
@@ -670,15 +826,36 @@ export function ChatDemo({
   const { activeEditorDraft, panelOpenWithDraft } = useActiveDraft();
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>(() =>
-    // Resumed conversations seed the visible thread from the stored
-    // transcript (text turns only — cards aren't persisted).
+    // Resumed conversations seed the visible thread from the stored transcript.
+    // Assistant turns with a tool_payload restore their card via hintToMessage
+    // so the same component that rendered the card live renders it on resume.
     (resume?.messages ?? [])
       .filter((m) => m.content)
-      .map((m) =>
-        m.role === "user"
-          ? { kind: "user" as const, text: m.content }
-          : { kind: "assistant" as const, text: m.content },
-      ),
+      .map((m): Message => {
+        if (m.role === "user") {
+          return { kind: "user", text: m.content };
+        }
+        // Try to restore the card from tool_payload.
+        const tp = m.tool_payload;
+        if (tp?._render_hint) {
+          // Reconstruct rawData: spread card fields alongside _render_hint so
+          // hintToMessage's field-access pattern (rawData.name, rawData.steps …)
+          // matches the shape it sees from the live SSE done event.
+          const cardSpread: Record<string, unknown> = tp.card ?? {};
+          const rawData: Record<string, unknown> & { _render_hint: string } = {
+            _render_hint: tp._render_hint,
+            ...cardSpread,
+          };
+          // For logic_card the live path uses data.logiccard (a separate SSE
+          // field).  The backend may store it in card.logiccard; fall through
+          // to rawData-as-LogicCard if that key is absent.
+          const logiccard =
+            (tp.card as { logiccard?: LogicCard } | undefined)?.logiccard ?? undefined;
+          return hintToMessage(m.content, rawData, logiccard);
+        }
+        // Old rows / oversized payloads without tool_payload — plain text.
+        return { kind: "assistant", text: m.content };
+      }),
   );
   const [loading, setLoading] = useState(false);
   // Composer context attachments — securities (@ / + menu), positions,
@@ -1067,139 +1244,28 @@ export function ChatDemo({
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
    * the streaming bubble at `streamingIdx` in the message list.
-   * Reuses the same render-hint switch as the former non-streaming path.
+   * Delegates hint→Message mapping to hintToMessage (module-scope, pure).
+   * Side-effects (onDraftFromChat, toast) are handled here after the mapping.
    */
   function resolveStreamingMessage(
     data: ChatDonePayload,
     streamingIdx: number,
   ): void {
-    const rawData = data.raw_data;
-    const hint = rawData?._render_hint;
+    const finalMessage = hintToMessage(
+      data.response ?? "",
+      data.raw_data,
+      data.logiccard,
+    );
 
-    let finalMessage: Message;
-
-    if (hint === "workflow_draft_card" && rawData) {
-      const r = rawData as unknown as {
-        name?: string;
-        description?: string;
-        steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
-        rationale?: string;
-        warnings?: string[];
-      };
-      if (r.name && r.steps) {
-        const draft: WorkflowDraft = {
-          name: r.name,
-          description: r.description ?? "",
-          steps: r.steps.map((s) => ({
-            step_type: s.step_type,
-            label: s.label,
-            config: s.config,
-          })),
-          rationale: r.rationale ?? "",
-          warnings: r.warnings ?? [],
-          _render_hint: "workflow_draft_card",
-        };
-        finalMessage = { kind: "draft", draft, intro: data.response ?? "" };
-        // Notify parent so the bound editor re-renders with the new draft.
-        onDraftFromChat?.(draftToWorkflow(draft));
-        // Toast only when the editor was already open on this draft (amendment).
-        if (panelOpenWithDraft) {
-          toast("Chat updated the agent", {
-            description: "The editor reflects the latest changes from this conversation.",
-            duration: 3000,
-          });
-        }
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
+    // Side-effects for live turns only (not the resume seed path).
+    if (finalMessage.kind === "draft") {
+      onDraftFromChat?.(draftToWorkflow(finalMessage.draft));
+      if (panelOpenWithDraft) {
+        toast("Chat updated the agent", {
+          description: "The editor reflects the latest changes from this conversation.",
+          duration: 3000,
+        });
       }
-    } else if (hint === "logic_card" && data.logiccard) {
-      finalMessage = {
-        kind: "logic_card",
-        card: data.logiccard,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "synthetic_security_card" && rawData) {
-      finalMessage = {
-        kind: "synthetic_security",
-        payload: rawData as unknown as SyntheticSecurityPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "indicator_backtest_chart" && rawData) {
-      finalMessage = {
-        kind: "indicator_backtest",
-        payload: rawData as unknown as IndicatorBacktestPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "financial_backtest_chart" && rawData) {
-      finalMessage = {
-        kind: "financial_backtest",
-        payload: rawData as unknown as FinancialBacktestPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_application_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_application",
-        payload: rawData as unknown as IpoApplicationPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_list_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_list",
-        payload: rawData as unknown as IpoListPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_listed_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_listed",
-        payload: rawData as unknown as IpoListedPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "option_chain_card" && rawData) {
-      finalMessage = {
-        kind: "option_chain",
-        payload: rawData as unknown as OptionChainPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "option_strategy_card" && rawData) {
-      finalMessage = {
-        kind: "option_strategy",
-        payload: rawData as unknown as OptionStrategyPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "portfolio_greeks_card" && rawData) {
-      finalMessage = {
-        kind: "portfolio_greeks",
-        payload: rawData as unknown as PortfolioGreeksPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "clarify_card" && rawData) {
-      // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }.
-      const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
-      if (clarify && Array.isArray(clarify.questions)) {
-        finalMessage = {
-          kind: "clarify",
-          card: clarify,
-          intro: data.response ?? "",
-        };
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
-      }
-    } else if (hint === "strategy_builder_card" && rawData) {
-      // The StrategyBuilderCard fields are spread at the top level of raw_data
-      // alongside the render hint (mirrors the executor's
-      // `{ "_render_hint": ..., **card.model_dump() }`).
-      const card = rawData as unknown as StrategyBuilderCardData;
-      if (Array.isArray(card.constituents)) {
-        finalMessage = {
-          kind: "strategy_builder",
-          card,
-          intro: data.response ?? "",
-        };
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
-      }
-    } else {
-      finalMessage = { kind: "assistant", text: data.response ?? "" };
     }
 
     setMessages((prev) => {
