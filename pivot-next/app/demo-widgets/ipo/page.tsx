@@ -554,7 +554,7 @@ function Variant({
   );
 }
 
-const noop = (s: string): void => console.log("[ipo-sandbox] action:", s);
+const noop = (_s: string): void => {};
 
 // ---------------------------------------------------------------------------
 // Page

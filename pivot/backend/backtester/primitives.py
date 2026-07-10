@@ -10,7 +10,6 @@ before comparing, so signals on day N depend only on data through day N-1.
 from __future__ import annotations
 
 import calendar
-from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd

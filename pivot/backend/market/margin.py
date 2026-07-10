@@ -68,7 +68,6 @@ def span_margin_estimate(
     moves = np.linspace(-scan_pct, scan_pct, _PRICE_STEPS)
     F_grid = forward * (1.0 + moves)
 
-    entry_value = 0.0   # signed current value (long positive)
     worst = 0.0
     T = max(float(t_years), 1e-6)
     for vol_shift in _VOL_SHIFTS:
@@ -87,7 +86,6 @@ def span_margin_estimate(
         # Loss vs entry value in this scenario row.
         loss = float(np.max(entry - scenario_value))
         worst = max(worst, loss)
-        entry_value = entry
 
     short_notional = sum(
         forward * lot_value for leg in legs if leg["side"] == "SELL"

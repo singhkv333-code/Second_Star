@@ -32,7 +32,6 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 import pandas as pd
-import yfinance as yf  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -95,16 +94,30 @@ def _fetch_one_series(
     its `Future` list in submission order (not completion order), so
     per-symbol ordering semantics match the old serial loop exactly."""
     qty, yf_sym = spec
+    # Route through the shared price engine, which is now Kite-primary
+    # (broker-grade daily bars that work on cloud IPs) with yfinance as the
+    # backup — so the portfolio curve no longer depends on Yahoo. Weekly/monthly
+    # ranges (1Y/5Y) that Kite can't serve still fall to yfinance inside it.
     try:
-        hist = yf.Ticker(yf_sym).history(period=yf_period, interval=yf_interval)
+        from backend.market.yfinance_service import fetch_price_history
+        records = fetch_price_history(yf_sym, yf_period, yf_interval)
     except Exception as e:
         logger.warning(
-            "[portfolio.performance] yfinance failed for %s: %s", yf_sym, e,
+            "[portfolio.performance] price fetch failed for %s: %s", yf_sym, e,
         )
         return qty, None
-    if hist.empty:
+    if not records:
         return qty, None
-    return qty, hist["Close"].dropna()
+    try:
+        series = pd.Series(
+            [float(r["close"]) for r in records],
+            index=pd.to_datetime([r["date"] for r in records]),
+        ).dropna()
+    except Exception:  # noqa: BLE001 — malformed record → drop this holding
+        return qty, None
+    if series.empty:
+        return qty, None
+    return qty, series
 
 
 def _flat_series(period: _PeriodLiteral, value: float) -> dict:
@@ -190,6 +203,21 @@ def _paper_performance(
     # pre-trade past — that projection is exactly the "backtested" look the
     # chart must NOT have.
     axis_start = max(period_start, first_fill)
+
+    # The REAL held span (since the first fill) can be much shorter than the
+    # selected range's calendar span — e.g. a 5Y view on a 9-day-old paper
+    # book. Bucketing at that range's native interval (1mo for 5Y, 1wk for 1Y)
+    # over a real span that short collapses the whole window into ~1 yfinance
+    # bar, which then ffills/bfills that single coarse sample across every
+    # date on the axis. The same calendar date then shows a different value
+    # depending only on which range is selected (e.g. "1 Jul" on 3M vs 5Y) —
+    # confusing, not a real discrepancy. Force the finer daily interval
+    # whenever the real span doesn't have room for at least a few bars at the
+    # selected interval, so every range agrees on any date they both cover.
+    _BAR_DAYS = {"1d": 1, "1wk": 7, "1mo": 30}
+    real_span_days = max((end - axis_start).days, 1)
+    if real_span_days < _BAR_DAYS.get(yf_interval, 1) * 3:
+        yf_interval = "1d"
 
     # Per-symbol historical closes (concurrent yfinance fetch). The paper book
     # is NSE equities; assume .NS unless already suffixed.

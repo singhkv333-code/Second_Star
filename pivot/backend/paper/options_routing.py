@@ -284,6 +284,24 @@ def submit_option_strategy(
         raise OptionFillError("submit_option_strategy is paper-book only")
     # Commodities (MCX) are tradeable — paper-fills like any other segment.
 
+    # Strict market-hours simulation. Equity MARKET orders rest until the open
+    # (paper/broker.py); F&O has no resting evaluator, so instead of filling
+    # legs on a closed market we refuse honestly and keep the strategy
+    # `registered` for the user to re-deploy at the open. Mirrors the equity
+    # gate's intent — a paper fill must never happen while NSE is shut.
+    from backend.config import settings as _settings
+    from backend.utils.time_utils import is_market_open
+
+    if getattr(_settings, "paper_respect_market_hours", True) and not is_market_open():
+        return {
+            "success": False, "fills": [],
+            "error": (
+                "market closed — F&O paper legs fill only during NSE hours "
+                "(09:15–15:30 IST, Mon–Fri). The strategy stays registered; "
+                "re-deploy it once the market opens."
+            ),
+        }
+
     chain = get_chain(
         db, strategy.underlying, strategy.expiry.isoformat(), width=25,
     )

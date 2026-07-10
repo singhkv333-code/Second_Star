@@ -326,13 +326,13 @@ def ichimoku(df: pd.DataFrame) -> dict[str, Any]:
 
         if close_price > cloud_top:
             signal = "bullish"
-            interpretation = f"Price above Ichimoku cloud — bullish trend, cloud acts as support"
+            interpretation = "Price above Ichimoku cloud — bullish trend, cloud acts as support"
         elif close_price < cloud_bottom:
             signal = "bearish"
-            interpretation = f"Price below Ichimoku cloud — bearish trend, cloud acts as resistance"
+            interpretation = "Price below Ichimoku cloud — bearish trend, cloud acts as resistance"
         else:
             signal = "neutral"
-            interpretation = f"Price inside Ichimoku cloud — consolidation zone, wait for breakout"
+            interpretation = "Price inside Ichimoku cloud — consolidation zone, wait for breakout"
 
         return {
             "indicator_name": "Ichimoku",

@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     # accepted alias below.
     kite_token_enc_key: str = ""
 
+    # --- Unattended Kite auto-login (opt-in; default OFF) ----------------------
+    # When ON, the daily 07:30 IST refresh mints a fresh Kite token from THESE
+    # env creds (the current, post-reset creds) instead of the encrypted DB
+    # session — so no human logs in each morning. Guarded by kite/auth.py's
+    # circuit-breaker + clock-skew: a bad attempt fails at most twice and can
+    # never lock the account. OFF by default, so it runs ONLY where you set
+    # KITE_UNATTENDED_AUTOLOGIN=1 (never during local dev edits). Requires
+    # KITE_USER_ID, KITE_PASSWORD and PERMANENT_TOKEN (the base32 TOTP seed).
+    kite_unattended_autologin: bool = False
+    kite_user_id: str = ""       # Zerodha user id, e.g. "AB1234"
+    kite_password: str = ""      # KITE_PASSWORD
+    permanent_token: str = ""    # PERMANENT_TOKEN — the Kite TOTP base32 seed
+
     # --- Multi-broker onboarding (brokers/) -----------------------------------
     # Dhan is the "clean unattended" broker: a 12-month app api key+secret lets
     # the backend silently mint a fresh daily access token (with the user's TOTP)
@@ -290,9 +303,14 @@ class Settings(BaseSettings):
     # placed while the market is CLOSED rests ("queued for open") and fills at
     # the next market-hours evaluator tick against the then-live price, instead
     # of filling immediately at a stale close. Resting LIMIT/SL/GTT + queued
-    # MARKET orders are only filled by the scheduler tick during 09:15-15:30 IST.
-    # Pinned False in the test suite (conftest) so the deterministic immediate-
-    # fill tests are unaffected; the market-hours behaviour has its own tests.
+    # MARKET orders are only filled by the scheduler tick during 09:15-15:30
+    # IST, Mon-Fri (is_market_open()). This is the CORRECT default (owner call
+    # 2026-07-10 eve): paper mode must simulate the real world exactly — an
+    # order placed after hours does NOT fill until the market reopens. (An
+    # earlier same-day flip to immediate off-hours fills was reversed: the
+    # user wants true market-timing simulation, not instant fills.)
+    # NOTE: is_market_open() covers weekends + hours but NOT NSE holidays yet
+    # (needs a trading_holidays calendar — tracked follow-up).
     paper_respect_market_hours: bool = True
 
     # Starting cash for a NEW paper account (env PAPER_SEED_CAPITAL). Raised to

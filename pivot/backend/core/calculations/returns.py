@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from typing import Union
 
 
 def _validate_series(series: pd.Series, min_length: int = 2, metric_name: str = "unknown") -> dict | None:

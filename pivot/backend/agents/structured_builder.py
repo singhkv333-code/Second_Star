@@ -4,7 +4,6 @@ Core of the Pivot platform. Calculates leg sizes, generates payoff tables.
 """
 import asyncio
 import logging
-from typing import Optional
 from backend.agents.sizer import fetch_current_arb_yield, calculate_safety_leg, calculate_payoff_table
 from backend.agents.explainer import explain_strategy
 from backend.kite.market_data import get_nifty_level

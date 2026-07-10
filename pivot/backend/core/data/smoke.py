@@ -15,7 +15,7 @@ def main() -> int:
     print("-" * 40)
 
     try:
-        from backend.core.data import get_close_series, get_ohlcv
+        from backend.core.data import get_close_series, get_ohlcv  # noqa: F401 — import-availability smoke check
     except ImportError as e:
         print(f"Import error: {e}")
         return 1
@@ -37,7 +37,7 @@ def main() -> int:
 
     print(f"\nDate range: {series.index[0].date()} to {series.index[-1].date()}")
     print(f"Total data points: {len(series)}")
-    print(f"\nLast 5 closing prices:")
+    print("\nLast 5 closing prices:")
     print("-" * 30)
 
     for date, price in series.tail(5).items():

@@ -7,7 +7,6 @@ Volume confirms trend strength: rising prices with rising volume = strong trend.
 
 from typing import Any
 import pandas as pd
-import numpy as np
 import ta
 
 
@@ -335,7 +334,7 @@ def volume_roc(df: pd.DataFrame, period: int = 12) -> dict[str, Any]:
 
         current_vol = df["Volume"].iloc[-1]
         past_vol = df["Volume"].iloc[-period-1]
-        vroc_value = ((current_vol - past_vol) / past_vol) * 100 if past_vol > 0 else 0
+        ((current_vol - past_vol) / past_vol) * 100 if past_vol > 0 else 0
 
         values = pd.Series(index=df.index, dtype=float)
         for i in range(period, len(df)):

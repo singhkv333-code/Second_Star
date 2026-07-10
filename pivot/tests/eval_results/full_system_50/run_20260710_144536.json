@@ -1,0 +1,95 @@
+{
+ "ts": "20260710_144536",
+ "elapsed_s": 9.7,
+ "base": "http://localhost:8000",
+ "user_id": 658,
+ "sessions_file": "tests/eval_prompts/full_system_50.json",
+ "only": "build_condor",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "fno-hard",
+   "name": "build_condor",
+   "why": "build_option_strategy iron condor on NIFTY: real strikes, max P/L, breakevens, PoP; option_strategy_card.",
+   "conv": "s_185bbd53e7",
+   "turns": [
+    {
+     "i": 0,
+     "say": "build me an iron condor on nifty",
+     "response": "Built a NIFTY iron condor: short `23750 CE` / `23250 PE`, long `23850 CE` / `23100 PE` for `1` lot, expiring `2026-07-14`. Max profit is about `\u20b92,413`, max loss about `\u20b97,337`, breakevens `23,235` and `23,748`, with POP around `61.2%`; say **widen** or **next expiry** to change.\n\n| Leg | Type | Side | Strike | Premium |\n| --- | --- | --- | --- | --- |\n| 1 | CE | SELL | \u20b923,750 | \u20b930 |\n| 2 | PE | SELL | \u20b923,250 | \u20b937 |\n| 3 | CE | BUY | \u20b923,850 | \u20b916 |\n| 4 | PE | BUY | \u20b923,100 | \u20b914 |\n\nProbability of profit (market-implied): 61.2%.",
+     "tools_called": [
+      "build_option_strategy"
+     ],
+     "render_hint": "option_strategy_card",
+     "raw_keys": [
+      "_render_hint",
+      "build_option_strategy",
+      "candidates",
+      "computed",
+      "critique",
+      "data_status",
+      "editable",
+      "locked",
+      "stale_note",
+      "summary",
+      "validation"
+     ],
+     "card_digest": {
+      "template": "iron_condor",
+      "legs": [
+       {
+        "t": "CE",
+        "s": "SELL",
+        "k": 23750.0,
+        "mid": 29.56
+       },
+       {
+        "t": "PE",
+        "s": "SELL",
+        "k": 23250.0,
+        "mid": 37.41
+       },
+       {
+        "t": "CE",
+        "s": "BUY",
+        "k": 23850.0,
+        "mid": 15.53
+       },
+       {
+        "t": "PE",
+        "s": "BUY",
+        "k": 23100.0,
+        "mid": 14.32
+       }
+      ],
+      "qty_lots": 1,
+      "max_loss": 7337.2,
+      "max_profit": 2412.8,
+      "pop": 0.6124,
+      "breakevens": [
+       23235.38,
+       23747.75
+      ],
+      "capital": 7337.2,
+      "margin": 7337.2,
+      "verdict": "caution",
+      "flags": [
+       "warn",
+       "info"
+      ],
+      "candidates": [],
+      "mcx_blocked": true
+     },
+     "logiccard": null,
+     "latency_wall_ms": 7014,
+     "latency_server_ms": 6501,
+     "input_tokens": 75566,
+     "output_tokens": 395,
+     "cost_usd": 0.011227,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

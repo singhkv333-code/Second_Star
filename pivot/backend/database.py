@@ -11,12 +11,22 @@ if settings.app_env == "test":
         connect_args={"check_same_thread": False},
     )
 else:
+    # Pool caps are sized against the Azure tier's max_connections=50 (~45
+    # usable after the SUPERUSER reserve). Worst case per process across the
+    # three engines is 10+7+5 = 22, so one server + one script/migration can
+    # coexist. The old caps (30+15+15 = 60) let a single dev server exhaust
+    # the whole instance — "remaining connection slots are reserved" took the
+    # portfolio page down twice on 2026-07-10. pool_use_lifo lets idle
+    # overflow connections age out via pool_recycle instead of being kept
+    # warm forever.
     engine = create_engine(
         settings.database_url,
         poolclass=QueuePool,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=False,
+        pool_size=5,
+        max_overflow=5,
+        pool_timeout=10,
+        pool_use_lifo=True,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )
@@ -44,9 +54,11 @@ else:
         # replica while the primary keeps serving scraper/dev writes.
         settings.financials_read_dsn or settings.financials_dsn,
         poolclass=QueuePool,
-        pool_size=5,
-        max_overflow=10,
-        pool_pre_ping=False,
+        pool_size=3,
+        max_overflow=4,
+        pool_timeout=10,
+        pool_use_lifo=True,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )
@@ -69,9 +81,11 @@ else:
     enrich_engine = create_engine(
         settings.enrich_dsn,
         poolclass=QueuePool,
-        pool_size=5,
-        max_overflow=10,
-        pool_pre_ping=False,
+        pool_size=2,
+        max_overflow=3,
+        pool_timeout=10,
+        pool_use_lifo=True,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )

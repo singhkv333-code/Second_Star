@@ -1,0 +1,223 @@
+{
+  "committed": 282223.35,
+  "budget": 500000,
+  "items": [
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 15 NIFTYBEES.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 4139.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 40 GOLDBEES.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 4812.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 3 INFY.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 3142.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 2 TCS.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 4187.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 5 RELIANCE.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 6520.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 4 HDFCBANK.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 3204.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 10 ITC.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 2900.0
+    },
+    {
+      "category": "simple_buy",
+      "prompt": "Buy 8 SBIN.",
+      "outcome": "REGISTERED",
+      "detail": "chat_tools=['place_market_order'] order_status=resting",
+      "est_capital": 8320.0
+    },
+    {
+      "category": "agent",
+      "prompt": "Build me an agent that buys 10 NIFTYBEES when RSI drops below 30.",
+      "outcome": "ARMED",
+      "detail": "wf=99897fb6-2dca-4f09-91c6-e4f985f1e1a3 status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Create an agent that buys 5 RELIANCE when the price crosses above 1350.",
+      "outcome": "ARMED",
+      "detail": "wf=539b1193-b536-4bcc-93b9-e8ffaa3bc09f status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Buy 20 GOLDBEES every weekday at 9:20 AM.",
+      "outcome": "ARMED",
+      "detail": "wf=0dccf2f1-0e37-4ff8-bb34-61a099c92d35 status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Set up an agent to buy 3 TCS if it dips 5 percent in a day.",
+      "outcome": "ARMED",
+      "detail": "wf=dd60e9a8-23bd-4848-ad01-cbefe80d0124 status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Alert me when INFY crosses 1600, don't buy anything.",
+      "outcome": "NO_DRAFT",
+      "detail": "tools=['propose_workflow'] hint=ask_user",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Buy 15 NIFTYBEES every Monday morning.",
+      "outcome": "ARMED",
+      "detail": "wf=802b2337-1592-4965-9521-c731af97dc91 status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "agent",
+      "prompt": "Make an agent that buys 8 ICICIBANK when its RSI goes below 35.",
+      "outcome": "ARMED",
+      "detail": "wf=5ae7b3d5-80dd-438e-8c36-2b656192ff9b status=active steps=2",
+      "est_capital": 0
+    },
+    {
+      "category": "basket",
+      "prompt": "Make me a basket of auto stocks, around 40 thousand rupees.",
+      "outcome": "DEPLOYED",
+      "detail": "basket=8 routed=paper legs=3 names=['BAJAJ-AUTO', 'HEROMOTOCO', 'EICHERMOT', 'MARUTI', 'M&M', 'TVSMOTOR', 'ASHOKLEY', 'TATAMOTORS']",
+      "est_capital": 40000
+    },
+    {
+      "category": "basket",
+      "prompt": "Build a defensive basket of FMCG stocks for about 35 thousand.",
+      "outcome": "NO_BASKET",
+      "detail": "tools=['build_strategy'] hint=strategy_builder_card",
+      "est_capital": 0
+    },
+    {
+      "category": "basket",
+      "prompt": "Make a basket of stocks that profit from a good monsoon, 40 thousand.",
+      "outcome": "DEPLOYED",
+      "detail": "basket=9 routed=paper legs=4 names=['SHAKTIPUMP', 'KSB', 'KIRLOSBROS', 'JISLJALEQS']",
+      "est_capital": 40000
+    },
+    {
+      "category": "basket",
+      "prompt": "Build me a strategy that benefits from momentum, around 40 thousand.",
+      "outcome": "DEPLOYED",
+      "detail": "basket=10 routed=paper legs=6 names=['HINDZINC', 'TCS', 'NESTLEIND', 'COALINDIA', 'BRITANNIA', 'BAJAJ-AUTO', 'INFY', 'ITC', 'HCLTECH', 'ONGC']",
+      "est_capital": 40000
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Arm 'RBI cuts the repo rate at the next MPC m' [conservative]",
+      "outcome": "ARMED",
+      "detail": "wf=e7092295 status=active steps=4",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Arm 'RBI cuts the repo rate at the next MPC m' [balanced]",
+      "outcome": "ARMED",
+      "detail": "wf=8abd3231 status=paused steps=11",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Arm 'RBI cuts the repo rate at the next MPC m' [aggressive]",
+      "outcome": "ARMED",
+      "detail": "wf=6077993c status=paused steps=4",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_place",
+      "prompt": "Deploy 'Crude / Geopolitical shock: de-escalatio' [conservative]",
+      "outcome": "PLACED",
+      "detail": "routed=paper legs=3",
+      "est_capital": 25000.0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Deploy 'Crude / Geopolitical shock: de-escalatio' [balanced]",
+      "outcome": "DEPLOY_FAIL",
+      "detail": "422 {\"error\":{\"code\":\"validation_error\",\"message\":\"pair expression is missing leg 'a' in config.structure\",\"detail",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_place",
+      "prompt": "Deploy 'Crude / Geopolitical shock: de-escalatio' [aggressive]",
+      "outcome": "PLACED",
+      "detail": "routed=paper legs=4",
+      "est_capital": 25000.0
+    },
+    {
+      "category": "opinion_place",
+      "prompt": "Deploy 'Monsoon trade \u2014 Kharif season rural posi' [conservative]",
+      "outcome": "PLACED",
+      "detail": "routed=paper legs=4",
+      "est_capital": 25000.0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Deploy 'Monsoon trade \u2014 Kharif season rural posi' [balanced]",
+      "outcome": "DEPLOY_FAIL",
+      "detail": "422 {\"error\":{\"code\":\"validation_error\",\"message\":\"pair expression is missing leg 'a' in config.structure\",\"detail",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Deploy 'Monsoon trade \u2014 Kharif season rural posi' [aggressive]",
+      "outcome": "DEPLOY_FAIL",
+      "detail": "422 {\"error\":{\"code\":\"validation_error\",\"message\":\"option/hedge expression is missing a deployable underlying or t",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_place",
+      "prompt": "Deploy 'India's IT giants are in trouble (weak g' [conservative]",
+      "outcome": "PLACED",
+      "detail": "routed=paper legs=5",
+      "est_capital": 25000.0
+    },
+    {
+      "category": "opinion_arm",
+      "prompt": "Deploy 'India's IT giants are in trouble (weak g' [balanced]",
+      "outcome": "DEPLOY_FAIL",
+      "detail": "422 {\"error\":{\"code\":\"validation_error\",\"message\":\"pair expression is missing leg 'a' in config.structure\",\"detail",
+      "est_capital": 0
+    },
+    {
+      "category": "opinion_place",
+      "prompt": "Deploy 'India's IT giants are in trouble (weak g' [aggressive]",
+      "outcome": "PLACED",
+      "detail": "routed=paper legs=4",
+      "est_capital": 25000.0
+    }
+  ]
+}

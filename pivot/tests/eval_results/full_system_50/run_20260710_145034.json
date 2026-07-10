@@ -1,0 +1,40 @@
+{
+ "ts": "20260710_145034",
+ "elapsed_s": 16.2,
+ "base": "http://localhost:8000",
+ "user_id": 661,
+ "sessions_file": "tests/eval_prompts/full_system_50.json",
+ "only": "sector_outlook",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "analysis-hard",
+   "name": "sector_outlook",
+   "why": "Sector outlook must use screen/compare data + news, structured, with a defended view \u2014 not a vague blurb.",
+   "conv": "s_6e4161e430",
+   "turns": [
+    {
+     "i": 0,
+     "say": "what's your outlook on the Indian pharma sector for the next 6 months?",
+     "response": "Pharma looks **constructive but selective** over the next 6 months: the cross-section still shows strong quality names, with ROE leadership led by `GLAXO` and `ABBOTINDIA`, while smaller names can be more volatile. The setup is usually better when the rupee is weak and global risk appetite is steady, because exporters and defensives tend to hold up.\n\nThe main risks are U.S. pricing pressure, regulatory headlines, and any sudden rotation back into cyclicals. I would frame it as **steady-to-firm rather than a broad breakout**: large-cap pharma should be the cleaner part of the basket, while lower-quality names may lag if margins wobble.\n\nIf you want, I can narrow it to **large-cap pharma** or rank the top names by **valuation and quality**.",
+     "tools_called": [
+      "screen_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "screen_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 12980,
+     "latency_server_ms": 12481,
+     "input_tokens": 81029,
+     "output_tokens": 447,
+     "cost_usd": 0.011639,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

@@ -106,14 +106,37 @@ def _cache_set(key: str, value: Any) -> None:
 
 
 def _fetch_live_movers(symbols: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Pull last 2 daily closes for `symbols` via yfinance (batch) and
-    compute % change. Returns rows with absolute values; sorting /
-    direction is applied by the caller.
-
-    Synchronous on purpose — yfinance.download blocks. The engine
-    calls executors with `await` but the underlying network calls
-    block; this matches the existing `fetch.quote` pattern.
+    """Live price + day-change % for `symbols`. Kite-primary (one batch quote,
+    broker-grade and working on cloud IPs), with a yfinance batch download as
+    the backup. Returns rows with absolute values; the caller sorts / picks
+    direction.
     """
+    # ── Primary: a single Kite batch quote over the universe. last_price +
+    #    previous close gives the day change directly. ──
+    try:
+        from backend.kite.live_quote import get_kite_quotes
+        q = get_kite_quotes([f"NSE:{s}" for s in symbols])
+        krows: list[dict[str, Any]] = []
+        for s in symbols:
+            d = q.get(f"NSE:{s}")
+            if not d or not d.get("last_price"):
+                continue
+            ltp = float(d["last_price"])
+            prev = d.get("prev_close") or ltp
+            if not prev:
+                continue
+            krows.append({
+                "symbol": s,
+                "ltp": round(ltp, 2),
+                "change_pct": round((ltp - prev) / prev * 100.0, 2),
+                "seed": False,
+            })
+        if krows:
+            return krows
+    except Exception as e:  # noqa: BLE001 — fall through to yfinance
+        logger.debug("top_movers kite batch failed: %s", e)
+
+    # ── Backup: yfinance batch download (only when no live Kite session). ──
     try:
         import yfinance as yf  # type: ignore[import-untyped]
     except ImportError:

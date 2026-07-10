@@ -26,6 +26,8 @@ import asyncio
 import json
 import logging
 import re
+
+from backend.services.tool_errors import ToolRedirect
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -84,6 +86,23 @@ _DSL_NON_TICKER_TOKENS: frozenset[str] = frozenset({
 
 
 _TICKER_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9\-_]{2,15}\b")
+
+
+def _word_cap(text: str, cap: int = 90) -> str:
+    """Cap a display label at `cap` chars WITHOUT cutting mid-token.
+
+    A hard slice produced garbage titles like "…crosses above signal
+    MACD(12,1" (from MACD(12,26,9)) that then leaked into readbacks and
+    even got re-parsed on amendment turns. Cut at the last space before
+    the cap and mark the elision."""
+    t = (text or "").strip()
+    if len(t) <= cap:
+        return t
+    cut = t[: cap - 1]
+    sp = cut.rfind(" ")
+    if sp > cap // 2:
+        cut = cut[:sp]
+    return cut + "…"
 
 
 def _distinct_tickers_in(*texts: str) -> list[str]:
@@ -340,7 +359,7 @@ def _is_nonstructural_dsl_amendment(message: str) -> dict:
         fields["quantity"] = int(qm.group(1))
     rm = re.search(r"\b(?:rename|call\s+it|name\s+it)\s+(?:to\s+)?(.+)$", msg)
     if rm:
-        fields["name"] = rm.group(1).strip()[:80]
+        fields["name"] = _word_cap(rm.group(1).strip(), 80)
     cm = re.search(
         r"\bnotify\s+(?:me\s+)?(?:by|on|via|through)\s+"
         r"(email|push|sms|whatsapp)\b", msg)
@@ -391,7 +410,7 @@ def _patch_dsl_draft(prior: dict, fields: dict):
             _erb = (draft.get("exit_readback") or "").strip()
             if _rb:
                 _title = f"{_rb} → {_erb}" if _erb else _rb
-                draft["name"] = _title[:90]
+                draft["name"] = _word_cap(_title, 90)
         if fields.get("channel"):
             for s in steps:
                 if isinstance(s, dict) and s.get("step_type") == "notify.message":
@@ -512,6 +531,28 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "trade fires on, e.g. TCS)."
         )
 
+    # 51-sweep arg-repair: "I hold 50 INFY at 1400 — backtest a 10%
+    # trailing stop" arrives with the TRAILING rule in `condition` (the
+    # entry slot), which the semantic validator rightly rejects
+    # (position leaves aren't entry logic). With a seeded holding and no
+    # exit_condition, an exit-shaped condition IS the exit rule: move it
+    # there and disable fresh entries so only the held position is
+    # tested (engine-supported — see test_backtest_holding_semantics A3).
+    _seeded_exit_repair = False
+    if (isinstance(args.get("initial_position"), dict)
+            and (args.get("initial_position") or {}).get("quantity")
+            and not exit_condition_text
+            and re.search(r"\b(?:trail(?:ing)?|stop[- ]?loss|from\s+"
+                          r"(?:the\s+)?peak|take[- ]?profit|book\s+"
+                          r"profits?|exit|sell)\b", condition, re.I)
+            and not re.search(r"\b(?:buy|enter|long|accumulate|add)\b",
+                              condition, re.I)):
+        exit_condition_text = condition
+        # Plain comparison (never-fires) — "crosses above" tripped the
+        # self-comparison/tautology detector on retest.
+        condition = f"price of {primary} is above 99999999"
+        _seeded_exit_repair = True
+
     try:
         tree, tx_meta = await translate_condition_to_tree(
             condition,
@@ -569,6 +610,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # n_day_hold exit and any seeded initial position are recorded here
     # and threaded into both the structured payload and summary_text.
     assumptions: list[str] = []
+    if _seeded_exit_repair:
+        assumptions.append(
+            "The stated rule is an EXIT rule on your existing holding — "
+            "fresh entries were disabled; only the seeded position is "
+            "tested against it."
+        )
 
     # Exit policy — exit_condition (NL) wins over declarative fields
     # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
@@ -587,9 +634,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
                 f"could not translate exit_condition into a DSL tree: "
                 f"{exc}"
             ) from None
+        from backend.workflows.dsl.schema import normalize_tree_aliases
         exit_policy = {
             "kind": "tree",
-            "tree": exit_tree_dict,
+            "tree": normalize_tree_aliases(exit_tree_dict),
             "exit_at": "next_open",
         }
     else:
@@ -675,6 +723,13 @@ async def backtest_dsl_tree(args: dict) -> dict:
                 f"cost basis of {_basis_txt}; the exit rule is tested "
                 f"against that position."
             )
+
+    # 51-sweep: normalize planner-emitted shape aliases AND collapse
+    # single-operand and/or before validation — the day-of-week
+    # translator wrapped a lone filter in a 1-item AND, and the raw
+    # "logic.and expects at least 2 operands" leaked to the user.
+    from backend.workflows.dsl.schema import normalize_tree_aliases
+    tree = normalize_tree_aliases(tree)
 
     payload = {
         "tree": tree,
@@ -998,7 +1053,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
         condition.lower(),
     )
     if _IS_TRAILING_STOP and (_HAS_HOLDING_REF or _MISSING_ENTRY_VERB):
-        raise ValueError(
+        raise ToolRedirect(
             "propose_dsl_workflow needs an ENTRY condition (buy/enter "
             "trigger), but the prompt is exit-only / a trailing stop "
             "on an existing holding. Use propose_holding_action with "
@@ -1006,7 +1061,8 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "trailing-percentage stops. If this is part of a fresh "
             "buy-entry workflow, include both entry AND exit "
             "conditions in this tool's args (condition='when X', "
-            "exit_condition='trail N% from peak')."
+            "exit_condition='trail N% from peak').",
+            redirect_to="propose_holding_action",
         )
 
     # Schedule-shaped condition or exit_condition — the DSL grammar
@@ -1034,13 +1090,14 @@ async def propose_dsl_workflow(args: dict) -> dict:
             and not _has_indicator_or_price_word(exit_condition_text)
         )
     ):
-        raise ValueError(
+        raise ToolRedirect(
             "propose_dsl_workflow can only translate price / "
             "indicator / aggregate conditions, NOT scheduling phrases. "
             "The prompt has a time-anchored leg (\"every Monday at "
             "open\" / \"on Friday close\" / \"squareoff\"). Use "
             "propose_workflow with one branch per time-anchored leg "
-            "(trigger.schedule + action.* per branch)."
+            "(trigger.schedule + action.* per branch).",
+            redirect_to="propose_workflow",
         )
 
     # External-event-trigger detector — global price (crypto/forex/global
@@ -1089,13 +1146,14 @@ async def propose_dsl_workflow(args: dict) -> dict:
             re.IGNORECASE,
         )
         if all(_ANCHOR_RE.search(p) for p in _SEMI_PARTS):
-            raise ValueError(
+            raise ToolRedirect(
                 f"propose_dsl_workflow is single-trigger but the "
                 f"prompt has {len(_SEMI_PARTS)} semicolon-separated "
                 "trigger clauses, each with its own anchor (time / "
                 "schedule / condition). Use propose_workflow with "
                 "one branch per clause — each branch is a "
-                "(trigger.* + action.*) pair."
+                "(trigger.* + action.*) pair.",
+                redirect_to="propose_workflow",
             )
 
     # ── Multi-symbol guard ────────────────────────────────────────
@@ -1131,14 +1189,15 @@ async def propose_dsl_workflow(args: dict) -> dict:
     extras = [t for t in action_tickers if t != primary]
     if extras:
         all_named = sorted(set([primary] + action_tickers))
-        raise ValueError(
+        raise ToolRedirect(
             f"propose_dsl_workflow is single-symbol but the request "
             f"names multiple ACTION tickers ({', '.join(all_named)}). "
             f"Use propose_workflow with "
             f"action.allocate_notional(symbols=[{', '.join(all_named)}]) "
             f"so ONE trigger fans the order across every named symbol. "
             f"Do NOT build for just the first symbol and tell the user "
-            f"to duplicate the card."
+            f"to duplicate the card.",
+            redirect_to="propose_workflow",
         )
 
     try:
@@ -1368,7 +1427,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
     # Keep it a short label: prefix the symbol if not already present.
     if primary and primary.upper() not in _readback_title.upper():
         _readback_title = f"{primary}: {_readback_title}"
-    label = _readback_title[:90] or label
+    label = _word_cap(_readback_title, 90) or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
     draft = {

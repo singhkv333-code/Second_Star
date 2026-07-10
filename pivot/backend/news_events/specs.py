@@ -32,7 +32,6 @@ from backend.news_events.models import (
 )
 from backend.news_events.parsing.disambiguation import (
     apply_answers,
-    apply_option,
     parsed_spec_to_pending_dict,
     questions_for,
 )

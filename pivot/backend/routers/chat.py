@@ -7,13 +7,12 @@ shape, slash-command shortcuts, and serialising the response.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from backend.security.throttle import rate_limit
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -193,15 +192,38 @@ def _with_attachment_context(message: str, attachments: Optional[list]) -> str:
 _CONV_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,36}$")
 
 
+# Cards above this JSON size get persisted as hint-only — a resumed
+# conversation then shows the text without the widget rather than bloating
+# the conversation_messages table with megabyte chain/backtest payloads.
+_PERSIST_CARD_MAX_CHARS = 60_000
+
+
+def _bounded_card(raw_data: Optional[dict]) -> Optional[dict]:
+    """The turn's card payload if it is render-hinted and reasonably sized."""
+    if not isinstance(raw_data, dict) or not raw_data.get("_render_hint"):
+        return None
+    try:
+        if len(json.dumps(raw_data, default=str)) <= _PERSIST_CARD_MAX_CHARS:
+            return raw_data
+    except Exception:
+        return None
+    return None
+
+
 def _persist_turn(
     user_id: int,
     raw_conv_id: Optional[str],
     user_msg: str,
     assistant_text: str,
     render_hint: Optional[str] = None,
+    card: Optional[dict] = None,
 ) -> None:
     """Write the (user, assistant) turn into the Postgres conversations
     tables so the sidebar history survives reloads and re-logins.
+
+    ``card`` (the render-hinted raw_data) rides along in ``tool_payload``
+    so a resumed conversation re-renders its widgets instead of showing
+    bare text (user-reported 2026-07-10).
 
     Uses its OWN session — the streaming generator outlives the request-
     scoped Depends(get_db) session. Failures are logged and swallowed:
@@ -236,13 +258,17 @@ def _persist_turn(
                 conversation_id=conv_id, role="user", content=user_msg[:8000],
             ))
             if assistant_text or render_hint:
+                payload = None
+                if render_hint:
+                    payload = {"_render_hint": render_hint}
+                    bounded = _bounded_card(card)
+                    if bounded is not None:
+                        payload["card"] = bounded
                 db.add(ConversationMessage(
                     conversation_id=conv_id,
                     role="assistant",
                     content=(assistant_text or "")[:16000],
-                    tool_payload=(
-                        {"_render_hint": render_hint} if render_hint else None
-                    ),
+                    tool_payload=payload,
                 ))
             convo.last_message_at = now
             db.commit()
@@ -352,7 +378,8 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
 
 
 async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
-    import asyncpg, datetime as _dt
+    import asyncpg
+    import datetime as _dt
     from backend.config import settings as _s
     from backtester.universe import universe_at
     from backtester.expr.validator import ValidationError
@@ -399,7 +426,8 @@ async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
 
 
 async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance: str) -> dict:
-    import asyncpg, datetime as _dt
+    import asyncpg
+    import datetime as _dt
     from backend.config import settings as _s
     # The fundamentals backtester lives in the sibling `pivot-backtester`
     # package; it's an optional dependency. If it isn't installed in the
@@ -577,9 +605,31 @@ def _jsonable(row: dict) -> dict:
 # ---- Main route --------------------------------------------------------
 
 
+async def _refresh_summary_bg(user_id: int, raw_conv_id) -> None:
+    """A2: refresh the ChatSummary AFTER the response is sent (FastAPI
+    background task — zero user-facing latency). ensure_summary is
+    internally gated to regenerate only every REFRESH_EVERY_N messages,
+    so most invocations are a cheap staleness check."""
+    raw = (raw_conv_id or "").strip()
+    if not raw:
+        return
+    try:
+        from backend.database import SessionLocal
+        from backend.services.conversation_summary import ensure_summary
+
+        _db = SessionLocal()
+        try:
+            await ensure_summary(_db, raw, user_id)
+        finally:
+            _db.close()
+    except Exception as e:  # noqa: BLE001 — background-only, never surfaces
+        logger.warning("background summary refresh failed: %s", e)
+
+
 @router.post("", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat(
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -670,6 +720,13 @@ async def chat(
     _persist_turn(
         user_id, request.conversation_id, last_msg, turn.response or "",
         render_hint=(raw_data or {}).get("_render_hint"),
+        card=raw_data if isinstance(raw_data, dict) else None,
+    )
+    # A2: keep the conversation summary fresh off the hot path so the
+    # summary bridge in chat_service has something to inject once the
+    # conversation outgrows the 6-turn window.
+    background_tasks.add_task(
+        _refresh_summary_bg, user_id, request.conversation_id,
     )
 
     _ph = get_posthog()
@@ -790,6 +847,7 @@ async def chat_stream(
             _persist_turn(
                 user_id, request.conversation_id, last_msg, text,
                 render_hint=(raw or {}).get("_render_hint"),
+                card=raw if isinstance(raw, dict) else None,
             )
             return
         try:
@@ -824,6 +882,7 @@ async def chat_stream(
                         user_id, request.conversation_id, last_msg,
                         event.get("response") or "",
                         render_hint=(raw_data or {}).get("_render_hint"),
+                        card=raw_data if isinstance(raw_data, dict) else None,
                     )
                 yield f"data: {json.dumps(event, default=str)}\n\n"
         except Exception as e:

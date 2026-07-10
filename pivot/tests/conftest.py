@@ -2,6 +2,11 @@ import os
 
 # Must be set BEFORE importing anything that loads backend.config
 os.environ["APP_ENV"] = "test"
+# The suite registers a fresh user per test — without this the 5/hour
+# per-IP register throttle (backend/security/throttle.py) 429s every
+# fixture-dependent test after the fifth registration. Tests that assert
+# throttling behaviour can unset it locally via monkeypatch.
+os.environ["PIVOT_DISABLE_THROTTLE"] = "1"
 os.environ["DATABASE_URL"] = "sqlite:///./pivot_test.db"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-minimum-32-characters-long"
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"

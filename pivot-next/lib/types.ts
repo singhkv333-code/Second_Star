@@ -1802,6 +1802,13 @@ export type ViewSummary = {
   best_episode_pct?: number | null;
   best_episode_label?: string | null;
   /**
+   * The holding horizons this view actually has strategies for. Drives the
+   * card's Timeline affordance: one entry → a fixed label (single-horizon event
+   * trade, no chooser); multiple → a real toggle between those horizons. Absent
+   * → legacy behaviour (heuristic fixed-vs-toggle off time_horizon).
+   */
+  available_horizons?: string[] | null;
+  /**
    * How the evidence was assembled. "rolling_windows" = overlapping historical
    * windows (not distinct events); "shock_no_analogs" = an event class with no
    * comparable history (forward model only, no track record).

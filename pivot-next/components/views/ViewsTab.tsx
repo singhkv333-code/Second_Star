@@ -25,12 +25,20 @@ import { ViewDetailPage } from "./ViewDetailPage";
 import { categoryLead } from "./view-format";
 import packSummariesRaw from "./pack/viewpack01.summaries.json";
 import packDetailsRaw from "./pack/viewpack01.details.json";
+import pack2SummariesRaw from "./pack/viewpack02.summaries.json";
+import pack2DetailsRaw from "./pack/viewpack02.details.json";
 
 // View Pack 01 — 8 curated views shipped as static data (summaries for the grid,
 // details for the detail page via detailOverride). This tab renders the pack
 // directly, with no /api/views round-trip.
-const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
-const PACK_DETAILS = packDetailsRaw as unknown as Record<string, ViewDetail>;
+const PACK_SUMMARIES = [
+  ...(packSummariesRaw as unknown as ViewSummary[]),
+  ...(pack2SummariesRaw as unknown as ViewSummary[]),
+];
+const PACK_DETAILS = {
+  ...(packDetailsRaw as unknown as Record<string, ViewDetail>),
+  ...(pack2DetailsRaw as unknown as Record<string, ViewDetail>),
+};
 
 // ---------------------------------------------------------------------------
 // Types

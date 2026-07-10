@@ -133,12 +133,16 @@ def get_news(
     suffix = ".NS" if exchange == "NSE" else ".BO"
     yf_sym = sym if sym.endswith((".NS", ".BO")) else f"{sym}{suffix}"
 
-    try:
-        raw = yf.Ticker(yf_sym).news or []
-    except Exception as e:
+    # yfinance is the only per-symbol news source (no Kite equivalent). `.news`
+    # has no timeout arg and hangs on a cloud IP, so bound it — fail fast with a
+    # clean 503 instead of a gateway timeout / browser "Failed to fetch".
+    from backend.market.net_timeout import call_bounded
+    raw = call_bounded(lambda: yf.Ticker(yf_sym).news or [],
+                       timeout=6, default=None, label=f"yf.news {sym}")
+    if raw is None:
         raise http_error(
             503, "not_yet_available",
-            f"yfinance news lookup failed for {sym}: {str(e)[:160]}",
+            f"news for {sym} is temporarily unavailable (source timed out)",
         )
 
     items: list[NewsItem] = []

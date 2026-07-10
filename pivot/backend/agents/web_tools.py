@@ -40,7 +40,6 @@ import hashlib
 import logging
 import json
 import re
-from typing import Any
 
 import httpx
 

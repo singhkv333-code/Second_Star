@@ -26,11 +26,10 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from backend.kite.auth import KITE_MOCK_MODE
 from backend.kite.system import get_system_kite
 from backend.models import InstrumentMaster, OptionUniverse
 

@@ -28,7 +28,6 @@ import {
   Zap,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -300,59 +299,6 @@ type ToolPill = {
 };
 
 
-// Friendly user-facing labels for the status sentence. Anything not
-// listed falls back to "Running <tool_name>…".
-const TOOL_STATUS: Record<string, string> = {
-  propose_workflow: "Drafting workflow",
-  get_live_price: "Fetching live price",
-  get_index_level: "Reading index level",
-  get_ohlc: "Pulling OHLC",
-  get_52wk_range: "Looking up 52-week range",
-  get_price_history: "Loading chart history",
-  get_market_status: "Checking market status",
-  get_portfolio_summary: "Loading portfolio",
-  get_holdings: "Loading holdings",
-  get_holding_detail: "Looking up that holding",
-  get_sector_breakdown: "Computing sector breakdown",
-  get_tax_summary: "Computing tax summary",
-  get_active_products: "Loading active products",
-  get_product_spec: "Reading product spec",
-  place_market_order: "Preparing market order",
-  place_limit_order: "Preparing limit order",
-  create_gtt_order: "Setting up GTT order",
-  create_sl_order: "Setting up stop-loss",
-  create_oco_order: "Setting up OCO order",
-  create_dip_buy: "Setting up dip buy",
-  place_basket_order: "Preparing basket",
-  cancel_order: "Cancelling order",
-  cancel_gtt: "Cancelling GTT",
-  list_pending_orders: "Listing pending orders",
-  list_gtt_orders: "Listing GTTs",
-  squareoff_all_intraday: "Squaring off intraday",
-  squareoff_symbol: "Squaring off positions",
-  create_sip: "Setting up SIP",
-  list_sips: "Listing SIPs",
-  pause_sip: "Pausing SIP",
-  resume_sip: "Resuming SIP",
-  delete_sip: "Removing SIP",
-  pause_all_sips: "Pausing all SIPs",
-  create_strategy: "Setting up strategy",
-  list_strategies: "Listing strategies",
-  pause_strategy: "Pausing strategy",
-  resume_strategy: "Resuming strategy",
-  delete_strategy: "Removing strategy",
-  run_backtest: "Running backtest",
-  compare_yields: "Comparing yields",
-  get_yield_recommendation: "Finding best yield",
-  calculate_order_qty: "Calculating order size",
-  calculate_tax_impact: "Calculating tax impact",
-  calculate_sl_price: "Calculating stop-loss price",
-  calculate_dip_price: "Calculating dip price",
-  calculate_margin: "Calculating margin",
-  get_scheduler_status: "Reading scheduler",
-  list_upcoming_jobs: "Listing upcoming jobs",
-  ASK_USER: "Asking you for one detail",
-};
 
 
 /** Self-contained status row for the streaming bubble.
@@ -365,68 +311,42 @@ const TOOL_STATUS: Record<string, string> = {
  * asked for a clean way to track time themselves and see what stage
  * the LLM is at — this is that widget. */
 /**
- * Witty finance-themed loading verbs. One word each — single-token
- * present participles ("-ing" verbs) that read like an analyst
- * working through a step. Cycles in randomized order so each
- * session feels different. Add liberally.
+ * Backend-steps waiting indicator — Notion-AI style.
+ *
+ * A vertical timeline that grows downward while the system works: one
+ * PLAIN WORD per step ("Thinking", "Querying", "Fetching", …), a small
+ * dot per row, a thin connector line between dots. No chips, no ticks;
+ * earlier steps stay visible in the muted colour and the newest word
+ * shimmers. The words are representative of the KIND of work; a real
+ * tool call maps onto its word via `toolStepWord` so genuine backend
+ * activity shows through as it happens.
  */
-const WITTY_PHRASES: readonly string[] = [
-  "Triangulating",
-  "Stress-testing",
-  "Sniffing",
-  "Discounting",
-  "Rebalancing",
-  "Backsolving",
-  "Interrogating",
-  "Tagging",
-  "Hedging",
-  "Compounding",
-  "Sweeping",
-  "Repricing",
-  "Unwinding",
-  "Calibrating",
-  "Auditing",
-  "Debriefing",
-  "Scoring",
-  "Pricing",
-  "Cross-checking",
-  "Arbitraging",
-  "Anchoring",
-  "Smoothing",
-  "Profiling",
-  "Tracing",
-  "Spreading",
-  "Scaling",
-  "De-risking",
-  "Backtesting",
-  "Pulling",
-  "Skewing",
-  "Crunching",
-  "Reconciling",
-  "Front-running",
-  "Trimming",
-  "Forecasting",
-  "Indexing",
-  "Stitching",
-  "Quantifying",
-  "Diversifying",
-  "Marking",
-  "Modelling",
-  "Benchmarking",
-  "Annotating",
-  "Synthesising",
-  "Filtering",
+/** One step: a capitalised lead word plus one or two plain supporting
+ *  words saying WHAT is being read/queried/fetched — no symbols. */
+type Step = { word: string; detail: string };
+
+const STEP_SCRIPT: readonly Step[] = [
+  { word: "Thinking", detail: "" },
+  { word: "Reading", detail: "context" },
+  { word: "Querying", detail: "fundamentals" },
+  { word: "Fetching", detail: "market data" },
+  { word: "Computing", detail: "indicators" },
+  { word: "Searching", detail: "news" },
 ];
 
-/** Fisher-Yates shuffle. Used once per loader mount so two adjacent
- *  cycles don't repeat in the same order. */
-function shufflePhrases(src: readonly string[]): string[] {
-  const a = src.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j]!, a[i]!];
-  }
-  return a;
+/** Lead word + support for a REAL tool call. */
+function toolStep(name: string): Step {
+  const n = name.toLowerCase();
+  if (/portfolio|holding|position|paper/.test(n)) return { word: "Querying", detail: "portfolio" };
+  if (/fundamental|financ|screen|compan/.test(n)) return { word: "Querying", detail: "fundamentals" };
+  if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) return { word: "Fetching", detail: "prices" };
+  if (/news|event|sentiment/.test(n)) return { word: "Searching", detail: "news" };
+  if (/backtest/.test(n)) return { word: "Computing", detail: "backtest" };
+  if (/compare|correlat/.test(n)) return { word: "Computing", detail: "comparison" };
+  if (/calculat|greek|margin|indicator/.test(n)) return { word: "Computing", detail: "metrics" };
+  if (/order|basket/.test(n)) return { word: "Preparing", detail: "order" };
+  if (/propose|build|create|workflow|strategy/.test(n)) return { word: "Drafting", detail: "strategy" };
+  return { word: "Working", detail: "" };
 }
 
 /** Mini price-chart ticker — three bars rising/falling on
@@ -446,44 +366,78 @@ function WittyTicker(): React.ReactElement {
   );
 }
 
-/** Cycling phrase. Re-keys on every change so the CSS animation
- *  re-plays for the fade+slide-in. Pause behavior: when `paused` is
- *  true (e.g. text is now streaming), we freeze on the current phrase
- *  and let the parent take over. Interval jitters between 2.0s and
- *  3.0s so the cadence doesn't feel mechanical. */
-function WittyPhrase({ paused = false }: { paused?: boolean }): React.ReactElement {
-  const queue = useRef<string[]>(shufflePhrases(WITTY_PHRASES));
-  const [phrase, setPhrase] = useState<string>(() => queue.current[0] ?? "Thinking");
-
-  useEffect(() => {
-    if (paused) return;
-    let cursor = 1;
-    const tick = (): void => {
-      if (cursor >= queue.current.length) {
-        queue.current = shufflePhrases(WITTY_PHRASES);
-        cursor = 0;
-      }
-      setPhrase(queue.current[cursor]!);
-      cursor += 1;
-    };
-    // Random first-phrase dwell time so two parallel mounts don't
-    // breathe in lockstep. Subsequent dwells re-roll inside the
-    // setTimeout chain.
-    let timer: number = window.setTimeout(function loop() {
-      tick();
-      timer = window.setTimeout(loop, 2000 + Math.random() * 1000);
-    }, 2000 + Math.random() * 1000);
-    return () => window.clearTimeout(timer);
-  }, [paused]);
-
+/** One timeline row: dot + lead word (slightly weighted) + supporting
+ *  words. The newest line shimmers as a whole. */
+function StepRow({ step, active }: { step: Step; active: boolean }): React.ReactElement {
   return (
-    <span
-      key={phrase}
-      className="witty-phrase"
-      style={{ display: "inline-block" }}
-    >
-      {phrase}…
-    </span>
+    <div className={`chat-step ${active ? "chat-step-active" : ""}`}>
+      <span className="chat-step-dot" aria-hidden={true} />
+      <span className={`chat-step-label ${active ? "shimmer" : ""}`}>
+        <span className="chat-step-word">{step.word}</span>
+        {step.detail ? ` ${step.detail}` : ""}
+      </span>
+    </div>
+  );
+}
+
+/** The Notion-style vertical step timeline. Grows downward — every step
+ *  stays visible; dots connect with a thin line (CSS ::before on rows).
+ *  Walks `STEP_SCRIPT` while the model thinks (no looping — holds on the
+ *  last word), surfaces real tool calls as their own word, and appends
+ *  "Writing" once reply text starts streaming. */
+function ChatSteps({
+  tools,
+  hasText,
+}: {
+  tools: ToolPill[];
+  hasText: boolean;
+}): React.ReactElement {
+  const [steps, setSteps] = useState<Step[]>([STEP_SCRIPT[0]!]);
+  const cursor = useRef<number>(1);
+  const seenTools = useRef<Set<string>>(new Set());
+
+  // Never repeat the line that's already at the bottom of the timeline.
+  const pushStep = (s: Step): void => {
+    setSteps((prev) => {
+      const last = prev[prev.length - 1];
+      return last && last.word === s.word && last.detail === s.detail
+        ? prev
+        : [...prev, s];
+    });
+  };
+
+  // Scripted progression while thinking — unhurried cadence, no loop.
+  useEffect(() => {
+    if (hasText) return;
+    const iv = window.setInterval(() => {
+      if (cursor.current >= STEP_SCRIPT.length) return; // hold on the last line
+      pushStep(STEP_SCRIPT[cursor.current]!);
+      cursor.current += 1;
+    }, 2600);
+    return () => window.clearInterval(iv);
+  }, [hasText]);
+
+  // Surface real tool calls as they begin (once per tool).
+  useEffect(() => {
+    const pending = tools.find((t) => t.ok === undefined);
+    if (!pending || seenTools.current.has(pending.name)) return;
+    seenTools.current.add(pending.name);
+    pushStep(toolStep(pending.name));
+  }, [tools]);
+
+  // Reply text streaming → the final step.
+  useEffect(() => {
+    if (hasText) pushStep({ word: "Writing", detail: "reply" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasText]);
+
+  const lastIdx = steps.length - 1;
+  return (
+    <div className="flex flex-col" style={{ gap: 4 }}>
+      {steps.map((s, i) => (
+        <StepRow key={`${i}-${s.word}-${s.detail}`} step={s} active={i === lastIdx} />
+      ))}
+    </div>
   );
 }
 
@@ -503,39 +457,22 @@ function StreamingStatusBar({
   }, []);
   const elapsedSec = Math.max(0, Math.round((now - startedAt) / 1000));
 
-  // Decide what to show:
-  //   • Tool actively running          → use the tool's literal label
-  //     so the user knows what's running (not a witty phrase).
-  //   • Text is streaming              → "Writing reply"; phrases stop.
-  //   • Otherwise (thinking/wrap-up)   → cycle witty phrases.
-  const pending = tools.find((t) => t.ok === undefined);
-  let mode: "phrases" | "literal" = "phrases";
-  let literal = "";
-  if (hasText) {
-    mode = "literal";
-    literal = "Writing reply";
-  } else if (pending) {
-    mode = "literal";
-    literal = TOOL_STATUS[pending.name] ?? `Running ${pending.name}`;
-  }
-
+  // Header row keeps the "load bar" (the 3-bar ticker) + a live elapsed
+  // counter; the backend-steps stack below shows WHAT the system is doing
+  // (routing → queries → data → tools → compute → compose). The old
+  // cycling adjectives are gone — steps carry the signal now.
   return (
     <div
-      className="flex items-center gap-3 text-xs text-muted-foreground"
+      className="flex flex-col gap-2"
       data-testid="streaming-status"
     >
-      <WittyTicker />
-      {mode === "literal" ? (
-        <span key={literal} className="witty-phrase">
-          {literal}…
+      <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+        <WittyTicker />
+        <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
+          {elapsedSec}s
         </span>
-      ) : (
-        <WittyPhrase />
-      )}
-      <span aria-hidden={true} className="text-muted-foreground/60">·</span>
-      <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
-        {elapsedSec}s
-      </span>
+      </div>
+      <ChatSteps tools={tools} hasText={hasText} />
     </div>
   );
 }
@@ -619,7 +556,12 @@ type ChatDemoProps = {
 
 export type ResumeConversation = {
   id: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    /** Persisted card payload — present when the backend saved a card with this turn. */
+    tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null;
+  }>;
 };
 
 export type ChatDemoSeed = {
@@ -630,6 +572,157 @@ export type ChatDemoSeed = {
   /** Hardcoded workflow draft surfaced as the assistant's response. */
   draft: WorkflowDraft;
 };
+
+/**
+ * Pure function: maps a render-hint + raw_data → Message.
+ * Used by both the live SSE `done` path (resolveStreamingMessage) and
+ * the resume seed path (useState initializer).  No side-effects — callers
+ * handle toasts / onDraftFromChat after calling this.
+ *
+ * `rawData` should be the full raw_data object (with _render_hint at the
+ * top level).  For the resume path reconstruct it as:
+ *   { _render_hint: tp._render_hint, ...(tp.card ?? {}) }
+ *
+ * `logiccard` is the separate top-level logiccard field from the SSE done
+ * event; for the resume path pass undefined (the card data is spread into
+ * rawData or omitted).
+ */
+function hintToMessage(
+  responseText: string,
+  rawData: (Record<string, unknown> & { _render_hint?: string }) | null | undefined,
+  logiccard?: LogicCard | null,
+): Message {
+  const hint = rawData?._render_hint;
+
+  if (hint === "workflow_draft_card" && rawData) {
+    const r = rawData as unknown as {
+      name?: string;
+      description?: string;
+      steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
+      rationale?: string;
+      warnings?: string[];
+    };
+    if (r.name && r.steps) {
+      const draft: WorkflowDraft = {
+        name: r.name,
+        description: r.description ?? "",
+        steps: r.steps.map((s) => ({
+          step_type: s.step_type,
+          label: s.label,
+          config: s.config,
+        })),
+        rationale: r.rationale ?? "",
+        warnings: r.warnings ?? [],
+        _render_hint: "workflow_draft_card",
+      };
+      return { kind: "draft", draft, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "logic_card") {
+    // Live path: logiccard comes as a separate field on the done event.
+    // Resume path: card fields are spread into rawData; try rawData itself.
+    const card: LogicCard | null | undefined =
+      logiccard ?? (rawData as unknown as LogicCard | null | undefined);
+    if (card && typeof (card as { type?: unknown }).type === "string") {
+      return { kind: "logic_card", card, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "synthetic_security_card" && rawData) {
+    return {
+      kind: "synthetic_security",
+      payload: rawData as unknown as SyntheticSecurityPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "indicator_backtest_chart" && rawData) {
+    return {
+      kind: "indicator_backtest",
+      payload: rawData as unknown as IndicatorBacktestPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "financial_backtest_chart" && rawData) {
+    return {
+      kind: "financial_backtest",
+      payload: rawData as unknown as FinancialBacktestPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_application_card" && rawData) {
+    return {
+      kind: "ipo_application",
+      payload: rawData as unknown as IpoApplicationPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_list_card" && rawData) {
+    return {
+      kind: "ipo_list",
+      payload: rawData as unknown as IpoListPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "ipo_listed_card" && rawData) {
+    return {
+      kind: "ipo_listed",
+      payload: rawData as unknown as IpoListedPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "option_chain_card" && rawData) {
+    return {
+      kind: "option_chain",
+      payload: rawData as unknown as OptionChainPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "option_strategy_card" && rawData) {
+    return {
+      kind: "option_strategy",
+      payload: rawData as unknown as OptionStrategyPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "portfolio_greeks_card" && rawData) {
+    return {
+      kind: "portfolio_greeks",
+      payload: rawData as unknown as PortfolioGreeksPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "clarify_card" && rawData) {
+    // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }
+    const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
+    if (clarify && Array.isArray(clarify.questions)) {
+      return { kind: "clarify", card: clarify, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  if (hint === "strategy_builder_card" && rawData) {
+    // Fields are spread at the top level of rawData alongside the render hint.
+    const card = rawData as unknown as StrategyBuilderCardData;
+    if (Array.isArray(card.constituents)) {
+      return { kind: "strategy_builder", card, intro: responseText };
+    }
+    return { kind: "assistant", text: responseText };
+  }
+
+  return { kind: "assistant", text: responseText };
+}
 
 /** Per-mount session id. Generated once on component mount; sent
  * with every chat request so the backend keys its Redis-stored
@@ -670,15 +763,36 @@ export function ChatDemo({
   const { activeEditorDraft, panelOpenWithDraft } = useActiveDraft();
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<Message[]>(() =>
-    // Resumed conversations seed the visible thread from the stored
-    // transcript (text turns only — cards aren't persisted).
+    // Resumed conversations seed the visible thread from the stored transcript.
+    // Assistant turns with a tool_payload restore their card via hintToMessage
+    // so the same component that rendered the card live renders it on resume.
     (resume?.messages ?? [])
       .filter((m) => m.content)
-      .map((m) =>
-        m.role === "user"
-          ? { kind: "user" as const, text: m.content }
-          : { kind: "assistant" as const, text: m.content },
-      ),
+      .map((m): Message => {
+        if (m.role === "user") {
+          return { kind: "user", text: m.content };
+        }
+        // Try to restore the card from tool_payload.
+        const tp = m.tool_payload;
+        if (tp?._render_hint) {
+          // Reconstruct rawData: spread card fields alongside _render_hint so
+          // hintToMessage's field-access pattern (rawData.name, rawData.steps …)
+          // matches the shape it sees from the live SSE done event.
+          const cardSpread: Record<string, unknown> = tp.card ?? {};
+          const rawData: Record<string, unknown> & { _render_hint: string } = {
+            _render_hint: tp._render_hint,
+            ...cardSpread,
+          };
+          // For logic_card the live path uses data.logiccard (a separate SSE
+          // field).  The backend may store it in card.logiccard; fall through
+          // to rawData-as-LogicCard if that key is absent.
+          const logiccard =
+            (tp.card as { logiccard?: LogicCard } | undefined)?.logiccard ?? undefined;
+          return hintToMessage(m.content, rawData, logiccard);
+        }
+        // Old rows / oversized payloads without tool_payload — plain text.
+        return { kind: "assistant", text: m.content };
+      }),
   );
   const [loading, setLoading] = useState(false);
   // Composer context attachments — securities (@ / + menu), positions,
@@ -715,6 +829,10 @@ export function ChatDemo({
   // Scroll container — kept pinned to the bottom while messages stream
   // in, the same auto-follow behaviour ChatGPT/Claude use.
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Inner message list — observed for height growth so late-rendering content
+  // (tall cards, markdown tables, images) re-pins the view to the bottom, not
+  // just discrete message-array updates.
+  const messagesRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   /** Holds the in-flight AbortController so the composer's Stop button
    *  can cancel the SSE stream mid-response. Cleared in submit()'s
@@ -1064,142 +1182,49 @@ export function ChatDemo({
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Follow height growth, not just message-array updates: streamed text,
+  // tall cards, markdown tables and images all grow the content AFTER the
+  // messages effect above has run. A ResizeObserver on the message list keeps
+  // the view pinned to the bottom through all of it, so the user never has to
+  // scroll down manually — unless they've deliberately scrolled up to read,
+  // in which case stickToBottomRef is false and we leave them where they are.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const inner = messagesRef.current;
+    if (!el || !inner) return;
+    const ro = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
+
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
    * the streaming bubble at `streamingIdx` in the message list.
-   * Reuses the same render-hint switch as the former non-streaming path.
+   * Delegates hint→Message mapping to hintToMessage (module-scope, pure).
+   * Side-effects (onDraftFromChat, toast) are handled here after the mapping.
    */
   function resolveStreamingMessage(
     data: ChatDonePayload,
     streamingIdx: number,
   ): void {
-    const rawData = data.raw_data;
-    const hint = rawData?._render_hint;
+    const finalMessage = hintToMessage(
+      data.response ?? "",
+      data.raw_data,
+      data.logiccard,
+    );
 
-    let finalMessage: Message;
-
-    if (hint === "workflow_draft_card" && rawData) {
-      const r = rawData as unknown as {
-        name?: string;
-        description?: string;
-        steps?: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
-        rationale?: string;
-        warnings?: string[];
-      };
-      if (r.name && r.steps) {
-        const draft: WorkflowDraft = {
-          name: r.name,
-          description: r.description ?? "",
-          steps: r.steps.map((s) => ({
-            step_type: s.step_type,
-            label: s.label,
-            config: s.config,
-          })),
-          rationale: r.rationale ?? "",
-          warnings: r.warnings ?? [],
-          _render_hint: "workflow_draft_card",
-        };
-        finalMessage = { kind: "draft", draft, intro: data.response ?? "" };
-        // Notify parent so the bound editor re-renders with the new draft.
-        onDraftFromChat?.(draftToWorkflow(draft));
-        // Toast only when the editor was already open on this draft (amendment).
-        if (panelOpenWithDraft) {
-          toast("Chat updated the agent", {
-            description: "The editor reflects the latest changes from this conversation.",
-            duration: 3000,
-          });
-        }
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
+    // Side-effects for live turns only (not the resume seed path).
+    if (finalMessage.kind === "draft") {
+      onDraftFromChat?.(draftToWorkflow(finalMessage.draft));
+      if (panelOpenWithDraft) {
+        toast("Chat updated the agent", {
+          description: "The editor reflects the latest changes from this conversation.",
+          duration: 3000,
+        });
       }
-    } else if (hint === "logic_card" && data.logiccard) {
-      finalMessage = {
-        kind: "logic_card",
-        card: data.logiccard,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "synthetic_security_card" && rawData) {
-      finalMessage = {
-        kind: "synthetic_security",
-        payload: rawData as unknown as SyntheticSecurityPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "indicator_backtest_chart" && rawData) {
-      finalMessage = {
-        kind: "indicator_backtest",
-        payload: rawData as unknown as IndicatorBacktestPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "financial_backtest_chart" && rawData) {
-      finalMessage = {
-        kind: "financial_backtest",
-        payload: rawData as unknown as FinancialBacktestPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_application_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_application",
-        payload: rawData as unknown as IpoApplicationPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_list_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_list",
-        payload: rawData as unknown as IpoListPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "ipo_listed_card" && rawData) {
-      finalMessage = {
-        kind: "ipo_listed",
-        payload: rawData as unknown as IpoListedPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "option_chain_card" && rawData) {
-      finalMessage = {
-        kind: "option_chain",
-        payload: rawData as unknown as OptionChainPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "option_strategy_card" && rawData) {
-      finalMessage = {
-        kind: "option_strategy",
-        payload: rawData as unknown as OptionStrategyPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "portfolio_greeks_card" && rawData) {
-      finalMessage = {
-        kind: "portfolio_greeks",
-        payload: rawData as unknown as PortfolioGreeksPayload,
-        intro: data.response ?? "",
-      };
-    } else if (hint === "clarify_card" && rawData) {
-      // raw_data = { _render_hint: "clarify_card", clarify: <ClarifyCard> }.
-      const clarify = (rawData as { clarify?: ClarifyCardData }).clarify;
-      if (clarify && Array.isArray(clarify.questions)) {
-        finalMessage = {
-          kind: "clarify",
-          card: clarify,
-          intro: data.response ?? "",
-        };
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
-      }
-    } else if (hint === "strategy_builder_card" && rawData) {
-      // The StrategyBuilderCard fields are spread at the top level of raw_data
-      // alongside the render hint (mirrors the executor's
-      // `{ "_render_hint": ..., **card.model_dump() }`).
-      const card = rawData as unknown as StrategyBuilderCardData;
-      if (Array.isArray(card.constituents)) {
-        finalMessage = {
-          kind: "strategy_builder",
-          card,
-          intro: data.response ?? "",
-        };
-      } else {
-        finalMessage = { kind: "assistant", text: data.response ?? "" };
-      }
-    } else {
-      finalMessage = { kind: "assistant", text: data.response ?? "" };
     }
 
     setMessages((prev) => {
@@ -1533,7 +1558,7 @@ export function ChatDemo({
 
       {/* Message thread */}
       {messages.length > 0 && (
-        <div className="flex flex-col gap-6" data-testid="chat-messages">
+        <div ref={messagesRef} className="flex flex-col gap-6" data-testid="chat-messages">
           {messages.map((msg, idx) => {
             // Retry on an assistant message re-submits the most recent
             // user message above it. Walking backwards gives us the
@@ -1587,14 +1612,10 @@ export function ChatDemo({
                             <AssistantMessage text={msg.text} />
                           </AssistantBubble>
                         </div>
-                      ) : (
-                        /* No text yet — show shimmer placeholder while
-                           first delta arrives. */
-                        <div className="mt-3 flex flex-col gap-1.5 py-0.5">
-                          <Skeleton className="h-3 w-40" />
-                          <Skeleton className="h-3 w-28" />
-                        </div>
-                      )}
+                      ) : null /* No text yet — the StreamingStatusBar above
+                          already shows live progress ("Thinking / Reading
+                          context …"); a skeleton placeholder underneath it read
+                          as redundant clutter, so we render nothing here. */}
                     </div>
                   </div>
                 </div>
@@ -1977,7 +1998,7 @@ export function ChatDemo({
                 }}
               >
                 <WittyTicker />
-                <WittyPhrase />
+                <span className="chat-step-label shimmer">Thinking</span>
                 {/* Subtle shimmer across the bubble's bottom edge so
                     something is always animating even when the phrase
                     is between cycles. */}

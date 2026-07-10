@@ -49,7 +49,7 @@ import type { Broker, BrokerCredentialsRequest, BrokerStatus } from "@/lib/types
 import { BrokerLogo } from "./BrokerLogo";
 import { BrokerConnectedState } from "./BrokerConnectedState";
 import { DeepLinkButton } from "./DeepLinkButton";
-import { connectKind, persistenceBlurb } from "./broker-ui";
+import { connectKind } from "./broker-ui";
 
 export type BrokerOAuthResult =
   | { kind: "connected" }

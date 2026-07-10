@@ -27,16 +27,10 @@ from backend.workflows.dsl.schema import (
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
-    GapNode,
     IndicatorNode,
     LogicNode,
     MathNode,
-    PctChangeNode,
     PositionNode,
-    PriceNode,
-    SessionDayNode,
-    SpreadNode,
-    VolumeNode,
 )
 
 

@@ -2,10 +2,8 @@
 Leg sizer — calculates exact rupee amounts for each leg of synthetic products.
 Core formula: safety_leg = capital / (1 + yield)^(horizon_years)
 """
-import math
 import httpx
 import logging
-from datetime import datetime
 from backend.cache import redis_client
 
 logger = logging.getLogger(__name__)
