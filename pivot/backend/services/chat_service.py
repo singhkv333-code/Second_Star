@@ -2262,8 +2262,10 @@ _ANALYSIS_INTENT_RE = re.compile(
     r"fairly\s*valued|a\s+buy|a\s+sell|worth\s+buying)|"
     # Risk / quality asks: "how risky is X" / "is X risky"
     r"how\s+risky\s+(?:is|are)|(?:is|are)\s+\w+\s+(?:risky|safe|quality)|"
-    # "X vs Y" comparison with 'vs' / 'versus' / explicit "comparison"
-    r"\bvs\.?\b|\bversus\b|\bcomparison\b|"
+    # "X vs Y" comparison — the VERB too: "compare it with ONGC" fell to
+    # analytical_short (≤120w) and produced the thinnest reply of all
+    # (user-reported 2026-07-10) because only the noun forms matched.
+    r"\bcompare\b|\bvs\.?\b|\bversus\b|\bcomparison\b|"
     # Dividend play / income angle: "good dividend play" / "dividend stock"
     r"dividend\s+(?:play|stock|pick|yield)|"
     # "which one is better" / "which has better" pattern
@@ -2518,6 +2520,10 @@ _INDEPENDENT_INTENT_RE = re.compile(
     r"|\bhow\s+(?:does|do|is|are|much|many)\b"
     r"|\bwhy\s+(?:is|does|do|are|should)\b"
     r"|\bdefine\b|\bexplain\b|\bcompare\b|\boverview\b"
+    # Analysis verbs are a fresh READ intent even while a draft is active
+    # (live repro 2026-07-10: "Analyze reliance." right after an agent
+    # draft re-emitted the draft instead of running the analysis flow).
+    r"|\banaly[sz]e\b|\bdeep\s+dive\b|\banalysis\s+(?:of|on)\b"
     # Portfolio / exposure introspection. The "over" / "under" branch
     # also matches their compound forms ("overexposed", "underweight",
     # "overweight") — \w* allows the suffix without breaking the leading
@@ -2800,6 +2806,137 @@ def _is_independent_prompt(message: str) -> bool:
     return False
 
 
+# ── Meta-turn classification (2026-07-10 follow-up rework) ─────────────
+# The draft/clarify funnels used to be capture-by-default: any turn that
+# didn't match the narrow "independent prompt" allowlist was forced into
+# "AMENDMENT TURN — re-emit IMMEDIATELY", and any turn during a clarify
+# flow was folded as an answer. Live repro of the user-reported failures:
+#   * "What time interval are you taking to calculate the RSI?"  → the
+#     same draft was re-emitted instead of an answer.
+#   * "You didn't ask me the number of shares. You just created the
+#     agent." → the clarify state machine consumed it as an answer and
+#     emitted its next scripted question (0 LLM hops).
+# These regexes give questions and meta-feedback their own lane: keep the
+# draft/clarify state, hand the turn to the LLM with the draft as CONTEXT
+# (not as a mandate), tool_choice=auto.
+
+_META_FEEDBACK_RE = re.compile(
+    # "you didn't / never / should have (asked) …", "without asking me"
+    r"\byou\s+(?:didn'?t|did\s+not|never|should\s+(?:have|not)|shouldn'?t"
+    r"|just\s+(?:created|built|made|placed|went))\b"
+    r"|\bwithout\s+asking(?:\s+me)?\b"
+    r"|\bwhy\s+did(?:n'?t)?\s+you\b"
+    r"|\bi\s+(?:didn'?t|did\s+not|never)\s+(?:say|ask|tell|approve|confirm"
+    r"|want)\b",
+    re.IGNORECASE,
+)
+
+_META_QUESTION_RE = re.compile(
+    r"^\s*(?:what|which|how|why|when|where|who|whose|does|do|is|are|am"
+    r"|can|could|will|would|should)\b[^?]{0,180}\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _followup_turn_kind(message: str) -> Optional[str]:
+    """'meta_feedback' | 'question' | None.
+
+    Fires ONLY for turns that must escape the amendment/clarify capture:
+    a complaint about how the assistant acted, or an interrogative that
+    carries no amendment verb ("can you make it 20 shares?" still matches
+    _DEPENDENT_INTENT_RE and stays an amendment)."""
+    msg = (message or "").strip()
+    if not msg:
+        return None
+    if _META_FEEDBACK_RE.search(msg):
+        return "meta_feedback"
+    if _META_QUESTION_RE.match(msg) and not _DEPENDENT_INTENT_RE.search(msg):
+        return "question"
+    return None
+
+
+def _safe_draft_json(draft: object, budget: int = 1800) -> str:
+    """Valid-JSON dump of a draft under `budget` chars.
+
+    The old ``json.dumps(draft)[:1800]`` cut MID-JSON; the model re-parsed
+    the fragment and regenerated corrupted params (live repro: a MACD
+    signal drifting 12,2 → 12,1 across re-emits). Drop bulky non-identity
+    fields, then the largest remaining values, until the dump fits."""
+    try:
+        if not isinstance(draft, dict):
+            s = json.dumps(draft, default=str)
+            return s if len(s) <= budget else "{}"
+        d = {k: v for k, v in draft.items()
+             if k not in ("payoff", "chart", "chart_data", "history",
+                          "preview", "equity_curve")}
+        while True:
+            s = json.dumps(d, default=str)
+            if len(s) <= budget or not d:
+                return s
+            biggest = max(
+                d, key=lambda k: len(json.dumps(d[k], default=str))
+            )
+            d.pop(biggest)
+    except Exception:  # noqa: BLE001 — a hint must never break the turn
+        return "{}"
+
+
+_ENGINE_FACTS = (
+    "Engine facts you may state plainly: indicators (RSI / SMA / EMA / "
+    "MACD) are computed on DAILY bars — RSI(14) means 14 trading DAYS — "
+    "unless the draft names another interval; price/indicator triggers "
+    "are evaluated about once a minute during market hours (09:15–15:30 "
+    "IST); scheduled triggers fire on their cron schedule; event triggers "
+    "are checked every few minutes. Orders are REGISTERED for the user's "
+    "confirmation (paper mode fills a simulated book) — nothing executes "
+    "against a live broker account on its own."
+)
+
+
+def _meta_turn_hint(kind: str, active, message: str) -> LLMMessage:
+    """System hint for a question / meta-feedback turn while a draft or
+    clarify flow is on screen: answer conversationally, keep the draft."""
+    if active is not None:
+        ctx = (
+            f"A `{active.tool_name}` draft is on screen — it STAYS on "
+            "screen; do not touch it unless the user's message fully "
+            f"specifies a change. DRAFT JSON: "
+            f"{_safe_draft_json(active.draft)}. "
+        )
+    else:
+        ctx = (
+            "You are mid-questionnaire (your last turn asked the user a "
+            "question). "
+        )
+    if kind == "meta_feedback":
+        body = (
+            "The user is giving META-FEEDBACK about how you handled the "
+            "last step (e.g. you built something without collecting a "
+            "parameter). Do NOT re-emit the unchanged draft. Do NOT treat "
+            "their message as a questionnaire answer. Respond in plain "
+            "prose: briefly acknowledge (one clause, no over-apologising), "
+            "state what the draft currently assumes for the parameter they "
+            "raised, and ask ONE short question for the missing value. If "
+            "their message itself fully specifies the correction, apply it "
+            "by re-emitting the tool with that one field changed."
+        )
+    else:
+        body = (
+            "The user is asking a QUESTION — about the draft's parameters, "
+            "what it will do, or how the system works. ANSWER it directly "
+            "in plain prose, grounded in the draft JSON and the engine "
+            "facts below. Do NOT re-emit the draft. Do NOT call a build "
+            "tool. Do NOT echo their question back at them. Do NOT answer "
+            "with a card. After answering, you may add one short line "
+            "inviting them to tweak or activate the draft. "
+            + _ENGINE_FACTS
+        )
+    return LLMMessage(
+        role="system",
+        content=f"META TURN — NOT an amendment, NOT a clarify answer. {ctx}{body}",
+    )
+
+
 def _analysis_subhint(message: str) -> str:
     """GAN R2 R1/R8: extra structure directive appended to the ANALYSIS
     reply-class hint based on the SHAPE of the analytical ask (screen /
@@ -2838,6 +2975,23 @@ def _analysis_subhint(message: str) -> str:
             "defended 6-month stance for the sector (constructive / "
             "neutral / cautious) with the 2-3 numbers that justify it and "
             "what would change your mind, then the not-advice line."
+        )
+    # 2026-07-10: "compare X with Y" was landing in analytical_short and
+    # producing a 4-row metric table with a two-line takeaway — far below
+    # the analysis bar. A comparison is a FULL analysis of two names.
+    if re.search(r"\bcompare\b|\bvs\.?\b|\bversus\b|\bcomparison\b",
+                 message, re.IGNORECASE):
+        return (
+            " THIS IS a HEAD-TO-HEAD COMPARISON — a single metric table is "
+            "an INVALID answer. Structure it as: `## Head-to-head` "
+            "(performance table: return windows, volatility, Sharpe, max "
+            "drawdown, with a Winner column), `## Fundamentals` (P/E, ROE, "
+            "ROCE, D/E, dividend yield side-by-side — call fetch_fundamentals "
+            "for BOTH names if not already in context), `## What separates "
+            "them` (2-3 sentences on business/valuation drivers behind the "
+            "numbers), and `## Verdict` — ONE defended pick for a stated "
+            "investor profile with what would flip it, then the not-advice "
+            "line."
         )
     return ""
 
@@ -4551,6 +4705,16 @@ class ChatService:
             self.store.clear_clarify(conv_id)
             trace.event("clarify.cancelled")
             return None
+        # A question or meta-complaint mid-questionnaire is NOT an answer
+        # (live repro 2026-07-10: "You didn't ask me the number of shares…"
+        # was folded into the current slot and the next scripted question
+        # fired with 0 LLM hops). Keep the clarify state — the card stays
+        # on screen — and fall through to the LLM turn, where the meta
+        # lane answers and re-invites the pending question.
+        if _followup_turn_kind(text) is not None:
+            trace.event("clarify.meta_diverted",
+                        kind=_followup_turn_kind(text))
+            return None
 
         questions = [
             ClarifyQuestion.model_validate(q)
@@ -6231,12 +6395,25 @@ class ChatService:
         # promotes the matching parked draft instead of defaulting to
         # whatever was most recent.
         active = self._select_active_draft(conv_id, message, trace)
-        if active is not None and _is_independent_prompt(message):
+        # A fired READ gate is a fresh top-level read intent by definition
+        # ("Analyze reliance." while an agent draft is active) — it must
+        # evict the draft exactly like an independent prompt, or the
+        # amendment hint below overrides the gate and re-emits the draft.
+        if active is not None and (_is_independent_prompt(message)
+                                   or _read_gate is not None):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
-                        reason="independent_prompt",
+                        reason=("read_gate" if _read_gate is not None
+                                else "independent_prompt"),
                         tool=active.tool_name)
             active = None
+
+        # Question / meta-feedback turns get their own lane (2026-07-10):
+        # the draft stays on screen as CONTEXT, the LLM answers in prose.
+        _meta_kind = _followup_turn_kind(message) if (
+            active is not None
+            or (history and _looks_like_clarification_followup(history))
+        ) else None
 
         # Build the workflow-hint payload once, reused below.
         # WHY extended to all macro tools: previously only "propose_workflow"
@@ -6245,8 +6422,9 @@ class ChatService:
         # the tool. Now any active macro-draft type (threshold, scheduled, etc.)
         # triggers the hint, naming the CORRECT tool to re-emit.
         workflow_hint = ""
-        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
-            draft_json = json.dumps(active.draft, default=str)[:1800]
+        if (active is not None and _meta_kind is None
+                and active.tool_name in _MACRO_AMENDMENT_TOOLS):
+            draft_json = _safe_draft_json(active.draft)
             tool_label = active.tool_name
             hint_verb = (
                 "Re-emit propose_workflow with the SAME steps shape, only "
@@ -6327,7 +6505,21 @@ class ChatService:
         if _confusion_menu:
             agent_tool_choice = "auto"
 
-        if (history and _looks_like_clarification_followup(history)
+        if _meta_kind is not None:
+            # META lane — a question about the draft/system or feedback
+            # about how we acted. Answer conversationally; never re-emit.
+            followup_hint = _meta_turn_hint(_meta_kind, active, message)
+            agent_tool_choice = "auto"
+            if _meta_kind == "question":
+                # ASK_USER out of scope: with it available the model
+                # parroted the user's own question back via ask_user
+                # (live repro). Feedback turns KEEP it — asking for the
+                # missing parameter is the right move there.
+                tooldefs = [t for t in tooldefs
+                            if t.name != ASK_USER_TOOL_NAME]
+            trace.event("followup.meta_lane", kind=_meta_kind,
+                        has_draft=active is not None)
+        elif (history and _looks_like_clarification_followup(history)
                 and not _confusion_menu):
             # CLARIFICATION-FOLLOWUP path — the user is answering a
             # question we asked. Carry the original intent forward.
@@ -8062,18 +8254,28 @@ class ChatService:
         # path — see handle() for full rationale. Track C #2: named
         # back-references promote the matching parked draft.
         active = self._select_active_draft(conv_id, message, trace)
-        if active is not None and _is_independent_prompt(message):
+        # Read-gate eviction — see handle() for WHY.
+        if active is not None and (_is_independent_prompt(message)
+                                   or _read_gate is not None):
             self.store.clear_active_draft(conv_id)
             trace.event("active_draft.evicted",
-                        reason="independent_prompt",
+                        reason=("read_gate" if _read_gate is not None
+                                else "independent_prompt"),
                         tool=active.tool_name)
             active = None
+        # Meta lane (question / feedback while draft or clarify active) —
+        # see handle() for WHY.
+        _meta_kind = _followup_turn_kind(message) if (
+            active is not None
+            or (history and _looks_like_clarification_followup(history))
+        ) else None
         # Mirror of non-streaming workflow_hint — extended to all macro
         # draft types (propose_threshold_order, propose_scheduled_order, etc.).
         # See handle() for WHY.
         workflow_hint = ""
-        if active is not None and active.tool_name in _MACRO_AMENDMENT_TOOLS:
-            draft_json = json.dumps(active.draft, default=str)[:1800]
+        if (active is not None and _meta_kind is None
+                and active.tool_name in _MACRO_AMENDMENT_TOOLS):
+            draft_json = _safe_draft_json(active.draft)
             tool_label = active.tool_name
             hint_verb = (
                 "Re-emit propose_workflow with the SAME steps shape, only "
@@ -8140,7 +8342,17 @@ class ChatService:
         if _confusion_menu:
             agent_tool_choice = "auto"
 
-        if (history and _looks_like_clarification_followup(history)
+        if _meta_kind is not None:
+            # META lane — mirror of handle(). Answer, never re-emit.
+            followup_hint_msg = _meta_turn_hint(_meta_kind, active, message)
+            agent_tool_choice = "auto"
+            if _meta_kind == "question":
+                # See handle(): ASK_USER available → question parroted back.
+                tooldefs = [t for t in tooldefs
+                            if t.name != ASK_USER_TOOL_NAME]
+            trace.event("followup.meta_lane", kind=_meta_kind,
+                        has_draft=active is not None)
+        elif (history and _looks_like_clarification_followup(history)
                 and not _confusion_menu):
             last_assistant = next(
                 (h for h in reversed(history)

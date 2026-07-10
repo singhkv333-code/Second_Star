@@ -88,6 +88,23 @@ _DSL_NON_TICKER_TOKENS: frozenset[str] = frozenset({
 _TICKER_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9\-_]{2,15}\b")
 
 
+def _word_cap(text: str, cap: int = 90) -> str:
+    """Cap a display label at `cap` chars WITHOUT cutting mid-token.
+
+    A hard slice produced garbage titles like "…crosses above signal
+    MACD(12,1" (from MACD(12,26,9)) that then leaked into readbacks and
+    even got re-parsed on amendment turns. Cut at the last space before
+    the cap and mark the elision."""
+    t = (text or "").strip()
+    if len(t) <= cap:
+        return t
+    cut = t[: cap - 1]
+    sp = cut.rfind(" ")
+    if sp > cap // 2:
+        cut = cut[:sp]
+    return cut + "…"
+
+
 def _distinct_tickers_in(*texts: str) -> list[str]:
     """Return the distinct ticker-shaped tokens across all supplied
     strings, filtering out NSE/RSI/EMA/etc. that match the same regex
@@ -342,7 +359,7 @@ def _is_nonstructural_dsl_amendment(message: str) -> dict:
         fields["quantity"] = int(qm.group(1))
     rm = re.search(r"\b(?:rename|call\s+it|name\s+it)\s+(?:to\s+)?(.+)$", msg)
     if rm:
-        fields["name"] = rm.group(1).strip()[:80]
+        fields["name"] = _word_cap(rm.group(1).strip(), 80)
     cm = re.search(
         r"\bnotify\s+(?:me\s+)?(?:by|on|via|through)\s+"
         r"(email|push|sms|whatsapp)\b", msg)
@@ -393,7 +410,7 @@ def _patch_dsl_draft(prior: dict, fields: dict):
             _erb = (draft.get("exit_readback") or "").strip()
             if _rb:
                 _title = f"{_rb} → {_erb}" if _erb else _rb
-                draft["name"] = _title[:90]
+                draft["name"] = _word_cap(_title, 90)
         if fields.get("channel"):
             for s in steps:
                 if isinstance(s, dict) and s.get("step_type") == "notify.message":
@@ -1410,7 +1427,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
     # Keep it a short label: prefix the symbol if not already present.
     if primary and primary.upper() not in _readback_title.upper():
         _readback_title = f"{primary}: {_readback_title}"
-    label = _readback_title[:90] or label
+    label = _word_cap(_readback_title, 90) or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
     draft = {

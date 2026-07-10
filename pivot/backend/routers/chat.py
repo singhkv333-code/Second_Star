@@ -193,15 +193,38 @@ def _with_attachment_context(message: str, attachments: Optional[list]) -> str:
 _CONV_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,36}$")
 
 
+# Cards above this JSON size get persisted as hint-only — a resumed
+# conversation then shows the text without the widget rather than bloating
+# the conversation_messages table with megabyte chain/backtest payloads.
+_PERSIST_CARD_MAX_CHARS = 60_000
+
+
+def _bounded_card(raw_data: Optional[dict]) -> Optional[dict]:
+    """The turn's card payload if it is render-hinted and reasonably sized."""
+    if not isinstance(raw_data, dict) or not raw_data.get("_render_hint"):
+        return None
+    try:
+        if len(json.dumps(raw_data, default=str)) <= _PERSIST_CARD_MAX_CHARS:
+            return raw_data
+    except Exception:
+        return None
+    return None
+
+
 def _persist_turn(
     user_id: int,
     raw_conv_id: Optional[str],
     user_msg: str,
     assistant_text: str,
     render_hint: Optional[str] = None,
+    card: Optional[dict] = None,
 ) -> None:
     """Write the (user, assistant) turn into the Postgres conversations
     tables so the sidebar history survives reloads and re-logins.
+
+    ``card`` (the render-hinted raw_data) rides along in ``tool_payload``
+    so a resumed conversation re-renders its widgets instead of showing
+    bare text (user-reported 2026-07-10).
 
     Uses its OWN session — the streaming generator outlives the request-
     scoped Depends(get_db) session. Failures are logged and swallowed:
@@ -236,13 +259,17 @@ def _persist_turn(
                 conversation_id=conv_id, role="user", content=user_msg[:8000],
             ))
             if assistant_text or render_hint:
+                payload = None
+                if render_hint:
+                    payload = {"_render_hint": render_hint}
+                    bounded = _bounded_card(card)
+                    if bounded is not None:
+                        payload["card"] = bounded
                 db.add(ConversationMessage(
                     conversation_id=conv_id,
                     role="assistant",
                     content=(assistant_text or "")[:16000],
-                    tool_payload=(
-                        {"_render_hint": render_hint} if render_hint else None
-                    ),
+                    tool_payload=payload,
                 ))
             convo.last_message_at = now
             db.commit()
@@ -692,6 +719,7 @@ async def chat(
     _persist_turn(
         user_id, request.conversation_id, last_msg, turn.response or "",
         render_hint=(raw_data or {}).get("_render_hint"),
+        card=raw_data if isinstance(raw_data, dict) else None,
     )
     # A2: keep the conversation summary fresh off the hot path so the
     # summary bridge in chat_service has something to inject once the
@@ -818,6 +846,7 @@ async def chat_stream(
             _persist_turn(
                 user_id, request.conversation_id, last_msg, text,
                 render_hint=(raw or {}).get("_render_hint"),
+                card=raw if isinstance(raw, dict) else None,
             )
             return
         try:
@@ -852,6 +881,7 @@ async def chat_stream(
                         user_id, request.conversation_id, last_msg,
                         event.get("response") or "",
                         render_hint=(raw_data or {}).get("_render_hint"),
+                        card=raw_data if isinstance(raw_data, dict) else None,
                     )
                 yield f"data: {json.dumps(event, default=str)}\n\n"
         except Exception as e:
