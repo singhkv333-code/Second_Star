@@ -26,7 +26,7 @@ else:
         max_overflow=5,
         pool_timeout=10,
         pool_use_lifo=True,
-        pool_pre_ping=False,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )
@@ -58,7 +58,7 @@ else:
         max_overflow=4,
         pool_timeout=10,
         pool_use_lifo=True,
-        pool_pre_ping=False,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )
@@ -85,7 +85,7 @@ else:
         max_overflow=3,
         pool_timeout=10,
         pool_use_lifo=True,
-        pool_pre_ping=False,
+        pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
     )
