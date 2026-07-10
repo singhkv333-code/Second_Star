@@ -1,0 +1,63 @@
+name: PR validation
+
+# Gate for merging into main/develop — build + lint + import-sanity, no live
+# infra required (no DB/Redis/Kite calls), so it's safe to run on every PR
+# without touching production credentials.
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pivot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Lint (ruff)
+        run: ruff check backend
+
+      - name: Import sanity (catches syntax/import errors with no live infra)
+        run: python -c "import backend.main"
+
+      - name: Test collection (catches broken test imports; DB-backed tests are not executed here)
+        run: pytest --collect-only -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pivot-next
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
