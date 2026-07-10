@@ -147,29 +147,49 @@ class MetricSeriesResponse(BaseModel):
 # ── Indices endpoint (dashboard) ─────────────────────────────────────
 
 
-# Map display name → yfinance ticker. NSEMDCP100 isn't always exposed via
-# yfinance's `^` shortcut; we fall back to the .NS form. If neither works
-# at request time we'll surface NotYetAvailable for that single index
-# without failing the whole endpoint.
-_INDEX_TICKERS: list[tuple[str, str]] = [
-    ("NIFTY 50", "^NSEI"),
-    ("SENSEX", "^BSESN"),
-    ("BANK NIFTY", "^NSEBANK"),
-    ("NIFTY MIDCAP 100", "^NSEMDCP50"),
+# Map display name → (yfinance ticker, Kite index key). Kite is PRIMARY —
+# `kite.quote()` serves the index instruments directly, so the strip works on a
+# cloud IP where yfinance is throttled. yfinance is the fallback (NSEMDCP100
+# isn't always exposed via yfinance's `^` shortcut). If neither works at request
+# time we surface NotYetAvailable for that single index without failing the list.
+# NOTE: Kite's "NIFTY MIDCAP 100" is the true Midcap-100; the yfinance fallback
+# ticker ^NSEMDCP50 is only Midcap-50 (a legacy approximation).
+_INDEX_TICKERS: list[tuple[str, str, str]] = [
+    ("NIFTY 50", "^NSEI", "NSE:NIFTY 50"),
+    ("SENSEX", "^BSESN", "BSE:SENSEX"),
+    ("BANK NIFTY", "^NSEBANK", "NSE:NIFTY BANK"),
+    ("NIFTY MIDCAP 100", "^NSEMDCP50", "NSE:NIFTY MIDCAP 100"),
 ]
 
 
-def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
-    """Best-effort fetch via yfinance with a 10s Redis cache.
+def _cache_index_quote(cache_key: str, quote: IndexQuote) -> None:
+    """Best-effort Redis write of an index quote (shared by the Kite + yf paths)."""
+    try:
+        redis_client.set(
+            cache_key,
+            json.dumps({
+                "name": quote.name,
+                "symbol": quote.symbol,
+                "value": quote.value,
+                "change": quote.change,
+                "change_pct": quote.change_pct,
+                "last_updated": quote.last_updated.isoformat(),
+            }),
+            ex=_INDEX_LEVEL_TTL_S,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[markets] cache write failed for %s: %s", cache_key, e)
 
-    Returns None on any failure so the caller can omit the failed
-    index without 500'ing the whole list.
 
-    WHY caching here: the chat path (`get_index_level`) and the
-    dashboard both ask for these four indices repeatedly within
-    seconds. Without the cache, every query was a fresh yfinance
-    round-trip (~500-1500ms each) and risked rate-limiting on the
-    keyless yfinance endpoint. The Redis hit collapses the burst.
+def _fetch_index(name: str, ticker_symbol: str, kite_key: str = "") -> IndexQuote | None:
+    """Kite-primary index quote with a 10s Redis cache, yfinance fallback.
+
+    Returns None on any failure so the caller can omit the failed index without
+    500'ing the whole list.
+
+    WHY caching here: the chat path (`get_index_level`) and the dashboard both
+    ask for these four indices repeatedly within seconds. The Redis hit
+    collapses the burst so we don't pay a round-trip per query.
     """
     cache_key = f"{_INDEX_LEVEL_PREFIX}{ticker_symbol}"
     try:
@@ -187,9 +207,33 @@ def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
     except Exception as e:
         logger.debug("[markets] cache read miss for %s: %s", cache_key, e)
 
+    # ── Primary: Kite REST index quote (last_price + previous close). ──
+    if kite_key:
+        try:
+            from backend.kite.live_quote import get_kite_quotes
+            kq = get_kite_quotes([kite_key]).get(kite_key)
+            if kq and kq.get("last_price"):
+                value = float(kq["last_price"])
+                prev_close = kq.get("prev_close") or value
+                change = value - prev_close
+                change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
+                quote = IndexQuote(
+                    name=name,
+                    symbol=ticker_symbol,
+                    value=round(value, 2),
+                    change=round(change, 2),
+                    change_pct=round(change_pct, 2),
+                    last_updated=datetime.now(timezone.utc),
+                )
+                _cache_index_quote(cache_key, quote)
+                return quote
+        except Exception as e:  # noqa: BLE001 — fall through to yfinance
+            logger.info("[markets] kite index fetch failed for %s: %s", name, str(e)[:160])
+
+    # ── Fallback: yfinance (bounded so it can't hang on a cloud IP). ──
     try:
         ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="2d", interval="1d")
+        hist = ticker.history(period="2d", interval="1d", timeout=6)
         if hist.empty or len(hist) < 1:
             return None
         latest_close = float(hist["Close"].iloc[-1])
@@ -204,21 +248,7 @@ def _fetch_index(name: str, ticker_symbol: str) -> IndexQuote | None:
             change_pct=round(change_pct, 2),
             last_updated=datetime.now(timezone.utc),
         )
-        try:
-            redis_client.set(
-                cache_key,
-                json.dumps({
-                    "name": quote.name,
-                    "symbol": quote.symbol,
-                    "value": quote.value,
-                    "change": quote.change,
-                    "change_pct": quote.change_pct,
-                    "last_updated": quote.last_updated.isoformat(),
-                }),
-                ex=_INDEX_LEVEL_TTL_S,
-            )
-        except Exception as e:
-            logger.debug("[markets] cache write failed for %s: %s", cache_key, e)
+        _cache_index_quote(cache_key, quote)
         return quote
     except Exception as e:
         logger.warning("[markets] index fetch failed for %s (%s): %s",
@@ -235,23 +265,72 @@ def get_indices(
     _user_id: int = Depends(require_user),
 ) -> IndicesResponse:
     items: list[IndexQuote] = []
-    for name, sym in _INDEX_TICKERS:
-        q = _fetch_index(name, sym)
+    for name, sym, kite_key in _INDEX_TICKERS:
+        q = _fetch_index(name, sym, kite_key)
         if q is not None:
             items.append(q)
     if not items:
-        # Network completely down or yfinance rate-limited → surface to FE
-        # via canonical envelope rather than returning an empty list (which
-        # the dashboard would render as a blank strip).
+        # Both Kite and yfinance unreachable → surface to FE via canonical
+        # envelope rather than returning an empty list (which the dashboard
+        # would render as a blank strip).
         raise http_error(
             status_code=503,
             code="not_yet_available",
-            message="market indices unavailable — yfinance source is unreachable",
+            message="market indices unavailable — data source is unreachable",
         )
     return IndicesResponse(items=items)
 
 
 # ── Stock snapshot ───────────────────────────────────────────────────
+
+
+_DB_META_TTL_S = 43_200  # 12h — name/sector/mcap/PE move slowly
+
+
+def _db_meta(symbol: str) -> dict:
+    """Name / sector / industry / market-cap from the enrich DB, plus P/E from
+    the Financials (Moneycontrol) DB. All best-effort — a missing field is
+    ``None`` (never fabricated), and neither call touches the network, so this
+    never hangs on a cloud IP the way yfinance's ``.info`` does. Redis-cached
+    12h so the hot quote path doesn't pay two remote-DB queries per request."""
+    key = f"qmeta:{symbol.upper()}"
+    try:
+        raw = redis_client.get(key)
+        if raw is not None:
+            return json.loads(raw if isinstance(raw, str) else raw.decode())
+    except Exception:  # noqa: BLE001
+        pass
+
+    out: dict[str, object] = {
+        "name": None, "sector": None, "industry": None,
+        "market_cap": None, "pe_ratio": None,
+    }
+    try:
+        from backend.market import enrich_db
+        e = enrich_db.get_by_ticker(symbol)
+        if e is not None:
+            out["name"] = e.long_name or e.company_name
+            out["sector"] = e.sector
+            out["industry"] = e.industry
+            out["market_cap"] = e.market_cap
+    except Exception:  # noqa: BLE001 — DB best-effort
+        pass
+    try:
+        from backend.services.fundamentals_screen import fetch_gate_inputs
+        g = fetch_gate_inputs([symbol]).get(symbol.upper())
+        if g and g.get("pe") is not None:
+            out["pe_ratio"] = float(g["pe"])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Only cache once we actually resolved a name — avoids pinning an all-null
+    # miss (e.g. a transient DB blip) for 12h.
+    if out["name"]:
+        try:
+            redis_client.setex(key, _DB_META_TTL_S, json.dumps(out))
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 @router.get(
@@ -287,6 +366,49 @@ def get_quote(
     except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
         pass
 
+    # ── Kite REST live-quote tier — the production path. Live price + OHLC come
+    #    from Kite (works on cloud IPs where yfinance's `.info` hangs); the
+    #    name / sector / P-E / market-cap come from the enrich + financials DBs;
+    #    the 52-week range is computed from Kite's own 1-year bars. yfinance
+    #    below is only reached when there is no live Kite session at all.
+    from backend.kite.live_quote import get_kite_quote
+    kq = get_kite_quote(sym, exchange)
+    if kq and kq.get("last_price"):
+        meta = _db_meta(sym)
+        w52_high, w52_low = _cached_52w(sym, exchange)
+        ltp = float(kq["last_price"])
+        prev_close = kq.get("prev_close") or kq.get("open") or ltp
+        change = ltp - prev_close
+        change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
+        quote = StockQuote(
+            symbol=sym,
+            name=str(meta["name"] or sym),
+            exchange=exchange,
+            sector=meta["sector"],  # type: ignore[arg-type]
+            industry=meta["industry"],  # type: ignore[arg-type]
+            ltp=round(ltp, 2),
+            change=round(change, 2),
+            change_pct=round(change_pct, 2),
+            open=round(float(kq.get("open") or ltp), 2),
+            high=round(float(kq.get("high") or ltp), 2),
+            low=round(float(kq.get("low") or ltp), 2),
+            prev_close=round(float(prev_close), 2),
+            volume=float(kq.get("volume") or 0),
+            w52_high=w52_high,
+            w52_low=w52_low,
+            market_cap=meta["market_cap"],  # type: ignore[arg-type]
+            pe_ratio=meta["pe_ratio"],  # type: ignore[arg-type]
+            last_updated=datetime.now(timezone.utc),
+            logo_url=_lookup_logo(sym),
+            live=True,
+            source="kite_rest",
+        )
+        try:
+            redis_client.setex(_q_key, _QUOTE_CACHE_TTL_SECONDS, quote.model_dump_json())
+        except Exception:  # noqa: BLE001 — cache write is best-effort
+            pass
+        return quote
+
     # [C4] resolve_symbol maps index aliases (NIFTY→^NSEI, SENSEX→^BSESN,
     # BANKNIFTY→^NSEBANK) and shorthand (RIL→RELIANCE) to real yfinance
     # tickers. The old naive ".NS" suffix produced dead tickers
@@ -304,10 +426,16 @@ def get_quote(
     else:
         yf_symbol = resolve_symbol(sym)
 
+    # Last-resort yfinance path (no live Kite session). Both calls are bounded
+    # so they fail fast on a datacenter IP instead of hanging into a gateway
+    # timeout / "Failed to fetch": `.info` has no timeout arg → run it under a
+    # hard wall-clock via call_bounded; `.history` takes a native `timeout=`.
+    from backend.market.net_timeout import call_bounded
     try:
         ticker = yf.Ticker(yf_symbol)
-        info = ticker.info or {}
-        hist = ticker.history(period="5d", interval="1d")
+        info = call_bounded(lambda: ticker.info, timeout=6, default={},
+                            label=f"yf.info {sym}") or {}
+        hist = ticker.history(period="5d", interval="1d", timeout=6)
     except Exception as e:
         raise http_error(
             503, "not_yet_available",
@@ -404,13 +532,17 @@ def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
     # to drop it (→ empty 52w bar on the stock page). Backfill from a 12h
     # cache computed off yfinance.
     w52_high, w52_low = _cached_52w(symbol)
+    # Company name / sector / market-cap / P-E from the DB (cached) — the tick
+    # feed carries none of these, so without this the live path showed a bare
+    # ticker and empty fundamentals on the stock-page header.
+    meta = _db_meta(symbol)
     last_updated = datetime.fromtimestamp(int(ts), tz=timezone.utc)
     return StockQuote(
         symbol=symbol,
-        name=symbol,
+        name=str(meta["name"] or symbol),
         exchange="NSE",
-        sector=None,
-        industry=None,
+        sector=meta["sector"],  # type: ignore[arg-type]
+        industry=meta["industry"],  # type: ignore[arg-type]
         ltp=round(float(ltp), 2),
         change=round(change, 2),
         change_pct=round(change_pct_f, 2),
@@ -421,8 +553,8 @@ def _read_cached_kite_tick(symbol: str) -> StockQuote | None:
         volume=_or_zero(data.get("volume")),
         w52_high=w52_high,
         w52_low=w52_low,
-        market_cap=None,
-        pe_ratio=None,
+        market_cap=meta["market_cap"],  # type: ignore[arg-type]
+        pe_ratio=meta["pe_ratio"],  # type: ignore[arg-type]
         last_updated=last_updated,
         logo_url=_lookup_logo(symbol),
         live=True,
@@ -755,11 +887,15 @@ def _is_nan(v: float) -> bool:
 _52W_TTL_S = 43_200  # 12h — the range barely moves intraday
 
 
-def _cached_52w(symbol: str) -> tuple[float | None, float | None]:
+def _cached_52w(
+    symbol: str, exchange: str = "NSE",
+) -> tuple[float | None, float | None]:
     """Return (high, low) 52-week range, cached in Redis for 12h.
 
-    Computed from yfinance `info`, falling back to the 1-year high/low of the
-    daily bars. Returns (None, None) on any failure — the caller renders "—".
+    Computed from KITE 1-year daily bars (max high / min low) — the same Kite
+    historical tier the price chart uses, so it works in production where a
+    yfinance `.info` call hangs on a datacenter IP. yfinance is a last-resort
+    fallback only. Returns (None, None) on any failure — the caller renders "—".
     """
     key = f"q52:{symbol.upper()}"
     try:
@@ -774,19 +910,32 @@ def _cached_52w(symbol: str) -> tuple[float | None, float | None]:
 
     hi: float | None = None
     lo: float | None = None
+
+    # Primary: compute the range from Kite's 1-year daily bars.
     try:
-        from backend.market.yfinance_service import resolve_symbol
-        t = yf.Ticker(resolve_symbol(symbol))
-        info = t.info or {}
-        hi = _safe_float(info.get("fiftyTwoWeekHigh"))
-        lo = _safe_float(info.get("fiftyTwoWeekLow"))
-        if hi is None or lo is None:
-            h = t.history(period="1y")
+        from backend.kite.historical import get_kite_historical
+        rows = get_kite_historical(symbol, period="1y", exchange=exchange)
+        if rows:
+            highs = [float(r["high"]) for r in rows if r.get("high") is not None]
+            lows = [float(r["low"]) for r in rows if r.get("low") is not None]
+            if highs and lows:
+                hi = round(max(highs), 2)
+                lo = round(min(lows), 2)
+    except Exception:  # noqa: BLE001 — fall through to yfinance
+        pass
+
+    # Last-resort fallback: yfinance (only reached when Kite has no session /
+    # can't resolve the instrument). `timeout=` bounds the requests round-trip
+    # so it fails fast on a datacenter IP instead of hanging the request.
+    if hi is None or lo is None:
+        try:
+            from backend.market.yfinance_service import resolve_symbol
+            h = yf.Ticker(resolve_symbol(symbol)).history(period="1y", timeout=6)
             if not h.empty:
                 hi = round(float(h["High"].max()), 2)
                 lo = round(float(h["Low"].min()), 2)
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     if hi is not None and lo is not None:
         try:
