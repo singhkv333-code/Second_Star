@@ -86,6 +86,13 @@ export type AgentsTabProps = {
   onEditWithChat?: (workflow: Workflow) => void;
   /** "Browse views" from the Views surface — jump to the Views tab. */
   onBrowseViews?: () => void;
+  /**
+   * External request to switch the surface toggle (e.g. the Home tab's F&O
+   * prebuilt tile asking for "strategies"). The `nonce` makes repeat requests
+   * for the same surface re-fire; robust against this tab mounting lazily
+   * after the request is set. Null when no request is pending.
+   */
+  surfaceRequest?: { surface: Surface; nonce: number } | null;
 };
 
 type Surface = "equity" | "strategies" | "views";
@@ -190,8 +197,19 @@ export function AgentsTab({
   onOpenWorkflow,
   onEditWithChat,
   onBrowseViews,
+  surfaceRequest,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
+  // Apply an external surface request (Home F&O tile → "strategies"), once per
+  // nonce. On lazy mount the effect fires with the pending request already set,
+  // so a request made before this tab existed still lands.
+  const appliedSurfaceNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!surfaceRequest) return;
+    if (appliedSurfaceNonce.current === surfaceRequest.nonce) return;
+    appliedSurfaceNonce.current = surfaceRequest.nonce;
+    setSurface(surfaceRequest.surface);
+  }, [surfaceRequest]);
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -490,6 +508,9 @@ function SurfaceToggle({
         background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-sm)",
+        // Shrink to fit the tabs so the toggle never leaves blank space to its
+        // right when it stacks full-width on mobile.
+        width: "fit-content",
         maxWidth: "100%",
         overflowX: "auto",
         WebkitOverflowScrolling: "touch",

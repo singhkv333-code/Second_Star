@@ -26,6 +26,7 @@
  * value or an honest empty state.
  */
 
+import Link from "next/link";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   Activity,
@@ -40,7 +41,6 @@ import {
   PieChart,
   Repeat,
   Scale,
-  Shield,
   Sparkles,
   Telescope,
   TrendingUp,
@@ -58,6 +58,7 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import type { Workflow } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchlists";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
@@ -83,6 +84,19 @@ export type HomeTabProps = {
   onGoTab: (tab: "chat" | "portfolio" | "screener" | "views" | "agents") => void;
   /** Drop a prompt into the chat composer and auto-submit it. */
   onSendPrompt: (prompt: string) => void;
+  /**
+   * Open a prebuilt agent: jump to the Agents tab and pop the side editor on
+   * it. `matchName` is the seeded workflow's name — the shell looks it up in
+   * the user's own workflows and opens the REAL agent when present, falling
+   * back to `draft` (used verbatim for the options strategy, which has no
+   * seeded workflow of its own).
+   */
+  onOpenAgent: (spec: { matchName: string; draft: Workflow }) => void;
+  /**
+   * Open the Agents tab on its "Strategies" surface (the Options strategies
+   * list). Used by the F&O prebuilt tile, which has no agent of its own.
+   */
+  onOpenStrategies: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -231,56 +245,132 @@ async function fetchSpark(symbol: string): Promise<number[] | null> {
 // Static content — strategy + chat prompt seeds
 // ---------------------------------------------------------------------------
 
-type StrategyTile = {
-  title: string;
-  subtitle: string;
-  tag: string;
-  prompt: string;
-  Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
-};
+type StrategyIcon = React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
 
+type StrategyTile =
+  | {
+      /** Opens the Agents tab with the side editor on the seeded agent. */
+      kind: "agent";
+      title: string;
+      subtitle: string;
+      tag: string;
+      Icon: StrategyIcon;
+      /** Name of the seeded workflow to open in the editor (see onOpenAgent). */
+      matchName: string;
+      /** Full workflow used verbatim when no seeded agent matches `matchName`. */
+      draft: Workflow;
+    }
+  | {
+      /** Opens the Agents tab on its "Strategies" (Options strategies) surface. */
+      kind: "option";
+      title: string;
+      subtitle: string;
+      tag: string;
+      Icon: StrategyIcon;
+    };
+
+// Fixed epoch for the local-draft timestamps — these are never persisted, so
+// the exact value is immaterial; a constant keeps them render-stable.
+const DRAFT_TS = "2026-01-01T00:00:00Z";
+
+/** Build a well-formed local-draft Workflow from a name/description + steps.
+ *  `id` is a "local-…" sentinel so the shell treats it as an unsaved draft and
+ *  binds the editor to it. */
+function makeDraft(
+  slug: string,
+  name: string,
+  description: string,
+  steps: { step_type: string; label: string; config: Record<string, unknown> }[],
+): Workflow {
+  return {
+    id: `local-${slug}`,
+    name,
+    description,
+    status: "draft",
+    version: 1,
+    single_instance: true,
+    created_at: DRAFT_TS,
+    updated_at: DRAFT_TS,
+    activated_at: null,
+    last_run_at: null,
+    next_run_at: null,
+    steps: steps.map((s, i) => ({
+      id: `local-${slug}-${i}`,
+      step_index: i,
+      step_type: s.step_type,
+      label: s.label,
+      config: s.config,
+    })),
+  };
+}
+
+// The prebuilt strategies mirror the three demo agents seeded on registration
+// (see backend/services/demo_seeder.py) plus one options strategy. The three
+// AGENT tiles open the Agents tab with the side editor on that agent — the
+// shell looks the agent up by `matchName` and opens the user's REAL seeded
+// workflow when present, else the `draft` here. The OPTION tile opens the
+// full-screen NIFTY option-chain / strategy builder instead.
 const PREBUILT_STRATEGIES: StrategyTile[] = [
   {
-    title: "Bull Call Spread",
-    subtitle: "Defined-risk bullish bet on NIFTY",
-    tag: "F&O",
-    prompt: "Build a bull call spread on NIFTY for a mildly bullish view this expiry.",
+    kind: "agent",
+    title: "RELIANCE 3:55 PM buy",
+    subtitle: "Weekday buy when buying power is high",
+    tag: "Automation",
+    matchName: "RELIANCE 3:55 PM weekday buy",
     Icon: TrendingUp,
+    draft: makeDraft(
+      "reliance-355",
+      "RELIANCE 3:55 PM weekday buy",
+      "Every weekday at 3:55 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
+      [
+        { step_type: "trigger.schedule", label: "Every weekday at 3:55 PM IST", config: { cron: "55 15 * * 1-5", timezone: "Asia/Kolkata" } },
+        { step_type: "fetch.portfolio", label: "Get portfolio", config: {} },
+        { step_type: "condition.numeric", label: "Buying power > ₹50,000", config: { left: { ref: "portfolio.cash" }, operator: ">", right: 50000 } },
+        { step_type: "action.place_order", label: "Buy 10 RELIANCE", config: { symbol: "RELIANCE", side: "buy", quantity: 10, order_type: "market", requires_approval: false } },
+        { step_type: "notify.message", label: "Email confirmation", config: { channel: "email", template: "order_confirmation", vars: { symbol: "RELIANCE" } } },
+      ],
+    ),
   },
   {
-    title: "Covered Call",
-    subtitle: "Earn premium on a holding",
-    tag: "F&O",
-    prompt: "Suggest a covered call on RELIANCE against 250 shares to earn monthly premium.",
-    Icon: Shield,
-  },
-  {
-    title: "Iron Condor",
-    subtitle: "Range-bound income on BANKNIFTY",
-    tag: "F&O",
-    prompt: "Build an iron condor on BANKNIFTY for a range-bound view into this weekly expiry.",
-    Icon: Layers,
-  },
-  {
-    title: "Weekly SIP",
-    subtitle: "Automate a rupee-cost-average buy",
+    kind: "agent",
+    title: "INFY weekly dip-buy",
+    subtitle: "Buy the Monday dip on a limit",
     tag: "Automation",
-    prompt: "Every Friday, buy ₹5,000 of NIFTYBEES and notify me after it fills.",
-    Icon: Repeat,
-  },
-  {
-    title: "RSI Dip Buyer",
-    subtitle: "Buy weakness, take profit",
-    tag: "Automation",
-    prompt: "Buy 10 INFY when its RSI falls below 30 and sell at 8% profit.",
+    matchName: "INFY weekly dip-buy",
     Icon: LineChart,
+    draft: makeDraft(
+      "infy-dip",
+      "INFY weekly dip-buy",
+      "Every Monday morning, buy 5 INFY at limit if price < ₹1,400.",
+      [
+        { step_type: "trigger.schedule", label: "Every Monday at 9:30 AM IST", config: { cron: "30 9 * * 1", timezone: "Asia/Kolkata" } },
+        { step_type: "action.place_order", label: "Buy 5 INFY at ₹1,400", config: { symbol: "INFY", side: "buy", quantity: 5, order_type: "limit", limit_price: 1400, requires_approval: false } },
+      ],
+    ),
   },
   {
-    title: "Protective Put",
-    subtitle: "Hedge a large-cap position",
-    tag: "Hedge",
-    prompt: "Build a protective put on HDFCBANK to hedge 500 shares through this month's expiry.",
-    Icon: CandlestickChart,
+    kind: "agent",
+    title: "TCS monthly SIP",
+    subtitle: "Rupee-cost-average every month",
+    tag: "Automation",
+    matchName: "TCS monthly SIP",
+    Icon: Repeat,
+    draft: makeDraft(
+      "tcs-sip",
+      "TCS monthly SIP",
+      "On the 1st of every month, buy 2 TCS at market.",
+      [
+        { step_type: "trigger.schedule", label: "1st of every month at 9:30 AM IST", config: { cron: "30 9 1 * *", timezone: "Asia/Kolkata" } },
+        { step_type: "action.place_order", label: "Buy 2 TCS", config: { symbol: "TCS", side: "buy", quantity: 2, order_type: "market", requires_approval: false } },
+      ],
+    ),
+  },
+  {
+    kind: "option",
+    title: "NIFTY Bull Call Spread",
+    subtitle: "Defined-risk bullish options play",
+    tag: "F&O",
+    Icon: Layers,
   },
 ];
 
@@ -305,7 +395,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
 // HomeTab
 // ---------------------------------------------------------------------------
 
-export function HomeTab({ onGoTab, onSendPrompt }: HomeTabProps): React.ReactElement {
+export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }: HomeTabProps): React.ReactElement {
   const [greetName, setGreetName] = useState<string | null>(null);
   const device = useDevice();
 
@@ -396,7 +486,7 @@ export function HomeTab({ onGoTab, onSendPrompt }: HomeTabProps): React.ReactEle
 
         {/* Row 2 */}
         <div className="lg:col-span-3 lg:col-start-1 lg:row-start-2 min-h-0">
-          <StrategiesCard onSend={onSendPrompt} />
+          <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
         </div>
         <div className="lg:col-span-3 lg:col-start-4 lg:row-start-2 min-h-0">
           <ViewsCard onGoTab={onGoTab} />
@@ -1005,7 +1095,11 @@ function MoverTile({
   const pos = holding.day_change_percentage >= 0;
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
-    <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
+    <Link
+      href={`/stock/${encodeURIComponent(holding.tradingsymbol)}`}
+      className="flex min-w-0 flex-col"
+      style={{ gap: 6, textDecoration: "none" }}
+    >
       <span
         style={{
           fontFamily: "var(--font-ui)",
@@ -1042,7 +1136,7 @@ function MoverTile({
           </span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -1272,13 +1366,19 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <li
-      className="flex items-center"
       style={{
-        gap: 10,
-        padding: "clamp(4px, 0.9vh, 7px) 0",
         borderBottom: last ? "none" : "1px solid var(--glass-border)",
       }}
     >
+      <Link
+        href={`/stock/${encodeURIComponent(row.symbol)}`}
+        className="flex items-center"
+        style={{
+          gap: 10,
+          padding: "clamp(4px, 0.9vh, 7px) 0",
+          textDecoration: "none",
+        }}
+      >
       <CompanyLogo logoUrl={row.logoUrl} name={row.name ?? row.symbol} symbol={row.symbol} size={30} />
       <div className="flex min-w-0 flex-col" style={{ flex: "1 1 auto" }}>
         <span
@@ -1327,6 +1427,7 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
           </span>
         )}
       </div>
+      </Link>
     </li>
   );
 }
@@ -1422,13 +1523,15 @@ function PromptRow({
 // ---------------------------------------------------------------------------
 
 function StrategiesCard({
-  onSend,
+  onOpenAgent,
+  onOpenStrategies,
 }: {
-  onSend: (prompt: string) => void;
+  onOpenAgent: HomeTabProps["onOpenAgent"];
+  onOpenStrategies: HomeTabProps["onOpenStrategies"];
 }): React.ReactElement {
   return (
     <CardShell Icon={Sparkles} title="Prebuilt strategies" bodyClassName="min-h-0">
-      {/* vh-clamped gap/padding/icon sizing on the tiles below keeps all six
+      {/* vh-clamped gap/padding/icon sizing on the tiles below keeps all four
           tiles fitting without a scrollbar on any realistic viewport; the
           card still scrolls (hidden scrollbar) as a last-resort fallback
           rather than ever clipping a tile out of reach. */}
@@ -1437,7 +1540,7 @@ function StrategiesCard({
         style={{ gap: "clamp(6px, 1vh, 12px)", gridAutoRows: "1fr" }}
       >
         {PREBUILT_STRATEGIES.map((s) => (
-          <StrategyCard key={s.title} tile={s} onSend={onSend} />
+          <StrategyCard key={s.title} tile={s} onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
         ))}
       </div>
     </CardShell>
@@ -1446,21 +1549,32 @@ function StrategiesCard({
 
 function StrategyCard({
   tile,
-  onSend,
+  onOpenAgent,
+  onOpenStrategies,
 }: {
   tile: StrategyTile;
-  onSend: (prompt: string) => void;
+  onOpenAgent: HomeTabProps["onOpenAgent"];
+  onOpenStrategies: HomeTabProps["onOpenStrategies"];
 }): React.ReactElement {
   const { Icon } = tile;
+  const open = (): void => {
+    if (tile.kind === "option") {
+      // The F&O tile has no agent of its own — jump to the Agents tab's
+      // "Strategies" surface, which lists the user's options strategies.
+      onOpenStrategies();
+      return;
+    }
+    onOpenAgent({ matchName: tile.matchName, draft: tile.draft });
+  };
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onSend(tile.prompt)}
+      onClick={open}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onSend(tile.prompt);
+          open();
         }
       }}
       className="home-strat home-strat-tile group flex h-full items-center transition-all duration-200 hover:-translate-y-0.5"
