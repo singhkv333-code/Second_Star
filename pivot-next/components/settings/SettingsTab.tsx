@@ -527,7 +527,7 @@ function Segmented<T extends string>({
             className="inline-flex items-center gap-1.5"
             style={{
               padding: "6px 12px",
-              borderRadius: 6,
+              borderRadius: "var(--radius-xs)",
               border: "none",
               cursor: "pointer",
               fontSize: 12.5,

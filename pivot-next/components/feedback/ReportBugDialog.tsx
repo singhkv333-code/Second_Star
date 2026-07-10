@@ -186,7 +186,7 @@ export function ReportBugDialog({
                       className="inline-flex items-center gap-1.5 transition-colors"
                       style={{
                         padding: "5px 10px",
-                        borderRadius: "var(--radius-pill)",
+                        borderRadius: "var(--radius-sm)",
                         fontSize: 12,
                         fontWeight: 500,
                         cursor: "pointer",
@@ -243,7 +243,7 @@ export function ReportBugDialog({
                   padding: 2,
                   background: "var(--bg-base)",
                   border: "1px solid var(--glass-border)",
-                  borderRadius: "var(--radius-pill)",
+                  borderRadius: "var(--radius-sm)",
                 }}
               >
                 {SEVERITIES.map(({ value, label }) => {
@@ -259,7 +259,7 @@ export function ReportBugDialog({
                       style={{
                         padding: "5px 10px",
                         border: "none",
-                        borderRadius: "var(--radius-pill)",
+                        borderRadius: "var(--radius-xs)",
                         fontSize: 12,
                         fontWeight: 500,
                         cursor: "pointer",

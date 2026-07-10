@@ -281,20 +281,6 @@ const EMPTY_STOCK_FILTERS: StockFilters = {
   roe_min: "",
 };
 
-const STOCK_PRESETS: {
-  id: string;
-  label: string;
-  set: () => Partial<StockFilters>;
-}[] = [
-  { id: "all", label: "All", set: () => ({}) },
-  { id: "large", label: "Large Cap", set: () => ({ mcap_tier: "large" }) },
-  { id: "mid", label: "Mid Cap", set: () => ({ mcap_tier: "mid" }) },
-  { id: "small", label: "Small Cap", set: () => ({ mcap_tier: "small" }) },
-  { id: "high_roe", label: "High ROE", set: () => ({ roe_min: "20" }) },
-  { id: "profitable", label: "Profitable", set: () => ({ roe_min: "12" }) },
-  { id: "cheap", label: "Cheap (P/E < 20)", set: () => ({ pe_max: "20" }) },
-];
-
 // ─────────────────────────────────────────────────────────
 // Session caches (stale-while-revalidate)
 //
@@ -550,7 +536,6 @@ function StocksScreen({
   setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
 }): React.ReactElement {
   const [filters, setFilters] = useState<StockFilters>({ ...EMPTY_STOCK_FILTERS });
-  const [activePreset, setActivePreset] = useState<string | null>("all");
   const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
 
   // Seed state from the session cache so a return trip to the tab paints the
@@ -708,23 +693,13 @@ function StocksScreen({
   const setFilter = useCallback(
     <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => {
       setFilters((prev) => ({ ...prev, [key]: value }));
-      setActivePreset(null);
     },
     [],
   );
 
   const reset = useCallback(() => {
     setFilters({ ...EMPTY_STOCK_FILTERS });
-    setActivePreset("all");
   }, []);
-
-  const applyPreset = useCallback(
-    (p: (typeof STOCK_PRESETS)[number]) => {
-      setFilters({ ...EMPTY_STOCK_FILTERS, ...p.set() });
-      setActivePreset(p.id);
-    },
-    [],
-  );
 
   const toggleSort = useCallback((key: StockSortKey) => {
     setSort((prev) =>
@@ -790,42 +765,6 @@ function StocksScreen({
       {/* Watchlist — stocks-only, sits between the title row and preset
           chips. Five numbered slots, medium cards (ticker · last ₹ · day Δ). */}
       <WatchlistStrip />
-
-      {/* Preset chips */}
-      <div
-        className="screener-presets"
-        style={{
-          padding: "0 32px 14px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          flexShrink: 0,
-        }}
-      >
-        {STOCK_PRESETS.map((p) => {
-          const active = activePreset === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p)}
-              style={{
-                padding: "6px 12px",
-                background: active ? "var(--text-primary)" : "transparent",
-                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                borderRadius: "var(--radius-pill)",
-                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 12,
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                cursor: "pointer",
-                transition: "all 0.2s var(--ease-quartr)",
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
 
       {/* Mobile bottom sheet — portal to document.body; StockFilterRail returns
           null on desktop so this never takes layout space at wide viewports. */}
@@ -2422,21 +2361,18 @@ function MockScreenView({
 }): React.ReactElement {
   const screen = MOCK_SCREENS[screenId] ?? MOCK_SCREENS.etfs!;
   const [filters, setFilters] = useState<MockFilters>(() => cloneFilters(screen.filterShape));
-  const [activePreset, setActivePreset] = useState<string | null>("all");
   const [sortKey, setSortKey] = useState(screen.defaultSort);
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
   // Reset filter/sort when the screen changes.
   useEffect(() => {
     setFilters(cloneFilters(screen.filterShape));
-    setActivePreset("all");
     setSortKey(screen.defaultSort);
     setSortDir(-1);
   }, [screen]);
 
   const setFilter = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setActivePreset(null);
   };
   const toggleListItem = (key: string, value: string) => {
     setFilters((prev) => {
@@ -2446,19 +2382,9 @@ function MockScreenView({
         [key]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value],
       };
     });
-    setActivePreset(null);
   };
   const reset = () => {
     setFilters(cloneFilters(screen.filterShape));
-    setActivePreset("all");
-  };
-  const applyPreset = (p: MockPreset) => {
-    const merged: MockFilters = { ...cloneFilters(screen.filterShape) };
-    for (const [k, v] of Object.entries(p.set())) {
-      if (v !== undefined) merged[k] = v;
-    }
-    setFilters(merged);
-    setActivePreset(p.id);
   };
 
   const results = useMemo(() => {
@@ -2505,35 +2431,6 @@ function MockScreenView({
           </>
         }
       />
-
-      <div
-        className="screener-presets"
-        style={{ padding: "0 32px 14px", display: "flex", flexWrap: "wrap", gap: 6, flexShrink: 0 }}
-      >
-        {screen.presets.map((p) => {
-          const active = activePreset === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p)}
-              style={{
-                padding: "6px 12px",
-                background: active ? "var(--text-primary)" : "transparent",
-                border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                borderRadius: "var(--radius-pill)",
-                color: active ? "var(--bg-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 12,
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                cursor: "pointer",
-                transition: "all 0.2s var(--ease-quartr)",
-              }}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
 
       <div
         className="screener-body"
@@ -3081,7 +2978,7 @@ function ChipButton({
         padding: "5px 11px",
         background: active ? "var(--text-primary)" : "var(--bg-base)",
         border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         color: active ? "var(--bg-primary)" : "var(--text-secondary)",
         fontFamily: "var(--font-ui)",
         fontSize: 11.5,

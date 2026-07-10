@@ -327,21 +327,25 @@ export function AgentsTab({
 
   return (
     <div className="agents-tab flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
-      {/* Page heading */}
-      <h1
-        className="q-serif"
-        style={{
-          fontSize: 22,
-          letterSpacing: "-0.025em",
-          color: "var(--text-primary)",
-          margin: 0,
-        }}
-      >
-        Active Agents
-      </h1>
-
-      {/* Equity / Options toggle */}
-      <SurfaceToggle value={surface} onChange={setSurface} />
+      {/* Page heading + surface toggle — heading on the left, toggle pushed to
+          the right, mirroring the Screener title row. Stacks vertically on
+          narrow phones so the title never wraps under the toggle. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <h1
+          className="q-serif"
+          style={{
+            fontSize: 22,
+            letterSpacing: "-0.025em",
+            color: "var(--text-primary)",
+            margin: 0,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Active Agents
+        </h1>
+        <div className="hidden sm:block" style={{ flex: 1 }} />
+        <SurfaceToggle value={surface} onChange={setSurface} />
+      </div>
 
       {surface === "equity" ? (
         <>
@@ -368,7 +372,7 @@ export function AgentsTab({
                     padding: "6px 12px",
                     background: active ? "var(--text-primary)" : "transparent",
                     border: `1px solid ${active ? "var(--text-primary)" : "var(--glass-border)"}`,
-                    borderRadius: "var(--radius-pill)",
+                    borderRadius: "var(--radius-sm)",
                     color: active ? "var(--bg-primary)" : "var(--text-secondary)",
                     fontFamily: "var(--font-ui)",
                     fontSize: 12,
@@ -466,8 +470,17 @@ function SurfaceToggle({
       role="tablist"
       aria-label="Agent surface"
       data-testid="agents-surface-toggle"
-      className="inline-flex items-center self-start rounded-full p-1"
-      style={{ background: "var(--bg-elevated)", border: "1px solid var(--glass-border)" }}
+      style={{
+        display: "flex",
+        gap: 2,
+        padding: 3,
+        background: "var(--bg-base)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-sm)",
+        maxWidth: "100%",
+        overflowX: "auto",
+        WebkitOverflowScrolling: "touch",
+      }}
     >
       {OPTIONS.map((o) => {
         const active = value === o.key;
@@ -479,17 +492,20 @@ function SurfaceToggle({
             aria-selected={active}
             data-testid={`surface-${o.key}`}
             onClick={() => onChange(o.key)}
-            className="rounded-full transition-colors"
             style={{
-              padding: "6px 16px",
-              fontFamily: "var(--font-ui)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              letterSpacing: "-0.01em",
-              cursor: "pointer",
+              padding: "6px 14px",
               border: "none",
+              borderRadius: "var(--radius-xs)",
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
               background: active ? "var(--text-primary)" : "transparent",
               color: active ? "var(--bg-primary)" : "var(--text-secondary)",
+              transition:
+                "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
             }}
           >
             {o.label}

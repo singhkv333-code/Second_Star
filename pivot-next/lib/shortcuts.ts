@@ -66,7 +66,6 @@ export function getShortcutGroups(mac: boolean): ShortcutGroup[] {
         { id: "go-portfolio", label: "Go to Portfolio", keys: ["G", CHORD_GLUE, "P"] },
         { id: "go-agents", label: "Go to Agents", keys: ["G", CHORD_GLUE, "A"] },
         { id: "go-screener", label: "Go to Screener", keys: ["G", CHORD_GLUE, "S"] },
-        { id: "go-calendar", label: "Go to Calendar", keys: ["G", CHORD_GLUE, "L"] },
       ],
     },
     {
@@ -95,5 +94,4 @@ export const CHORD_NAV_MAP: Record<string, string> = {
   p: "portfolio",
   a: "agents",
   s: "screener",
-  l: "calendar",
 };

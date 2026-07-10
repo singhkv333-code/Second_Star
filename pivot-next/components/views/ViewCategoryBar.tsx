@@ -57,7 +57,7 @@ function CategoryChip({
         background,
         color,
         border: "none",
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         fontFamily: FONT,
         fontSize: 13.5,
         fontWeight: active ? 600 : 500,

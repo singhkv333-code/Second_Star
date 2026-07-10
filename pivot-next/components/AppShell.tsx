@@ -8,7 +8,7 @@
  *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
  *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
  *
- * Nav items: Chat / Portfolio / Agents / Calendar / Screener
+ * Nav items: Chat / Portfolio / Agents / Screener
  * Active item: solid left border + bg highlight
  * Below nav: YOUR CONVERSATIONS — opens the Chat tab
  *
@@ -24,7 +24,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2,
   Bug,
-  CalendarDays,
   Compass,
   ChevronDown,
   ChevronLeft,
@@ -66,7 +65,6 @@ import {
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { ViewsTab } from "@/components/views/ViewsTab";
-import { CalendarTab } from "@/components/CalendarTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
@@ -108,7 +106,6 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "calendar"
   | "screener"
   | "views";
 
@@ -122,7 +119,6 @@ const NAV_ITEMS: {
   { key: "views", label: "Opinions", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
-  { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
@@ -855,7 +851,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 <DashboardTab
                   key={chatResetKey}
                   onOpenWorkflow={openWorkflow}
-                  onOpenCalendar={() => goTab("calendar")}
                   onChatActiveChange={setChatActive}
                   onDraftFromChat={(draft) => {
                     setActiveEditorDraft(draft);
@@ -889,19 +884,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               style={{ background: "var(--bg-inset)" }}
             >
               <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} />
-            </div>
-          )}
-          {visitedTabs.has("calendar") && (
-            // Calendar gets full pane height (the day panel + month grid
-            // consume vertical space; no outer scroll). Mobile tightens.
-            <div
-              className={
-                !children && active === "calendar"
-                  ? "flex-1 min-h-0 px-4 pt-4 lg:px-8 lg:pt-6 flex flex-col overflow-hidden"
-                  : "hidden"
-              }
-            >
-              <CalendarTab onOpenWorkflow={openWorkflowById} />
             </div>
           )}
           {visitedTabs.has("screener") && (
