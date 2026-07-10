@@ -150,7 +150,11 @@ def compute_account_nav(
     is_stale = False
     for pos in positions:
         realized_pnl_cum += to_money(pos.realized_pnl)
-        if pos.quantity > 0:
+        # quantity != 0, NOT > 0: a SHORT leg is a liability whose negative
+        # market value must reduce NAV. Excluding shorts meant the sale
+        # credit raised cash with no offsetting liability, so every short
+        # sale printed as instant "profit" in the NAV-delta heatmap.
+        if pos.quantity != 0:
             positions_mv += position_market_value(pos)
             unrealized_pnl += position_unrealized_pnl(pos)
             if pos.stale:
