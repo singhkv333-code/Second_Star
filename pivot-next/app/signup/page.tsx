@@ -17,6 +17,7 @@ import { registerUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
 import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
 import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
+import { TOUR_PENDING_KEY } from "@/components/onboarding/ProductTour";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -169,6 +170,15 @@ export default function SignupPage(): React.ReactElement {
       const status = parseInt(codeStr.replace("http_", ""), 10) || 0;
       setServerError(mapSignupError(status, result.error.message));
       return;
+    }
+    // New account → arm the first-run product tour (fires after the brand
+    // intro completes). Also mark as a fresh sign-in so AppShell shows
+    // the paper-mode notice.
+    try {
+      localStorage.setItem(TOUR_PENDING_KEY, "1");
+      sessionStorage.setItem("pivot:just-signed-in", "1");
+    } catch {
+      /* private mode / storage full — skip; no functional impact */
     }
     armLoginIntro();
     router.replace("/");

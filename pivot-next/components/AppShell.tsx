@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   BarChart2,
   Bug,
@@ -324,6 +325,38 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     setTradingModeState(storedMode);
     void setAccountMode(storedMode === "real" ? "live" : "paper");
 
+    // Paper-mode intimation — shown exactly once per login/signup session.
+    // The auth pages set `pivot:just-signed-in` in sessionStorage on success;
+    // we consume it here so it never re-fires on a page reload.
+    try {
+      const justSignedIn = sessionStorage.getItem("pivot:just-signed-in");
+      if (justSignedIn === "1") {
+        sessionStorage.removeItem("pivot:just-signed-in");
+        if (storedMode === "paper") {
+          // Defer until the brand intro (if any) finishes so the toast
+          // doesn't overlap with the post-login animation.
+          const showPaperToast = (): void => {
+            window.setTimeout(() => {
+              toast("You're in Paper Trading mode", {
+                description:
+                  "Trades are simulated — no real money is used. Switch to Live in the sidebar when ready.",
+                duration: 7000,
+              });
+            }, 800);
+          };
+          if (window.__pivotIntroPending) {
+            window.addEventListener("pivot:intro-done", showPaperToast, {
+              once: true,
+            });
+          } else {
+            showPaperToast();
+          }
+        }
+      }
+    } catch {
+      /* storage unavailable — skip the notice */
+    }
+
     // Load conversations from real backend
     void fetchConversations().then(setConversations);
 
@@ -432,6 +465,16 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // `tradingMode` is included so the strip re-fetches (paper vs real) the
     // instant the mode flips.
   }, [active, tradingMode, loadMetrics]);
+
+  // Immediate refetch when any trade-affecting mutation fires the global
+  // `pivot:portfolio-dirty` event (dispatched by lib/api.ts after orders /
+  // paper fills / workflow / basket / views / IPO POSTs succeed). This makes
+  // the header value/P&L update right away instead of waiting for the next
+  // 30-second poll tick.
+  useEffect(() => {
+    window.addEventListener("pivot:portfolio-dirty", loadMetrics);
+    return () => window.removeEventListener("pivot:portfolio-dirty", loadMetrics);
+  }, [loadMetrics]);
 
   // Switch trading mode: optimistically flip the store (persists + notifies
   // every useTradingMode subscriber), push the change to the backend account

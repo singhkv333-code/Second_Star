@@ -29,6 +29,7 @@ import {
   LineSeries,
   LineStyle,
   type IChartApi,
+  type LogicalRange,
   type Time,
 } from "lightweight-charts";
 import { LightweightChart } from "@/components/chart/LightweightChart";
@@ -128,12 +129,18 @@ export function StockPriceChart({
 
   const onReady = React.useCallback(
     (chart: IChartApi) => {
+      // Track the number of bars in the primary series so we can clamp
+      // the visible logical range to [0, numBars−1] — no empty white void.
+      let numBars = 0;
+
       if (compare) {
         // One normalised line per ticker (100 = its first in-window point).
         for (const def of seriesDefs) {
           const data = toLineData(def.points);
           const base = data[0]?.value;
           if (!base) continue;
+          // The primary (first) series drives the time scale bar count.
+          if (numBars === 0) numBars = data.length;
           const line = chart.addSeries(LineSeries, {
             color: def.color,
             lineWidth: 2,
@@ -148,6 +155,8 @@ export function StockPriceChart({
       } else {
         const def = seriesDefs[0];
         if (def) {
+          const data = toLineData(def.points);
+          numBars = data.length;
           const area = chart.addSeries(AreaSeries, {
             lineColor: t.areaLine,
             topColor: t.areaTop,
@@ -160,7 +169,7 @@ export function StockPriceChart({
             crosshairMarkerVisible: true,
             crosshairMarkerRadius: 4,
           });
-          area.setData(toLineData(def.points));
+          area.setData(data);
         }
         if (showVolume && volume) {
           const vol = chart.addSeries(HistogramSeries, {
@@ -189,6 +198,43 @@ export function StockPriceChart({
         }
       }
       chart.timeScale().fitContent();
+
+      // ── Pan-bounds clamping ───────────────────────────────────────────────
+      // Prevent the user from dragging/panning past the first or last bar.
+      // Logical range: 0 = first (oldest) bar, numBars−1 = last (newest) bar.
+      // A re-entry guard (`clamping`) breaks the otherwise-infinite loop that
+      // setVisibleLogicalRange → rangeChange → setVisibleLogicalRange would cause.
+      let clamping = false;
+      const handleRangeChange = (range: LogicalRange | null): void => {
+        if (!range || clamping || numBars === 0) return;
+        const from = range.from as unknown as number;
+        const to = range.to as unknown as number;
+        const span = to - from;
+
+        let newFrom = from;
+        let newTo = to;
+
+        if (newFrom < 0) {
+          newFrom = 0;
+          newTo = Math.min(span, numBars - 1);
+        }
+        if (newTo > numBars - 1) {
+          newTo = numBars - 1;
+          newFrom = Math.max(0, newTo - span);
+        }
+
+        if (newFrom !== from || newTo !== to) {
+          clamping = true;
+          chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newTo });
+          clamping = false;
+        }
+      };
+
+      chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
+
+      return (): void => {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
+      };
     },
     // Rebuilt whenever the deps below change (the wrapper drives this).
     [seriesDefs, volume, compare, showVolume, t],
@@ -239,6 +285,8 @@ export function StockPriceChart({
         localization: {
           priceFormatter: compare ? fmtPctFrom100 : fmtINR,
         },
+        // Enable wheel / pinch zoom; pan remains drag-to-scroll.
+        handleScale: { mouseWheel: true, axisPressedMouseMove: true },
       }}
       onReady={onReady}
     />

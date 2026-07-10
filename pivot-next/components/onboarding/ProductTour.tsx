@@ -37,6 +37,12 @@ type TabKey =
 
 /** Bump when the flow changes enough that existing users should see it again. */
 const DONE_KEY = "pivot-tour-v1";
+/** Set by the signup success handler so the tour fires exactly once after a
+ *  new account is created. The login path does NOT set this — existing users
+ *  never see the auto-start; they can replay from Help. */
+export const TOUR_PENDING_KEY = "pivot:tour-pending";
+// Module-local alias for the file-internal effects below.
+const PENDING_KEY = TOUR_PENDING_KEY;
 /** Below this viewport width the targets (sidebar, header) are hidden. */
 const MIN_VIEWPORT = 1024;
 
@@ -226,6 +232,12 @@ export function ProductTour({
       prevBtnText: "Back",
       doneBtnText: "Start asking",
       disableActiveInteraction: true,
+      // Prevent accidental mid-tour dismissal: overlay click and ESC key are
+      // both disabled. The ONLY escape hatch is the Skip button on step 0
+      // (the intro welcome card). Once the user advances past it the tour runs
+      // through to the end; they can click "Start asking" on the final step.
+      allowClose: false,
+      allowKeyboardControl: false,
       onNextClick: () => goStep(1),
       onPrevClick: () => goStep(-1),
       onDestroyed: (_el, _step, { state }) => {
@@ -252,9 +264,11 @@ export function ProductTour({
           description: s.description,
           side: s.side,
           align: s.align ?? "center",
-          // The welcome card has nothing to go back to.
-          showButtons:
-            i === 0 ? ["next", "close"] : ["next", "previous", "close"],
+          // Step 0 is the intro / welcome card — the ONLY place where the
+          // user can skip/dismiss the tour (via the "close" button). All
+          // subsequent steps show only Next / Back so there's no accidental
+          // escape once the tour has started.
+          showButtons: i === 0 ? ["next", "close"] : ["next", "previous"],
           ...(i === 0 ? { nextBtnText: "Show me around" } : null),
         },
       })),
@@ -271,18 +285,22 @@ export function ProductTour({
     }
   }, []);
 
-  // First visit → auto-start after the dashboard settles. On a fresh signup
-  // the brand intro plays first; wait for it (or the immediate "no intro"
-  // signal LoginIntroGate emits) so the tour never opens underneath it.
+  // Auto-start exactly once, immediately after a NEW account signs up.
+  // The signup page sets localStorage[PENDING_KEY]; here we consume it
+  // (one-shot) and start the tour. Existing users who sign IN never see
+  // the auto-start (the login page does not set PENDING_KEY); they can
+  // always replay from Help → "Replay the tour".
   useEffect(() => {
     if (!enabled) return;
-    let seen: string | null = null;
+    // Read and immediately consume the pending flag.
+    let pending = false;
     try {
-      seen = localStorage.getItem(DONE_KEY);
+      pending = localStorage.getItem(PENDING_KEY) === "1";
+      if (pending) localStorage.removeItem(PENDING_KEY);
     } catch {
-      seen = "done";
+      pending = false;
     }
-    if (seen) return;
+    if (!pending) return;
     if (window.innerWidth < MIN_VIEWPORT) return;
 
     let timer = 0;
