@@ -514,6 +514,28 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "trade fires on, e.g. TCS)."
         )
 
+    # 51-sweep arg-repair: "I hold 50 INFY at 1400 — backtest a 10%
+    # trailing stop" arrives with the TRAILING rule in `condition` (the
+    # entry slot), which the semantic validator rightly rejects
+    # (position leaves aren't entry logic). With a seeded holding and no
+    # exit_condition, an exit-shaped condition IS the exit rule: move it
+    # there and disable fresh entries so only the held position is
+    # tested (engine-supported — see test_backtest_holding_semantics A3).
+    _seeded_exit_repair = False
+    if (isinstance(args.get("initial_position"), dict)
+            and (args.get("initial_position") or {}).get("quantity")
+            and not exit_condition_text
+            and re.search(r"\b(?:trail(?:ing)?|stop[- ]?loss|from\s+"
+                          r"(?:the\s+)?peak|take[- ]?profit|book\s+"
+                          r"profits?|exit|sell)\b", condition, re.I)
+            and not re.search(r"\b(?:buy|enter|long|accumulate|add)\b",
+                              condition, re.I)):
+        exit_condition_text = condition
+        # Plain comparison (never-fires) — "crosses above" tripped the
+        # self-comparison/tautology detector on retest.
+        condition = f"price of {primary} is above 99999999"
+        _seeded_exit_repair = True
+
     try:
         tree, tx_meta = await translate_condition_to_tree(
             condition,
@@ -571,6 +593,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # n_day_hold exit and any seeded initial position are recorded here
     # and threaded into both the structured payload and summary_text.
     assumptions: list[str] = []
+    if _seeded_exit_repair:
+        assumptions.append(
+            "The stated rule is an EXIT rule on your existing holding — "
+            "fresh entries were disabled; only the seeded position is "
+            "tested against it."
+        )
 
     # Exit policy — exit_condition (NL) wins over declarative fields
     # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
@@ -589,9 +617,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
                 f"could not translate exit_condition into a DSL tree: "
                 f"{exc}"
             ) from None
+        from backend.workflows.dsl.schema import normalize_tree_aliases
         exit_policy = {
             "kind": "tree",
-            "tree": exit_tree_dict,
+            "tree": normalize_tree_aliases(exit_tree_dict),
             "exit_at": "next_open",
         }
     else:
@@ -677,6 +706,13 @@ async def backtest_dsl_tree(args: dict) -> dict:
                 f"cost basis of {_basis_txt}; the exit rule is tested "
                 f"against that position."
             )
+
+    # 51-sweep: normalize planner-emitted shape aliases AND collapse
+    # single-operand and/or before validation — the day-of-week
+    # translator wrapped a lone filter in a 1-item AND, and the raw
+    # "logic.and expects at least 2 operands" leaked to the user.
+    from backend.workflows.dsl.schema import normalize_tree_aliases
+    tree = normalize_tree_aliases(tree)
 
     payload = {
         "tree": tree,

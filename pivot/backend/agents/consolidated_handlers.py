@@ -82,7 +82,27 @@ async def _get_market_data(a: dict, kt: str, db, uid: int) -> dict:
 
     view = (a.get("view") or "").strip().lower()
     if view == "quote":
-        return await tx._get_live_price(a, kt, db, uid)
+        out = await tx._get_live_price(a, kt, db, uid)
+        # 51-sweep: a transient feed miss on a VALID ticker was narrated
+        # as "double-check the ticker". When the symbol is in the curated
+        # universe, the ticker is fine — say the feed is down instead.
+        if not out.get("success"):
+            sym = str(a.get("symbol") or "").strip().upper()
+            try:
+                from backend.services.sector_universe import (
+                    symbol_sector_map,
+                )
+                known = sym in symbol_sector_map()
+            except Exception:
+                known = False
+            if known:
+                out["error"] = (
+                    f"quote feed temporarily unavailable for {sym}. "
+                    f"{sym} IS a valid NSE symbol — tell the user the "
+                    "feed is down right now and to retry shortly. Do "
+                    "NOT tell them to double-check the ticker."
+                )
+        return out
     if view == "ohlc":
         return await tx._get_ohlc(a, kt, db, uid)
     if view == "history":

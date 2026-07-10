@@ -2068,7 +2068,39 @@ async def _get_option_chain(a, kt, db, uid):
         **chain,
         "disclosure": SEBI_DISCLOSURE,
     }
+    # 51-sweep: the mock/stale feed printed a spot ~700pts off the live
+    # index with no visible flag. When the chain isn't Kite-live, say so
+    # LOUDLY — the model must relay this line and every strategy built
+    # on it inherits the caveat.
+    if (chain.get("source") or "").lower() != "kite":
+        payload = {
+            "data_status": "mock",
+            "stale_note": (
+                "OPTION DATA IS MOCK/NOT LIVE (no active Kite session): "
+                "strikes, premiums and the spot may be far from the real "
+                "market. Tell the user this explicitly before any numbers."
+            ),
+            **payload,
+        }
     return {"success": True, "data": payload, "logiccard": None}
+
+
+def _stale_options_note(db) -> Optional[str]:
+    """51-sweep: when there is no live Kite session, every option
+    strategy is priced off the MOCK chain (observed ~700pts off the
+    live index). Return the loud caveat, or None when live."""
+    try:
+        from backend.market.option_chain import get_system_kite
+        if get_system_kite(db) is not None:
+            return None
+    except Exception:
+        pass
+    return (
+        "OPTION DATA IS MOCK/NOT LIVE (no active Kite session): strikes, "
+        "premiums, spot and payoff numbers may be far from the real "
+        "market. State this to the user BEFORE any numbers, and advise "
+        "re-checking once the live feed is connected."
+    )
 
 
 def _strategy_card_payload(payload: dict) -> dict:
@@ -2138,7 +2170,16 @@ async def _suggest_option_strategy(a, kt, db, uid):
         )
     except StrategyResolutionError as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _build_option_strategy(a, kt, db, uid):
@@ -2182,7 +2223,16 @@ async def _build_option_strategy(a, kt, db, uid):
         )
     except StrategyResolutionError as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _critique_option_strategy(a, kt, db, uid):
@@ -2258,7 +2308,16 @@ async def _critique_option_strategy(a, kt, db, uid):
         )
     except (StrategyResolutionError, ValueError) as exc:
         return {"success": False, "data": {"note": str(exc)}, "logiccard": None}
-    return {"success": True, "data": _strategy_card_payload(payload), "logiccard": None}
+    card = _strategy_card_payload(payload)
+    _stale = _stale_options_note(db)
+    if _stale:
+        # PREPEND the stale fields: _summarise_tool_result truncates the
+        # tool-result JSON at 6000 chars, and option cards are big — a
+        # note appended last never reached the model (live-observed).
+        card = {"data_status": "mock", "stale_note": _stale, **card}
+        if isinstance(card.get("summary"), str):
+            card["summary"] = "[MOCK DATA — not live] " + card["summary"]
+    return {"success": True, "data": card, "logiccard": None}
 
 
 async def _roll_option_position(a, kt, db, uid):

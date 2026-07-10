@@ -131,6 +131,15 @@ def normalize_tree_aliases(node: object) -> object:
             if alias in out:
                 out["field"] = out.pop(alias)
                 break
+    # Single-operand and/or collapses to the operand itself (51-sweep
+    # 2026-07-10: the planner wraps lone day-of-week filters in a
+    # 1-item AND; LogicNode's own docstring says "1 operand reduces to
+    # the operand" — do the reduction instead of leaking
+    # "logic.and expects at least 2 operands" to the user).
+    if (t == "logic" and out.get("op") in ("and", "or")
+            and isinstance(out.get("operands"), list)
+            and len(out["operands"]) == 1):
+        return out["operands"][0]
     return out
 
 

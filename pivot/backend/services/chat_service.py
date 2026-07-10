@@ -603,6 +603,99 @@ _ROUTE_HINT_RE = re.compile(
 )
 
 
+# ── Read-intent gates (51-sweep work order, 2026-07-10) ──────────────
+# The sweep found the model FABRICATING agents on "what agents do I have
+# running?" (tools_called=[]) and clarifying instead of reading on
+# portfolio/series/analyse asks. These gates make the read STRUCTURAL:
+# force the right tool into scope, force tool_choice=required, drop the
+# bare ASK_USER escape, and pin a one-line directive.
+
+_LIFECYCLE_READ_RE = re.compile(
+    r"\b(?:what|which|list|show(?:\s+me)?)\b[^.?!]{0,50}"
+    r"\b(?:agents?|automations?|workflows?|sips?|strategies)\b"
+    r"|\b(?:agents?|automations?|workflows?|sips?|strategies)\b"
+    r"[^.?!]{0,30}\b(?:running|active|do\s+i\s+have)\b"
+    r"|\bmy\s+(?:running\s+|active\s+)?(?:agents?|automations?|workflows?)\b",
+    re.IGNORECASE,
+)
+_PORTFOLIO_READ_RE = re.compile(
+    r"\bhow(?:'s|\s+is)\s+my\s+portfolio\b"
+    r"|\bmy\s+portfolio\s+(?:doing|performing|looking)\b"
+    r"|\b(?:show|check)\s+my\s+(?:portfolio|holdings|positions)\b"
+    r"|\bam\s+i\s+(?:in\s+)?(?:profit|loss|up\s+or\s+down)\b"
+    r"|\bmy\s+(?:p&l|pnl|overall\s+returns?)\b",
+    re.IGNORECASE,
+)
+_FIN_SERIES_DIRECT_RE = re.compile(
+    r"\b(?:year\s+by\s+year|per\s+year|yearly|annually|"
+    r"(?:over|for|across)\s+the\s+last\s+\d+\s+years?)\b",
+    re.IGNORECASE,
+)
+_SINGLE_ANALYSE_RE = re.compile(
+    r"\b(?:analy[sz]e|analysis\s+of|deep\s+dive\s+(?:on|into))\b",
+    re.IGNORECASE,
+)
+_COMPARISON_MARKER_RE = re.compile(
+    r"\b(?:vs\.?|versus|compare|compared|better\s+than|against)\b",
+    re.IGNORECASE,
+)
+
+
+def _read_intent_gate(
+    message: str, selected_names: Optional[set],
+) -> Optional[tuple[set, str, str]]:
+    """(new_selected_names, tool_choice, directive) when a read gate
+    fires, else None. First match wins; gates are mutually exclusive in
+    practice."""
+    if selected_names is None:
+        return None
+    msg = message or ""
+    if _LIFECYCLE_READ_RE.search(msg):
+        return (
+            selected_names | {"manage_automation"},
+            "required",
+            "## Lifecycle read — call the tool, never recall\n"
+            "The user asks what automations/SIPs/agents they have. You "
+            "MUST call manage_automation(action='list', ...) and report "
+            "ONLY what it returns. If it returns none, say none are "
+            "running. NEVER name agents from memory or conversation — "
+            "that fabricates.",
+        )
+    if _PORTFOLIO_READ_RE.search(msg):
+        return (
+            selected_names | {"get_portfolio"},
+            "required",
+            "## Portfolio read — call the tool, never recall\n"
+            "Call get_portfolio(view='summary') and report only its real "
+            "numbers (paper-labeled). If empty, say the portfolio is "
+            "empty. Do not ask clarifying questions first.",
+        )
+    if (_FIN_SERIES_DIRECT_RE.search(msg)
+            and "query_financials" in selected_names):
+        return (
+            selected_names,
+            "required",
+            "## Series ask is fully specified — JUST DO IT\n"
+            "The user named the metric and window. Call query_financials "
+            "now. Do NOT offer alternative metrics or comparisons first.",
+        )
+    if (_SINGLE_ANALYSE_RE.search(msg)
+            and not _COMPARISON_MARKER_RE.search(msg)):
+        return (
+            (selected_names
+             | {"fetch_fundamentals", "get_market_data",
+                "get_symbol_news", "get_indicators"})
+            - {"compare_performance", "get_correlation_matrix"},
+            "required",
+            "## Single-stock analysis — fundamentals+price+news flow\n"
+            "This is a ONE-stock analysis: start with get_market_data / "
+            "fetch_fundamentals / get_symbol_news (comparison tools are "
+            "out of scope this turn), then write the full sectioned "
+            "ANALYSIS with a defended view.",
+        )
+    return None
+
+
 def _summary_bridge_block(conv_id: str, user_id: int,
                           history_override) -> str:
     """Chat-kernel A2 (2026-07-10): bridge the 6-turn context cliff.
@@ -2733,6 +2826,18 @@ def _analysis_subhint(message: str) -> str:
             "first sentence with a number, then back it with the stack, "
             "RSI/momentum, and recent range. Use a small `Period | Level | "
             "Price vs MA` table for the 20/50/200-DMA."
+        )
+    # 51-sweep: sector-OUTLOOK asks were answered with a bare ROE table
+    # and no view — the one thing an outlook ask is FOR.
+    if re.search(r"\b(?:outlook|prospects?|view)\b[^.?!]{0,60}\bsector\b"
+                 r"|\bsector\b[^.?!]{0,40}\b(?:outlook|prospects?|view)\b",
+                 message, re.IGNORECASE):
+        return (
+            " THIS IS a SECTOR OUTLOOK ask — a data table alone is an "
+            "INVALID answer. You MUST end with a `## View` section: your "
+            "defended 6-month stance for the sector (constructive / "
+            "neutral / cautious) with the 2-3 numbers that justify it and "
+            "what would change your mind, then the not-advice line."
         )
     return ""
 
@@ -5991,6 +6096,23 @@ class ChatService:
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
 
+        # 51-sweep read gates: lifecycle/portfolio/series/analyse reads
+        # become STRUCTURAL — right tool in scope, tool forced, ASK_USER
+        # dropped, directive pinned. After the specific guards so hedge/
+        # notify/option flows keep precedence.
+        _read_gate = _read_intent_gate(message, selected_names)
+        if _read_gate is not None:
+            selected_names, agent_tool_choice, _read_gate_directive = \
+                _read_gate
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            trace.event("read_gate.scope_forced")
+        else:
+            _read_gate_directive = None
+
         # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
         # MIRROR of handle_stream(); keep both in sync. Only fires when no
         # higher-priority specific guard already claimed the turn so it
@@ -6345,6 +6467,9 @@ class ChatService:
         # notify-only alert, at-open/close, unsupported rail, confusion).
         for _g in _deterministic_guards:
             base_messages.append(LLMMessage(role="system", content=_g))
+        if _read_gate_directive:
+            base_messages.append(
+                LLMMessage(role="system", content=_read_gate_directive))
         # R1: affirmation with no draft + no pending resolution. Prevents
         # the model from fabricating "the draft above is what you'll
         # activate" when there is no draft on screen (screenshot 10).
@@ -6841,8 +6966,15 @@ class ChatService:
                         hop_drafted_card = True
                     # A successful screen with rows → deterministic table
                     # reply below (same values verbatim), no narration hop.
+                    # EXCEPT sector-OUTLOOK asks (51-sweep): the user asked
+                    # for a VIEW — a bare ranked table is an invalid answer,
+                    # so those turns keep the LLM narration hop (the ANALYSIS
+                    # directive mandates the ## View section).
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")):
+                            and guarded.data and guarded.data.get("results")
+                            and not re.search(
+                                r"\b(?:outlook|prospects?|view)\b",
+                                message, re.IGNORECASE)):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
@@ -7839,6 +7971,20 @@ class ChatService:
         elif _unsupported_rail is not None:
             agent_tool_choice = "auto"
 
+        # 51-sweep read gates (streaming mirror of handle()).
+        _read_gate = _read_intent_gate(message, selected_names)
+        if _read_gate is not None:
+            selected_names, agent_tool_choice, _read_gate_directive = \
+                _read_gate
+            tooldefs = [
+                t for t in _registry_tools_as_tooldefs(selected_names)
+                if t.name != ASK_USER_TOOL_NAME
+            ]
+            cache_key = cache_key_for(selected_names)
+            trace.event("read_gate.scope_forced")
+        else:
+            _read_gate_directive = None
+
         # ── GAN R4 scenario routing (thematic / vague / idle / unreal) ──
         # MIRROR of handle(); keep both in sync. Only fires when no
         # higher-priority specific guard already claimed the turn.
@@ -8093,6 +8239,9 @@ class ChatService:
         # GAN R2 R2–R6: deterministic guard directives (streaming mirror).
         for _g in _deterministic_guards:
             base_msgs.append(LLMMessage(role="system", content=_g))
+        if _read_gate_directive:
+            base_msgs.append(
+                LLMMessage(role="system", content=_read_gate_directive))
         # R1: affirmation-no-state hint (streaming mirror).
         if _affirm_no_state:
             base_msgs.append(LLMMessage(
@@ -8533,8 +8682,12 @@ class ChatService:
                     if guarded.name in _STASH_DRAFT_TOOLS:
                         hop_drafted_card = True
                     # Screen rows → deterministic table reply (mirror).
+                    # EXCEPT sector-OUTLOOK asks — see handle().
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")):
+                            and guarded.data and guarded.data.get("results")
+                            and not re.search(
+                                r"\b(?:outlook|prospects?|view)\b",
+                                message, re.IGNORECASE)):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
