@@ -84,6 +84,7 @@ import {
   getWorkflow,
   listConversationMessages,
   listConversations,
+  listWorkflows,
   logoutUser,
   setAccountMode,
   type PortfolioSummary,
@@ -234,6 +235,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // The tab the side editor was opened from. When the user navigates away from
   // this tab, the editor closes — it never lingers over an unrelated surface.
   const [panelOriginTab, setPanelOriginTab] = useState<TabKey | null>(null);
+  // A pending request to switch the Agents tab's surface toggle (Home F&O tile
+  // → "strategies"). Nonce-bumped so repeat requests re-fire; consumed by
+  // AgentsTab even when it mounts lazily after the request is set.
+  const [agentsSurfaceReq, setAgentsSurfaceReq] = useState<
+    { surface: "equity" | "strategies" | "views"; nonce: number } | null
+  >(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
   const [activeEditorDraft, setActiveEditorDraft] = useState<Workflow | null>(null);
@@ -565,6 +572,43 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     openWorkflow(result.data);
   }, [openWorkflow]);
 
+  // Home "Prebuilt strategies" tile → Agents tab with the side editor open on
+  // that agent. We jump to the Agents tab immediately (so the switch feels
+  // instant), then resolve the workflow: look the seeded agent up by name in
+  // the user's own workflows and open the REAL one when present; otherwise
+  // (e.g. the options strategy, which has no seeded workflow) open the local
+  // draft the tile carried. Origin is pinned to "agents" so the editor stays
+  // put after the tab switch and closes if the user navigates elsewhere.
+  const openAgentFromHome = useCallback(
+    (spec: { matchName: string; draft: Workflow }): void => {
+      goTab("agents");
+      void listWorkflows({ status: ["active", "paused", "draft"], limit: 50 })
+        .then(async (result) => {
+          if (isError(result)) {
+            openWorkflow(spec.draft, "agents");
+            return;
+          }
+          const match = result.data.items.find((w) => w.name === spec.matchName);
+          if (!match) {
+            openWorkflow(spec.draft, "agents");
+            return;
+          }
+          const full = await getWorkflow(match.id);
+          openWorkflow(isError(full) ? spec.draft : full.data, "agents");
+        })
+        .catch(() => openWorkflow(spec.draft, "agents"));
+    },
+    [goTab, openWorkflow],
+  );
+
+  // Home F&O prebuilt tile → Agents tab on its "Strategies" surface (the
+  // Options strategies list). Bump the nonce so AgentsTab re-applies it even on
+  // repeat clicks, then switch tabs.
+  const openAgentsStrategies = useCallback((): void => {
+    setAgentsSurfaceReq((prev) => ({ surface: "strategies", nonce: (prev?.nonce ?? 0) + 1 }));
+    goTab("agents");
+  }, [goTab]);
+
   // Keep the activeRef in sync, and close the side editor once the user leaves
   // the tab it was opened from — it never floats over an unrelated surface.
   useEffect(() => {
@@ -883,7 +927,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               }
               style={{ background: "var(--bg-inset)" }}
             >
-              <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} />
+              <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} onOpenAgent={openAgentFromHome} onOpenStrategies={openAgentsStrategies} />
             </div>
           )}
           {visitedTabs.has("screener") && (
@@ -936,6 +980,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onOpenWorkflow={openWorkflow}
                 onEditWithChat={editWorkflowWithChat}
                 onBrowseViews={() => goTab("views")}
+                surfaceRequest={agentsSurfaceReq}
               />
             </div>
           )}
