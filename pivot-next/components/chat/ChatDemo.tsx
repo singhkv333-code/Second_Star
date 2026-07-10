@@ -312,60 +312,34 @@ type ToolPill = {
  * asked for a clean way to track time themselves and see what stage
  * the LLM is at — this is that widget. */
 /**
- * Backend-steps waiting indicator.
+ * Backend-steps waiting indicator — Notion-AI style.
  *
- * Replaces the old cycling adjectives ("Triangulating…", "Stress-testing…")
- * with lines that read like the real system working a prompt — a step KIND
- * (Query / Data / Search / Tool / Compute …) plus a command-style line. The
- * point (owner ask): make it legible that Pivot runs a PIPELINE — routing,
- * DB queries, market-data pulls, tool calls, computation — not just "an LLM
- * replying". These lines are REPRESENTATIVE of the KIND of work, not a literal
- * trace; when a real tool fires we surface that tool's actual call over the
- * scripted line (see `toolStep`).
+ * A vertical timeline that grows downward while the system works: one
+ * PLAIN WORD per step ("Thinking", "Querying", "Fetching", …), a small
+ * dot per row, a thin connector line between dots. No chips, no ticks;
+ * earlier steps stay visible in the muted colour and the newest word
+ * shimmers. The words are representative of the KIND of work; a real
+ * tool call maps onto its word via `toolStepWord` so genuine backend
+ * activity shows through as it happens.
  */
-type StepKind =
-  | "route" | "context" | "db" | "data" | "web" | "tool" | "compute" | "compose";
-
-const STEP_KIND_LABEL: Record<StepKind, string> = {
-  route: "Route",
-  context: "Context",
-  db: "Query",
-  data: "Data",
-  web: "Search",
-  tool: "Tool",
-  compute: "Compute",
-  compose: "Compose",
-};
-
-type Step = { kind: StepKind; text: string };
-
-/** The scripted progression walked while the model is thinking (no real
- *  tool running yet). Deliberately generic + plausible, never fabricated
- *  specifics — it conveys "a system is executing steps", nothing more. */
-const STEP_SCRIPT: readonly Step[] = [
-  { kind: "route", text: "classifying intent · selecting tools" },
-  { kind: "context", text: "loading conversation context" },
-  { kind: "db", text: "querying financials.fundamentals" },
-  { kind: "data", text: "fetching NSE quotes · Kite feed" },
-  { kind: "compute", text: "computing RSI · SMA · returns" },
-  { kind: "web", text: "scanning news + events" },
-  { kind: "db", text: "reading portfolio positions" },
-  { kind: "compose", text: "composing reply" },
+const STEP_SCRIPT: readonly string[] = [
+  "Thinking",
+  "Reading",
+  "Querying",
+  "Fetching",
+  "Computing",
+  "Searching",
 ];
 
-/** Map a REAL tool name to a backend-step line, so a live tool call shows
- *  as the active step over the scripted ones. Kind is inferred from the
- *  tool's verb; the command shows the actual call so it reads as a trace. */
-function toolStep(name: string): Step {
+/** One simple word for a REAL tool call. */
+function toolStepWord(name: string): string {
   const n = name.toLowerCase();
-  let kind: StepKind = "tool";
-  if (/portfolio|holding|position|paper/.test(n)) kind = "db";
-  else if (/fundamental|financ|screen|compan/.test(n)) kind = "db";
-  else if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) kind = "data";
-  else if (/news|event|sentiment/.test(n)) kind = "web";
-  else if (/compare|correlat|calculat|backtest|greek|margin|indicator/.test(n)) kind = "compute";
-  else if (/^ask_user$/.test(n)) kind = "route";
-  return { kind, text: `→ ${name}()` };
+  if (/portfolio|holding|position|paper|fundamental|financ|screen|compan/.test(n)) return "Querying";
+  if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) return "Fetching";
+  if (/news|event|sentiment/.test(n)) return "Searching";
+  if (/compare|correlat|calculat|backtest|greek|margin|indicator/.test(n)) return "Computing";
+  if (/propose|build|create|workflow|strategy|order|basket/.test(n)) return "Drafting";
+  return "Working";
 }
 
 /** Mini price-chart ticker — three bars rising/falling on
@@ -385,33 +359,23 @@ function WittyTicker(): React.ReactElement {
   );
 }
 
-/** One rendered step row: a KIND chip + the command line. The active
- *  (newest) row shimmers; completed rows dim with a check. */
-function StepRow({ step, active }: { step: Step; active: boolean }): React.ReactElement {
+/** One timeline row: dot + one plain word. The newest word shimmers. */
+function StepRow({ word, active }: { word: string; active: boolean }): React.ReactElement {
   return (
-    <div
-      className={`chat-step flex items-center gap-2 ${active ? "" : "chat-step-done"}`}
-      style={{ minWidth: 0 }}
-    >
-      <span className="chat-step-kind">{STEP_KIND_LABEL[step.kind]}</span>
-      <span
-        className={`chat-step-cmd ${active ? "shimmer" : ""}`}
-        style={active ? undefined : { }}
-      >
-        {step.text}
+    <div className={`chat-step ${active ? "chat-step-active" : ""}`}>
+      <span className="chat-step-dot" aria-hidden={true} />
+      <span className={`chat-step-label ${active ? "shimmer" : ""}`}>
+        {word}
       </span>
-      {!active && (
-        <Check size={11} aria-hidden={true} style={{ color: "var(--positive, #16a34a)", opacity: 0.6, flexShrink: 0 }} />
-      )}
     </div>
   );
 }
 
-/** The backend-steps stack. Shows up to the last 3 steps: the newest is
- *  active (shimmer), the earlier ones are done (dimmed + check). While the
- *  model is thinking it walks `STEP_SCRIPT`; a real pending tool is surfaced
- *  over the script (`toolStep`). Once reply text starts streaming it settles
- *  on a single "composing reply" line. */
+/** The Notion-style vertical step timeline. Grows downward — every step
+ *  stays visible; dots connect with a thin line (CSS ::before on rows).
+ *  Walks `STEP_SCRIPT` while the model thinks (no looping — holds on the
+ *  last word), surfaces real tool calls as their own word, and appends
+ *  "Writing" once reply text starts streaming. */
 function ChatSteps({
   tools,
   hasText,
@@ -419,47 +383,45 @@ function ChatSteps({
   tools: ToolPill[];
   hasText: boolean;
 }): React.ReactElement {
-  const [steps, setSteps] = useState<Step[]>([STEP_SCRIPT[0]!]);
+  const [steps, setSteps] = useState<string[]>([STEP_SCRIPT[0]!]);
   const cursor = useRef<number>(1);
   const seenTools = useRef<Set<string>>(new Set());
 
-  const pushStep = (s: Step): void => {
-    setSteps((prev) => [...prev, s].slice(-3));
+  // Never repeat the word that's already at the bottom of the timeline.
+  const pushStep = (word: string): void => {
+    setSteps((prev) => (prev[prev.length - 1] === word ? prev : [...prev, word]));
   };
 
-  // Scripted progression while thinking. Stops once text streams.
+  // Scripted progression while thinking — unhurried cadence, no loop.
   useEffect(() => {
     if (hasText) return;
     const iv = window.setInterval(() => {
-      // Don't clobber a real tool that's currently the active line.
-      const next = STEP_SCRIPT[cursor.current % STEP_SCRIPT.length]!;
+      if (cursor.current >= STEP_SCRIPT.length) return; // hold on the last word
+      pushStep(STEP_SCRIPT[cursor.current]!);
       cursor.current += 1;
-      // Skip the "composing reply" script line until text actually starts.
-      if (next.kind === "compose") return;
-      pushStep(next);
-    }, 1150);
+    }, 2600);
     return () => window.clearInterval(iv);
   }, [hasText]);
 
-  // Surface real tool calls as they begin (once each).
+  // Surface real tool calls as they begin (once per tool).
   useEffect(() => {
     const pending = tools.find((t) => t.ok === undefined);
     if (!pending || seenTools.current.has(pending.name)) return;
     seenTools.current.add(pending.name);
-    pushStep(toolStep(pending.name));
+    pushStep(toolStepWord(pending.name));
   }, [tools]);
 
-  // When reply text starts, settle on the compose line.
+  // Reply text streaming → the final step.
   useEffect(() => {
-    if (hasText) pushStep({ kind: "compose", text: "composing reply" });
+    if (hasText) pushStep("Writing");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasText]);
 
   const lastIdx = steps.length - 1;
   return (
-    <div className="flex flex-col" style={{ gap: 3 }}>
-      {steps.map((s, i) => (
-        <StepRow key={`${i}-${s.text}`} step={s} active={i === lastIdx && !(hasText && s.kind !== "compose")} />
+    <div className="flex flex-col" style={{ gap: 4 }}>
+      {steps.map((word, i) => (
+        <StepRow key={`${i}-${word}`} word={word} active={i === lastIdx} />
       ))}
     </div>
   );
@@ -2004,9 +1966,7 @@ export function ChatDemo({
                 }}
               >
                 <WittyTicker />
-                <span className="chat-step-cmd shimmer">
-                  classifying intent · selecting tools
-                </span>
+                <span className="chat-step-label shimmer">Thinking</span>
                 {/* Subtle shimmer across the bubble's bottom edge so
                     something is always animating even when the phrase
                     is between cycles. */}
