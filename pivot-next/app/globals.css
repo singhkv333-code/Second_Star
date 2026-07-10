@@ -637,6 +637,11 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   letter-spacing: -0.005em;
   color: var(--text-tertiary);
 }
+/* The capitalised lead word ("Querying", "Fetching") carries a touch more
+   weight than its supporting words ("fundamentals", "market data"). */
+.chat-step-word {
+  font-weight: 550;
+}
 
 /* Hide native browser clear button on the topbar global search; we
    render a Lucide X clear control next to the input that matches the

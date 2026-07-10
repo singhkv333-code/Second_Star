@@ -322,24 +322,32 @@ type ToolPill = {
  * tool call maps onto its word via `toolStepWord` so genuine backend
  * activity shows through as it happens.
  */
-const STEP_SCRIPT: readonly string[] = [
-  "Thinking",
-  "Reading",
-  "Querying",
-  "Fetching",
-  "Computing",
-  "Searching",
+/** One step: a capitalised lead word plus one or two plain supporting
+ *  words saying WHAT is being read/queried/fetched — no symbols. */
+type Step = { word: string; detail: string };
+
+const STEP_SCRIPT: readonly Step[] = [
+  { word: "Thinking", detail: "" },
+  { word: "Reading", detail: "context" },
+  { word: "Querying", detail: "fundamentals" },
+  { word: "Fetching", detail: "market data" },
+  { word: "Computing", detail: "indicators" },
+  { word: "Searching", detail: "news" },
 ];
 
-/** One simple word for a REAL tool call. */
-function toolStepWord(name: string): string {
+/** Lead word + support for a REAL tool call. */
+function toolStep(name: string): Step {
   const n = name.toLowerCase();
-  if (/portfolio|holding|position|paper|fundamental|financ|screen|compan/.test(n)) return "Querying";
-  if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) return "Fetching";
-  if (/news|event|sentiment/.test(n)) return "Searching";
-  if (/compare|correlat|calculat|backtest|greek|margin|indicator/.test(n)) return "Computing";
-  if (/propose|build|create|workflow|strategy|order|basket/.test(n)) return "Drafting";
-  return "Working";
+  if (/portfolio|holding|position|paper/.test(n)) return { word: "Querying", detail: "portfolio" };
+  if (/fundamental|financ|screen|compan/.test(n)) return { word: "Querying", detail: "fundamentals" };
+  if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) return { word: "Fetching", detail: "prices" };
+  if (/news|event|sentiment/.test(n)) return { word: "Searching", detail: "news" };
+  if (/backtest/.test(n)) return { word: "Computing", detail: "backtest" };
+  if (/compare|correlat/.test(n)) return { word: "Computing", detail: "comparison" };
+  if (/calculat|greek|margin|indicator/.test(n)) return { word: "Computing", detail: "metrics" };
+  if (/order|basket/.test(n)) return { word: "Preparing", detail: "order" };
+  if (/propose|build|create|workflow|strategy/.test(n)) return { word: "Drafting", detail: "strategy" };
+  return { word: "Working", detail: "" };
 }
 
 /** Mini price-chart ticker — three bars rising/falling on
@@ -359,13 +367,15 @@ function WittyTicker(): React.ReactElement {
   );
 }
 
-/** One timeline row: dot + one plain word. The newest word shimmers. */
-function StepRow({ word, active }: { word: string; active: boolean }): React.ReactElement {
+/** One timeline row: dot + lead word (slightly weighted) + supporting
+ *  words. The newest line shimmers as a whole. */
+function StepRow({ step, active }: { step: Step; active: boolean }): React.ReactElement {
   return (
     <div className={`chat-step ${active ? "chat-step-active" : ""}`}>
       <span className="chat-step-dot" aria-hidden={true} />
       <span className={`chat-step-label ${active ? "shimmer" : ""}`}>
-        {word}
+        <span className="chat-step-word">{step.word}</span>
+        {step.detail ? ` ${step.detail}` : ""}
       </span>
     </div>
   );
@@ -383,20 +393,25 @@ function ChatSteps({
   tools: ToolPill[];
   hasText: boolean;
 }): React.ReactElement {
-  const [steps, setSteps] = useState<string[]>([STEP_SCRIPT[0]!]);
+  const [steps, setSteps] = useState<Step[]>([STEP_SCRIPT[0]!]);
   const cursor = useRef<number>(1);
   const seenTools = useRef<Set<string>>(new Set());
 
-  // Never repeat the word that's already at the bottom of the timeline.
-  const pushStep = (word: string): void => {
-    setSteps((prev) => (prev[prev.length - 1] === word ? prev : [...prev, word]));
+  // Never repeat the line that's already at the bottom of the timeline.
+  const pushStep = (s: Step): void => {
+    setSteps((prev) => {
+      const last = prev[prev.length - 1];
+      return last && last.word === s.word && last.detail === s.detail
+        ? prev
+        : [...prev, s];
+    });
   };
 
   // Scripted progression while thinking — unhurried cadence, no loop.
   useEffect(() => {
     if (hasText) return;
     const iv = window.setInterval(() => {
-      if (cursor.current >= STEP_SCRIPT.length) return; // hold on the last word
+      if (cursor.current >= STEP_SCRIPT.length) return; // hold on the last line
       pushStep(STEP_SCRIPT[cursor.current]!);
       cursor.current += 1;
     }, 2600);
@@ -408,20 +423,20 @@ function ChatSteps({
     const pending = tools.find((t) => t.ok === undefined);
     if (!pending || seenTools.current.has(pending.name)) return;
     seenTools.current.add(pending.name);
-    pushStep(toolStepWord(pending.name));
+    pushStep(toolStep(pending.name));
   }, [tools]);
 
   // Reply text streaming → the final step.
   useEffect(() => {
-    if (hasText) pushStep("Writing");
+    if (hasText) pushStep({ word: "Writing", detail: "reply" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasText]);
 
   const lastIdx = steps.length - 1;
   return (
     <div className="flex flex-col" style={{ gap: 4 }}>
-      {steps.map((word, i) => (
-        <StepRow key={`${i}-${word}`} word={word} active={i === lastIdx} />
+      {steps.map((s, i) => (
+        <StepRow key={`${i}-${s.word}-${s.detail}`} step={s} active={i === lastIdx} />
       ))}
     </div>
   );
