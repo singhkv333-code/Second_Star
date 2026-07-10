@@ -2970,7 +2970,7 @@ function ChatComposer({
                 // sidebar nav: subtle elevated bg + ink text. No border.
                 gap: 6,
                 padding: "6px 12px",
-                borderRadius: "var(--radius-pill)",
+                borderRadius: "var(--radius-sm)",
                 background: isActive ? "var(--surface-active)" : "transparent",
                 border: "none",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",

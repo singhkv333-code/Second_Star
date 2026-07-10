@@ -172,7 +172,7 @@ export function EquityBasketBuilder({
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Weighting
             </span>
-            <div className="inline-flex w-fit items-center rounded-full border p-1">
+            <div className="inline-flex w-fit items-center rounded-[var(--radius-sm)] border p-1">
               {(["equal", "custom"] as BasketWeighting[]).map((w) => (
                 <button
                   key={w}
@@ -180,7 +180,7 @@ export function EquityBasketBuilder({
                   onClick={() => setWeighting(w)}
                   aria-pressed={weighting === w}
                   className={cn(
-                    "rounded-full px-3.5 py-1 text-[12.5px] font-semibold capitalize transition-colors",
+                    "rounded-[var(--radius-xs)] px-3.5 py-1 text-[12.5px] font-semibold capitalize transition-colors",
                     weighting === w
                       ? "bg-foreground text-background"
                       : "text-muted-foreground hover:text-foreground",

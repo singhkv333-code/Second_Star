@@ -273,7 +273,7 @@ export function PortfolioTab(): React.ReactElement {
             padding: 3,
             background: "var(--bg-base)",
             border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-pill)",
+            borderRadius: "var(--radius-sm)",
           }}
         >
           {(["overview", "history"] as const).map((v) => {
@@ -289,7 +289,7 @@ export function PortfolioTab(): React.ReactElement {
                   padding: "6px 14px",
                   border: "none",
                   cursor: "pointer",
-                  borderRadius: "var(--radius-pill)",
+                  borderRadius: "var(--radius-xs)",
                   fontSize: 12,
                   fontFamily: "var(--font-ui)",
                   fontWeight: 500,
@@ -651,7 +651,7 @@ function PerformanceChart({
         padding: 2,
         background: "var(--bg-base)",
         border: "none",
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         flexShrink: 0,
       }}
     >
@@ -666,7 +666,7 @@ function PerformanceChart({
             style={{
               padding: "5px 12px",
               border: "none",
-              borderRadius: "var(--radius-pill)",
+              borderRadius: "var(--radius-xs)",
               fontFamily: "var(--font-ui)",
               fontSize: 11.5,
               fontWeight: 500,

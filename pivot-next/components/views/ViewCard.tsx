@@ -88,6 +88,24 @@ function categoryIcon(category: string | null | undefined): LucideIcon {
   return (lead ? CATEGORY_ICON[lead] : undefined) ?? TrendingUp;
 }
 
+// Keyword used to fetch a relevant preview image per category. PREVIEW ONLY —
+// keyed placeholder imagery so we can see the card with a real photo in the tile.
+const CATEGORY_KEYWORD: Record<string, string> = {
+  ai: "microchip",
+  energy: "oil-refinery",
+  autos: "car-factory",
+  auto: "car-factory",
+  geopolitics: "world-map",
+  macro: "central-bank",
+  index: "stock-market",
+  commodity: "commodities",
+  crude: "oil-barrel",
+  oil: "oil-barrel",
+  gold: "gold-bars",
+  monsoon: "monsoon-farm",
+  it: "software",
+};
+
 export function CategoryGlyph({
   category,
   seed,
@@ -96,10 +114,12 @@ export function CategoryGlyph({
   seed: string;
 }): React.ReactElement {
   const Icon = categoryIcon(category);
-  // A calm, self-contained tile: the category glyph on a faint tinted ground
-  // keyed off the seed hue. No external imagery (CSP-safe, no network, no
-  // preview-only placeholder photos).
-  const hue = Math.abs(hashStr(seed)) % 360;
+  const [imgOk, setImgOk] = React.useState(true);
+  const lead = categoryLeadWord(category);
+  const keyword = (lead && CATEGORY_KEYWORD[lead]) || "finance";
+  // lock varies per card so cards sharing a category still get distinct images.
+  const lock = Math.abs(hashStr(seed)) % 1000;
+  const src = `https://loremflickr.com/200/200/${keyword}?lock=${lock}`;
   return (
     <div
       aria-hidden
@@ -111,17 +131,27 @@ export function CategoryGlyph({
         flexShrink: 0,
         display: "grid",
         placeItems: "center",
-        borderRadius: 12,
+        borderRadius: 0,
         overflow: "hidden",
-        background: `hsl(${hue} 30% 50% / 0.10)`,
-        border: "1px solid var(--glass-border)",
+        background: "var(--bg-elevated)",
       }}
     >
-      <Icon
-        size={28}
-        strokeWidth={1.75}
-        color={`hsl(${hue} 42% 45%)`}
-      />
+      <Icon size={28} strokeWidth={1.75} color="var(--text-secondary)" />
+      {imgOk && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          onError={() => setImgOk(false)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -306,9 +336,13 @@ function StanceButton({
 function HeroFigure({
   pct,
   color,
+  sans = false,
 }: {
   pct: number | null;
   color: string;
+  /** Render the figure in the sans display face instead of the serif — used
+   *  by the Home dashboard's teaser cards; the Views tab/detail keep serif. */
+  sans?: boolean;
 }): React.ReactElement {
   const s = fmtPct(pct);
   const hasPct = s.endsWith("%");
@@ -317,7 +351,7 @@ function HeroFigure({
     <div
       className="view-card-hero"
       style={{
-        fontFamily: "var(--font-serif)",
+        fontFamily: sans ? "var(--font-display)" : "var(--font-serif)",
         fontVariantNumeric: "tabular-nums",
         fontSize: 40,
         fontWeight: 600,
@@ -346,16 +380,16 @@ type ViewCardProps = {
     id: string,
     next: { is_following: boolean; follower_count: number },
   ) => void;
-  /** Renders the question title in the serif display face instead of the
-   *  default sans — used only by the Home dashboard's teaser cards; the
-   *  Views tab grid keeps its own sans title untouched. */
-  serifTitle?: boolean;
+  /** Renders the whole card in the sans display face (title + hero figure)
+   *  instead of the serif — used by the Home dashboard's teaser cards; the
+   *  Views tab grid + detail page keep their serif hero untouched. */
+  sans?: boolean;
 };
 
 export function ViewCard({
   view,
   onOpen,
-  serifTitle = false,
+  sans = false,
 }: ViewCardProps): React.ReactElement {
   const [hover, setHover] = React.useState(false);
 
@@ -420,7 +454,7 @@ export function ViewCard({
           <div
             className="view-card-title line-clamp-2"
             style={{
-              fontFamily: serifTitle ? "var(--font-serif)" : FONT,
+              fontFamily: FONT,
               fontSize: 16,
               fontWeight: 700,
               lineHeight: 1.18,
@@ -442,7 +476,7 @@ export function ViewCard({
         style={{ gap: 24, marginTop: "auto", paddingTop: 24 }}
       >
         <div style={{ minWidth: 0 }}>
-          <HeroFigure pct={heroPct} color={heroColor} />
+          <HeroFigure pct={heroPct} color={heroColor} sans={sans} />
           <div
             className="view-card-caption"
             style={{

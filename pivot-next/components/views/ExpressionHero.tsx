@@ -117,8 +117,12 @@ function fmtSignedPct(frac: number): string {
 
 // ── shared projection math (real numbers only, no invention) ────────────────
 
-/** Curve is usable when it has >= 2 points and a positive starting value. */
-function usableCurve(e: ExpressionDetail): boolean {
+/** Curve is usable when it has >= 2 points and a positive starting value.
+ *  Type-predicate return so callers narrow `equity_curve` to non-null (the
+ *  shared ExpressionDetail type marks it nullable). */
+function usableCurve(
+  e: ExpressionDetail,
+): e is ExpressionDetail & { equity_curve: NonNullable<ExpressionDetail["equity_curve"]> } {
   return (
     Array.isArray(e.equity_curve) &&
     e.equity_curve.length >= 2 &&
@@ -128,7 +132,7 @@ function usableCurve(e: ExpressionDetail): boolean {
 
 /** End-to-end return fraction of the expression's own curve (null if none). */
 function curveReturn(e: ExpressionDetail): number | null {
-  if (!usableCurve(e) || !e.equity_curve) return null;
+  if (!usableCurve(e)) return null;
   const first = e.equity_curve[0]!.strategy;
   const last = e.equity_curve[e.equity_curve.length - 1]!.strategy;
   return last / first - 1;
@@ -176,7 +180,6 @@ export function ExpressionReturnsChart({
   const rows = React.useMemo((): Row[] => {
     const byIdx = new Map<number, Row>();
     for (const e of drawable) {
-      if (!e.equity_curve) continue;
       const first = e.equity_curve[0]!.strategy;
       const scale = amount / first;
       e.equity_curve.forEach((p, i) => {
@@ -185,7 +188,7 @@ export function ExpressionReturnsChart({
         byIdx.set(i, row);
       });
     }
-    if (benchSource?.equity_curve && (benchSource.equity_curve[0]?.benchmark ?? 0) > 0) {
+    if (benchSource && (benchSource.equity_curve[0]?.benchmark ?? 0) > 0) {
       const firstB = benchSource.equity_curve[0]!.benchmark;
       const scaleB = amount / firstB;
       benchSource.equity_curve.forEach((p, i) => {
