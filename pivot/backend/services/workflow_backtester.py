@@ -56,15 +56,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Optional
 
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf  # type: ignore[import-untyped]
-from pytz import timezone as pytz_timezone  # type: ignore[import-untyped]
 
 from backend.services.backtest_indicators import (
-    basis_for as _ind_basis,
     compute_series as _ind_series,
     get_spec as _ind_spec,
 )

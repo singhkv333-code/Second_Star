@@ -8,7 +8,6 @@ Generates geometric Brownian motion price series with mu=0.10/yr, sigma=0.20/yr.
 import numpy as np
 import pandas as pd
 import pytest
-from datetime import datetime, timedelta
 
 # Import all functions to test
 from ..returns import (
@@ -400,7 +399,7 @@ class TestSortinoRatio:
         result = sortino_ratio(returns_series)
         assert "error" not in result
         # Sortino should be >= Sharpe (less penalty for upside)
-        sharpe_result = sharpe_ratio(returns_series)
+        sharpe_ratio(returns_series)
         # Not always true due to formulation, but both should be finite
         assert np.isfinite(result["value"])
 

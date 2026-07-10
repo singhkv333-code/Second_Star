@@ -1675,7 +1675,7 @@ def _rationale(
     of their words, not a generic template: the view drives the scheme, the gate
     drives the names, the risk/horizon drives the gold %."""
     view = slots.view
-    scheme_txt = {
+    {
         "equal": "equal-weight",
         "mcap": "market-cap weighting",
         "risk_parity": "risk-parity (equal risk contribution)",

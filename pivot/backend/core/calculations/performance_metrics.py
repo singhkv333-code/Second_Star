@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 
 def _validate_returns(returns: pd.Series, min_length: int = 2, metric_name: str = "unknown") -> dict | None:

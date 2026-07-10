@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 
 def _price_to_returns(prices: pd.Series) -> pd.Series:

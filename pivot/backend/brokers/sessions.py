@@ -10,7 +10,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from backend.models import BrokerSession, User
+from backend.models import BrokerSession
 from backend.security.encryption import get_cipher
 
 # Columns that hold secrets and must be encrypted at rest when a cipher is set.

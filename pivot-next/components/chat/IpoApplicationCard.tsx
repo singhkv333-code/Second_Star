@@ -706,7 +706,7 @@ function EditableForm({
   amountPreview,
   validationResult,
   upiFormatNote,
-  upiValid,
+  upiValid: _upiValid,
   cutoffAllowed,
   isReadOnly,
   isSaving,

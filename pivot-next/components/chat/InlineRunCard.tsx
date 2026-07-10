@@ -28,7 +28,7 @@ import { useRunStream } from "@/lib/use-run-stream";
 import { useStepCatalog } from "@/components/agent-panel/use-step-catalog";
 import { findStepType } from "@/lib/mock-catalog";
 import { cn } from "@/lib/utils";
-import type { Run, RunStep, RunStepStatus, StepTypeCatalog } from "@/lib/types";
+import type { Run, RunStep, StepTypeCatalog } from "@/lib/types";
 
 // Single brand green — kept in lockstep with WorkflowDraftCard.
 const BRAND_GREEN = "#4CAF50";
@@ -226,7 +226,7 @@ function InlineStepRow({
   const isFailed = step.status === "failed";
   const isAwaiting = step.status === "awaiting_approval";
   const isSkipped = step.status === "skipped";
-  const isPending = step.status === "pending";
+  const _isPending = step.status === "pending";
 
   // Tile-level styling — succeeded uses brand green, running uses a
   // softer brand-green pulse, failed uses rose, awaiting uses amber.

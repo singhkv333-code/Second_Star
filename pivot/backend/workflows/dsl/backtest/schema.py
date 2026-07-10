@@ -7,7 +7,7 @@ runs.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 

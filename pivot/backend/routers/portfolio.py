@@ -11,7 +11,6 @@ from backend.models import (
 )
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.kite.auth import read_kite_access_token
-from backend.kite.portfolio import get_holdings, get_portfolio_summary, get_margins
 from backend.services.portfolio_cache import (
     get_summary_cached, cache_aside, scores_cache_key,
 )

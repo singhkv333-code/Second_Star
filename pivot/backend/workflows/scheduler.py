@@ -188,7 +188,7 @@ def _resolve_market_relative_time(cfg: dict[str, object]) -> tuple[str, str]:
         offset_min = int(cfg.get("offset_minutes", 0))
     except (TypeError, ValueError) as e:
         raise InvalidCronError(
-            f"trigger.market_relative_time: offset_minutes must be int"
+            "trigger.market_relative_time: offset_minutes must be int"
         ) from e
 
     # Add the signed offset to the anchor wall-clock to land on the

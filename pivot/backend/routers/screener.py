@@ -46,8 +46,6 @@ from backend.cache import redis_client
 from backend.routers._deps import require_user
 from backend.services.sector_universe import (
     _UNIVERSE as _SECTOR_UNIVERSE,
-    known_sectors,
-    normalize_sector,
 )
 
 logger = logging.getLogger(__name__)

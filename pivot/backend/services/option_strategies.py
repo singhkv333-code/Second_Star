@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -1102,7 +1102,7 @@ def critique_strategy(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     # ── Pre-baked digest the chat layer quotes verbatim — keeps the
     # POP/bound/comparison numbers anchored to the engine so prose can't
     # drift (e.g. calling a bounded short put "unlimited loss"). ────────
-    template = payload["editable"].get("template", "custom")
+    payload["editable"].get("template", "custom")
     ml = computed.get("max_loss")
     mp = computed.get("max_profit")
     pop = computed.get("pop")

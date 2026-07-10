@@ -387,7 +387,6 @@ async def execute_due_sips():
     # recurring SIP fills into the same structured portfolio as their chat
     # + workflow orders (not a separate kite-mock book).
     from backend.paper.routing import submit_order_for_user
-    from backend.cache import get_redis
 
     fired_at = now_ist()
     logger.info(f"[{format_ist_short(fired_at)}] SIP execution job started")
@@ -822,7 +821,7 @@ async def send_daily_summary():
                 "generated_at": format_ist(summary_time),
                 "upcoming_sips": upcoming,
                 "message": (
-                    f"Market closed at 15:30 IST. "
+                    "Market closed at 15:30 IST. "
                     + (
                         f"Your next SIP: {upcoming[0]['symbol']} on "
                         f"{upcoming[0]['next_run']}."

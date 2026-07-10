@@ -1,7 +1,6 @@
 from __future__ import annotations
-from typing import Callable, Any
+from typing import Callable
 import pandas as pd
-import numpy as np
 from backend.backtester.primitives import (
     SIGNAL_REGISTRY,
     combine_and,

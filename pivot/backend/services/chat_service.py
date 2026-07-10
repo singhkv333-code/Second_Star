@@ -3405,7 +3405,6 @@ def _thematic_guard_text(message: str, s: ThematicScenario) -> str:
     confirm/invalidate → caveat contract, seeded with REAL NSE names so
     the model cannot punt or invent a generic staples basket."""
     cap = extract_capital_inr(message)
-    notional = cap if cap else 100_000
     weights = basket_weights(s)
     split = ", ".join(f"{tk} {w}%" for tk, w in weights)
     winner_syms = ", ".join(tk for tk, _w in weights)
@@ -8573,7 +8572,6 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
-        accumulated_text = ""
         # Mirror of the non-streaming path's compact-draft tracker.
         last_was_macro_draft = False
         # Track the most recent tool error so the streaming
@@ -8727,7 +8725,6 @@ class ChatService:
                 return
 
             hop_text = "".join(text_parts)
-            accumulated_text = hop_text  # final hop's text wins
 
             # No tool calls → final hop. Wrap up.
             if not tc_acc:

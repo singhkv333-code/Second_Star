@@ -46,7 +46,7 @@ Anything outside these four shapes goes through full `propose_workflow`.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -1021,10 +1021,10 @@ def hydrate_holding_action(
                 f"no leftover position)."
             )
             risk = (
-                f"Market-order exit at the trigger tick: the fill is "
-                f"at whatever quote prevails, which on a fast move can "
-                f"be materially worse than the trigger threshold. Stale "
-                f"or anomalous ticks can also fire the trigger early."
+                "Market-order exit at the trigger tick: the fill is "
+                "at whatever quote prevails, which on a fast move can "
+                "be materially worse than the trigger threshold. Stale "
+                "or anomalous ticks can also fire the trigger early."
             )
         else:  # set_stoploss
             why = (
@@ -1039,11 +1039,11 @@ def hydrate_holding_action(
                 )
             )
             risk = (
-                f"Stop-loss orders do not protect overnight gaps and "
-                f"can slip materially on fast moves — the actual exit "
-                f"price can be worse than the trigger price. The stop "
-                f"can also be hit by a brief intraday spike that "
-                f"otherwise would have recovered."
+                "Stop-loss orders do not protect overnight gaps and "
+                "can slip materially on fast moves — the actual exit "
+                "price can be worse than the trigger price. The stop "
+                "can also be hit by a brief intraday spike that "
+                "otherwise would have recovered."
             )
     not_this = (
         "Pivot registers the order; you confirm and place it in your "
@@ -1266,21 +1266,21 @@ def build_ipo_reminder_draft(
             f"and pushes the open-day handoff text."
         ),
         why=(
-            f"IPO subscription mechanics require a manual UPI mandate "
-            f"that Pivot can't authorise on your behalf; the right "
-            f"shape is a reminder + intent rather than an order."
+            "IPO subscription mechanics require a manual UPI mandate "
+            "that Pivot can't authorise on your behalf; the right "
+            "shape is a reminder + intent rather than an order."
         ),
         risk=(
-            f"IPO allocations are uncertain (oversubscription, "
-            f"category caps) and listings can open materially below "
-            f"the issue price; this automation does not protect against "
-            f"either."
+            "IPO allocations are uncertain (oversubscription, "
+            "category caps) and listings can open materially below "
+            "the issue price; this automation does not protect against "
+            "either."
         ),
         not_this=(
-            f"This is NOT an order placement and NOT a broker call — "
-            f"Pivot's verb is 'arm' and 'remind', never 'apply'. You "
-            f"must place the bid and approve the UPI mandate yourself "
-            f"in your broker app by 5 PM on close day."
+            "This is NOT an order placement and NOT a broker call — "
+            "Pivot's verb is 'arm' and 'remind', never 'apply'. You "
+            "must place the bid and approve the UPI mandate yourself "
+            "in your broker app by 5 PM on close day."
         ),
     )
 

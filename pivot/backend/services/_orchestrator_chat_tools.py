@@ -496,7 +496,7 @@ async def _dispatch_step(
 
     # Full chat-side dispatch path.
     from backend.services.validation_handler import (
-        execute_with_completeness, ASK_USER_TOOL_NAME,
+        execute_with_completeness,
     )
     # ctx carries kite_token / db / user_id forwarded via the chat layer.
     kite_token = ctx.get("__kite_token") or ""

@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 # --- Re-exports: legacy signal_* names → new sig_* primitives -----------
@@ -44,7 +43,6 @@ from backend.backtester.exits import (
     exit_stop_loss as signal_exit_stop_loss,
     exit_take_profit as signal_exit_take_profit,
     exit_trailing_stop as _exit_trailing_stop,
-    exit_after_n_days as _exit_after_n_days,
 )
 
 

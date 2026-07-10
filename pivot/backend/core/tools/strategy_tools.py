@@ -261,7 +261,7 @@ def _fundamentals_row(sym: str) -> dict[str, Any]:
         return {"error": f"fundamentals unavailable: {type(e).__name__}"}
 
 
-def _technicals_row(prices: "pd.Series") -> dict[str, Any]:
+def _technicals_row(prices: "pd.Series") -> dict[str, Any]:  # noqa: F821 — forward-ref string annotation (pandas not imported at runtime)
     """SMA20/50/200 + RSI14 + period high/low from an already-fetched close
     series — reuses the price data compare_performance already pulled
     instead of issuing a second per-symbol fetch.

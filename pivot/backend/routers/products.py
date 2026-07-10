@@ -1,11 +1,8 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
-from sqlalchemy.orm import Session
-from backend.database import get_db
 from backend.auth.jwt_handler import get_user_id_from_token
-from backend.agents.structured_builder import PRODUCT_BUILDERS, build_safegrow
-from backend.safety import MIN_CAPITAL_SAFEGROW
+from backend.agents.structured_builder import PRODUCT_BUILDERS
 
 router = APIRouter(prefix="/products", tags=["Structured Products"])
 

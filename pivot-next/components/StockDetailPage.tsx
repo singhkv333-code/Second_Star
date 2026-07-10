@@ -3219,7 +3219,7 @@ const FY_YEARS: string[] = (() => {
  *  always align at the bottom regardless of metric mix. The P&L
  *  walkdown has 7 rows currently (Revenue → COGS → Gross Profit →
  *  Opex → Operating Income → Tax → Net Income), so we anchor on 7. */
-const SHARED_TABLE_ROWS = 7;
+const _SHARED_TABLE_ROWS = 7;
 
 type FinancialRow = { label: string; values: (string | null)[] };
 
@@ -3276,8 +3276,9 @@ function buildProfitLoss(quote: StockQuote): FinancialRow[] {
   ];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function FinancialsTable({
-  quote,
+  quote: _quote,
   minRows,
   financials,
 }: {
@@ -3300,6 +3301,7 @@ function FinancialsTable({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ProfitLossTable({
   quote,
   minRows,
@@ -3725,7 +3727,7 @@ function FinancialsPanel({
   );
 
   const rows = tab === "financials" ? bsRows : plRows;
-  const source = financials?.available ? "Moneycontrol" : "Estimated";
+  const _source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
     rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
@@ -3934,7 +3936,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
 }
 
 
-const screenerTh: React.CSSProperties = {
+const _screenerTh: React.CSSProperties = {
   padding: "12px 16px",
   fontSize: 10,
   letterSpacing: "0.08em",
@@ -3945,7 +3947,7 @@ const screenerTh: React.CSSProperties = {
   fontFamily: "var(--font-ui)",
 };
 
-const screenerTd: React.CSSProperties = {
+const _screenerTd: React.CSSProperties = {
   padding: "11px 16px",
   fontSize: 12.5,
   whiteSpace: "nowrap",

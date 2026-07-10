@@ -199,9 +199,9 @@ def _validate_args_against_schema(
     required = schema.get("required") or []
     errors: list[str] = []
 
-    for field in required:
-        if field not in args:
-            errors.append(f"{field}: required field missing.")
+    for field_name in required:
+        if field_name not in args:
+            errors.append(f"{field_name}: required field missing.")
 
     type_map = {
         "string": str,
@@ -211,7 +211,7 @@ def _validate_args_against_schema(
         "array": list,
         "object": dict,
     }
-    for field, value in args.items():
+    for field_name, value in args.items():
         # OpenAI's function-calling layer sometimes emits explicit
         # `null` for optional fields the model decided not to use
         # (observed on propose_dsl_workflow.exit_condition). For a
@@ -221,19 +221,19 @@ def _validate_args_against_schema(
         # tool call gets rejected for emitting null on an optional
         # string, which then bounces back to the LLM as a prose
         # error and produces an over-confirmation reply.
-        if value is None and field not in required:
+        if value is None and field_name not in required:
             continue
-        prop = props.get(field) or {}
+        prop = props.get(field_name) or {}
         declared = prop.get("type")
         if declared in type_map:
             expected = type_map[declared]
             if not isinstance(value, expected):
                 errors.append(
-                    f"{field}: expected {declared}, got {type(value).__name__}."
+                    f"{field_name}: expected {declared}, got {type(value).__name__}."
                 )
         if "enum" in prop and value not in prop["enum"]:
             errors.append(
-                f"{field}: must be one of {prop['enum']}; got {value!r}."
+                f"{field_name}: must be one of {prop['enum']}; got {value!r}."
             )
         # String length constraint — caught the "ASK_USER with empty
         # question" model behaviour where it called the tool but
@@ -242,12 +242,12 @@ def _validate_args_against_schema(
             min_len = prop.get("minLength")
             if min_len and len(value.strip()) < int(min_len):
                 errors.append(
-                    f"{field}: minimum length {min_len}; got {len(value.strip())} chars."
+                    f"{field_name}: minimum length {min_len}; got {len(value.strip())} chars."
                 )
             max_len = prop.get("maxLength")
             if max_len and len(value) > int(max_len):
                 errors.append(
-                    f"{field}: maximum length {max_len}; got {len(value)} chars."
+                    f"{field_name}: maximum length {max_len}; got {len(value)} chars."
                 )
 
     return " ".join(errors) if errors else None
@@ -631,7 +631,8 @@ async def execute_with_completeness(
         # error back into the agentic loop so the model takes another hop and
         # answers with a real tool (fetch_fundamentals/get_live_price/...).
         if question_text and not options and not default_on_yes:
-            _norm = lambda s: re.sub(r"[^a-z0-9 ]+", "", (s or "").lower()).strip()
+            def _norm(s):
+                return re.sub(r"[^a-z0-9 ]+", "", (s or "").lower()).strip()
             nq, nu = _norm(question_text), _norm(user_message)
             if nq and nu and (nq == nu or (len(nq) > 12 and nq in nu)):
                 return GuardedToolResult(
@@ -743,7 +744,7 @@ async def execute_with_completeness(
 
     # Look up the schema for the chosen tool.
     schema = _schema_for_tool(tool_name)
-    description = _description_for_tool(tool_name) or ""
+    _description_for_tool(tool_name) or ""
 
     # 1. Completeness check (pure Python, microseconds).
     if isinstance(schema, dict):

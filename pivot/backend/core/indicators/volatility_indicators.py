@@ -51,7 +51,7 @@ def bollinger(df: pd.DataFrame, period: int = 20, std: float = 2.0) -> dict[str,
         if upper_current is None or lower_current is None:
             return {"error": "all values are NaN", "indicator_name": f"Bollinger({period},{std})"}
 
-        close_price = float(df["Close"].iloc[-1])
+        float(df["Close"].iloc[-1])
 
         if pband_current is not None:
             if pband_current > 1:
@@ -177,19 +177,19 @@ def keltner(df: pd.DataFrame, period: int = 20, atr_mult: float = 2.0) -> dict[s
 
         if close_price > upper_current:
             signal = "bullish"
-            interpretation = f"Price above upper Keltner channel — strong bullish breakout"
+            interpretation = "Price above upper Keltner channel — strong bullish breakout"
         elif close_price < lower_current:
             signal = "bearish"
-            interpretation = f"Price below lower Keltner channel — strong bearish breakout"
+            interpretation = "Price below lower Keltner channel — strong bearish breakout"
         elif pband_current is not None and pband_current > 0.8:
             signal = "neutral"
-            interpretation = f"Price near upper channel — testing resistance"
+            interpretation = "Price near upper channel — testing resistance"
         elif pband_current is not None and pband_current < 0.2:
             signal = "neutral"
-            interpretation = f"Price near lower channel — testing support"
+            interpretation = "Price near lower channel — testing support"
         else:
             signal = "neutral"
-            interpretation = f"Price within Keltner channels — no breakout"
+            interpretation = "Price within Keltner channels — no breakout"
 
         return {
             "indicator_name": f"Keltner({period},{atr_mult})",
@@ -226,7 +226,7 @@ def donchian(df: pd.DataFrame, period: int = 20) -> dict[str, Any]:
         middle = indicator.donchian_channel_mband()
         lower = indicator.donchian_channel_lband()
         width = indicator.donchian_channel_wband()
-        pband = indicator.donchian_channel_pband()
+        indicator.donchian_channel_pband()
 
         upper_current = _get_current_value(upper)
         middle_current = _get_current_value(middle)

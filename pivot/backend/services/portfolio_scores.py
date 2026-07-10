@@ -155,7 +155,7 @@ def compute_diversification(
         return None
 
     pos_values = [mv for _, mv in positions]
-    total_value = sum(pos_values)
+    sum(pos_values)
 
     # Sector aggregation.
     sector_totals: dict[str, float] = {}

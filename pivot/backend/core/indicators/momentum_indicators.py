@@ -7,7 +7,6 @@ Use them to identify overbought/oversold conditions and potential reversals.
 
 from typing import Any
 import pandas as pd
-import numpy as np
 import ta
 
 

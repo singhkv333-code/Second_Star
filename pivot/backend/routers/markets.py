@@ -683,7 +683,7 @@ def get_sparkline(
                         symbol=sym, range=range, interval=interval,
                         points=_downsample_points(points),
                     )
-        except Exception as e:  # noqa: BLE001 — fall through to yfinance
+        except Exception:  # noqa: BLE001 — fall through to yfinance
             pass
 
     # yfinance fallback (no Kite session, unmapped instrument, or an

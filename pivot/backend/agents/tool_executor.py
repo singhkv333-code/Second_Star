@@ -576,7 +576,7 @@ async def _delete_sip(a, kt, db, uid):
 async def _pause_all_sips(a, kt, db, uid):
     from backend.models import SIPSchedule
     db.query(SIPSchedule).filter(SIPSchedule.user_id == uid,
-                                 SIPSchedule.is_active == True).update({"is_active": False})
+                                 SIPSchedule.is_active).update({"is_active": False})
     db.commit()
     return {"success": True, "data": {"message": "All SIPs paused"}, "logiccard": None}
 

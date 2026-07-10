@@ -17,7 +17,7 @@ import logging
 import os
 from typing import Callable, Optional
 
-from fastapi import Depends, Header, Request
+from fastapi import Header, Request
 
 from backend.cache import redis_client
 from backend.routers._errors import rate_limited

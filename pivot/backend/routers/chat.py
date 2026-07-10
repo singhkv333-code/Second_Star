@@ -7,11 +7,10 @@ shape, slash-command shortcuts, and serialising the response.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from backend.security.throttle import rate_limit
@@ -379,7 +378,8 @@ async def _maybe_run_slash(text: str) -> Optional[dict]:
 
 
 async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
-    import asyncpg, datetime as _dt
+    import asyncpg
+    import datetime as _dt
     from backend.config import settings as _s
     from backtester.universe import universe_at
     from backtester.expr.validator import ValidationError
@@ -426,7 +426,8 @@ async def _run_expr_screen(*, expression: str, as_of: Optional[str]) -> dict:
 
 
 async def _run_expr_backtest(*, expression: str, start: str, end: str, rebalance: str) -> dict:
-    import asyncpg, datetime as _dt
+    import asyncpg
+    import datetime as _dt
     from backend.config import settings as _s
     # The fundamentals backtester lives in the sibling `pivot-backtester`
     # package; it's an optional dependency. If it isn't installed in the
