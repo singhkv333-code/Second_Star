@@ -54,6 +54,15 @@ def refresh_kite_sessions() -> None:
         if not sessions:
             logger.info("kite auto-relogin: no opted-in sessions")
             return
+        # Unattended (env-cred) mode logs into ONE Zerodha account, so only
+        # refresh the session that owns those creds — refreshing several would
+        # fire duplicate logins for the same account (each invalidating the
+        # last). Pick the KITE_USER_ID session; fall back to the first.
+        from backend.config import settings as _cfg
+        if _cfg.kite_unattended_autologin:
+            target = [s for s in sessions if s.broker_user_id == _cfg.kite_user_id] \
+                if _cfg.kite_user_id else []
+            sessions = target or sessions[:1]
         for s in sessions:
             token = read_kite_access_token(s)
             try:

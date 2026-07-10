@@ -196,9 +196,19 @@ class KiteConnector(BrokerConnector):
             session.persistence_mode == PersistenceKind.totp_login.value
             and session.auto_login_opt_in
         ):
-            kite_user_id = session.broker_user_id
-            password = read_secret(session.api_secret)
-            totp_secret = read_secret(session.totp_secret)
+            # Credential source: when unattended auto-login is enabled, prefer
+            # the current env creds (post-reset) over the encrypted DB session,
+            # which can hold stale creds after a credential reset. Falls back to
+            # the DB secrets field-by-field so a partial env config still works.
+            from backend.config import settings as _cfg
+            if _cfg.kite_unattended_autologin:
+                kite_user_id = _cfg.kite_user_id or session.broker_user_id
+                password = _cfg.kite_password or read_secret(session.api_secret)
+                totp_secret = _cfg.permanent_token or read_secret(session.totp_secret)
+            else:
+                kite_user_id = session.broker_user_id
+                password = read_secret(session.api_secret)
+                totp_secret = read_secret(session.totp_secret)
             if kite_user_id and password and totp_secret:
                 # Raises NeedsManualLogin on any failure (bad creds / network).
                 request_token = kite_auth.totp_login(
