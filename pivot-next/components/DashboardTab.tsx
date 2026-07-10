@@ -20,12 +20,9 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
-  ArrowUpRight,
-  FileText,
-  Newspaper,
-  Play,
+  Filter,
+  Sparkles,
   TrendingUp,
-  Workflow,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -82,16 +79,12 @@ type ChipDef = {
 };
 
 const ACTION_CHIPS: ChipDef[] = [
-  // Offline scripted demo — bypasses the LLM (currently disabled due to
-  // low API balance) and plays a canned workflow-draft response with
-  // the editor panel popping out alongside.
-  { label: "Play demo (offline)", Icon: Play, action: "demo" },
-  { label: "Generate Report",   Icon: FileText,     prompt: "Generate a portfolio performance report for this week." },
-  { label: "Run Agent",         Icon: Workflow,     prompt: "Show me my active agents and their last run status." },
-  { label: "Portfolio Health",  Icon: Activity,     prompt: "Analyze my portfolio health and suggest any rebalancing." },
-  { label: "Market Pulse",      Icon: TrendingUp,   prompt: "Give me a market pulse summary for today." },
-  { label: "Top Movers",        Icon: ArrowUpRight, prompt: "What are the top movers in NIFTY 50 today?" },
-  { label: "News-gated trade",  Icon: Newspaper,    prompt: "Buy 5 RELIANCE at open. At 10 AM IST, if RBI announces a repo rate cut, sell my entire RELIANCE holding; otherwise hold for the day." },
+  // Four quick-start prompts that seed the chat composer. Each one maps to a
+  // real capability the agent can answer (portfolio, market, movers, news).
+  { label: "Portfolio Health", Icon: Activity,   prompt: "Analyze my portfolio health — highlight concentration risk, biggest movers, and any rebalancing you'd suggest." },
+  { label: "Market Today",     Icon: TrendingUp, prompt: "Give me a market pulse for today: how are NIFTY 50 and SENSEX doing, and what are the top gainers and losers?" },
+  { label: "Watchlist Ideas",  Icon: Sparkles,   prompt: "Suggest 3 large-cap Indian stocks worth watching right now, with a one-line reason for each." },
+  { label: "Screen Stocks",    Icon: Filter,     prompt: "Screen for Indian stocks with a market cap above ₹20,000 Cr, P/E under 25, and positive revenue growth. Show me the top 5 matches with key metrics." },
 ];
 
 // ---------------------------------------------------------------------------
@@ -167,12 +160,6 @@ const DEMO_SEED: ChatDemoSeed = {
   draft: DEMO_DRAFT,
 };
 
-const MORE_EXAMPLE_PROMPTS: string[] = [
-  "If Apple confirms iPhone manufacturing expansion in India by Friday, buy a basket of 5 Indian electronics manufacturing stocks.",
-  "At market open, buy 10 HDFCBANK. By 2 PM, if SEBI penalises any large private bank, short HDFCBANK to neutral; otherwise hold.",
-  "If Moody's upgrades India's sovereign rating before Friday close, buy a basket of large-cap PSU banks.",
-];
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -215,7 +202,6 @@ export function DashboardTab({
 }: DashboardTabProps): React.ReactElement {
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
-  const [showMoreExamples, setShowMoreExamples] = useState(false);
   const [demoSeed, setDemoSeed] = useState<ChatDemoSeed | undefined>(undefined);
 
   // Adopt a prompt seeded from another tab (Home) — mirror it into the local
@@ -292,86 +278,6 @@ export function DashboardTab({
           {ACTION_CHIPS.map((chip) => (
             <ActionChip key={chip.label} chip={chip} onClick={() => handleChipClick(chip)} />
           ))}
-        </div>
-
-        {/* "Show more examples" toggle — reveals news-gated workflow prompts */}
-        <div className="flex w-full flex-col items-center" style={{ gap: 8 }}>
-          <button
-            type="button"
-            aria-expanded={showMoreExamples}
-            onClick={() => setShowMoreExamples((v) => !v)}
-            style={{
-              fontSize: 11.5,
-              color: "var(--text-tertiary)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "2px 6px",
-              borderRadius: "var(--radius-xs)",
-              fontFamily: "var(--font-ui)",
-              transition: "color 0.2s var(--ease-quartr)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}
-          >
-            {showMoreExamples ? "Hide examples" : "Show more examples"}
-          </button>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              justifyContent: "center",
-              gap: 8,
-              maxWidth: 820,
-              opacity: showMoreExamples ? 1 : 0,
-              // Generous cap so the prompts never clip — on phone they
-              // wrap to many rows. The transition still feels right
-              // because it animates from 0 toward the cap and natural
-              // content height stops it visually.
-              maxHeight: showMoreExamples ? 1200 : 0,
-              overflow: "hidden",
-              transition: "opacity 0.25s var(--ease-quartr), max-height 0.3s var(--ease-quartr)",
-              pointerEvents: showMoreExamples ? "auto" : "none",
-            }}
-          >
-            {MORE_EXAMPLE_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => setPendingPrompt(prompt)}
-                className="inline-flex items-center"
-                style={{
-                  gap: 8,
-                  padding: "9px 14px",
-                  background: "var(--bg-base)",
-                  border: "1px solid var(--glass-border)",
-                  borderRadius: "var(--radius-pill)",
-                  color: "var(--text-secondary)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 12.5,
-                  fontWeight: "var(--weight-medium)" as unknown as number,
-                  cursor: "pointer",
-                  maxWidth: 380,
-                  textAlign: "left",
-                  lineHeight: 1.4,
-                  transition:
-                    "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr), border-color 0.35s var(--ease-quartr)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--text-primary)";
-                  e.currentTarget.style.borderColor = "var(--glass-border-hover)";
-                  e.currentTarget.style.background = "var(--bg-elevated)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                  e.currentTarget.style.borderColor = "var(--glass-border)";
-                  e.currentTarget.style.background = "var(--bg-base)";
-                }}
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>
