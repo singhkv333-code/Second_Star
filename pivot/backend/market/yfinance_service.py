@@ -252,6 +252,44 @@ def _records_from_df(df: pd.DataFrame) -> list[dict]:
     return out
 
 
+# Kite historical serves the _PERIOD_MAP keys ("5d"/"1mo"/"3mo"/"6mo"/"1y"/
+# "2y"/"3y"/"5y") and bare 'Nd' intraday spans; it CANNOT bound "max"/"ytd"
+# (it would silently truncate to 1y), so those are left to yfinance.
+_KITE_SKIP_PERIODS = {"max", "ytd"}
+
+
+def _try_kite_history(symbol: str, period: str, interval: str) -> list[dict]:
+    """Kite historical bars for an NSE equity, or [] when Kite can't serve it
+    (no session, index symbol, unbounded span, or an interval Kite lacks — e.g.
+    weekly/monthly downsamples). Never raises; the caller falls back to yfinance.
+
+    Shape matches ``_records_from_df``: ``[{date, open, high, low, close,
+    volume}, ...]`` — ``get_kite_historical`` already returns exactly this."""
+    s = (symbol or "").strip().upper()
+    if not s or s.startswith("^"):
+        return []
+    if s.endswith(".NS") or s.endswith(".BO"):
+        s = s[:-3]
+    if (period or "").strip().lower() in _KITE_SKIP_PERIODS:
+        return []
+    # Kite's historical API only serves daily + intraday candles (no native
+    # weekly/monthly). Route only those to Kite; weekly/monthly chart
+    # downsamples fall straight to yfinance instead of paying a failed call.
+    try:
+        canonical = normalize_interval(interval or "1d")
+    except Exception:  # noqa: BLE001
+        return []
+    if canonical != "1d" and not is_intraday(canonical):
+        return []
+    try:
+        from backend.kite.historical import get_kite_historical
+        rows = get_kite_historical(s, period=period, interval=canonical)
+        return rows or []
+    except Exception as exc:  # noqa: BLE001 — fall back to yfinance
+        logger.debug("kite historical unavailable for %s: %s", s, str(exc)[:120])
+        return []
+
+
 def fetch_price_history(symbol: str, period: str, interval: str) -> list[dict]:
     """
     Fetch OHLCV history for a single symbol. Returns [] on failure (never raises).
@@ -314,6 +352,19 @@ def fetch_price_history(symbol: str, period: str, interval: str) -> list[dict]:
             return json.loads(raw)
     except Exception as e:
         logger.debug(f"Cache read miss for {cache_key}: {e}")
+
+    # ── Kite-primary: broker-grade daily/intraday bars that work on cloud IPs
+    #    (where yfinance is throttled). Indices (^) and unbounded spans
+    #    (max/ytd) are left to the yfinance body below; weekly/monthly chart
+    #    downsamples that Kite can't serve return None from get_kite_historical
+    #    and also fall through. yfinance thus becomes a pure backup.
+    kite_records = _try_kite_history(symbol, period, interval)
+    if kite_records:
+        try:
+            redis_client.set(cache_key, json.dumps(kite_records), ex=CACHE_TTL_SECONDS)
+        except Exception as e:
+            logger.debug(f"Cache write failed for {cache_key}: {e}")
+        return kite_records
 
     records: list[dict] = []
     try:

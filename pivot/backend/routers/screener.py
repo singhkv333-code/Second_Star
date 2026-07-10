@@ -271,24 +271,149 @@ def _yahoo_ticker(sym: str) -> str:
     return _YAHOO_TICKER_OVERRIDES.get(sym.upper(), f"{sym.upper()}.NS")
 
 
+# ── Kite price baseline (1-year-ago close + 52w) — powers the grid's 1-year
+#    return column WITHOUT a yfinance bulk download. Precomputed nightly from
+#    Kite historical (scheduler.precompute_screener_baseline); the request path
+#    just reads the cache and computes the ratio against the live Kite price.
+#    Cold entries fill lazily in the background. ──
+_BASELINE_PREFIX = "screener:base:"
+_BASELINE_TTL_SECONDS = 26 * 60 * 60  # survive a day; the nightly job refreshes
+_baseline_warm_lock = threading.Lock()
+_baseline_warm_running = False
+
+
+def _baseline_cached(sym: str) -> Optional[dict]:
+    """A symbol's cached {close_1y, w52_high, w52_low}, or None on a miss."""
+    try:
+        raw = redis_client.get(f"{_BASELINE_PREFIX}{sym.upper()}")
+        if raw:
+            data = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+            return json.loads(data)
+    except Exception:  # noqa: BLE001 — cache is best-effort
+        pass
+    return None
+
+
+def _compute_baseline(sym: str) -> Optional[dict]:
+    """Compute + cache {close_1y, w52_high, w52_low} from Kite 1-year daily bars.
+    Returns the dict, or None when Kite can't serve the symbol. Called by the
+    nightly precompute job and the lazy background warm — never in a request."""
+    try:
+        from backend.kite.historical import get_kite_historical
+        rows = get_kite_historical(sym, period="1y")
+    except Exception:  # noqa: BLE001
+        rows = None
+    if not rows:
+        return None
+    try:
+        close_1y = float(rows[0]["close"])
+        highs = [float(r["high"]) for r in rows if r.get("high") is not None]
+        lows = [float(r["low"]) for r in rows if r.get("low") is not None]
+    except Exception:  # noqa: BLE001
+        return None
+    if not (close_1y > 0 and highs and lows):
+        return None
+    base = {
+        "close_1y": round(close_1y, 2),
+        "w52_high": round(max(highs), 2),
+        "w52_low": round(min(lows), 2),
+    }
+    try:
+        redis_client.set(
+            f"{_BASELINE_PREFIX}{sym.upper()}", json.dumps(base),
+            ex=_BASELINE_TTL_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return base
+
+
+def _kick_baseline_warm(symbols: list[str]) -> None:
+    """Background-fill missing price baselines (bounded, one warm at a time) so
+    cold 1-year-return cells populate on a later poll without blocking now."""
+    missing = [s for s in symbols if _baseline_cached(s) is None]
+    if not missing:
+        return
+    global _baseline_warm_running
+    with _baseline_warm_lock:
+        if _baseline_warm_running:
+            return
+        _baseline_warm_running = True
+
+    def _run() -> None:
+        global _baseline_warm_running
+        try:
+            import time as _time
+            for s in missing[:300]:  # cap per kick; the nightly job covers the rest
+                try:
+                    _compute_baseline(s)
+                except Exception:  # noqa: BLE001
+                    pass
+                _time.sleep(0.3)  # stay under Kite's historical rate limit
+        finally:
+            with _baseline_warm_lock:
+                _baseline_warm_running = False
+
+    threading.Thread(
+        target=_run, name="screener-baseline-warm", daemon=True
+    ).start()
+
+
 def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
     """Compute ({UPPER_SYM: {price, change_pct, one_year_pct}}, source) for the
-    universe. ``source`` is ``"kite"`` when a live broker session supplied the
-    prices, else ``"yfinance"`` (delayed / best-effort), else ``"none"``.
+    universe. ``source`` is ``"kite"`` (broker-grade, the normal path),
+    ``"yfinance"`` (delayed fallback when no Kite session), else ``"none"``.
 
-    Baseline: ONE yfinance batch download (1y daily) gives all three for every
-    resolvable name — always available, no broker session needed. Overlay: when
-    a live Kite session exists, REPLACE price + day-change with the broker's live
-    values (correct, real-time) since yfinance's NSE feed lags and, for a few
-    symbols, carries wrong absolute prices. 1-year return stays the yfinance
-    ratio. Best-effort throughout — a symbol no source can serve is simply
-    absent (→ null → FE em-dash)."""
+    KITE-PRIMARY: one batch quote gives live price + day-change; the 1-year
+    return is the live price against a nightly-precomputed 1-year-ago close
+    (Kite historical, cached — see ``_compute_baseline``). No yfinance is
+    touched when a Kite session is live. yfinance's bulk download remains only
+    as the no-session fallback. A symbol no source can serve is simply absent
+    (→ null → FE em-dash)."""
     out: dict[str, dict] = {}
     syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
     if not syms:
         return {}, "none"
 
-    # 1. yfinance batch baseline (price, day change, 1y return).
+    # 1. KITE PRIMARY — batch live quote (price + day-change) + the precomputed
+    #    1-year-ago close for the 1-year return. Zero yfinance.
+    try:
+        from backend.kite.live_quote import get_kite_quotes, kite_session_available
+
+        if kite_session_available():
+            quotes = get_kite_quotes([f"NSE:{s}" for s in syms])
+            missing_base: list[str] = []
+            for s in syms:
+                d = quotes.get(f"NSE:{s}")
+                if not d or not d.get("last_price"):
+                    continue
+                price = float(d["last_price"])
+                prev = d.get("prev_close") or price
+                base = _baseline_cached(s)
+                if base is None:
+                    missing_base.append(s)
+                one_yr = None
+                if base and base.get("close_1y"):
+                    c1 = float(base["close_1y"])
+                    if c1 > 0:
+                        one_yr = round((price - c1) / c1 * 100, 2)
+                out[s] = {
+                    "price": round(price, 2),
+                    "change_pct": round((price - prev) / prev * 100, 2)
+                    if prev > 0 else None,
+                    "one_year_pct": one_yr,
+                }
+            if out:
+                # Fill any cold 1-year baselines in the background — the cell
+                # shows "—" now and populates on the next poll.
+                if missing_base:
+                    _kick_baseline_warm(missing_base)
+                return out, "kite"
+    except Exception as exc:  # noqa: BLE001 — fall through to yfinance
+        logger.debug("[screener] kite metrics failed: %s", exc)
+
+    # 2. FALLBACK — yfinance bulk download (only when there is no live Kite
+    #    session). One batch call gives price + day-change + 1-year return.
     try:
         import warnings
 
@@ -321,49 +446,11 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("[screener] yfinance batch metrics failed: %s", exc)
 
-    # 2. Kite live overlay for price + day change (broker-grade, real-time).
     source = "yfinance" if out else "none"
-    token = _market_token()
-    if token:
-        try:
-            from backend.kite.market_data import get_live_quote
-            from backend.market.price_guard import check_and_flag
 
-            raw = get_live_quote(token, [f"NSE:{s}" for s in syms]) or {}
-            applied = False
-            for inst, payload in raw.items():
-                if not isinstance(payload, dict):
-                    continue
-                sym = str(inst).split(":")[-1].upper()
-                lp = payload.get("last_price")
-                if not isinstance(lp, (int, float)) or lp <= 0:
-                    continue
-                entry = out.setdefault(
-                    sym, {"price": None, "change_pct": None, "one_year_pct": None}
-                )
-                # Reliability guard: while the broker is live, score the
-                # yfinance baseline against it. A divergent symbol gets
-                # flagged (and its yf-derived 1Y return dropped NOW — a
-                # mispriced series makes the ratio wrong too); the flag
-                # suppresses that symbol's yf values when Kite is down.
-                yf_price = entry.get("price")
-                if yf_price and check_and_flag(sym, float(yf_price), float(lp)):
-                    entry["one_year_pct"] = None
-                entry["price"] = round(float(lp), 2)
-                prev = (payload.get("ohlc") or {}).get("close")
-                if isinstance(prev, (int, float)) and prev > 0:
-                    entry["change_pct"] = round(
-                        (float(lp) - float(prev)) / float(prev) * 100, 2
-                    )
-                applied = True
-            if applied:
-                source = "kite"
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("[screener] kite quote overlay failed: %s", exc)
-
-    # 3. Kite down → suppress yfinance values for symbols the guard has
-    # flagged as unreliable, so the grid shows an honest "—" instead of a
-    # confidently wrong number (CLAUDE.md: never present bad data as data).
+    # Suppress values for symbols the reliability guard flagged as unreliable
+    # (a mispriced yfinance series → wrong absolute price AND wrong 1Y ratio),
+    # so the grid shows an honest "—" (CLAUDE.md: never present bad data as data).
     if source == "yfinance":
         try:
             from backend.market.price_guard import unreliable_symbols

@@ -107,10 +107,14 @@ def _yfinance_fundamentals(symbol: str) -> dict[str, Any]:
     try:
         import yfinance as yf
         from backend.market.yfinance_service import resolve_symbol
+        from backend.market.net_timeout import call_bounded
         yf_sym = resolve_symbol(sym)
         if not yf_sym.endswith(".NS") and not yf_sym.startswith("^"):
             yf_sym = f"{sym}.NS"
-        info = yf.Ticker(yf_sym).info or {}
+        # `.info` has no timeout and hangs on a cloud IP → bound it so a chat
+        # ANALYSIS turn degrades to "no fundamentals" instead of stalling.
+        info = call_bounded(lambda: yf.Ticker(yf_sym).info or {},
+                            timeout=6, default={}, label=f"yf.info {sym}") or {}
 
         def _f(v):
             try:
@@ -176,10 +180,12 @@ def _yfinance_profile(symbol: str) -> dict[str, Any]:
     try:
         import yfinance as yf
         from backend.market.yfinance_service import resolve_symbol
+        from backend.market.net_timeout import call_bounded
         yf_sym = resolve_symbol(sym)
         if not yf_sym.endswith(".NS") and not yf_sym.startswith("^"):
             yf_sym = f"{sym}.NS"
-        info = yf.Ticker(yf_sym).info or {}
+        info = call_bounded(lambda: yf.Ticker(yf_sym).info or {},
+                            timeout=6, default={}, label=f"yf.info profile {sym}") or {}
         ins = info.get("heldPercentInsiders")
         inst = info.get("heldPercentInstitutions")
         out = {

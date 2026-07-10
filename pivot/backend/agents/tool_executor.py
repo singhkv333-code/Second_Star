@@ -1370,13 +1370,39 @@ async def _get_live_price(a, kt, db, uid):
                          "source": "kite"},
                 "logiccard": None}
 
-    # Fallback: yfinance for the NSE listing.
+    # Kite REST tier — a live quote when the WS ticker isn't running or this
+    # symbol isn't in its universe. Works on cloud IPs where the yfinance
+    # fallback below hangs (Yahoo drops datacenter egress).
+    try:
+        from backend.kite.live_quote import get_kite_quote
+        kq = get_kite_quote(sym, "NSE")
+        if kq and kq.get("last_price"):
+            ltp = float(kq["last_price"])
+            prev = kq.get("prev_close") or ltp
+            change_pct = ((ltp - prev) / prev * 100) if prev else 0.0
+            return {"success": True,
+                    "data": {"symbol": sym, "ltp": round(ltp, 2),
+                             "change_pct": round(change_pct, 2),
+                             "source": "kite"},
+                    "logiccard": None}
+    except Exception:  # noqa: BLE001 — fall through to yfinance
+        pass
+
+    # Last-resort fallback: yfinance for the NSE listing. `fast_info` has no
+    # timeout arg and hangs on a cloud IP, so run it under a hard wall-clock
+    # bound — fail fast with a clean message instead of a gateway timeout.
     try:
         import yfinance as yf
-        ticker = yf.Ticker(f"{sym}.NS")
-        info = ticker.fast_info
-        last = float(info.last_price) if info.last_price is not None else None
-        prev = float(info.previous_close) if info.previous_close is not None else None
+        from backend.market.net_timeout import call_bounded
+
+        def _yf_price() -> tuple[float | None, float | None]:
+            info = yf.Ticker(f"{sym}.NS").fast_info
+            last = float(info.last_price) if info.last_price is not None else None
+            prev = float(info.previous_close) if info.previous_close is not None else None
+            return last, prev
+
+        res = call_bounded(_yf_price, timeout=6, default=None, label=f"yf.fast_info {sym}")
+        last, prev = res if res is not None else (None, None)
         if last is None:
             return {"success": False, "data": {"error": f"No price for {sym}"},
                     "logiccard": None}
@@ -1404,6 +1430,34 @@ async def _get_index_level(a, kt, db, uid):
                          "change_pct": d.get("change_pct", 0),
                          "source": "kite"},
                 "logiccard": None}
+
+    # Kite REST tier — the index instruments are quotable directly, so this
+    # works on cloud IPs where the yfinance fallback is throttled.
+    _KITE_INDEX_KEY = {
+        "NIFTY50": "NSE:NIFTY 50", "NIFTY": "NSE:NIFTY 50",
+        "NIFTY 50": "NSE:NIFTY 50",
+        "SENSEX": "BSE:SENSEX",
+        "BANKNIFTY": "NSE:NIFTY BANK", "BANK NIFTY": "NSE:NIFTY BANK",
+        "NIFTYBANK": "NSE:NIFTY BANK",
+        "MIDCAP": "NSE:NIFTY MIDCAP 100", "NIFTYMIDCAP": "NSE:NIFTY MIDCAP 100",
+        "NIFTY MIDCAP 100": "NSE:NIFTY MIDCAP 100",
+    }
+    kkey = _KITE_INDEX_KEY.get(str(idx).upper().strip())
+    if kkey:
+        try:
+            from backend.kite.live_quote import get_kite_quotes
+            kq = get_kite_quotes([kkey]).get(kkey)
+            if kq and kq.get("last_price"):
+                level = float(kq["last_price"])
+                prev = kq.get("prev_close") or level
+                change_pct = ((level - prev) / prev * 100) if prev else 0.0
+                return {"success": True,
+                        "data": {"index": idx, "level": round(level, 2),
+                                 "change_pct": round(change_pct, 2),
+                                 "source": "kite"},
+                        "logiccard": None}
+        except Exception:  # noqa: BLE001 — fall through to yfinance
+            pass
 
     # Fallback: yfinance via the same resolver the quote path uses
     # (NIFTY50->^NSEI, SENSEX->^BSESN, BANKNIFTY->^NSEBANK). Without this

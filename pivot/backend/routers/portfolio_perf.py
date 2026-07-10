@@ -32,7 +32,6 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 import pandas as pd
-import yfinance as yf  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -95,16 +94,30 @@ def _fetch_one_series(
     its `Future` list in submission order (not completion order), so
     per-symbol ordering semantics match the old serial loop exactly."""
     qty, yf_sym = spec
+    # Route through the shared price engine, which is now Kite-primary
+    # (broker-grade daily bars that work on cloud IPs) with yfinance as the
+    # backup — so the portfolio curve no longer depends on Yahoo. Weekly/monthly
+    # ranges (1Y/5Y) that Kite can't serve still fall to yfinance inside it.
     try:
-        hist = yf.Ticker(yf_sym).history(period=yf_period, interval=yf_interval)
+        from backend.market.yfinance_service import fetch_price_history
+        records = fetch_price_history(yf_sym, yf_period, yf_interval)
     except Exception as e:
         logger.warning(
-            "[portfolio.performance] yfinance failed for %s: %s", yf_sym, e,
+            "[portfolio.performance] price fetch failed for %s: %s", yf_sym, e,
         )
         return qty, None
-    if hist.empty:
+    if not records:
         return qty, None
-    return qty, hist["Close"].dropna()
+    try:
+        series = pd.Series(
+            [float(r["close"]) for r in records],
+            index=pd.to_datetime([r["date"] for r in records]),
+        ).dropna()
+    except Exception:  # noqa: BLE001 — malformed record → drop this holding
+        return qty, None
+    if series.empty:
+        return qty, None
+    return qty, series
 
 
 def _flat_series(period: _PeriodLiteral, value: float) -> dict:

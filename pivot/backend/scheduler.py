@@ -205,9 +205,57 @@ def _register_jobs():
             replace_existing=True,
         )
 
+    # Screener price baselines: recompute each universe symbol's 1-year-ago
+    # close + 52-week range from Kite historical once a day, so the grid's
+    # 1-year-return column needs NO yfinance bulk download. 08:00 IST every
+    # weekday — after the 07:30 Kite token refresh, before market open.
+    # Module-level callable (SQLAlchemy jobstore serializes by textual ref).
+    scheduler.add_job(
+        precompute_screener_baseline,
+        trigger=CronTrigger(
+            hour=8, minute=0, second=0,
+            day_of_week="mon-fri",
+            timezone=IST,
+        ),
+        id="screener_baseline_precompute",
+        name="Screener: Kite 1Y/52w baseline precompute at 08:00 IST",
+        replace_existing=True,
+    )
+
     logger.info(
         f"[{format_ist_short(now_ist())}] Registered "
         f"{len(scheduler.get_jobs())} scheduler jobs. All times in IST."
+    )
+
+
+async def precompute_screener_baseline():
+    """Nightly warm of the screener's Kite price baselines (1-year-ago close +
+    52-week range) for the whole market universe, so the grid's 1-year-return
+    no longer needs a yfinance bulk download. Rate-limit friendly: one symbol
+    at a time with a small delay, offloaded to threads so the event loop stays
+    free. Lazily-warmed gaps during the day are handled by the screener itself.
+    """
+    import asyncio
+
+    from backend.routers import screener
+
+    try:
+        universe = await asyncio.to_thread(screener._full_universe)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screener] baseline precompute: universe load failed: %s", exc)
+        return
+
+    syms = [u.get("symbol") for u in universe if u.get("symbol")]
+    done = 0
+    for sym in syms:
+        try:
+            if await asyncio.to_thread(screener._compute_baseline, sym):
+                done += 1
+        except Exception:  # noqa: BLE001 — per-symbol, keep sweeping
+            pass
+        await asyncio.sleep(0.3)  # stay under Kite's historical rate limit
+    logger.info(
+        "[screener] baseline precompute warmed %d/%d symbols", done, len(syms)
     )
 
 
