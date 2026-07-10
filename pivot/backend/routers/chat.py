@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from backend.security.throttle import rate_limit
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -577,9 +577,31 @@ def _jsonable(row: dict) -> dict:
 # ---- Main route --------------------------------------------------------
 
 
+async def _refresh_summary_bg(user_id: int, raw_conv_id) -> None:
+    """A2: refresh the ChatSummary AFTER the response is sent (FastAPI
+    background task — zero user-facing latency). ensure_summary is
+    internally gated to regenerate only every REFRESH_EVERY_N messages,
+    so most invocations are a cheap staleness check."""
+    raw = (raw_conv_id or "").strip()
+    if not raw:
+        return
+    try:
+        from backend.database import SessionLocal
+        from backend.services.conversation_summary import ensure_summary
+
+        _db = SessionLocal()
+        try:
+            await ensure_summary(_db, raw, user_id)
+        finally:
+            _db.close()
+    except Exception as e:  # noqa: BLE001 — background-only, never surfaces
+        logger.warning("background summary refresh failed: %s", e)
+
+
 @router.post("", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat(
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -670,6 +692,12 @@ async def chat(
     _persist_turn(
         user_id, request.conversation_id, last_msg, turn.response or "",
         render_hint=(raw_data or {}).get("_render_hint"),
+    )
+    # A2: keep the conversation summary fresh off the hot path so the
+    # summary bridge in chat_service has something to inject once the
+    # conversation outgrows the 6-turn window.
+    background_tasks.add_task(
+        _refresh_summary_bg, user_id, request.conversation_id,
     )
 
     _ph = get_posthog()

@@ -603,6 +603,63 @@ _ROUTE_HINT_RE = re.compile(
 )
 
 
+def _summary_bridge_block(conv_id: str, user_id: int,
+                          history_override) -> str:
+    """Chat-kernel A2 (2026-07-10): bridge the 6-turn context cliff.
+
+    The ChatSummary rows have existed since migration 0022 but were
+    WRITE-ONLY — generated for the UI, never injected into a turn (the
+    2026-07-03 platform audit's #2 chat finding). When older turns were
+    truncated away by CONV_PROMPT_WINDOW_TURNS, inject the stored
+    summary READ-ONLY (one indexed PG lookup; generation stays off the
+    hot path — the /chat router refreshes it in a background task).
+    """
+    overflow = (
+        history_override is not None
+        and len(history_override) > CONV_PROMPT_WINDOW_TURNS * 2
+    )
+    if not overflow:
+        try:
+            overflow = default_store().history_overflows(conv_id)
+        except Exception:
+            overflow = False
+    if not overflow:
+        return ""
+    # ChatSummary rows key on the RAW client conversation id (the router
+    # persists Conversation with it); handle() receives the u{uid}::
+    # namespaced form — strip the namespace for the lookup.
+    raw_id = conv_id.split("::", 1)[1] if "::" in conv_id else conv_id
+    if not raw_id:
+        return ""
+    try:
+        from backend.database import SessionLocal
+        from backend.models import ChatSummary
+
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(ChatSummary.summary)
+                .filter(
+                    ChatSummary.conversation_id == raw_id,
+                    ChatSummary.user_id == user_id,
+                )
+                .first()
+            )
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001 — the bridge must never break a turn
+        logger.warning("summary bridge lookup failed: %s", e)
+        return ""
+    if not row or not row[0]:
+        return ""
+    return (
+        "## Earlier in this conversation (summary of truncated turns)\n"
+        + str(row[0])[:1200]
+        + "\n(The turns shown below are the most recent ones; when this "
+        "summary conflicts with them, the visible turns win.)"
+    )
+
+
 def _redirect_target_for_failure(
     tool_name: str, error: str, user_message: str,
     structured: Optional[str] = None,
@@ -6259,9 +6316,20 @@ class ChatService:
         # the domain mechanics (options/backtest/baskets/…) only on turns
         # that need them. Placed right after the cached core so mechanics
         # sit high, before per-turn user/reply-class context.
+        _summary_block = _summary_bridge_block(
+            conv_id, getattr(ctx, "user_id", 0), history_override,
+        )
+        if _summary_block:
+            base_messages_summary = LLMMessage(
+                role="system", content=_summary_block,
+            )
+        else:
+            base_messages_summary = None
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_messages.append(LLMMessage(role="system", content=_mod_block))
+        if base_messages_summary is not None:
+            base_messages.append(base_messages_summary)
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:
@@ -7999,9 +8067,20 @@ class ChatService:
         ]
         # Intent packs (streaming mirror of handle()): core always loaded,
         # domain mechanics injected only when the turn needs them.
+        _summary_block = _summary_bridge_block(
+            conv_id, getattr(ctx, "user_id", 0), history_override,
+        )
+        if _summary_block:
+            base_messages_summary = LLMMessage(
+                role="system", content=_summary_block,
+            )
+        else:
+            base_messages_summary = None
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_msgs.append(LLMMessage(role="system", content=_mod_block))
+        if base_messages_summary is not None:
+            base_msgs.append(base_messages_summary)
         if prompt_ctx is not None:
             uc_block = _format_user_context_block(prompt_ctx)
             if uc_block:

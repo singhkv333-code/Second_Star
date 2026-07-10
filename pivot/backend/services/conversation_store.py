@@ -288,6 +288,19 @@ class ConversationStore:
     # revenue_cagr_compare/1). Persisting the prior turn's called tools
     # lets the router union them back in for the follow-up turn.
 
+    def history_overflows(self, conv_id: str) -> bool:
+        """True when the stored transcript is longer than the prompt
+        window — i.e. older turns exist that the model will not see.
+        Used by the A2 summary bridge (one cheap LLEN)."""
+        if not conv_id:
+            return False
+        try:
+            return int(redis_client.llen(self._key(conv_id)) or 0) > (
+                CONV_PROMPT_WINDOW_TURNS * 2
+            )
+        except Exception:
+            return False
+
     def set_last_tools(self, conv_id: str, tools: list[str]) -> None:
         if not conv_id or not tools:
             return
