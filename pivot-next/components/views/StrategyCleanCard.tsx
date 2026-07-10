@@ -63,7 +63,8 @@ function outcomeSpread(
   e: ExpressionDetail,
 ): { median: number; best: number | null; worst: number | null } | null {
   const mc = e.monte_carlo;
-  if (mc && (mc.terminal_pct?.length ?? 0) >= 5) {
+  // ≥2 occurrences: p95/p05 are the best/worst SEEN occurrence — a real range.
+  if (mc && (mc.terminal_pct?.length ?? 0) >= 2) {
     return { median: mc.median, best: mc.p95, worst: mc.p05 };
   }
   if (e.strategy_total_pct != null) {

@@ -19,9 +19,17 @@ import { categoryLead } from "@/components/views/view-format";
 import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
 import summariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 import detailsRaw from "@/components/views/pack/viewpack01.details.json";
+import summaries2Raw from "@/components/views/pack/viewpack02.summaries.json";
+import details2Raw from "@/components/views/pack/viewpack02.details.json";
 
-const SUMMARIES = summariesRaw as unknown as ViewSummary[];
-const DETAILS = detailsRaw as unknown as Record<string, ViewDetail>;
+const SUMMARIES = [
+  ...(summariesRaw as unknown as ViewSummary[]),
+  ...(summaries2Raw as unknown as ViewSummary[]),
+];
+const DETAILS = {
+  ...(detailsRaw as unknown as Record<string, ViewDetail>),
+  ...(details2Raw as unknown as Record<string, ViewDetail>),
+};
 
 const FONT = "var(--font-display)";
 
