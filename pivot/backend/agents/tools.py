@@ -1018,11 +1018,9 @@ def _build_propose_workflow_schema() -> tuple[dict, list[str], str]:
         "type": "array",
         "minItems": 1,
         "description": (
-            "Ordered steps; step 0 MUST be a trigger.*. Each step's "
-            "`config` must contain the required keys listed for its "
-            "step_type in the CATALOG section of this tool's "
-            "description. Server validates against registry Pydantic "
-            "models — extra keys are allowed."
+            "Ordered steps; step 0 MUST be trigger.*. Each `config` must "
+            "contain the required keys listed for its step_type in the "
+            "CATALOG. Server validates against registry models — extras allowed."
         ),
         "items": {
             "type": "object",
@@ -1042,119 +1040,77 @@ _PROPOSE_STEPS_SCHEMA, _PROPOSE_STEP_TYPES, _PROPOSE_CATALOG = _build_propose_wo
 
 tool("propose_workflow",
      "Do NOT call for 'how would I automate X' asked conceptually with no "
-     "intent to actually arm it — answer in prose instead. "
-     "FALLBACK workflow builder. PREFER in this order: "
-     "(1) `propose_dsl_workflow` for ANY multi-condition entry/exit, "
-     "indicator-vs-indicator comparison, multi-output component (MACD "
-     "signal/hist, Bollinger upper/lower, Stoch %K/%D), aggregate window "
-     "(percentrank, zscore, highest, lowest, barssince, correlation), "
+     "intent to actually arm it — answer in prose instead.\n\n"
+     "FALLBACK workflow builder. PREFER in this order:\n"
+     "  (1) `propose_dsl_workflow` — ANY multi-condition entry/exit, "
+     "indicator-vs-indicator, multi-output component, aggregate window, "
      "volume-relative, cross-symbol spread, session-day filter, gap, "
-     "pct_change, or any exit referencing position state "
-     "(drawdown_from_peak, bars_held, unrealised_pct, entry_price); "
-     "(2) `propose_scheduled_order` (recurring HH:MM, single action); "
-     "(3) `propose_threshold_order` (SINGLE-condition price/RSI/SMA/EMA "
-     "absolute threshold — NEVER for AND/OR compounds); "
-     "(4) `propose_basket_allocation` (sector basket); "
-     "(5) `propose_holding_action` (sell/SL on existing holding). Use "
-     "this tool only when none fits — runtime-relative thresholds ('5% "
+     "pct_change, or exit referencing position state.\n"
+     "  (2) `propose_scheduled_order` — recurring HH:MM, single action.\n"
+     "  (3) `propose_threshold_order` — SINGLE-condition price/RSI/SMA/EMA "
+     "absolute threshold; NEVER for AND/OR compounds.\n"
+     "  (4) `propose_basket_allocation` — sector basket.\n"
+     "  (5) `propose_holding_action` — sell/SL on existing holding.\n\n"
+     "Use this tool ONLY when none fits: runtime-relative thresholds ('5% "
      "below today's open'), multi-trigger / multi-action workflows, "
-     "news-event triggers, portfolio-state guards. NOT for amending or "
-     "registering an option strategy card — 'make it 2 lots', 'move the "
-     "strike', 'show the aggressive one' re-emit `build_option_strategy`, "
-     "and registration happens on the card's button, never via a "
-     "workflow. NOT for BACKTESTS — "
-     "the verbs 'test', "
-     "'backtest', 'simulate', 'run a … on', 'how would X have done', "
-     "'what if I had …' NEVER route here, because this tool produces a "
-     "workflow_draft_card the user activates, not metrics. Use "
-     "`backtest_dsl_tree` for compound/multi-condition backtests and "
-     "`backtest_workflow` for simple single-symbol shapes. NOT for "
-     "single-action automation (use the four macros).\n\n"
+     "news-event triggers, portfolio-state guards.\n\n"
+     "NOT for amending or registering an option strategy card — 'make it "
+     "2 lots', 'move the strike', 'show the aggressive one' re-emit "
+     "`build_option_strategy`; registration happens on the card's button.\n\n"
+     "NOT for BACKTESTS — 'test', 'backtest', 'simulate', 'run a … on', "
+     "'how would X have done', 'what if I had …' NEVER route here (this "
+     "tool activates a workflow, not metrics). Use `backtest_dsl_tree` "
+     "for compound backtests and `backtest_workflow` for simple ones.\n\n"
+     "NOT for single-action automation (use the four macros above).\n\n"
      "EMITTING IS NOT ACTIVATING — emit the draft, do NOT ASK_USER to "
-     "confirm. Step 0 MUST be a trigger.*. Extra trigger.* steps start "
-     "new BRANCHES; two adjacent triggers is invalid. Inter-step refs "
-     "use Mustache: `{{ context.<idx>.<field> }}` / `{{ now }}`. Indian "
-     "stocks default to NSE/INR; times to Asia/Kolkata.\n\n"
-     "CATALOG (step_type [category] required-config-keys; server "
-     "validates configs against registry Pydantic models — extra keys "
-     "permitted):\n"
+     "confirm. Step 0 MUST be a trigger.*. Extra trigger.* start new "
+     "BRANCHES; two adjacent triggers invalid. Inter-step refs use "
+     "Mustache: `{{ context.<idx>.<field> }}` / `{{ now }}`. Indian "
+     "stocks default NSE/INR; times Asia/Kolkata.\n\n"
+     "CATALOG (step_type [category] required-keys; server validates "
+     "against registry Pydantic models — extra keys allowed):\n"
      f"{_PROPOSE_CATALOG}\n\n"
-     "STEP NOTES (only the tricky ones — see agentic_examples.json for "
-     "full shapes):\n"
-     "- trigger.market_relative_time: anchor∈{open,close,pre_open,"
-     "post_close}, offset_minutes signed; PREFER over hardcoded "
-     "09:15/15:30 cron.\n"
-     "- trigger.indicator: indicator∈{rsi,sma,ema,wma,macd,adx,"
-     "supertrend,bollinger,stoch,stoch_rsi,cci,mfi,williams_r,atr,"
-     "keltner,donchian,aroon,psar,roc,trix,obv,vwap}; `value` is a "
-     "FIXED level NEVER a second indicator. For indicator-vs-indicator "
-     "(e.g. 50-EMA vs 200-EMA) use trigger.schedule + two "
-     "fetch.indicator + condition.numeric.\n"
-     "- fetch.indicator: only rsi|sma|ema|macd (macd returns "
-     "histogram, NOT macd_line/macd_signal).\n"
-     "- fetch.relative_threshold: reference∈{day_open,prior_close,"
-     "prior_high,prior_low}, signed offset_pct. USE for runtime-"
-     "relative levels — Mustache arithmetic is NOT supported.\n"
-     "- fetch.intraday_pnl: total_pct is already a % (compare against "
-     "-2 not -0.02).\n"
-     "- fetch.portfolio: holdings entries are { quantity, avg_buy_price, "
-     "last_price, current_value_inr, pnl_inr, pnl_pct } — no "
-     "holding_days field.\n"
-     "- fetch.screener sectors: steel, metals, banking, psu_bank, "
-     "private_bank, it, auto, pharma, fmcg, energy, cement, defence, "
-     "telecom.\n"
-     "- action.place_order: quantity OR notional_inr; order_type∈"
-     "{market,limit}.\n"
-     "- action.set_stoploss: trigger_price OR trigger_offset_pct (% — "
-     "e.g. 2 for 2%), never both.\n"
-     "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp "
-     "NOT wired).\n"
-     "- trigger.polymarket: TWO MODES. `mode='threshold'` (default) "
-     "fires when YES probability crosses `threshold` in `direction`. "
-     "`mode='resolution'` fires when the market actually RESOLVES "
-     "(use for 'execute when X actually happens / completes / "
-     "resolves'); `resolve_on`∈{YES,NO,ANY}. REQUIRED: market_id + "
-     "token_id + side — these come from calling "
-     "`propose_polymarket_trigger` FIRST (resolves the natural-"
-     "language ask to a CLOB token). DO NOT invent market_id / "
-     "token_id; the resolver rejects single-shot drafts when matcher "
-     "confidence < 0.85.\n\n"
+     "STEP NOTES (tricky configs — see agentic_examples.json):\n"
+     "- trigger.market_relative_time: anchor∈{open,close,pre_open,post_close}, "
+     "offset_minutes signed; PREFER over hardcoded 09:15/15:30 cron.\n"
+     "- trigger.indicator: `value` is a FIXED level NEVER a second indicator. "
+     "For indicator-vs-indicator (50-EMA vs 200-EMA) use trigger.schedule + "
+     "two fetch.indicator + condition.numeric.\n"
+     "- fetch.indicator: only rsi|sma|ema|macd (macd=histogram, NOT macd_line/signal).\n"
+     "- fetch.relative_threshold: reference∈{day_open,prior_close,prior_high,"
+     "prior_low}, signed offset_pct. USE for runtime-relative levels — "
+     "Mustache arithmetic NOT supported.\n"
+     "- fetch.intraday_pnl: total_pct is already a % (compare -2 not -0.02).\n"
+     "- fetch.portfolio holdings: {quantity,avg_buy_price,last_price,"
+     "current_value_inr,pnl_inr,pnl_pct} — no holding_days.\n"
+     "- fetch.screener sectors: steel, metals, banking, psu_bank, private_bank, "
+     "it, auto, pharma, fmcg, energy, cement, defence, telecom.\n"
+     "- action.place_order: quantity OR notional_inr; order_type∈{market,limit}.\n"
+     "- action.set_stoploss: trigger_price OR trigger_offset_pct (2 = 2%).\n"
+     "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp NOT wired).\n"
+     "- trigger.polymarket: mode='threshold' (default, YES prob crosses `threshold` "
+     "in `direction`) or 'resolution' (market RESOLVES; resolve_on∈{YES,NO,ANY}). "
+     "REQUIRED market_id+token_id+side come from calling `propose_polymarket_trigger` "
+     "FIRST. DO NOT invent them; resolver rejects drafts at matcher confidence<0.85.\n\n"
      "HARD RULES:\n"
-     "1. STAY LITERAL — only what the user asked for. No unprompted "
-     "sell/SL/trim branches.\n"
-     "2. Multi-condition buy / sell → STOP and call `propose_dsl_workflow` "
-     "instead. `trigger.indicator` / `trigger.price` here carries ONE "
-     "leg only — chaining `condition.numeric` for the second leg is "
-     "fragile and routinely silently drops the extra legs. The DSL "
-     "translator handles AND/OR/NOT, multi-output components, "
-     "aggregates, volume, spreads, gap, session-day, and exits with "
-     "position fields cleanly.\n"
+     "1. STAY LITERAL — only what the user asked for. No unprompted sell/SL/trim branches.\n"
+     "2. Multi-condition buy/sell → STOP and call `propose_dsl_workflow` "
+     "instead. `trigger.indicator` / `trigger.price` here carries ONE leg "
+     "only; chaining `condition.numeric` silently drops extra legs.\n"
      "3. NO unprompted notify.message — the run card already confirms.\n"
-     "4. NO buying-power guard before action.place_order — broker "
-     "rejects insufficient-margin. Only fetch.portfolio when you need "
-     "the holdings.\n"
-     "5. QUANTITY IS NEVER A DEFAULT. 'buy some X' → ASK_USER. "
-     "Exceptions: 'sell my SYMBOL' (fetch.portfolio + Mustache ref); "
-     "SIPs.\n"
-     "6. TTL phrases → top-level `valid_until` ISO date (resolve "
-     "relative phrases); omit for perpetual.\n\n"
-     "EXAMPLE — runtime-relative 5% drop trigger:\n"
+     "4. NO buying-power guard before action.place_order.\n"
+     "5. QUANTITY IS NEVER A DEFAULT. 'buy some X' → ASK_USER. Exceptions: "
+     "'sell my SYMBOL' (fetch.portfolio + Mustache ref); SIPs.\n"
+     "6. TTL phrases → top-level `valid_until` ISO date; omit for perpetual.\n\n"
+     "EXAMPLE — runtime-relative 5% drop:\n"
      "  [{step_type:'trigger.schedule', config:{cron:'*/5 9-15 * * 1-5'}},\n"
      "   {step_type:'fetch.quote', config:{symbol:'RELIANCE'}},\n"
      "   {step_type:'fetch.relative_threshold', config:{symbol:'RELIANCE',reference:'day_open',offset_pct:-5}},\n"
      "   {step_type:'condition.numeric', config:{left:'{{context.1.ltp}}',operator:'<=',right:'{{context.2.value}}'}},\n"
      "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]\n\n"
-     "EXAMPLE — Polymarket-driven compound workflow ('buy RELIANCE, "
-     "sell when crude > $100 on poly crosses 50%'). REQUIRED FLOW: "
-     "first call propose_polymarket_trigger to resolve the contract "
-     "with the user; once user confirms, emit this workflow with "
-     "market_id/token_id/side INLINE:\n"
-     "  [{step_type:'trigger.manual', config:{}},\n"
-     "   {step_type:'action.place_order', config:{symbol:'RELIANCE',side:'buy',quantity:10}},\n"
-     "   {step_type:'trigger.polymarket', config:{market_id:'<from tool>',token_id:'<from tool>',side:'YES',mode:'threshold',threshold:0.50,direction:'above'}},\n"
-     "   {step_type:'action.place_order', config:{symbol:'RELIANCE',side:'sell',quantity:'{{context.1.quantity}}'}}]\n"
-     "Use mode='resolution' instead of mode='threshold' for asks like "
-     "'sell when X actually resolves YES'.",
+     "For Polymarket-driven workflows: call propose_polymarket_trigger FIRST "
+     "to resolve the contract; then emit with returned market_id/token_id/side "
+     "INLINE. Use mode='resolution' for 'sell when X actually resolves YES'.",
      {
          "name": {
              "type": "string",
@@ -1196,43 +1152,31 @@ tool("propose_workflow",
 # simulation. Splitting the tools makes the intent unambiguous.
 
 tool("backtest_workflow",
-     "SIMULATES a strategy on historical daily-close data. Use for "
-     "ANY 'backtest …' / 'how would X have done' / 'simulate …' / "
-     "'what if I had bought …' prompt. Returns a chart card (price + "
-     "equity + signals + metrics + buy-and-hold benchmark). "
-     "Shares the EXACT `steps[]` schema with propose_workflow — emit the "
-     "same step list. USE THIS for a simple single-indicator backtest, not "
-     "propose_workflow (which activates an agent). For compound / crossover / "
-     "multi-condition strategies, prefer backtest_dsl_tree.\n\n"
-     "Supported indicators: rsi, sma, ema, wma, macd (histogram; threshold "
-     "0 = signal-line cross), adx, supertrend (direction; 0 = trend flip), "
-     "bollinger/bb (%B; 0 = lower, 1 = upper), stoch (%K), stoch_rsi, cci, "
-     "mfi, williams_r, atr, keltner, donchian, aroon, psar, roc, trix, "
-     "obv, vwap.\n\n"
-     "Backtest-specific step types beyond propose_workflow's set: "
-     "action.set_takeprofit (mirror of set_stoploss on upside), "
-     "fetch.rolling_high/rolling_low (max/min over lookback × multiplier — "
-     "use multiplier=0.9 for '10% below 20-day high' in one step), "
-     "condition.position / condition.market_status / condition.time_window. "
-     "action.place_order accepts product: 'CNC'|'MIS' (MIS for intraday). "
-     "action.set_stoploss accepts `trailing: true` with trigger_offset_pct.\n\n"
-     "MULTI-CONDITION ENTRY pattern: trigger fires on the FIRST signal; "
-     "chain `fetch.indicator → condition.numeric` pairs AFTER the trigger "
-     "for AND-conditions. Use `{{ context.<idx>.value }}` refs. Never ask "
-     "the user for clarification on a complex multi-condition backtest — "
-     "emit the workflow.\n\n"
-     "INDICATOR-VS-INDICATOR CROSSOVERS (e.g. 50-SMA crosses above 200-SMA, "
-     "fast-EMA vs slow-EMA): use ONE trigger.indicator (fast period, op '>') "
-     "+ fetch.indicator (slow period) + condition.numeric comparing context "
-     "refs. Example for '50/200 SMA crossover on NIFTYBEES, 2y':\n"
-     "  steps[0] trigger.indicator { symbol:'NIFTYBEES', indicator:'sma', "
-     "period:50, operator:'>', value:0 }   # CLOSE > SMA(50) initially\n"
-     "  steps[1] fetch.indicator { symbol:'NIFTYBEES', indicator:'sma', period:200 }\n"
-     "  steps[2] condition.numeric { left:'{{context.0.value}}', operator:'>', "
-     "right:'{{context.1.value}}' }   # SMA50 > SMA200\n"
-     "  steps[3] action.place_order { symbol:'NIFTYBEES', side:'buy', "
-     "quantity:1, order_type:'market' }\n"
-     "Emit the FULL steps[] — do not ASK the user for these defaults.\n\n"
+     "SIMULATES a strategy on historical daily-close data. For 'backtest …' / "
+     "'simulate …' / 'how would X have done' / 'what if I had bought …' "
+     "prompts. Returns a chart card (price + equity + signals + metrics + "
+     "buy-and-hold benchmark). Shares EXACT `steps[]` schema with "
+     "propose_workflow.\n\n"
+     "USE THIS for a simple single-indicator backtest, not propose_workflow "
+     "(which activates an agent). For compound / crossover / multi-condition "
+     "strategies, prefer backtest_dsl_tree.\n\n"
+     "Indicators: rsi, sma, ema, wma, macd (histogram; 0=signal-line cross), "
+     "adx, supertrend (0=trend flip), bollinger/bb (%B; 0=lower, 1=upper), "
+     "stoch (%K), stoch_rsi, cci, mfi, williams_r, atr, keltner, donchian, "
+     "aroon, psar, roc, trix, obv, vwap.\n\n"
+     "Backtest-only steps: action.set_takeprofit; fetch.rolling_high/"
+     "rolling_low (lookback × multiplier; 0.9 = '10% below 20-day high'); "
+     "condition.position / market_status / time_window. action.place_order "
+     "product: 'CNC'|'MIS'. action.set_stoploss supports trailing:true with "
+     "trigger_offset_pct.\n\n"
+     "MULTI-CONDITION ENTRY: trigger on FIRST signal; chain fetch.indicator → "
+     "condition.numeric pairs AFTER using `{{ context.<idx>.value }}` refs. "
+     "Never ask the user for clarification on a complex multi-condition "
+     "backtest — emit the workflow.\n\n"
+     "INDICATOR-VS-INDICATOR CROSSOVERS (50/200 SMA, fast/slow EMA): ONE "
+     "trigger.indicator (fast, op '>', value:0) + fetch.indicator (slow) + "
+     "condition.numeric on context refs + action.place_order. Emit the FULL "
+     "steps[] — do not ASK for these defaults.\n\n"
      "Defaults: period='5y'. Multi-symbol workflows fetch each feed "
      "independently; chart anchors on the first place_order's symbol.",
      {
@@ -1246,18 +1190,15 @@ tool("backtest_workflow",
              "enum": ["1y", "2y", "3y", "5y", "10y"],
              "default": "5y",
              "description": (
-                 "Historical lookback window. Defaults to 5y. Use shorter "
-                 "windows for symbols listed within the last few years."
+                 "Historical lookback window. Use shorter windows for "
+                 "recently-listed symbols."
              ),
          },
          "start_date": {
              "type": "string",
              "description": (
-                 "OPTIONAL ISO YYYY-MM-DD. Clip the backtest to a fixed "
-                 "window AFTER the period fetch. Use for event-driven "
-                 "asks like '4 weeks around 2022-02-24' (Russia-Ukraine "
-                 "macro shock) — pass start_date='2022-02-10', "
-                 "end_date='2022-03-10'."
+                 "OPTIONAL ISO YYYY-MM-DD. Clips the backtest to a fixed "
+                 "window AFTER the period fetch — use for event-driven asks."
              ),
          },
          "end_date": {
@@ -1267,10 +1208,8 @@ tool("backtest_workflow",
          "benchmark_symbol": {
              "type": "string",
              "description": (
-                 "OPTIONAL symbol to use as the buy-and-hold benchmark "
-                 "(default: the trade symbol). For baskets / pairs, "
-                 "pass NIFTYBEES (NIFTY 50 ETF) or BANKBEES so the "
-                 "comparison is fair."
+                 "OPTIONAL buy-and-hold benchmark (default: the trade symbol). "
+                 "For baskets / pairs, pass NIFTYBEES or BANKBEES."
              ),
          },
      },
@@ -1291,89 +1230,67 @@ tool("backtest_workflow",
 # small and stable.
 
 tool("backtest_dsl_tree",
-     "SIMULATES a strategy that uses compound (multi-condition / "
-     "cross-symbol / aggregator-based) entry rules. PREFER over "
-     "backtest_workflow when any of the following are true:\n"
-     "  • two or more 'AND' / 'OR' conditions ('RSI<30 AND price>SMA(50)')\n"
-     "  • cross-symbol filters ('only when NIFTY is above 22000')\n"
-     "  • cross-symbol comparisons ('TCS RSI lower than INFY RSI')\n"
-     "  • indicator-vs-indicator crossings ('MACD line crosses signal')\n"
-     "  • multi-output indicators (Bollinger bands, Donchian, Keltner, "
-     "Stoch %K vs %D, Aroon up vs down)\n"
-     "  • lookback / aggregator language ('20-day high breakout', "
-     "'highest of last 20 bars', 'percentile of last year', 'bars since "
-     "RSI was last below 30', 'correlation of TCS and INFY')\n"
-     "  • day-of-week filters ('on Tuesday', 'every Friday')\n"
+     "SIMULATES a strategy with compound (multi-condition / cross-symbol / "
+     "aggregator-based) entry rules. PREFER over backtest_workflow when any of:\n"
+     "  • 2+ AND/OR conditions\n"
+     "  • cross-symbol filter or comparison\n"
+     "  • indicator-vs-indicator crossing\n"
+     "  • multi-output indicators (Bollinger, Donchian, Keltner, Stoch %K/%D, Aroon up/down)\n"
+     "  • lookback/aggregator ('20-day high breakout', 'highest of last 20 "
+     "bars', 'percentile of last year', 'barssince RSI<30', 'correlation')\n"
+     "  • day-of-week filter ('on Tuesday', 'every Friday')\n"
      "  • time-shifted reference ('yesterday's open', 'gap-down')\n"
      "\n"
-     "ENTRY vs EXIT — CRITICAL: the `condition` field is the BUY/ENTRY "
-     "rule ONLY. If the user states BOTH a buy AND a sell condition "
-     "(e.g. 'buy when RSI<30, sell when RSI>70'), put the buy rule in "
-     "`condition` and the sell rule in `exit_condition`. Do NOT AND "
-     "them together in `condition` — that produces a logical "
-     "contradiction (e.g. RSI<30 AND RSI>70 can never both hold) and "
-     "the server rejects it.\n"
+     "ENTRY vs EXIT — CRITICAL: `condition` is the BUY/ENTRY rule ONLY. If "
+     "user states BOTH buy AND sell, put buy in `condition` and sell in "
+     "`exit_condition`. Do NOT AND them in `condition` — that's a "
+     "contradiction (RSI<30 AND RSI>70 can never both hold); server rejects.\n"
      "\n"
-     "Hand the user's natural-language condition(s) through verbatim — "
-     "do NOT paraphrase or simplify. The tool translates each to a "
-     "DSL tree internally. Returns the same chart-card shape as "
-     "backtest_workflow (price + equity + signals + metrics).",
+     "Pass the user's condition(s) VERBATIM — do NOT paraphrase or simplify. "
+     "Returns the same chart-card shape as backtest_workflow.",
      {
          "condition": {
              "type": "string",
              "description": (
-                 "The complete natural-language entry condition the "
-                 "user described. Pass it through VERBATIM — don't "
+                 "Natural-language entry condition. Pass VERBATIM — don't "
                  "summarise, paraphrase, or strip operators."
              ),
          },
          "primary_symbol": {
              "type": "string",
              "description": (
-                 "Symbol the trade fires on. The condition may "
-                 "reference other symbols as filters (e.g. NIFTY) — "
-                 "still pick the action symbol here."
+                 "Symbol the trade fires on. The condition may reference "
+                 "other symbols as filters — still pick the action symbol here."
              ),
          },
          "start_date": {
              "type": "string",
-             "description": (
-                 "OPTIONAL ISO YYYY-MM-DD. Defaults to 3 years before "
-                 "end_date."
-             ),
+             "description": "OPTIONAL ISO YYYY-MM-DD. Defaults to 3y before end_date.",
          },
          "end_date": {
              "type": "string",
-             "description": (
-                 "OPTIONAL ISO YYYY-MM-DD. Defaults to today."
-             ),
+             "description": "OPTIONAL ISO YYYY-MM-DD. Defaults to today.",
          },
          "exit_condition": {
              "type": "string",
              "description": (
-                 "OPTIONAL natural-language EXIT rule. Pass verbatim "
-                 "whenever the user describes when to SELL / EXIT / "
-                 "close (e.g. 'sell when RSI > 70', 'exit on 8% "
-                 "drawdown from peak', 'close after 30 bars'). When "
-                 "set, this overrides exit_kind/bars/pct and the "
-                 "engine evaluates the translated exit tree each bar "
-                 "the position is open."
+                 "OPTIONAL natural-language EXIT rule. Pass verbatim whenever "
+                 "the user describes SELL/EXIT/close ('sell when RSI > 70', "
+                 "'exit on 8% drawdown from peak', 'close after 30 bars'). "
+                 "Overrides exit_kind/bars/pct; engine evaluates the "
+                 "translated exit tree each bar the position is open."
              ),
          },
          "interval": {
              "type": "string",
              "description": (
-                 "REQUIRED bar interval / timeframe to backtest on — "
-                 "1m, 5m, 15m, 30m, 1h, daily, weekly, or monthly. "
-                 "CRITICAL: 'period' on every indicator (RSI(14), "
-                 "SMA(50), ...) is counted in BARS of THIS interval — "
-                 "RSI(14) on 15m needs 14 fifteen-minute bars, not 14 "
-                 "days. If the user named a timeframe, pass it; if they "
-                 "did NOT, OMIT this field — the platform asks and "
-                 "resumes (do not guess daily). Intraday intervals have "
-                 "shallow yfinance windows (1m→7d, 5/15/30m→60d, "
-                 "1h→730d); the handler clamps an over-long start_date "
-                 "and surfaces a diagnostic."
+                 "REQUIRED bar interval — 1m/5m/15m/30m/1h/daily/weekly/"
+                 "monthly. CRITICAL: indicator 'period' (RSI(14), SMA(50)) "
+                 "counts BARS of THIS interval (RSI(14) on 15m = 14 "
+                 "fifteen-minute bars, not 14 days). If user named a "
+                 "timeframe, pass it; if NOT, OMIT — platform asks (do not "
+                 "guess daily). Intraday windows shallow (1m→7d, "
+                 "5/15/30m→60d, 1h→730d); handler clamps."
              ),
          },
          "exit_kind": {
@@ -1381,29 +1298,22 @@ tool("backtest_dsl_tree",
              "enum": ["n_day_hold", "stop_loss_pct", "hold_to_end"],
              "default": "n_day_hold",
              "description": (
-                 "How to close a position. n_day_hold: exit after "
-                 "exit_bars bars at the next open (the DEFAULT for signal "
-                 "strategies that state no sell rule). stop_loss_pct: "
-                 "exit at the stop price on bar-low (realistic SL). "
-                 "hold_to_end: NEVER sell early — carry the position to "
-                 "the final bar of the window and mark-to-market there. "
-                 "Use hold_to_end whenever the user says hold / don't "
-                 "sell / buy-and-hold, OR gives no exit AND phrases a "
-                 "hold (e.g. 'buy RELIANCE in Jan 2023 and hold it')."
+                 "n_day_hold: exit after exit_bars bars at next open "
+                 "(DEFAULT when no sell rule). stop_loss_pct: exit at stop "
+                 "price on bar-low. hold_to_end: NEVER sell early — carry "
+                 "to final bar, mark-to-market. Use hold_to_end when user "
+                 "says hold / don't sell / buy-and-hold, OR gives no exit "
+                 "AND phrases a hold ('buy RELIANCE Jan 2023 and hold')."
              ),
          },
          "initial_position": {
              "type": "object",
              "description": (
-                 "Seed an EXISTING holding on primary_symbol at the "
-                 "window start, so the exit rule backtests against a "
-                 "position the user already owns (e.g. 'I hold 50 INFY "
-                 "from ₹1400 — test selling at RSI>70'). Set `quantity` "
-                 "(required); `avg_price` is the cost basis (defaults to "
-                 "the first bar's open); `entry_date` is optional. When "
-                 "the user describes owning shares already, pass this "
-                 "instead of relying on the entry `condition` to open the "
-                 "position."
+                 "Seed an EXISTING holding on primary_symbol at window "
+                 "start, so the exit rule backtests against a position the "
+                 "user already owns ('I hold 50 INFY from ₹1400 — test "
+                 "selling at RSI>70'). Pass instead of using `condition` "
+                 "to open the position."
              ),
              "properties": {
                  "quantity": {"type": "integer",
@@ -1439,12 +1349,11 @@ tool("backtest_dsl_tree",
              "enum": ["fixed", "pct_equity", "vol_target", "atr_risk"],
              "default": "fixed",
              "description": (
-                 "Position sizing. fixed = `quantity` shares; pct_equity = a "
-                 "fraction of equity (`pct`); vol_target = size to an annualised "
-                 "volatility target (`target_vol`) — the standard for trend/CTA; "
-                 "atr_risk = risk a fraction of equity (`risk_pct`) per trade with "
-                 "the stop at `atr_mult`×ATR. Use when the user says 'volatility "
-                 "targeting', 'risk N% per trade', 'ATR-based size', or '% of capital'."
+                 "fixed=`quantity`; pct_equity=`pct` of equity; "
+                 "vol_target=annualised `target_vol`; atr_risk=`risk_pct` "
+                 "per trade with stop at `atr_mult`×ATR. Use when user says "
+                 "'volatility targeting', 'risk N% per trade', 'ATR-based "
+                 "size', or '% of capital'."
              ),
          },
          "pct": {"type": "number", "description":
@@ -1552,48 +1461,38 @@ tool("test_cointegration",
 
 
 tool("propose_dsl_workflow",
-     "SINGLE-SYMBOL workflow builder. The DSL acts on ONE primary "
-     "symbol — entry trigger fires on it, exit branch closes its "
-     "position. DO NOT pick this tool when the user names MULTIPLE "
-     "TICKERS in the same order intent (`buy RELIANCE, TCS and BAJFINANCE "
-     "when they drop 2%`, `sell INFY and WIPRO at 3pm`, `set up SBIN and "
-     "HDFCBANK with RSI<30 entries`). Multi-symbol intents need "
-     "propose_workflow with one branch per (symbol × action). Routing "
-     "a multi-symbol intent here forces the DSL to invent ONE primary "
-     "symbol and silently drops the others — the user activates a draft "
-     "that trades on one of three names.\n\n"
-     "ALSO DO NOT pick this tool when the prompt mentions news / SEBI / "
-     "RBI / earnings / event / announcement / report / confirms / breaks / "
-     "polymarket / prediction market. The DSL has no news leaf; route "
-     "to propose_workflow with trigger.event / fetch.news instead.\n\n"
-     "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit "
-     "condition contains ANY of the following — pick this tool, NOT "
-     "propose_workflow / propose_threshold_order:\n"
+     "SINGLE-SYMBOL workflow builder. DSL acts on ONE primary symbol.\n\n"
+     "DO NOT pick when the user names MULTIPLE TICKERS in the same order "
+     "intent ('buy RELIANCE, TCS and BAJFINANCE when they drop 2%'). "
+     "Multi-symbol intents need propose_workflow with one branch per "
+     "(symbol × action) — routing multi-symbol here silently drops "
+     "all-but-one ticker.\n\n"
+     "ALSO DO NOT pick when the prompt mentions news / SEBI / RBI / "
+     "earnings / event / announcement / report / confirms / breaks / "
+     "polymarket / prediction market. The DSL has no news leaf; route to "
+     "propose_workflow with trigger.event / fetch.news instead.\n\n"
+     "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit contains "
+     "ANY of — pick this tool, NOT propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"
      "  • multi-output indicator components (MACD signal/hist, BB "
      "upper/middle/lower/%B/bandwidth, Stoch %K/%D, Aroon up/down, "
      "Donchian/Keltner upper/lower)\n"
-     "  • indicator-vs-indicator comparison (MACD line vs signal, "
-     "50-EMA vs 200-EMA, price vs Supertrend)\n"
+     "  • indicator-vs-indicator (MACD vs signal, 50-EMA vs 200-EMA, price vs Supertrend)\n"
      "  • aggregate window (percentrank, zscore, highest, lowest, "
      "barssince, valuewhen, correlation, count_when, rolling std)\n"
-     "  • volume-relative term ('volume > 2x its 20-day average')\n"
-     "  • cross-symbol / spread / ratio between two tickers\n"
+     "  • volume-relative ('volume > 2x 20-day average')\n"
+     "  • cross-symbol / spread / ratio\n"
      "  • session-day filter ('only on Tuesdays', 'Mon-Wed only')\n"
-     "  • gap or pct_change leaf ('gap-down > 2%', 'price up 5% over 5 bars')\n"
+     "  • gap or pct_change leaf ('gap-down > 2%', 'up 5% over 5 bars')\n"
      "  • time-shifted reference ('prior close', 'yesterday's high')\n"
      "  • any exit referencing position state — drawdown_from_peak_pct, "
      "unrealised_pct, bars_held, peak_unrealised_pct, entry_price\n\n"
-     "Hand the user's full natural-language entry through as `condition` "
-     "and (if present) their exit condition through as `exit_condition` "
-     "— the tool translates both to trees internally and emits the right "
-     "step shape (trigger.compound entry + optional trigger.exit_compound "
-     "exit branch with fetch.portfolio + sell). PASS exit_condition "
+     "Pass the user's entry as `condition` and (if present) exit as "
+     "`exit_condition` — server-side translation emits trigger.compound "
+     "entry + optional trigger.exit_compound branch. PASS exit_condition "
      "WHENEVER the user names an exit ('sell when X', 'exit when Y', "
-     "'close the position when Z', 'trail N%', 'after N bars', 'when "
-     "down N%'). Do NOT paraphrase or simplify the condition strings — "
-     "pass them VERBATIM; the translator's grammar prompt is the source "
-     "of truth for what the DSL can express. Returns a workflow_draft_card.",
+     "'close when Z', 'trail N%', 'after N bars', 'when down N%'). Pass "
+     "VERBATIM — do NOT paraphrase or simplify. Returns workflow_draft_card.",
      {
          "condition": {
              "type": "string",
@@ -1616,54 +1515,43 @@ tool("propose_dsl_workflow",
              "enum": ["notify_only", "buy_market", "buy_limit"],
              "default": "notify_only",
              "description": (
-                 "What to do when the entry trigger fires. notify_only "
-                 "(default) just sends a push notification; buy_market "
-                 "/ buy_limit place a real order. The exit branch (when "
-                 "exit_condition is set) always uses a market sell of "
-                 "the runtime-held quantity — it does not honour limit "
-                 "semantics."
+                 "notify_only (default) sends a push; buy_market/buy_limit "
+                 "place an order. Exit branch (when exit_condition set) "
+                 "always market-sells runtime-held quantity."
              ),
          },
          "quantity": {
              "type": "integer",
              "minimum": 1,
              "description": (
-                 "Shares to buy (REQUIRED when action_kind='buy_market' "
-                 "or 'buy_limit'). DO NOT default to 1 — the user must "
-                 "have stated a quantity. If they didn't, call ASK_USER "
-                 "first ('How many shares of <SYMBOL> per fire?') and "
-                 "DO NOT emit this tool until the user answers. A "
-                 "silent quantity=1 ships wrong-size trades."
+                 "Shares to buy (REQUIRED for buy_market / buy_limit). DO "
+                 "NOT default to 1. If user didn't state a size, call "
+                 "ASK_USER first — DO NOT emit this tool until they answer. "
+                 "Silent quantity=1 ships wrong-size trades."
              ),
          },
          "limit_price": {
              "type": "number",
-             "description": (
-                 "Limit price (₹). Required when action_kind=buy_limit."
-             ),
+             "description": "Limit price (₹). Required for buy_limit.",
          },
          "exit_condition": {
              "type": "string",
              "description": (
-                 "Optional natural-language EXIT condition. When set, "
-                 "the tool adds an exit branch with trigger.exit_compound "
-                 "that fires only when this workflow holds an open "
-                 "position. Examples: 'when price > upper Bollinger "
-                 "band', 'when RSI > 70', 'when unrealised P&L drops "
-                 "below -2%', 'when drawdown from peak >= 5%', 'after "
-                 "10 bars held'. Pass verbatim — translation happens "
-                 "server-side with PositionNode leaves allowed."
+                 "Optional natural-language EXIT. Adds trigger.exit_compound "
+                 "branch that fires only when the workflow holds an open "
+                 "position ('price > upper Bollinger band', 'RSI > 70', "
+                 "'unrealised P&L below -2%', 'drawdown from peak >= 5%', "
+                 "'after 10 bars held'). Pass verbatim — translation allows "
+                 "PositionNode leaves."
              ),
          },
          "valid_until": {
              "type": "string",
              "description": (
-                 "Optional ISO YYYY-MM-DD. Set ONLY when the user "
-                 "attaches a TTL phrase ('for the next 30 days', "
-                 "'until 30 June', 'till next Friday', 'good for "
-                 "the week'). Resolve relative phrases to absolute "
-                 "dates yourself. Omit for perpetual workflows. "
-                 "Scheduler auto-deactivates at 23:59 IST."
+                 "Optional ISO YYYY-MM-DD. Set ONLY for TTL phrases ('for "
+                 "next 30 days', 'until 30 June', 'till Friday'). Resolve "
+                 "relative phrases yourself. Omit for perpetual. Scheduler "
+                 "auto-deactivates at 23:59 IST."
              ),
          },
          "interval": {
@@ -1674,13 +1562,9 @@ tool("propose_dsl_workflow",
              ],
              "default": "1d",
              "description": (
-                 "Bar interval the entry/exit indicators are computed "
-                 "on. 'period' on every indicator (RSI(14), SMA(50), "
-                 "...) is in BARS of THIS interval. If the user did "
-                 "not pin a timeframe, ASK them rather than guessing. "
-                 "Default '1d' keeps existing daily workflows unchanged. "
-                 "Flows onto every IndicatorNode in both the entry and "
-                 "the optional exit tree."
+                 "Bar interval for entry/exit indicators. 'period' (RSI(14), "
+                 "SMA(50)) counts BARS of THIS interval. If user did NOT pin "
+                 "a timeframe, ASK — do not guess. Default '1d'."
              ),
          },
      },
@@ -2000,29 +1884,22 @@ tool("ask_agent_clarify",
 
 tool("build_strategy",
      "Do NOT call for a purely conceptual ask ('what would a defence-theme "
-     "basket look like', 'how would you build a quality portfolio') with no "
-     "intent to see a card — answer in prose instead. "
-     "Build a DB-driven EQUITY + GOLD basket/strategy: pick a named WEIGHTING "
-     "SCHEME (never bare equal-weight unless ≤4 names), gate constituents on "
-     "the fundamentals DB (F-score / Magic-Formula / multi-factor), enforce a "
-     "sector cap + correlation check, map any stated view to a tilt, and add a "
-     "gold (SGB + ETF) sleeve when conservative / long-horizon / rupee-hedge "
-     "intent earns it. PREFER over propose_basket_allocation for "
-     "strategy/portfolio asks that want a thoughtful structure ('build me a "
-     "long-term portfolio', 'a balanced basket of quality stocks', 'invest ₹2L "
-     "for the long run'). You pass the filled SLOT-STATE (the same shape "
-     "ask_user_dynamic fills); the backend runs the §3a construction pipeline "
-     "and returns an editable, register-not-execute strategy_builder_card with "
-     "a rationale + the not-advice disclaimer. Skipped slots take stated "
-     "defaults — never block the build to chase a missing slot. Register-not-"
-     "execute: the card registers an idea; the user places orders in their own "
-     "broker app. options/hedge sleeves are NOT built this phase (equity+gold "
-     "only). The weighting-scheme names (equal/mcap/risk-parity/min-variance/"
-     "black-litterman/factor) and selection-gate names (fscore/magic-formula/"
-     "multifactor) are INTERNAL build levers YOU pick — NEVER ask the user to "
+     "basket look like') with no intent to see a card — answer in prose instead.\n\n"
+     "Builds a DB-driven EQUITY + GOLD basket (weighting scheme + fundamentals "
+     "gate + sector cap + correlation check + optional gold sleeve).\n\n"
+     "PREFER over propose_basket_allocation for portfolio asks wanting "
+     "thoughtful structure ('build me a long-term portfolio', 'balanced "
+     "basket of quality stocks', 'invest ₹2L for the long run'). Pass "
+     "filled SLOT-STATE; backend runs the §3a pipeline and returns a "
+     "register-not-execute strategy_builder_card. Skipped slots take "
+     "defaults — never block the build. Register-not-execute: user places "
+     "orders in own broker app. Options/hedge NOT built this phase.\n\n"
+     "Weighting-scheme names (equal/mcap/risk-parity/min-variance/black-"
+     "litterman/factor) and selection-gate names (fscore/magic-formula/"
+     "multifactor) are INTERNAL levers YOU pick — NEVER ask the user to "
      "choose one and NEVER echo these enum names in a question. For an "
-     "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call ask_user_dynamic "
-     "FIRST, not this tool directly.",
+     "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call "
+     "ask_user_dynamic FIRST, not this tool directly.",
      {
          "request": {
              "type": "string",
@@ -2047,14 +1924,10 @@ tool("build_strategy",
          "risk": {
              "type": "string",
              "enum": ["conservative", "balanced", "aggressive"],
-             "description": "User's risk appetite. INTERNALLY this drives the "
-                            "weighting-scheme rule (risk-parity / min-variance "
-                            "/ Black-Litterman / factor) and the gold ballast % "
-                            "— but the weighting scheme and the selection gate "
-                            "are the BUILDER's choice, never the user's. Do NOT "
-                            "ask the user to pick a weighting scheme or a gate, "
-                            "and do NOT surface those internal enum names in a "
-                            "question.",
+             "description": "User's risk appetite. Drives internal weighting-"
+                            "scheme choice and gold ballast %. Do NOT ask the "
+                            "user to pick a weighting scheme or a gate, and do "
+                            "NOT surface those internal enum names in a question.",
          },
          "horizon": {
              "type": "string",
@@ -2091,16 +1964,15 @@ tool("build_strategy",
          "symbols": {
              "type": "array",
              "items": {"type": "string"},
-             "description": "Optional explicit NSE constituents the caller has "
-                            "ALREADY vetted (e.g. the winners from the "
-                            "DISCOVER→VET→JUDGE thematic flow). When present the "
-                            "builder PINS the universe to exactly these names — "
-                            "it runs NO discovery, never drops a name for missing "
-                            "data (a name the DB is silent on is shown '(no "
-                            "data)', not removed), and the sector cap becomes "
-                            "advisory. The weighting scheme + sizing are still "
-                            "computed. OMIT for an open build where the backend "
-                            "should discover the universe from theme/sector/view.",
+             "description": "Optional explicit NSE constituents ALREADY vetted "
+                            "(e.g. winners from the DISCOVER→VET→JUDGE thematic "
+                            "flow). When present, builder PINS the universe to "
+                            "exactly these names — runs NO discovery, never "
+                            "drops a name for missing data (silent DB name → "
+                            "'(no data)', not removed), and sector cap becomes "
+                            "advisory. Weighting scheme + sizing still computed. "
+                            "OMIT for an open build where the backend discovers "
+                            "the universe from theme/sector/view.",
          },
      },
      ["request"])
