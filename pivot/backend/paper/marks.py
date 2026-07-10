@@ -98,9 +98,32 @@ def user_kite_token(db, user_id: int) -> str:
     return "mock_token"
 
 
+# Short-TTL per-symbol mark cache. A single Portfolio view fires 3 concurrent
+# reads (Home card + header + Portfolio tab), each marking the whole book; the
+# Positions panels add more. Without this, every reader re-pays the per-symbol
+# Kite/chain round trip. 30s is long enough to collapse a burst into one mark
+# per symbol, short enough that an intraday price stays fresh. Caches None too
+# (a symbol that can't be priced shouldn't be retried every read within the
+# window). Process-local; cleared on restart. time.time() is fine here (this
+# is request-path code, not a resumable workflow).
+import time as _time
+
+_MARK_CACHE: dict[str, tuple[float, Optional[Decimal]]] = {}
+_MARK_TTL_S = 30.0
+
+
 def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     sym = str(symbol).upper()
 
+    hit = _MARK_CACHE.get(sym)
+    if hit is not None and (_time.time() - hit[0]) < _MARK_TTL_S:
+        return hit[1]
+    price = _get_mark_price_uncached(sym, token)
+    _MARK_CACHE[sym] = (_time.time(), price)
+    return price
+
+
+def _get_mark_price_uncached(sym: str, token: str) -> Optional[Decimal]:
     # 0. Option contracts mark through the chain (F&O P2) — the equity
     # paths below can't price them (yfinance has no NFO symbols; a Kite
     # equity quote would need the NFO:/MCX: prefix the chain service
@@ -110,6 +133,16 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
         mark = get_option_mark(sym)
         if mark is not None:
             return mark
+        # The option chain is the ONLY source that can price an NFO leg. The
+        # equity paths below CANNOT — yfinance has no NFO symbols, and a
+        # "NSE:<sym>" Kite quote is the wrong segment — so falling through is
+        # a guaranteed-useless 404+retry storm. With dozens of expired option
+        # legs in a book that was ~0.3-0.4s EACH (yfinance retries), turning
+        # /paper/summary + /paper/holdings into ~20s hangs that never resolved
+        # the Home portfolio card (2026-07-10). Return None → the caller falls
+        # back to the position's stored last_price (fast, and correct for an
+        # illiquid/expired leg).
+        return None
 
     # 1. Real Kite live quote — this user's own session first, then ANY
     # active Kite session app-wide (mirrors the screener's `_market_token`:
