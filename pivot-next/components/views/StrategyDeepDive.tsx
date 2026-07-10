@@ -166,7 +166,7 @@ export function StrategyDeepDive({
               "en-IN",
             )} times to see the spread of outcomes — not one guess.`}
           >
-            <SimSummary mc={mc as unknown as MonteCarlo} c={c} />
+            <SimSummary mc={mc as unknown as MonteCarlo} mean={e.strategy_total_pct} c={c} />
           </Section>
         )}
 
@@ -196,14 +196,17 @@ export function StrategyDeepDive({
 /** Distilled Monte-Carlo: middle outcome, the loss→best track, odds of a loss. */
 function SimSummary({
   mc,
+  mean,
   c,
 }: {
   mc: MonteCarlo;
+  /** The MEAN return (headline measure); falls back to the median if absent. */
+  mean?: number | null;
   c: Record<string, string>;
 }): React.ReactElement {
   const worst = mc.p05;
   const best = mc.p95;
-  const median = mc.median;
+  const median = typeof mean === "number" ? mean : mc.median;
   const lossPct = mc.prob_loss * 100;
   const range = best - worst;
   const markerPos = range > 0 ? Math.min(100, Math.max(0, ((median - worst) / range) * 100)) : 50;
@@ -235,7 +238,7 @@ function SimSummary({
           {pct(median, 0)}
         </span>
         <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-          most likely (middle) outcome
+          average outcome
         </span>
       </div>
 

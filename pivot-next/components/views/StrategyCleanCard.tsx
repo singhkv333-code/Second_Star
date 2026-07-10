@@ -63,12 +63,15 @@ function outcomeSpread(
   e: ExpressionDetail,
 ): { median: number; best: number | null; worst: number | null } | null {
   const mc = e.monte_carlo;
-  // ≥2 occurrences: p95/p05 are the best/worst SEEN occurrence — a real range.
+  // Central figure is the MEAN (strategy_total_pct) — the average across all
+  // occurrences, our headline measure (not the median). best/worst stay the
+  // best/worst SEEN occurrence from the ≥2-occurrence distribution.
+  const mean = e.strategy_total_pct;
   if (mc && (mc.terminal_pct?.length ?? 0) >= 2) {
-    return { median: mc.median, best: mc.p95, worst: mc.p05 };
+    return { median: mean ?? mc.median, best: mc.p95, worst: mc.p05 };
   }
-  if (e.strategy_total_pct != null) {
-    return { median: e.strategy_total_pct, best: null, worst: e.worst_drop_pct };
+  if (mean != null) {
+    return { median: mean, best: null, worst: e.worst_drop_pct };
   }
   return null;
 }
@@ -187,7 +190,7 @@ export function StrategyCleanCard({
                   {inr(Math.abs(medianValue)).replace("−", "")}
                 </span>
                 <span style={{ fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-                  median
+                  on average
                 </span>
               </div>
             </div>

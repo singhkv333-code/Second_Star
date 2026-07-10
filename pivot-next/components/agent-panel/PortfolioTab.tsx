@@ -15,7 +15,7 @@
  *      no fabricated benchmark; honest loading / error / empty states. The
  *      footer strip below it is per-user (real total return + concentration).
  *   3. Holdings table (sortable, ticker tag with sector subtext).
- *   4. Asset Allocation — donut + legend across Market Cap / Sectors / Stocks.
+ *   4. Asset Allocation — donut + legend across Sectors / Stocks.
  *   5. Diversification Score — your score vs community median, narrative line.
  *
  * Theme tokens are pulled from globals.css so light + dark both work.
@@ -64,17 +64,6 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 // ---------------------------------------------------------------------------
 // Static reference maps (Quartr parity)
 // ---------------------------------------------------------------------------
-
-/** Display label for the real `market_cap_tier` the backend attaches to each
- *  holding (large/mid/small, same thresholds as the Screener). Holdings with
- *  no market-cap data land in "Unclassified" rather than a fabricated tier. */
-const MCAP_TIER_LABEL: Record<string, string> = {
-  large: "Large Cap",
-  mid: "Mid Cap",
-  small: "Small Cap",
-  etf: "ETF",
-  derivative: "F&O",
-};
 
 /** Light sector mapping so the "Sectors" tab in Asset Allocation has
  *  something to render even though the backend Holding type has no
@@ -1709,11 +1698,13 @@ function NumCell({
 }
 
 // ---------------------------------------------------------------------------
-// AssetAllocation — donut + legend across Market Cap / Sectors / Stocks
+// AssetAllocation — donut + legend across Sectors / Stocks
 // ---------------------------------------------------------------------------
 
-const ALLOC_TABS: { id: "marketcap" | "sectors" | "stocks"; label: string }[] = [
-  { id: "marketcap", label: "Market Cap" },
+// Market-cap allocation was removed — holdings carry no reliable market-cap
+// tier (the fundamentals source has market_cap 100% NULL), so it only ever
+// showed "Unclassified". Sectors + Stocks are the honest breakdowns.
+const ALLOC_TABS: { id: "sectors" | "stocks"; label: string }[] = [
   { id: "sectors", label: "Sectors" },
   { id: "stocks", label: "Stocks" },
 ];
@@ -1753,7 +1744,7 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startA:
 }
 
 function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElement {
-  const [tab, setTab] = useState<"marketcap" | "sectors" | "stocks">("marketcap");
+  const [tab, setTab] = useState<"sectors" | "stocks">("sectors");
   const [hover, setHover] = useState<AllocRow | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -1773,7 +1764,6 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 
   const data = useMemo(() => {
     if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
-    if (tab === "marketcap") return aggregate(holdings, (h) => MCAP_TIER_LABEL[h.market_cap_tier ?? ""] ?? "Unclassified");
     if (tab === "sectors") return aggregate(holdings, (h) => SECTOR_MAP[h.tradingsymbol] ?? "Other");
     return aggregate(holdings, (h) => h.tradingsymbol);
   }, [holdings, tab]);
