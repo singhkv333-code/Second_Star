@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-10 (frontend-lead) — Restore cards when reopening conversations from sidebar
+
+- **`lib/api.ts`**: Added `tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null` to `ConversationMessage` type — backend now returns this field on `GET /api/conversations/{id}/messages`.
+- **`components/AppShell.tsx`**: `openConversation` now passes `tool_payload` through in the mapped messages (was previously dropped).
+- **`components/chat/ChatDemo.tsx`**: (1) Extracted module-scope pure function `hintToMessage(responseText, rawData, logiccard?) → Message` — same hint-to-card mapping used by the live SSE `done` path; (2) `resolveStreamingMessage` delegates to `hintToMessage` for the mapping, retains side-effects (onDraftFromChat, toast) in the wrapper; (3) `ResumeConversation` messages now carry `tool_payload`; (4) `useState` lazy init for `messages` calls `hintToMessage` for assistant turns that have `tool_payload`, reconstructing `rawData = { _render_hint, ...card }` to match the live-path shape. Old rows / oversized payloads (absent `tool_payload`) fall through to plain-text. Clarify cards in history render with `disabled=true` (isLatestClarify=false) — no crash, no special-casing needed.
+- `tsc --noEmit` clean; lint clean in touched files; no new test failures.
+
+---
+
 ## 2026-06-21 (frontend-lead) — Production login/signup + auth wiring
 
 - **`app/login/page.tsx`** (new): Split-screen login page — Newsreader serif wordmark and italic value-prop on the left panel; email+password form (zod/react-hook-form) on the right. Error mapping: 401 "Invalid email or password", 429 retry-after minutes, generic fallback. Spinner + disabled while submitting. Cmd+Enter submits. autoFocus on email field. Links to /signup.

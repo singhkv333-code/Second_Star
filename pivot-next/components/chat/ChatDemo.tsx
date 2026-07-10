@@ -28,7 +28,6 @@ import {
   Zap,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -830,6 +829,10 @@ export function ChatDemo({
   // Scroll container — kept pinned to the bottom while messages stream
   // in, the same auto-follow behaviour ChatGPT/Claude use.
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Inner message list — observed for height growth so late-rendering content
+  // (tall cards, markdown tables, images) re-pins the view to the bottom, not
+  // just discrete message-array updates.
+  const messagesRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   /** Holds the in-flight AbortController so the composer's Stop button
    *  can cancel the SSE stream mid-response. Cleared in submit()'s
@@ -1178,6 +1181,24 @@ export function ChatDemo({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Follow height growth, not just message-array updates: streamed text,
+  // tall cards, markdown tables and images all grow the content AFTER the
+  // messages effect above has run. A ResizeObserver on the message list keeps
+  // the view pinned to the bottom through all of it, so the user never has to
+  // scroll down manually — unless they've deliberately scrolled up to read,
+  // in which case stickToBottomRef is false and we leave them where they are.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const inner = messagesRef.current;
+    if (!el || !inner) return;
+    const ro = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
 
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
@@ -1537,7 +1558,7 @@ export function ChatDemo({
 
       {/* Message thread */}
       {messages.length > 0 && (
-        <div className="flex flex-col gap-6" data-testid="chat-messages">
+        <div ref={messagesRef} className="flex flex-col gap-6" data-testid="chat-messages">
           {messages.map((msg, idx) => {
             // Retry on an assistant message re-submits the most recent
             // user message above it. Walking backwards gives us the
@@ -1591,14 +1612,10 @@ export function ChatDemo({
                             <AssistantMessage text={msg.text} />
                           </AssistantBubble>
                         </div>
-                      ) : (
-                        /* No text yet — show shimmer placeholder while
-                           first delta arrives. */
-                        <div className="mt-3 flex flex-col gap-1.5 py-0.5">
-                          <Skeleton className="h-3 w-40" />
-                          <Skeleton className="h-3 w-28" />
-                        </div>
-                      )}
+                      ) : null /* No text yet — the StreamingStatusBar above
+                          already shows live progress ("Thinking / Reading
+                          context …"); a skeleton placeholder underneath it read
+                          as redundant clutter, so we render nothing here. */}
                     </div>
                   </div>
                 </div>
