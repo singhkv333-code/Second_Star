@@ -73,7 +73,7 @@ export function PaperDashboard(): React.ReactElement {
         style={{ gap: 16 }}
       >
         <TabsList
-          className="h-auto flex-wrap justify-start gap-1 self-start rounded-[var(--radius-pill)] p-1"
+          className="h-auto flex-wrap justify-start gap-1 self-start rounded-[var(--radius-sm)] p-1"
           style={{
             background: "var(--bg-secondary)",
             border: "1px solid var(--glass-border)",
@@ -83,7 +83,7 @@ export function PaperDashboard(): React.ReactElement {
             <TabsTrigger
               key={t.value}
               value={t.value}
-              className="rounded-[var(--radius-pill)] px-4 py-1.5 text-[13px] q-display transition-colors text-[var(--text-secondary)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
+              className="rounded-[var(--radius-xs)] px-4 py-1.5 text-[13px] q-display transition-colors text-[var(--text-secondary)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
             >
               {t.label}
             </TabsTrigger>

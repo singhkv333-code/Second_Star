@@ -85,7 +85,7 @@ function FilterTag({
         padding: "6px 14px",
         background: "var(--bg-base)",
         border: `1px solid ${borderColor}`,
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-sm)",
         color: active ? "var(--text-primary)" : "var(--text-secondary)",
         fontFamily: "var(--font-display)",
         fontSize: 13,

@@ -11,6 +11,21 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AppShell } from "@/components/AppShell";
 import * as api from "@/lib/api";
 
+// AppShell calls useRouter()/usePathname() at mount; jsdom has no Next app
+// router, so stub next/navigation to a no-op router.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
   // Start fresh on the default tab — clear the URL hash.
@@ -49,6 +64,14 @@ beforeEach(() => {
   });
   vi.spyOn(api, "getMe").mockResolvedValue({
     data: { id: "u1", email: "demo@example.com", full_name: "Demo" },
+  });
+  // Conversations list (sidebar) + trading-mode probe — relative-URL fetches
+  // jsdom can't resolve, so stub them.
+  vi.spyOn(api, "listConversations").mockResolvedValue({
+    data: { items: [], next_cursor: null },
+  });
+  vi.spyOn(api, "getAccountMode").mockResolvedValue({
+    data: { mode: "paper" },
   });
 });
 
@@ -100,19 +123,19 @@ describe("AppShell", () => {
     expect(screen.getByTestId("mode-backtest")).toBeInTheDocument();
   });
 
-  it("Calendar nav item mounts the calendar tab", async () => {
+  it("Portfolio nav item mounts the portfolio tab", async () => {
     render(<AppShell />);
-    fireEvent.click(screen.getByTestId("nav-calendar"));
+    fireEvent.click(screen.getByTestId("nav-portfolio"));
     await waitFor(() =>
-      expect(screen.getByTestId("calendar-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("portfolio-tab")).toBeInTheDocument(),
     );
   });
 
   it("respects an initial URL hash on mount", async () => {
-    window.history.replaceState(null, "", "#calendar");
+    window.history.replaceState(null, "", "#views");
     render(<AppShell />);
     await waitFor(() =>
-      expect(screen.getByTestId("calendar-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("views-tab")).toBeInTheDocument(),
     );
   });
 

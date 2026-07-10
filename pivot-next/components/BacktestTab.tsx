@@ -289,7 +289,7 @@ export function BacktestTab(): React.ReactElement {
                     onClick={() => setRebalance(opt.value)}
                     aria-pressed={rebalance === opt.value}
                     className={cn(
-                      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                      "rounded-[var(--radius-sm)] border px-3 py-1 text-xs font-medium transition-colors",
                       rebalance === opt.value
                         ? "bg-primary text-primary-foreground border-primary"
                         : "bg-muted/40 text-foreground hover:bg-muted",

@@ -31,7 +31,6 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "calendar"
   | "screener"
   | "views";
 

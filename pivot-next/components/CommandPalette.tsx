@@ -12,7 +12,6 @@
 import { useEffect, useState } from "react";
 import {
   BarChart2,
-  CalendarDays,
   MessageSquare,
   PieChart,
   Settings,
@@ -35,7 +34,6 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "calendar"
   | "screener";
 
 const NAV_ITEMS: {
@@ -46,7 +44,6 @@ const NAV_ITEMS: {
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
-  { key: "calendar", label: "Calendar", Icon: CalendarDays },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
