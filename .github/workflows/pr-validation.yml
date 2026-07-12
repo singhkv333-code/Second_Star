@@ -35,9 +35,17 @@ jobs:
 
       - name: Import sanity (catches syntax/import errors with no live infra)
         run: python -c "import backend.main"
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci-dummy-secret-not-used
 
       - name: Test collection (catches broken test imports; DB-backed tests are not executed here)
         run: pytest --collect-only -q
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci-dummy-secret-not-used
 
   frontend:
     runs-on: ubuntu-latest
