@@ -647,8 +647,13 @@ async def chat(
     holdings: list[dict] = []
     if request.include_portfolio_context:
         try:
-            from backend.kite.portfolio import get_holdings
-            holdings = get_holdings(kite_token)
+            # Paper-AWARE: reads the simulated paper book in paper mode
+            # (the default), else Kite — the SAME resolver the Portfolio page
+            # uses. Without this the injected "## User context" block showed
+            # "no holdings" for paper users who actually hold a real book,
+            # so the LLM refused portfolio-grounded asks ("hedge my portfolio").
+            from backend.services.portfolio_source import resolve_holdings
+            holdings = list(resolve_holdings(db, user_id, kite_token))
         except Exception:
             holdings = []
 
@@ -792,8 +797,13 @@ async def chat_stream(
     holdings: list[dict] = []
     if request.include_portfolio_context:
         try:
-            from backend.kite.portfolio import get_holdings
-            holdings = get_holdings(kite_token)
+            # Paper-AWARE: reads the simulated paper book in paper mode
+            # (the default), else Kite — the SAME resolver the Portfolio page
+            # uses. Without this the injected "## User context" block showed
+            # "no holdings" for paper users who actually hold a real book,
+            # so the LLM refused portfolio-grounded asks ("hedge my portfolio").
+            from backend.services.portfolio_source import resolve_holdings
+            holdings = list(resolve_holdings(db, user_id, kite_token))
         except Exception:
             holdings = []
 

@@ -255,9 +255,8 @@ const SCREEN_LABELS: Record<ScreenId, string> = {
 // ─────────────────────────────────────────────────────────
 // Stocks (LIVE) state shapes
 // ─────────────────────────────────────────────────────────
-// All columns are sortable client-side over the fetched page (the universe
-// fits in one request), so the sort key spans the display columns — not just
-// the server's sort fields.
+// Every display column is server-sortable over the FULL universe (see
+// SERVER_SORT_KEYS) — a header click refetches page 0 in the right order.
 type StockSortKey =
   | "symbol"
   | "market_cap_cr"
@@ -305,13 +304,19 @@ let _sectorsCache: ScreenerSector[] | null = null;
  *  loaded rows. */
 const PAGE_SIZE = 60;
 
-/** Sort keys the backend can order the FULL universe by. The rest
- *  (price / change / 1-Y) only exist for warmed symbols, so they sort
- *  client-side over what's loaded. */
+/** EVERY grid column is now ordered by the backend over the FULL universe —
+ *  clicking any header refetches page 0 in the right order (no more client-side
+ *  sort that only reordered the infinite-scroll rows already loaded, which made
+ *  market-cap / price / change / 1-Y sorts look broken past the first page).
+ *  For price/change/1-Y the backend surfaces priced names first (unpriced sink
+ *  to the bottom and fill in as the grid warms). */
 const SERVER_SORT_KEYS: Partial<Record<StockSortKey, ScreenerSortBy>> = {
   symbol: "symbol",
   market_cap_cr: "market_cap_cr",
   pe: "pe",
+  price: "price",
+  change_pct: "change_pct",
+  one_year_pct: "one_year_pct",
 };
 
 function buildStockParams(

@@ -26,8 +26,13 @@ import { ArrowLeft, AlertCircle, Info } from "lucide-react";
 import { categoryLabel } from "@/components/views/view-format";
 import { ShareButton } from "./ShareButton";
 import { CategoryGlyph } from "@/components/views/ViewCard";
-import { getView, deployExpression } from "@/lib/api";
+import { getView, type BasketPlaceResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { toast } from "sonner";
+import {
+  DeployConfirmModal,
+  skipReasonText,
+} from "@/components/views/DeployConfirmModal";
 import type {
   ViewDetail,
   ExpressionDetail,
@@ -302,7 +307,9 @@ interface ViewDetailPageProps {
 export function ViewDetailPage({
   viewId,
   onBack,
-  onOpenWorkflowById,
+  // onOpenWorkflowById is no longer used here — Deploy places immediately via
+  // the confirm modal instead of arming a workflow — but the prop stays on the
+  // interface so the parent contract (ViewsTab) is unchanged.
   detailOverride = null,
   initialStance = null,
 }: ViewDetailPageProps): React.ReactElement {
@@ -326,6 +333,10 @@ export function ViewDetailPage({
   const [deployingId, setDeployingId] = React.useState<string | null>(null);
   const [deployError, setDeployError] = React.useState<string | null>(null);
   const [deepDiveOpen, setDeepDiveOpen] = React.useState(false);
+  // The expression whose deploy confirmation modal is open (null = closed).
+  const [placeExpr, setPlaceExpr] = React.useState<ExpressionDetail | null>(
+    null,
+  );
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -422,21 +433,29 @@ export function ViewDetailPage({
   const selectedExpr =
     exprs.find((e) => e.id === selectedId) ?? exprs[0] ?? null;
 
-  async function handleDeploy(expr: ExpressionDetail) {
-    if (deployingId) return;
+  // Deploy = execute now (paper). Opens the confirm modal, which previews the
+  // exact whole-share/unit basket and — on confirm — places it into the paper
+  // book. No workflow/agent is created; a strategy that can't be placed shows
+  // the exact reason in the modal (handled by DeployConfirmModal).
+  function handleDeploy(expr: ExpressionDetail) {
     setDeployError(null);
-    if (expr.workflow_id) {
-      onOpenWorkflowById(expr.workflow_id);
-      return;
-    }
-    setDeployingId(expr.id);
-    const res = await deployExpression(expr.id);
-    setDeployingId(null);
-    if (isError(res)) {
-      setDeployError(res.error.message);
-      return;
-    }
-    onOpenWorkflowById(res.data.workflow_id);
+    setPlaceExpr(expr);
+  }
+
+  function handlePlaced(res: BasketPlaceResponse): void {
+    const n = res.count;
+    const where = res.routed_to === "broker" ? "your broker" : "your paper book";
+    const skipNote =
+      res.skipped.length > 0
+        ? "Skipped " +
+          res.skipped
+            .map((s) => `${s.symbol} (${skipReasonText(s.status)})`)
+            .join(", ") +
+          ". "
+        : "";
+    toast.success(`Placed ${n} ${n === 1 ? "leg" : "legs"} into ${where}.`, {
+      description: skipNote + "Track it in Portfolio → My Views.",
+    });
   }
 
   // The full statistical deep-dive (StrategyDeepDive) is rendered INLINE as an
@@ -789,6 +808,14 @@ export function ViewDetailPage({
           </section>
         </>
       )}
+
+      {/* Deploy = execute now: confirm-then-place into the paper book. */}
+      <DeployConfirmModal
+        expr={placeExpr}
+        amount={amount}
+        onClose={() => setPlaceExpr(null)}
+        onPlaced={handlePlaced}
+      />
     </div>
   );
 }

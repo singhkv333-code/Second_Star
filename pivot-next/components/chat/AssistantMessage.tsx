@@ -1,10 +1,65 @@
 "use client";
 
 import { memo } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { SmartMarkdownTable } from "@/components/chat/SmartMarkdownTable";
+
+// ── Ticker detection ─────────────────────────────────────────────────────
+// Matches NSE/BSE-listed symbols: optional exchange prefix, all-uppercase
+// core of 2–15 chars (letters + digits + & and -), optional .NS/.BO suffix.
+// Lowercase letters or underscores anywhere → NOT a ticker (is code).
+const INLINE_TICKER_RE =
+  /^(NSE:|BSE:)?([A-Z][A-Z0-9&-]{1,14})(\.NS|\.BO)?$/;
+
+/**
+ * Returns the canonical symbol (prefix/suffix stripped) if `raw` looks like
+ * an NSE/BSE ticker; returns null otherwise.
+ */
+export function extractTickerSymbol(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed !== trimmed.toUpperCase()) return null;
+  const m = INLINE_TICKER_RE.exec(trimmed);
+  return m ? (m[2] ?? null) : null;
+}
+
+// ── Gain/loss number coloring ────────────────────────────────────────────
+// Only numbers carrying an EXPLICIT +/-/− sign are colored — an unsigned
+// "8.2%" is ambiguous (could be a P/E, an expense ratio, anything) and
+// coloring it would misrepresent data that isn't a gain/loss. Matches
+// "+12.4%", "-8.2%", "+₹1,240.50", "₹-500", "−3.1%" (U+2212 minus).
+const GAIN_LOSS_RE = /([+\-−]\s?₹\s?[\d,]+(?:\.\d+)?|₹\s?[+\-−]\s?[\d,]+(?:\.\d+)?|[+\-−]\s?\d[\d,]*(?:\.\d+)?%)/g;
+
+export function colorizeGainLoss(text: string, keyPrefix: string): React.ReactNode {
+  if (!/[+\-−]/.test(text)) return text;
+  const parts = text.split(GAIN_LOSS_RE);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const negative = part.includes("-") || part.includes("−");
+    return (
+      <span
+        key={`${keyPrefix}-${i}`}
+        className="font-medium tabular-nums"
+        style={{ color: negative ? "var(--color-loss)" : "var(--color-profit)" }}
+      >
+        {part}
+      </span>
+    );
+  });
+}
+
+/** Colorizes plain-string children in place; already-rendered elements
+ * (links, bold, code) pass through untouched — we never re-parse markup
+ * that's already been resolved into React nodes. */
+function withGainLossColoring(children: React.ReactNode): React.ReactNode {
+  const arr = Array.isArray(children) ? children : [children];
+  return arr.map((child, i) =>
+    typeof child === "string" ? colorizeGainLoss(child, `gl-${i}`) : child,
+  );
+}
 
 type Props = {
   text: string;
@@ -68,7 +123,9 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
             </h4>
           ),
           p: ({ children }) => (
-            <p className="leading-7 text-foreground">{children}</p>
+            <p className="leading-7 text-foreground">
+              {withGainLossColoring(children)}
+            </p>
           ),
           ul: ({ children }) => (
             <ul className="ml-1 flex flex-col gap-1.5 pl-5 [list-style:disc] marker:text-muted-foreground/70">
@@ -81,34 +138,73 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
             </ol>
           ),
           li: ({ children }) => (
-            <li className="leading-7 [&>p]:m-0">{children}</li>
+            <li className="leading-7 [&>p]:m-0">
+              {withGainLossColoring(children)}
+            </li>
           ),
           strong: ({ children }) => (
             <strong className="font-semibold text-foreground">{children}</strong>
           ),
           em: ({ children }) => <em className="italic">{children}</em>,
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary underline underline-offset-2 hover:opacity-80"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            // Internal stock-page links (the model writes these for company
+            // mentions it can resolve to a ticker) navigate client-side and
+            // read bolder — they're the company name, not an external ref.
+            if (href?.startsWith("/")) {
+              return (
+                <Link
+                  href={href}
+                  className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                >
+                  {children}
+                </Link>
+              );
+            }
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-primary underline underline-offset-2 hover:opacity-80"
+              >
+                {children}
+              </a>
+            );
+          },
           hr: () => <hr className="my-4 border-border" />,
           blockquote: ({ children }) => (
             <blockquote className="border-l-2 border-border pl-4 text-muted-foreground">
               {children}
             </blockquote>
           ),
-          code: ({ inline, className: cls, children, ...props }: {
-            inline?: boolean;
+          code: ({ className: cls, children, ...props }: {
             className?: string;
             children?: React.ReactNode;
           } & React.HTMLAttributes<HTMLElement>) => {
-            if (inline) {
+            // react-markdown v10 dropped the `inline` boolean prop.
+            // Detect inline vs block: block code either has a `language-*`
+            // className (fenced with language specifier) or its text content
+            // contains a newline (fenced without specifier). Inline backtick
+            // code is always a single-line string with no language class.
+            const text = String(children ?? "");
+            const isBlock = cls?.includes("language-") || text.includes("\n");
+
+            if (!isBlock) {
+              // Inline code path — detect ticker-shaped text (e.g. `RELIANCE`,
+              // `ONGC`, `NSE:INFY`) and render as a same-font stock-page link.
+              // Non-ticker code (e.g. `revenue_growth`, `cagrPct`, `pe_ratio`)
+              // keeps the standard monospace chip style.
+              const ticker = extractTickerSymbol(text);
+              if (ticker) {
+                return (
+                  <Link
+                    href={`/stock/${encodeURIComponent(ticker)}`}
+                    className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    {text}
+                  </Link>
+                );
+              }
               return (
                 <code
                   className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground"
@@ -118,6 +214,7 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
                 </code>
               );
             }
+            // Block code path — preserve monospace with language class.
             return (
               <code className={cn("font-mono text-[13px]", cls)} {...props}>
                 {children}

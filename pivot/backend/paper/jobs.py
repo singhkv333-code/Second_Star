@@ -52,7 +52,11 @@ def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
     The scheduler cron already restricts to hours 9-15; this tightens it to the
     real session and skips the pre-open/post-close edge ticks."""
     from backend.config import settings as _cfg
-    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+    # Run when EITHER the NSE or the US session is open; fills are gated
+    # per-symbol inside evaluate_resting_orders so a US order fills only during
+    # US hours and an Indian order only during NSE hours.
+    from backend.market.market_hours import any_equity_market_open
+    if getattr(_cfg, "paper_respect_market_hours", True) and not any_equity_market_open():
         return {
             "accounts": 0, "filled": [], "cancelled": [], "failed": [],
             "skipped_market_closed": True,
@@ -111,7 +115,8 @@ def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
     ``{"accounts": int, "positions_marked": int, "failed": [account_id]}``.
     """
     from backend.config import settings as _cfg
-    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+    from backend.market.market_hours import any_equity_market_open
+    if getattr(_cfg, "paper_respect_market_hours", True) and not any_equity_market_open():
         return {"accounts": 0, "positions_marked": 0, "failed": [],
                 "skipped_market_closed": True}
     acct_ids = [

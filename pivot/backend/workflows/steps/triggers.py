@@ -56,6 +56,17 @@ from backend.workflows.schemas import (
 _SCHEDULE_TOLERANCE_SECONDS = 300  # ±5 min around the cron's exact minute
 
 
+def _is_manual_run(ctx: Any) -> bool:
+    """True when this run was started by the user's "Run now" button
+    (triggered_by='manual'), NOT by a watcher/scheduler fire. Manual runs
+    have no prior condition confirmation, so their trigger re-checks fail
+    SAFE on missing data; auto runs were already confirmed and fail OPEN."""
+    try:
+        return str(getattr(ctx.run, "triggered_by", "") or "").lower() == "manual"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _schedule_condition_holds_now(cfg: dict[str, Any]) -> bool:
     """True iff `cfg`'s schedule (cron OR one-time run_at) is genuinely due
     within `_SCHEDULE_TOLERANCE_SECONDS` of right now. False only on a
@@ -194,9 +205,19 @@ async def execute_trigger_price(ctx: Any) -> Optional[dict[str, Any]]:
         from backend.workflows.scheduler import _batch_fetch_prices
         quotes = _batch_fetch_prices([f"{exch}:{sym}"])
     except Exception:
-        return None  # data unavailable — fail open
+        quotes = {}
     current = quotes.get(f"{exch}:{sym}")
     if current is None:
+        # Data unavailable. AUTO runs were already confirmed by the watcher —
+        # fail OPEN so a transient quote blip doesn't drop a confirmed fire.
+        # MANUAL "Run now" runs have NO prior confirmation — fail SAFE: a
+        # trading action must not proceed on an unverified price condition.
+        if _is_manual_run(ctx):
+            raise _ConditionFail({
+                "reason": "price unavailable — condition could not be verified",
+                "operator": operator, "threshold": threshold,
+                "checked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            })
         return None
     last_raw = cfg.get(_LAST_PRICE_KEY)
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None
@@ -264,8 +285,17 @@ async def execute_trigger_indicator(ctx: Any) -> Optional[dict[str, Any]]:
     try:
         value = _compute_indicator_sync(sym, indicator, period, timeframe)
     except Exception:
-        return None  # data unavailable — fail open
+        value = None
     if value is None:
+        # AUTO: fail open (watcher already confirmed). MANUAL: fail safe —
+        # don't trade on an unverified indicator condition. (See price re-check.)
+        if _is_manual_run(ctx):
+            raise _ConditionFail({
+                "reason": "indicator unavailable — condition could not be verified",
+                "operator": operator, "threshold": threshold,
+                "indicator": indicator,
+                "checked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            })
         return None
     last_raw = cfg.get(_LAST_VALUE_KEY)
     last = float(last_raw) if isinstance(last_raw, (int, float)) else None

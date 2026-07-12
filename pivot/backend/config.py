@@ -257,6 +257,12 @@ class Settings(BaseSettings):
     # api.frankfurter.app now 301-redirects to a non-JSON page; the live
     # host is api.frankfurter.dev/v1 (accepts the same from/to params).
     frankfurter_api_base_url: str = "https://api.frankfurter.dev/v1"
+    # Alpaca — US-equity/ETF market DATA only (register-not-execute: we never
+    # place live US orders; US positions fill into the simulated paper book).
+    # Paper keys are fine for the data API. Base is the DATA host, not trading.
+    alpaca_api_key: str = ""
+    alpaca_api_secret: str = ""
+    alpaca_data_base_url: str = "https://data.alpaca.markets/v2"
     # When True, backend.market.global_quotes.get_global_quote() returns a
     # deterministic synthetic price derived from a stable hash of the symbol
     # (no randomness, no wall-clock-dependent value) so dev + tests are
@@ -281,6 +287,16 @@ class Settings(BaseSettings):
     # both reported + estimate are present — this floor mainly guards against
     # half-populated rows.
     earnings_verifier_min_confidence: float = 0.85
+
+    # --- Web search (provider-hosted) -----------------------------------------
+    # When on, the main chat hop offers the LLM the Responses-API HOSTED
+    # `web_search` tool. The provider runs the search server-side and returns
+    # the answer with url citations in one call — no retrieval code our side.
+    # Verified 2026-07-12 against deploymentpivot111/gpt-5.4-mini (all tool-type
+    # variants 200 + real citations). Default OFF (feature-flag convention);
+    # scoped/guided by system_core.md's web-search clause — prices/fundamentals
+    # still come from Kite tools, web search is for LATEST qualitative context.
+    web_search_enabled: bool = False
 
     # --- Company logos (logo.dev) ---------------------------------------------
     # Publishable token (pk_…) for img.logo.dev — safe to expose in the

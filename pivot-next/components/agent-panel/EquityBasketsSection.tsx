@@ -4,13 +4,16 @@
  * EquityBasketsSection — the user's saved equity / ETF baskets inside the
  * Agents → Strategies tab (the equity half; option strategies sit alongside).
  *
- * Lists baskets from GET /strategies/baskets, opens the EquityBasketBuilder to
- * create or edit, and soft-deletes via DELETE /strategies/baskets/{id}. Cards
+ * Lists baskets from GET /strategies/baskets. "New basket" hands off to chat
+ * (baskets are built by describing them, not a form) — POST/PATCH still back
+ * the three-dot "Edit" for structural tweaks. Delete squares off every held
+ * member and hard-deletes the basket (DELETE /strategies/baskets/{id});
+ * "Square off" does the same sell without deleting (POST .../close). Cards
  * mirror the Agents-tab card language (rounded-2xl, border, real values only).
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Layers, LineChart, MoreVertical, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, Layers, MessageSquarePlus, MoreVertical, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -32,25 +35,36 @@ import {
 import { cn } from "@/lib/utils";
 import { isError } from "@/lib/types";
 import {
+  closeEquityBasket,
   deleteEquityBasket,
   listEquityBaskets,
+  type BasketCloseResult,
   type EquityBasket,
 } from "@/lib/agentsApi";
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { EquityBasketBuilder } from "./EquityBasketBuilder";
-import { BasketTradeModal } from "./BasketTradeModal";
 
 type State =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "ok"; items: EquityBasket[] };
 
-export function EquityBasketsSection(): React.ReactElement {
+export function EquityBasketsSection({
+  onSendPrompt,
+}: {
+  /** Seed a prompt into the chat composer and jump there — used by "New
+   *  basket" and the per-card "Edit with chat" action. */
+  onSendPrompt?: (prompt: string) => void;
+}): React.ReactElement {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editing, setEditing] = useState<EquityBasket | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [closingId, setClosingId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<EquityBasket | null>(null);
-  const [tradingBasket, setTradingBasket] = useState<EquityBasket | null>(null);
+  const [confirmClose, setConfirmClose] = useState<EquityBasket | null>(null);
+  const [closeResult, setCloseResult] = useState<{ id: number; result: BasketCloseResult } | null>(null);
 
   const load = useCallback((): void => {
     setState({ kind: "loading" });
@@ -75,12 +89,14 @@ export function EquityBasketsSection(): React.ReactElement {
   }, [load]);
 
   const openCreate = (): void => {
-    setEditing(null);
-    setBuilderOpen(true);
+    onSendPrompt?.("create a basket");
   };
   const openEdit = (b: EquityBasket): void => {
     setEditing(b);
     setBuilderOpen(true);
+  };
+  const editWithChat = (b: EquityBasket): void => {
+    onSendPrompt?.(`Edit my "${b.name}" basket`);
   };
 
   const handleSaved = (saved: EquityBasket): void => {
@@ -111,6 +127,18 @@ export function EquityBasketsSection(): React.ReactElement {
       .finally(() => setDeletingId((cur) => (cur === b.id ? null : cur)));
   };
 
+  const handleClose = (b: EquityBasket): void => {
+    setClosingId(b.id);
+    setCloseResult(null);
+    closeEquityBasket(b.id)
+      .then((res) => {
+        if (isError(res)) return;
+        setCloseResult({ id: b.id, result: res.data });
+      })
+      .catch(() => {})
+      .finally(() => setClosingId((cur) => (cur === b.id ? null : cur)));
+  };
+
   return (
     <div className="flex flex-col gap-4" data-testid="equity-baskets-section">
       <div className="flex items-center justify-between gap-3">
@@ -129,7 +157,7 @@ export function EquityBasketsSection(): React.ReactElement {
       {state.kind === "loading" && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-56 w-full rounded-2xl" />
+            <Skeleton key={i} className="h-48 w-full rounded-2xl" />
           ))}
         </div>
       )}
@@ -160,7 +188,7 @@ export function EquityBasketsSection(): React.ReactElement {
           <Layers className="mb-2 h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm font-medium">No equity baskets yet</span>
           <span className="text-xs text-muted-foreground">
-            Build one — pick securities and set weights.
+            Start a chat — describe what you want and pick the names.
           </span>
         </button>
       )}
@@ -176,9 +204,12 @@ export function EquityBasketsSection(): React.ReactElement {
               <EquityBasketCard
                 basket={b}
                 isDeleting={deletingId === b.id}
+                isClosing={closingId === b.id}
+                closeResult={closeResult?.id === b.id ? closeResult.result : null}
                 onEdit={() => openEdit(b)}
                 onDelete={() => setConfirmDelete(b)}
-                onTrade={() => setTradingBasket(b)}
+                onEditWithChat={() => editWithChat(b)}
+                onSquareOff={() => setConfirmClose(b)}
               />
             </div>
           ))}
@@ -192,14 +223,6 @@ export function EquityBasketsSection(): React.ReactElement {
         onSaved={handleSaved}
       />
 
-      {tradingBasket && (
-        <BasketTradeModal
-          open={tradingBasket !== null}
-          onOpenChange={(o) => !o && setTradingBasket(null)}
-          basket={tradingBasket}
-        />
-      )}
-
       <AlertDialog
         open={confirmDelete !== null}
         onOpenChange={(o) => !o && setConfirmDelete(null)}
@@ -208,7 +231,8 @@ export function EquityBasketsSection(): React.ReactElement {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete “{confirmDelete?.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the basket from your Strategies. It can&apos;t be undone.
+              This squares off (sells) every position currently held in this
+              basket, then deletes the strategy for good. It can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -225,6 +249,33 @@ export function EquityBasketsSection(): React.ReactElement {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={confirmClose !== null}
+        onOpenChange={(o) => !o && setConfirmClose(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Square off “{confirmClose?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Sells every position currently held in this basket at market.
+              The basket itself stays — you can trade it again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmClose) handleClose(confirmClose);
+                setConfirmClose(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Square off
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -234,28 +285,42 @@ function fmtInrCompact(amount: number | null): string {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
+function squareOffSummary(result: BasketCloseResult): string {
+  if (result.count === 0) return "Nothing held — no positions to square off.";
+  const names = result.registered.map((r) => r.symbol).join(", ");
+  return `Sold ${names}.`;
+}
+
 function EquityBasketCard({
   basket,
   isDeleting,
+  isClosing,
+  closeResult,
   onEdit,
   onDelete,
-  onTrade,
+  onEditWithChat,
+  onSquareOff,
 }: {
   basket: EquityBasket;
   isDeleting: boolean;
+  isClosing: boolean;
+  closeResult: BasketCloseResult | null;
   onEdit: () => void;
   onDelete: () => void;
-  onTrade: () => void;
+  onEditWithChat: () => void;
+  onSquareOff: () => void;
 }): React.ReactElement {
   const members = basket.members ?? [];
+  const logos = useCompanyLogos(members.map((m) => m.symbol));
+
   return (
     <div
       data-testid={`basket-card-${basket.id}`}
       className={cn(
-        "group flex h-full flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+        "group flex h-full flex-col gap-3 rounded-2xl border border-border/50 bg-card px-4 py-4",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
         "transition-colors hover:border-border",
-        isDeleting && "opacity-70 pointer-events-none",
+        (isDeleting || isClosing) && "opacity-70 pointer-events-none",
       )}
     >
       {/* Header: type chip + weighting + kebab */}
@@ -305,7 +370,7 @@ function EquityBasketCard({
 
       {/* Title */}
       <div className="flex flex-col gap-0.5">
-        <h3 className="m-0 line-clamp-2 text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
+        <h3 className="m-0 line-clamp-2 text-[17px] leading-[1.2] font-semibold tracking-tight text-foreground">
           {basket.name}
         </h3>
         <span className="text-[12px] text-muted-foreground">
@@ -314,43 +379,70 @@ function EquityBasketCard({
         </span>
       </div>
 
-      {/* Members as weighted chips */}
-      <div className="mt-auto flex flex-col gap-2 border-t border-border/40 pt-3">
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+      {/* Holdings — vertical list, logo + real name + weight. Height caps at
+          ~5 rows so a big basket doesn't stretch the card (or its grid row);
+          past that it scrolls WITHIN the card, scrollbar hidden. */}
+      <div className="mt-auto flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
+        <span className="text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
           Holdings
         </span>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="quartr-no-scrollbar flex max-h-[132px] flex-col gap-1 overflow-y-auto">
           {members.length === 0 ? (
             <span className="text-[12px] text-muted-foreground/70">No names</span>
           ) : (
             members.map((m) => (
-              <span
+              <div
                 key={m.symbol}
-                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-foreground/80"
-                title={`${m.symbol} · ${m.weight}%`}
+                className="flex items-center gap-1.5"
+                title={`${m.symbol} · ${m.weight.toFixed(0)}%`}
               >
-                <span className="font-mono">{m.symbol}</span>
-                <span className="text-muted-foreground">{m.weight.toFixed(0)}%</span>
-              </span>
+                <CompanyLogo
+                  logoUrl={logos[m.symbol.toUpperCase()]}
+                  name={m.name ?? m.symbol}
+                  symbol={m.symbol}
+                  size={20}
+                />
+                <span className="flex-1 truncate text-[12px] font-medium text-foreground">
+                  {m.name ?? m.symbol}
+                </span>
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                  {m.weight.toFixed(0)}%
+                </span>
+              </div>
             ))
           )}
         </div>
       </div>
 
-      {/* Trade — size to shares at live prices and place through the broker. */}
-      <button
-        type="button"
-        onClick={onTrade}
-        data-testid={`basket-trade-${basket.id}`}
-        className={cn(
-          "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-semibold",
-          "bg-foreground text-background transition-opacity hover:opacity-90",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-        )}
-      >
-        <LineChart className="h-3.5 w-3.5" aria-hidden="true" />
-        Trade
-      </button>
+      {closeResult && (
+        <p className="text-[11px] text-muted-foreground" data-testid={`basket-squareoff-result-${basket.id}`}>
+          {squareOffSummary(closeResult)}
+        </p>
+      )}
+
+      {/* Two stacked actions — editing goes through chat; squaring off sells
+          everything currently held without touching the saved basket. */}
+      <div className="flex flex-col gap-2">
+        <Button
+          size="sm"
+          onClick={onEditWithChat}
+          className="w-full gap-1.5"
+          data-testid={`basket-edit-chat-${basket.id}`}
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+          Edit with chat
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isClosing}
+          onClick={onSquareOff}
+          className="w-full"
+          data-testid={`basket-squareoff-${basket.id}`}
+        >
+          {isClosing ? "Squaring off…" : "Square off"}
+        </Button>
+      </div>
     </div>
   );
 }

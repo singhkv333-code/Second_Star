@@ -184,6 +184,8 @@ def build_strategy(
     slots: SlotState,
     ctx: object,
     symbols: Optional[list[str]] = None,
+    constituent_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
 ) -> StrategyBuilderCard:
     """Run the §3a equity+gold construction pipeline → a render-ready card.
 
@@ -208,7 +210,11 @@ def build_strategy(
     # (so a clarify round-trip that carried the winners still builds them).
     pinned = _clean_symbols(symbols if symbols is not None else slots.symbols)
     if pinned:
-        return _build_pinned_strategy(request, slots, pinned, assumptions)
+        return _build_pinned_strategy(
+            request, slots, pinned, assumptions,
+            constituent_reasons=constituent_reasons,
+            weight_overrides=weight_overrides,
+        )
 
     # ── Step 1: universe → fundamentals gate/rank → sector cap + corr check ──
     gate = _choose_selection_gate(slots, request)
@@ -517,6 +523,8 @@ def _build_pinned_strategy(
     slots: SlotState,
     pinned: list[str],
     assumptions: list[str],
+    constituent_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
 ) -> StrategyBuilderCard:
     """B1 — PINNED allow-list path. The caller (e.g. the DISCOVER→VET→JUDGE
     thematic flow) has already vetted the names, so we build EXACTLY these:
@@ -561,18 +569,23 @@ def _build_pinned_strategy(
     if adv:
         assumptions.append(adv)
 
-    # ── Weighting + sizing still computed ──
+    # ── Weighting + sizing ──
+    # PINNED thesis names are conviction-weighted: sized by the quality gate
+    # (roe/roce/de/pe) where the DB serves it, else by thesis-conviction ORDER
+    # (lead name = highest-beta beneficiary). This is deliberately NOT
+    # factor/covariance weighting — those degrade to momentum/1-N on the thin,
+    # illiquid small-cap history these baskets usually hold, producing distorted
+    # or flat splits (the reported bug). A rich-history large-cap basket still
+    # gets a meaningful spread because the quality gate differentiates it.
     price_history = _fetch_price_history([c.symbol for c in candidates])
-    scheme, scheme_note = _choose_scheme(slots, request, candidates)
-    if scheme_note:
-        assumptions.append(scheme_note)
-    factor_emphasis = _detect_factor_style(slots, request)
-    weights, weight_note = _compute_weights(
-        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    scheme = "conviction"
+    weights = _differentiate_weights(candidates)
+    _q = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    assumptions.append(
+        "conviction-weighted — sized by "
+        + ("the quality gate (ROE/ROCE/D-E) " if _q else "thesis-conviction order ")
+        + "so the split is structured, not a flat 1/N or momentum-on-thin-history"
     )
-    if weight_note:
-        scheme = "equal"
-        assumptions.append(weight_note)
 
     corr_note = _correlation_check(candidates, weights, price_history)
     if corr_note:
@@ -582,7 +595,11 @@ def _build_pinned_strategy(
     sleeves, gold_pct, sleeve_notes = _build_sleeves(slots, request)
     assumptions.extend(sleeve_notes)
     equity_share = max(0.0, 100.0 - gold_pct)
-    constituents, sizing_notes = _size_constituents(candidates, weights, equity_share, slots)
+    constituents, sizing_notes = _size_constituents(
+        candidates, weights, equity_share, slots,
+        provided_reasons=constituent_reasons,
+        weight_overrides=weight_overrides,
+    )
     assumptions.extend(sizing_notes)
 
     _assert_guardrails(
@@ -1510,11 +1527,133 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
 # ════════════════════════════════════════════════════════════════════════════
 
 
+def _quality_score(gm: dict) -> Optional[float]:
+    """Composite quality score in ~[0,1] from a name's gate metrics (higher
+    roe/roce better; lower de/pe better). None when the DB is silent on quality
+    (no roe AND no roce) — the caller then falls back to conviction-order tilt."""
+    if not gm:
+        return None
+    roe, roce = gm.get("roe"), gm.get("roce")
+    de, pe = gm.get("de"), gm.get("pe")
+    if roe is None and roce is None:
+        return None
+    s, k = 0.0, 0
+    if roe is not None:
+        s += max(min(float(roe), 60.0), -20.0) / 60.0
+        k += 1
+    if roce is not None:
+        s += max(min(float(roce), 60.0), -20.0) / 60.0
+        k += 1
+    base = s / max(k, 1)
+    if de is not None:
+        base += (1.0 - min(max(float(de), 0.0), 3.0) / 3.0) * 0.25
+    if pe is not None and float(pe) > 0:
+        base += (1.0 - min(float(pe), 60.0) / 60.0) * 0.25
+    return base
+
+
+def _differentiate_weights(candidates: list[_Candidate]) -> dict[str, float]:
+    """Produce DIFFERENTIATED equity-sleeve weights when the scheme would
+    otherwise be flat 1/N (thin history / ≤4 names / no covariance signal).
+
+    Tilt source, in order of preference:
+      1. quality gate (roe/roce/de/pe) when the DB serves it → quality-weighted;
+      2. else conviction/pin ORDER (lead name = highest conviction) → decay.
+    Blended 65/35 with uniform so the tilt is meaningful but never degenerate,
+    normalised to sum 1.0. This is what turns a bare 25/25/25/25 basket into a
+    structured, reasoned split."""
+    n = len(candidates)
+    if n <= 1:
+        return {c.symbol: 1.0 for c in candidates}
+    have_quality = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    scores: list[float] = []
+    for i, c in enumerate(candidates):
+        if have_quality:
+            q = _quality_score(c.gate_metrics or {})
+            scores.append(q if q is not None else 0.0)
+        else:
+            scores.append(float(n - i))  # conviction/pin-order decay
+    lo = min(scores)
+    scores = [s - lo + 0.5 for s in scores]  # shift positive, keep spread
+    tot = sum(scores) or 1.0
+    uni = 1.0 / n
+    out = {c.symbol: 0.65 * (scores[i] / tot) + 0.35 * uni
+           for i, c in enumerate(candidates)}
+    z = sum(out.values()) or 1.0
+    return {k: v / z for k, v in out.items()}
+
+
+def _weight_reason(
+    c: _Candidate, rank: int, n: int, have_quality: bool,
+    provided: Optional[str],
+) -> str:
+    """One honest line explaining WHY this name carries its weight."""
+    if provided:
+        return provided.strip()
+    gm = c.gate_metrics or {}
+    if have_quality and _quality_score(gm) is not None:
+        bits = []
+        if gm.get("roe") is not None:
+            bits.append(f"ROE {float(gm['roe']):.0f}%")
+        if gm.get("roce") is not None:
+            bits.append(f"ROCE {float(gm['roce']):.0f}%")
+        if gm.get("de") is not None:
+            bits.append(f"D/E {float(gm['de']):.2f}")
+        metrics = ", ".join(bits)
+        tier = rank / max(n - 1, 1)
+        if tier <= 0.34:
+            head = "Overweight — strongest quality gate"
+        elif tier >= 0.67:
+            head = "Underweight — thinner/weaker fundamentals"
+        else:
+            head = "Core position"
+        return f"{head}" + (f" ({metrics})" if metrics else "")
+    # No quality data → conviction/pin order.
+    if rank == 0:
+        return "Lead conviction — highest-beta beneficiary of the thesis"
+    if rank >= n - 1:
+        return "Satellite — diversifier / lower-conviction tail"
+    return "Core position — mid-conviction constituent"
+
+
+def _apply_weight_overrides(
+    candidates: list[_Candidate], overrides: dict[str, float]
+) -> dict[str, float]:
+    """Honour an explicit user re-weight ("heavier in X", "make KSB 40%").
+    Named symbols take their stated share (as a fraction of 100); any remaining
+    names split the leftover proportional to the conviction decay so the tilt is
+    respected without leaving un-named names at zero. Returns weights summing 1."""
+    up = {str(k).upper(): float(v) for k, v in (overrides or {}).items()}
+    syms = [c.symbol.upper() for c in candidates]
+    named = {s: up[s] for s in syms if s in up and up[s] > 0}
+    # Values >1 are read as percents; ≤1 as fractions.
+    if named and max(named.values()) > 1.0:
+        named = {k: v / 100.0 for k, v in named.items()}
+    named_sum = sum(named.values())
+    out: dict[str, float] = {}
+    rest = [c for c in candidates if c.symbol.upper() not in named]
+    leftover = max(0.0, 1.0 - named_sum)
+    if rest and leftover > 0:
+        n = len(rest)
+        decay = [float(n - i) for i in range(n)]  # conviction order
+        dtot = sum(decay) or 1.0
+        for c, d in zip(rest, decay):
+            out[c.symbol] = leftover * (d / dtot)
+    for c in candidates:
+        if c.symbol.upper() in named:
+            out[c.symbol] = named[c.symbol.upper()]
+    z = sum(out.values()) or 1.0
+    return {k: v / z for k, v in out.items()}
+
+
 def _size_constituents(
     candidates: list[_Candidate],
     weights: dict[str, float],
     equity_share: float,
     slots: SlotState,
+    *,
+    provided_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
 ) -> tuple[list[StrategyConstituent], list[str]]:
     """Scale the equity-sleeve weights (sum 1.0) to overall-portfolio %, build
     the constituents, and feasibility-check against capital.
@@ -1523,8 +1662,44 @@ def _size_constituents(
     the contract), so they sum to ~100 across the equity names; the gold sleeve
     carries its own overall-% weights. We surface the equity-sleeve share + any
     capital infeasibility as honest-boundary notes.
+
+    When the upstream scheme produced a ~flat 1/N split (covariance/factor
+    fallback on thin history), we replace it with a conviction/quality tilt via
+    :func:`_differentiate_weights` so the basket is never bland, and attach a
+    per-name ``weight_reason``. ``provided_reasons`` (the thematic WHY strings)
+    win over generated ones.
     """
     notes: list[str] = []
+    provided_reasons = provided_reasons or {}
+
+    # Explicit user re-weight (a "rebuild heavier in X" / "make KSB 40%"
+    # amendment) wins over the computed split — this is what makes a rebuild
+    # ACTUALLY re-allocate instead of reproducing the same weights.
+    if weight_overrides:
+        weights = _apply_weight_overrides(candidates, weight_overrides)
+        notes.append("weights set to your specified tilt (re-weighted on request)")
+
+    # Detect a ~flat weight vector and differentiate it (structural, reasoned
+    # split instead of bare equal-weight). Single-asset ≤2-name baskets stay as
+    # given (1/N is genuinely honest there).
+    norm = {c.symbol: weights.get(c.symbol, 0.0) for c in candidates}
+    tot0 = sum(norm.values()) or 1.0
+    norm = {k: v / tot0 for k, v in norm.items()}
+    spread = (max(norm.values()) - min(norm.values())) if norm else 0.0
+    if len(candidates) >= 3 and spread < 0.02 and not weight_overrides:
+        weights = _differentiate_weights(candidates)
+        notes.append(
+            "weights conviction-tilted (differentiated by "
+            + ("quality gate" if any(_quality_score(c.gate_metrics or {}) is not None
+                                     for c in candidates) else "thesis conviction")
+            + " — not a flat 1/N split)"
+        )
+
+    have_quality = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    # Rank by final weight (desc) so weight_reason tiers line up with the split.
+    ranking = sorted(candidates, key=lambda c: weights.get(c.symbol, 0.0), reverse=True)
+    rank_of = {c.symbol: i for i, c in enumerate(ranking)}
+
     total_w = sum(weights.get(c.symbol, 0.0) for c in candidates) or 1.0
     constituents: list[StrategyConstituent] = []
     for c in candidates:
@@ -1536,6 +1711,10 @@ def _size_constituents(
                 sector=c.sector,
                 weight_pct=round(w * 100.0, 2),
                 gate_metrics=c.gate_metrics or {},
+                weight_reason=_weight_reason(
+                    c, rank_of.get(c.symbol, 0), len(candidates), have_quality,
+                    provided_reasons.get(c.symbol.upper()) or provided_reasons.get(c.symbol),
+                ),
             )
         )
     _normalise_to_100(constituents)
@@ -1682,6 +1861,7 @@ def _rationale(
         "min_variance": "minimum-variance",
         "black_litterman": "Black-Litterman",
         "factor": "factor weighting",
+        "conviction": "conviction weighting (quality gate / thesis order)",
     }[scheme]
     gate_txt = {
         "fscore": "a Piotroski-style F-score quality gate (drops weak balance sheets)",
@@ -2004,13 +2184,20 @@ def _normalise_to_100(constituents: list[StrategyConstituent]) -> None:
 
 def _num(v: object) -> Optional[float]:
     try:
-        return float(v) if v is not None else None  # type: ignore[arg-type]
+        f = float(v) if v is not None else None  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+    # NaN/inf must degrade to None, NOT propagate: yfinance returns float('nan')
+    # (not None) for a missing ROE/ROCE/D-E. An unguarded NaN poisons the whole
+    # conviction-weight vector (every weight → NaN) and then trips the weight
+    # guardrail assertion, crashing the build.
+    if f is not None and not math.isfinite(f):
+        return None
+    return f
 
 
 def _put(m: dict[str, float], key: str, v: Optional[float]) -> None:
-    if v is not None:
+    if v is not None and math.isfinite(float(v)):
         m[key] = round(float(v), 4)
 
 

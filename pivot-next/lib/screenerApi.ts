@@ -88,7 +88,17 @@ export type ScreenerSectorsResponse = {
 };
 
 /** Server-side sort fields accepted by GET /api/screener/stocks. */
-export type ScreenerSortBy = "market_cap_cr" | "pe" | "roe" | "symbol" | "name";
+export type ScreenerSortBy =
+  | "market_cap_cr"
+  | "pe"
+  | "roe"
+  | "symbol"
+  | "name"
+  // Market-metric columns are now server-sortable over the full universe too
+  // (priced names first, unpriced sink to the bottom).
+  | "price"
+  | "change_pct"
+  | "one_year_pct";
 
 /** Market-cap tier accepted by GET /api/screener/stocks. */
 export type ScreenerMcapTier = "large" | "mid" | "small";

@@ -69,6 +69,13 @@ _ALWAYS_INCLUDE: frozenset[str] = frozenset({
     # one int), so the cost of unconditional inclusion is negligible
     # vs. the failure mode of the model not knowing the escape exists.
     "find_tool",
+    # `compute` is the COMPUTE lane — deterministic sandboxed math over
+    # in-context values (percentile ranks, P&L what-ifs, payoff math…).
+    # Always in scope BY DESIGN: computable-but-untooled asks are by
+    # definition the ones no keyword rule anticipates, so gating this
+    # behind intent routing would recreate the exact failure it fixes
+    # (the model declining maths it can do). Schema is tiny (two strings).
+    "compute",
     "ASK_USER",  # synthetic; added by the chat service, not the registry
 })
 

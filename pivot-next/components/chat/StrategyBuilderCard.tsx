@@ -80,6 +80,7 @@ const SCHEME_LABEL: Record<WeightingScheme, string> = {
   min_variance: "Minimum-variance",
   black_litterman: "Black-Litterman",
   factor: "Factor-weighted",
+  conviction: "Conviction-weighted",
 };
 
 const GATE_LABEL: Record<SelectionGate, string> = {
@@ -318,6 +319,13 @@ function ConstituentRow({
           {fmtPct(c.weight_pct)}
         </span>
       </div>
+      {/* Weight reason — always visible when present; a one-line rationale for
+          why this name carries its allocated weight. */}
+      {c.weight_reason && (
+        <p className="mt-0.5 pl-[22px] text-[10px] leading-snug text-muted-foreground/70">
+          {c.weight_reason}
+        </p>
+      )}
       {/* Gate metrics — revealed only for the active holding (the fundamentals
           that earned the slot), so the resting list stays clean */}
       {active && metricEntries.length > 0 && (

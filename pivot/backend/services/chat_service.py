@@ -291,6 +291,32 @@ def _strip_empty_news_section(text: str) -> str:
 _MAX_TOOL_CALLS = 8
 
 
+def _release_db_conn(db: Any) -> None:
+    """Hand the pooled DB connection back to the pool for the duration of
+    the next LLM round-trip.
+
+    A chat turn holds its ``Session`` (and thus one pooled connection) for
+    the whole 8-15s turn, even though the DB is idle the entire time it is
+    ``await``-ing the model. On a small pool (main engine: 10) that means
+    ~10 in-flight turns can pin every connection while doing nothing but
+    waiting on Azure. Calling this immediately before each LLM call closes
+    the session — returning the connection to the pool so OTHER requests
+    can use it during this turn's wait — and the session transparently
+    re-acquires a fresh connection on its next query after the call.
+
+    Safe because every tool commits its own writes (see tool_executor),
+    so there is never uncommitted work to lose at an LLM-call boundary,
+    and the loop carries only plain dicts/strings (never live ORM objects)
+    across the await. Best-effort: never raises, so a release hiccup can
+    never break a turn. No-op on the test stub store (no real Session)."""
+    try:
+        close = getattr(db, "close", None)
+        if callable(close):
+            close()
+    except Exception:  # noqa: BLE001 — releasing must never break a turn
+        pass
+
+
 # Compact-draft mode: after a macro draft tool succeeds, the FE
 # already has the structured draft to render — the model's prose
 # acknowledgment can be a single short line. The default 1500-token
@@ -306,6 +332,16 @@ _COMPACT_DRAFTS = _os.environ.get(
     "PIVOT_COMPACT_DRAFTS", "1",
 ).lower() not in ("0", "false", "off", "no")
 _COMPACT_POST_MACRO_MAX_OUTPUT = 250
+
+# Provider-HOSTED tools offered on the main chat hop. When
+# `web_search_enabled` is on, the LLM may invoke the Responses-API hosted
+# `web_search` (runs server-side, returns cited text in one call — see
+# llm/openai_client.py). None when off, so the tool never appears. Read
+# at import (flag is env-driven); patch this constant in tests to toggle.
+from backend.config import settings as _settings
+_HOSTED_TOOLS: "list[dict] | None" = (
+    [{"type": "web_search"}] if _settings.web_search_enabled else None
+)
 
 
 # ── Intent classification: automation vs agent vs other ─────────────
@@ -563,6 +599,41 @@ _TWO_ACTION_NOW_RE = re.compile(
     r"\b(?:buy|long)\b\s+\d+\s+\w+[^\.]{0,80}"
     r"\b(?:and|&)\b[^\.]{0,80}"
     r"\b(?:sell|exit|short)\b\s+\d+\s+\w+",
+    re.IGNORECASE,
+)
+
+# "Buy NOW + a flat stop/target on that same buy" — e.g. "buy 10 INFY now
+# and sell it if it falls 5%". _AGENT_INTENT_RE's percentage-conditional
+# branch (below) treats any "if X falls N%" as needing a runtime fetch of
+# a baseline price, which is right for a NEW conditional entry but wrong
+# here: the buy fires this turn, so the % is just off the fill price —
+# exactly what create_sl_order already does, no watcher needed.
+#
+# Misfire cost is HIGH (automation intent strips ALL workflow drafters
+# from scope), so the match is deliberately strict:
+#   - the segment between "buy N SYM" and "and" must contain NO condition
+#     or indicator word — a conditional ENTRY ("buy 5 X on RSI below 35
+#     and exit if …") must stay agent;
+#   - the exit must be a flat % (peak-relative / trailing exits are
+#     rejected by _POSITION_RELATIVE_EXIT_RE at the call site — those
+#     need the position-aware watcher, create_sl_order can't trail).
+# A conservative MISS here is fine — it falls through to _AGENT_INTENT_RE
+# and over-drafts a workflow, the documented safe direction.
+_IMMEDIATE_BUY_WITH_FLAT_STOP_RE = re.compile(
+    r"\b(?:buy|long)\b\s+\d+\s+\w+"
+    r"(?:(?!\b(?:if|when(?:ever)?|once|rsi|sma|ema|macd|crosses?|breaks?"
+    r"|dips?|drops?|falls?|rises?|below|above)\b)[^\.]){0,80}?"
+    r"\b(?:and|&)\b[^\.]{0,40}"
+    r"\b(?:sell|exit)\b[^\.]{0,40}"
+    r"\b(?:if|when(?:ever)?)\b[^\.]{0,30}"
+    r"\b(?:dips?|drops?|falls?|declines?|rises?|gains?)\b\s*\d+\s*%",
+    re.IGNORECASE,
+)
+# Position-relative / trailing exit markers — these need the workflow
+# engine's position-aware watcher (drawdown_from_peak_pct etc.), so they
+# disqualify the flat-stop shortcut above.
+_POSITION_RELATIVE_EXIT_RE = re.compile(
+    r"\bfrom\s+(?:its\s+|the\s+)?(?:peak|high|top|entry)\b|\btrail",
     re.IGNORECASE,
 )
 _HAS_SCHEDULE_OR_CONDITION_RE = re.compile(
@@ -2041,6 +2112,12 @@ def _classify_intent(message: str) -> str:
         and not _HAS_SCHEDULE_OR_CONDITION_RE.search(message)
     ):
         return "automation"
+    if (
+        _IMMEDIATE_BUY_WITH_FLAT_STOP_RE.search(message)
+        and not _RECURRING_SCHEDULE_RE.search(message)
+        and not _POSITION_RELATIVE_EXIT_RE.search(message)
+    ):
+        return "automation"
     # CONSTRUCTION is checked BEFORE the agent regex: a build/basket/
     # portfolio/positioning ask with no contingency, no explicit agent
     # noun, and no F&O mention is "what to own now", not a workflow.
@@ -2732,6 +2809,12 @@ _DEPENDENT_INTENT_RE = re.compile(
     # these verbs followed by a numeric tail strongly implies "edit
     # the active draft's number".
     r"|lower|raise|increase|decrease|reduce|bump|shift"
+    # Basket RE-WEIGHT amendments (fix: "rebuild it heavier in X",
+    # "re-weight", "reallocate", "tilt to the leaders", "overweight KSB"
+    # were treated as fresh builds → the model reproduced the same weights
+    # and only reframed the prose. These are amendments of the active basket.
+    r"|rebuild|re-?weight|reweight|re-?allocate|reallocate|re-?balance|rebalance"
+    r"|tilt|overweight|underweight|weight\s+(?:it|more|less)"
     # "try with 20/50", "try it with weekly", "use 5y instead"
     r"|try|use)\b"
     # Pronoun reference to the draft
@@ -2893,7 +2976,15 @@ def _safe_draft_json(draft: object, budget: int = 1800) -> str:
     The old ``json.dumps(draft)[:1800]`` cut MID-JSON; the model re-parsed
     the fragment and regenerated corrupted params (live repro: a MACD
     signal drifting 12,2 → 12,1 across re-emits). Drop bulky non-identity
-    fields, then the largest remaining values, until the dump fits."""
+    fields, then the largest remaining values, until the dump fits.
+
+    IDENTITY-CRITICAL keys are NEVER dropped: ``steps`` is the workflow's
+    actual conditions/actions — trimming it on an amendment ("change qty to
+    20") hands the model a draft with the conditions stripped, so it rebuilds
+    them from chat history and can silently drop an AND-leg or a stop-loss
+    (the amendment-drops-conditions regression). Better to slightly exceed the
+    char budget than to amputate the workflow's structure."""
+    _PROTECTED = ("steps", "type", "id", "kind")
     try:
         if not isinstance(draft, dict):
             s = json.dumps(draft, default=str)
@@ -2905,8 +2996,12 @@ def _safe_draft_json(draft: object, budget: int = 1800) -> str:
             s = json.dumps(d, default=str)
             if len(s) <= budget or not d:
                 return s
+            # Only pop droppable keys; never the identity-critical ones.
+            droppable = [k for k in d if k not in _PROTECTED]
+            if not droppable:
+                return s  # only protected keys remain — keep them whole
             biggest = max(
-                d, key=lambda k: len(json.dumps(d[k], default=str))
+                droppable, key=lambda k: len(json.dumps(d[k], default=str))
             )
             d.pop(biggest)
     except Exception:  # noqa: BLE001 — a hint must never break the turn
@@ -3080,6 +3175,11 @@ def _prompt_module_block(message: str, history: list) -> str:
     """The per-turn intent-pack system-message content (empty when none
     applies). system_core.md is always loaded; these packs are additive."""
     names = select_prompt_modules(message, _history_tail_text(history))
+    # When the hosted web_search tool is offered this turn, load its usage
+    # contract so the model knows WHEN to reach for it and — critically —
+    # that prices/fundamentals still come from Kite tools, not the web.
+    if _HOSTED_TOOLS:
+        names = [*names, "web_search"]
     return load_prompt_modules(names) if names else ""
 
 
@@ -3726,6 +3826,16 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
         except (TypeError, ValueError):
             portfolio_total = None
         holdings_count = len(ctx.holdings) or None
+        # In paper mode, prefer NAV (cash + positions) so the injected total
+        # MATCHES the Portfolio header the user is looking at — otherwise the
+        # LLM quotes holdings-value-only and it disagrees with the header.
+        try:
+            from backend.services.portfolio_cache import _paper_summary_or_none
+            _ps = _paper_summary_or_none(ctx.user_id)
+            if _ps and _ps.get("total_value"):
+                portfolio_total = float(_ps["total_value"])
+        except Exception:
+            pass
 
         # Build top-5 by current INR value. Re-uses the already-loaded
         # `ctx.holdings` list — no extra I/O.
@@ -3797,6 +3907,45 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
         active_workflows = None
         active_workflows_count = None
 
+    # ── Saved equity baskets: ONE query (caps at 10) ───────────────
+    # So "rebalance / backtest / deploy my <name> basket" resolves against
+    # the user's real baskets without a discovery round-trip. Baskets live in
+    # the `strategies` table (strategy_type='equity_basket'); members are in
+    # action_config JSON as [{symbol, weight}].
+    saved_baskets: Optional[list[dict[str, Any]]] = None
+    try:
+        import json as _json
+        from backend.models import Strategy, StrategyStatus
+        b_rows = (
+            ctx.db.query(Strategy)
+            .filter(
+                Strategy.user_id == ctx.user_id,
+                Strategy.strategy_type == "equity_basket",
+                Strategy.status != StrategyStatus.completed,  # soft-deleted hidden
+            )
+            .order_by(Strategy.created_at.desc().nullslast(), Strategy.id.desc())
+            .limit(10)
+            .all()
+        )
+        if b_rows:
+            baskets_out: list[dict[str, Any]] = []
+            for s in b_rows:
+                try:
+                    cfg = _json.loads(s.action_config) if s.action_config else {}
+                except (ValueError, TypeError):
+                    cfg = {}
+                syms = [
+                    str(m.get("symbol")).upper()
+                    for m in (cfg.get("members") or [])
+                    if isinstance(m, dict) and m.get("symbol")
+                ]
+                baskets_out.append({
+                    "id": s.id, "name": s.name, "symbols": syms, "n": len(syms),
+                })
+            saved_baskets = baskets_out or None
+    except Exception:
+        saved_baskets = None
+
     # ── Kite session presence (no I/O) ─────────────────────────────
     # `'mock_token'` is the placeholder the router substitutes when no
     # real Kite session exists. Surfacing the distinction lets the
@@ -3831,6 +3980,7 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
         and not active_workflows_count
         and kite_connected is None
         and not watchlist_symbols
+        and not saved_baskets
     ):
         return None
 
@@ -3845,6 +3995,7 @@ def _build_user_context(ctx: "UserContext") -> Optional[PromptUserContext]:
         kite_connected=kite_connected,
         cash_buffer_inr=None,  # see docstring — skipped on purpose.
         watchlist_symbols=watchlist_symbols,
+        saved_baskets=saved_baskets,
     )
 
 
@@ -4058,7 +4209,14 @@ _BACKTEST_TWEAK_RE = re.compile(
     r"|^[A-Za-z ,'/()-]{0,24}\b(?:rsi|sma|ema|wma|macd|adx|cci|mfi|stoch|atr|"
     r"bollinger|supertrend|aroon|donchian|keltner|roc|obv|vwap|williams|period|"
     r"threshold|stop[\s-]?loss|stop|target|window|lookback|trailing)\b"
-    r"[^.]{0,30}?\d",
+    r"[^.]{0,30}?\d"
+    # INTERVAL tweak — "hourly", "on 1hr bars", "1h intervals", "15-min",
+    # "30 minute". A bare interval phrase without a verb still means
+    # "re-run the same backtest at this cadence" (routed via the
+    # `interval` arg on backtest_workflow).
+    r"|\b(?:hourly|1\s*(?:hr|hour|h)|60\s*(?:min|minute))\b"
+    r"|\b\d{1,3}\s*(?:min|minute|m)\b[^.]{0,25}?\b(?:bar|interval|candle|time)\b"
+    r"|\b(?:bar|interval|candle|time\s+interval)s?\b[^.]{0,25}?\b\d{1,3}\s*(?:m|min|hr|h)\b",
     re.IGNORECASE,
 )
 
@@ -6886,6 +7044,9 @@ class ChatService:
                         max_output_tokens=hop_max_output,
                         compact_post_macro=(_COMPACT_DRAFTS and last_was_macro_draft))
             try:
+                # Release the pooled DB connection for the LLM wait — see
+                # _release_db_conn. The session re-acquires on its next query.
+                _release_db_conn(ctx.db)
                 response = await client.complete(
                     messages=messages,
                     tools=tooldefs,
@@ -6894,6 +7055,7 @@ class ChatService:
                     reasoning_effort=effort,
                     temperature=0.2,
                     prompt_cache_key=cache_key,
+                    hosted_tools=_HOSTED_TOOLS,
                 )
             except Exception as e:
                 # GAN R4 F11: ONE short-backoff retry on a transient
@@ -6909,6 +7071,7 @@ class ChatService:
                                 type=type(e).__name__)
                     try:
                         await asyncio.sleep(0.5)
+                        _release_db_conn(ctx.db)
                         response = await client.complete(
                             messages=messages,
                             tools=tooldefs,
@@ -8614,6 +8777,9 @@ class ChatService:
             cached_tokens = 0
             stream_error: Optional[str] = None
 
+            # Release the pooled DB connection for the streaming LLM wait —
+            # see _release_db_conn. Re-acquired on the session's next query.
+            _release_db_conn(ctx.db)
             async for ev in stream_openai(
                 client,
                 messages=messages,

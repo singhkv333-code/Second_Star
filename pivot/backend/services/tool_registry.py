@@ -231,6 +231,11 @@ _REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = (
         # Chat-kernel Phase 1 + round 2: consolidated view-enum tools...
         | {"get_market_data", "get_portfolio", "manage_automation",
            "get_indicators", "place_order", "calculate", "get_ipo"}
+        # Reasoning-lane (2026-07-12): `compute` is the free-form
+        # deterministic sandbox for in-context maths (percentile ranks,
+        # P&L what-ifs…). Distinct from `calculate`, which is the 5-way
+        # DOMAIN-formula dispatcher (order_qty/tax/SL/dip/margin).
+        | {"compute"}
     )
     # ...replacing the 23 narrow tools they supersede. (Parenthesised:
     # `-` binds tighter than `|`, so without the parens the subtraction

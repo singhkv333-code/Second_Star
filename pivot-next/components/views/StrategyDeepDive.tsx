@@ -20,10 +20,14 @@
  */
 
 import * as React from "react";
-import type { ExpressionDetail } from "@/lib/types";
+import type { ExpressionDetail, Holding } from "@/lib/types";
+import { isError } from "@/lib/types";
 import type { MonteCarlo } from "./charts/MonteCarloDistribution";
 import { Num, Stat } from "./Stat";
 import { useTokenColors } from "./use-token-color";
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { fetchSecurityMeta } from "@/lib/api";
+import type { SecurityMeta } from "@/lib/api";
 
 const FONT = "var(--font-display)";
 
@@ -127,8 +131,47 @@ export function StrategyDeepDive({
   const e = expression;
   const om = e.option_model ?? null;
   const isOption = !!om;
-  const longHoldings = (e.holdings ?? []).filter((h) => h.position !== "short");
-  const shortHolding = (e.holdings ?? []).find((h) => h.position === "short");
+  const allHoldings = e.holdings ?? [];
+  const longHoldings = allHoldings.filter((h) => h.position !== "short");
+  const shortHolding = allHoldings.find((h) => h.position === "short");
+
+  // Batch-resolve display metadata (logo, real name, asset class) for any
+  // symbol that doesn't already carry it from the backend payload.
+  const [metaMap, setMetaMap] = React.useState<Record<string, SecurityMeta>>({});
+  React.useEffect(() => {
+    if (allHoldings.length === 0) return;
+    // Symbols that are missing at least one metadata field
+    const missing = allHoldings
+      .filter((h) => h.logo_url === undefined && h.asset_class === undefined)
+      .map((h) => h.symbol);
+    // Pre-seed with whatever the payload already has
+    const seed: Record<string, SecurityMeta> = {};
+    for (const h of allHoldings) {
+      if (h.asset_class !== undefined) {
+        seed[h.symbol] = {
+          symbol: h.symbol,
+          name: h.name,
+          logo_url: h.logo_url ?? null,
+          asset_class: h.asset_class ?? null,
+          currency: h.currency ?? null,
+        };
+      }
+    }
+    if (Object.keys(seed).length > 0) setMetaMap(seed);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    fetchSecurityMeta(missing).then((res) => {
+      if (cancelled) return;
+      if (isError(res)) return; // graceful: fall back to bare name + monogram
+      const map: Record<string, SecurityMeta> = { ...seed };
+      for (const m of res.data) {
+        map[m.symbol] = m;
+      }
+      setMetaMap(map);
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [e.id]);
 
   const mc = e.monte_carlo ?? null;
   const hasMc = !!mc && (mc.terminal_pct?.length ?? 0) >= 5;
@@ -154,7 +197,7 @@ export function StrategyDeepDive({
           </Section>
         ) : longHoldings.length > 0 ? (
           <Section title="What you'd hold" subtitle={holdingsSubtitle(e.weight_scheme)}>
-            <HoldingsWeights holdings={longHoldings} shortHolding={shortHolding} c={c} />
+            <HoldingsWeights holdings={longHoldings} shortHolding={shortHolding} c={c} metaMap={metaMap} />
           </Section>
         ) : null}
 
@@ -490,27 +533,140 @@ function OptionStructure({
   );
 }
 
+/** Maps asset_class → a short, muted badge label. */
+function assetBadgeLabel(assetClass: string | null | undefined): string | null {
+  switch (assetClass) {
+    case "in_equity": return "IN";
+    case "in_etf": return "ETF";
+    case "us_equity": return "US";
+    case "us_etf": return "US ETF";
+    case "crypto": return "Crypto";
+    default: return null;
+  }
+}
+
+/** Inline badge chip — muted, no fill, border only. */
+function AssetBadge({ label }: { label: string }): React.ReactElement {
+  return (
+    <span
+      style={{
+        fontFamily: FONT,
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: "0.03em",
+        color: "var(--text-tertiary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: 4,
+        padding: "1px 5px",
+        flexShrink: 0,
+        lineHeight: 1.6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Short-leg row rendered below the long holdings, separated by a dashed divider. */
+function ShortHoldingRow({
+  holding,
+  metaMap,
+}: {
+  holding: Holding;
+  metaMap: Record<string, SecurityMeta>;
+}): React.ReactElement {
+  const meta = metaMap[holding.symbol];
+  const name = meta?.name ?? holding.name;
+  const logoUrl = meta?.logo_url ?? holding.logo_url ?? null;
+  const badgeLabel = assetBadgeLabel(meta?.asset_class ?? holding.asset_class ?? null);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: "1px dashed var(--glass-border)", paddingTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, width: 148, flexShrink: 0, minWidth: 0 }}>
+        <CompanyLogo logoUrl={logoUrl} name={name} symbol={holding.symbol} size={20} />
+        <span
+          style={{
+            fontFamily: FONT,
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={name}
+        >
+          {name}
+        </span>
+        {badgeLabel && <AssetBadge label={badgeLabel} />}
+      </div>
+      <span style={{ flex: 1, fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
+        short leg — hedges out the market
+      </span>
+    </div>
+  );
+}
+
 /** Weighted holdings as bars (bar length = weight), with per-name avg return. */
 function HoldingsWeights({
   holdings,
   shortHolding,
   c,
+  metaMap,
 }: {
   holdings: NonNullable<ExpressionDetail["holdings"]>;
   shortHolding?: ExpressionDetail["holdings"][number];
   c: Record<string, string>;
+  metaMap: Record<string, SecurityMeta>;
 }): React.ReactElement {
   const maxW = Math.max(...holdings.map((h) => h.weight_pct ?? 0), 1);
+
+  function resolvedName(h: Holding): string {
+    return metaMap[h.symbol]?.name ?? h.name;
+  }
+  function resolvedLogo(h: Holding): string | null {
+    return metaMap[h.symbol]?.logo_url ?? h.logo_url ?? null;
+  }
+  function resolvedAssetClass(h: Holding): string | null {
+    return metaMap[h.symbol]?.asset_class ?? h.asset_class ?? null;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {holdings.map((h, i) => {
         const w = h.weight_pct ?? 0;
         const ret = h.return_pct;
+        const name = resolvedName(h);
+        const logoUrl = resolvedLogo(h);
+        const badgeLabel = assetBadgeLabel(resolvedAssetClass(h));
         return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontFamily: FONT, fontSize: 13.5, color: "var(--text-primary)", width: 130, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {h.name}
-            </span>
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Logo + name + badge stacked in a fixed-width name cell */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, width: 148, flexShrink: 0, minWidth: 0 }}>
+              <CompanyLogo
+                logoUrl={logoUrl}
+                name={name}
+                symbol={h.symbol}
+                size={20}
+              />
+              <span
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 13,
+                  color: "var(--text-primary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                  minWidth: 0,
+                }}
+                title={name}
+              >
+                {name}
+              </span>
+              {badgeLabel && <AssetBadge label={badgeLabel} />}
+            </div>
             <div style={{ flex: 1, height: 8, background: "color-mix(in srgb, var(--text-tertiary) 10%, transparent)", borderRadius: 4, overflow: "hidden" }}>
               <div style={{ width: `${Math.max(4, (w / maxW) * 100)}%`, height: "100%", background: c.profit, opacity: 0.55, borderRadius: 4 }} />
             </div>
@@ -526,14 +682,7 @@ function HoldingsWeights({
         );
       })}
       {shortHolding && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, borderTop: "1px dashed var(--glass-border)", paddingTop: 10 }}>
-          <span style={{ fontFamily: FONT, fontSize: 13.5, color: "var(--text-secondary)", width: 130, flexShrink: 0 }}>
-            {shortHolding.name}
-          </span>
-          <span style={{ flex: 1, fontFamily: FONT, fontSize: 13, color: "var(--text-tertiary)" }}>
-            short leg — hedges out the market
-          </span>
-        </div>
+        <ShortHoldingRow holding={shortHolding} metaMap={metaMap} />
       )}
     </div>
   );

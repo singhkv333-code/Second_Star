@@ -71,6 +71,7 @@ import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { WatchlistBookmark } from "@/components/WatchlistBookmark";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { openOrderTicket } from "@/components/OrderTicket";
 import {
   StockPriceChart,
   type PriceSeriesDef,
@@ -2505,8 +2506,93 @@ function ChartCard({
           </div>
         </div>
       )}
+
+      {/* ── Buy / Sell — trade the primary ticker via the global order ticket ── */}
+      {tickers[0] && (
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            padding: "16px 22px 20px",
+            borderTop: "1px solid var(--glass-border)",
+          }}
+        >
+          <TradeCTA
+            side="BUY"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "BUY",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+          <TradeCTA
+            side="SELL"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "SELL",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+        </div>
+      )}
     </Card>
     </>
+  );
+}
+
+/** A big, symmetric Buy/Sell button — flat shadcn-style fill (no glow/shine),
+ *  green for BUY, red for SELL, with a subtle darken on hover/press. */
+function TradeCTA({
+  side,
+  onClick,
+}: {
+  side: "BUY" | "SELL";
+  onClick: () => void;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
+  const buy = side === "BUY";
+  const base = buy ? "var(--color-profit)" : "var(--color-loss)";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setActive(false);
+      }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      aria-label={buy ? "Buy" : "Sell"}
+      style={{
+        flex: 1,
+        height: 46,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        borderRadius: "var(--radius-md)",
+        border: "none",
+        background: base,
+        // Flat matte fill — a plain brightness nudge on hover/press, never a
+        // glow or gradient sheen.
+        filter: active ? "brightness(0.92)" : hover ? "brightness(1.06)" : "none",
+        color: "#fff",
+        fontFamily: "var(--font-ui)",
+        fontSize: 15,
+        fontWeight: 600,
+        letterSpacing: "0.01em",
+        cursor: "pointer",
+        transition: "filter 120ms ease",
+      }}
+    >
+      {buy ? "Buy" : "Sell"}
+    </button>
   );
 }
 

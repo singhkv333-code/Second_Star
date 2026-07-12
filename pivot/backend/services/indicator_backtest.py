@@ -72,11 +72,54 @@ class IndicatorBacktestResult:
     # backend/services/backtest_metrics.methodology_note. Optional so older
     # callers/tests that construct this result still work.
     methodology: Optional[dict] = None
+    # Display metadata so the card names a BASKET backtest correctly instead of
+    # masquerading it as one company's "scheduled buy" (the primary_symbol's
+    # company name). strategy_kind ∈ {"indicator","basket"}; display_title /
+    # display_subtitle override the FE's symbol→company-name derivation when set.
+    strategy_kind: str = "indicator"
+    display_title: Optional[str] = None
+    display_subtitle: Optional[str] = None
+    # Resolved test window so the reply/card can state EXACTLY what was
+    # tested instead of a vague "5y". window_start/window_end are ISO
+    # dates of the first/last simulated bar; n_bars is the bar count;
+    # bar_interval is the resolved interval ('1d' etc.).
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    n_bars: int = 0
+    bar_interval: str = "1d"
+    # What `bench_buy_hold_return_pct` actually measures — the primary
+    # symbol, an explicit override (benchmark_symbol), or, for a basket,
+    # "{n}-name basket (ideal weights)" when the benchmark is the basket's
+    # own target-weight buy-and-hold rather than one arbitrary constituent.
+    # The card falls back to `symbol` when this is unset (older callers).
+    benchmark_label: Optional[str] = None
 
 
 _OperatorLiteral = Literal[
     "<", ">", "<=", ">=", "crosses_below", "crosses_above",
 ]
+
+
+def drop_partial_last_bar(hist: "pd.DataFrame") -> "pd.DataFrame":
+    """Drop today's still-forming daily bar so (a) no trade is simulated on
+    an unclosed bar and (b) same-day reruns are reproducible.
+
+    The #1 cause of "buy-and-hold changes every run" is the last daily bar
+    updating intraday (last price ticks), which moves ``Close.iloc[-1]``
+    and thus the benchmark. A backtest is a study of COMPLETED sessions;
+    a bar dated today (IST) hasn't closed, so it must not be traded on.
+    """
+    if hist is None or len(hist) == 0:
+        return hist
+    try:
+        from zoneinfo import ZoneInfo
+        today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        last_date = pd.Timestamp(hist.index[-1]).date()
+        if last_date >= today_ist:
+            return hist.iloc[:-1]
+    except Exception:  # noqa: BLE001 — never let this break a backtest
+        pass
+    return hist
 
 
 def run_indicator_backtest(
@@ -133,13 +176,26 @@ def run_indicator_backtest(
         raise ValueError(
             f"yfinance cannot serve interval {_norm_interval!r} for {sym}"
         )
-    hist = yf.Ticker(yf_sym).history(period=period, interval=_yf_iv)
+    # auto_adjust=False → split-adjusted, dividend-unadjusted (price
+    # returns), matching Kite bars used elsewhere. Keeps every engine on
+    # one return basis.
+    hist = yf.Ticker(yf_sym).history(
+        period=period, interval=_yf_iv, auto_adjust=False,
+    )
+    # Drop today's unclosed bar (daily only) — reproducible + no trading on
+    # a forming bar. Intraday intervals keep every bar (partial-bar concept
+    # doesn't apply the same way and the window is explicit anyway).
+    if _norm_interval in ("1d", "daily", "1day"):
+        hist = drop_partial_last_bar(hist)
     if hist.empty or len(hist) < max(period_n * 2, 30):
         raise ValueError(
             f"insufficient data for {sym} over {period} (got {len(hist)} bars)"
         )
 
     closes = hist["Close"].astype(float)
+    _win_start = pd.Timestamp(hist.index[0]).date().isoformat()
+    _win_end = pd.Timestamp(hist.index[-1]).date().isoformat()
+    _n_bars = int(len(hist))
 
     ind_series = _ind_series(hist, indicator, period_n)
     if ind_series is None:
@@ -160,12 +216,19 @@ def run_indicator_backtest(
     signals = _detect_crossings(
         signal_basis, threshold_value, operator,
     )
+    # No-look-ahead: the crossing is only KNOWABLE after bar T's close, so
+    # the earliest executable bar is T+1. Shift each signal's fill timestamp
+    # to the next bar (mirrors workflow_backtester's next-bar-open rule).
+    signals = _shift_signals_next_bar(signals, closes.index)
 
     # Run the simulator.
     price_curve, equity_curve, enriched_signals, trades = _simulate(
         closes, signals, _STARTING_CAPITAL, _FRICTION,
     )
-    metrics = _compute_metrics(equity_curve, trades, _STARTING_CAPITAL)
+    metrics = _compute_metrics(
+        equity_curve, trades, _STARTING_CAPITAL,
+        periods_per_year=_periods_per_year(_norm_interval),
+    )
     bench_pct = (closes.iloc[-1] / closes.iloc[0] - 1) * 100
 
     # Summarise indicator series for the chart (drop NaNs at head).
@@ -178,6 +241,12 @@ def run_indicator_backtest(
     summary_text = _format_summary(
         sym, indicator, period_n, operator, threshold,
         period, metrics, bench_pct,
+    )
+    # State the exact tested window so "what interval did you test?" is
+    # answered in the reply and reruns are explainable.
+    summary_text += (
+        f"\n\n_Window: {_win_start} → {_win_end} · {_n_bars} daily bars "
+        f"(period '{period}', partial-day bar excluded)._"
     )
 
     return IndicatorBacktestResult(
@@ -194,6 +263,10 @@ def run_indicator_backtest(
         metrics=metrics,
         bench_buy_hold_return_pct=round(float(bench_pct), 2),
         summary_text=summary_text,
+        window_start=_win_start,
+        window_end=_win_end,
+        n_bars=_n_bars,
+        bar_interval=_norm_interval,
     )
 
 
@@ -270,6 +343,26 @@ def _inverse_op(op: str) -> str:
     }.get(op, op)
 
 
+def _shift_signals_next_bar(
+    signals: list[dict], index: "pd.DatetimeIndex",
+) -> list[dict]:
+    """Move every signal's fill timestamp to the NEXT bar so the crossing
+    detected on bar T fills on T+1 (no look-ahead). A signal printing on
+    the final bar has no T+1 and is dropped (can't be filled)."""
+    if not signals:
+        return signals
+    iso_to_pos = {ts.isoformat(): i for i, ts in enumerate(index)}
+    out: list[dict] = []
+    for s in signals:
+        pos = iso_to_pos.get(s["t"])
+        if pos is None or pos + 1 >= len(index):
+            continue
+        s = dict(s)
+        s["t"] = index[pos + 1].isoformat()
+        out.append(s)
+    return out
+
+
 def _simulate(
     closes: pd.Series, signals: list[dict],
     starting_capital: float, friction: float,
@@ -336,8 +429,30 @@ def _simulate(
     return price_curve, equity_curve, enriched_signals, trades
 
 
+def _periods_per_year(interval: str) -> float:
+    """Bars per year for the given interval, for correct Sharpe/Sortino
+    annualization. A weekly series annualized at √252 (instead of √52)
+    overstates Sharpe ~2.2×. NSE cash session ≈ 375 min."""
+    iv = (interval or "1d").lower()
+    if iv in ("1d", "daily", "1day", "d"):
+        return 252.0
+    if iv in ("1wk", "weekly", "1week", "w", "wk"):
+        return 52.0
+    if iv in ("1mo", "monthly", "1month", "mo"):
+        return 12.0
+    import re
+    m = re.match(r"(\d+)\s*(m|min|h|hr|hour)", iv)
+    if m:
+        n = int(m.group(1))
+        minutes = n * 60 if m.group(2) in ("h", "hr", "hour") else n
+        if minutes > 0:
+            return 252.0 * max(375.0 / minutes, 1.0)
+    return 252.0
+
+
 def _compute_metrics(
     equity_curve: list[dict], trades: list[dict], starting_capital: float,
+    *, periods_per_year: float = 252.0,
 ) -> dict:
     if not equity_curve:
         return {
@@ -368,7 +483,8 @@ def _compute_metrics(
         daily_returns_from_equity, sharpe_sortino,
     )
     _sharpe, _sortino = sharpe_sortino(
-        daily_returns_from_equity([p["v"] for p in equity_curve])
+        daily_returns_from_equity([p["v"] for p in equity_curve]),
+        periods_per_year=periods_per_year,
     )
     return {
         "total_return_pct": round(total_ret, 2),

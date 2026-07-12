@@ -54,6 +54,7 @@ import {
   type BacktestDraftResponse,
 } from "@/lib/api";
 import {
+  closeOptionStrategy,
   deleteWorkflow,
   getWorkflowPerformance,
   getWorkflowsSummary,
@@ -93,6 +94,11 @@ export type AgentsTabProps = {
    * after the request is set. Null when no request is pending.
    */
   surfaceRequest?: { surface: Surface; nonce: number } | null;
+  /**
+   * Seed a prompt into the chat composer and jump there — e.g. the equity
+   * baskets "New basket" card, which opens a chat rather than a form.
+   */
+  onSendPrompt?: (prompt: string) => void;
 };
 
 type Surface = "equity" | "strategies" | "views";
@@ -198,6 +204,7 @@ export function AgentsTab({
   onEditWithChat,
   onBrowseViews,
   surfaceRequest,
+  onSendPrompt,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
   // Apply an external surface request (Home F&O tile → "strategies"), once per
@@ -354,6 +361,23 @@ export function AgentsTab({
       .finally(() => setDeletingId((cur) => (cur === id ? null : cur)));
   };
 
+  const [closingOptionId, setClosingOptionId] = useState<string | null>(null);
+  const handleCloseOption = (id: string): void => {
+    setClosingOptionId(id);
+    closeOptionStrategy(id)
+      .then((result) => {
+        if (isError(result) || !result.data.success) return;
+        const updated = result.data.strategy;
+        setOptionsState((prev) =>
+          prev.kind === "ok"
+            ? { kind: "ok", items: prev.items.map((s) => (s.id === id ? updated : s)) }
+            : prev,
+        );
+      })
+      .catch(() => {})
+      .finally(() => setClosingOptionId((cur) => (cur === id ? null : cur)));
+  };
+
   return (
     <div className="agents-tab flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
       {/* Page heading + surface toggle — heading on the left, toggle pushed to
@@ -464,12 +488,14 @@ export function AgentsTab({
         // Strategies = equity/ETF baskets (the ones we build) + registered
         // option strategies, together in one place.
         <div className="flex flex-col" style={{ gap: 32 }}>
-          <EquityBasketsSection />
+          <EquityBasketsSection onSendPrompt={onSendPrompt} />
           <OptionsStrategiesSection
             state={optionsState}
             deletingId={deletingId}
+            closingId={closingOptionId}
             onRetry={loadOptions}
             onWithdraw={handleWithdrawOption}
+            onClose={handleCloseOption}
           />
         </div>
       ) : (
@@ -964,13 +990,17 @@ function NavSparkline({
 function OptionsStrategiesSection({
   state,
   deletingId,
+  closingId,
   onRetry,
   onWithdraw,
+  onClose,
 }: {
   state: OptionsState;
   deletingId: string | null;
+  closingId: string | null;
   onRetry: () => void;
   onWithdraw: (id: string) => void;
+  onClose: (id: string) => void;
 }): React.ReactElement {
   return (
     <div className="flex flex-col gap-4" data-testid="options-section">
@@ -1011,7 +1041,9 @@ function OptionsStrategiesSection({
               <OptionStrategyCard
                 strategy={s}
                 isDeleting={deletingId === s.id}
+                isClosing={closingId === s.id}
                 onWithdraw={() => onWithdraw(s.id)}
+                onClose={() => onClose(s.id)}
               />
             </div>
           ))}
@@ -1066,13 +1098,19 @@ function formatInrCompact(amount: number | null): string {
 function OptionStrategyCard({
   strategy,
   isDeleting,
+  isClosing,
   onWithdraw,
+  onClose,
 }: {
   strategy: RegisteredOptionStrategy;
   isDeleting: boolean;
+  isClosing: boolean;
   onWithdraw: () => void;
+  onClose: () => void;
 }): React.ReactElement {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const canClose = strategy.book === "paper" && strategy.status === "active";
   const expiryLabel = (() => {
     const d = new Date(strategy.expiry);
     if (Number.isNaN(d.getTime())) return strategy.expiry;
@@ -1086,7 +1124,7 @@ function OptionStrategyCard({
         "group flex h-full flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
         "transition-colors hover:border-border",
-        isDeleting && "opacity-70 pointer-events-none",
+        (isDeleting || isClosing) && "opacity-70 pointer-events-none",
       )}
     >
       {/* Header: template chip + status pill + kebab */}
@@ -1155,6 +1193,17 @@ function OptionStrategyCard({
         </div>
       </div>
 
+      {canClose && (
+        <Button
+          size="sm"
+          disabled={isClosing}
+          onClick={() => setConfirmCloseOpen(true)}
+          data-testid={`option-close-${strategy.id}`}
+        >
+          {isClosing ? "Closing…" : "Close position"}
+        </Button>
+      )}
+
       <DeleteConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -1162,6 +1211,15 @@ function OptionStrategyCard({
         description="This withdraws the registered strategy. It will no longer be tracked here."
         confirmLabel="Withdraw"
         onConfirm={onWithdraw}
+      />
+
+      <DeleteConfirmDialog
+        open={confirmCloseOpen}
+        onOpenChange={setConfirmCloseOpen}
+        title={`Close ${strategy.underlying} ${prettyTemplate(strategy.template)}?`}
+        description="Exits every leg at the live chain and releases any reserved margin. This can't be undone."
+        confirmLabel="Close position"
+        onConfirm={onClose}
       />
     </div>
   );

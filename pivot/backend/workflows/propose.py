@@ -1159,6 +1159,223 @@ def _mock_propose(user_intent: str) -> WorkflowDraft:
     )
 
 
+# ── Top gainers / losers deterministic template ──────────────────────
+#
+# The engine already has a complete top-movers chain: fetch.top_movers
+# (Kite-primary NIFTY-50 movers, yfinance + seed fallback) feeding
+# action.allocate_notional (equal ₹ split, one order per name), plus an
+# optional close-leg action.squareoff. But the free-form LLM planner was
+# unreliable at COMPOSING it — for "buy the top gainers after the open
+# and sell before the close" it fell back to a single arbitrary symbol or
+# failed validation, so the agent refused to build. This deterministic
+# builder recognises the pattern and emits the exact valid draft, so the
+# capability the user already has actually fires. It runs BEFORE the LLM
+# in both mock and live modes.
+
+_TOP_MOVERS_RE = re.compile(
+    r"\btop\s+(?:\d+\s+)?(?:gainers?|losers?|movers?)\b"
+    r"|\bbiggest\s+(?:\d+\s+)?(?:gainers?|losers?|movers?)\b"
+    r"|\bday'?s?\s+(?:top|biggest)\s+(?:gainers?|losers?|movers?)\b",
+    re.IGNORECASE,
+)
+
+# A buy/trade verb must be present — a pure READ ("show me today's top
+# gainers") is a chat-tool question (get_top_movers), not an agent.
+_TRADE_VERB_RE = re.compile(
+    r"\b(?:buy|buys|buying|purchase|purchasing|long|short|trade|trading|"
+    r"invest|investing|deploy|allocate|allocating|scoop|enter|"
+    r"accumulate|accumulating|pick\s+up)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_rupee_budget(text: str, default: float) -> tuple[float, bool]:
+    """Parse a rupee budget from free text, honouring the Indian k / L /
+    cr suffixes. Returns (amount, was_defaulted).
+
+    '₹10,000' / '10k' → 10000 · '1L' / '1 lakh' → 100000 · '2cr' → 2e7.
+    Only matches amounts carrying a currency marker (₹ / rs) OR a
+    magnitude suffix OR a capital-context word, so the bare "5" in
+    "top 5 gainers" is never mistaken for a budget."""
+    low = text.lower().replace(",", "")
+    mult = {"k": 1_000, "l": 100_000, "lac": 100_000, "lakh": 100_000,
+            "cr": 10_000_000, "crore": 10_000_000}
+    # Currency- or capital-anchored amount, optional magnitude suffix.
+    m = re.search(
+        r"(?:₹|rs\.?\s*|capital[^0-9₹]{0,20}|budget[^0-9₹]{0,20}|"
+        r"deploy[^0-9₹]{0,20}|invest[^0-9₹]{0,20}|use\s+)"
+        r"₹?\s*(\d+(?:\.\d+)?)\s*(k|lac|lakh|l|cr|crore)?\b",
+        low,
+    )
+    if not m:
+        # Bare magnitude-suffixed amount anywhere ("10k", "5l").
+        m = re.search(r"\b(\d+(?:\.\d+)?)\s*(k|lac|lakh|l|cr|crore)\b", low)
+    if m:
+        try:
+            base = float(m.group(1))
+            suffix = (m.group(2) or "").strip()
+            return base * mult.get(suffix, 1), False
+        except ValueError:
+            pass
+    return default, True
+
+
+def _top_movers_template(user_intent: str) -> Optional[WorkflowDraft]:
+    """Build a validated top-gainers/losers agent draft, or None when the
+    intent isn't a tradeable top-movers ask.
+
+    Shapes produced:
+      buy-only  → trigger(open) · fetch.top_movers · allocate_notional
+      open→close→ + trigger(close) · squareoff(all)   (when the user asks
+                  to sell / exit / square off before the close)"""
+    low = user_intent.lower()
+    if not _TOP_MOVERS_RE.search(low) or not _TRADE_VERB_RE.search(low):
+        return None
+
+    # Explicit SHORT of a dynamic basket isn't a wired capability (live
+    # basket shorts aren't supported). Never silently build a LONG basket
+    # of those names — that would be a correctness failure. Bail so the
+    # normal planner can handle / honestly decline it.
+    if re.search(r"\bshort\b", low) and not re.search(r"\b(buy|long)\b", low):
+        return None
+
+    direction = (
+        "losers"
+        if re.search(r"\blosers?|laggards?|decliners?|worst\b", low)
+        else "gainers"
+    )
+
+    # N names: "top 5", "5 names/gainers/stocks". Default 5, bounded 1-20.
+    mlim = re.search(
+        r"\btop\s+(\d+)\b|\b(\d+)\s+(?:names?|gainers?|losers?|movers?|stocks?)\b",
+        low,
+    )
+    limit = 5
+    if mlim:
+        try:
+            limit = max(1, min(int(mlim.group(1) or mlim.group(2)), 20))
+        except (ValueError, TypeError):
+            limit = 5
+
+    total_inr, budget_defaulted = _parse_rupee_budget(user_intent, default=25_000.0)
+
+    # Entry timing. Explicit clock time → schedule cron; otherwise anchor
+    # to the market open (default 15 min after, so early-auction noise has
+    # settled). "at the open" → +0.
+    cron, tz = _parse_cron_from_text(user_intent)
+    used_cron = bool(re.search(r"\b\d{1,2}[:.]?\d{0,2}\s*(am|pm)\b|\bat\s+\d", low))
+    if used_cron:
+        entry_trigger = DraftStep(
+            step_type="trigger.schedule",
+            label=f"On {cron} {tz}",
+            config={"cron": cron, "timezone": tz},
+        )
+    else:
+        after_open = 0 if re.search(r"\bat\s+(the\s+)?open\b", low) else 15
+        entry_trigger = DraftStep(
+            step_type="trigger.market_relative_time",
+            label="At the open" if after_open == 0 else f"{after_open}m after open",
+            config={"anchor": "open", "offset_minutes": after_open},
+        )
+
+    steps: list[DraftStep] = [
+        entry_trigger,
+        DraftStep(
+            step_type="fetch.top_movers",
+            label=f"Top {limit} {direction} (NIFTY 50)",
+            config={"direction": direction, "universe": "nifty50", "limit": limit},
+        ),
+        DraftStep(
+            step_type="action.allocate_notional",
+            label=f"Buy top {limit} {direction} · ₹{int(total_inr):,}",
+            config={
+                # Consume the movers list produced one step up.
+                "symbols": "{{ context.1.symbols }}",
+                "side": "buy",
+                "total_inr": total_inr,
+                "strategy": "equal",
+                "order_type": "market",
+            },
+        ),
+    ]
+
+    # Exit leg — only when the user asks to sell / exit / square off, and
+    # ties it to the close / EOD / "same day" / "intraday".
+    # Suffix-tolerant on purpose: "sell" / "sells" / "selling" / "square
+    # off" / "squaring" / "exit" / "exiting" all count.
+    wants_exit = bool(
+        re.search(
+            r"\b(?:sell|exit|squar|flatten|offload|liquidat|"
+            r"close\s+(?:them|out)|book\s+profit)",
+            low,
+        )
+        and re.search(
+            r"\b(?:before\s+(?:the\s+)?close|at\s+(?:the\s+)?close|"
+            r"eod|end\s+of\s+day|same\s+day|intraday|by\s+close)\b",
+            low,
+        )
+    )
+    if wants_exit:
+        steps.append(DraftStep(
+            step_type="trigger.market_relative_time",
+            label="10m before close",
+            config={"anchor": "close", "offset_minutes": -10},
+        ))
+        steps.append(DraftStep(
+            step_type="action.squareoff",
+            label="Sell everything before close",
+            config={"scope": "all"},
+        ))
+
+    dir_word = "gainers" if direction == "gainers" else "losers"
+    name = (
+        f"Top {limit} {dir_word} — open to close"
+        if wants_exit
+        else f"Buy top {limit} {dir_word} at the open"
+    )
+
+    warnings: list[str] = [
+        "Universe is NIFTY 50 only (the wired top-movers set) — not the "
+        "whole market.",
+        "Movers are read live from Kite (yfinance backup); if no live "
+        "session is available a labelled seed list is used, so review the "
+        "names before activating.",
+    ]
+    if wants_exit:
+        warnings.append(
+            "The close leg squares off ALL open positions in the account, "
+            "not just this basket — run it in a dedicated agent / paper book."
+        )
+    if budget_defaulted:
+        warnings.append(
+            f"No capital was specified, so ₹{int(total_inr):,} is assumed — "
+            "edit the budget before activating."
+        )
+
+    rationale = (
+        f"Each trading day this ranks the NIFTY-50 {dir_word} live (Kite-"
+        f"primary, yfinance fallback) and spreads ₹{int(total_inr):,} "
+        f"equally across the top {limit}, one market order per name. "
+        + (
+            "A second leg fires ~10 minutes before the close and squares "
+            "off the open positions, so nothing is held overnight. "
+            if wants_exit else
+            "It enters only — add a sell/close leg if you want an intraday "
+            "exit. "
+        )
+        + "This automates your instruction and registers the orders — it "
+        "does not place them live in your broker."
+    )
+
+    return WorkflowDraft(
+        name=name,
+        description=user_intent.strip()[:200],
+        steps=steps,
+        rationale=rationale,
+        warnings=warnings,
+    )
+
+
 # ── Public entry point ───────────────────────────────────────────────
 
 
@@ -1186,6 +1403,21 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
     user_intent = (user_intent or "").strip()
     if not user_intent:
         raise ProposalValidationError("user_intent is empty")
+
+    # Deterministic fast paths FIRST — reliable in both mock and live mode.
+    # The top-movers builder recognises "buy the top gainers/losers …
+    # [sell before close]" and emits the exact valid draft over the wired
+    # fetch.top_movers → action.allocate_notional chain, instead of leaving
+    # it to LLM luck (which used to collapse it to a single symbol or fail).
+    tm_draft = _top_movers_template(user_intent)
+    if tm_draft is not None:
+        try:
+            return validate_draft_against_registry(tm_draft.model_dump())
+        except ProposalValidationError:
+            # Template drifted from the registry — fall through to the LLM
+            # rather than hard-failing a request we can still try to build.
+            logger.warning("top-movers template failed validation; "
+                           "falling through to LLM", exc_info=True)
 
     if _is_mock_mode():
         # Genuine offline mode (no OpenAI, no Azure). The mock path

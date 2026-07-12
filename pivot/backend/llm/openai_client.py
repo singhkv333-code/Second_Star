@@ -152,12 +152,16 @@ def _tools_to_responses_format(tools: list[ToolDef]) -> list[dict[str, Any]]:
     ]
 
 
-def _parse_response(data: dict[str, Any]) -> tuple[Optional[str], list[dict[str, Any]], FinishReason]:
-    """Pull `content`, `tool_calls`, and `finish_reason` out of the
-    Responses-API payload."""
+def _parse_response(
+    data: dict[str, Any],
+) -> tuple[Optional[str], list[dict[str, Any]], FinishReason, list[dict[str, Any]]]:
+    """Pull `content`, `tool_calls`, `finish_reason`, and any hosted
+    web_search `citations` out of the Responses-API payload."""
     output_items = data.get("output") or []
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
+    citations: list[dict[str, Any]] = []
+    _seen_urls: set[str] = set()
 
     for item in output_items:
         itype = item.get("type")
@@ -178,6 +182,24 @@ def _parse_response(data: dict[str, Any]) -> tuple[Optional[str], list[dict[str,
             for c in item.get("content") or []:
                 if isinstance(c, dict) and c.get("type") == "output_text":
                     text_parts.append(c.get("text", ""))
+                    # Hosted web_search attaches url_citation annotations to
+                    # the output_text — collect them (deduped, order kept) so
+                    # the chat layer can render/verify sources.
+                    for ann in (c.get("annotations") or []):
+                        if not isinstance(ann, dict):
+                            continue
+                        if ann.get("type") not in ("url_citation", "url"):
+                            continue
+                        url = ann.get("url")
+                        if not url or url in _seen_urls:
+                            continue
+                        _seen_urls.add(url)
+                        citations.append({
+                            "url": url,
+                            "title": ann.get("title") or "",
+                            "start_index": ann.get("start_index"),
+                            "end_index": ann.get("end_index"),
+                        })
         # `reasoning` items are present on GPT-5 outputs; we don't
         # surface their content (it's the <think> trace) but the
         # token counts are accounted for via `usage.reasoning_tokens`.
@@ -197,7 +219,7 @@ def _parse_response(data: dict[str, Any]) -> tuple[Optional[str], list[dict[str,
     else:
         finish = "error"
 
-    return content, tool_calls, finish
+    return content, tool_calls, finish, citations
 
 
 class LLMOpenAI(LLMClient):
@@ -241,6 +263,7 @@ class LLMOpenAI(LLMClient):
         temperature: float = 0.2,
         response_format: Optional[Literal["json_object"]] = None,
         prompt_cache_key: Optional[str] = None,
+        hosted_tools: Optional[list[dict[str, Any]]] = None,
     ) -> LLMResponse:
         trace = CallTrace(
             kind="complete",
@@ -278,8 +301,17 @@ class LLMOpenAI(LLMClient):
             effort_on_wire = self._translate_reasoning_effort(reasoning_effort)
             if effort_on_wire:
                 payload["reasoning"] = {"effort": effort_on_wire}
-        if tools:
-            payload["tools"] = _tools_to_responses_format(tools)
+        # Function tools (our dispatched tools) + any provider-HOSTED tools
+        # (e.g. {"type": "web_search"} — executed server-side and returned as
+        # text + url citations within this same call, transparent to our
+        # tool loop). Both live in the one `tools` array.
+        wire_tools: list[dict[str, Any]] = (
+            _tools_to_responses_format(tools) if tools else []
+        )
+        if hosted_tools:
+            wire_tools.extend(hosted_tools)
+        if wire_tools:
+            payload["tools"] = wire_tools
             if tool_choice in {"required", "none"}:
                 payload["tool_choice"] = tool_choice
             else:
@@ -337,7 +369,7 @@ class LLMOpenAI(LLMClient):
                 return err_resp
 
             data = resp.json()
-            content, tool_calls, finish = _parse_response(data)
+            content, tool_calls, finish, citations = _parse_response(data)
 
             usage = data.get("usage") or {}
             cached_tokens = int(
@@ -351,6 +383,7 @@ class LLMOpenAI(LLMClient):
                 content=content,
                 tool_calls=tool_calls or None,
                 finish_reason=finish,
+                citations=citations,
                 input_tokens=int(usage.get("input_tokens", 0) or 0),
                 output_tokens=int(usage.get("output_tokens", 0) or 0),
                 reasoning_tokens=int(

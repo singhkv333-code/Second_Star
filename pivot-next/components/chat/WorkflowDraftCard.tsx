@@ -17,7 +17,7 @@ import {
   AlertCircle,
   ArrowUpRight,
   Check,
-  CheckCircle2,
+  Clock,
   History,
   Loader2,
   ShieldAlert,
@@ -30,7 +30,6 @@ import {
   updateWorkflow,
   backtestDraftWorkflow,
   createWorkflow,
-  runWorkflow,
   type BacktestDraftEligible,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
@@ -74,12 +73,13 @@ export type WorkflowDraft = {
 
 export type WorkflowDraftCardProps = {
   draft: WorkflowDraft;
-  onOpenEditor: (draft: WorkflowDraft) => void;
-  onActivatedAndRunning?: (info: {
-    workflowId: string;
-    workflowName: string;
-    runId: string;
-  }) => void;
+  /**
+   * Open the side editor for this draft. `saved` is passed once the card
+   * has been activated so the editor can bind to the REAL persisted
+   * workflow (id + active status) instead of a fresh draft — otherwise
+   * re-activating from the editor would create a duplicate.
+   */
+  onOpenEditor: (draft: WorkflowDraft, saved?: { workflowId: string }) => void;
 };
 
 type SaveState =
@@ -151,7 +151,6 @@ const MAX_VISIBLE_STEPS = 5;
 export function WorkflowDraftCard({
   draft,
   onOpenEditor,
-  onActivatedAndRunning,
 }: WorkflowDraftCardProps): React.ReactElement {
   const visibleSteps = draft.steps.slice(0, MAX_VISIBLE_STEPS);
   const hiddenCount = draft.steps.length - visibleSteps.length;
@@ -242,17 +241,12 @@ export function WorkflowDraftCard({
       workflowId: activated.data.id,
       workflowName: activated.data.name,
     });
-
-    if (onActivatedAndRunning) {
-      const ran = await runWorkflow(activated.data.id);
-      if (!isError(ran)) {
-        onActivatedAndRunning({
-          workflowId: activated.data.id,
-          workflowName: activated.data.name,
-          runId: ran.data.run_id,
-        });
-      }
-    }
+    // NOTE: activation deliberately does NOT fire a run. "Save & activate"
+    // arms the agent so it fires on its OWN trigger (at the open, on a
+    // schedule, when a price crosses …). Auto-running here surfaced an
+    // unrequested "Run · manual" live card and, for a market-open/close
+    // agent, spun forever outside market hours. To run once on demand the
+    // user uses "Run now" in the editor.
   };
 
   const isSaved = saveState.kind === "saved";
@@ -278,7 +272,11 @@ export function WorkflowDraftCard({
           workflowName={(saveState as { workflowName: string }).workflowName}
           steps={visibleSteps}
           backtestState={backtestState}
-          onOpenEditor={() => onOpenEditor(draft)}
+          onOpenEditor={() =>
+            onOpenEditor(draft, {
+              workflowId: (saveState as { workflowId: string }).workflowId,
+            })
+          }
           onBacktest={() => void handleBacktest()}
         />
       ) : (
@@ -623,6 +621,9 @@ function SavedState({
           >
             {workflowName}
           </p>
+          <p className="text-[11px] leading-snug text-muted-foreground/75">
+            Armed — it&apos;ll run on its own trigger. Nothing has run yet.
+          </p>
         </div>
 
         {/* STEP LIST — same compact rows as DraftBody (single-line, gap-1.5)
@@ -711,9 +712,6 @@ function DraftStepRow({
   const iconName = stepIconName(step.step_type);
   const label = displayStepLabel(step);
 
-  // Single brand green for the entire activated state.
-  const BRAND_GREEN = "#4CAF50";
-
   // News step types get their own rich row.
   if (
     step.step_type === "fetch.news" ||
@@ -787,55 +785,43 @@ function DraftStepRow({
     <li
       className={cn(
         "flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 transition-colors",
-        // Borders only on the pre-activation rows. After activation each
-        // step reads as a soft green-tinted tile with no outline so the
-        // four steps blend into a single calm column.
-        !active && "border border-border/50 bg-card hover:border-border",
+        // Both draft AND armed rows keep the neutral bordered-tile look.
+        // After activation the steps are ARMED (waiting for their trigger),
+        // NOT done — so we deliberately avoid the green "completed" tint +
+        // checkmark that read as "all steps ran at once".
+        "border border-border/50 bg-card",
+        !active && "hover:border-border",
       )}
       style={{
         animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
         animationDelay: `${index * 50}ms`,
-        ...(active
-          ? { backgroundColor: `${BRAND_GREEN}14` } // ~8% alpha tint, no border
-          : {}),
       }}
     >
-      {/* Icon chip — square rounded tile. */}
+      {/* Icon chip — square rounded tile. Stays neutral in the armed state
+          (a green chip would imply the step had already executed). */}
       <span
         aria-hidden="true"
-        className={cn(
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
-          !active && "bg-muted/70 text-muted-foreground",
-        )}
-        style={
-          active
-            ? {
-                backgroundColor: `${BRAND_GREEN}26`, // ~15% alpha
-                color: BRAND_GREEN,
-              }
-            : undefined
-        }
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/70 text-muted-foreground"
       >
         <StepIcon name={iconName} className="h-3.5 w-3.5" />
       </span>
 
-      {/* Step label — single-line in both draft and active states so the
-          card's height stays constant across save. The activated "ready"
-          signal moves into a small right-aligned check icon below instead
-          of a second sub-line that would push each row's height up. */}
+      {/* Step label — single-line in both draft and armed states so the
+          card's height stays constant across save. */}
       <div className="flex min-w-0 flex-1 items-center">
         <span className="truncate text-[12.5px] font-medium tracking-tight text-foreground">
           {label}
         </span>
       </div>
       {active && (
-        <CheckCircle2
-          className="h-3.5 w-3.5 shrink-0"
-          strokeWidth={2.25}
-          style={{ color: BRAND_GREEN }}
-          aria-label="Step ready"
-          data-testid="step-ready-check"
-        />
+        <span
+          className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground/70"
+          aria-label="Armed — waiting for its trigger"
+          data-testid="step-armed"
+        >
+          <Clock className="h-3 w-3 shrink-0" aria-hidden="true" strokeWidth={2} />
+          Armed
+        </span>
       )}
     </li>
   );
@@ -886,17 +872,25 @@ function WarningIndicator({
  * WorkflowEditorMock / AgentPanel so the "Open in editor" path works without
  * any backend call.
  */
-export function draftToWorkflow(draft: WorkflowDraft): import("@/lib/types").Workflow {
+export function draftToWorkflow(
+  draft: WorkflowDraft,
+  saved?: { id: string; status: import("@/lib/types").WorkflowStatus },
+): import("@/lib/types").Workflow {
+  // When the card has already been saved & activated, bind the editor to the
+  // REAL persisted workflow (id + status) so it shows "Active" + a working
+  // Pause, and Save/Activate act on that row instead of creating a duplicate.
+  const now = new Date().toISOString();
+  const isActive = saved?.status === "active";
   return {
-    id: "",
+    id: saved?.id ?? "",
     name: draft.name,
     description: draft.description ?? null,
-    status: "draft",
+    status: saved?.status ?? "draft",
     version: 1,
     single_instance: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    activated_at: null,
+    created_at: now,
+    updated_at: now,
+    activated_at: isActive ? now : null,
     last_run_at: null,
     next_run_at: null,
     steps: draft.steps.map((s, idx) => ({

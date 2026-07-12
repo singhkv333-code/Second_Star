@@ -676,6 +676,9 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            # Tolerate a scheduler that's busy/slightly late at the cron instant
+            # (boot warmup, GC) so the morning mint isn't silently skipped.
+            misfire_grace_time=1800,
         )
     # Hourly catch-up (2026-07-10): a token that dies INTRADAY (Kite login
     # elsewhere, api_key rotation, transient failure at 07:40) used to stay
@@ -693,6 +696,13 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        # WHY misfire_grace_time (2026-07-11): the startup self-heal is armed
+        # for start+30s, but that instant lands mid-boot warmup (DB/LLM/cache
+        # init) when the event loop is busy. With APScheduler's default ~1s
+        # grace the run MISFIRES and is silently skipped — so a restart did NOT
+        # self-heal a dead token (observed live). 10-min grace lets the startup
+        # run (and any hourly tick that slipped) actually execute.
+        misfire_grace_time=600,
         next_run_time=_dt.now() + _td(seconds=30),
     )
 
@@ -768,6 +778,42 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
 # next tick. Stored as a JSON-friendly float; absent on the first tick.
 _LAST_PRICE_KEY = "_last_price"
 _LAST_VALUE_KEY = "_last_value"  # for indicator triggers
+# Rising-edge fire latch for level/compound ENTRY triggers. Without it, a
+# `price > X` / `RSI < Y` / compound-tree condition that STAYS true fires a
+# fresh run — and a fresh order (each run gets a new run_id → a new
+# idempotency key, so the broker can't dedup) — on EVERY 60s tick. The latch
+# converts "fires while true" into "fires once on the transition into true,
+# re-arms when it goes false" (matches how crosses_* already behaves and how
+# the exit path's one_shot latch works). See _edge_should_fire.
+_MATCHED_LATCH_KEY = "_armed_matched"
+
+
+async def _edge_should_fire(
+    workflow_id: str, step_index: int, cfg: dict, matched: bool,
+) -> bool:
+    """Return True only on the rising edge of ``matched`` (not-matched →
+    matched), persisting the latch state so the next tick sees it. On the
+    falling edge (matched → not-matched) it re-arms. This is the fix for the
+    entry-trigger refire loop: a level condition that stays true fires ONCE,
+    not once per poll. Crash-safe: the latch is committed BEFORE the caller
+    creates the run, so a crash after latch-before-fire won't double-fire
+    (at-most-once), matching the exit path's ordering.
+
+    ``crosses_above`` / ``crosses_below`` are unaffected — their ``matched``
+    is already momentary (true only on the crossing tick), so the edge gate
+    passes them through once per genuine cross.
+    """
+    prev = bool(cfg.get(_MATCHED_LATCH_KEY))
+    if matched and not prev:
+        await asyncio.to_thread(
+            _persist_last_value, workflow_id, step_index, _MATCHED_LATCH_KEY, 1.0,
+        )
+        return True
+    if not matched and prev:
+        await asyncio.to_thread(
+            _persist_last_value, workflow_id, step_index, _MATCHED_LATCH_KEY, 0.0,
+        )
+    return False
 _LAST_FIRED_EVENT_KEY = "_last_fired_event_guid"  # dedup for trigger.event
 _RBI_RSS_SOURCE_ID = "rbi_press_releases"
 _EVENT_GENERIC_ORG_TOKENS = frozenset({
@@ -1054,7 +1100,9 @@ async def _evaluate_price_trigger(
         _persist_last_value, workflow_id, step_index, _LAST_PRICE_KEY, current,
     )
 
-    if matched:
+    # Rising-edge gate: fire once on entry into the matched region, not every
+    # tick it stays true (refire-loop fix).
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         await _fire_watch_run(workflow_id, step_index, "price_alert", fired_at)
 
 
@@ -1096,7 +1144,8 @@ async def _evaluate_indicator_trigger(
         _persist_last_value, workflow_id, step_index, _LAST_VALUE_KEY, value,
     )
 
-    if matched:
+    # Rising-edge gate (refire-loop fix) — see _evaluate_price_trigger.
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         await _fire_watch_run(workflow_id, step_index, "indicator_alert", fired_at)
 
 
@@ -1170,7 +1219,10 @@ async def _evaluate_compound_trigger(
             workflow_id, step_index, "_last_values", new_state,
         )
 
-    if matched:
+    # Rising-edge gate (refire-loop fix): a compound tree that stays TRUE
+    # fires ONCE on entry into TRUE, not every 60s tick. crosses_* leaves are
+    # already momentary so this passes them through per genuine cross.
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         # Pick the most-specific triggered_by value we can. The CHECK
         # constraint allows price_alert / indicator_alert / event_alert;
         # compound triggers most resemble indicator_alert (heavy use
@@ -1424,6 +1476,34 @@ async def _evaluate_exit_compound_trigger(
     if position is None:
         return  # Nothing to exit — quietly skip.
 
+    # PEAK TRACKING (fixes trailing/drawdown-from-peak exits, which were dead
+    # because peak_close was never populated). Maintain a RUNNING peak on the
+    # step config: max(prior peak, entry, current price) each tick — O(1), no
+    # per-tick history fetch. It captures every observation while the position
+    # is open, so "exit when drawdown from peak > X%" can finally evaluate.
+    try:
+        _px_map = await asyncio.to_thread(
+            _batch_fetch_prices, [f"NSE:{position.symbol}"],
+        )
+        _cur_px = _px_map.get(f"NSE:{position.symbol}")
+    except Exception:  # noqa: BLE001
+        _cur_px = None
+    _prev_peak_raw = cfg.get(_PEAK_CLOSE_KEY)
+    _prev_peak = (
+        float(_prev_peak_raw) if isinstance(_prev_peak_raw, (int, float)) else None
+    )
+    _candidates = [
+        v for v in (_prev_peak, position.entry_price, _cur_px) if v is not None
+    ]
+    if _candidates:
+        _new_peak = max(_candidates)
+        position.peak_close = _new_peak
+        if _new_peak != _prev_peak:
+            await asyncio.to_thread(
+                _persist_last_value,
+                workflow_id, step_index, _PEAK_CLOSE_KEY, _new_peak,
+            )
+
     last_values_raw = cfg.get("_last_values")
     prev_state: dict[str, float] = (
         {k: float(v) for k, v in last_values_raw.items()
@@ -1482,6 +1562,8 @@ async def _evaluate_exit_compound_trigger(
 
 # Track C #5: per-branch fire-once latch for staged scale-out exits.
 _EXIT_FIRED_KEY = "_exit_branch_fired"
+# Running peak-close for trailing / drawdown-from-peak exit conditions.
+_PEAK_CLOSE_KEY = "_peak_close"
 
 
 def _persist_config_str(

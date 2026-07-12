@@ -152,6 +152,7 @@ WeightingScheme = Literal[
     "min_variance",
     "black_litterman",
     "factor",
+    "conviction",
 ]
 """Named weighting schemes (plan §3a Step 2). ``risk_parity`` (ERC) is the
 smart-default fallback, NOT ``equal`` — equal only survives for ≤4 names /
@@ -363,6 +364,12 @@ class StrategyConstituent(BaseModel):
     sector: str
     weight_pct: float
     gate_metrics: dict[str, float] = Field(default_factory=dict)
+    # WHY this name carries THIS weight — the causal/thematic hook or the
+    # quality-gate rationale (e.g. "Direct beneficiary — solar/agri pumps" or
+    # "Overweight: strongest gate (ROE 24%, low D/E)"). Populated by the builder
+    # so the card shows differentiated, reasoned weights rather than a bare
+    # equal split. Empty only when genuinely no rationale is available.
+    weight_reason: str = ""
 
 
 class GoldInstrument(BaseModel):
