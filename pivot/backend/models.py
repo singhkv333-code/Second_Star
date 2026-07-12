@@ -468,7 +468,9 @@ class PaperOrder(Base):
     order_type = Column(String(16), nullable=False)  # MARKET/LIMIT/SL/SL-M/GTT
     product = Column(String(8), nullable=False, default="CNC")
     variety = Column(String(16), nullable=False, default="regular")  # regular/amo
-    quantity = Column(Integer, nullable=False)
+    # Numeric(18,8): fractional for US shares / crypto units; Indian legs are
+    # quantized to whole shares/lots in code (migration 0025).
+    quantity = Column(Numeric(18, 8), nullable=False)
     limit_price = Column(Float, nullable=True)
     trigger_price = Column(Float, nullable=True)
     # LTP at decision time + its quote timestamp — drives slippage-vs-
@@ -479,7 +481,7 @@ class PaperOrder(Base):
         String(16), nullable=False, default="pending", index=True,
     )
     reserved_cash = Column(Numeric(18, 4), nullable=False, default=0.0)
-    filled_quantity = Column(Integer, nullable=False, default=0)
+    filled_quantity = Column(Numeric(18, 8), nullable=False, default=0)
     reject_reason = Column(String(200), nullable=True)
     # OCO: SL and TP siblings share a group; one fill cancels the other.
     gtt_oco_group = Column(String(36), nullable=True, index=True)
@@ -546,7 +548,7 @@ class PaperFill(Base):
     )
     symbol = Column(String(50), nullable=False, index=True)
     transaction_type = Column(String(10), nullable=False)  # BUY / SELL
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(Numeric(18, 8), nullable=False)  # fractional (US/crypto)
     fill_price = Column(Float, nullable=False)  # market touch +/- slippage
     gross_value = Column(Numeric(18, 4), nullable=False)  # fill_price * quantity
     charges = Column(Numeric(18, 4), nullable=False, default=0.0)  # trading_costs
@@ -597,7 +599,7 @@ class PaperPosition(Base):
     # OPTION positions (is_option=True, F&O P2) are SIGNED — a short
     # straddle holds quantity < 0 on both legs. The equity invariant is
     # untouched: only paper/options_routing writes negative quantities.
-    quantity = Column(Integer, nullable=False, default=0)
+    quantity = Column(Numeric(18, 8), nullable=False, default=0)  # fractional (US/crypto)
     avg_cost = Column(Numeric(18, 4), nullable=False, default=0.0)  # incl. buy charges
     realized_pnl = Column(Numeric(18, 4), nullable=False, default=0.0)  # cumulative
     last_price = Column(Float, nullable=True)  # market mark-to-market

@@ -946,7 +946,8 @@ export type WeightingScheme =
   | "risk_parity"
   | "min_variance"
   | "black_litterman"
-  | "factor";
+  | "factor"
+  | "conviction";
 
 export type SelectionGate = "fscore" | "magic_formula" | "multifactor" | "none";
 
@@ -1037,6 +1038,9 @@ export type StrategyConstituent = {
   sector: string;
   weight_pct: number;
   gate_metrics: Record<string, number>;
+  /** One-line rationale for WHY this name carries its weight — e.g. "Direct
+   *  beneficiary — solar/agri pumps". Empty string when absent. */
+  weight_reason?: string;
 };
 
 export type GoldInstrument = {
@@ -1452,6 +1456,13 @@ export type Holding = {
   position?: string | null;
   /** Weight of this name in the basket (e.g. 16.7 = 16.7%). Optional. */
   weight_pct?: number | null;
+  /** Logo URL from img.logo.dev or CoinCap — null for symbols with no logo. */
+  logo_url?: string | null;
+  /** Asset class from POST /api/views/security-meta.
+   *  One of: in_equity | in_etf | us_equity | us_etf | crypto */
+  asset_class?: string | null;
+  /** Quote currency: INR | USD. */
+  currency?: string | null;
 };
 
 /**

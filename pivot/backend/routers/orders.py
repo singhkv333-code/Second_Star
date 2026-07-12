@@ -308,6 +308,21 @@ def _persist_leg(
     order_type = str(leg["order_type"]).upper()
     qty = int(leg["quantity"])
 
+    # IDEMPOTENCY: /orders/register previously passed NO client_request_id, so a
+    # double-click or a client retry of a timed-out POST created two paper fills
+    # for one intended order. Derive a stable key from the leg contents +
+    # conversation + a coarse time bucket: a rapid re-submit lands in the same
+    # bucket → the paper broker dedups it; a deliberate identical re-order later
+    # falls in a new bucket and is allowed. (/confirm and /gtt already do this.)
+    import hashlib as _hashlib
+    import time as _time
+    _sig = f"{symbol}|{side}|{qty}|{leg.get('price')}|{order_type}|{leg.get('trigger_price')}|{conversation_id}"
+    _bucket = int(_time.time() // 15)  # 15s dedup window
+    _crid = (
+        f"chat-register:{user_id}:"
+        f"{_hashlib.sha1(_sig.encode()).hexdigest()[:16]}:{_bucket}"
+    )
+
     paper = should_use_paper(db, user_id)
 
     # LIVE mode (paper off) needs a CONNECTED broker to actually reach the
@@ -351,6 +366,7 @@ def _persist_leg(
                 last_price=float(mark) if mark is not None else float(leg["trigger_price"]),
                 source="chat",
                 conversation_id=conversation_id,
+                client_request_id=f"{_crid}:gtt",
             )
             broker_order_id = (
                 str(result.get("trigger_id") or result.get("order_id") or "") or None
@@ -368,6 +384,7 @@ def _persist_leg(
                 trigger_price=leg.get("trigger_price"),
                 source="chat",
                 conversation_id=conversation_id,
+                client_request_id=_crid,
             )
             broker_order_id = result.get("order_id")
         # paper_status (simulated book: filled/resting/rejected/pending) takes

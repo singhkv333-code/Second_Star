@@ -128,6 +128,18 @@ def _card_digest(raw: object) -> dict | None:
             "net": raw.get("net"), "positions": raw.get("position_count"),
             "delta_notional": raw.get("delta_notional"),
         }
+    if hint == "strategy_builder_card":
+        # Basket evals live or die on differentiated, reasoned weights.
+        cons = raw.get("constituents") or []
+        return {
+            "weighting_scheme": raw.get("weighting_scheme"),
+            "title": raw.get("title"),
+            "constituents": [
+                {"sym": c.get("symbol"), "w": c.get("weight_pct"),
+                 "reason": c.get("weight_reason") or ""}
+                for c in cons if isinstance(c, dict)
+            ],
+        }
     if hint == "workflow_draft_card":
         # Automation evals live or die on trigger/action params — keep them.
         steps = raw.get("steps") or (raw.get("draft") or {}).get("steps") or []

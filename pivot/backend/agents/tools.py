@@ -617,6 +617,48 @@ tool("get_top_movers",
      },
      [])
 
+tool("compute",
+     "Deterministic calculator — the COMPUTE lane. Run a short Python "
+     "expression over values ALREADY IN CONTEXT (numbers the user typed, "
+     "or values a tool returned earlier this conversation) and get an "
+     "exact result. USE THIS for any quantitative transform that has no "
+     "dedicated tool: percentile ranks, sorting/ranking a list by a "
+     "metric, averages/medians/std-dev, spreads, weights, position "
+     "sizing, P&L what-ifs ('if it falls 8% on 50 shares @ ₹1,520'), "
+     "breakevens/payoff math from given strikes+premiums, CAGR from "
+     "given start/end values, ratio math, date-free arithmetic of any "
+     "kind. NEVER decline a computable ask because no dedicated tool "
+     "exists, and NEVER do multi-step arithmetic in prose — route it "
+     "here so the numbers are exact.\n\n"
+     "HARD RULE (anti-fabrication): every input number in `code` MUST be "
+     "a literal you saw in this conversation (user-supplied or "
+     "tool-returned). If an input is missing, fetch it with the right "
+     "data tool FIRST, then compute. This tool does maths; it is NOT a "
+     "data source.\n\n"
+     "Language subset: literals, arithmetic, comparisons, comprehensions, "
+     "lambda, f-strings, assignments, sorted/sum/min/max/len/round/abs/"
+     "enumerate/zip/map/filter/any/all, math.*, statistics.*. No imports, "
+     "no loops, no I/O. Write inputs as a dict/list, transform, and end "
+     "with the expression whose value answers the user. Example — "
+     "percentile ranks:\n"
+     "vals = {'TCS': 3.2, 'INFY': 1.8, 'WIPRO': 0.9}\n"
+     "s = sorted(vals.values())\n"
+     "{k: round(100*sum(1 for x in s if x <= v)/len(s)) "
+     "for k, v in vals.items()}",
+     {
+         "code": {
+             "type": "string",
+             "description": "Python-subset script; the LAST expression's "
+                            "value is returned.",
+         },
+         "note": {
+             "type": "string",
+             "description": "3-8 word label of what is being computed "
+                            "(shown in traces).",
+         },
+     },
+     ["code"])
+
 # ── ANALYTICS / INDICATORS / RISK / COMPARISON ──────────────────────────────
 # Bridges to /core/ (indicator vault + calculations + data layer).
 
@@ -732,48 +774,92 @@ tool("get_returns",
 
 # ── FUNDAMENTAL SCREEN / SINGLE-STOCK FUNDAMENTALS / NEWS / IPO ───────────────
 
+_SCREEN_FIELDS = [
+    # valuation / quality / balance-sheet ratios
+    "pe", "roe", "roce", "de", "payout", "price_to_book", "ev_to_ebitda", "roa",
+    "current_ratio", "quick_ratio", "interest_coverage", "net_profit_margin",
+    "ebitda_margin", "asset_turnover",
+    # extended ratio set (scraped + pivot-derived backfill)
+    "roic", "operating_margin", "gross_margin", "inventory_turnover",
+    "receivables_turnover",
+    # GROWTH (YoY over the two latest annual filings)
+    "revenue_growth", "net_profit_growth", "eps_growth",
+    # size (real market cap, ₹ crore, enrich-backed)
+    "market_cap",
+    # raw line items (₹ crore for absolutes, ₹ for per-share)
+    "revenue", "net_profit", "operating_profit", "eps_basic", "eps_diluted",
+    "total_debt", "total_equity", "reserves", "cash_from_ops",
+    "book_value_per_share", "enterprise_value_cr", "interest_expense",
+]
+
 tool("screen_fundamentals",
      "Cross-sectional fundamental SCREEN over the financials DB — the "
      "'screener.in for basics' tool. Returns the LIST of companies passing "
      "EVERY numeric constraint (filters are AND-ed). Use for: 'pharma stocks "
-     "with P/E under 25', 'show me stocks with ROE > 18', 'low debt high ROE "
-     "names', 'cheap banking stocks', 'screen for payout > 40%'. This is the "
-     "MANY-company tool; for ONE company's PE/ROE use fetch_fundamentals. "
-     "Fields: pe, roe, roce, de (debt/equity), payout, price_to_book (P/B), "
+     "with P/E under 25', 'ROE > 18 and positive revenue growth', 'low debt "
+     "high ROE names', 'market cap above ₹20,000 Cr with PE under 25', 'cheap "
+     "banking stocks'. This is the MANY-company tool; for ONE company use "
+     "fetch_fundamentals.\n\n"
+     "SCREENABLE FIELDS (any metric the DB carries — use the one the user "
+     "actually names, do NOT substitute a different metric):\n"
+     " • ratios: pe, roe, roce, de (debt/equity), payout, price_to_book (P/B), "
      "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
-     "net_profit_margin, ebitda_margin, asset_turnover. market_cap is NOT a "
-     "screenable field, but a real market-cap FLOOR/TIER is applied via "
-     "market_cap_tier (see below). Sector is optional + coarse: pharma, bank, "
-     "it, energy, auto, autoancillary, metal, finance, chemicals, fmcg, infra, "
-     "textiles. NOTE: 'auto' = vehicle MAKERS (cars/2-3 wheelers/tractors/CVs, "
-     "e.g. Maruti, Tata Motors, M&M, Bajaj, Hero) — use 'autoancillary' ONLY "
-     "when the user explicitly wants auto PARTS / component suppliers. A bare "
-     "sector ranking (no number given) automatically floors out micro-caps so "
-     "recognizable names lead. Never invent names or numbers.\n\n"
-     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the "
-     "user to pick a threshold first): 'cheap banking stocks' → sector=bank, "
-     "sort_by={field:pe,dir:asc}; 'best dividend payers' → sort_by="
-     "{field:payout,dir:desc} (the DB has dividend PAYOUT ratio, not yield, "
-     "capped at 100% — tell the user it ranks by payout ratio, and prefer "
-     "market_cap_tier='large' so recognizable names surface); 'highest quality "
-     "IT names' → sector=it, sort_by={field:roe,dir:desc}; 'low debt companies' "
-     "→ sort_by={field:de,dir:asc}. filters is OPTIONAL — pass it only when the "
-     "user named an explicit number ('PE under 25').\n\n"
-     "CAP CONSTRAINT: if the user says 'large cap' / 'bluechip' / 'big "
-     "companies' / 'mid cap' / 'small cap', set market_cap_tier accordingly — "
-     "it is REQUIRED to honour that phrasing, do NOT drop it. large/mid are "
-     "backed by a curated NIFTY universe (the DB has no market-cap field).",
+     "net_profit_margin, ebitda_margin, asset_turnover\n"
+     " • GROWTH (YoY, latest two annual filings): revenue_growth, "
+     "net_profit_growth, eps_growth — use these for 'growing revenue/profits', "
+     "'positive revenue growth', 'fastest-growing'. 'positive revenue growth' = "
+     "filter {field:revenue_growth, op:'>', value:0}.\n"
+     " • market_cap — a REAL numeric field in ₹ crore (enrich-backed). "
+     "'market cap above ₹20,000 Cr' = filter {field:market_cap, op:'>', "
+     "value:20000}. (For a vague 'large/mid/small cap' WORD with no number, use "
+     "market_cap_tier instead.)\n"
+     " • raw line items: revenue, net_profit, operating_profit (EBITDA), "
+     "eps_basic, total_debt, total_equity, reserves, cash_from_ops, "
+     "book_value_per_share, enterprise_value_cr (all ₹ crore / ₹ per share).\n\n"
+     "CUSTOM RATIOS: whenever the user names a ratio that is NOT in the field "
+     "list above (debt/EBITDA, price/sales, cash/debt, interest/debt, "
+     "revenue/employee, etc.) you MUST define it in custom_ratios as {name, "
+     "numerator, denominator} over raw line items and reference `name` in "
+     "filters/sort_by — do NOT drop it and do NOT substitute a different "
+     "metric. 'debt to EBITDA below 3' → custom_ratios=[{name:'debt_ebitda', "
+     "numerator:'total_debt', denominator:'operating_profit'}], "
+     "filters=[{field:'debt_ebitda', op:'<', value:3}]. (EBITDA = "
+     "operating_profit; sales = revenue.)\n\n"
+     "NEVER SILENTLY DROP A CONSTRAINT: include EVERY numeric constraint the "
+     "user named (as a direct field, a growth field, market_cap, or a custom "
+     "ratio). If one genuinely can't be expressed, still screen on the rest AND "
+     "say in your reply which constraint you couldn't apply — never quietly omit "
+     "it and rank by market cap instead.\n\n"
+     "JUST DO IT — screen FIRST, ask later: for a screen with explicit numbers, "
+     "RUN it and show what comes back, even if it returns few or zero names "
+     "(then offer to relax the tightest threshold). NEVER ask the user to relax "
+     "a threshold BEFORE you have run the screen — a clarifying question before "
+     "any data is the wrong move for a read.\n\n"
+     "Sector is optional + coarse: pharma, bank, it, energy, auto, "
+     "autoancillary, metal, finance, chemicals, fmcg, infra, textiles. 'auto' = "
+     "vehicle MAKERS (Maruti, Tata Motors, M&M, Bajaj, Hero); use "
+     "'autoancillary' only for auto PARTS suppliers. A bare sector ranking (no "
+     "number) auto-floors micro-caps so recognizable names lead. Never invent "
+     "names or numbers.\n\n"
+     "LIMIT: honour the user's 'top N' — if they say 'top 5' set limit=5, "
+     "'top 10' → limit=10. Default 15 when unspecified.\n\n"
+     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the user "
+     "to pick a threshold): 'cheap banking stocks' → sector=bank, "
+     "sort_by={field:pe,dir:asc}; 'fastest-growing IT' → sector=it, "
+     "sort_by={field:revenue_growth,dir:desc}; 'best dividend payers' → "
+     "sort_by={field:payout,dir:desc}; 'highest quality IT names' → sector=it, "
+     "sort_by={field:roe,dir:desc}. filters is OPTIONAL — pass it only when the "
+     "user named an explicit number. When several constraints are named, include "
+     "ALL of them (do not silently drop one).\n\n"
+     "CAP WORD: if the user says 'large cap'/'bluechip'/'big companies'/'mid "
+     "cap'/'small cap' with no ₹ number, set market_cap_tier — REQUIRED to "
+     "honour that phrasing.",
      {
          "filters": {"type": "array",
-                     "description": "Numeric constraints, AND-ed. At least one required.",
+                     "description": "Numeric constraints, AND-ed. Include EVERY "
+                     "constraint the user named.",
                      "items": {"type": "object", "properties": {
-                         "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout",
-                                            "price_to_book", "ev_to_ebitda", "roa",
-                                            "current_ratio", "quick_ratio",
-                                            "interest_coverage", "net_profit_margin",
-                                            "ebitda_margin", "asset_turnover",
-                                            "market_cap"]},
+                         "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
                          "value": {"type": "number"}},
                          "required": ["field", "op", "value"]}},
@@ -782,17 +868,20 @@ tool("screen_fundamentals",
                               "autoancillary", "metal", "finance", "chemicals",
                               "fmcg", "infra", "textiles"]},
          "market_cap_tier": {"type": "string", "enum": ["large", "mid", "small"],
-                     "description": "Restrict to large/mid/small-cap names by "
-                     "REAL market cap (large ≥ ₹50k Cr, mid ₹20k–50k Cr, small "
-                     "< ₹20k Cr). Emit 'large' whenever the user says large-cap "
-                     "/ bluechip / 'big companies'."},
+                     "description": "For a vague cap WORD with no ₹ number. "
+                     "Restrict to large/mid/small by REAL market cap (large ≥ "
+                     "₹50k Cr, mid ₹20k–50k Cr, small < ₹20k Cr). For an explicit "
+                     "₹ threshold use a market_cap filter instead."},
+         "custom_ratios": {"type": "array",
+                     "description": "Derived metrics over raw line items, usable "
+                     "by name in filters/sort_by.",
+                     "items": {"type": "object", "properties": {
+                         "name": {"type": "string"},
+                         "numerator": {"type": "string"},
+                         "denominator": {"type": "string"}},
+                         "required": ["name", "numerator", "denominator"]}},
          "sort_by": {"type": "object", "properties": {
-                         "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout",
-                                            "price_to_book", "ev_to_ebitda", "roa",
-                                            "current_ratio", "quick_ratio",
-                                            "interest_coverage", "net_profit_margin",
-                                            "ebitda_margin", "asset_turnover"]},
+                         "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
      },
@@ -815,6 +904,39 @@ tool("fetch_fundamentals",
      {"symbol": {"type": "string",
                  "description": "NSE ticker, uppercase. Infosys->INFY, Reliance->RELIANCE."}},
      ["symbol"])
+
+tool("query_financials",
+     "Look up ANY single financial figure or ratio for ONE company from the "
+     "financials DB — beyond the fixed fetch_fundamentals snapshot. Use this "
+     "when the user asks for a specific line item or ratio that the snapshot "
+     "doesn't carry: e.g. 'INFY's gross margin', 'Reliance inventory turnover', "
+     "'TCS cash from operations', 'HDFCBANK interest coverage', 'employee "
+     "benefit expense of Infosys', 'operating margin', 'sales per share', "
+     "'P/S ratio'. Pass the user's phrasing verbatim in `metric` — the backend "
+     "translates it (e.g. 'sales'->Net Sales/Revenue, 'cash from ops'->Net "
+     "CashFlow From Operating Activities) and, for P/E, P/B, P/S, computes it "
+     "LIVE as price/per-share. Returns {resolved, value, unit, line_item "
+     "(the exact DB row matched), statement, period_label, matched_via}. When "
+     "NOT confident it returns resolved=false + `candidates` (ranked line "
+     "items) — pick the right one and call again with that exact line_item, or "
+     "tell the user it's unavailable. NEVER invent a value; if resolved=false "
+     "and no candidate fits, say the figure isn't in our data.",
+     {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
+      "metric": {"type": "string", "description":
+                 "The figure the user wants, in their own words — e.g. "
+                 "'gross margin', 'sales', 'cash from operations', 'P/S', "
+                 "'inventory turnover', or an exact line_item from a prior "
+                 "candidates list."},
+      "basis":  {"type": "string", "enum": ["consolidated", "standalone"],
+                 "default": "consolidated"},
+      "history": {"type": "integer", "minimum": 0, "maximum": 15, "default": 0,
+                  "description":
+                  "Set to N (e.g. 12) to ALSO return the last N years as an "
+                  "annual `series` (newest first) — use for trend / CAGR / "
+                  "'which year had the highest profit' / 'revenue over the "
+                  "years' asks. 0 (default) returns just the latest value."}},
+     ["symbol", "metric"],
+     defaults={"basis": "consolidated", "history": 0})
 
 tool("get_symbol_news",
      "Recent news headlines for ONE stock via yfinance. Use for 'recent news "
@@ -1152,7 +1274,9 @@ tool("propose_workflow",
 # simulation. Splitting the tools makes the intent unambiguous.
 
 tool("backtest_workflow",
-     "SIMULATES a strategy on historical daily-close data. For 'backtest …' / "
+     "SIMULATES a strategy on historical bars (daily by default; pass "
+     "`interval='1h'` for hourly, `'15m'` etc for finer intraday). "
+     "For 'backtest …' / "
      "'simulate …' / 'how would X have done' / 'what if I had bought …' "
      "prompts. Returns a chart card (price + equity + signals + metrics + "
      "buy-and-hold benchmark). Shares EXACT `steps[]` schema with "
@@ -1210,6 +1334,17 @@ tool("backtest_workflow",
              "description": (
                  "OPTIONAL buy-and-hold benchmark (default: the trade symbol). "
                  "For baskets / pairs, pass NIFTYBEES or BANKBEES."
+             ),
+         },
+         "interval": {
+             "type": "string",
+             "enum": ["1d", "1wk", "1mo", "1h", "30m", "15m", "5m"],
+             "default": "1d",
+             "description": (
+                 "OPTIONAL bar interval. Default '1d' (daily). Intraday "
+                 "('1h', '15m', '5m', '30m') is accepted; the source's "
+                 "rolling data cap will honestly clamp the window when "
+                 "'period' exceeds it (1h yfinance=730d, Kite=400d)."
              ),
          },
      },
@@ -1973,6 +2108,23 @@ tool("build_strategy",
                             "advisory. Weighting scheme + sizing still computed. "
                             "OMIT for an open build where the backend discovers "
                             "the universe from theme/sector/view.",
+         },
+         "weight_overrides": {
+             "type": "object",
+             "description": "Explicit per-symbol weights for a RE-WEIGHT / "
+                            "REBUILD amendment. When the user asks to 'rebuild "
+                            "it heavier in X', 'make KSB 40%', 'tilt to the "
+                            "leaders', 'equal-weight it', re-call build_strategy "
+                            "with the SAME symbols plus this map "
+                            "({\"KSB\": 40, \"SHAKTIPUMP\": 30}) — percents or "
+                            "fractions; named symbols take their share and the "
+                            "rest split the remainder by conviction. This is how "
+                            "a rebuild ACTUALLY re-allocates. Omit for a first "
+                            "build (backend picks conviction/quality weights). "
+                            "For a bare 'rebuild' with NO stated change, do NOT "
+                            "silently reproduce — briefly EXPLAIN the existing "
+                            "weights and offer concrete tilts.",
+             "additionalProperties": {"type": "number"},
          },
      },
      ["request"])

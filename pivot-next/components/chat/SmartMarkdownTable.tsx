@@ -27,6 +27,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react";
 import { searchCompanies } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { StockHoverActions } from "@/components/StockHoverActions";
+import { colorizeGainLoss } from "@/components/chat/AssistantMessage";
 
 // ── hast extraction (minimal local typing — we only walk tag + children) ──
 
@@ -348,6 +349,8 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                           />
                         )}
                       </>
+                    ) : plan.numeric[ci] ? (
+                      colorizeGainLoss(cell, `cell-${ri}-${ci}`)
                     ) : (
                       cell
                     )}

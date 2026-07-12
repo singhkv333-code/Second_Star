@@ -432,21 +432,43 @@ def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
     return resolve_symbol(symbol)
 
 
-def _kite_bars_df(symbol: str, period: str) -> Optional[pd.DataFrame]:
-    """Daily OHLCV from Kite as a yfinance-shaped DataFrame, or None when
-    Kite can't serve it (mock mode, index symbol, unresolved, error)."""
+def _kite_bars_df(
+    symbol: str, period: str, interval: str = "1d",
+) -> Optional[pd.DataFrame]:
+    """OHLCV from Kite as a yfinance-shaped DataFrame, or None when
+    Kite can't serve it (mock mode, index symbol, unresolved, error).
+
+    ``interval`` (canonical, e.g. ``"1d"`` / ``"1h"`` / ``"15m"``) is
+    translated to Kite's own string via ``to_kite`` — an interval Kite
+    can't serve returns ``None`` so the caller degrades honestly.
+
+    CRITICAL: on intraday intervals we DO NOT ``.normalize()`` the index
+    (which snaps every timestamp to midnight and collapses all bars for
+    a session to one). We only strip the timezone so downstream date
+    math stays plain. Daily bars keep the historical normalize.
+    """
     if symbol.startswith("^"):
         return None  # indices: Kite tokens differ — let yfinance handle
     try:
+        from backend.core.data.intervals import (
+            is_intraday as _is_intraday_iv,
+            normalize_interval as _normalize_interval,
+        )
         from backend.kite.auth import KITE_MOCK_MODE
         if KITE_MOCK_MODE:
             return None
         from backend.kite.historical import get_kite_historical
-        rows = get_kite_historical(symbol, period=period)
+        norm_iv = _normalize_interval(interval)
+        rows = get_kite_historical(symbol, period=period, interval=norm_iv)
         if not rows:
             return None
         df = pd.DataFrame(rows)
-        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
+        # Intraday: KEEP the time-of-day. Daily/weekly/monthly: normalize
+        # to midnight so index alignment matches the legacy daily path.
+        idx = pd.to_datetime(df["date"]).dt.tz_localize(None)
+        if not _is_intraday_iv(norm_iv):
+            idx = idx.dt.normalize()
+        df["date"] = idx
         df = df.set_index("date").rename(columns={
             "open": "Open", "high": "High", "low": "Low",
             "close": "Close", "volume": "Volume",
@@ -457,22 +479,134 @@ def _kite_bars_df(symbol: str, period: str) -> Optional[pd.DataFrame]:
         return None
 
 
-def _load_bars(symbol: str, period: str) -> pd.DataFrame:
-    """Daily OHLCV, Kite Connect FIRST (live, broker-grade, correctly
-    dated) then yfinance. Raises ValueError on insufficient data so the
-    caller surfaces a clean error."""
-    hist = _kite_bars_df(symbol, period)
+def _load_bars(
+    symbol: str, period: str, interval: str = "1d",
+    warnings_out: Optional[list[str]] = None,
+) -> pd.DataFrame:
+    """OHLCV, Kite Connect FIRST (live, broker-grade, correctly dated)
+    then yfinance. Raises ValueError on insufficient data so the caller
+    surfaces a clean error.
+
+    ``interval`` (canonical: ``"1d"`` / ``"1h"`` / ``"15m"`` / …) is
+    threaded to both sources via ``to_kite`` / ``to_yfinance``. When
+    yfinance can't serve the interval (e.g. ``3m``) we raise honestly.
+    Intraday intervals have shallow rolling data windows (yfinance 1h =
+    730d, Kite 1h = 400d); ``period`` is clamped to the interval's cap
+    and a warning is appended to ``warnings_out`` when it had to be
+    trimmed — never silently fabricating bars beyond what the source
+    can return.
+
+    CRITICAL: the intraday index keeps its full datetime (no
+    ``.normalize()``), otherwise all intraday bars of a day collapse to
+    the same midnight timestamp and the simulator loses its bar
+    ordering.
+    """
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday_iv,
+        max_lookback_days as _max_lookback_days,
+        normalize_interval as _normalize_interval,
+        to_yfinance as _to_yfinance,
+    )
+    norm_iv = _normalize_interval(interval)
+    intraday = _is_intraday_iv(norm_iv)
+
+    # Intraday: clamp the requested period to the source's rolling cap.
+    # Only touches bare-day ('60d', '400d', …) spans and the legacy
+    # keys ('1y','2y','5y','10y','max') which trivially map to days.
+    effective_period = period
+    if intraday:
+        cap = _max_lookback_days(norm_iv, has_kite=True)
+        if cap is not None:
+            requested_days = _period_to_days(period)
+            if requested_days is None or requested_days > cap:
+                effective_period = f"{int(cap)}d"
+                if warnings_out is not None and period != effective_period:
+                    warnings_out.append(
+                        f"{symbol}: {norm_iv} bars only go back {cap} days "
+                        f"(requested {period}); clamped the window."
+                    )
+
+    hist = _kite_bars_df(symbol, effective_period, interval=norm_iv)
     if hist is None or hist.empty or len(hist) < 30:
+        yf_iv = _to_yfinance(norm_iv)
+        if yf_iv is None:
+            raise ValueError(
+                f"yfinance cannot serve interval {norm_iv!r} for {symbol}"
+            )
         yf_sym = _yf_symbol(symbol)
-        hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
+        # auto_adjust=False to match Kite semantics (split-adjusted,
+        # dividend-UNadjusted). The default (True) folds dividends into
+        # prices, so a mixed Kite/yfinance basket would compare price-return
+        # legs against total-return legs — silently inconsistent.
+        hist = yf.Ticker(yf_sym).history(
+            period=effective_period, interval=yf_iv, auto_adjust=False,
+        )
         if hist.empty or len(hist) < 30:
             raise ValueError(
-                f"insufficient data for {symbol} over {period} "
-                f"(got {len(hist)} bars)"
+                f"insufficient data for {symbol} over {effective_period} "
+                f"at {norm_iv} (got {len(hist)} bars)"
             )
         # yfinance returns tz-aware; drop tz so we can do plain date math.
-        hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
+        # For intraday, KEEP the time-of-day (do NOT normalize).
+        if intraday:
+            hist.index = pd.to_datetime(hist.index).tz_localize(None)
+        else:
+            hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
+    # Drop today's unclosed bar (both Kite and yfinance paths). On daily
+    # bars that's the whole session; on intraday it's the single last
+    # forming bar (still just one bar, not a whole day) — either way we
+    # only trade COMPLETED bars, keeping reruns reproducible.
+    from backend.services.indicator_backtest import drop_partial_last_bar
+    hist = drop_partial_last_bar(hist)
     return hist[["Open", "High", "Low", "Close", "Volume"]]
+
+
+def _period_to_days(period: str) -> Optional[int]:
+    """Best-effort translation of legacy period strings to calendar days
+    for clamping intraday requests. ``None`` means 'unbounded / unknown'
+    so the caller leaves the request untouched."""
+    p = (period or "").strip().lower()
+    if not p:
+        return None
+    if p == "max":
+        return None
+    # Bare "Nd" (60d, 200d, …) — the shape default_period_for emits.
+    if p.endswith("d") and p[:-1].isdigit():
+        return int(p[:-1])
+    _map = {
+        "1mo": 30, "3mo": 90, "6mo": 180,
+        "1y": 365, "2y": 730, "3y": 1095, "5y": 1825, "10y": 3650,
+    }
+    return _map.get(p)
+
+
+# ── Interval-aware helpers ────────────────────────────────────────────
+
+
+def _ts_is_intraday(ts: pd.Timestamp) -> bool:
+    """A bar timestamp with non-midnight time is an intraday bar. Used
+    to switch output-time formatting and condition/fetch evaluators
+    per-bar without threading ``interval`` through every internal
+    helper — daily bars always land on 00:00 after ``.normalize()``."""
+    try:
+        return bool(int(getattr(ts, "hour", 0)) or int(getattr(ts, "minute", 0)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _fmt_bar_ts(ts: pd.Timestamp) -> str:
+    """ISO datetime for intraday bars, ISO date for daily bars.
+
+    Keeping daily bars as ``YYYY-MM-DD`` preserves every existing
+    downstream (chart card time-axis, trade-log dedupe key, matching
+    walker) unchanged. For intraday we MUST emit full ISO so multiple
+    bars in the same session don't collide on one 't' key (which would
+    break both the chart and the trade-matching walker).
+    """
+    ts = pd.Timestamp(ts)
+    if _ts_is_intraday(ts):
+        return ts.isoformat()
+    return ts.date().isoformat()
 
 
 # ── Trigger fire-time enumeration ─────────────────────────────────────
@@ -573,20 +707,32 @@ def _expand_run_at(
 def _expand_schedule(
     cfg: dict[str, Any], dates: pd.DatetimeIndex,
     notes: Optional[list[str]] = None,
+    interval: str = "1d",
 ) -> list[pd.Timestamp]:
-    """Match each trading-day index to a cron expression, OR fire once
-    for a one-time ``run_at`` config.
+    """Match each trading-day (or trading-bar) index to a cron
+    expression, OR fire once for a one-time ``run_at`` config.
 
     Cron format: ``minute hour day-of-month month day-of-week``. We
     honour day-of-month (1–31), month (1–12), and day-of-week (cron's
-    Sun=0/7, Mon=1, …) — the trio that constrains WHICH days fire.
-    Minute / hour are interpretation metadata for live execution; the
-    backtest fires at most once per matching trading day (the bar's
-    OPEN for entries, CLOSE for squareoffs — set by the executor).
+    Sun=0/7, Mon=1, …) which constrain WHICH days fire.
+
+    ── Daily bars ──
+    Minute/hour are interpretation metadata for live execution; the
+    backtest fires at most once per matching trading day.
+
+    ── Intraday bars (CRITICAL) ──
+    There are many bars per day (7 for hourly NSE, 25 for 15-min, …).
+    Firing on every matching bar would mis-fire a "daily 09:15 buy" 7×
+    per day. We fire ONCE per matching day, on the FIRST bar at-or-after
+    the cron hour:minute. When no bar exists at-or-after that time on a
+    matching day (e.g. cron is "16:00" but the session ends 15:30), we
+    fall back to that day's LAST bar so the intent still fires.
 
     A day matches when ALL THREE fields match (cron's standard "AND"
     semantics when both DOM and DOW are explicit). When either DOM or
-    DOW is '*' the unconstrained field doesn't filter.
+    DOW is '*' the unconstrained field doesn't filter. When both are
+    explicit we use Vixie's OR ('0 9 14 2 *' = "Feb 14, regardless of
+    DOW" — matching what the LLM emits).
 
     A ``run_at`` config (one-time schedule, no cron) delegates to
     ``_expand_run_at`` — parity with the live scheduler's one-time fire.
@@ -600,6 +746,8 @@ def _expand_schedule(
     parts = cron.split()
     if len(parts) < 5:
         return []
+    minute_field = parts[0]
+    hour_field = parts[1]
     dom_field = parts[2]
     mon_field = parts[3]
     dow_field = parts[4]
@@ -615,27 +763,70 @@ def _expand_schedule(
         if py is not None:
             py_dows.add(py)
 
-    # Standard cron "OR" semantics when DOM and DOW are both explicit
-    # (vista-cron / Vixie cron). When one is '*' the other is the
-    # constraint. We follow Vixie semantics here so '0 9 14 2 *' means
-    # "Feb 14, regardless of DOW" — matching what the LLM expects.
     dow_explicit = dow_field != "*"
     dom_explicit = dom_field != "*"
 
-    out: list[pd.Timestamp] = []
-    for ts in dates:
+    def _day_matches(ts: pd.Timestamp) -> bool:
         if ts.month not in months:
-            continue
+            return False
         dom_match = ts.day in doms
         dow_match = ts.dayofweek in py_dows
         if dom_explicit and dow_explicit:
-            # OR (Vixie semantics)
-            if not (dom_match or dow_match):
-                continue
-        else:
-            if not (dom_match and dow_match):
-                continue
-        out.append(ts)
+            return dom_match or dow_match  # Vixie OR
+        return dom_match and dow_match
+
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday_iv,
+        normalize_interval as _normalize_interval,
+    )
+    intraday = _is_intraday_iv(_normalize_interval(interval))
+
+    if not intraday:
+        # Daily / weekly / monthly: existing behaviour — one fire per
+        # matching bar (each bar IS its trading period).
+        return [ts for ts in dates if _day_matches(ts)]
+
+    # Intraday: fire once per matching day at the first bar >= cron time.
+    # Parse minute/hour. Any complex spec (e.g. "*/30") reduces to the
+    # smallest matching value in the field: that's the "first tick"
+    # semantics live cron would use for the day.
+    try:
+        hour_target = (
+            min(_cron_field(hour_field, 0, 23)) if hour_field != "*" else 9
+        )
+    except ValueError:
+        hour_target = 9
+    try:
+        minute_target = (
+            min(_cron_field(minute_field, 0, 59)) if minute_field != "*" else 15
+        )
+    except ValueError:
+        minute_target = 15
+    target_mod = hour_target * 60 + minute_target
+
+    # Group bars by calendar date, in order.
+    from collections import defaultdict
+    by_day: dict[Any, list[pd.Timestamp]] = defaultdict(list)
+    for ts in dates:
+        by_day[ts.date()].append(ts)
+
+    out: list[pd.Timestamp] = []
+    for day in sorted(by_day.keys()):
+        # Use any bar from the day to test the day-of-week/month/day
+        # constraints (they're all the same for a given date).
+        probe = by_day[day][0]
+        if not _day_matches(probe):
+            continue
+        # First bar at-or-after cron time; fall back to the day's last
+        # bar if the target time is past the session end.
+        chosen: Optional[pd.Timestamp] = None
+        for ts in by_day[day]:
+            if (ts.hour * 60 + ts.minute) >= target_mod:
+                chosen = ts
+                break
+        if chosen is None:
+            chosen = by_day[day][-1]
+        out.append(chosen)
     return out
 
 
@@ -873,15 +1064,45 @@ def _resolve_ref(
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.day_open":
-                v = ref_bars.at[ts, "Open"]
+                # Intraday: "day open" is the FIRST bar of the current
+                # session, not this bar's Open (would fabricate a fresh
+                # "day open" on every hourly bar).
+                if _ts_is_intraday(ts):
+                    day = ts.date()
+                    day_bars = ref_bars[
+                        pd.DatetimeIndex(ref_bars.index).date == day
+                    ]
+                    if day_bars.empty:
+                        return s
+                    v = day_bars["Open"].iloc[0]
+                else:
+                    v = ref_bars.at[ts, "Open"]
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.prior_close":
                 back = int(cfg.get("sessions_back") or 1)
-                pos = ref_bars.index.get_loc(ts)
-                if not isinstance(pos, int) or pos - back < 0:
-                    return s
-                v = ref_bars["Close"].iloc[pos - back]
+                # Intraday: prior close is the LAST bar of the trading
+                # day ``back`` sessions ago — not the prior bar (which
+                # would give last hour's close, meaningless as "prior
+                # close").
+                if _ts_is_intraday(ts):
+                    dates_arr = pd.DatetimeIndex(ref_bars.index).date
+                    prior_days = sorted(
+                        {d for d in dates_arr if d < ts.date()},
+                        reverse=True,
+                    )
+                    if len(prior_days) < back:
+                        return s
+                    target = prior_days[back - 1]
+                    day_bars = ref_bars[dates_arr == target]
+                    if day_bars.empty:
+                        return s
+                    v = day_bars["Close"].iloc[-1]
+                else:
+                    pos = ref_bars.index.get_loc(ts)
+                    if not isinstance(pos, int) or pos - back < 0:
+                        return s
+                    v = ref_bars["Close"].iloc[pos - back]
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.spread_z_score":
@@ -943,20 +1164,40 @@ def _resolve_ref(
                 ref = str(cfg.get("reference") or "day_open")
                 pct = float(cfg.get("offset_pct") or 0.0)
                 anchor: Optional[float] = None
+                intraday = _ts_is_intraday(ts)
                 if ref == "day_open":
-                    anchor = float(ref_bars.at[ts, "Open"])
-                elif ref == "prior_close":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["Close"].iloc[pos - 1])
-                elif ref == "prior_high":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["High"].iloc[pos - 1])
-                elif ref == "prior_low":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["Low"].iloc[pos - 1])
+                    if intraday:
+                        day = ts.date()
+                        day_bars = ref_bars[
+                            pd.DatetimeIndex(ref_bars.index).date == day
+                        ]
+                        if not day_bars.empty:
+                            anchor = float(day_bars["Open"].iloc[0])
+                    else:
+                        anchor = float(ref_bars.at[ts, "Open"])
+                elif ref in ("prior_close", "prior_high", "prior_low"):
+                    col = {"prior_close": "Close", "prior_high": "High",
+                           "prior_low": "Low"}[ref]
+                    if intraday:
+                        dates_arr = pd.DatetimeIndex(ref_bars.index).date
+                        prior_days = sorted(
+                            {d for d in dates_arr if d < ts.date()},
+                            reverse=True,
+                        )
+                        if prior_days:
+                            target = prior_days[0]
+                            day_bars = ref_bars[dates_arr == target]
+                            if not day_bars.empty:
+                                if col == "Close":
+                                    anchor = float(day_bars[col].iloc[-1])
+                                elif col == "High":
+                                    anchor = float(day_bars[col].max())
+                                else:  # Low
+                                    anchor = float(day_bars[col].min())
+                    else:
+                        pos = ref_bars.index.get_loc(ts)
+                        if isinstance(pos, int) and pos > 0:
+                            anchor = float(ref_bars[col].iloc[pos - 1])
                 if anchor is None:
                     return s
                 return anchor * (1 + pct / 100.0)
@@ -977,26 +1218,52 @@ _NSE_CLOSE = (15, 30)
 
 
 def _bar_is_market_open(ts: pd.Timestamp) -> bool:
-    """yfinance daily bars are NSE trading days — every bar in the
-    series is by definition a market-open day."""
-    return ts.weekday() < 5  # belt-and-braces: skip weekends if any
+    """Is the market open at ``ts``?
+
+    Daily bars only exist for trading days (weekend filter is the
+    belt-and-braces). Intraday bars carry a real time-of-day so we can
+    additionally check the bar's minute-of-day falls inside the NSE
+    cash session — a "market_status open" guard on a synthetic 05:00
+    bar (should never happen given data sources, but robust) still
+    evaluates False."""
+    if ts.weekday() >= 5:
+        return False
+    if _ts_is_intraday(ts):
+        mod = ts.hour * 60 + ts.minute
+        open_mod = _NSE_OPEN[0] * 60 + _NSE_OPEN[1]
+        close_mod = _NSE_CLOSE[0] * 60 + _NSE_CLOSE[1]
+        return open_mod <= mod <= close_mod
+    return True
 
 
-def _time_within(start: str, end: str) -> bool:
-    """Daily bars don't have intraday timestamps. We treat any window
-    that covers an instant inside [09:15, 15:30] as 'true' — the
-    semantics most users mean by "between 09:30 and 15:00". Windows
-    entirely outside trading hours evaluate False so users can author
-    "between 19:00 and 20:00" guards that prevent fires on regular
-    daily bars."""
-    def parse(s: str) -> tuple[int, int]:
-        h, _, m = s.partition(":")
+def _parse_hm(s: str) -> tuple[int, int]:
+    h, _, m = s.partition(":")
+    try:
         return int(h), int(m or 0)
+    except ValueError:
+        return 0, 0
 
-    s_h, s_m = parse(start)
-    e_h, e_m = parse(end)
+
+def _time_within(start: str, end: str, ts: Optional[pd.Timestamp] = None) -> bool:
+    """Does ``ts`` fall inside [start_time, end_time]?
+
+    On intraday bars we check the bar's actual hour/minute — so
+    "between 10:00 and 12:00" fires only on 10:15/11:15 bars, not on
+    every bar of the day.
+
+    On daily bars there's no intraday time to compare against — we
+    retain the legacy overlap-with-trading-hours heuristic so daily
+    workflows that carry a benign "between 09:30 and 15:00" guard
+    still evaluate True, but "between 19:00 and 20:00" (after-hours)
+    evaluates False.
+    """
+    s_h, s_m = _parse_hm(start)
+    e_h, e_m = _parse_hm(end)
     s_total = s_h * 60 + s_m
     e_total = e_h * 60 + e_m
+    if ts is not None and _ts_is_intraday(ts):
+        cur = ts.hour * 60 + ts.minute
+        return s_total <= cur <= e_total
     open_total = _NSE_OPEN[0] * 60 + _NSE_OPEN[1]
     close_total = _NSE_CLOSE[0] * 60 + _NSE_CLOSE[1]
     # Window must overlap [open, close].
@@ -1025,13 +1292,15 @@ def _eval_simple_condition(
             return is_open
         if require == "closed":
             return not is_open
-        # 'pre' / 'post' don't apply to daily bars — let them pass
-        # through so workflows that include them don't silently die.
+        # 'pre' / 'post' don't apply to bars our sources provide — let
+        # them pass through so workflows that include them don't
+        # silently die.
         return True
     if step_type == "condition.time_window":
         return _time_within(
             str(cfg.get("start_time") or "09:15"),
             str(cfg.get("end_time") or "15:30"),
+            ts,
         )
     return True
 
@@ -1488,7 +1757,7 @@ def _record_trade(
         side = reason  # surface these explicitly on the signals layer
 
     trades_out.append({
-        "t": ts.date().isoformat(),
+        "t": _fmt_bar_ts(ts),
         "side": "buy" if signed_qty > 0 else "sell",
         "symbol": sym,
         "qty": abs(signed_qty),
@@ -1497,7 +1766,7 @@ def _record_trade(
         "reason": reason,
     })
     signals_out.append({
-        "t": ts.date().isoformat(),
+        "t": _fmt_bar_ts(ts),
         "side": side,
         "price": round(price, 2),
         "qty": abs(signed_qty),
@@ -1751,7 +2020,7 @@ def _execute_branch(
                 # Signal printed on the final bar — no subsequent open to
                 # fill against. Mark it but don't fabricate a fill.
                 signals_out.append({
-                    "t": ts.date().isoformat(),
+                    "t": _fmt_bar_ts(ts),
                     "side": "no_fill_bar",
                     "price": round(float(sym_bars.at[ts, "Close"]), 2),
                     "qty": qty,
@@ -1779,7 +2048,7 @@ def _execute_branch(
                 # Long open or extension. Cash check: don't go negative.
                 if fill_price * qty > state.cash:
                     signals_out.append({
-                        "t": fill_ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "buy_skipped",
                         "price": fill_price,
                         "qty": qty,
@@ -1826,7 +2095,7 @@ def _execute_branch(
                 )
                 if short_notional > 0.5 * max(cur_equity, _STARTING_CAPITAL):
                     signals_out.append({
-                        "t": fill_ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "short_skipped",
                         "price": fill_price,
                         "qty": qty,
@@ -1994,12 +2263,22 @@ def _execute_branch(
                 lb = symbol_bars.get(leg_sym)
                 if lb is None or ts not in lb.index:
                     continue
+                # NO LOOK-AHEAD: a signal-driven basket is decided on bar T's
+                # CLOSE (that's when the RSI/price condition is knowable), so it
+                # can only transact at T+1's open — never bar T's open (a price
+                # that occurred before the signal existed). Mirrors the
+                # single-order place_order path. Schedule-driven baskets fill
+                # same-bar open (the date is known a-priori).
+                fill_ts = _next_bar_ts(lb, ts) if signal_driven else ts
+                if fill_ts is None:
+                    # Signal printed on the final bar — no next open to fill.
+                    continue
                 slice_inr = total_inr * w
                 # Long fills at OPEN+f, short fills at OPEN-f (proceeds
                 # reduced by friction on the open side, same as
                 # set_stoploss / takeprofit).
                 paying = leg_side == "long"
-                fill = float(lb.at[ts, "Open"]) * (
+                fill = float(lb.at[fill_ts, "Open"]) * (
                     1 + _FRICTION if paying else 1 - _FRICTION
                 )
                 qty_abs = int(slice_inr // fill)
@@ -2009,14 +2288,14 @@ def _execute_branch(
                 # Long-side cash check.
                 if paying and slice_inr > state.cash:
                     signals_out.append({
-                        "t": ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "buy_skipped",
                         "price": fill,
                         "qty": qty_abs,
                     })
                     continue
                 _record_trade(
-                    state, leg_sym, signed, fill, "CNC", ts,
+                    state, leg_sym, signed, fill, "CNC", fill_ts,
                     signals_out, trades_out, reason="basket",
                 )
             continue
@@ -2093,6 +2372,54 @@ def _normalize_buy_and_hold(
     )
 
 
+def _basket_buy_hold_weights(branches: list) -> dict[str, float]:
+    """Symbol -> normalised weight (sums to 1) for a workflow's BUY legs,
+    used to build the basket's OWN "buy & hold" benchmark instead of
+    comparing against one arbitrarily-chosen constituent.
+
+    Sourced from `action.allocate_basket`'s own explicit per-leg weights
+    when present; otherwise equal-weighted across every distinct
+    `action.place_order` BUY/long symbol (mirrors the "basket detection"
+    heuristic used elsewhere in this module for display purposes). Returns
+    {} for anything with fewer than 2 resolvable names — a single-symbol
+    strategy has no "basket" buy-and-hold to build.
+    """
+    has_allocate = any(
+        step.get("step_type") == "action.allocate_basket"
+        for b in branches for step in b.body
+    )
+    weights: dict[str, float] = {}
+    for b in branches:
+        for step in b.body:
+            st = step.get("step_type")
+            cfg = step.get("config") or {}
+            if has_allocate:
+                if st != "action.allocate_basket":
+                    continue
+                legs_cfg = cfg.get("legs") or []
+                w_sum = sum(
+                    float((leg or {}).get("weight", 0)) for leg in legs_cfg
+                ) or 1.0
+                for leg in legs_cfg:
+                    sym = str((leg or {}).get("symbol") or "").upper().strip()
+                    w = float((leg or {}).get("weight", 0)) / w_sum
+                    if sym and w > 0:
+                        weights[sym] = weights.get(sym, 0.0) + w
+            else:
+                if st != "action.place_order":
+                    continue
+                side = str(
+                    cfg.get("side") or cfg.get("transaction_type") or "buy"
+                ).lower()
+                sym = str(cfg.get("symbol") or "").upper().strip()
+                if sym and ("buy" in side or "long" in side):
+                    weights[sym] = weights.get(sym, 0.0) + 1.0
+    if len(weights) < 2:
+        return {}
+    total = sum(weights.values()) or 1.0
+    return {s: w / total for s, w in weights.items()}
+
+
 def backtest_workflow(
     steps: list[dict[str, Any]],
     *,
@@ -2102,8 +2429,16 @@ def backtest_workflow(
     end_date: Optional[str] = None,
     benchmark_symbol: Optional[str] = None,
     trial_group: Optional[str] = None,
+    interval: str = "1d",
 ) -> IndicatorBacktestResult:
-    """Simulate a workflow draft over historical daily bars.
+    """Simulate a workflow draft over historical bars at ``interval``.
+
+    ``interval`` (default ``"1d"``) is any string accepted by
+    ``backend.core.data.intervals.normalize_interval`` — daily / weekly /
+    monthly plus intraday 1m / 3m / 5m / 10m / 15m / 30m / 1h. Intraday
+    intervals have shallow rolling windows (yfinance 1h = 730d, Kite 1h
+    = 400d); ``period`` is clamped honestly rather than fabricating bars
+    beyond what the source can serve.
 
     Returns the same ``IndicatorBacktestResult`` shape the indicator
     backtester produces so the FE chart card reuses without changes.
@@ -2217,9 +2552,19 @@ def backtest_workflow(
     bench_sym = (benchmark_symbol or "").upper().strip() or None
     if bench_sym:
         symbols_to_fetch.add(bench_sym)
+    # Normalise the interval once so warnings + result field are canonical.
+    from backend.core.data.intervals import (
+        bars_per_year as _bars_per_year,
+        is_intraday as _is_intraday_iv,
+        normalize_interval as _normalize_interval,
+    )
+    norm_interval = _normalize_interval(interval)
     symbol_bars: dict[str, pd.DataFrame] = {}
     for sym in sorted(symbols_to_fetch):
-        symbol_bars[sym] = _load_bars(sym, period)
+        symbol_bars[sym] = _load_bars(
+            sym, period, interval=norm_interval,
+            warnings_out=elig.warnings,
+        )
 
     # One-time entry: when the workflow's only schedule is a run_at and the
     # caller gave no explicit start_date, clip the window to the entry date.
@@ -2265,6 +2610,12 @@ def backtest_workflow(
             symbol_bars[sym] = df
 
     primary_bars = symbol_bars[primary_symbol]
+    # Resolved test window (from the primary symbol's simulated bars) so the
+    # reply states EXACTLY what was tested — answers "what interval?" and
+    # explains any run-to-run benchmark drift (a rolling 'period' window).
+    _win_start = pd.Timestamp(primary_bars.index[0]).date().isoformat()
+    _win_end = pd.Timestamp(primary_bars.index[-1]).date().isoformat()
+    _n_bars = int(len(primary_bars))
 
     # Build a per-bar event lookup. Each branch's trigger is expanded
     # against the trigger.symbol's bars (or the branch's primary symbol
@@ -2286,9 +2637,14 @@ def backtest_workflow(
         bars_for_trigger = symbol_bars.get(trigger_sym, primary_bars)
         if b.trigger_type == "trigger.schedule":
             # One-time run_at notes (past/future-of-window) surface via
-            # elig.warnings → the summary's "Notes:" line.
+            # elig.warnings → the summary's "Notes:" line. ``interval``
+            # is critical here: on intraday bars the scheduler fires
+            # ONCE per matching day (at the cron hour:minute) rather
+            # than on every hourly bar of the day — a daily buy would
+            # otherwise mis-fire ~7×/day on hourly bars.
             fires = _expand_schedule(
                 b.trigger_config, union_index, notes=elig.warnings,
+                interval=norm_interval,
             )
         elif b.trigger_type == "trigger.indicator":
             fires = _expand_indicator(b.trigger_config, bars_for_trigger)
@@ -2353,7 +2709,7 @@ def backtest_workflow(
         # Apply any trades scheduled today. Uses signed qty so short
         # legs replay correctly: trade rows still have side='buy'/'sell'
         # for cash-flow direction, but holdings can go negative.
-        while next_trade is not None and next_trade["t"] == ts.date().isoformat():
+        while next_trade is not None and next_trade["t"] == _fmt_bar_ts(ts):
             tr = next_trade
             sym = tr["symbol"]
             signed = (
@@ -2390,8 +2746,8 @@ def backtest_workflow(
                     sym, close,
                 )
         equity = walking_state.cash + market_value
-        price_curve.append({"t": ts.date().isoformat(), "v": close})
-        equity_curve.append({"t": ts.date().isoformat(), "v": round(equity, 2)})
+        price_curve.append({"t": _fmt_bar_ts(ts), "v": close})
+        equity_curve.append({"t": _fmt_bar_ts(ts), "v": round(equity, 2)})
 
     # Metrics: total return %, CAGR, max drawdown, win rate, n_trades.
     final_equity = equity_curve[-1]["v"] if equity_curve else _STARTING_CAPITAL
@@ -2412,7 +2768,11 @@ def backtest_workflow(
     else:
         cagr_pct = 0.0
     _sharpe, _sortino = sharpe_sortino(
-        daily_returns_from_equity([p["v"] for p in equity_curve])
+        daily_returns_from_equity([p["v"] for p in equity_curve]),
+        # Annualise on the RIGHT cadence: 1h bars have ~1638 per year,
+        # weekly 52, monthly 12. A weekly equity curve run at √252
+        # overstates Sharpe by ~2.2×; same magnitude bug intraday.
+        periods_per_year=_bars_per_year(norm_interval),
     )
     # Bailey/Lopez de Prado rigor battery on the backtest equity curve — the
     # SAME lens the live forward-test scorecards apply to paper NAV. PSR =
@@ -2455,24 +2815,52 @@ def backtest_workflow(
                 max_dd = dd
     max_drawdown_pct = round(max_dd * 100, 2)
 
-    # Buy & hold benchmark — defaults to the primary trade symbol but
-    # the caller can pass benchmark_symbol='NIFTYBEES' (or any other
-    # symbol in symbol_bars) to compare against an index / proxy.
-    bench_bars = (
-        symbol_bars.get(bench_sym, primary_bars)
-        if bench_sym else primary_bars
+    # Buy & hold benchmark. Single-symbol/indicator strategies compare
+    # against the primary trade symbol (or an explicit override). A BASKET
+    # (>=2 legs bought and held, e.g. action.allocate_basket) has no
+    # meaningful single-constituent "buy & hold" — comparing against
+    # whichever symbol won the primary_symbol fallback (an alphabetical
+    # pick, unrelated to the basket's actual composition) silently produced
+    # a fabricated-looking number: the basket could show, say, "+5%/yr"
+    # next to "buy & hold +9%/yr" that was secretly just ONE of its five
+    # names. Default a basket's benchmark instead to the SAME basket at its
+    # own target weights, held with idealized (fractional-share, zero-
+    # rounding-drag) fills over the same window — "what if I'd bought this
+    # exact allocation and simply never touched it." An explicit
+    # benchmark_symbol (e.g. an index like NIFTYBEES) always overrides this.
+    _bh_weights = _basket_buy_hold_weights(elig.branches) if not bench_sym else {}
+    _bh_resolvable = bool(_bh_weights) and all(
+        len(symbol_bars.get(s, [])) >= 2 for s in _bh_weights
     )
-    if len(bench_bars) >= 2:
-        _bench_gross = (
-            float(bench_bars["Close"].iloc[-1])
-            / float(bench_bars["Close"].iloc[0])
+    if _bh_resolvable:
+        _bench_gross = sum(
+            w * (
+                float(symbol_bars[s]["Close"].iloc[-1])
+                / float(symbol_bars[s]["Close"].iloc[0])
+            )
+            for s, w in _bh_weights.items()
         )
-        # Net of one round-trip so it's apples-to-apples with the cost-bearing
-        # strategy (a frictionless benchmark would unfairly beat it).
         _rt = (1 - _FRICTION) ** 2
         bench_pct = round((_bench_gross * _rt - 1) * 100, 2)
+        _bench_label = f"{len(_bh_weights)}-name basket (ideal weights)"
     else:
-        bench_pct = 0.0
+        bench_bars = (
+            symbol_bars.get(bench_sym, primary_bars)
+            if bench_sym else primary_bars
+        )
+        if len(bench_bars) >= 2:
+            _bench_gross = (
+                float(bench_bars["Close"].iloc[-1])
+                / float(bench_bars["Close"].iloc[0])
+            )
+            # Net of one round-trip so it's apples-to-apples with the
+            # cost-bearing strategy (a frictionless benchmark would
+            # unfairly beat it).
+            _rt = (1 - _FRICTION) ** 2
+            bench_pct = round((_bench_gross * _rt - 1) * 100, 2)
+        else:
+            bench_pct = 0.0
+        _bench_label = bench_sym or primary_symbol
 
     n_trades = len(trades)
     # Hit rate: pair sells to their preceding same-symbol buys (FIFO)
@@ -2600,15 +2988,110 @@ def backtest_workflow(
             "the held position at the window end (unrealized), not a closed "
             "round-trip."
         )
-    summary = (
-        f"Verdict — {verdict['label']}: {verdict['rationale']} "
-        f"Backtested {name!r} on {primary_symbol} over {period}. "
-        f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
-        f"buy-and-hold returned {bench_pct:+.1f}%.{_hold_txt}{_sharpe_txt}{_psr_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}{_sp_txt}"
+    # ── Basket detection ────────────────────────────────────────────────
+    # A weighted `action.allocate_basket`, OR ≥2 distinct long BUY place_orders
+    # with no exit, is a BASKET buy-and-hold — NOT a single-symbol scheduled/
+    # indicator strategy. Label + title it as a basket so the card doesn't show
+    # one leg's company name ("Bharat Petroleum…") + "Scheduled buy strategy"
+    # for what is actually an 8-name basket, and so the benchmark line is honest.
+    _basket_syms: list[str] = []
+    _has_allocate = False
+    for _b in elig.branches:
+        for _step in _b.body:
+            _st = _step.get("step_type")
+            _cfg = _step.get("config") or {}
+            if _st == "action.allocate_basket":
+                _has_allocate = True
+                for _leg in (_cfg.get("legs") or []):
+                    _s = str((_leg or {}).get("symbol") or "").upper().strip()
+                    if _s and _s not in _basket_syms:
+                        _basket_syms.append(_s)
+            elif _st == "action.place_order":
+                _side = str(_cfg.get("side") or _cfg.get("transaction_type") or "buy").lower()
+                _s = str(_cfg.get("symbol") or "").upper().strip()
+                if _s and ("buy" in _side or "long" in _side) and _s not in _basket_syms:
+                    _basket_syms.append(_s)
+    _is_basket = _has_allocate or (len(_basket_syms) >= 2 and n_sells == 0)
+    _strategy_kind = "basket" if _is_basket else "indicator"
+    _display_title: Optional[str] = None
+    _display_subtitle: Optional[str] = None
+    if _is_basket:
+        _nnames = len(_basket_syms)
+        _display_title = (
+            name if name and name.strip().lower() not in ("workflow", "")
+            else f"{_nnames}-name basket — buy & hold"
+        )
+        _rebal = "hold to end · no rebalance" if n_sells == 0 else "with rebalancing"
+        _display_subtitle = f"{_nnames}-name weighted basket · {_rebal}"
+
+    # ── Structured reply (sections, not a run-on paragraph) ─────────────
+    _cagr = metrics.get("cagr_pct")
+    _cagr_txt = (f" (CAGR {_cagr:+.1f}%/yr)"
+                 if isinstance(_cagr, (int, float)) else "")
+    _subject = (f"the {len(_basket_syms)}-name basket"
+                if _is_basket else primary_symbol)
+    # Report the ACTUAL tested span, not the requested `period` string — a
+    # "march 2025 → march 2026" ask can arrive with period='3y' while the
+    # real window is ~1y, and "over 3y" next to "266 daily bars" is a
+    # self-contradiction. Derive years from the window bounds.
+    try:
+        _y0 = datetime.fromisoformat(_win_start).date()
+        _y1 = datetime.fromisoformat(_win_end).date()
+        _actual_years: Optional[float] = max((_y1 - _y0).days, 1) / 365.25
+    except Exception:
+        _actual_years = None
+    _span_txt = f"~{_actual_years:.1f}y" if _actual_years else period
+    _ret = (
+        f"Strategy **{total_return_pct:+.1f}%**{_cagr_txt} over {_span_txt} "
+        f"on {_subject}, across {n_trades} trade(s)."
     )
+    if _is_basket and not bench_sym and _bh_resolvable:
+        _ret += f" Buy-and-hold this basket at ideal weights {bench_pct:+.1f}%."
+    elif _is_basket and not bench_sym:
+        # Couldn't resolve every leg's bars (e.g. a mid-window listing) — no
+        # meaningful basket-wide benchmark to show; steer to an index rather
+        # than comparing to one arbitrary constituent.
+        _ret += " Add a benchmark (e.g. NIFTYBEES) to compare vs the index."
+    elif bench_sym:
+        _ret += f" Benchmark {bench_sym} {bench_pct:+.1f}%."
+    else:
+        _ret += f" Buy-and-hold {bench_pct:+.1f}%."
+    _risk = (_sharpe_txt + _psr_txt).strip()
+    _robust = (_mc_txt + _dsr_txt + _sp_txt).strip()
+    # Scannable layout: verdict paragraph, then one bullet per dimension
+    # (markdown collapses single newlines, so bullets + blank-line breaks are
+    # what render as discrete lines rather than a wall of text), then a quiet
+    # method footnote.
+    _bullets = [f"**Return** · {_ret}{_hold_txt}"]
+    if _risk:
+        _bullets.append(f"**Risk** · {_risk}")
+    if _robust:
+        _bullets.append(f"**Robustness** · {_robust}")
+    _bar_label = {
+        "1d": "daily", "1wk": "weekly", "1mo": "monthly",
+        "1h": "hourly", "1m": "1-minute", "3m": "3-minute",
+        "5m": "5-minute", "10m": "10-minute", "15m": "15-minute",
+        "30m": "30-minute",
+    }.get(norm_interval, f"{norm_interval}")
+    _partial_note = (
+        "partial-day bar excluded" if not _is_intraday_iv(norm_interval)
+        else "unclosed last bar excluded"
+    )
+    _lines = [
+        f"**Verdict — {verdict['label']}.** {verdict['rationale']}",
+        "",
+        *[f"- {b}" for b in _bullets],
+        "",
+        (
+            f"_Method: results are {_method['costs']}, on {_method['basis']}. "
+            f"Window {_win_start} → {_win_end} · {_n_bars} {_bar_label} bars "
+            f"({_partial_note})._"
+        ),
+    ]
     if elig.warnings:
-        summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."
+        _lines.append("")
+        _lines.append(f"_Notes: {'; '.join(elig.warnings[:3])}._")
+    summary = "\n".join(_lines)
 
     # Pull a meaningful indicator label + series for the chart card's
     # bottom panel. The card titles the panel "<INDICATOR>(<PERIOD>)"
@@ -2641,7 +3124,7 @@ def backtest_workflow(
         chart_threshold = float(cfg.get("value") or 0.0)
         if series is not None:
             chart_curve = [
-                {"t": ts.date().isoformat(), "v": round(float(v), 4)}
+                {"t": _fmt_bar_ts(ts), "v": round(float(v), 4)}
                 for ts, v in series.dropna().items()
             ]
         break
@@ -2668,4 +3151,12 @@ def backtest_workflow(
         bench_buy_hold_return_pct=bench_pct,
         summary_text=summary,
         methodology=_method,
+        strategy_kind=_strategy_kind,
+        display_title=_display_title,
+        display_subtitle=_display_subtitle,
+        window_start=_win_start,
+        window_end=_win_end,
+        n_bars=_n_bars,
+        bar_interval=norm_interval,
+        benchmark_label=_bench_label,
     )

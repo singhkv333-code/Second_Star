@@ -234,11 +234,30 @@ def _basket_action(
     config: dict, structure: dict, *, label: str
 ) -> tuple[dict, list[str]]:
     """One ``action.allocate_basket`` step from ``structure.weights`` (AVOID /
-    untradeable / leveraged-MCX names dropped, never shorted-by-accident)."""
+    untradeable / leveraged-MCX names dropped, never shorted-by-accident).
+
+    Curated views carry the basket as ``structure.members_long`` (the honest
+    holdings list) with ``scheme='equal_weight'`` and no pre-computed
+    ``weights`` map — the builders leave sizing to deploy. When ``weights`` is
+    absent we synthesize an equal-weight book over ``members_long`` (1/N each),
+    matching the declared scheme; sizing in rupees is still the user's call at
+    approval (``_CAPITAL_REF``). Without this the deploy raised
+    "no tradeable equity legs to arm" for every curated basket."""
     meta = _instrument_meta(config)
+    weights = structure.get("weights")
+    if not weights:
+        members = [
+            m for m in (structure.get("members_long") or [])
+            if isinstance(m, str) and m
+        ]
+        if members:
+            even = round(1.0 / len(members), 6)
+            weights = {sym: even for sym in members}
+        else:
+            weights = {}
     legs: list[dict] = []
     dropped: list[str] = []
-    for sym, weight in (structure.get("weights") or {}).items():
+    for sym, weight in weights.items():
         try:
             w = float(weight)
         except (TypeError, ValueError):
@@ -253,13 +272,28 @@ def _basket_action(
             # A leveraged MCX leg can't ride an equity basket — surface it.
             dropped.append(sym)
             continue
+        # Carry the REAL asset class / currency / exchange per leg (multi-asset)
+        # instead of force-stamping NSE. US equities/ETFs and crypto keep their
+        # own venue + USD currency so the ledger and the fill executor treat
+        # them correctly (fractional US shares, crypto units, USD→INR marks).
+        try:
+            from backend.view_markets.security_meta import resolve_security_meta
+            m = resolve_security_meta(sym)
+            asset_class = m.get("asset_class") or "in_equity"
+            currency = m.get("currency") or "INR"
+        except Exception:  # noqa: BLE001
+            asset_class, currency = "in_equity", "INR"
         exch = info.get("exchange")
-        if exch not in _EQUITY_EXCHANGES:
+        if asset_class in ("us_equity", "us_etf"):
+            exch = "NASDAQ"
+        elif asset_class == "crypto":
+            exch = "CRYPTO"
+        elif exch not in _EQUITY_EXCHANGES:
             exch = "NSE"
         side = "short" if info.get("role") == "short" else "long"
         legs.append(
             {"symbol": sym, "weight": round(min(w, 1.0), 6), "side": side,
-             "exchange": exch}
+             "exchange": exch, "asset_class": asset_class, "currency": currency}
         )
     if not legs:
         raise ValueError(

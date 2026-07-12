@@ -408,6 +408,16 @@
       "note": "Pure news-event trigger (no schedule). Use trigger.event when the event itself is the trigger and there is no pre-news leg. Keywords specific, event_description in natural language for the LLM verifier."
     },
     {
+      "id": "top_gainers_open_to_close",
+      "prompt": "create me an agent that buys the top gainers after the open and sells them before the close.",
+      "tool": "propose_workflow",
+      "args": {
+        "_steps_summary": "trigger.market_relative_time(anchor: open, offset_minutes: 15) → fetch.top_movers(direction: gainers, universe: nifty50, limit: 5) → action.allocate_notional(symbols: {{context.1.symbols}}, side: buy, total_inr: 25000, strategy: equal) → trigger.market_relative_time(anchor: close, offset_minutes: -10) → action.squareoff(scope: all)"
+      },
+      "confidence": 0.93,
+      "note": "Dynamic top-movers basket — NOT a single arbitrary stock. \"top gainers/losers\" is served by fetch.top_movers (Kite-primary NIFTY-50 movers) feeding action.allocate_notional which spreads a rupee budget equally across the movers via the {{context.<fetch_idx>.symbols}} ref. \"buy at open, sell before close\" is a two-leg intraday shape: trigger.market_relative_time(open) enters, a second trigger.market_relative_time(close) + action.squareoff(scope: all) exits. Never collapse a top-gainers ask into one ticker."
+    },
+    {
       "id": "news_gate_on_sebi_action",
       "prompt": "If SEBI penalises any large private bank by 3 PM, short that bank's holding; otherwise hold.",
       "tool": "propose_workflow",

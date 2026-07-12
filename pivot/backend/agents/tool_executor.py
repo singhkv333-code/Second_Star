@@ -114,10 +114,12 @@ def _build_handlers() -> dict:
         "get_market_status":          _get_market_status,
         "get_upcoming_events":        _get_upcoming_events,
         "get_top_movers":             _get_top_movers,
+        "compute":                    _compute,
         # retail capability tools (2026-05-29): fundamental screen,
         # single-stock fundamentals + news, IPO feed
         "screen_fundamentals":        _screen_fundamentals,
         "fetch_fundamentals":         _fetch_fundamentals,
+        "query_financials":           _query_financials,
         "get_symbol_news":            _get_symbol_news,
         # Strategy builder + dynamic clarifying questions (Workstreams A & B).
         # build_strategy emits a strategy_builder_card; ask_user_dynamic runs
@@ -858,6 +860,7 @@ async def _backtest_workflow(a, kt, db, uid):
     start_date = a.get("start_date") or None
     end_date = a.get("end_date") or None
     benchmark_symbol = a.get("benchmark_symbol") or None
+    interval = str(a.get("interval") or "1d")
 
     validated_steps = [s.model_dump() for s in draft.steps]
     try:
@@ -869,6 +872,7 @@ async def _backtest_workflow(a, kt, db, uid):
             start_date=start_date,
             end_date=end_date,
             benchmark_symbol=benchmark_symbol,
+            interval=interval,
             # Group this CONVERSATION's backtests (falls back to user) so the
             # Deflated Sharpe deflates for how many variants were tried in this
             # session — tuning one idea deflates together; unrelated chats stay
@@ -907,8 +911,16 @@ async def _backtest_workflow(a, kt, db, uid):
             "signals": result.signals,
             "metrics": result.metrics,
             "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+            "benchmark_label": getattr(result, "benchmark_label", None),
             "methodology": result.methodology,
             "summary_text": result.summary_text,
+            "strategy_kind": getattr(result, "strategy_kind", "indicator"),
+            "display_title": getattr(result, "display_title", None),
+            "display_subtitle": getattr(result, "display_subtitle", None),
+            "window_start": getattr(result, "window_start", None),
+            "window_end": getattr(result, "window_end", None),
+            "n_bars": getattr(result, "n_bars", 0),
+            "bar_interval": getattr(result, "bar_interval", "1d"),
         },
         "logiccard": None,
     }
@@ -1600,6 +1612,7 @@ async def _screen_fundamentals(a, kt, db, uid):
         sort_by=a.get("sort_by"),
         limit=int(a.get("limit", 15)),
         market_cap_tier=a.get("market_cap_tier"),
+        custom_ratios=a.get("custom_ratios") or None,
     )
     return {"success": True, "data": out, "logiccard": None}
 
@@ -1611,6 +1624,27 @@ async def _fetch_fundamentals(a, kt, db, uid):
     return {"success": True,
             "data": public_fundamentals_view(fetch_fundamentals(str(a.get("symbol", "")))),
             "logiccard": None}
+
+
+async def _query_financials(a, kt, db, uid):
+    """Resolve an arbitrary financial term for one company (semantic
+    translation + fuzzy line-item match + live price ratios)."""
+    import asyncio
+    from backend.market.financials_db import resolve_financial_query
+    sym = str(a.get("symbol", "")).strip().upper()
+    metric = str(a.get("metric", "")).strip()
+    basis = str(a.get("basis", "consolidated")).strip() or "consolidated"
+    try:
+        history = int(a.get("history", 0) or 0)
+    except (TypeError, ValueError):
+        history = 0
+    if not sym or not metric:
+        return {"success": False, "error": "symbol and metric are required",
+                "data": {}, "logiccard": None}
+    res = await asyncio.to_thread(
+        resolve_financial_query, sym, metric, basis=basis, history=history,
+    )
+    return {"success": True, "data": res, "logiccard": None}
 
 
 async def _get_symbol_news(a, kt, db, uid):
@@ -1781,9 +1815,44 @@ async def _build_strategy(a, kt, db, uid):
     # can reuse an open session (it otherwise opens its own read-only ones).
     # `symbols` (the pinned allow-list) is also carried on slots.symbols; passing
     # it explicitly keeps the direct-call path (Wave C thematic flow) unambiguous.
-    card = build_strategy(request, slots, ctx=db, symbols=slots.symbols)
+    # Carry the thematic WHY strings through so each constituent's weight gets a
+    # causal reason on the card (instead of being dropped at seed time).
+    reasons = _thematic_constituent_reasons(a, slots)
+    wov = a.get("weight_overrides")
+    if isinstance(wov, dict) and wov:
+        try:
+            wov = {str(k): float(v) for k, v in wov.items()}
+        except (TypeError, ValueError):
+            wov = None
+    else:
+        wov = None
+    card = build_strategy(
+        request, slots, ctx=db, symbols=slots.symbols,
+        constituent_reasons=reasons or None,
+        weight_overrides=wov,
+    )
     payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
     return {"success": True, "data": payload, "logiccard": None}
+
+
+def _thematic_constituent_reasons(a: dict, slots) -> dict[str, str]:
+    """Map each pinned/seeded symbol to its thematic WHY string (the causal hook
+    from thematic_map) so the builder can attach a per-weight reason. Empty when
+    the request isn't a recognised macro scenario — the builder then generates
+    quality/conviction reasons itself."""
+    try:
+        from backend.services.thematic_map import detect_thematic_scenario
+        scn = detect_thematic_scenario(
+            " ".join(str(a.get(k) or "") for k in ("request", "theme"))
+        )
+        if scn is None:
+            return {}
+        out: dict[str, str] = {}
+        for tk, why in list(scn.winners) + list(scn.losers):
+            out[str(tk).upper()] = str(why)
+        return out
+    except Exception:  # never let reason-mapping break the build
+        return {}
 
 
 async def _ask_user_dynamic(a, kt, db, uid):
@@ -3220,6 +3289,37 @@ async def _get_top_movers(a, kt, db, uid):
                 "Note: yfinance unavailable — these are seeded values."
                 if seeded else None
             ),
+        },
+        "logiccard": None,
+    }
+
+
+async def _compute(a, kt, db, uid):
+    """COMPUTE lane — deterministic sandboxed math over in-context values.
+
+    The subprocess spawn (~100ms) blocks; run it off the event loop. A
+    failed validation/execution comes back success=False with a message
+    written for the model, so the tool loop self-corrects in-turn instead
+    of surfacing a generic apology."""
+    import asyncio
+    from backend.services.safe_compute import run_compute
+    code = str(a.get("code") or "")
+    res = await asyncio.to_thread(run_compute, code)
+    if not res.ok:
+        return {
+            "success": False,
+            "error": f"compute failed: {res.error}",
+            "data": {},
+            "logiccard": None,
+        }
+    return {
+        "success": True,
+        "data": {
+            "result": res.result,
+            "note": a.get("note"),
+            # Nudge the reply to quote these exact values, not re-derive.
+            "_guidance": "Present `result` values verbatim — do not re-do "
+                         "the arithmetic in prose.",
         },
         "logiccard": None,
     }

@@ -165,7 +165,7 @@ export function listRegisteredOptionStrategies(): Promise<
 }
 
 /** `POST /option-strategies/{id}/withdraw` — the delete-equivalent for a
- *  registered option strategy. */
+ *  registered (not-yet-filled) option strategy intent. */
 export function withdrawRegisteredOptionStrategy(
   id: string,
 ): Promise<ApiResult<{ success: boolean }>> {
@@ -173,6 +173,21 @@ export function withdrawRegisteredOptionStrategy(
     `/option-strategies/${encodeURIComponent(id)}/withdraw`,
     { method: "POST" },
   );
+}
+
+/** `POST /option-strategies/{id}/close` — square off (exit) every leg of an
+ *  ACTIVE (filled) paper-book strategy at the live chain. */
+export function closeOptionStrategy(id: string): Promise<
+  ApiResult<{
+    success: boolean;
+    strategy: RegisteredOptionStrategy;
+    execution: { success: boolean; fills: unknown[]; error: string | null } | null;
+    error: string | null;
+  }>
+> {
+  return requestLegacy(`/option-strategies/${encodeURIComponent(id)}/close`, {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +202,8 @@ export type EquityBasketMember = {
   symbol: string;
   /** Percent 0-100. Server-normalised to sum 100. */
   weight: number;
+  /** Resolved display name (falls back to the symbol server-side). */
+  name?: string;
 };
 
 export type EquityBasket = {
@@ -237,14 +254,31 @@ export function updateEquityBasket(
   });
 }
 
-/** `DELETE /strategies/baskets/{id}` — soft-delete a basket. */
+/** `DELETE /strategies/baskets/{id}` — square off every held member, then
+ *  delete the basket for good. */
 export function deleteEquityBasket(
   id: number,
-): Promise<ApiResult<{ id: number; status: string }>> {
-  return requestLegacy<{ id: number; status: string }>(
+): Promise<ApiResult<{ id: number; status: string; squareoff: BasketCloseResult }>> {
+  return requestLegacy<{ id: number; status: string; squareoff: BasketCloseResult }>(
     `/strategies/baskets/${id}`,
     { method: "DELETE" },
   );
+}
+
+export type BasketCloseResult = {
+  count: number;
+  registered: BasketTradePlacedLeg[];
+  skipped: BasketTradeSkip[];
+};
+
+/** `POST /strategies/baskets/{id}/close` — square off (sell) every member
+ *  currently held in the paper/broker book. The basket itself is untouched. */
+export function closeEquityBasket(
+  id: number,
+): Promise<ApiResult<BasketCloseResult>> {
+  return requestLegacy<BasketCloseResult>(`/strategies/baskets/${id}/close`, {
+    method: "POST",
+  });
 }
 
 // ── Trade a basket ──────────────────────────────────────────────────────────

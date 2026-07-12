@@ -124,7 +124,9 @@ const NAV_ITEMS: {
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
-const DEFAULT_TAB: TabKey = "chat";
+// Home is the landing surface — a fresh visit to "/" (no hash), and every
+// post-login/signup redirect (which lands on "/"), opens on Home, not Chat.
+const DEFAULT_TAB: TabKey = "home";
 const METRIC_REFRESH_MS = 30_000;
 
 function readHashTab(): TabKey {
@@ -625,6 +627,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // put after the tab switch and closes if the user navigates elsewhere.
   const openAgentFromHome = useCallback(
     (spec: { matchName: string; draft: Workflow }): void => {
+      // A prebuilt AUTOMATION is a workflow agent — land on the "Equity agents"
+      // surface (not whatever surface, e.g. My Opinions, was last open) so the
+      // editor opens over the agents list it belongs to.
+      setAgentsSurfaceReq((prev) => ({ surface: "equity", nonce: (prev?.nonce ?? 0) + 1 }));
       goTab("agents");
       void listWorkflows({ status: ["active", "paused", "draft"], limit: 50 })
         .then(async (result) => {
@@ -1030,6 +1036,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onEditWithChat={editWorkflowWithChat}
                 onBrowseViews={() => goTab("views")}
                 surfaceRequest={agentsSurfaceReq}
+                onSendPrompt={sendChatPrompt}
               />
             </div>
           )}

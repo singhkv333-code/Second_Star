@@ -1558,6 +1558,15 @@ class _BacktestDraftRequest(BaseModel):
             "yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max."
         ),
     )
+    interval: str = Field(
+        default="1d",
+        description=(
+            "Bar interval. Daily by default; intraday accepted (1h, "
+            "15m, 5m, 30m — normalised via core.data.intervals). Data "
+            "windows for intraday are shallow (yfinance 1h=730d, Kite "
+            "1h=400d) and clamped honestly rather than fabricated."
+        ),
+    )
 
 
 @router.post(
@@ -1595,6 +1604,7 @@ async def backtest_draft(
             body.steps,
             period=body.period,
             name=body.name,
+            interval=body.interval,
         )
     except ValueError as e:
         return {
@@ -1621,6 +1631,14 @@ async def backtest_draft(
         "signals": result.signals,
         "metrics": result.metrics,
         "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        "benchmark_label": getattr(result, "benchmark_label", None),
         "methodology": result.methodology,
         "summary": result.summary_text,
+        "strategy_kind": getattr(result, "strategy_kind", "indicator"),
+        "display_title": getattr(result, "display_title", None),
+        "display_subtitle": getattr(result, "display_subtitle", None),
+        "window_start": result.window_start,
+        "window_end": result.window_end,
+        "n_bars": result.n_bars,
+        "bar_interval": result.bar_interval,
     }

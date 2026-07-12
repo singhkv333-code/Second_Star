@@ -72,6 +72,10 @@ class UserContext:
         today's only path is a live Kite margins call, which costs a
         broker round-trip. Always `None` in the current build.
       - `watchlist_symbols`: at most 3 symbol strings, newest first.
+      - `saved_baskets`: at most 10 dicts, each
+        `{id, name, symbols: [str], n: int}` — the user's saved equity
+        baskets. Lets the model answer "rebalance my oil basket" /
+        "backtest my defensive basket" without a discovery round-trip.
     """
     user_id: int
     full_name: Optional[str] = None
@@ -83,6 +87,7 @@ class UserContext:
     kite_connected: Optional[bool] = None
     cash_buffer_inr: Optional[float] = None
     watchlist_symbols: Optional[list[str]] = None
+    saved_baskets: Optional[list[dict[str, Any]]] = None
 
 
 # ── Role-specific instructions ──────────────────────────────────────
@@ -340,6 +345,21 @@ def _format_user_context(ctx: UserContext) -> str:
         # Backward compat — when only the count was passed (e.g. an
         # older caller), render that rather than nothing.
         bits.append(f"- Active automations: {ctx.active_workflows_count}")
+
+    # ── Saved equity baskets ────────────────────────────────────────
+    # So "rebalance / backtest / deploy my <name> basket" resolves without
+    # a discovery round-trip. Compact: name + constituent symbols.
+    if ctx.saved_baskets:
+        n = len(ctx.saved_baskets)
+        bits.append(f"- Saved baskets ({n}):")
+        for b in ctx.saved_baskets[:10]:
+            name = b.get("name") or "(unnamed)"
+            bid = b.get("id") or "?"
+            syms = b.get("symbols") or []
+            nsym = b.get("n") or len(syms)
+            preview = ", ".join(str(s) for s in syms[:6])
+            more = f" +{nsym - 6} more" if nsym > 6 else ""
+            bits.append(f'  • "{name}" id={bid} ({nsym}): {preview}{more}')
 
     # ── Watchlist (compact one-liner) ───────────────────────────────
     if ctx.watchlist_symbols:

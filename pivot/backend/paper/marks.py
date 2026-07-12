@@ -123,6 +123,45 @@ def get_mark_price(symbol: str, token: str = "mock_token") -> Optional[Decimal]:
     return price
 
 
+def _multiasset_mark_inr(sym: str) -> Optional[Decimal]:
+    """Mark a US-equity/ETF or crypto symbol and return it in **INR** (price ×
+    USD/INR), so it sums correctly into the INR paper book / NAV. Returns None
+    for Indian symbols (the caller uses the NSE paths) or when the US/crypto
+    price is unavailable. This is what makes US/crypto positions value and the
+    View ledger price them, instead of being dropped or mis-priced as rupees."""
+    try:
+        from backend.view_markets.security_meta import classify
+        cls = classify(sym)
+    except Exception:  # noqa: BLE001
+        return None
+    ac, base = cls.get("asset_class"), cls.get("base") or sym
+    usd: Optional[float] = None
+    if ac == "crypto":
+        try:
+            from backend.market.global_quotes import get_global_quote
+            gq = get_global_quote("crypto", base, quote_currency="USD")
+            if gq is not None and gq.price and float(gq.price) > 0:
+                usd = float(gq.price)
+        except Exception:  # noqa: BLE001
+            usd = None
+    elif ac in ("us_equity", "us_etf"):
+        try:
+            from backend.market.alpaca_data import get_us_price_usd
+            usd = get_us_price_usd(base)
+        except Exception:  # noqa: BLE001
+            usd = None
+    else:
+        return None  # Indian — fall through to the NSE paths
+    if not usd or usd <= 0:
+        return None
+    try:
+        from backend.market.fx import usd_to_inr
+        inr = usd_to_inr(usd)
+        return to_money(inr) if inr and inr > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _get_mark_price_uncached(sym: str, token: str) -> Optional[Decimal]:
     # 0. Option contracts mark through the chain (F&O P2) — the equity
     # paths below can't price them (yfinance has no NFO symbols; a Kite
@@ -143,6 +182,13 @@ def _get_mark_price_uncached(sym: str, token: str) -> Optional[Decimal]:
         # back to the position's stored last_price (fast, and correct for an
         # illiquid/expired leg).
         return None
+
+    # 0b. US-equity/ETF + crypto — mark via Alpaca/yfinance (US) or
+    # Kraken/CoinGecko (crypto), converted to INR. Returns None for Indian
+    # symbols, which then take the NSE paths below.
+    ma = _multiasset_mark_inr(sym)
+    if ma is not None:
+        return ma
 
     # 1. Real Kite live quote — this user's own session first, then ANY
     # active Kite session app-wide (mirrors the screener's `_market_token`:

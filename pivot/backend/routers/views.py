@@ -173,6 +173,12 @@ class Holding(BaseModel):
     # Equal-weight 100/n for a basket; ``None`` when not applicable (pair legs,
     # the Nifty short, option legs).
     weight_pct: Optional[float] = None
+    # Display metadata (multi-asset): real company/coin name is in `name`;
+    # these add the logo + asset class + pricing currency so the card can
+    # render a logo and an INR/USD-aware badge. Null logo → FE monogram.
+    logo_url: Optional[str] = None
+    asset_class: Optional[str] = None   # in_equity|in_etf|us_equity|us_etf|crypto
+    currency: Optional[str] = None      # INR | USD
 
 
 class Episode(BaseModel):
@@ -651,6 +657,9 @@ def _holdings(pre: dict[str, Any]) -> list[Holding]:
             return_pct=_as_float(h.get("return_pct")),
             position=str(pos) if pos else None,
             weight_pct=_as_float(h.get("weight_pct")),
+            logo_url=(str(h["logo_url"]) if h.get("logo_url") else None),
+            asset_class=(str(h["asset_class"]) if h.get("asset_class") else None),
+            currency=(str(h["currency"]) if h.get("currency") else None),
         ))
     return out
 
@@ -1055,6 +1064,45 @@ def _list_cache_key(
     )
 
 
+class SecurityMetaRequest(BaseModel):
+    symbols: list[str]
+
+
+class SecurityMeta(BaseModel):
+    symbol: str
+    name: str
+    logo_url: Optional[str] = None
+    asset_class: Optional[str] = None   # in_equity|in_etf|us_equity|us_etf|crypto
+    currency: Optional[str] = None      # INR | USD
+
+
+@router.post("/views/security-meta", response_model=list[SecurityMeta])
+def views_security_meta(request: SecurityMetaRequest):
+    """Resolve display metadata (name / logo / asset class / currency) for a
+    batch of security symbols — Indian, US, ETF, or crypto. The Views/strategy
+    cards call this to render a real company name + logo + asset badge for
+    each constituent instead of a bare ticker. Read-only, no auth needed
+    (metadata only). Capped at 200 symbols per call."""
+    syms = [str(s) for s in (request.symbols or []) if s][:200]
+    if not syms:
+        return []
+    from backend.view_markets.security_meta import resolve_many
+    meta = resolve_many(syms)
+    out: list[SecurityMeta] = []
+    for s in syms:
+        m = meta.get(s)
+        if not m:
+            continue
+        out.append(SecurityMeta(
+            symbol=str(s).upper(),
+            name=str(m.get("name") or str(s).upper()),
+            logo_url=m.get("logo_url"),
+            asset_class=m.get("asset_class"),
+            currency=m.get("currency"),
+        ))
+    return out
+
+
 @router.get("/views", response_model=ListResponse)
 def list_views(
     status: Optional[str] = None,
@@ -1115,8 +1163,14 @@ class PositionLegOut(BaseModel):
     symbol: Optional[str] = None
     side: str = "long"
     weight: Optional[float] = None
+    # entry/current level in INR (return math) + the security's native currency
+    # (the $ level for US/crypto). asset_class/currency say what it is.
+    asset_class: Optional[str] = None    # in_equity|in_etf|us_equity|us_etf|crypto
+    currency: Optional[str] = None       # INR | USD
     entry_price: Optional[float] = None
+    entry_price_native: Optional[float] = None
     last_price: Optional[float] = None
+    last_price_native: Optional[float] = None
     return_pct: Optional[float] = None
 
 
@@ -1800,6 +1854,413 @@ def place(
         ],
         count=len(rows),
         routed_to="paper" if paper else "broker",
+    )
+
+
+# ── immediate multi-asset paper placement (the "Deploy = execute now" path) ──
+# The curated basket / multi_asset expressions mix Indian equities with US
+# equities/ETFs and crypto. The NSE-only /place ticket above can't size those
+# (it forces exchange='NSE' off a precomputed entry ticket). This path instead
+# reuses the allocate_basket LEG BUILDER (the same one deploy_expression arms)
+# and the multi-asset mark → quantize → fill seam (submit_order_for_user →
+# PaperBroker, which fractional-quantizes US/crypto) to place the WHOLE basket
+# into the paper book at a user-declared amount — synchronously, with NO
+# workflow/agent created. The user pressed Deploy, so it stays inside
+# register-not-execute: a paper account fills the simulated book; a live account
+# with no broker session gets the honest 409. Preview computes the exact
+# per-leg breakdown (no writes) so the FE can confirm before placing.
+
+# Default basket notional when the caller doesn't declare one (mirrors the
+# Strategy-calculator's ₹1,00,000 default).
+_DEFAULT_PLACE_INR: float = 100_000.0
+
+
+def _inr_txt(v: float) -> str:
+    """Indian-grouped rupee string for user-facing reasons (₹1,00,000)."""
+    n = int(round(v))
+    s = str(abs(n))
+    if len(s) > 3:
+        head, tail = s[:-3], s[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        parts.insert(0, head)
+        s = ",".join(parts) + "," + tail
+    return f"₹{'-' if n < 0 else ''}{s}"
+
+
+class BasketFillLeg(BaseModel):
+    """One computed leg of an immediate basket placement (preview + skipped)."""
+    symbol: str
+    # Display name + logo for the deploy card (best-effort; logo may be null →
+    # the FE renders a monogram).
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    asset_class: str
+    exchange: str
+    weight: float
+    slice_inr: float
+    # INR mark used to size the leg; None when no live price is available.
+    mark_inr: Optional[float] = None
+    # Whole shares (Indian) or fractional units (US/crypto); 0 when skipped.
+    quantity: float
+    # "ok" | "no_price" | "slice_too_small" | "short_unsupported"
+    #        | "market_closed" | "insufficient_buying_power" | "rejected"
+    status: str
+
+
+class BasketPreviewResponse(BaseModel):
+    placeable: bool
+    routed_to: str  # "paper" | "broker"
+    total_inr: float
+    legs: list[BasketFillLeg]        # legs that WILL be placed
+    skipped: list[BasketFillLeg]     # legs dropped, with an honest reason
+    # Present (and the FE shows it as the pop-up reason) only when NOT placeable.
+    reason: Optional[str] = None
+
+
+class BasketPlacedLeg(BaseModel):
+    symbol: str
+    exchange: str
+    quantity: float
+    fill_price: Optional[float] = None
+    status: str
+    order_id: Optional[str] = None
+
+
+class BasketPlaceResponse(BaseModel):
+    placed: list[BasketPlacedLeg]
+    count: int
+    routed_to: str
+    total_inr: float
+    skipped: list[BasketFillLeg] = Field(default_factory=list)
+
+
+class BasketPlaceRequest(BaseModel):
+    capital_inr: Optional[float] = Field(default=None, gt=0)
+    conversation_id: Optional[str] = None
+
+
+_NO_LIVE_PRICE_REASON = (
+    "No live prices are available for this basket right now — the market for "
+    "these instruments may be closed. Try again during their market hours."
+)
+
+
+def _market_label(asset_class: str) -> str:
+    if asset_class in ("us_equity", "us_etf"):
+        return "US market"
+    if asset_class in ("in_equity", "in_etf"):
+        return "Indian market (NSE)"
+    return "market"
+
+
+def _not_placeable_reason(
+    skipped: list[BasketFillLeg], total_inr: float, cash: Optional[float],
+) -> str:
+    """The single most relevant reason NOTHING could be placed — market-closed
+    outranks buying-power outranks no-price, so the pop-up names the real
+    blocker (e.g. 'US market is closed on weekends')."""
+    closed = [s for s in skipped if s.status == "market_closed"]
+    if closed:
+        markets = sorted({_market_label(s.asset_class) for s in closed})
+        syms = ", ".join(dict.fromkeys(s.symbol for s in closed))
+        verb = "is" if len(markets) == 1 else "are"
+        return (
+            f"The {' and '.join(markets)} {verb} closed right now, so {syms} "
+            "can't be placed. US stocks trade 9:30 AM–4:00 PM ET (Mon–Fri) and "
+            "Indian stocks ~9:15 AM–3:30 PM IST (Mon–Fri). Try again when the "
+            "market is open — crypto views deploy 24/7."
+        )
+    if cash is not None and any(
+        s.status == "insufficient_buying_power" for s in skipped
+    ):
+        return (
+            f"This basket needs about {_inr_txt(total_inr)} but your paper "
+            f"account has {_inr_txt(cash)} free. Lower the amount or add paper "
+            "capital, then try again."
+        )
+    return _NO_LIVE_PRICE_REASON
+
+
+def _basket_place_legs(expression: ViewExpression) -> list[dict[str, Any]]:
+    """The allocate_basket legs for a placeable basket/multi_asset expression.
+
+    Reuses ``deploy._action_steps`` so the placed basket is IDENTICAL to what
+    the automation path would arm. Raises ``validation_error`` (422) with a
+    plain reason for option/hedge/pair kinds or a basket with no tradeable
+    legs — the FE surfaces that reason in the deploy pop-up."""
+    from backend.view_markets.deployment.deploy import _action_steps, _kind
+
+    kind = _kind(expression)
+    if kind not in ("basket", "multi_asset"):
+        label = {
+            "option_strategy": "This options strategy",
+            "hedge": "This hedge",
+            "pair": "This pair trade",
+        }.get(kind, "This strategy")
+        raise validation_error(
+            f"{label} can't be placed as a simple share/units basket — Deploy "
+            "here handles equity, ETF and crypto baskets only."
+        )
+    config = dict(expression.config or {})
+    structure = config.get("structure") or {}
+    if not isinstance(structure, dict):
+        structure = {}
+    try:
+        actions, _ = _action_steps(
+            kind, config, structure, label=config.get("label") or "basket",
+        )
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+    for step in actions:
+        if step.get("step_type") == "action.allocate_basket":
+            legs = list((step.get("config") or {}).get("legs") or [])
+            if legs:
+                return legs
+    raise validation_error("This strategy has no placeable basket legs.")
+
+
+def _compute_basket_fills(
+    legs_cfg: list[dict[str, Any]],
+    total_inr: float,
+    available_inr: Optional[float] = None,
+) -> tuple[list[BasketFillLeg], list[BasketFillLeg]]:
+    """Size each leg at ``total_inr * normalised_weight`` using the multi-asset
+    INR mark (NSE / US via Alpaca-yf×fx / crypto via Kraken-CoinGecko×fx) and
+    the asset-class quantizer (whole shares for Indian, fractional for US/
+    crypto). Returns (placeable_legs, skipped_legs) — mirrors the
+    ``action.allocate_basket`` executor so preview == what actually fills.
+
+    When ``available_inr`` is given (a paper account's free cash), legs are
+    walked in order and any leg whose cost exceeds the running remaining cash is
+    skipped as ``insufficient_buying_power`` — so the preview matches the book's
+    per-order buying-power gate instead of promising a leg that then rejects."""
+    from backend.market.market_hours import (
+        asset_class_for_symbol,
+        is_market_open_for_symbol,
+    )
+    from backend.paper.marks import get_mark_price
+    from backend.paper.quantity import quantize_qty
+    from backend.view_markets.security_meta import resolve_security_meta
+
+    weights_sum = sum(float(leg.get("weight") or 0.0) for leg in legs_cfg) or 1.0
+    remaining = available_inr  # None = no cash gate (broker account)
+    ok: list[BasketFillLeg] = []
+    skipped: list[BasketFillLeg] = []
+    for leg in legs_cfg:
+        sym = str(leg.get("symbol") or "").upper()
+        if not sym:
+            continue
+        side = str(leg.get("side", "long"))
+        weight = float(leg.get("weight") or 0.0) / weights_sum
+        slice_inr = round(total_inr * weight, 2)
+        ac = str(leg.get("asset_class") or asset_class_for_symbol(sym) or "in_equity")
+        exch = str(leg.get("exchange") or "NSE")
+        try:
+            meta = resolve_security_meta(sym)
+        except Exception:  # noqa: BLE001 — display only, never fail sizing
+            meta = {}
+        name = meta.get("name") or sym
+        logo = meta.get("logo_url")
+
+        def _mk(status: str, qty: float, mark: Optional[float]) -> BasketFillLeg:
+            return BasketFillLeg(
+                symbol=sym, name=name, logo_url=logo, asset_class=ac,
+                exchange=exch, weight=round(weight, 6), slice_inr=slice_inr,
+                mark_inr=mark, quantity=qty, status=status,
+            )
+
+        if side == "short":
+            # Live shorts aren't brokered in v1 (the executor rejects them too).
+            skipped.append(_mk("short_unsupported", 0.0, None))
+            continue
+        # Market-hours gate FIRST (cheap, no network): a closed venue can't fill
+        # NOW (a paper MARKET order would only REST until the open), so report it
+        # as market_closed without paying for a live-quote fetch. Crypto is 24/7;
+        # US equities Mon–Fri 9:30–16:00 ET; Indian during NSE hours.
+        if not is_market_open_for_symbol(sym):
+            skipped.append(_mk("market_closed", 0.0, None))
+            continue
+        mark = get_mark_price(sym, None)
+        mark_f = float(mark) if mark and float(mark) > 0 else None
+        if mark_f is None:
+            skipped.append(_mk("no_price", 0.0, None))
+            continue
+        qty = quantize_qty(slice_inr / mark_f, symbol=sym, asset_class=ac)
+        qty_f = float(qty) if qty is not None else 0.0
+        if qty_f <= 0:
+            skipped.append(_mk("slice_too_small", 0.0, mark_f))
+            continue
+        cost = qty_f * mark_f
+        if remaining is not None and cost > remaining + 1e-6:
+            skipped.append(_mk("insufficient_buying_power", 0.0, mark_f))
+            continue
+        if remaining is not None:
+            remaining -= cost
+        ok.append(_mk("ok", qty_f, mark_f))
+    return ok, skipped
+
+
+def _paper_cash_available(db: Session, user_id: int) -> Optional[float]:
+    """A paper account's free cash (the buy-side buying-power gate), or None for
+    a live/broker account (buying power lives at the broker, checked at place)."""
+    if not should_use_paper(db, user_id):
+        return None
+    from backend.models import PaperAccount
+
+    acct = (
+        db.query(PaperAccount)
+        .filter(PaperAccount.user_id == user_id, PaperAccount.is_active.is_(True))
+        .one_or_none()
+    )
+    if acct is None:
+        acct = (
+            db.query(PaperAccount)
+            .filter(PaperAccount.user_id == user_id)
+            .one_or_none()
+        )
+    return float(acct.cash_available) if acct is not None else None
+
+
+@router.post(
+    "/views/expressions/{expression_id}/place-basket/preview",
+    response_model=BasketPreviewResponse,
+)
+def place_basket_preview(
+    expression_id: str,
+    body: Optional[BasketPlaceRequest] = None,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> BasketPreviewResponse:
+    _require_flag()
+    if user_id is None:
+        raise http_error(401, "auth_required", "Log in to place orders.")
+    expression = _load_expression_or_404(db, expression_id)
+    total = float((body and body.capital_inr) or _DEFAULT_PLACE_INR)
+    legs_cfg = _basket_place_legs(expression)  # 422 with a plain reason if not
+    cash = _paper_cash_available(db, user_id)
+    ok, skipped = _compute_basket_fills(legs_cfg, total, cash)
+    paper = should_use_paper(db, user_id)
+    reason = None if ok else _not_placeable_reason(skipped, total, cash)
+    return BasketPreviewResponse(
+        placeable=bool(ok),
+        routed_to="paper" if paper else "broker",
+        total_inr=total,
+        legs=ok,
+        skipped=skipped,
+        reason=reason,
+    )
+
+
+@router.post(
+    "/views/expressions/{expression_id}/place-basket",
+    response_model=BasketPlaceResponse,
+    status_code=201,
+)
+def place_basket(
+    expression_id: str,
+    body: Optional[BasketPlaceRequest] = None,
+    db: Session = Depends(get_db),
+    user_id: Optional[int] = Depends(_optional_user_id),
+) -> BasketPlaceResponse:
+    _require_flag()
+    if user_id is None:
+        raise http_error(401, "auth_required", "Log in to place orders.")
+    expression = _load_expression_or_404(db, expression_id)
+    req = body or BasketPlaceRequest()
+    total = float(req.capital_inr or _DEFAULT_PLACE_INR)
+
+    legs_cfg = _basket_place_legs(expression)  # 422 with a plain reason if not
+    cash = _paper_cash_available(db, user_id)
+    ok, skipped = _compute_basket_fills(legs_cfg, total, cash)
+    if not ok:
+        raise validation_error(_not_placeable_reason(skipped, total, cash))
+
+    paper = should_use_paper(db, user_id)
+    if not paper and get_active_broker_session(db, user_id) is None:
+        raise state_conflict(
+            "No broker connected — connect your broker (e.g. Zerodha Kite) in "
+            "Brokers settings to place this basket."
+        )
+
+    from backend.paper.routing import submit_order_for_user
+
+    # Statuses that mean the book did NOT take the leg — a rejected buy deploys
+    # no capital, so it's reported as skipped, never counted as placed (honest
+    # count; mirrors the allocate_basket executor's fill test).
+    _NOT_FILLED = {"REJECTED", "REJECT", "CANCELLED", "FAILED", "ERROR"}
+    # A MARKET order placed while the venue is CLOSED doesn't fill — it RESTS
+    # ("queued for open"). The market-hours gate above should have skipped it,
+    # but if a leg rests anyway (race at the open/close boundary) never count it
+    # as placed — report it as market_closed.
+    _RESTING = {"RESTING", "QUEUED", "PENDING", "OPEN"}
+
+    placed: list[BasketPlacedLeg] = []
+    rejected: list[BasketFillLeg] = []
+    for i, leg in enumerate(ok):
+        r = submit_order_for_user(
+            db, user_id,
+            tradingsymbol=leg.symbol,
+            exchange=leg.exchange,
+            transaction_type="BUY",
+            quantity=leg.quantity,  # raw; PaperBroker quantizes by asset class
+            order_type="MARKET",
+            product="CNC",
+            tag="view_place",
+            source="view",
+            conversation_id=req.conversation_id,
+            client_request_id=f"viewplace:{expression.id}:{i}:{leg.symbol}",
+            label=leg.symbol,
+        )
+        status = str(r.get("status", ""))
+        su = status.upper()
+        if su in _NOT_FILLED or su in _RESTING:
+            # Carry the book's real reason (e.g. insufficient_buying_power) so
+            # the FE explains WHY a leg didn't fill, never a vague "rejected".
+            reason = (
+                "market_closed" if su in _RESTING
+                else (str(r.get("reject_reason") or "").strip() or "rejected")
+            )
+            rejected.append(BasketFillLeg(
+                symbol=leg.symbol, name=leg.name, logo_url=leg.logo_url,
+                asset_class=leg.asset_class, exchange=leg.exchange,
+                weight=leg.weight, slice_inr=leg.slice_inr,
+                mark_inr=leg.mark_inr, quantity=leg.quantity, status=reason,
+            ))
+            continue
+        placed.append(BasketPlacedLeg(
+            symbol=leg.symbol,
+            exchange=leg.exchange,
+            quantity=leg.quantity,
+            fill_price=(
+                float(r["average_price"])
+                if r.get("average_price") is not None else leg.mark_inr
+            ),
+            status=status,
+            order_id=str(r["order_id"]) if r.get("order_id") is not None else None,
+        ))
+
+    # Nothing filled → don't leave rejected order rows or a phantom ledger row.
+    if not placed:
+        db.rollback()
+        raise validation_error(
+            "The book rejected every leg of this basket — nothing was placed. "
+            "This usually means no live price was available; try again during "
+            "market hours."
+        )
+
+    # Record the placed strategy on the My Views ledger (best-effort, same txn).
+    _ensure_position(db, expression, user_id, capital_inr=total, workflow_id=None)
+    db.commit()
+
+    return BasketPlaceResponse(
+        placed=placed,
+        count=len(placed),
+        routed_to="paper" if paper else "broker",
+        total_inr=total,
+        skipped=skipped + rejected,
     )
 
 

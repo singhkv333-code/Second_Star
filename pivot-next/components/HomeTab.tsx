@@ -465,7 +465,13 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
           </div>
         </div>
 
-        <IndicesStrip />
+        <IndicesStrip
+          onSelect={(idx) =>
+            onSendPrompt(
+              `Give me a market pulse on ${idx.name}: the current level and trend, key support/resistance levels, and what's driving it right now.`,
+            )
+          }
+        />
       </div>
 
       {/* ── Bento grid (fills remaining height at lg+) ───────────────── */}
@@ -631,7 +637,11 @@ type IndicesState =
   | { kind: "ok"; items: IndexQuote[] }
   | { kind: "empty" };
 
-function IndicesStrip(): React.ReactElement {
+function IndicesStrip({
+  onSelect,
+}: {
+  onSelect: (idx: IndexQuote) => void;
+}): React.ReactElement {
   const [state, setState] = useState<IndicesState>({ kind: "loading" });
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
 
@@ -674,7 +684,7 @@ function IndicesStrip(): React.ReactElement {
             </Panel>
           ))
         : state.items.map((idx) => (
-            <IndexCard key={idx.symbol} idx={idx} spark={sparks[idx.symbol]} />
+            <IndexCard key={idx.symbol} idx={idx} spark={sparks[idx.symbol]} onSelect={onSelect} />
           ))}
     </div>
   );
@@ -731,10 +741,32 @@ function IndexEmblem({ name }: { name: string }): React.ReactElement {
   );
 }
 
-function IndexCard({ idx, spark }: { idx: IndexQuote; spark?: number[] }): React.ReactElement {
+function IndexCard({
+  idx,
+  spark,
+  onSelect,
+}: {
+  idx: IndexQuote;
+  spark?: number[];
+  onSelect: (idx: IndexQuote) => void;
+}): React.ReactElement {
   const up = idx.change >= 0;
   const color = up ? "var(--color-profit)" : "var(--color-loss)";
   return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${idx.name}`}
+      className="home-index-card"
+      onClick={() => onSelect(idx)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(idx);
+        }
+      }}
+      style={{ cursor: "pointer" }}
+    >
     <Panel
       pad={12}
       className="flex flex-col"
@@ -811,6 +843,7 @@ function IndexCard({ idx, spark }: { idx: IndexQuote; spark?: number[] }): React
         </div>
       </div>
     </Panel>
+    </div>
   );
 }
 
@@ -848,12 +881,13 @@ function PortfolioSummaryCard({
     // Re-fetch when the trading mode flips (real ↔ paper).
   }, [mode]);
 
-  // Today's best/worst mover by day-change % — null when there are no
-  // holdings, or a single tile when only one holding exists (gainer === loser).
+  // Best/worst holding by OVERALL return since entry (not today's move, which
+  // is 0 when the market is closed) — null when there are no holdings, or a
+  // single tile when only one holding exists (gainer === loser).
   const movers = useMemo(() => {
     if (state.kind !== "ok" || state.holdings.length === 0) return null;
     const sorted = [...state.holdings].sort(
-      (a, b) => b.day_change_percentage - a.day_change_percentage,
+      (a, b) => overallReturnPct(b) - overallReturnPct(a),
     );
     const gainer = sorted[0]!;
     const loser = sorted[sorted.length - 1]!;
@@ -965,7 +999,7 @@ function PortfolioSummaryCard({
               }}
             >
               <MoverTile
-                label={movers.loser ? "Top gainer" : "Today's mover"}
+                label={movers.loser ? "Top gainer" : "Your holding"}
                 holding={movers.gainer}
                 logoUrl={moverLogos[movers.gainer.tradingsymbol.toUpperCase()] ?? null}
               />
@@ -1081,8 +1115,19 @@ function SignedStat({
   );
 }
 
-/** Today's best/worst holding by day-change % — logo, symbol, and the signed
- *  move, matching the watchlist row's visual grammar at a smaller scale. */
+/** Overall return since entry for a holding: unrealised P&L over cost basis.
+ *  Reads the actual P&L (not last−avg) so it's right even for unmarked paper
+ *  lots. 0 when there's no cost basis. */
+function overallReturnPct(h: Holding): number {
+  // |cost basis| so a profitable SHORT (negative quantity) reads as a positive
+  // return, not a sign-flipped one.
+  const cost = Math.abs(h.average_price * h.quantity);
+  return cost > 0 ? (h.pnl / cost) * 100 : 0;
+}
+
+/** Best/worst holding by OVERALL return since entry — logo, symbol, and the
+ *  signed return, matching the watchlist row's visual grammar at a smaller
+ *  scale. */
 function MoverTile({
   label,
   holding,
@@ -1092,7 +1137,8 @@ function MoverTile({
   holding: Holding;
   logoUrl: string | null;
 }): React.ReactElement {
-  const pos = holding.day_change_percentage >= 0;
+  const ret = overallReturnPct(holding);
+  const pos = ret >= 0;
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <Link
@@ -1132,7 +1178,7 @@ function MoverTile({
             className="tabular-nums"
             style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color }}
           >
-            {fmtSignedPct(holding.day_change_percentage)}
+            {fmtSignedPct(ret)}
           </span>
         </div>
       </div>
@@ -1165,12 +1211,17 @@ function ChangePill({ amount, suffix }: { amount: number; suffix?: string }): Re
   );
 }
 
-/** A slim invested→current bar with the unrealised gain/loss, filling the
- *  portfolio card's middle band with something meaningful rather than a void. */
+/** A slim invested→current-holdings bar with the unrealised gain/loss, filling
+ *  the portfolio card's middle band with something meaningful rather than a
+ *  void. The gain is the REAL unrealised P&L (`total_pnl`) — NOT
+ *  `total_value − invested`, which wrongly folds in uninvested cash (total_value
+ *  = holdings mark + cash), so a down book was showing a fake positive number.
+ *  Current holdings value = invested + total_pnl, so the bar reflects cost vs
+ *  what those holdings are worth now, consistent with the Total P&L below. */
 function InvestedBar({ summary }: { summary: PortfolioSummary }): React.ReactElement {
   const invested = Math.max(summary.invested_value, 0);
-  const value = Math.max(summary.total_value, 0);
-  const gain = value - invested;
+  const gain = summary.total_pnl;
+  const value = Math.max(invested + gain, 0);
   const pos = gain >= 0;
   // Fraction of the bar that is "principal"; the remainder is gain (or the
   // whole bar shrinks toward the value on a loss). Clamp to [0,1].
@@ -1672,6 +1723,15 @@ function ViewsCard({
 }: {
   onGoTab: HomeTabProps["onGoTab"];
 }): React.ReactElement {
+  // Pick 2 opinions at random each visit so the block isn't always the same.
+  // Seed with a stable slice for SSR, then shuffle on mount (client-only) to
+  // avoid a hydration mismatch from Math.random during render.
+  const [picks, setPicks] = useState(() => PACK_SUMMARIES.slice(0, 2));
+  useEffect(() => {
+    setPicks(
+      [...PACK_SUMMARIES].sort(() => Math.random() - 0.5).slice(0, 2),
+    );
+  }, []);
   return (
     <CardShell
       Icon={Telescope}
@@ -1688,7 +1748,7 @@ function ViewsCard({
           return · Yes/No stance buttons. Two across, since the Home cell is
           ~half the board width (the Views tab gives each card a full third). */}
       <div className="home-views-grid grid grid-cols-1 sm:grid-cols-2" style={{ gap: 12, height: "100%" }}>
-        {PACK_SUMMARIES.slice(0, 2).map((v) => (
+        {picks.map((v) => (
           <ViewCard key={v.id} view={v} onOpen={() => onGoTab("views")} sans />
         ))}
       </div>

@@ -99,7 +99,20 @@ _MCAP_TIER_ALIASES: dict[str, str] = {
     "smallcap": "small", "small-cap": "small", "small": "small",
 }
 
-_SORT_FIELDS = {"market_cap_cr", "pe", "roe", "symbol", "name"}
+# Every column the grid displays is server-sortable over the FULL universe (the
+# sort runs in-memory on the already-built enriched list — see get_screener_
+# stocks — so adding a field is free, no extra DB load). Price/change/1-year come
+# from the warmed market-metrics cache, so those sorts surface the priced subset
+# first with nulls last (disclosed via a note); mcap/pe/roe are DB-backed and
+# fully covered. This replaces the old client-side sort that only reordered the
+# infinite-scroll rows already loaded.
+_SORT_FIELDS = {
+    "market_cap_cr", "pe", "roe", "symbol", "name",
+    "price", "change_pct", "one_year_pct",
+}
+# Fields sourced from the (partial) market-metrics cache — a note is added when
+# sorting by one so the user knows unpriced names sink to the bottom.
+_MARKET_METRIC_SORTS = {"price", "change_pct", "one_year_pct"}
 
 
 # ── Response models ───────────────────────────────────────────────────
@@ -942,6 +955,16 @@ def get_screener_stocks(
                 -(getattr(s, sf) or 0) if desc else (getattr(s, sf) or 0),
             )
         )
+        # Price/change/1-year come from the warmed market-metrics cache, which
+        # may not cover the whole universe yet — say so, so an "empty-looking"
+        # tail of the sort reads as "still warming", not broken.
+        if sf in _MARKET_METRIC_SORTS:
+            priced = sum(1 for s in enriched if getattr(s, sf) is not None)
+            if priced < len(enriched):
+                notes.append(
+                    f"sorted by {sf} over the {priced} names priced so far — "
+                    "unpriced names sink to the bottom and fill in as the grid warms"
+                )
 
     total = len(enriched)
     enriched = enriched[offset : offset + limit]

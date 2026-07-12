@@ -13,7 +13,7 @@
  * Conversations sidebar is wired in AppShell via GET /api/conversations.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   Bot,
@@ -52,6 +52,7 @@ import {
   type SyntheticSecurityPayload,
 } from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
+import { CardErrorBoundary } from "@/components/chat/CardErrorBoundary";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
@@ -1188,6 +1189,10 @@ export function ChatDemo({
   // the view pinned to the bottom through all of it, so the user never has to
   // scroll down manually — unless they've deliberately scrolled up to read,
   // in which case stickToBottomRef is false and we leave them where they are.
+  //
+  // deps include messages.length so the observer is (re-)attached once the
+  // messages div is first rendered — it only mounts when messages.length > 0,
+  // meaning a [] dep would find messagesRef.current === null on first run.
   useEffect(() => {
     const el = scrollRef.current;
     const inner = messagesRef.current;
@@ -1198,7 +1203,7 @@ export function ChatDemo({
     });
     ro.observe(inner);
     return () => ro.disconnect();
-  }, []);
+  }, [messages.length]);
 
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
@@ -1574,6 +1579,11 @@ export function ChatDemo({
               ? () => void submit(priorUserMessage)
               : null;
 
+            // Each message renders inside a per-card error boundary so one
+            // malformed payload can never crash the whole /#chat route
+            // (see CardErrorBoundary). The branch logic below is unchanged;
+            // it just feeds its node through the boundary at the bottom.
+            const _rendered: ReactNode = (() => {
             if (msg.kind === "user") {
               return (
                 <UserBubble
@@ -1636,21 +1646,16 @@ export function ChatDemo({
                   <div className="flex justify-start">
                     <WorkflowDraftCard
                       draft={msg.draft}
-                      onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
-                      onActivatedAndRunning={(info) => {
-                        // Append a live-run card right after the draft so
-                        // the user sees the workflow's first run streaming
-                        // step-by-step in the same chat thread.
-                        setMessages((prev) => [
-                          ...prev,
-                          {
-                            kind: "live_run",
-                            runId: info.runId,
-                            workflowName: info.workflowName,
-                            workflowId: info.workflowId,
-                          },
-                        ]);
-                      }}
+                      onOpenEditor={(draft, saved) =>
+                        onOpenEditor(
+                          draftToWorkflow(
+                            draft,
+                            saved
+                              ? { id: saved.workflowId, status: "active" }
+                              : undefined,
+                          ),
+                        )
+                      }
                     />
                   </div>
                 </div>
@@ -1967,6 +1972,12 @@ export function ChatDemo({
                   {msg.message}
                 </div>
               </div>
+            );
+            })();
+            return (
+              <CardErrorBoundary key={idx} label={msg.kind}>
+                {_rendered}
+              </CardErrorBoundary>
             );
           })}
 

@@ -21,23 +21,29 @@ def sharpe_sortino(
     daily_returns: Sequence[float],
     *,
     rf_annual: float = DEFAULT_RF_ANNUAL,
+    periods_per_year: float = _TRADING_DAYS,
 ) -> tuple[Optional[float], Optional[float]]:
-    """(sharpe, sortino) annualized from a daily-return series (fractions, not %).
+    """(sharpe, sortino) annualized from a per-period return series (fractions).
 
-    Sharpe   = mean(excess) / std(excess)            × √252
-    Sortino  = mean(excess) / downside_deviation     × √252
-      where downside_deviation = sqrt(mean(min(excess, 0)²)) (target = rf).
+    Sharpe   = mean(excess) / std(excess)            × √P
+    Sortino  = mean(excess) / downside_deviation     × √P
+      where downside_deviation = sqrt(mean(min(excess, 0)²)) (target = rf),
+      and P = ``periods_per_year`` — 252 for daily bars (default), 52 for
+      weekly, ~1638 for 60-minute NSE bars, etc. Annualizing a weekly series
+      at √252 (instead of √52) overstates Sharpe by ~2.2×, so non-daily
+      callers MUST pass the right cadence.
     Returns (None, None) when there are too few points or zero dispersion."""
     rets = [float(r) for r in daily_returns if r is not None and math.isfinite(float(r))]
     n = len(rets)
     if n < 2:
         return None, None
-    rf_daily = rf_annual / _TRADING_DAYS
+    ppy = float(periods_per_year) if periods_per_year and periods_per_year > 0 else _TRADING_DAYS
+    rf_daily = rf_annual / ppy
     excess = [r - rf_daily for r in rets]
     mean = sum(excess) / n
     var = sum((e - mean) ** 2 for e in excess) / (n - 1)
     std = math.sqrt(var)
-    ann = math.sqrt(_TRADING_DAYS)
+    ann = math.sqrt(ppy)
     sharpe = (mean / std) * ann if std > 1e-12 else None
     downside_sq = sum((e if e < 0 else 0.0) ** 2 for e in excess) / n
     dd = math.sqrt(downside_sq)
@@ -109,7 +115,10 @@ def methodology_note(
             f"after costs (~{round_trip_bps():.0f} bps round-trip incl. "
             f"~{slippage_bps():.0f} bps slippage, STT, exchange, GST, stamp)"
         ),
-        "basis": "daily-bar OHLCV (yfinance, adjusted close)",
+        "basis": (
+            "daily-bar OHLCV (Kite primary, yfinance fallback; "
+            "split-adjusted, dividends not reinvested)"
+        ),
         "caveat": (
             "Point-in-time for the current ticker only; no survivorship "
             "adjustment. Past performance is not indicative of future results."

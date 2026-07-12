@@ -26,6 +26,7 @@ from backend.kite.orders import (
 # squareoff_* / cancel_orders keep using the kite helpers above because
 # they size from kite get_positions / get_orders (paper reads land in P4).
 from backend.paper.routing import (
+    is_auto_exec_allowed,
     paper_position_qty,
     should_use_paper,
     submit_gtt,
@@ -335,6 +336,12 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
     notional = cfg.get("notional_inr")
     if qty_field is not None:
         quantity = int(qty_field)
+        # Defensive: the schema now rejects a non-positive literal at
+        # construction, but a direct-API/legacy draft could still reach here.
+        if quantity <= 0:
+            raise ValueError(
+                f"action.place_order: quantity must be > 0 (got {quantity})"
+            )
     elif notional is not None:
         # Notional path: fetch live LTP for the symbol and convert.
         # Use the same kite_token + helper as set_stoploss's fallback.
@@ -375,6 +382,23 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
         product=str(cfg.get("product", "CNC")).upper(),
         tag=f"wf_{ctx.client_request_id[:16]}",
     )
+
+    # HONEST BOUNDARY: a rejected order must FAIL the step, not report success.
+    # The paper broker returns status="REJECTED" (with a reject_reason) for
+    # insufficient cash/position/price; a live broker reject shapes similarly.
+    # Without this raise the engine marks the step — and any downstream
+    # set_stoploss — as succeeded against a fill that never happened.
+    # ("REGISTERED" is NOT a reject: it's the armed register-not-execute path.)
+    _status = str(result.get("status", "")).upper()
+    if _status in ("REJECTED", "REJECT", "FAILED", "CANCELLED", "ERROR"):
+        _reason = (
+            result.get("reject_reason")
+            or result.get("message")
+            or _status.lower()
+        )
+        raise ValueError(
+            f"order rejected for {str(cfg['symbol']).upper()}: {_reason}"
+        )
 
     # Expose enough detail that a downstream action.set_stoploss can
     # resolve trigger_offset_pct against this fill — without round-trip
@@ -430,6 +454,25 @@ async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
     get re-cancelled — the order_id list shrinks naturally."""
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
         return _paper_cancel_orders(ctx)
+    # An unattended agent must not cancel the user's live broker orders unless
+    # auto-exec is enabled (register-not-execute; the user's own orders are theirs).
+    if not is_auto_exec_allowed(int(ctx.workflow.user_id)):
+        try:
+            from backend.brokers.audit import record_audit
+            record_audit(
+                ctx.db, user_id=int(ctx.workflow.user_id), broker=None,
+                event_type="cancel_intent", status="REGISTERED",
+                detail="unattended cancel armed — auto-exec disabled",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "cancelled_count": 0, "order_ids": [], "status": "REGISTERED",
+            "note": (
+                "Cancel ARMED, not executed — auto-execution is not enabled. "
+                "Manage pending orders in your broker app."
+            ),
+        }
     cfg = ctx.config
     symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
     side_filter = (cfg.get("side_filter") or "").upper() or None  # BUY/SELL
@@ -743,7 +786,6 @@ async def execute_action_allocate_basket(
     them; for live trading the workflow validator should refuse to
     activate any draft with a short leg.
     """
-    from backend.kite.market_data import get_live_quote
 
     cfg = ctx.config
     legs_cfg = cfg["legs"]
@@ -764,8 +806,13 @@ async def execute_action_allocate_basket(
 
     # Normalise weights so they sum to 1.
     weights_sum = sum(float(leg["weight"]) for leg in legs_cfg) or 1.0
-    instruments = [f"NSE:{leg['symbol'].upper()}" for leg in legs_cfg]
-    quotes = get_live_quote(token, instruments) or {}
+    # Multi-asset marks: get_mark_price returns an INR mark for Indian (NSE),
+    # US equities/ETFs (Alpaca → yfinance × USD/INR), and crypto (Kraken/
+    # CoinGecko × USD/INR). No more NSE:-only Kite quote that blanked US/crypto.
+    from backend.paper.marks import get_mark_price
+    from backend.paper.quantity import quantize_qty
+    from backend.market.market_hours import asset_class_for_symbol
+    _EXCH_FOR = {"us_equity": "NASDAQ", "us_etf": "NASDAQ", "crypto": "CRYPTO"}
 
     placed: list[dict[str, Any]] = []
     deployed = 0.0
@@ -774,11 +821,14 @@ async def execute_action_allocate_basket(
         sym = str(leg["symbol"]).upper()
         weight = float(leg["weight"]) / weights_sum
         slice_inr = total_inr * weight
-        ltp = float((quotes.get(f"NSE:{sym}") or {}).get("last_price", 0) or 0)
+        ac = asset_class_for_symbol(sym)
+        mk = get_mark_price(sym, token)
+        ltp = float(mk) if mk is not None else 0.0  # INR mark, all asset classes
         if ltp <= 0:
             placed.append({"symbol": sym, "status": "no_price"})
             continue
-        qty = int(slice_inr // ltp)
+        # Fractional for US shares / crypto units; whole shares for Indian.
+        qty = quantize_qty(slice_inr / ltp, symbol=sym, asset_class=ac)
         if qty <= 0:
             placed.append({"symbol": sym, "status": "slice_too_small"})
             continue
@@ -788,7 +838,7 @@ async def execute_action_allocate_basket(
                 ctx,
                 access_token=token,
                 tradingsymbol=sym,
-                exchange="NSE",
+                exchange=_EXCH_FOR.get(ac, "NSE"),
                 transaction_type="BUY",
                 quantity=qty,
                 order_type=order_type,
@@ -801,9 +851,9 @@ async def execute_action_allocate_basket(
             placed.append({"symbol": sym, "status": "failed", "error": str(e)[:200]})
             continue
         fill = float(r.get("average_price") or ltp)
-        deployed += fill * qty
+        deployed += fill * float(qty)
         placed.append({
-            "symbol": sym, "side": "long", "qty": qty,
+            "symbol": sym, "side": "long", "qty": float(qty),
             "weight": weight, "slice_inr": round(slice_inr, 2),
             "fill_price": fill, "status": str(r.get("status", "")),
             "order_id": str(r.get("order_id", "")),
@@ -811,9 +861,54 @@ async def execute_action_allocate_basket(
 
     return {
         "legs": placed,
-        "n_filled": sum(1 for o in placed if o.get("status") not in {"failed", "no_price", "slice_too_small"}),
+        # REJECTED legs are NOT fills — exclude them (a rejected buy deployed
+        # no capital) so n_filled/total_deployed stay honest.
+        "n_filled": sum(
+            1 for o in placed
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "NO_PRICE", "SLICE_TOO_SMALL", "REJECTED",
+                    "REJECT", "CANCELLED", "ERROR"}
+        ),
         "total_deployed_inr": round(deployed, 2),
         "client_request_id": parent_req,
+    }
+
+
+def _unattended_live_exit_gate(
+    ctx: Any, *, scope: str,
+) -> Optional[dict[str, Any]]:
+    """Register-not-execute gate for UNATTENDED LIVE exits (squareoff / cancel).
+
+    The entry path (routing.submit_order) already arms rather than places when
+    the user isn't on the auto-exec allow-list. The squareoff/cancel executors
+    call kite.orders directly (they size from live Kite positions), so WITHOUT
+    this gate a triggered exit would place real broker MARKET orders even with
+    auto-execution disabled — a hole in the SEBI-aligned posture.
+
+    Returns an ARMED result dict (place nothing) when auto-exec is NOT allowed;
+    returns None when it IS allowed (caller proceeds to place). Paper accounts
+    never reach here (each executor checks should_use_paper first).
+    """
+    uid = int(ctx.workflow.user_id)
+    if is_auto_exec_allowed(uid):
+        return None
+    # Arm: record the intent, send nothing to the broker.
+    try:
+        from backend.brokers.audit import record_audit
+        record_audit(
+            ctx.db, user_id=uid, broker=None,
+            event_type="exit_intent", status="REGISTERED",
+            detail=f"unattended {scope} squareoff/cancel armed — auto-exec disabled",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never fail the run
+        pass
+    return {
+        "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
+        "scope": scope, "status": "REGISTERED",
+        "note": (
+            "Exit ARMED, not executed — auto-execution is not enabled for "
+            "this account. Square off in your broker app (register-not-execute)."
+        ),
     }
 
 
@@ -848,6 +943,9 @@ async def execute_action_squareoff_all(
     matches the broker's standard squareoff path."""
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
         return _paper_squareoff(ctx)
+    _armed = _unattended_live_exit_gate(ctx, scope="all")
+    if _armed is not None:
+        return _armed
     from backend.kite.portfolio import get_positions
 
     token = _kite_token_for_run(ctx)
@@ -857,8 +955,10 @@ async def execute_action_squareoff_all(
     ) + _build_squareoff_legs(
         positions, product_filter="CNC", symbol_filter=None,
     )
+    # Retry-stable crid (no ctx.attempts) so an engine retry dedups at the
+    # broker instead of re-selling under a fresh key.
     parent_req = (
-        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}"
     )
     placed: list[dict] = []
     skipped: list[dict] = []
@@ -1159,7 +1259,11 @@ async def execute_action_allocate_notional(
     return {
         "orders": orders,
         "skipped": skipped,
-        "n_filled": sum(1 for o in orders if o.get("status") not in ("failed",)),
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
         "n_skipped": len(skipped),
         "total_deployed_inr": round(deployed, 2),
         "residual_inr": round(total_inr - deployed, 2),
@@ -1274,13 +1378,16 @@ async def execute_action_squareoff_all_intraday(
             "scope": "intraday",
             "note": "paper has no intraday (MIS) positions",
         }
+    _armed = _unattended_live_exit_gate(ctx, scope="intraday")
+    if _armed is not None:
+        return _armed
     token = _kite_token_for_run(ctx)
     positions = get_positions(token)
     legs = _build_squareoff_legs(
         positions, product_filter="MIS", symbol_filter=None,
     )
     parent_req = (
-        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}"
     )
     orders, skipped = _place_squareoff_legs(
         legs, token, product="MIS", parent_req=parent_req,
@@ -1288,7 +1395,11 @@ async def execute_action_squareoff_all_intraday(
     return {
         "orders": orders,
         "skipped": skipped,
-        "n_filled": sum(1 for o in orders if o.get("status") not in ("failed",)),
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
         "n_skipped": len(skipped),
         "scope": "intraday",
         "client_request_id": parent_req,
@@ -1324,6 +1435,9 @@ async def execute_action_squareoff_symbol(
         return _paper_squareoff(
             ctx, symbol_filter=str(ctx.config["symbol"]).upper(),
         )
+    _armed = _unattended_live_exit_gate(ctx, scope="symbol")
+    if _armed is not None:
+        return _armed
     cfg = ctx.config
     symbol = str(cfg["symbol"]).upper()
     product = str(cfg.get("product", "MIS")).upper()
@@ -1333,7 +1447,7 @@ async def execute_action_squareoff_symbol(
         positions, product_filter=product, symbol_filter=symbol,
     )
     parent_req = (
-        f"sqoff_sym:{symbol}:{ctx.run.id}:{ctx.step.step_index}:{ctx.attempts}"
+        f"sqoff_sym:{symbol}:{ctx.run.id}:{ctx.step.step_index}"
     )
     orders, skipped = _place_squareoff_legs(
         legs, token, product=product, parent_req=parent_req,
@@ -1341,7 +1455,11 @@ async def execute_action_squareoff_symbol(
     return {
         "orders": orders,
         "skipped": skipped,
-        "n_filled": sum(1 for o in orders if o.get("status") not in ("failed",)),
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
         "n_skipped": len(skipped),
         "symbol": symbol,
         "product": product,
