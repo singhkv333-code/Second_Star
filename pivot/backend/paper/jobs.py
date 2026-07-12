@@ -21,7 +21,7 @@ from backend.models import PaperAccount, PaperOrder, PaperPosition
 from backend.paper.evaluator import evaluate_resting_orders
 from backend.paper.snapshots import snapshot_account_nav
 from backend.paper.valuation import mark_positions
-from backend.utils.time_utils import is_market_open, now_ist
+from backend.utils.time_utils import now_ist
 
 logger = logging.getLogger(__name__)
 

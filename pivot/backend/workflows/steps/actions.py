@@ -786,7 +786,6 @@ async def execute_action_allocate_basket(
     them; for live trading the workflow validator should refuse to
     activate any draft with a short leg.
     """
-    from backend.kite.market_data import get_live_quote
 
     cfg = ctx.config
     legs_cfg = cfg["legs"]

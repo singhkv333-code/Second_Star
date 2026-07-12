@@ -43,7 +43,7 @@ from backend.paper.ideas import resolve_idea
 from backend.paper.marks import get_mark_price
 from backend.paper.money import to_money
 from backend.services.trading_costs import buy_cost
-from backend.utils.time_utils import is_market_open, now_ist
+from backend.utils.time_utils import now_ist
 
 # Order types that rest until a price tick fills them (P3 evaluator).
 _RESTING_TYPES = {"LIMIT", "SL", "SL-M", "GTT"}
