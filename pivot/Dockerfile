@@ -9,12 +9,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Build context is the REPO ROOT (see deploy-backend.yml / az acr build) so we
+# can also install the sibling pivot-backtester package. Paths below are
+# therefore repo-root-relative (pivot/…, pivot-backtester/…).
+
+# Python deps first for layer caching.
+COPY pivot/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend ./backend
-COPY alembic.ini .
-COPY migrations ./migrations
+# pivot-backtester (expr factor engine "Engine 1") — imported as `backtester`
+# by the backtest paths (routers/chat.py, routers/expr_backtest.py). Without it
+# those features fail at runtime.
+COPY pivot-backtester ./pivot-backtester
+RUN pip install --no-cache-dir ./pivot-backtester
+
+COPY pivot/backend ./backend
+COPY pivot/alembic.ini .
+COPY pivot/migrations ./migrations
 
 EXPOSE 8000
 

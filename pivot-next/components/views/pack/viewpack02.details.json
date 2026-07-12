@@ -179,7 +179,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "btc_ath-conservative",
+    "id": "7a1129f5-49a6-5328-9983-4a2ae428f774",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Own the two majors \u2014 BTC + ETH",
@@ -573,7 +573,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own the two majors \u2014 BTC + ETH",
     "plain_one_liner": "Own the two majors \u2014 BTC + ETH.",
     "plain_why": "When Bitcoin prints a new all-time high, risk-on flows rotate into the #2 coin \u2014 Ethereum has historically outrun BTC itself in the month after.",
@@ -1004,7 +1004,7 @@
     }
    },
    {
-    "id": "btc_ath-balanced",
+    "id": "d924bace-760f-560d-bbc8-5d423c04a249",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Rotate into ETH + Solana",
@@ -1398,7 +1398,7 @@
      },
      "construction_alignment": null
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Rotate into ETH + Solana",
     "plain_one_liner": "Rotate into ETH + Solana.",
     "plain_why": "When Bitcoin prints a new all-time high, risk-on flows rotate into the #2 coin \u2014 Ethereum has historically outrun BTC itself in the month after.",
@@ -1829,7 +1829,7 @@
     }
    },
    {
-    "id": "btc_ath-aggressive",
+    "id": "02e9d39f-4dd5-5a22-9cfc-4bf603ded732",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 ETH + SOL + a Bitcoin miner",
@@ -2224,7 +2224,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "ETH + SOL + a Bitcoin miner",
     "plain_one_liner": "ETH + SOL + a Bitcoin miner.",
     "plain_why": "When Bitcoin prints a new all-time high, risk-on flows rotate into the #2 coin \u2014 Ethereum has historically outrun BTC itself in the month after.",
@@ -3117,7 +3117,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "elon_crypto-conservative",
+    "id": "381cd0cf-73e2-50de-82f4-1b1ae47c6e4f",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 DOGE + Solana",
@@ -3511,7 +3511,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "DOGE + Solana",
     "plain_one_liner": "DOGE + Solana.",
     "plain_why": "Across six real Musk pro-Dogecoin posts, the durable one-month winners were the Bitcoin miners and Solana \u2014 leveraged proxies that outran DOGE itself.",
@@ -3750,7 +3750,7 @@
     }
    },
    {
-    "id": "elon_crypto-balanced",
+    "id": "ec5c82db-f6e7-5428-8135-0a40246eeac9",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Solana + a miner",
@@ -4144,7 +4144,7 @@
      },
      "construction_alignment": null
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Solana + a miner",
     "plain_one_liner": "Solana + a miner.",
     "plain_why": "Across six real Musk pro-Dogecoin posts, the durable one-month winners were the Bitcoin miners and Solana \u2014 leveraged proxies that outran DOGE itself.",
@@ -4383,7 +4383,7 @@
     }
    },
    {
-    "id": "elon_crypto-aggressive",
+    "id": "872ef7b9-1077-5492-b18c-892dca36378f",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Two miners + Solana",
@@ -4778,7 +4778,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Two miners + Solana",
     "plain_one_liner": "Two miners + Solana.",
     "plain_why": "Across six real Musk pro-Dogecoin posts, the durable one-month winners were the Bitcoin miners and Solana \u2014 leveraged proxies that outran DOGE itself.",
@@ -5479,7 +5479,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "microstrategy_btc-balanced",
+    "id": "ad94b4d0-6bd7-528b-bdf9-0f2bd6e7c037",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 MSTR + a miner",
@@ -5873,7 +5873,7 @@
      },
      "construction_alignment": null
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "MSTR + a miner",
     "plain_one_liner": "MSTR + a miner.",
     "plain_why": "Saylor's BTC-treasury buys reliably lift the listed Bitcoin proxies; MSTR itself is the cleanest one-month reactor.",
@@ -6104,7 +6104,7 @@
     }
    },
    {
-    "id": "microstrategy_btc-aggressive",
+    "id": "818a49d3-8021-5c72-aad1-dc9e7d3b8ba4",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Two miners + MSTR",
@@ -6499,7 +6499,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Two miners + MSTR",
     "plain_one_liner": "Two miners + MSTR.",
     "plain_why": "Saylor's BTC-treasury buys reliably lift the listed Bitcoin proxies; MSTR itself is the cleanest one-month reactor.",
@@ -7192,7 +7192,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "tiktok_ban-conservative",
+    "id": "88ad4eec-9590-5fa8-8fa3-a975986071fa",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Snap + Meta",
@@ -7586,7 +7586,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Snap + Meta",
     "plain_one_liner": "Snap + Meta.",
     "plain_why": "Every time a TikTok-style ban loomed, Snap picked up the displaced users and ad dollars \u2014 the proven beneficiary of the ban mechanism.",
@@ -7801,7 +7801,7 @@
     }
    },
    {
-    "id": "tiktok_ban-balanced",
+    "id": "1d8512ab-8f11-5ac5-80e4-4c8041b19661",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Snap + Meta + Pinterest",
@@ -8196,7 +8196,7 @@
      },
      "construction_alignment": null
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Snap + Meta + Pinterest",
     "plain_one_liner": "Snap + Meta + Pinterest.",
     "plain_why": "Every time a TikTok-style ban loomed, Snap picked up the displaced users and ad dollars \u2014 the proven beneficiary of the ban mechanism.",
@@ -8419,7 +8419,7 @@
     }
    },
    {
-    "id": "tiktok_ban-aggressive",
+    "id": "e8b2f2d4-460d-5a3b-9ed6-947aea91a546",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Snap + Pinterest",
@@ -8813,7 +8813,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Snap + Pinterest",
     "plain_one_liner": "Snap + Pinterest.",
     "plain_why": "Every time a TikTok-style ban loomed, Snap picked up the displaced users and ad dollars \u2014 the proven beneficiary of the ban mechanism.",
@@ -9482,7 +9482,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "hurricane-conservative",
+    "id": "f71779c3-d5e0-5567-96cf-a5b745bbe20c",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Three insurers",
@@ -9877,7 +9877,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Three insurers",
     "plain_one_liner": "Three insurers.",
     "plain_why": "Insurers \u2014 not homebuilders \u2014 are the real post-hurricane winners: damage comes in less bad than feared and pricing power rises. Homebuilders actually fell.",
@@ -10100,7 +10100,7 @@
     }
    },
    {
-    "id": "hurricane-balanced",
+    "id": "c6c6004b-b19d-55e2-8dcb-95ae0d6584b4",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Travelers + Allstate",
@@ -10494,7 +10494,7 @@
      },
      "construction_alignment": null
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Travelers + Allstate",
     "plain_one_liner": "Travelers + Allstate.",
     "plain_why": "Insurers \u2014 not homebuilders \u2014 are the real post-hurricane winners: damage comes in less bad than feared and pricing power rises. Homebuilders actually fell.",
@@ -10709,7 +10709,7 @@
     }
    },
    {
-    "id": "hurricane-aggressive",
+    "id": "ecbb7de0-29d0-5c1c-8122-b57f83fa4e0c",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Travelers + Progressive",
@@ -11103,7 +11103,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Travelers + Progressive",
     "plain_one_liner": "Travelers + Progressive.",
     "plain_why": "Insurers \u2014 not homebuilders \u2014 are the real post-hurricane winners: damage comes in less bad than feared and pricing power rises. Homebuilders actually fell.",
@@ -11772,7 +11772,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "google_antitrust-conservative",
+    "id": "972c0cf2-5705-55c0-8a78-dea28313814d",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Alphabet + Meta",
@@ -12166,7 +12166,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Alphabet + Meta",
     "plain_one_liner": "Alphabet + Meta.",
     "plain_why": "Counter-intuitively, Google rallied after 'guilty' antitrust rulings \u2014 because the market had priced a forced break-up, and every ruling that stopped short was a relief.",
@@ -12381,7 +12381,7 @@
     }
    },
    {
-    "id": "google_antitrust-aggressive",
+    "id": "7eadfa6d-6c33-59d1-aae9-6071f1699ac4",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Alphabet, concentrated",
@@ -12775,7 +12775,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Alphabet, concentrated",
     "plain_one_liner": "Alphabet, concentrated.",
     "plain_why": "Counter-intuitively, Google rallied after 'guilty' antitrust rulings \u2014 because the market had priced a forced break-up, and every ruling that stopped short was a relief.",
@@ -13444,7 +13444,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "geo_conflict-conservative",
+    "id": "bdcfe692-de66-58f1-a358-fef5bbf59412",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Four defence primes",
@@ -13840,7 +13840,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Four defence primes",
     "plain_one_liner": "Four defence primes.",
     "plain_why": "Defence primes are the consistent reactor when conflict erupts \u2014 Raytheon, Lockheed, General Dynamics and Northrop rise on order-flow expectations.",
@@ -14063,7 +14063,7 @@
     }
    },
    {
-    "id": "geo_conflict-aggressive",
+    "id": "d05587f9-c6d3-5ae4-a94e-36461e4bb332",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Raytheon + General Dynamics",
@@ -14457,7 +14457,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Raytheon + General Dynamics",
     "plain_one_liner": "Raytheon + General Dynamics.",
     "plain_why": "Defence primes are the consistent reactor when conflict erupts \u2014 Raytheon, Lockheed, General Dynamics and Northrop rise on order-flow expectations.",
@@ -15118,7 +15118,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "adani_foreign-conservative",
+    "id": "914b322c-c04f-5a94-bfc7-22b77eea44e5",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Adani Ports + Adani Power",
@@ -15512,7 +15512,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Adani Ports + Adani Power",
     "plain_one_liner": "Adani Ports + Adani Power.",
     "plain_why": "Adani's overseas port/energy wins accrue straight to the group itself \u2014 Adani Ports is the direct, clean expression of the belief.",
@@ -15933,7 +15933,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "exchange_regulator-conservative",
+    "id": "3ff00e5a-6994-5210-b3e1-7e52edd9a28b",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The surviving exchange",
@@ -16326,7 +16326,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "The surviving exchange",
     "plain_one_liner": "The surviving exchange.",
     "plain_why": "When a rival exchange is taken down, the surviving listed exchange inherits the flow \u2014 Coinbase jumped when Binance's CZ pleaded guilty.",
@@ -16711,7 +16711,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "china_ai_surprise-conservative",
+    "id": "2a614be2-b22e-5f5d-b1d1-5d25efd06526",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The Chinese AI leader",
@@ -17104,7 +17104,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "The Chinese AI leader",
     "plain_one_liner": "The Chinese AI leader.",
     "plain_why": "A Chinese AI breakthrough re-rates the Chinese tech leaders \u2014 Alibaba, the listed China-AI proxy, jumped after DeepSeek.",
@@ -17489,7 +17489,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "bank_rescue-conservative",
+    "id": "d9aa1b3d-fb0e-5fe0-b410-76cfe54c38b6",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The surviving bank",
@@ -17882,7 +17882,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "The surviving bank",
     "plain_one_liner": "The surviving bank.",
     "plain_why": "The acquirer/survivor of a forced bank rescue takes share on favourable terms \u2014 UBS rose after absorbing Credit Suisse.",

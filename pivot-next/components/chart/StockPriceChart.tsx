@@ -126,12 +126,24 @@ export function StockPriceChart({
   const t = THEME[dark ? "dark" : "light"];
   const compare = seriesDefs.length > 1;
   const showVolume = !compare && !!volume && volume.length > 0;
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const tooltipRef = React.useRef<HTMLDivElement>(null);
 
   const onReady = React.useCallback(
     (chart: IChartApi) => {
       // Track the number of bars in the primary series so we can clamp
       // the visible logical range to [0, numBars−1] — no empty white void.
       let numBars = 0;
+      // Series we surface in the hover tooltip. `base` = the first in-window
+      // raw price, so a normalized (compare-mode) value can be converted back
+      // to a real ₹ price for the tooltip: price = (value / 100) * base.
+      const tipSeries: {
+        api: ReturnType<IChartApi["addSeries"]>;
+        label: string;
+        color: string;
+        normalized: boolean;
+        base?: number;
+      }[] = [];
 
       if (compare) {
         // One normalised line per ticker (100 = its first in-window point).
@@ -151,6 +163,7 @@ export function StockPriceChart({
           line.setData(
             data.map((d) => ({ time: d.time, value: (d.value / base) * 100 })),
           );
+          tipSeries.push({ api: line, label: def.symbol, color: def.color, normalized: true, base });
         }
       } else {
         const def = seriesDefs[0];
@@ -170,6 +183,7 @@ export function StockPriceChart({
             crosshairMarkerRadius: 4,
           });
           area.setData(data);
+          tipSeries.push({ api: area, label: def.symbol, color: t.areaLine, normalized: false });
         }
         if (showVolume && volume) {
           const vol = chart.addSeries(HistogramSeries, {
@@ -198,6 +212,73 @@ export function StockPriceChart({
         }
       }
       chart.timeScale().fitContent();
+
+      // ── Hover tooltip ─────────────────────────────────────────────────────
+      // The right-scale crosshair label is easy to miss, so surface a floating
+      // box with the hovered date + each series' value (₹ in single mode, %
+      // vs the window start in compare mode) — the ask: "at least on hover we
+      // can see the price".
+      const tipText = dark ? "#e2e8f0" : "#0f172a";
+      const tipMuted = dark ? "#94a3b8" : "#64748b";
+      const handleCrosshair = (param: {
+        time?: Time;
+        point?: { x: number; y: number };
+        seriesData: Map<unknown, { value?: number } | undefined>;
+      }): void => {
+        const tip = tooltipRef.current;
+        const wrap = wrapRef.current;
+        if (!tip || !wrap) return;
+        if (
+          param.time === undefined ||
+          !param.point ||
+          param.point.x < 0 ||
+          param.point.y < 0
+        ) {
+          tip.style.opacity = "0";
+          return;
+        }
+        const rows = tipSeries
+          .map((s) => {
+            const d = param.seriesData.get(s.api);
+            const v = d?.value;
+            if (v == null || !Number.isFinite(v)) return null;
+            // Single mode: v is the raw ₹ price. Compare mode: v is normalized
+            // to 100 — show the real ₹ price AND the % change from the window
+            // start, so a comparison hover isn't "just the change".
+            let val: string;
+            if (!s.normalized) {
+              val = fmtINR(v);
+            } else if (s.base) {
+              val = `<span style="color:${tipText}">${fmtINR((v / 100) * s.base)}</span> <span style="color:${v >= 100 ? "#16a34a" : "#dc2626"}">${fmtPctFrom100(v)}</span>`;
+            } else {
+              val = fmtPctFrom100(v);
+            }
+            return `<div style="display:flex;align-items:center;gap:7px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${s.color};flex-shrink:0"></span><span style="color:${tipMuted};min-width:64px">${s.label}</span><span style="font-weight:600;margin-left:auto;font-variant-numeric:tabular-nums">${val}</span></div>`;
+          })
+          .filter(Boolean);
+        if (rows.length === 0) {
+          tip.style.opacity = "0";
+          return;
+        }
+        const ts = Number(param.time);
+        const d = new Date(ts * 1000);
+        const dateStr =
+          d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) +
+          (intraday
+            ? ` ${d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+            : "");
+        tip.innerHTML =
+          `<div style="color:${tipMuted};font-size:10.5px;margin-bottom:4px">${dateStr}</div>` +
+          rows.join("");
+        tip.style.opacity = "1";
+        const w = wrap.clientWidth;
+        const ttW = tip.offsetWidth || 130;
+        let left = param.point.x + 14;
+        if (left + ttW > w - 4) left = param.point.x - ttW - 14;
+        tip.style.left = `${Math.max(4, left)}px`;
+        tip.style.top = `${Math.max(4, param.point.y - 8)}px`;
+      };
+      chart.subscribeCrosshairMove(handleCrosshair as never);
 
       // ── Pan-bounds clamping ───────────────────────────────────────────────
       // Prevent the user from dragging/panning past the first or last bar.
@@ -233,14 +314,16 @@ export function StockPriceChart({
       chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
 
       return (): void => {
+        chart.unsubscribeCrosshairMove(handleCrosshair as never);
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
       };
     },
     // Rebuilt whenever the deps below change (the wrapper drives this).
-    [seriesDefs, volume, compare, showVolume, t],
+    [seriesDefs, volume, compare, showVolume, t, dark, intraday],
   );
 
   return (
+    <div ref={wrapRef} style={{ position: "relative", height }}>
     <LightweightChart
       height={height}
       deps={[seriesDefs, volume, compare, showVolume, dark, intraday]}
@@ -290,5 +373,27 @@ export function StockPriceChart({
       }}
       onReady={onReady}
     />
+      {/* Floating hover tooltip (populated imperatively in onReady). */}
+      <div
+        ref={tooltipRef}
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          zIndex: 5,
+          opacity: 0,
+          pointerEvents: "none",
+          transition: "opacity 90ms ease",
+          background: dark ? "#0f172a" : "#ffffff",
+          border: `1px solid ${dark ? "rgba(148,163,184,0.22)" : "rgba(15,23,42,0.10)"}`,
+          borderRadius: 8,
+          boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
+          padding: "8px 10px",
+          font: '11.5px/1.35 var(--font-ui)',
+          minWidth: 120,
+        }}
+      />
+    </div>
   );
 }

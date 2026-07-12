@@ -27,6 +27,17 @@ from backend.paper.valuation import position_unrealized_pnl
 _TRIGGER_TYPES = {"SL", "SL-M", "GTT"}
 
 
+def _qty_out(q):
+    """Project a Numeric(18,8) quantity to the read shape: a plain int for a
+    whole number (Indian shares/lots), a float when fractional (US shares /
+    crypto units). Keeps existing integer consumers unchanged."""
+    try:
+        f = float(q)
+    except Exception:  # noqa: BLE001
+        return 0
+    return int(f) if f == int(f) else f
+
+
 def _account(db: Session, user_id: int):
     """The user's paper account, or None (read-only lookup)."""
     return (
@@ -70,7 +81,7 @@ def paper_positions_kite_shape(db: Session, user_id: int) -> dict:
                 "tradingsymbol": pos.symbol,
                 "exchange": "NSE",
                 "product": "CNC",
-                "quantity": int(pos.quantity),
+                "quantity": _qty_out(pos.quantity),
                 "average_price": money_to_float(pos.avg_cost),
                 "last_price": money_to_float(last_price),
                 "pnl": money_to_float(position_unrealized_pnl(pos)),
@@ -117,7 +128,7 @@ def paper_open_orders_kite_shape(db: Session, user_id: int) -> list[dict]:
                 "tradingsymbol": order.symbol,
                 "exchange": "NSE",
                 "transaction_type": order.transaction_type,
-                "quantity": int(order.quantity),
+                "quantity": _qty_out(order.quantity),
                 "order_type": order.order_type,
                 "product": "CNC",
                 "status": status,

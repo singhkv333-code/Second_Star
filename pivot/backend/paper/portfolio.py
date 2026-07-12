@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from backend.models import PaperAccount, PaperFill, PaperOrder, PaperPosition
 from backend.paper.money import money_to_float, to_money
+from backend.paper.quantity import qty_display
 from backend.paper.snapshots import nav_series
 from backend.paper.valuation import (
     position_day_pnl,
@@ -54,13 +55,28 @@ def _live_mark_fn(price_fn: Optional[PriceFn]) -> PriceFn:
     reads marks each symbol once."""
     if price_fn is not None:
         return price_fn
+    from backend.paper import marks
     try:
         from backend.utils.time_utils import is_market_open
         if not is_market_open():
-            return lambda sym: None
+            # NSE closed: Indian marks are frozen anyway (and a per-symbol
+            # network storm is slow), so skip them. But US equities (evening
+            # IST session) and crypto (24/7) DO keep trading — mark ONLY those,
+            # detected cheaply (no DB), so their positions don't freeze at the
+            # NSE close while their real markets move.
+            from backend.view_markets.security_meta import is_us_or_crypto_fast
+
+            def _closed_mark(sym: str):
+                try:
+                    if is_us_or_crypto_fast(sym):
+                        return marks.get_mark_price(sym)
+                except Exception:  # noqa: BLE001
+                    pass
+                return None
+
+            return _closed_mark
     except Exception:  # noqa: BLE001 — never let the gate break a read
         pass
-    from backend.paper import marks
     return lambda sym: marks.get_mark_price(sym)
 
 
@@ -224,7 +240,7 @@ def holdings(
         )
         rows.append({
             "symbol": pos.symbol,
-            "quantity": pos.quantity,
+            "quantity": qty_display(pos.quantity),
             "avg_cost": money_to_float(pos.avg_cost),
             "last_price": (
                 float(display_price) if display_price is not None else None
@@ -266,7 +282,7 @@ def open_orders(db: Session, user_id: int) -> list[dict]:
         "symbol": o.symbol,
         "side": o.transaction_type,
         "order_type": o.order_type,
-        "quantity": o.quantity,
+        "quantity": qty_display(o.quantity),
         "limit_price": (
             float(o.limit_price) if o.limit_price is not None else None
         ),
@@ -299,7 +315,7 @@ def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
         "id": f.id,
         "symbol": f.symbol,
         "side": f.transaction_type,
-        "quantity": f.quantity,
+        "quantity": qty_display(f.quantity),
         "fill_price": float(f.fill_price),
         "gross_value": money_to_float(f.gross_value),
         "charges": money_to_float(f.charges),

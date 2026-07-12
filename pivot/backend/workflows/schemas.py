@@ -1441,6 +1441,14 @@ class ActionPlaceOrderConfig(_Strict):
             )
         if not has_qty and not has_notional:
             raise ValueError("must specify quantity or notional_inr")
+        # POSITIVITY: a literal quantity / notional must be > 0. (A $ref string
+        # is resolved at fire time and can't be bounded here, so only numeric
+        # literals are checked.) Without this, quantity=0 / -5 passes schema +
+        # lint + macros and reaches submit_order — a zero/negative-size order.
+        if isinstance(self.quantity, (int, float)) and self.quantity <= 0:
+            raise ValueError(f"quantity must be > 0 (got {self.quantity})")
+        if isinstance(self.notional_inr, (int, float)) and self.notional_inr <= 0:
+            raise ValueError(f"notional_inr must be > 0 (got {self.notional_inr})")
         return self
 
 
@@ -1631,7 +1639,16 @@ class ActionAllocateBasketLeg(_Strict):
             "open. 'short' = sell-to-open (backtest-only)."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    # Multi-asset baskets (View Markets) mix Indian equities with US equities/
+    # ETFs and crypto — the executor + marks path already route by these venues
+    # (NASDAQ via Alpaca, CRYPTO via Kraken/CoinGecko), so the leg schema must
+    # accept them, not just NSE/BSE.
+    exchange: Literal["NSE", "BSE", "NASDAQ", "NYSE", "CRYPTO"] = "NSE"
+    # Per-leg asset class + settlement currency so the fill executor and the
+    # ledger treat US (fractional shares, USD→INR marks) and crypto legs
+    # correctly. Optional: a bare Indian-equity leg defaults to in_equity/INR.
+    asset_class: Optional[str] = None
+    currency: Optional[str] = None
 
 
 class ActionAllocateBasketConfig(_Strict):

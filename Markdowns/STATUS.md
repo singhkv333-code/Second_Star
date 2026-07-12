@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-12 (frontend-lead) — Backtest card CAGR label, basket title/pill, chat auto-scroll
+
+- **`components/chat/IndicatorBacktestCard.tsx`**: (1) Concise card main stat label "Strategy total return" → "Strategy Annual Return" using `metrics.cagr_pct` (fallback to `total_return_pct` with old label when cagr is absent); detail modal hero stat "Strategy return" → "Strategy Annual Return" with same fallback; removed duplicate CAGR `DetailStat` from performance grid, added "Total return" `DetailStat` in its place. (2) Added `strategy_kind?: "basket"|"indicator"|"schedule"`, `display_title?: string`, `display_subtitle?: string` to `IndicatorBacktestPayload`; tag chip shows "Basket Backtest" when `strategy_kind === "basket"`; when `display_title` is set it overrides the `companyName` (skips stock quote fetch), ticker line is suppressed; `display_subtitle` overrides the `conditionFor()` label. (3) Both `IndicatorBacktestCard` and `IndicatorBacktestDetail` skip `getStockQuote` when `display_title` is present.
+- **`components/chat/ChatDemo.tsx`**: Fixed ResizeObserver auto-scroll — the effect had `[]` deps so `messagesRef.current` was always null on first run (messages div only mounts when `messages.length > 0`); changed deps to `[messages.length]` so the observer re-attaches when the messages div first appears.
+- `tsc --noEmit` 0 errors; no new lint errors in touched files.
+
+---
+
 ## 2026-07-10 (frontend-lead) — Restore cards when reopening conversations from sidebar
 
 - **`lib/api.ts`**: Added `tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null` to `ConversationMessage` type — backend now returns this field on `GET /api/conversations/{id}/messages`.

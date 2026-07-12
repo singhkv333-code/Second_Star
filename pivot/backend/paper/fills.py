@@ -91,7 +91,9 @@ def execute_market_fill(
     if account is None:  # FK guarantees this; explicit for safety + typing
         raise ValueError(f"paper account {order.account_id} not found")
     price = to_money(mark_price)
-    qty = int(order.quantity)
+    # Preserve fractional quantity (US shares / crypto units); order.quantity is
+    # a Numeric(18,8) Decimal. int() here would silently truncate 2.5 → 2.
+    qty = Decimal(str(order.quantity))
     side = str(order.transaction_type).upper()
 
     # Validate BEFORE touching the position (a reject must leave no

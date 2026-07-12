@@ -43,7 +43,7 @@ from backend.paper.ideas import resolve_idea
 from backend.paper.marks import get_mark_price
 from backend.paper.money import to_money
 from backend.services.trading_costs import buy_cost
-from backend.utils.time_utils import is_market_open, now_ist
+from backend.utils.time_utils import now_ist
 
 # Order types that rest until a price tick fills them (P3 evaluator).
 _RESTING_TYPES = {"LIMIT", "SL", "SL-M", "GTT"}
@@ -132,11 +132,14 @@ class PaperBroker:
         side = str(transaction_type).upper()
         ot = str(order_type).upper()
 
-        # Validate malformed input BEFORE persisting anything.
-        qty = int(quantity)
+        # Validate malformed input BEFORE persisting anything. Quantity is
+        # quantized by asset class: whole shares/lots for Indian, fractional
+        # for US shares / crypto units (migration 0025).
+        from backend.paper.quantity import quantize_qty
+        qty = quantize_qty(quantity, symbol=str(tradingsymbol))
         if qty <= 0:
             return self._reject_dict(
-                "invalid_quantity", str(tradingsymbol).upper(), side, qty,
+                "invalid_quantity", str(tradingsymbol).upper(), side, float(qty),
                 client_request_id,
             )
 
@@ -222,7 +225,11 @@ class PaperBroker:
             # then-live price (see evaluator.should_fill MARKET branch). This
             # is what makes "orders execute after the market opens" true.
             from backend.config import settings as _cfg
-            if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+            # Per-asset market hours: US orders fill during the US session, crypto
+            # 24/7, Indian during NSE hours. Without this a US/crypto MARKET order
+            # would rest against the NSE clock and never fill on its own venue's day.
+            from backend.market.market_hours import is_market_open_for_symbol
+            if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open_for_symbol(order.symbol):
                 order.status = "resting"
                 # Stamp the decision-time quote for display; the actual fill
                 # price is captured live at the opening tick.

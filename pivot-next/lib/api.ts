@@ -575,6 +575,7 @@ export function backtestDraftWorkflow(body: {
   description?: string | null;
   steps: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
   period?: string;
+  interval?: string;
 }): Promise<ApiResult<BacktestDraftResponse>> {
   return request<BacktestDraftResponse>("/workflows/backtest-draft", {
     method: "POST",
@@ -2428,6 +2429,92 @@ export function placeExpression(
   );
 }
 
+// ── immediate multi-asset basket placement (Deploy = execute now, paper) ─────
+
+/** One computed leg of a basket placement (preview + skipped). */
+export type BasketFillLeg = {
+  symbol: string;
+  /** Display name + logo (best-effort; logo_url null → FE renders a monogram). */
+  name: string | null;
+  logo_url: string | null;
+  asset_class: string;
+  exchange: string;
+  weight: number;
+  slice_inr: number;
+  mark_inr: number | null;
+  quantity: number;
+  /** ok | no_price | slice_too_small | short_unsupported | market_closed
+   *  | insufficient_buying_power | rejected. */
+  status: string;
+};
+
+export type BasketPreviewResponse = {
+  placeable: boolean;
+  routed_to: "paper" | "broker";
+  total_inr: number;
+  legs: BasketFillLeg[];
+  skipped: BasketFillLeg[];
+  /** Set (shown as the pop-up reason) only when NOT placeable. */
+  reason: string | null;
+};
+
+export type BasketPlacedLeg = {
+  symbol: string;
+  exchange: string;
+  quantity: number;
+  fill_price: number | null;
+  status: string;
+  order_id: string | null;
+};
+
+export type BasketPlaceResponse = {
+  placed: BasketPlacedLeg[];
+  count: number;
+  routed_to: "paper" | "broker";
+  total_inr: number;
+  skipped: BasketFillLeg[];
+};
+
+/**
+ * `POST /api/views/expressions/{id}/place-basket/preview`
+ *
+ * Computes the exact per-leg whole-share/unit breakdown for a basket
+ * expression at `capital_inr`, WITHOUT placing anything. Feeds the deploy
+ * confirmation modal. A 422 (with a plain reason) means the expression isn't a
+ * placeable basket (option/hedge/pair) — surface that reason in the pop-up.
+ */
+export function previewPlaceBasket(
+  expressionId: string,
+  capitalInr: number,
+): Promise<ApiResult<BasketPreviewResponse>> {
+  return request<BasketPreviewResponse>(
+    `/views/expressions/${encodeURIComponent(expressionId)}/place-basket/preview`,
+    { method: "POST", body: { capital_inr: capitalInr } },
+  );
+}
+
+/**
+ * `POST /api/views/expressions/{id}/place-basket`
+ *
+ * Places the basket (multi-asset: Indian equities / US shares / crypto) into
+ * the paper book (or the connected broker for a live account) synchronously —
+ * NO workflow/agent is created. The user pressed Deploy, so it stays inside
+ * register-not-execute. A 422/409 carries the exact reason for the pop-up.
+ */
+export function placeBasket(
+  expressionId: string,
+  capitalInr: number,
+  conversationId?: string,
+): Promise<ApiResult<BasketPlaceResponse>> {
+  return request<BasketPlaceResponse>(
+    `/views/expressions/${encodeURIComponent(expressionId)}/place-basket`,
+    {
+      method: "POST",
+      body: { capital_inr: capitalInr, conversation_id: conversationId },
+    },
+  );
+}
+
 /**
  * `POST /api/views/{view_id}/compare`
  *
@@ -2538,4 +2625,31 @@ export function unfollowView(
     `/views/${encodeURIComponent(viewId)}/follow`,
     { method: "DELETE" },
   );
+}
+
+/** One resolved security record from POST /api/views/security-meta. */
+export type SecurityMeta = {
+  symbol: string;
+  name: string;
+  logo_url: string | null;
+  /** in_equity | in_etf | us_equity | us_etf | crypto */
+  asset_class: string | null;
+  /** INR | USD */
+  currency: string | null;
+};
+
+/**
+ * `POST /api/views/security-meta` — batch-resolve display metadata for any
+ * mix of Indian, US, ETF, or crypto symbols (max 200 per call).
+ *
+ * Returns one row per recognised symbol.  Unresolved symbols are simply
+ * absent from the result array — callers must handle missing entries.
+ */
+export function fetchSecurityMeta(
+  symbols: string[],
+): Promise<ApiResult<SecurityMeta[]>> {
+  return request<SecurityMeta[]>("/views/security-meta", {
+    method: "POST",
+    body: { symbols },
+  });
 }

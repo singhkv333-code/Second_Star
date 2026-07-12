@@ -423,8 +423,28 @@ def _maybe_autostart_kite_ticker() -> None:
     try:
         session = get_active_kite_session(db)
         if session is None:
-            logger.info("Kite ticker autostart: no active broker session")
-            return
+            # CATCH-22 FIX (2026-07-11): the daily-death case leaves the session
+            # is_active=False, and get_active_kite_session filters on is_active —
+            # so the self-heal block below (which only runs for an ACTIVE session
+            # whose token later reads invalid) was never reached for exactly the
+            # case it exists for. Run the unattended refresh, which mints
+            # opted-in INACTIVE sessions from stored creds, then re-fetch. This
+            # is the server's own automation (not a manual login).
+            try:
+                from backend.services.kite_session_refresh import (
+                    refresh_kite_sessions,
+                )
+                refresh_kite_sessions()
+                db.expire_all()
+                session = get_active_kite_session(db)
+            except Exception as _heal_err:  # noqa: BLE001
+                logger.info(
+                    "Kite ticker autostart: boot self-heal failed: %s",
+                    str(_heal_err)[:200],
+                )
+            if session is None:
+                logger.info("Kite ticker autostart: no active broker session")
+                return
         token = read_kite_access_token(session)
         if not token or token.startswith("mock_"):
             logger.info("Kite ticker autostart: token unavailable / mocked")

@@ -205,6 +205,38 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
         "ratios",
         ("Enterprise Value (Cr.)",),
     ),
+    # ── Extended ratio set (scraped where present + pivot-derived backfill;
+    # source='pivot_derived' rows computed from the raw statements) ──
+    "roic": (
+        "ratios",
+        ("Return on Invested Capital (%)",),
+    ),
+    "operating_margin": (
+        "ratios",
+        ("PBIT Margin (%)",),
+    ),
+    "gross_margin": (
+        "ratios",
+        ("Gross Profit Margin (%)",),
+    ),
+    "inventory_turnover": (
+        "ratios",
+        ("Inventory Turnover Ratio (X)",),
+    ),
+    "receivables_turnover": (
+        "ratios",
+        ("Debtors Turnover Ratio (X)",),
+    ),
+    # Per-share figures — the denominators for PRICE ratios computed live
+    # as (latest price ÷ per-share value). See compute_price_ratio.
+    "net_profit_per_share": (
+        "ratios",
+        ("Net Profit/Share (Rs.)",),
+    ),
+    "sales_per_share": (
+        "ratios",
+        ("Revenue from Operations/Share (Rs.)", "Operating Revenue Per Share"),
+    ),
 }
 
 
@@ -460,6 +492,66 @@ def get_logo_urls_by_symbols(
             s.close()
 
 
+def get_names_by_symbols(
+    symbols: list[str], *, session: Session | None = None
+) -> dict[str, str]:
+    """Batch-resolve UPPER(symbol) -> display name in two round-trips (one
+    ``mc.companies`` query + one enrich_db batch), for surfaces that show a
+    company name for a short symbol list (e.g. equity-basket holdings)
+    without an N+1 of per-symbol :func:`get_company` calls. Prefers the
+    untruncated enrich ``long_name`` over ``mc.companies.company_name``
+    (truncated to 15 chars — see :func:`search_companies`); falls back to
+    the truncated name, then to the bare symbol, when enrich has nothing.
+    A symbol absent from ``mc.companies`` entirely is simply absent from the
+    returned map — the caller falls back to the symbol itself."""
+    syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
+    if not syms:
+        return {}
+    owns = session is None
+    s = session or _session()
+    try:
+        rows = s.execute(
+            text(
+                """
+                SELECT UPPER(COALESCE(c.nse_symbol, c.ticker)) AS sym,
+                       c.sc_id,
+                       c.company_name,
+                       c.nse_symbol
+                FROM mc.companies c
+                WHERE c.is_active
+                  AND UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:syms)
+                """
+            ),
+            {"syms": syms},
+        ).fetchall()
+        by_sym: dict[str, tuple[str, str | None]] = {}
+        has_canonical: dict[str, bool] = {}
+        for sym, sc_id, mc_name, nse_symbol in rows:
+            if sym in has_canonical and has_canonical[sym] and nse_symbol is None:
+                continue
+            by_sym[sym] = (sc_id, mc_name)
+            has_canonical[sym] = nse_symbol is not None
+
+        profiles: dict[str, dict] = {}
+        try:
+            from backend.market import enrich_db
+            if enrich_db.is_enabled():
+                profiles = enrich_db.get_profiles_by_sc_ids(
+                    [sc_id for sc_id, _ in by_sym.values()]
+                )
+        except Exception:  # noqa: BLE001 — enrichment is decorative here
+            profiles = {}
+
+        out: dict[str, str] = {}
+        for sym, (sc_id, mc_name) in by_sym.items():
+            long_name = (profiles.get(sc_id) or {}).get("long_name")
+            out[sym] = (long_name or "").strip() or mc_name or sym
+        return out
+    finally:
+        if owns:
+            s.close()
+
+
 @dataclass(frozen=True)
 class CompanyHit:
     """A single autosuggest result. `symbol` is the navigable trading symbol
@@ -672,6 +764,233 @@ def get_line_item(
         if v is not None:
             return v
     return None
+
+
+# Free-text term → canonical FIELD_MAP key. Seeds the semantic resolver so
+# the most common ways a user/LLM phrases a metric hit the curated synonyms
+# before we fall back to fuzzy line-item matching. Keys are normalised
+# (lowercased, alnum+space). Extend freely — misses just fall through.
+_TERM_ALIASES: dict[str, str] = {
+    "sales": "revenue", "revenue": "revenue", "topline": "revenue",
+    "top line": "revenue", "turnover": "revenue", "total revenue": "revenue",
+    "total income": "revenue", "net sales": "revenue", "total sales": "revenue",
+    "profit": "net_profit", "net profit": "net_profit", "pat": "net_profit",
+    "net income": "net_profit", "bottomline": "net_profit",
+    "bottom line": "net_profit", "earnings": "net_profit",
+    "operating profit": "operating_profit", "ebit": "operating_profit",
+    "ebitda": "ebitda_margin", "eps": "eps_basic",
+    "earnings per share": "eps_basic", "diluted eps": "eps_diluted",
+    "book value": "book_value_per_share", "bvps": "book_value_per_share",
+    "debt": "total_debt", "borrowings": "total_debt", "equity": "total_equity",
+    "net worth": "total_equity", "shareholders funds": "total_equity",
+    "reserves": "reserves", "interest": "interest_expense",
+    "finance cost": "interest_expense", "finance costs": "interest_expense",
+    "cash from operations": "cash_from_ops", "operating cash flow": "cash_from_ops",
+    "ocf": "cash_from_ops", "cfo": "cash_from_ops",
+    "cash flow from operations": "cash_from_ops",
+    "roe": "roe", "return on equity": "roe", "return on networth": "roe",
+    "roce": "roce", "return on capital employed": "roce",
+    "roa": "roa", "return on assets": "roa",
+    "roic": "roic", "return on invested capital": "roic",
+    "de": "debt_to_equity", "d/e": "debt_to_equity",
+    "debt to equity": "debt_to_equity", "debt equity": "debt_to_equity",
+    "leverage": "debt_to_equity",
+    "current ratio": "current_ratio", "quick ratio": "quick_ratio",
+    "acid test": "quick_ratio",
+    "interest coverage": "interest_coverage", "icr": "interest_coverage",
+    "net margin": "net_profit_margin", "net profit margin": "net_profit_margin",
+    "profit margin": "net_profit_margin",
+    "operating margin": "operating_margin", "opm": "operating_margin",
+    "pbit margin": "operating_margin",
+    "gross margin": "gross_margin", "gross profit margin": "gross_margin",
+    "ebitda margin": "ebitda_margin", "pbdit margin": "ebitda_margin",
+    "asset turnover": "asset_turnover",
+    "inventory turnover": "inventory_turnover",
+    "receivables turnover": "receivables_turnover",
+    "debtors turnover": "receivables_turnover",
+    "payout": "dividend_payout", "dividend payout": "dividend_payout",
+    "pe": "pe", "p/e": "pe", "price to earnings": "pe", "pe ratio": "pe",
+    "pb": "pb", "p/b": "pb", "price to book": "pb",
+    "ps": "ps", "p/s": "ps", "price to sales": "ps",
+    "enterprise value": "enterprise_value_cr", "ev": "enterprise_value_cr",
+    "ev/ebitda": "ev_to_ebitda", "earnings yield": "earnings_yield",
+    "market cap": "mcap", "marketcap": "mcap", "market capitalisation": "mcap",
+}
+
+
+def _norm_term(t: str) -> str:
+    """Lowercase, keep alnum + single spaces — so 'D/E Ratio' ~ 'de ratio'."""
+    import re as _re
+    return _re.sub(r"\s+", " ", _re.sub(r"[^a-z0-9 ]", " ", (t or "").lower())).strip()
+
+
+# Alias keys normalised the SAME way inputs are, so slashed/punctuated forms
+# ('P/S' → 'p s', 'D/E' → 'd e') resolve. Built once at import.
+_TERM_ALIASES_NORM: dict[str, str] = {}
+for _k, _v in _TERM_ALIASES.items():
+    _TERM_ALIASES_NORM.setdefault(_norm_term(_k), _v)
+
+
+def list_available_line_items(
+    symbol_or_sc_id: str, *, session: Session | None = None,
+) -> list[dict]:
+    """Every distinct (statement, line_item) a company actually has a numeric
+    value for — the vocabulary the fuzzy resolver matches against and the LLM
+    can be shown to translate an unmatched term."""
+    owns = session is None
+    s = session or _session()
+    try:
+        sc_id = resolve_symbol(symbol_or_sc_id, session=s)
+        if sc_id is None:
+            return []
+        rows = s.execute(
+            text(
+                """
+                SELECT DISTINCT statement::text, line_item
+                FROM mc.statement_lines
+                WHERE sc_id = :sc AND value_numeric IS NOT NULL
+                ORDER BY 1, 2
+                """
+            ),
+            {"sc": sc_id},
+        ).fetchall()
+        return [{"statement": r[0], "line_item": r[1]} for r in rows]
+    finally:
+        if owns:
+            s.close()
+
+
+def _score_line_item(term_norm: str, line_item: str) -> float:
+    """0..1 relevance of a raw line_item to a normalised term. Token overlap
+    (Jaccard) + a substring bonus + a difflib ratio, so 'sales' scores high
+    on 'Net Sales' and 'cash from ops' on 'Net CashFlow From Operating…'."""
+    import difflib
+    li = _norm_term(line_item)
+    if not li or not term_norm:
+        return 0.0
+    tset, lset = set(term_norm.split()), set(li.split())
+    jacc = len(tset & lset) / len(tset | lset) if (tset | lset) else 0.0
+    sub = 1.0 if (term_norm in li or li in term_norm) else 0.0
+    ratio = difflib.SequenceMatcher(None, term_norm, li).ratio()
+    # Weight token overlap + substring highest; ratio breaks ties.
+    return 0.5 * jacc + 0.35 * sub + 0.15 * ratio
+
+
+def resolve_financial_query(
+    symbol_or_sc_id: str,
+    term: str,
+    *,
+    basis: str = "consolidated",
+    as_of_date: date | None = None,
+    session: Session | None = None,
+    max_candidates: int = 6,
+    history: int = 0,
+) -> dict:
+    """Resolve ANY free-text financial term for a company to a value.
+
+    Resolution order:
+      1. price ratios  (pe / pb / ps)      → compute_price_ratio
+      2. term-alias / FIELD_MAP key         → resolve_metric / get_fundamental
+      3. fuzzy match vs the company's real line_items → get_line_item
+
+    Returns a dict: {resolved, value, unit, line_item, statement, period_label,
+    matched_via, matched_key, candidates}. `candidates` is the ranked list of
+    plausible line_items when we're NOT confident — the caller (LLM) can then
+    translate by picking one. Never fabricates; `resolved=False` on a miss.
+
+    When ``history`` > 0, the resolved FIELD_MAP metric is returned as an
+    annual series too (``series``: newest-first ``[{period_label, period_end,
+    value}]``) so trend/CAGR/"which year had max profit" asks are answerable.
+    """
+    out: dict = {
+        "symbol": (symbol_or_sc_id or "").strip().upper(),
+        "term": term, "resolved": False, "value": None, "unit": None,
+        "line_item": None, "statement": None, "period_label": None,
+        "matched_via": None, "matched_key": None, "candidates": [],
+    }
+    if history:
+        out["series"] = []
+    tnorm = _norm_term(term)
+    if not tnorm:
+        return out
+
+    def _attach_history(field_key: str, s: Session) -> None:
+        if not history or field_key not in FIELD_MAP:
+            return
+        try:
+            hist = get_fundamental_history(
+                symbol_or_sc_id, field_key, basis=basis,
+                limit=max(2, int(history)), as_of_date=as_of_date, session=s,
+            )
+            out["series"] = [
+                {
+                    "period_label": h.period_label,
+                    "period_end": h.period_end.isoformat() if h.period_end else None,
+                    "value": float(h.value_numeric) if h.value_numeric is not None else None,
+                }
+                for h in hist
+            ]
+        except Exception:  # noqa: BLE001 — history is best-effort
+            pass
+
+    owns = session is None
+    s = session or _session()
+    try:
+        # 1) price ratios
+        alias_key = _TERM_ALIASES_NORM.get(tnorm) or _TERM_ALIASES.get(tnorm)
+        if alias_key in ("pe", "pb", "ps"):
+            v = resolve_metric(
+                symbol_or_sc_id, alias_key, as_of_date=as_of_date,
+                basis=basis, session=s,
+            )
+            if v is not None:
+                out.update(resolved=True, value=round(float(v), 2), unit="x",
+                           line_item=alias_key.upper(), statement="derived",
+                           matched_via="price_ratio", matched_key=alias_key)
+                return out
+        # 2) curated key (via alias or a direct FIELD_MAP key)
+        key = alias_key or (tnorm.replace(" ", "_") if tnorm.replace(" ", "_") in FIELD_MAP else None)
+        if key and key in FIELD_MAP:
+            fv = get_fundamental(
+                symbol_or_sc_id, key, as_of_date=as_of_date,
+                basis=basis, session=s,
+            )
+            if fv and fv.value_numeric is not None:
+                out.update(
+                    resolved=True, value=float(fv.value_numeric), unit=fv.unit,
+                    line_item=fv.line_item, statement=fv.statement,
+                    period_label=fv.period_label, matched_via="field_map",
+                    matched_key=key,
+                )
+                _attach_history(key, s)
+                return out
+        # 3) fuzzy match against the company's actual line_items
+        items = list_available_line_items(symbol_or_sc_id, session=s)
+        scored = sorted(
+            ((_score_line_item(tnorm, it["line_item"]), it) for it in items),
+            key=lambda x: x[0], reverse=True,
+        )
+        out["candidates"] = [
+            {**it, "score": round(sc, 3)} for sc, it in scored[:max_candidates] if sc > 0.15
+        ]
+        if scored and scored[0][0] >= 0.55:
+            best = scored[0][1]
+            fv = get_line_item(
+                symbol_or_sc_id, best["line_item"], statement=best["statement"],
+                as_of_date=as_of_date, basis=basis, session=s,
+            )
+            if fv and fv.value_numeric is not None:
+                out.update(
+                    resolved=True, value=float(fv.value_numeric), unit=fv.unit,
+                    line_item=fv.line_item, statement=fv.statement,
+                    period_label=fv.period_label, matched_via="fuzzy",
+                    matched_key=best["line_item"],
+                )
+                return out
+        return out
+    finally:
+        if owns:
+            s.close()
 
 
 def _get_line_item_value(
@@ -1154,6 +1473,134 @@ _LEGACY_METRIC_MAP: dict[str, str] = {
 }
 
 
+# Price ratio → (per-share FIELD_MAP key used as the divisor). We compute
+# these LIVE as (price ÷ per-share fundamental) rather than trusting a
+# scraped snapshot ratio, so they reflect today's price and work for any
+# company that has the per-share line (P/E via net-profit-per-share, P/B via
+# book-value-per-share, P/S via sales-per-share).
+_PRICE_RATIO_DIVISOR: dict[str, tuple[str, ...]] = {
+    "pe": ("net_profit_per_share", "eps_basic"),
+    "pb": ("book_value_per_share",),
+    "ps": ("sales_per_share",),
+}
+
+
+def _latest_price(symbol_or_sc_id: str, *, session: Session | None = None) -> float | None:
+    """Live last price for a symbol (Kite REST, Redis-cached) with a yfinance
+    fallback. Resolves an sc_id back to its NSE symbol first. None on miss —
+    the caller then can't compute a price ratio and reports it unavailable."""
+    sym = (symbol_or_sc_id or "").strip().upper()
+    # If we were handed an sc_id, map it to a tradable NSE symbol.
+    if not sym or sym.isdigit():
+        try:
+            comp = get_company(symbol_or_sc_id, session=session)
+            sym = (comp.nse_symbol or comp.ticker or "").strip().upper() if comp else sym
+        except Exception:  # noqa: BLE001
+            pass
+    if not sym:
+        return None
+    try:
+        from backend.kite.live_quote import get_kite_quote
+        q = get_kite_quote(sym, exchange="NSE")
+        if q and q.get("last_price"):
+            return float(q["last_price"])
+    except Exception:  # noqa: BLE001 — never fatal
+        pass
+    # yfinance fallback (bounded — never hang the request).
+    try:
+        from backend.market.net_timeout import call_bounded
+        import yfinance as yf  # type: ignore[import-untyped]
+        hist = call_bounded(
+            lambda: yf.Ticker(f"{sym}.NS").history(period="5d"), timeout=6.0,
+        )
+        if hist is not None and not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _derive_per_share(
+    symbol_or_sc_id: str,
+    kind: str,
+    *,
+    as_of_date: date | None,
+    basis: str,
+    session: Session | None,
+) -> float | None:
+    """Per-share denominator derived from the raw statements when the scraped
+    per-share line is absent. shares (crore) = net_profit ÷ EPS; then the
+    per-share figure = (₹-crore statement value) ÷ shares. Returns None when
+    the required raw rows are missing."""
+    def _v(field: str) -> float | None:
+        r = get_fundamental(
+            symbol_or_sc_id, field,
+            as_of_date=as_of_date, basis=basis, session=session,
+        )
+        return float(r.value_numeric) if r and r.value_numeric is not None else None
+
+    eps = _v("eps_basic") or _v("eps_diluted")
+    if kind == "pe":
+        return eps if (eps and eps > 0) else None
+    net = _v("net_profit")
+    if not eps or eps <= 0 or not net or net <= 0:
+        return None
+    shares_cr = net / eps  # ₹-crore ÷ (₹/share) → crore shares
+    if shares_cr <= 0:
+        return None
+    if kind == "ps":
+        rev = _v("revenue")
+        return (rev / shares_cr) if rev and rev > 0 else None
+    if kind == "pb":
+        eq = _v("total_equity") or _v("reserves")
+        return (eq / shares_cr) if eq and eq > 0 else None
+    return None
+
+
+def compute_price_ratio(
+    symbol_or_sc_id: str,
+    kind: str,
+    *,
+    price: float | None = None,
+    as_of_date: date | None = None,
+    basis: str = "consolidated",
+    session: Session | None = None,
+) -> float | None:
+    """P/E, P/B or P/S computed as (price ÷ latest per-share fundamental).
+
+    ``kind`` ∈ {"pe","pb","ps"}. ``price`` may be passed in (e.g. a backtest
+    close on ``as_of_date``); when None we fetch the live last price. Returns
+    None when the per-share line or the price is unavailable — never guesses.
+    """
+    k = (kind or "").strip().lower()
+    divisors = _PRICE_RATIO_DIVISOR.get(k)
+    if not divisors:
+        return None
+    per_share: float | None = None
+    for field in divisors:
+        v = get_fundamental(
+            symbol_or_sc_id, field,
+            as_of_date=as_of_date, basis=basis, session=session,
+        )
+        if v and v.value_numeric and v.value_numeric > 0:
+            per_share = float(v.value_numeric)
+            break
+    # Fallback: derive the per-share denominator from the raw statements when
+    # the scraped per-share line is missing (common for IT/banks). shares_cr =
+    # net_profit ÷ EPS, then per-share = (₹-crore figure) ÷ shares_cr.
+    if per_share is None or per_share <= 0:
+        per_share = _derive_per_share(
+            symbol_or_sc_id, k, as_of_date=as_of_date, basis=basis, session=session,
+        )
+    if per_share is None or per_share <= 0:
+        return None
+    if price is None:
+        price = _latest_price(symbol_or_sc_id, session=session)
+    if not price or price <= 0:
+        return None
+    return float(price) / per_share
+
+
 def resolve_metric(
     symbol_or_sc_id: str,
     metric: str,
@@ -1188,13 +1635,32 @@ def resolve_metric(
             # only happen on unknown identifier that slipped through —
             # treat as missing data and let condition.numeric short-circuit.
             return None
-    if m == "pe":
-        ey = get_fundamental(
-            symbol_or_sc_id, "earnings_yield",
-            as_of_date=as_of_date, basis=basis, session=session,
-        )
-        if ey and ey.value_numeric and ey.value_numeric != 0:
-            return float(1.0 / ey.value_numeric)
+    if m in ("pe", "pb", "ps"):
+        # Price-driven: latest price ÷ per-share fundamental. For a backtest
+        # (as_of_date set) we don't have a point-in-time price here, so fall
+        # through to the scraped-ratio path below rather than use today's
+        # price against a past per-share figure.
+        if as_of_date is None:
+            pr = compute_price_ratio(
+                symbol_or_sc_id, m, basis=basis, session=session,
+            )
+            if pr is not None:
+                return pr
+        if m == "pe":
+            # Fallback: P/E = 1 / earnings-yield (scraped), incl. as-of dates.
+            ey = get_fundamental(
+                symbol_or_sc_id, "earnings_yield",
+                as_of_date=as_of_date, basis=basis, session=session,
+            )
+            if ey and ey.value_numeric and ey.value_numeric != 0:
+                return float(1.0 / ey.value_numeric)
+        elif m == "pb":
+            v = get_fundamental(
+                symbol_or_sc_id, "price_to_book",
+                as_of_date=as_of_date, basis=basis, session=session,
+            )
+            if v and v.value_numeric:
+                return float(v.value_numeric)
         return None
     if m == "mcap":
         return None

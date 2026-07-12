@@ -141,6 +141,18 @@ def evaluate_resting_orders(
         if order.status != "resting":
             continue
 
+        # Per-venue hours: a US order fills only during the US session, an
+        # Indian order only during NSE hours, crypto 24/7 — so a US leg can't
+        # fill at a stale mark just because the NSE happens to be open, and
+        # vice-versa.
+        try:
+            from backend.market.market_hours import is_market_open_for_symbol
+            if not is_market_open_for_symbol(order.symbol):
+                skipped.append(order.id)
+                continue
+        except Exception:  # noqa: BLE001 — never let the gate break the pass
+            pass
+
         raw = resolve(order.symbol)
         if raw is None:
             skipped.append(order.id)

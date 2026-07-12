@@ -127,13 +127,69 @@ def _write(key: str, value: Any, ttl_s: int = _TTL_S) -> None:
         logger.debug("portfolio cache write failed for %s: %s", key, e)
 
 
+def _paper_summary_or_none(user_id: int) -> Optional[dict]:
+    """Roll the SIMULATED paper book into the Kite `/summary` shape when the
+    user is in paper mode, else None. Read FRESH (not cached): a paper book is
+    a cheap local query and a just-placed paper fill must show immediately.
+    This is why chat portfolio reads previously disagreed with the Portfolio
+    page/header — the cache read Kite (empty) while the account was in paper
+    mode with a real book."""
+    try:
+        from backend.database import SessionLocal
+        from backend.paper.routing import should_use_paper
+        from backend.paper.portfolio import account_summary
+        db = SessionLocal()
+        try:
+            if not should_use_paper(db, int(user_id)):
+                return None
+            s = account_summary(db, int(user_id))
+            if not s.get("exists"):
+                return None
+            return {
+                "total_value": s["nav"],
+                "invested_value": s["invested"],
+                "total_pnl": s["total_pnl"],
+                "total_pnl_pct": s["total_pnl_pct"],
+                "day_pnl": s["day_pnl"],
+                "num_holdings": s["num_positions"],
+            }
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — never let paper break a portfolio read
+        logger.debug("paper summary resolve failed for user %s", user_id, exc_info=True)
+        return None
+
+
+def _paper_holdings_or_none(user_id: int, kite_token: str) -> Optional[list[dict]]:
+    """The paper book's holdings in Kite shape when in paper mode, else None.
+    Fresh read (see _paper_summary_or_none)."""
+    try:
+        from backend.database import SessionLocal
+        from backend.paper.routing import should_use_paper
+        from backend.services.portfolio_source import resolve_holdings
+        db = SessionLocal()
+        try:
+            if not should_use_paper(db, int(user_id)):
+                return None
+            return [dict(h) for h in resolve_holdings(db, int(user_id), kite_token)]
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        logger.debug("paper holdings resolve failed for user %s", user_id, exc_info=True)
+        return None
+
+
 def get_summary_cached(user_id: int, kite_token: str) -> dict:
-    """Return portfolio summary, served from cache when fresh.
+    """Return portfolio summary. PAPER mode → the simulated book, read fresh
+    (agrees with the Portfolio page/header). LIVE mode → SWR-cached Kite.
 
     Falls back to a live fetch on cache miss; populates the cache for
     the next caller. Errors in the cache layer are non-fatal — we
     always fall through to the broker.
     """
+    paper = _paper_summary_or_none(user_id)
+    if paper is not None:
+        return paper
     from backend.kite.portfolio import get_portfolio_summary
 
     key = f"{_SUMMARY_PREFIX}{user_id}"
@@ -148,7 +204,11 @@ def get_summary_cached(user_id: int, kite_token: str) -> dict:
 
 
 def get_holdings_cached(user_id: int, kite_token: str) -> list[dict]:
-    """Return holdings list, served from cache when fresh (SWR — see above)."""
+    """Return holdings list. PAPER mode → the simulated book, read fresh; LIVE
+    mode → SWR-cached Kite (see get_summary_cached)."""
+    paper = _paper_holdings_or_none(user_id, kite_token)
+    if paper is not None:
+        return paper
     from backend.kite.portfolio import get_holdings
 
     key = f"{_HOLDINGS_PREFIX}{user_id}"

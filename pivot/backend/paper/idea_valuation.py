@@ -77,7 +77,7 @@ def _replay_idea_fills(
     for f in fills:
         sym = str(f.symbol)
         side = str(f.transaction_type).upper()
-        qty = int(f.quantity)
+        qty = float(f.quantity)  # fractional-safe (US/crypto); was int()
         if qty <= 0:
             # Defensive: a 0-qty fill shouldn't exist, but if it does it
             # contributes nothing and must not divide-by-zero.

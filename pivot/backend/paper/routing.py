@@ -248,7 +248,11 @@ def submit_order(
         return PaperBroker(db, uid).place_order(
             tradingsymbol=symbol,
             transaction_type=side,
-            quantity=int(quantity),
+            # Pass RAW quantity — PaperBroker.place_order quantizes by asset
+            # class (whole shares/lots for Indian, fractional for US/crypto).
+            # int() here would truncate a 2.5-share US leg to 2 before it ever
+            # reached the fractional-aware book.
+            quantity=quantity,
             order_type=ot,
             exchange=exchange,
             price=price,
@@ -476,7 +480,11 @@ def submit_order_for_user(
         return PaperBroker(db, uid).place_order(
             tradingsymbol=symbol,
             transaction_type=side,
-            quantity=int(quantity),
+            # Pass RAW quantity — PaperBroker.place_order quantizes by asset
+            # class (whole shares/lots for Indian, fractional for US/crypto).
+            # int() here would truncate a 2.5-share US leg to 2 before it ever
+            # reached the fractional-aware book.
+            quantity=quantity,
             order_type=ot,
             exchange=exchange,
             price=price,

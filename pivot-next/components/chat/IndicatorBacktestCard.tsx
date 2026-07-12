@@ -65,11 +65,23 @@ export type IndicatorBacktestPayload = {
     ending_value: number;
   };
   bench_buy_hold_return_pct: number | null;
+  // What bench_buy_hold_return_pct actually measures: the primary symbol,
+  // an explicit override, or "{n}-name basket (ideal weights)" when it's a
+  // basket's own target-weight buy-and-hold rather than one constituent.
+  // Falls back to `symbol` when unset (older cached payloads).
+  benchmark_label?: string | null;
   // ── DSL-tree extras (present only on responses from the
   // backtest_dsl_tree chat tool). When ``tree_summary`` is set the
   // card uses it as the condition label instead of the indicator/
   // operator/threshold tuple, which is meaningless for compound trees.
   tree_summary?: string | null;
+  // ── Basket / multi-symbol backtest display overrides.
+  // When present the card uses these verbatim instead of deriving
+  // the title from symbol + company name (which is meaningless for a
+  // basket) and the subtitle from the condition template.
+  strategy_kind?: "basket" | "indicator" | "schedule";
+  display_title?: string;
+  display_subtitle?: string;
   trades?: Array<{
     trade_id: number;
     entry_date: string;
@@ -86,6 +98,13 @@ export type IndicatorBacktestPayload = {
     fire_bars: number;
     unknown_value_bars: number;
   };
+  // ── Tested-window metadata (added by backend; absent on older payloads).
+  // Render a human-readable "Tested: start → end · N bars" line when both
+  // dates are present so users can instantly see the tested interval.
+  window_start?: string | null;
+  window_end?: string | null;
+  n_bars?: number;
+  bar_interval?: string;
 };
 
 type Props = { payload: IndicatorBacktestPayload };
@@ -103,6 +122,20 @@ const fmtINR = (n: number): string =>
 
 const fmtPct = (n: number | null | undefined): string =>
   n == null ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
+// "12 Jul 2021" — 4-digit year so the tested-window line is unambiguous.
+const fmtWindowDate = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
+
+// "1d" → "daily", "1wk" / "weekly" → "weekly", otherwise pass through.
+const fmtBarInterval = (interval: string): string => {
+  if (interval === "1d") return "daily";
+  if (interval === "1wk" || interval === "weekly") return "weekly";
+  return interval;
+};
 
 // "RELIANCE" → "Reliance".  Title-cases each whitespace-separated token so
 // multi-word tickers like "HDFC BANK" become "Hdfc Bank" rather than
@@ -170,7 +203,15 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
   const [panelOpen, setPanelOpen] = React.useState(false);
   useExclusiveSidePanel("backtest", panelOpen, () => setPanelOpen(false));
 
-  const positive = metrics.total_return_pct >= 0;
+  // Defensive: some backtest paths can emit an indicator_backtest_chart
+  // payload without a populated `metrics` block (zero-trade result, an
+  // ineligible-but-eligible-shaped response, older payloads). Reading
+  // `metrics.total_return_pct` on undefined threw an unhandled runtime
+  // error that took down the WHOLE /#chat route (no error boundary). Read
+  // it null-safe here and render a graceful fallback below when absent.
+  const hasMetrics =
+    !!metrics && typeof metrics.total_return_pct === "number";
+  const positive = (metrics?.total_return_pct ?? 0) >= 0;
   const conditionLabel = conditionFor(payload);
 
   // Pull the company name the same way LogicCardChip does — best effort,
@@ -179,6 +220,12 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
   // network deterministic).
   const [quoteState, setQuoteState] = React.useState<QuoteState>({ kind: "loading" });
   React.useEffect(() => {
+    // Skip the network round-trip when the backend supplies an explicit title
+    // (e.g. basket backtests where the symbol is meaningless as a display name).
+    if (payload.display_title) {
+      setQuoteState({ kind: "hidden" });
+      return;
+    }
     let cancelled = false;
     setQuoteState({ kind: "loading" });
     getStockQuote(symbol, "NSE")
@@ -196,12 +243,36 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, payload.display_title]);
 
   const companyName =
     quoteState.kind === "ok" && quoteState.quote.name
       ? quoteState.quote.name
       : toCapitalized(symbol);
+
+  // No usable result — render a calm "couldn't compute" state instead of
+  // crashing on the missing metrics. Hooks above already ran, so this
+  // early return is safe.
+  if (!hasMetrics || !Array.isArray(payload.equity_curve) || payload.equity_curve.length === 0) {
+    return (
+      <div
+        className="mb-2 mt-1 w-full max-w-[388px] overflow-hidden rounded-3xl border border-border/50 bg-card px-6 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-16px_rgba(15,23,42,0.10)]"
+        data-testid="indicator-backtest-card-empty"
+        role="region"
+        aria-label={`Indicator backtest ${symbol} — no result`}
+      >
+        <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+          <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          Backtest returned no result
+        </div>
+        <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
+          {payload.display_title ?? toCapitalized(symbol)} — this strategy produced
+          no evaluable trades over the tested window, so there are no metrics to show.
+          Try a longer period or a different condition.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -213,16 +284,16 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
       {/* Tag chip */}
       <div className="flex">
         <span className="inline-flex items-center rounded-md bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium tracking-tight text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
-          Indicator Backtest
+          {payload.strategy_kind === "basket" ? "Basket Backtest" : "Indicator Backtest"}
         </span>
       </div>
 
-      {/* Title — matches the LogicCardChip SnapshotHeader rhythm: full
-          company name, then mono ticker line, then plain-sans condition. */}
+      {/* Title — basket backtests use display_title verbatim; single-symbol
+          backtests use the resolved company name + mono ticker line below. */}
       <h3 className="mt-3 truncate text-[20px] leading-[1.2] font-semibold tracking-tight text-foreground">
-        {companyName}
+        {payload.display_title ?? companyName}
       </h3>
-      {companyName !== symbol && (
+      {!payload.display_title && companyName !== symbol && (
         <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">
           {symbol}
         </p>
@@ -230,15 +301,26 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
       <p
         className={cn(
           "mt-1.5 text-[12px] tracking-tight text-muted-foreground",
-          // DSL trees can be long ("RSI(14) of TCS < 30 AND price of
-          // NIFTY > 22000 …") — let them wrap. Single-indicator
-          // condition strings stay on one line as before.
-          payload.tree_summary ? "leading-snug" : "truncate",
+          // DSL trees / display_subtitle can be long — let them wrap.
+          // Single-indicator condition strings stay on one line.
+          payload.display_subtitle || payload.tree_summary ? "leading-snug" : "truncate",
         )}
-        title={conditionLabel}
+        title={payload.display_subtitle ?? conditionLabel}
       >
-        {conditionLabel}
+        {payload.display_subtitle ?? conditionLabel}
       </p>
+
+      {/* Tested window — only rendered when the backend supplies both dates.
+          Compact muted caption so users immediately see what interval was
+          tested without disrupting the card's visual hierarchy. */}
+      {payload.window_start && payload.window_end && (
+        <p className="mt-1.5 truncate text-[11.5px] tabular-nums tracking-tight text-muted-foreground/70">
+          Tested: {fmtWindowDate(payload.window_start)} → {fmtWindowDate(payload.window_end)}
+          {payload.n_bars != null
+            ? ` · ${payload.n_bars.toLocaleString("en-IN")}${payload.bar_interval ? ` ${fmtBarInterval(payload.bar_interval)}` : ""} bars`
+            : ""}
+        </p>
+      )}
 
       {/* Date / period row — calendar + period_label */}
       <div className="mt-3 flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -264,10 +346,11 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
         />
       </div>
 
-      {/* Accent total return */}
+      {/* Accent return — shows CAGR when available (more comparable across
+          backtests of different lengths); falls back to total return. */}
       <div className="mt-5">
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          Strategy total return
+          {metrics.cagr_pct != null ? "Strategy Annual Return" : "Strategy total return"}
         </p>
         <p
           className={cn(
@@ -277,7 +360,7 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
               : "text-rose-600 dark:text-rose-400",
           )}
         >
-          {fmtPct(metrics.total_return_pct)}
+          {fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
         </p>
       </div>
 
@@ -382,15 +465,44 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
     signals,
     metrics,
     bench_buy_hold_return_pct,
+    benchmark_label,
   } = payload;
 
   const positive = metrics.total_return_pct >= 0;
+
+  // Compare like-with-like. The strategy headline shows an ANNUAL figure
+  // (CAGR) when available; the raw benchmark is a TOTAL buy-and-hold return
+  // over the same window. Showing strategy-annual next to bench-total is an
+  // apples-to-oranges comparison — so when we display the annual strategy
+  // figure we annualise the benchmark over the SAME window (identical basis
+  // to the backend's CAGR: equity-curve span / 365.25) and compute the
+  // delta on both-annual figures.
+  const showAnnual = metrics.cagr_pct != null;
+  const yearsSpan = ((): number | null => {
+    if (equity_curve.length < 2) return null;
+    const t0 = new Date(equity_curve[0]!.t).getTime();
+    const t1 = new Date(equity_curve[equity_curve.length - 1]!.t).getTime();
+    if (!Number.isFinite(t0) || !Number.isFinite(t1)) return null;
+    const days = (t1 - t0) / 86_400_000;
+    return days > 0 ? days / 365.25 : null;
+  })();
+  const annualizePct = (totalPct: number): number => {
+    if (!showAnnual || yearsSpan == null || yearsSpan <= 0) return totalPct;
+    const growth = 1 + totalPct / 100;
+    if (growth <= 0) return totalPct; // can't annualise a ≥100% wipeout
+    return (Math.pow(growth, 1 / yearsSpan) - 1) * 100;
+  };
+
   // bench_buy_hold_return_pct is `number | null` — a backtest can have no
   // benchmark. Guard every derivation so a null neither crashes (fmtPct) nor
   // silently coerces to 0 and renders a misleading "beat buy-and-hold".
   const hasBench = bench_buy_hold_return_pct != null;
-  const beatsBench = hasBench && metrics.total_return_pct > bench_buy_hold_return_pct!;
-  const benchDelta = hasBench ? metrics.total_return_pct - bench_buy_hold_return_pct! : 0;
+  // Strategy + benchmark at the SAME measuring level (both annual, or both
+  // total when no CAGR is available).
+  const strategyDisplayPct = metrics.cagr_pct ?? metrics.total_return_pct;
+  const benchDisplayPct = hasBench ? annualizePct(bench_buy_hold_return_pct!) : null;
+  const beatsBench = benchDisplayPct != null && strategyDisplayPct > benchDisplayPct;
+  const benchDelta = benchDisplayPct != null ? strategyDisplayPct - benchDisplayPct : 0;
   const benchEqual = hasBench && Math.abs(benchDelta) < 0.005;
   const netPnl = metrics.ending_value - metrics.starting_capital;
   const conditionLabel = conditionFor(payload);
@@ -401,6 +513,10 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
 
   const [quoteState, setQuoteState] = React.useState<QuoteState>({ kind: "loading" });
   React.useEffect(() => {
+    if (payload.display_title) {
+      setQuoteState({ kind: "hidden" });
+      return;
+    }
     let cancelled = false;
     setQuoteState({ kind: "loading" });
     getStockQuote(symbol, "NSE")
@@ -418,7 +534,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, payload.display_title]);
 
   const companyName =
     quoteState.kind === "ok" && quoteState.quote.name
@@ -471,14 +587,18 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           </div>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
             <h3 className="text-[20px] leading-[1.15] font-semibold tracking-tight text-foreground sm:text-[22px]">
-              {companyName}
+              {payload.display_title ?? companyName}
             </h3>
-            <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/70">
-              NSE: {symbol}
-            </span>
+            {!payload.display_title && (
+              <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/70">
+                NSE: {symbol}
+              </span>
+            )}
             <span className="text-[12px] text-muted-foreground/70">
-              <span className="mx-1.5 text-muted-foreground/40">·</span>
-              {conditionLabel}
+              {!payload.display_title && (
+                <span className="mx-1.5 text-muted-foreground/40">·</span>
+              )}
+              {payload.display_subtitle ?? conditionLabel}
             </span>
           </div>
         </div>
@@ -487,7 +607,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
         <div className="grid grid-cols-2 gap-x-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-              Strategy return
+              {metrics.cagr_pct != null ? "Strategy Annual Return" : "Strategy return"}
             </span>
             <div className="flex flex-col gap-0.5">
               <span
@@ -496,7 +616,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
                   positive ? "text-[var(--color-profit)]" : "text-[var(--color-loss)]",
                 )}
               >
-                {fmtPct(metrics.total_return_pct)}
+                {fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
               </span>
               <span
                 className={cn(
@@ -534,7 +654,8 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
                 {Math.abs(benchDelta).toFixed(2)}%
               </span>
               <span className="text-[11.5px] font-medium tabular-nums text-muted-foreground">
-                B&amp;H {fmtPct(bench_buy_hold_return_pct)}
+                B&amp;H {fmtPct(benchDisplayPct)}
+                {showAnnual ? "/yr" : ""}
               </span>
             </div>
           </div>
@@ -659,7 +780,11 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
               Performance
             </span>
             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <DetailStat label="CAGR" value={fmtPct(metrics.cagr_pct)} tone={metrics.cagr_pct >= 0 ? "profit" : "loss"} />
+              <DetailStat
+                label="Total return"
+                value={fmtPct(metrics.total_return_pct)}
+                tone={metrics.total_return_pct >= 0 ? "profit" : "loss"}
+              />
               <DetailStat
                 label="Max DD"
                 value={`-${Math.abs(metrics.max_drawdown_pct).toFixed(1)}%`}
@@ -674,7 +799,7 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
               <DetailStat label="Start" value={fmtINR(metrics.starting_capital)} />
               <DetailStat label="End value" value={fmtINR(metrics.ending_value)} />
               <DetailStat
-                label={`${symbol} buy & hold`}
+                label={`${benchmark_label ?? symbol} buy & hold${showAnnual ? " (total)" : ""}`}
                 value={fmtPct(bench_buy_hold_return_pct)}
                 tone={
                   bench_buy_hold_return_pct == null

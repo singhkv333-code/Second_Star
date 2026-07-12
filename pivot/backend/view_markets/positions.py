@@ -58,7 +58,9 @@ EXIT_NOTE = (
 
 
 def _mark(symbol: str) -> Optional[float]:
-    """One live mark (float) or None — never a fabricated price."""
+    """One live mark (float, INR) or None — never a fabricated price. Multi-
+    asset: get_mark_price returns an INR mark for Indian, US (Alpaca) and
+    crypto (Kraken/CoinGecko) symbols alike (US/crypto converted via FX)."""
     try:
         m = get_mark_price(symbol)
     except Exception:  # noqa: BLE001 — a data hiccup must not 500 the ledger
@@ -70,6 +72,40 @@ def _mark(symbol: str) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return f if f > 0 else None
+
+
+def _asset_meta(symbol: str) -> tuple[str, str]:
+    """(asset_class, currency) for a leg symbol — so the ledger records what
+    kind of security it is and the native pricing currency."""
+    try:
+        from backend.view_markets.security_meta import classify
+        c = classify(symbol)
+        return str(c.get("asset_class") or "in_equity"), str(c.get("currency") or "INR")
+    except Exception:  # noqa: BLE001
+        return "in_equity", "INR"
+
+
+def _native_mark(symbol: str, asset_class: Optional[str] = None) -> Optional[float]:
+    """The security's mark in its NATIVE currency (USD for US/crypto, INR for
+    Indian) — so we record the level a user actually thinks in ($ for MSTR/BTC).
+    Returns None when unpriceable; never guessed."""
+    ac = asset_class or _asset_meta(symbol)[0]
+    try:
+        if ac == "crypto":
+            from backend.market.global_quotes import get_global_quote
+            from backend.view_markets.security_meta import classify
+            base = classify(symbol).get("base") or symbol
+            gq = get_global_quote("crypto", base, quote_currency="USD")
+            return float(gq.price) if gq and gq.price and float(gq.price) > 0 else None
+        if ac in ("us_equity", "us_etf"):
+            from backend.market.alpaca_data import get_us_price_usd
+            from backend.view_markets.security_meta import classify
+            base = classify(symbol).get("base") or symbol
+            return get_us_price_usd(base)
+    except Exception:  # noqa: BLE001
+        return None
+    # Indian — native IS INR, same as the INR mark.
+    return _mark(symbol)
 
 
 # ── entry-leg snapshot ───────────────────────────────────────────────────────
@@ -201,7 +237,15 @@ def create_position(
 
     legs, note = position_legs(expression)
     for leg in legs:
-        leg["entry_price"] = _mark(leg["symbol"])
+        sym = leg["symbol"]
+        ac, cur = _asset_meta(sym)
+        leg["asset_class"] = ac
+        leg["currency"] = cur
+        # entry_price is the INR mark (used for INR return math + INR NAV);
+        # entry_price_native is the level in the security's own currency (USD
+        # for US/crypto) — the "at what level we invested" the user thinks in.
+        leg["entry_price"] = _mark(sym)
+        leg["entry_price_native"] = _native_mark(sym, ac)
 
     if note == PRICED_AT_DEPLOY_NOTE:
         # "Track the fill in your broker app" is only true in LIVE mode — a
@@ -290,14 +334,22 @@ def position_snapshot(position: Any) -> dict[str, Any]:
 
     legs_out: list[dict[str, Any]] = []
     for leg in legs:
-        mark = marks.get(leg.get("symbol"))
+        sym = leg.get("symbol")
+        mark = marks.get(sym)
+        ac = leg.get("asset_class") or (_asset_meta(sym)[0] if sym else "in_equity")
         legs_out.append(
             {
-                "symbol": leg.get("symbol"),
+                "symbol": sym,
                 "side": leg.get("side") or "long",
                 "weight": leg.get("weight"),
+                "asset_class": ac,
+                "currency": leg.get("currency") or ("USD" if ac in ("us_equity", "us_etf", "crypto") else "INR"),
+                # Entry / current level in INR (return math) + the security's
+                # native currency (the $ level for MSTR/BTC the user thinks in).
                 "entry_price": leg.get("entry_price"),
-                "last_price": mark,
+                "entry_price_native": leg.get("entry_price_native"),
+                "last_price": mark,                       # INR
+                "last_price_native": _native_mark(sym, ac) if sym else None,
                 "return_pct": _leg_return_pct(leg, mark),
             }
         )
@@ -367,6 +419,24 @@ def apply_exit(db: Any, position: Any, *, pct_of_open: float) -> dict[str, Any]:
 
     new_frac = frac - slice_frac
     position.open_fraction = new_frac
+    # Snapshot the EXIT LEVEL per leg (INR + native) so the DB records "at what
+    # level we exited", per security — especially US/crypto. Mirrors the entry
+    # snapshot on the legs.
+    exit_legs: list[dict] = []
+    for leg in (position.legs or []):
+        sym = leg.get("symbol")
+        if not sym:
+            continue
+        ac = leg.get("asset_class") or _asset_meta(sym)[0]
+        exit_legs.append({
+            "symbol": sym,
+            "asset_class": ac,
+            "currency": leg.get("currency"),
+            "entry_price": leg.get("entry_price"),
+            "exit_price": _mark(sym),                 # INR
+            "exit_price_native": _native_mark(sym, ac),
+            "return_pct": _leg_return_pct(leg, _mark(sym)),
+        })
     exits = list(position.exits or [])
     exits.append(
         {
@@ -374,6 +444,7 @@ def apply_exit(db: Any, position: Any, *, pct_of_open: float) -> dict[str, Any]:
             "pct_of_open": pct,
             "return_pct": ret,
             "realized_pnl_inr": realized_slice,
+            "legs": exit_legs,
         }
     )
     position.exits = exits

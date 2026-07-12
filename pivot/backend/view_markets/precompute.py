@@ -698,7 +698,38 @@ def _episode_holdings(
             ),
             "position": "short", "weight_pct": None,
         })
-    return out
+    return _enrich_holding_meta(out)
+
+
+def _enrich_holding_meta(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach per-security display metadata (name / logo_url / asset_class /
+    currency) to each holding row so the card can render a real company name +
+    logo + asset-class badge instead of a bare ticker — for Indian, US, ETF,
+    and crypto constituents alike. Best-effort: a resolve failure leaves the
+    row's existing bare-ticker name and a null logo (FE draws a monogram)."""
+    try:
+        from backend.view_markets.security_meta import resolve_many
+    except Exception:  # noqa: BLE001
+        return rows
+    syms = [r.get("symbol") for r in rows if r.get("symbol")]
+    if not syms:
+        return rows
+    try:
+        meta = resolve_many(syms)
+    except Exception:  # noqa: BLE001
+        return rows
+    for r in rows:
+        m = meta.get(r.get("symbol"))
+        if not m:
+            continue
+        # Prefer the resolved display name for US/crypto (plain_copy only knows
+        # Indian names); keep an existing option-leg label ("Buy CE (…)") as-is.
+        if m.get("name") and (not r.get("name") or r["name"] == r.get("symbol")):
+            r["name"] = m["name"]
+        r["logo_url"] = m.get("logo_url")
+        r["asset_class"] = m.get("asset_class")
+        r["currency"] = m.get("currency")
+    return rows
 
 
 def _compute_expression(

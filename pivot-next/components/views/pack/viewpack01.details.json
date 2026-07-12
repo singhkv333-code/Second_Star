@@ -695,7 +695,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "ai_jobs-conservative",
+    "id": "7d95778b-8535-5c6c-8073-3ef133fc52fa",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -1093,7 +1093,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 7 AI/IT companies",
     "plain_one_liner": "Own a bundle of 7 AI/IT companies in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -2177,7 +2177,7 @@
     "option_model": null
    },
    {
-    "id": "ai_jobs-balanced",
+    "id": "cdcb736e-356c-537d-8a3b-3503abc2a9fa",
     "tier": "balanced",
     "expression_kind": "hedge",
     "label": "Balanced \u2014 dollar-neutral pair: long rural basket / short NIFTY (v3 full-universe clean-factor)",
@@ -3666,7 +3666,7 @@
     "option_model": null
    },
    {
-    "id": "ai_jobs-aggressive",
+    "id": "a6c3fab6-4bfb-58e5-bfcd-88dbf3f2909d",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -6073,7 +6073,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "ai_search-conservative",
+    "id": "e11b2572-fd83-537c-b9ea-fb9e8680de91",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -6471,7 +6471,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own the 2 nimble AI-adopter firms",
     "plain_one_liner": "Own the 2 nimble ai-adopter firms in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -7515,7 +7515,7 @@
     "option_model": null
    },
    {
-    "id": "ai_search-balanced",
+    "id": "15446f29-1eda-5ba1-98c2-690db54cb210",
     "tier": "balanced",
     "expression_kind": "pair",
     "label": "Balanced \u2014 dollar-neutral pair: long rural basket / short NIFTY (v3 full-universe clean-factor)",
@@ -8844,7 +8844,7 @@
     "n_positive": 20
    },
    {
-    "id": "ai_search-aggressive",
+    "id": "82d613c8-537d-5377-921c-a17095d12b3c",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -11244,7 +11244,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "nuclear-conservative",
+    "id": "46044d8c-6f99-5653-9278-b5785f358007",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -11642,7 +11642,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 9 power & engineering firms",
     "plain_one_liner": "Own a bundle of 9 power & engineering firms in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -12749,7 +12749,7 @@
     "option_model": null
    },
    {
-    "id": "nuclear-balanced",
+    "id": "bcbb89d3-c157-5fa7-a0d3-dd05b4e816bc",
     "tier": "balanced",
     "expression_kind": "hedge",
     "label": "Balanced \u2014 dollar-neutral pair: long rural basket / short NIFTY (v3 full-universe clean-factor)",
@@ -14261,7 +14261,7 @@
     "option_model": null
    },
    {
-    "id": "nuclear-aggressive",
+    "id": "3a5a080d-96d5-52b4-9116-8bbcd76f42b4",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -16668,7 +16668,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "ev-conservative",
+    "id": "abc00e75-b197-564a-8658-ef43742b931a",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -17066,7 +17066,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 7 EV-chain companies",
     "plain_one_liner": "Own a bundle of 7 ev-chain companies in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -17996,7 +17996,7 @@
     "option_model": null
    },
    {
-    "id": "ev-balanced",
+    "id": "206462f4-2c33-5804-8b3c-6fa73a17a108",
     "tier": "balanced",
     "expression_kind": "hedge",
     "label": "Balanced \u2014 dollar-neutral pair: long rural basket / short NIFTY (v3 full-universe clean-factor)",
@@ -19331,7 +19331,7 @@
     "option_model": null
    },
    {
-    "id": "ev-aggressive",
+    "id": "7c700f7b-a574-565d-a108-afb2337fe78e",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -21423,7 +21423,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "mideast-conservative",
+    "id": "4226a883-f981-5a8b-bead-9d4d4621cd6f",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -21821,7 +21821,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 6 oil & defence firms",
     "plain_one_liner": "Own a bundle of 6 oil & defence firms in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -22589,7 +22589,7 @@
     "option_model": null
    },
    {
-    "id": "mideast-aggressive",
+    "id": "1c349f24-156f-5a20-95fd-9f8440f0965c",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -24723,7 +24723,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "nifty30k-conservative",
+    "id": "8f03a08d-15ae-50a3-a36a-09e4b748d847",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -25121,7 +25121,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own the whole market (index fund)",
     "plain_one_liner": "Own the whole market (index fund) in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -26030,7 +26030,7 @@
     "n_positive": 21
    },
    {
-    "id": "nifty30k-aggressive",
+    "id": "330cbfcb-5b1b-5eb6-bf7d-38aa49ecdada",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -27991,7 +27991,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "gold-conservative",
+    "id": "f6723e39-634c-52ed-9dc7-5a13979fa4a2",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -28389,7 +28389,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 4 gold-linked firms",
     "plain_one_liner": "Own a bundle of 4 gold-linked firms in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -29057,7 +29057,7 @@
     "option_model": null
    },
    {
-    "id": "gold-aggressive",
+    "id": "4dddf5ee-13c6-51a1-9372-4d5507649d9a",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",
@@ -31058,7 +31058,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "fintech-conservative",
+    "id": "9e137619-48ea-596a-9688-d839dd6d642a",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 EW rural basket (full long) (v3 full-universe clean-factor)",
@@ -31456,7 +31456,7 @@
      },
      "construction_alignment": 79
     },
-    "is_deployable": false,
+    "is_deployable": true,
     "plain_label": "Own a bundle of 8 finance-tech firms",
     "plain_one_liner": "Own a bundle of 8 finance-tech firms in equal amounts and hold for the window.",
     "plain_why": "The simplest, lowest-maintenance way to hold the idea \u2014 you own the companies directly.",
@@ -32671,7 +32671,7 @@
     "option_model": null
    },
    {
-    "id": "fintech-aggressive",
+    "id": "049d7801-f566-52f3-a774-b54653e31c2a",
     "tier": "aggressive",
     "expression_kind": "option_strategy",
     "label": "Aggressive \u2014 concentrated BRITANNIA.NS (option/hedge structure synthesized at deploy, not backtested on equity bars) (v3 full-universe clean-factor)",

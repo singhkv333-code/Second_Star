@@ -310,6 +310,77 @@ async def withdraw_option_strategy(
     }
 
 
+@router.post("/option-strategies/{strategy_id}/close")
+async def close_option_strategy(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+) -> dict:
+    """Square off (exit) every leg of an ACTIVE paper-book strategy at the
+    live chain and flip status to 'closed'. A live-book strategy never
+    reaches 'active' (register-not-execute — it stays a registered intent
+    forever), so this only ever fires for paper rows; asking to close one
+    in any other status is refused with an honest message rather than a
+    silent no-op."""
+    strategy = (
+        db.query(OptionStrategy)
+        .filter(
+            OptionStrategy.id == strategy_id,
+            OptionStrategy.user_id == user_id,
+        )
+        .first()
+    )
+    if strategy is None:
+        raise HTTPException(404, "Strategy not found")
+
+    if strategy.book != "paper":
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": (
+                "Live strategies are register-not-execute — square off each "
+                "leg in your broker app."
+            ),
+        }
+    if strategy.status != "active":
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": f"Cannot close a strategy in status '{strategy.status}'.",
+        }
+
+    from backend.paper.options_routing import OptionFillError, close_option_strategy as _close
+
+    try:
+        execution = _close(db, user_id, strategy)
+    except OptionFillError as exc:
+        db.rollback()
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": str(exc),
+        }
+    if not execution.get("success"):
+        db.rollback()
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": execution,
+            "error": execution.get("error"),
+        }
+    db.commit()
+    db.refresh(strategy)
+    return {
+        "success": True,
+        "strategy": serialize_option_strategy(strategy),
+        "execution": execution,
+        "error": None,
+    }
+
+
 @router.get("/users/option-strategies")
 async def list_option_strategies(
     db: Session = Depends(get_db),

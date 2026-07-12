@@ -12,8 +12,8 @@ import uuid
 
 import pytest
 
-from backend.models import TradeLog, Workflow, WorkflowStatus
-from backend.services.demo_seeder import seed_demo_data
+from backend.models import PaperAccount, PaperPosition, TradeLog, Workflow, WorkflowStatus
+from backend.services.demo_seeder import _seed_paper_account, seed_demo_data
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +129,55 @@ def test_seeded_workflows_visible_via_workflows_api(client, auth_headers):
     assert "RELIANCE 3:55 PM weekday buy" in names
     assert "INFY weekly dip-buy" in names
     assert "TCS monthly SIP" in names
+
+
+def test_register_seeds_paper_account_and_holdings(client, db):
+    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
+    r = client.post(
+        "/auth/register",
+        json={"email": email, "password": "password123", "full_name": "Demo"},
+    )
+    assert r.status_code == 201, r.text
+    user_id = r.json()["user_id"]
+
+    account = db.query(PaperAccount).filter(PaperAccount.user_id == user_id).first()
+    assert account is not None
+    assert float(account.starting_capital) == 500000.0
+    assert float(account.cash_available) < 500000.0  # some spent on holdings
+
+    positions = (
+        db.query(PaperPosition).filter(PaperPosition.account_id == account.id).all()
+    )
+    assert len(positions) == 6
+    symbols = {p.symbol for p in positions}
+    assert symbols == {"HDFCBANK", "TCS", "RELIANCE", "INFY", "ITC", "SBIN"}
+    assert all(p.quantity > 0 for p in positions)
+
+
+def test_seed_paper_account_is_idempotent(client, db):
+    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
+    r = client.post(
+        "/auth/register",
+        json={"email": email, "password": "password123", "full_name": "Demo"},
+    )
+    user_id = r.json()["user_id"]
+
+    account = db.query(PaperAccount).filter(PaperAccount.user_id == user_id).first()
+    initial_positions = (
+        db.query(PaperPosition).filter(PaperPosition.account_id == account.id).count()
+    )
+    initial_cash = account.cash_available
+
+    result = _seed_paper_account(db, user_id)
+    assert result["paper_seeded"] is True
+    assert result["holdings"] == 0  # already seeded, nothing new bought
+
+    db.refresh(account)
+    assert (
+        db.query(PaperPosition).filter(PaperPosition.account_id == account.id).count()
+        == initial_positions
+    )
+    assert account.cash_available == initial_cash
 
 
 def test_login_does_not_re_seed(client, db):
