@@ -242,6 +242,12 @@ def _paper_performance(
                     series = series.copy()
                     series.index = idx.tz_localize(None)
                 series.index = series.index.normalize()
+                # Intraday history collapses to duplicate dates after
+                # normalize(); keep one row per date (last close wins). A
+                # duplicate index makes `s.get(ts)` return a Series later,
+                # which crashes the sweep with "truth value of a Series is
+                # ambiguous".
+                series = series[~series.index.duplicated(keep="last")]
                 closes[sym] = series
 
     # Fallback mark per symbol (its last fill price) so a symbol yfinance can't
@@ -290,6 +296,12 @@ def _paper_performance(
             s = aligned.get(sym)
             if s is not None:
                 raw = s.get(ts)
+                # `s.get(ts)` yields a Series (not a scalar) when the aligned
+                # index carries duplicate timestamps for `ts`; a Series here
+                # crashes the NaN check with "truth value of a Series is
+                # ambiguous". Collapse to the last scalar.
+                if isinstance(raw, pd.Series):
+                    raw = raw.iloc[-1] if not raw.empty else None
                 if raw is not None and not pd.isna(raw):
                     px = float(raw)
             if px is None:
