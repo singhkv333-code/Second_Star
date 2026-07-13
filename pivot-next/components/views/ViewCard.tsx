@@ -330,8 +330,9 @@ function StanceButton({
 }
 
 // ---------------------------------------------------------------------------
-// HeroFigure — the big honest return with a superscript % (mockup grammar).
-// fmtPct gives e.g. "+64.8%"; we split the trailing % into a <sup>.
+// HeroFigure — the big honest return with a slightly smaller, baseline-aligned
+// % so it reads as "+64.8%" cleanly (no superscript float).
+// fmtPct gives e.g. "+64.8%"; we render the trailing % a touch smaller.
 // ---------------------------------------------------------------------------
 
 function HeroFigure({
@@ -363,7 +364,9 @@ function HeroFigure({
     >
       {body}
       {hasPct && (
-        <sup style={{ fontSize: 20, fontWeight: 600, top: "-0.7em" }}>%</sup>
+        <span style={{ fontSize: 24, fontWeight: 600, verticalAlign: "baseline", marginLeft: "0.02em" }}>
+          %
+        </span>
       )}
     </div>
   );
