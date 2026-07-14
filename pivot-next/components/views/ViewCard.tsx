@@ -449,8 +449,10 @@ export function ViewCard({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "transparent",
-        border: `1px solid ${hover ? "var(--glass-border-hover)" : "var(--glass-border)"}`,
+        background: sans ? "transparent" : "var(--bg-secondary)",
+        border: sans
+          ? `1px solid ${hover ? "var(--glass-border-hover)" : "var(--glass-border)"}`
+          : "none",
         borderRadius: 12,
         padding: "20px 22px",
         boxShadow: "none",
