@@ -2311,7 +2311,9 @@ function ConversationRow({
           color: highlighted ? "var(--text-primary)" : "var(--text-secondary)",
           fontFamily: "var(--font-ui)",
           fontSize: 13.5,
-          fontWeight: active ? 600 : 500,
+          // Constant weight — the active/hover state reads via background +
+          // text color, never a weight change (no bold on select or hover).
+          fontWeight: 500,
           textAlign: "left",
           whiteSpace: "nowrap",
           overflow: "hidden",
