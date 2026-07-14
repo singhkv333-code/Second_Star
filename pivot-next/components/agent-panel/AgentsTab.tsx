@@ -108,7 +108,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
-  { value: "draft", label: "Draft" },
 ];
 
 type FetchState =
@@ -709,7 +708,7 @@ function AgentMiniCard({
       onClick={onSelect}
       onKeyDown={handleKey}
       className={cn(
-        "agents-mini-card group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+        "agents-mini-card group flex h-full cursor-pointer flex-col gap-4 rounded-2xl border border-border/50 bg-[var(--bg-secondary)] px-5 py-5",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
         "transition-colors hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         (isOpening || isDeleting) && "opacity-70 pointer-events-none",
