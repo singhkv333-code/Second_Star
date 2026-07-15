@@ -28,7 +28,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -146,26 +146,13 @@ const TODAY_FMT = new Intl.DateTimeFormat("en-IN", {
   month: "long",
 });
 
-/** Which physical device is this — the 2560×1440 design monitor or the
- *  ~1920×1080 laptop? Keys off the screen's PHYSICAL pixel count
- *  (`screen.width × devicePixelRatio`), NOT the CSS viewport, because OS
- *  display scaling and browser chrome shrink the CSS width/height
- *  unpredictably — a scaled 2560 monitor reports a CSS viewport small enough
- *  that width- or height-based media queries wrongly treat it as a laptop.
- *  Physical pixels are scaling-invariant. SSR-safe: defaults to "monitor". */
-function useDevice(): "monitor" | "laptop" {
-  const [device, setDevice] = useState<"monitor" | "laptop">("monitor");
-  useEffect(() => {
-    const compute = (): void => {
-      const dpr = window.devicePixelRatio || 1;
-      setDevice(window.screen.width * dpr >= 2200 ? "monitor" : "laptop");
-    };
-    compute();
-    window.addEventListener("resize", compute);
-    return () => window.removeEventListener("resize", compute);
-  }, []);
-  return device;
-}
+// NOTE: the home board no longer classifies "monitor vs laptop" from physical
+// pixel counts — that guess mis-sized Retina laptops (small screen, huge pixel
+// count) and 1920 monitors, causing overflow and wrong prompt/strategy counts.
+// The rich-vs-compact decision is now made from actual available space: the
+// chat prompts measure their card height (ChatPromptsCard / promptsThatFit),
+// and the Views + strategies compactions key off `@media (max-height)` in
+// globals.css — both scaling-honest, unlike a device guess.
 
 /** Rough NSE session check in IST — Mon–Fri, 09:15–15:30. Presentational only
  *  (a calm status chip); never gates any data or action. */
@@ -380,9 +367,11 @@ type ChatPrompt = {
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
 };
 
-// Six seeds; the last two are hidden on short (laptop) heights via the
-// .home-chat-prompts nth-child rule in globals.css, leaving four that fill
-// the card without spilling. The tall monitor shows all six.
+// Six seeds. ChatPromptsCard measures the card's real height and shows as
+// many as fit without cramping (a tall monitor takes all six; a short laptop
+// or a small-screen MacBook trims to what stays readable) — see PROMPT_ROW_MIN
+// and the ResizeObserver there. Measured space, not a physical-pixel device
+// guess, which used to mis-size Retina laptops and 1920 monitors.
 const CHAT_PROMPTS: ChatPrompt[] = [
   { label: "Give me a market pulse for today.", Icon: Activity },
   { label: "Analyse TCS — technicals, fundamentals and a view.", Icon: BarChart2 },
@@ -398,7 +387,6 @@ const CHAT_PROMPTS: ChatPrompt[] = [
 
 export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }: HomeTabProps): React.ReactElement {
   const [greetName, setGreetName] = useState<string | null>(null);
-  const device = useDevice();
   const router = useRouter();
 
   useEffect(() => {
@@ -425,10 +413,6 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
       className="mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto"
       style={{ maxWidth: 1760, gap: "clamp(8px, 1.4vh, 14px)" }}
       data-testid="home-tab"
-      // "monitor" (2560-class physical screen) vs "laptop" (1920-class) — drives
-      // the [data-device] rules in globals.css: the prompt/strategy COUNT (six
-      // vs four) and full-size vs compact Views teaser cards. See useDevice().
-      data-device={device}
     >
       {/* ── Greeting + indices (fixed header band) ───────────────────── */}
       <div className="flex shrink-0 flex-col" style={{ gap: "clamp(8px, 1.4vh, 14px)" }}>
@@ -1485,6 +1469,24 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
 // Chat prompts card
 // ---------------------------------------------------------------------------
 
+// Smallest height (px) a single prompt row can take before its one line of
+// text + icon start to look cramped against the row border. The fit maths
+// below never lets a visible row fall below this, so rows always read cleanly.
+const PROMPT_ROW_MIN = 38;
+// Inter-row gap in px — the resolved midpoint of the clamp() on the list below.
+// Used only to size the fit; the real gap is still the clamp.
+const PROMPT_ROW_GAP = 8;
+
+/** How many prompt rows fit in `height` px without any row dropping below
+ *  PROMPT_ROW_MIN. n flex rows share `height` with (n-1) gaps between them, so
+ *  the tallest n that keeps every row ≥ min is floor((height+gap)/(min+gap)).
+ *  Clamped to [3, total] — never blank, never more than we have. */
+function promptsThatFit(height: number, total: number): number {
+  if (height <= 0) return total;
+  const n = Math.floor((height + PROMPT_ROW_GAP) / (PROMPT_ROW_MIN + PROMPT_ROW_GAP));
+  return Math.max(3, Math.min(total, n));
+}
+
 function ChatPromptsCard({
   onGoTab,
   onSend,
@@ -1492,6 +1494,37 @@ function ChatPromptsCard({
   onGoTab: HomeTabProps["onGoTab"];
   onSend: (prompt: string) => void;
 }): React.ReactElement {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // How many prompts to render. Measured from the card's real height rather
+  // than guessed from the device: the tall monitor holds all six, a laptop or
+  // small MacBook trims to what stays readable — no overflow on either, and no
+  // dependence on physical-pixel counts (which mis-sized both). Starts at four
+  // (always safe — never overflows on first paint) and the observer corrects
+  // it up or down once the card has a measured height.
+  const [visible, setVisible] = useState(4);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    // Only the lg+ bento fixes the card to a viewport-derived height where the
+    // fit maths is stable; below lg the board is a single scrolling column, so
+    // the card sizes to its own content and there's room for all six.
+    const lg = window.matchMedia("(min-width: 1024px)");
+    const measure = (): void => {
+      setVisible(lg.matches ? promptsThatFit(el.clientHeight, CHAT_PROMPTS.length) : CHAT_PROMPTS.length);
+    };
+    measure();
+    // The list is flex-1, so at lg its height tracks the card (which the bento
+    // grid sizes from the viewport) independently of how many rows we render —
+    // the measurement is stable, not circular, and re-fires on any resize/zoom.
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    lg.addEventListener("change", measure);
+    return () => {
+      ro.disconnect();
+      lg.removeEventListener("change", measure);
+    };
+  }, []);
+
   return (
     <CardShell
       Icon={MessageSquare}
@@ -1504,11 +1537,16 @@ function ChatPromptsCard({
     >
       {/* No inner scroll — each prompt grows to an equal share of the card
           height (flex-1), so they read as one evenly-spaced stack that fills
-          the card rather than floating apart. Six on the tall monitor; the
-          last two are hidden on short laptop heights (globals.css). The small
-          vertical padding keeps the top/bottom rows' hover highlight visible. */}
-      <div className="home-chat-prompts flex flex-1 flex-col" style={{ gap: "clamp(6px, 1.1vh, 10px)", paddingBlock: 2 }}>
-        {CHAT_PROMPTS.map((p) => (
+          the card rather than floating apart. `visible` (measured above) keeps
+          six on a tall monitor and trims on shorter screens so no row is
+          cramped. The small vertical padding keeps the top/bottom rows' hover
+          highlight visible. */}
+      <div
+        ref={listRef}
+        className="home-chat-prompts flex flex-1 flex-col"
+        style={{ gap: "clamp(6px, 1.1vh, 10px)", paddingBlock: 2 }}
+      >
+        {CHAT_PROMPTS.slice(0, visible).map((p) => (
           <PromptRow key={p.label} label={p.label} Icon={p.Icon} onClick={() => onSend(p.label)} />
         ))}
       </div>
