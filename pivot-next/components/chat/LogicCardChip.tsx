@@ -14,8 +14,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
+import { Check, Clock, Loader2, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   getSparkline,
@@ -25,6 +26,7 @@ import {
   type RegisteredOrder,
   type StockQuote,
 } from "@/lib/api";
+import { nextOpenLabel } from "@/lib/market-hours";
 import { isError } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -112,7 +114,14 @@ const STRIP_CELLS = 3;
 type ConfirmState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "done"; registered: RegisteredOrder[] }
+  | {
+      kind: "done";
+      registered: RegisteredOrder[];
+      /** Order was placed while the market was closed → queued as an AMO. */
+      queued: boolean;
+      /** IST label for the next open, when the backend supplied one. */
+      nextOpen?: string;
+    }
   | { kind: "error"; message: string };
 
 export function LogicCardChip({
@@ -150,7 +159,27 @@ export function LogicCardChip({
       "registered" in data
         ? data.registered
         : ([data] as RegisteredOrder[]);
-    setState({ kind: "done", registered });
+
+    // Market-closed → the backend queues the order as an AMO (per-row
+    // `queued` flag). This is the authoritative signal; the client-side
+    // isMarketOpen() is only for the human-readable "when" copy when the
+    // backend didn't echo a next_open string.
+    const queued = registered.some((r) => r.queued === true);
+    const nextOpen =
+      "next_open" in data ? (data.next_open as string | undefined) : undefined;
+
+    if (queued) {
+      const when = nextOpen
+        ? `at the next market open (${nextOpen})`
+        : nextOpenLabel();
+      toast("Market closed — order queued", {
+        icon: <Clock className="h-4 w-4" />,
+        description: `${card.action} ${card.symbol} will execute ${when}. You can cancel it before then from Portfolio → Orders.`,
+        duration: 9000,
+      });
+    }
+
+    setState({ kind: "done", registered, queued, nextOpen });
   };
 
   const isSell = card.action === "SELL";
@@ -267,7 +296,15 @@ export function LogicCardChip({
 
       {/* CTA */}
       <div className="border-t border-border/40 px-4 py-3">
-        {state.kind === "done" ? (
+        {state.kind === "done" && state.queued ? (
+          <div
+            className="flex h-8 w-full items-center justify-center gap-1.5 text-[12px] font-medium tracking-tight text-amber-700 dark:text-amber-400"
+            data-testid="logic-card-queued"
+          >
+            <Clock className="h-4 w-4" aria-hidden="true" />
+            Queued
+          </div>
+        ) : state.kind === "done" ? (
           <div
             className="flex h-8 w-full items-center justify-center gap-1.5 text-[12px] font-medium tracking-tight text-foreground"
             data-testid="logic-card-placed"
@@ -319,6 +356,31 @@ export function LogicCardChip({
           </span>
         )}
       </div>
+
+      {/* MARKET-CLOSED NOTICE — shown when the order was queued as an AMO.
+          Explains that it won't fill now and points to where it can be
+          cancelled, so "Queued" is never mistaken for "didn't work". */}
+      {state.kind === "done" && state.queued && (
+        <div
+          className="flex items-start gap-2 border-t border-amber-500/20 bg-amber-50/60 px-5 py-3 dark:bg-amber-500/[0.06]"
+          role="status"
+          data-testid="logic-card-market-closed"
+        >
+          <Clock
+            className="mt-[1px] h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
+          <p className="text-[11.5px] leading-snug text-amber-800/90 dark:text-amber-200/90">
+            <span className="font-semibold">Market closed.</span> This order is
+            queued and will execute{" "}
+            {state.nextOpen
+              ? `at the next market open (${state.nextOpen})`
+              : nextOpenLabel()}
+            . You can cancel it before then from{" "}
+            <span className="font-medium">Portfolio → Orders</span>.
+          </p>
+        </div>
+      )}
 
       {/* DISCLAIMER — matches WorkflowDraftCard: amber-tinted hairline footer
           to signal "advisory", consistent across all chat surfaces. */}

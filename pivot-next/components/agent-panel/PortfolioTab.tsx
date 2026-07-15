@@ -34,20 +34,28 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
+  Clock,
+  Loader2,
   RefreshCw,
   Wallet,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   getPortfolioHoldings,
   getPortfolioSummary,
   getPaperFills,
   getOrderHistory,
+  getOpenOrders,
+  cancelOrder,
   type Holding,
   type PortfolioSummary,
+  type OpenOrder,
 } from "@/lib/api";
+import { toast } from "sonner";
 import { isError } from "@/lib/types";
 import {
   getPortfolioScores,
@@ -151,10 +159,13 @@ type FetchState =
   | { kind: "error"; message: string }
   | { kind: "ok"; summary: PortfolioSummary; holdings: Holding[] };
 
-type PortfolioView = "overview" | "history";
+type PortfolioView = "overview" | "orders" | "history";
 
 export function PortfolioTab(): React.ReactElement {
   const [view, setView] = useState<PortfolioView>("overview");
+  // Count of open (cancellable) orders — drives the badge on the Orders pill.
+  // Fetched independently of the tab so the badge is visible from Overview.
+  const [openOrderCount, setOpenOrderCount] = useState<number>(0);
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   // Bumped on mode-changes and retries so PerformanceChart + PortfolioScores
   // re-fetch in lockstep with the summary + holdings. NOT bumped on initial
@@ -247,6 +258,20 @@ export function PortfolioTab(): React.ReactElement {
     };
   }, []);
 
+  // Open-order count for the Orders pill badge. Kept separate from the tab's
+  // own fetch so the badge shows from any tab. Re-runs on mode flips and on
+  // scoresReloadKey bumps (Retry / cancel-triggered reloads).
+  useEffect(() => {
+    let alive = true;
+    getOpenOrders().then((r) => {
+      if (!alive) return;
+      setOpenOrderCount(isError(r) ? 0 : r.data.length);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [mode, scoresReloadKey]);
+
   return (
     <div ref={rootRef} data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
       {/* Page title + Overview/History toggle */}
@@ -273,8 +298,11 @@ export function PortfolioTab(): React.ReactElement {
             borderRadius: "var(--radius-sm)",
           }}
         >
-          {(["overview", "history"] as const).map((v) => {
+          {(["overview", "orders", "history"] as const).map((v) => {
             const active = view === v;
+            const label =
+              v === "overview" ? "Overview" : v === "orders" ? "Orders" : "History";
+            const showBadge = v === "orders" && openOrderCount > 0;
             return (
               <button
                 key={v}
@@ -283,6 +311,9 @@ export function PortfolioTab(): React.ReactElement {
                 aria-pressed={active}
                 data-testid={`portfolio-view-${v}`}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
                   padding: "6px 14px",
                   border: "none",
                   cursor: "pointer",
@@ -296,12 +327,42 @@ export function PortfolioTab(): React.ReactElement {
                     "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
                 }}
               >
-                {v === "overview" ? "Overview" : "History"}
+                {label}
+                {showBadge && (
+                  <span
+                    aria-label={`${openOrderCount} pending`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 16,
+                      height: 16,
+                      padding: "0 4px",
+                      borderRadius: 8,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      lineHeight: 1,
+                      background: active
+                        ? "var(--bg-primary)"
+                        : "rgba(245,158,11,0.16)",
+                      color: active ? "var(--text-primary)" : "#b45309",
+                    }}
+                  >
+                    {openOrderCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </div>
+
+      {view === "orders" && (
+        <PendingOrders
+          onCountChange={setOpenOrderCount}
+          onCancelled={() => setScoresReloadKey((k) => k + 1)}
+        />
+      )}
 
       {view === "history" && <TradeHistory />}
 
@@ -2389,6 +2450,287 @@ const HIST_TD: React.CSSProperties = {
   borderBottom: "1px solid var(--glass-border)",
   whiteSpace: "nowrap",
 };
+
+// ---------------------------------------------------------------------------
+// PendingOrders — the "Orders" tab. Lists still-open (cancellable) orders:
+// AMOs queued while the market was closed, resting LIMIT / trigger orders, and
+// anything the broker still reports as not-yet-complete. Each row can be
+// cancelled before it executes. Mode-aware via getOpenOrders / cancelOrder.
+// ---------------------------------------------------------------------------
+
+function fmtOrderDateTime(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso; // backend sends "… IST" strings
+  return d.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** Normalise the backend's free-form status into a compact display label. */
+function orderStatusLabel(o: OpenOrder): string {
+  if (o.queued) return "Queued";
+  const s = o.status.toLowerCase();
+  if (s === "trigger pending") return "Trigger pending";
+  if (s === "open" || s === "resting") return "Open";
+  if (s === "registered" || s === "pending") return "Pending";
+  return o.status.charAt(0).toUpperCase() + o.status.slice(1);
+}
+
+function PendingOrders({
+  onCountChange,
+  onCancelled,
+}: {
+  onCountChange: (n: number) => void;
+  onCancelled: () => void;
+}): React.ReactElement {
+  const mode = useTradingMode();
+  const [rows, setRows] = useState<OpenOrder[] | null>(null);
+  const [errored, setErrored] = useState(false);
+  // ids currently being cancelled — disables their button + dims the row.
+  const [cancelling, setCancelling] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    setErrored(false);
+    getOpenOrders().then((r) => {
+      if (!alive) return;
+      if (isError(r)) {
+        setErrored(true);
+        return;
+      }
+      setRows(r.data);
+      onCountChange(r.data.length);
+    });
+    return () => {
+      alive = false;
+    };
+    // onCountChange is a stable setState updater; excluded to avoid needless
+    // refetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  const handleCancel = async (o: OpenOrder): Promise<void> => {
+    setCancelling((prev) => new Set(prev).add(o.id));
+    const res = await cancelOrder(o.id);
+    if (isError(res)) {
+      toast.error(`Couldn't cancel ${o.symbol}`, {
+        description: res.error.message,
+      });
+      setCancelling((prev) => {
+        const next = new Set(prev);
+        next.delete(o.id);
+        return next;
+      });
+      return;
+    }
+    // Drop the cancelled row and republish the count.
+    setRows((prev) => {
+      const next = (prev ?? []).filter((x) => x.id !== o.id);
+      onCountChange(next.length);
+      return next;
+    });
+    onCancelled();
+    const note = res.data.broker_note;
+    if (note) {
+      toast.warning(`${o.symbol} order cancelled`, { description: note });
+    } else {
+      toast.success(`Cancelled ${o.transaction_type} ${o.quantity} ${o.symbol}`);
+    }
+  };
+
+  if (errored) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center rounded-2xl bg-card"
+        style={{ gap: 6, padding: "40px 16px", textAlign: "center" }}
+        role="alert"
+      >
+        <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+          Couldn&apos;t load orders
+        </p>
+        <p style={{ fontSize: 12, color: "var(--text-tertiary)", maxWidth: 340 }}>
+          Something went wrong fetching your pending orders. Try switching tabs
+          to retry.
+        </p>
+      </div>
+    );
+  }
+
+  if (rows === null) {
+    return (
+      <div className="flex flex-col" style={{ gap: 10 }}>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+        ))}
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center rounded-2xl bg-card"
+        style={{ gap: 6, padding: "40px 16px", textAlign: "center" }}
+        data-testid="pending-orders-empty"
+      >
+        <Clock
+          className="h-5 w-5"
+          style={{ color: "var(--text-tertiary)" }}
+          aria-hidden="true"
+        />
+        <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+          No pending orders
+        </p>
+        <p style={{ fontSize: 12, color: "var(--text-tertiary)", maxWidth: 360 }}>
+          Orders you place while the market is closed — or resting limit and
+          trigger orders — appear here until they execute, and can be cancelled
+          before then.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 12 }} data-testid="pending-orders">
+      <div
+        className="overflow-x-auto rounded-2xl bg-card"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        <table
+          className="w-full"
+          style={{
+            borderCollapse: "collapse",
+            fontFamily: "var(--font-ui)",
+            minWidth: 720,
+          }}
+        >
+          <thead>
+            <tr>
+              {["Symbol", "Side", "Type", "Qty", "Price (₹)", "Placed", "Status", ""].map(
+                (h, i) => (
+                  <th
+                    key={i}
+                    style={{
+                      padding: "13px 16px",
+                      fontSize: 10,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fontWeight: "var(--weight-display)" as unknown as number,
+                      color: "var(--text-tertiary)",
+                      textAlign: h === "" ? "right" : "left",
+                      whiteSpace: "nowrap",
+                      borderBottom: "1.5px solid var(--glass-border)",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ),
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => {
+              const isBuy = o.transaction_type.toUpperCase() !== "SELL";
+              const busy = cancelling.has(o.id);
+              const priceShown =
+                o.price != null && o.price > 0
+                  ? o.price.toLocaleString("en-IN")
+                  : o.trigger_price != null && o.trigger_price > 0
+                    ? `${o.trigger_price.toLocaleString("en-IN")} (trig)`
+                    : "Market";
+              return (
+                <tr key={o.id} style={{ opacity: busy ? 0.5 : 1 }}>
+                  <td style={{ ...HIST_TD, fontWeight: 600, color: "var(--text-primary)" }}>
+                    {o.symbol}
+                  </td>
+                  <td style={HIST_TD}>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                        color: isBuy ? "#10b981" : "#ef4444",
+                      }}
+                    >
+                      {isBuy ? "BUY" : "SELL"}
+                    </span>
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                    {o.order_type}
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                    {o.quantity}
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                    {priceShown}
+                  </td>
+                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                    {fmtOrderDateTime(o.placed_at)}
+                  </td>
+                  <td style={HIST_TD}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: o.queued
+                          ? "rgba(245,158,11,0.12)"
+                          : "var(--bg-secondary)",
+                        color: o.queued ? "#b45309" : "var(--text-secondary)",
+                      }}
+                    >
+                      {o.queued && <Clock className="h-3 w-3" aria-hidden="true" />}
+                      {orderStatusLabel(o)}
+                    </span>
+                  </td>
+                  <td style={{ ...HIST_TD, textAlign: "right" }}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleCancel(o)}
+                      disabled={busy}
+                      data-testid={`cancel-order-${o.id}`}
+                      aria-label={`Cancel ${o.transaction_type} ${o.quantity} ${o.symbol}`}
+                      className="h-7 gap-1.5 rounded-md border-border/70 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/40 [&_svg]:size-3.5"
+                    >
+                      {busy ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden="true" />
+                          Cancelling
+                        </>
+                      ) : (
+                        <>
+                          <X aria-hidden="true" />
+                          Cancel
+                        </>
+                      )}
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
+        Pending orders execute at the next market open. Cancel anytime before
+        then.
+      </p>
+    </div>
+  );
+}
 
 function TradeHistory(): React.ReactElement {
   // Real trade history — the paper fills journal in paper mode (the active

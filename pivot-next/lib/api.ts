@@ -1031,6 +1031,10 @@ export type RegisteredOrder = {
   price: number | null;
   trigger_price: number | null;
   status: string;
+  /** True when the market was closed at placement, so the order is queued as
+   *  an after-market order (AMO) and will execute at the next open rather
+   *  than filling now. */
+  queued?: boolean;
   placed_at: string;
   // Bracket exits — present on single-leg registrations that asked for them.
   exits?: {
@@ -1043,9 +1047,18 @@ export type RegisteredOrder = {
   exits_error?: string | null;
 };
 
+/** Market-session context the register endpoint echoes back so the UI can
+ *  tell the user *when* a queued order will run. Present on both response
+ *  shapes. */
+export type OrderMarketContext = {
+  market_open?: boolean;
+  /** Human IST label for the next open, e.g. "16 Jul 2026, 09:15 IST". */
+  next_open?: string;
+};
+
 export type RegisterOrderResponse =
-  | RegisteredOrder
-  | { registered: RegisteredOrder[]; count: number };
+  | (RegisteredOrder & OrderMarketContext)
+  | ({ registered: RegisteredOrder[]; count: number } & OrderMarketContext);
 
 /** `POST /orders/register` — persist a chat LogicCard intent. In paper mode
  *  the backend also routes it through the paper broker (fills the paper book). */
@@ -1091,6 +1104,86 @@ function adaptPaperFill(f: PaperFillRow): OrderHistoryRow {
     status: "filled", // the fills journal contains executed fills only
     placed_at: f.filled_at ?? "",
   };
+}
+
+// ── Open (pending / cancellable) orders ───────────────────────────────────
+// Orders that haven't executed yet: AMOs queued while the market was closed,
+// resting LIMIT / trigger orders, and anything the broker still reports as
+// not-yet-complete. Powers the Portfolio → Orders tab. Mode-aware, like the
+// history helpers: live reads /orders/open (the TradeLog blotter), paper reads
+// /paper/orders (the resting paper book) adapted to the same row shape.
+
+/** A still-open order the user can cancel before it executes. `id` is a string
+ *  so the same shape serves both books (live: numeric TradeLog id; paper:
+ *  uuid). */
+export type OpenOrder = {
+  id: string;
+  symbol: string;
+  exchange: string;
+  transaction_type: string; // "BUY" | "SELL"
+  order_type: string; // MARKET | LIMIT | SL | GTT | ...
+  quantity: number;
+  price: number | null;
+  trigger_price: number | null;
+  status: string;
+  /** True when queued as an after-market order (placed while market closed). */
+  queued: boolean;
+  placed_at: string;
+};
+
+/** Live-mode `/orders/open` row (numeric id). */
+type OpenOrderLive = Omit<OpenOrder, "id"> & { id: number };
+
+/** `GET /orders/open` (live) or `GET /paper/orders` (paper) — the open-order
+ *  blotter, newest first. */
+export function getOpenOrders(): Promise<ApiResult<OpenOrder[]>> {
+  if (getTradingMode() === "paper") {
+    return getPaperOpenOrders().then((r) =>
+      isError(r) ? r : { data: r.data.map(adaptPaperOpenOrder) },
+    );
+  }
+  return requestLegacy<OpenOrderLive[]>("/orders/open").then((r) =>
+    isError(r)
+      ? r
+      : { data: r.data.map((o) => ({ ...o, id: String(o.id) })) },
+  );
+}
+
+function adaptPaperOpenOrder(o: PaperOpenOrder): OpenOrder {
+  const st = o.status.toLowerCase();
+  return {
+    id: o.id,
+    symbol: o.symbol,
+    exchange: "NSE",
+    transaction_type: o.side,
+    order_type: o.order_type,
+    quantity: o.quantity,
+    price: o.limit_price,
+    trigger_price: o.trigger_price,
+    status: o.status,
+    queued: st === "queued" || st === "pending",
+    placed_at: o.created_at ?? "",
+  };
+}
+
+export type CancelOrderResponse = {
+  id: number | string;
+  symbol: string;
+  status: string;
+  /** Set when the local row was cancelled but the broker couldn't confirm. */
+  broker_note?: string | null;
+};
+
+/** `POST /orders/{id}/cancel` (live) or `POST /paper/orders/{id}/cancel`
+ *  (paper) — pull an open order before it executes. */
+export function cancelOrder(
+  id: string,
+): Promise<ApiResult<CancelOrderResponse>> {
+  const base = getTradingMode() === "paper" ? "/paper/orders" : "/orders";
+  return requestLegacy<CancelOrderResponse>(
+    `${base}/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" },
+  );
 }
 
 // ── Account trading mode (real/live vs paper) ─────────────────────────────
