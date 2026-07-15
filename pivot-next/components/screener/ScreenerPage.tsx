@@ -12,6 +12,7 @@ import {
   X,
   Search,
   Plus,
+  Check,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -2436,6 +2437,19 @@ function MockScreenView({
 
   const activeFilterCount = countMockFilters(filters);
 
+  const rail = (
+    <MockFilterRail
+      screenId={screenId}
+      filters={filters}
+      setFilter={setFilter}
+      toggleListItem={toggleListItem}
+      reset={reset}
+      mobileOpen={mobileFiltersOpen}
+      onMobileClose={() => setMobileFiltersOpen(() => false)}
+      resultCount={results.length}
+    />
+  );
+
   return (
     <>
       <TitleRow
@@ -2461,34 +2475,36 @@ function MockScreenView({
         }
       />
 
+      {/* Watchlist — same strip as Stocks, kept visible across every
+          screener section so the numbered slots stay reachable no matter
+          which universe you're browsing. */}
+      <WatchlistStrip />
+
+      {/* Mobile bottom sheet — portal to document.body; MockFilterRail returns
+          null on desktop so this never takes layout space at wide viewports. */}
+      {rail}
+
+      {/* Horizontal filter toolbar (desktop) — same pill/popover pattern as
+          the Stocks screen instead of the old left sidebar rail. */}
+      <MockFilterToolbar
+        screenId={screenId}
+        filters={filters}
+        setFilter={setFilter}
+        toggleListItem={toggleListItem}
+        reset={reset}
+        activeFilterCount={activeFilterCount}
+      />
+
       <div
         className="screener-body"
         style={{
           flex: 1,
           minHeight: 0,
           display: "grid",
-          gridTemplateColumns: "260px minmax(0, 1fr)",
-          gap: 16,
+          gridTemplateColumns: "minmax(0, 1fr)",
           padding: "0 32px 24px",
         }}
       >
-        {mobileFiltersOpen && (
-          <div
-            className="screener-filter-backdrop"
-            onClick={() => setMobileFiltersOpen(() => false)}
-            aria-hidden="true"
-          />
-        )}
-        <MockFilterRail
-          screenId={screenId}
-          filters={filters}
-          setFilter={setFilter}
-          toggleListItem={toggleListItem}
-          reset={reset}
-          mobileOpen={mobileFiltersOpen}
-          onMobileClose={() => setMobileFiltersOpen(() => false)}
-          resultCount={results.length}
-        />
         <MockResultsTable
           columns={screen.columns}
           rows={results}
@@ -2525,7 +2541,7 @@ function MockFilterRail({
   mobileOpen: boolean;
   onMobileClose: () => void;
   resultCount: number;
-}): React.ReactElement {
+}): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -2558,7 +2574,7 @@ function MockFilterRail({
             color: "var(--text-tertiary)",
           }}
         >
-          Reset
+          Clear all
         </button>
         <button
           type="button"
@@ -2678,25 +2694,217 @@ function MockFilterRail({
     );
   }
 
+  // Desktop path: the horizontal MockFilterToolbar above the table takes
+  // over (same pattern as StockFilterRail/StockFilterToolbar). Only the
+  // mobile portal (createPortal branch above) is still used.
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────
+// Horizontal filter toolbar (desktop) for the mock screens — mirrors
+// StockFilterToolbar so ETFs / Indices / Funds present filters the same
+// way Stocks does, instead of the old left sidebar rail.
+// ─────────────────────────────────────────────────────────
+function MockFilterToolbar({
+  screenId,
+  filters,
+  setFilter,
+  toggleListItem,
+  reset,
+  activeFilterCount,
+}: {
+  screenId: ScreenId;
+  filters: MockFilters;
+  setFilter: (key: string, value: string) => void;
+  toggleListItem: (key: string, value: string) => void;
+  reset: () => void;
+  activeFilterCount: number;
+}): React.ReactElement {
+  const catFor: Record<string, string[]> = {
+    etfs: ETF_CATEGORIES,
+    indices: INDEX_CATEGORIES,
+    funds: FUND_CATEGORIES,
+  };
+  const categories = catFor[screenId] ?? [];
+  const selectedCats = fa(filters, "categories");
+  const categoryLabel =
+    selectedCats.length === 0
+      ? "All categories"
+      : selectedCats.length === 1
+        ? selectedCats[0]!
+        : `${selectedCats.length} categories`;
+
   return (
-    <aside
-      id="screener-filter-rail"
-      className="screener-filter-rail quartr-no-scrollbar"
+    <div
+      className="screener-toolbar"
       style={{
-        minHeight: 0,
-        overflowY: "auto",
-        background: "var(--bg-primary)",
-        border: "none",
-        borderRadius: "var(--radius-md)",
-        padding: 16,
+        padding: "0 32px 14px",
         display: "flex",
-        flexDirection: "column",
-        gap: 13,
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
       }}
     >
-      {headerEl}
-      {groupsEl}
-    </aside>
+      <ToolbarPopover
+        active={selectedCats.length > 0}
+        triggerLabel={categoryLabel}
+        width={240}
+      >
+        {() => (
+          <>
+            {categories.map((c) => (
+              <PopoverCheckRow
+                key={c}
+                label={c}
+                checked={selectedCats.includes(c)}
+                onClick={() => toggleListItem("categories", c)}
+              />
+            ))}
+          </>
+        )}
+      </ToolbarPopover>
+
+      {screenId === "etfs" && (
+        <>
+          <ToolbarField
+            label="Min AUM (₹Cr)"
+            value={fs(filters, "aum_min")}
+            onChange={(v) => setFilter("aum_min", v)}
+          />
+          <ToolbarField
+            label="Max expense %"
+            value={fs(filters, "exp_max")}
+            onChange={(v) => setFilter("exp_max", v)}
+          />
+          <ToolbarField
+            label="Min 1-Y %"
+            value={fs(filters, "ret_min")}
+            onChange={(v) => setFilter("ret_min", v)}
+          />
+        </>
+      )}
+
+      {screenId === "indices" && (
+        <>
+          <ToolbarField
+            label="Min day %"
+            value={fs(filters, "day_min")}
+            onChange={(v) => setFilter("day_min", v)}
+          />
+          <ToolbarField
+            label="Max day %"
+            value={fs(filters, "day_max")}
+            onChange={(v) => setFilter("day_max", v)}
+          />
+          <ToolbarField
+            label="Min YTD %"
+            value={fs(filters, "ytd_min")}
+            onChange={(v) => setFilter("ytd_min", v)}
+          />
+        </>
+      )}
+
+      {screenId === "funds" && (
+        <>
+          <ToolbarField
+            label="Min AUM (₹Cr)"
+            value={fs(filters, "aum_min")}
+            onChange={(v) => setFilter("aum_min", v)}
+          />
+          <ToolbarField
+            label="Max expense %"
+            value={fs(filters, "exp_max")}
+            onChange={(v) => setFilter("exp_max", v)}
+          />
+          <ToolbarField
+            label="Min 3-Y %"
+            value={fs(filters, "three_y_min")}
+            onChange={(v) => setFilter("three_y_min", v)}
+          />
+          <ToolbarField
+            label="Min 5-Y %"
+            value={fs(filters, "five_y_min")}
+            onChange={(v) => setFilter("five_y_min", v)}
+          />
+        </>
+      )}
+
+      {activeFilterCount > 0 && (
+        <>
+          <div style={{ flex: 1 }} />
+          <ToolbarReset onClick={reset} count={activeFilterCount} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// A multi-select popover row — a checkbox indicator instead of a plain
+// active/inactive background, so it reads as "toggle this on" rather than
+// the single-select radio feel of PopoverRow.
+function PopoverCheckRow({
+  label,
+  checked,
+  onClick,
+}: {
+  label: string;
+  checked: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 10px",
+        background: checked ? "var(--bg-secondary)" : "transparent",
+        border: "none",
+        borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        textAlign: "left",
+        fontFamily: "var(--font-ui)",
+        fontSize: 12.5,
+        fontWeight: checked ? WEIGHT_MEDIUM : 400,
+        color: checked ? "var(--text-primary)" : "var(--text-secondary)",
+      }}
+      onMouseEnter={(e) => {
+        if (!checked) e.currentTarget.style.background = "var(--bg-secondary)";
+      }}
+      onMouseLeave={(e) => {
+        if (!checked) e.currentTarget.style.background = "transparent";
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 14,
+          height: 14,
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 4,
+          border: `1px solid ${checked ? "var(--text-primary)" : "var(--glass-border-focus)"}`,
+          background: checked ? "var(--text-primary)" : "transparent",
+          transition: "all 0.15s var(--ease-quartr)",
+        }}
+      >
+        {checked && (
+          <Check
+            size={10}
+            strokeWidth={3}
+            aria-hidden="true"
+            style={{ color: "var(--bg-primary)" }}
+          />
+        )}
+      </span>
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -2946,7 +3154,13 @@ function countMockFilters(f: MockFilters): number {
       if (v.length > 0) n++;
     } else if (v !== "" && v != null) n++;
   }
-  if (f.day_min !== "" && f.day_max !== "") n--;
+  // Indices' day_min/day_max render as one "Today" range control, so when
+  // both are set they shouldn't count as two separate active filters. Use
+  // `fs()` (not raw `f.day_min`) — on screens where these keys don't exist
+  // at all (ETFs/Funds), `f.day_min` is `undefined`, and `undefined !== ""`
+  // is always true, which wrongly decremented every non-Indices screen's
+  // count by one.
+  if (fs(f, "day_min") !== "" && fs(f, "day_max") !== "") n--;
   return Math.max(0, n);
 }
 
