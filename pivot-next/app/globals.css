@@ -63,6 +63,10 @@
     --bg-secondary:  #fafafa;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #fbfbfc;
     --bg-elevated:   #ececee;   /* hover / active — the warm grey */
+    /* "Empty" fill for progress tracks & heatmap no-data cells — a step off the
+       card surface so unfilled elements stay visible (bg-elevated sits too
+       close to the card in dark mode and disappears). */
+    --surface-track: #e4e5e9;
 
     --glass-bg:           #fbfbfc;
     --glass-bg-hover:     #f6f6f8;
@@ -191,6 +195,9 @@
     --bg-secondary:  #1c1c1d;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #1c1c1d;
     --bg-elevated:   #1e1e1e;   /* hover / active — lighter than the sidebar */
+    /* See light-mode note. On the near-black card #1e1e1e is invisible, so the
+       track surface is bumped several steps lighter to read as an empty fill. */
+    --surface-track: #34353b;
 
     --glass-bg:           #111212;
     --glass-bg-hover:     #181a1f;
@@ -1268,59 +1275,76 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
 }
 
-/* ── Home dashboard: LAPTOP-only overrides ────────────────────────────────
-   Fires only when the root carries data-device="laptop" (see useDevice() in
-   HomeTab.tsx — a physical-screen check that reliably tells the 1920 laptop
-   from the 2560 monitor regardless of OS scaling, which viewport media
-   queries can't). The monitor renders the full design; the laptop compacts.
+/* ── Home dashboard: SHORT-VIEWPORT overrides ─────────────────────────────
+   The full "tall monitor" design only fits when the viewport is genuinely
+   tall, so these compactions key off max-height — the honest signal for
+   whether the rich layout fits. This replaced an earlier data-device flag
+   (a physical-pixel guess in useDevice()) that mis-labelled small-screen
+   Retina laptops as "monitor" and 1920 external monitors as "laptop",
+   producing exactly the overflow/clipping and wrong counts reported. Height
+   is scaling-honest: a heavily-scaled monitor with little room compacts too,
+   which is correct. The 1100px cutoff sits between the 1080-class laptop
+   (compacts) and the 1440-class monitor (full design).
 
-   1. Prompt / strategy COUNT — six on the monitor, four on the laptop. */
-[data-device="laptop"] .home-chat-prompts > :nth-child(n + 5),
-[data-device="laptop"] .home-strategies-grid > :nth-child(n + 5) {
-  display: none !important;
+   1. Strategy COUNT — six when there's room, four when short. (The chat
+      prompts are handled separately: their count is measured from the card's
+      real height in ChatPromptsCard — see promptsThatFit().) */
+@media (max-height: 1100px) {
+  .home-strategies-grid > :nth-child(n + 5) {
+    display: none !important;
+  }
 }
 
 /* 2. The "Not sure what to trade?" teaser cards. ViewCard is a shared
-      component (full-size on the Opinions tab, detail page, and the monitor's
-      Home); here — laptop only — we shrink every dimension with vh-clamps so
-      both cards fit the row-2 cell without scrolling. margin-top:0 + center
-      make the compact block read as a full, balanced card. `!important` wins
-      over ViewCard's inline styles. */
-[data-device="laptop"] .home-views-grid .view-card {
-  padding: clamp(8px, 1.5vh, 20px) clamp(10px, 1.7vh, 22px) !important;
-  justify-content: center !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-thumb {
-  width: clamp(34px, 4.6vh, 68px) !important;
-  height: clamp(34px, 4.6vh, 68px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-head {
-  gap: clamp(8px, 1.4vh, 16px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-title {
-  font-size: clamp(12.5px, 1.6vh, 16px) !important;
-  line-height: 1.18 !important;
-  min-height: 0 !important;
-  margin-bottom: clamp(2px, 0.7vh, 9px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-body {
-  margin-top: 0 !important;
-  padding-top: clamp(8px, 1.7vh, 24px) !important;
-  gap: clamp(8px, 1.6vh, 24px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-hero {
-  font-size: clamp(20px, 3.3vh, 40px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-caption {
-  margin-top: clamp(2px, 0.5vh, 5px) !important;
-  font-size: clamp(9px, 0.95vh, 11.5px) !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-stance {
-  width: clamp(64px, 8vh, 112px) !important;
-  padding: clamp(3px, 0.8vh, 7px) 0 !important;
-}
-[data-device="laptop"] .home-views-grid .view-card-stance-col {
-  gap: clamp(3px, 0.8vh, 8px) !important;
+      component (full-size on the Opinions tab, detail page, and the tall
+      monitor's Home). The full card only fits when the row-2 cell is tall, so
+      we compact whenever the VIEWPORT IS SHORT — height-driven, NOT the
+      data-device flag. This is the fix for the "other cards overflow" report:
+      a small-screen Retina MacBook is mis-labelled "monitor" by the
+      physical-pixel useDevice() guess, so under the old [data-device="laptop"]
+      selector its full-size cards were never compacted and got clipped in the
+      short cell. Keying off max-height compacts them on the MacBook and the
+      1920 laptop alike, while the tall 2560 monitor keeps the full design.
+      We shrink every dimension with vh-clamps so both cards fit without
+      scrolling; margin-top:0 + center make the compact block read as a full,
+      balanced card. `!important` wins over ViewCard's inline styles. */
+@media (max-height: 1100px) {
+  .home-views-grid .view-card {
+    padding: clamp(8px, 1.5vh, 20px) clamp(10px, 1.7vh, 22px) !important;
+    justify-content: center !important;
+  }
+  .home-views-grid .view-card-thumb {
+    width: clamp(34px, 4.6vh, 68px) !important;
+    height: clamp(34px, 4.6vh, 68px) !important;
+  }
+  .home-views-grid .view-card-head {
+    gap: clamp(8px, 1.4vh, 16px) !important;
+  }
+  .home-views-grid .view-card-title {
+    font-size: clamp(12.5px, 1.6vh, 16px) !important;
+    line-height: 1.18 !important;
+    min-height: 0 !important;
+    margin-bottom: clamp(2px, 0.7vh, 9px) !important;
+  }
+  .home-views-grid .view-card-body {
+    margin-top: 0 !important;
+    padding-top: clamp(8px, 1.7vh, 24px) !important;
+    gap: clamp(8px, 1.6vh, 24px) !important;
+  }
+  .home-views-grid .view-card-hero {
+    font-size: clamp(20px, 3.3vh, 40px) !important;
+  }
+  .home-views-grid .view-card-caption {
+    margin-top: clamp(2px, 0.5vh, 5px) !important;
+    font-size: clamp(9px, 0.95vh, 11.5px) !important;
+  }
+  .home-views-grid .view-card-stance {
+    width: clamp(64px, 8vh, 112px) !important;
+    padding: clamp(3px, 0.8vh, 7px) 0 !important;
+  }
+  .home-views-grid .view-card-stance-col {
+    gap: clamp(3px, 0.8vh, 8px) !important;
+  }
 }
 
 /* Dialog full-screen on small phones — at <640px most modal content

@@ -239,10 +239,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // this tab, the editor closes — it never lingers over an unrelated surface.
   const [panelOriginTab, setPanelOriginTab] = useState<TabKey | null>(null);
   // A pending request to switch the Agents tab's surface toggle (Home F&O tile
-  // → "strategies"). Nonce-bumped so repeat requests re-fire; consumed by
+  // → "options"). Nonce-bumped so repeat requests re-fire; consumed by
   // AgentsTab even when it mounts lazily after the request is set.
   const [agentsSurfaceReq, setAgentsSurfaceReq] = useState<
-    { surface: "equity" | "strategies" | "views"; nonce: number } | null
+    { surface: "equity" | "options" | "baskets"; nonce: number } | null
   >(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
@@ -656,11 +656,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     [goTab, openWorkflow],
   );
 
-  // Home F&O prebuilt tile → Agents tab on its "Strategies" surface (the
-  // Options strategies list). Bump the nonce so AgentsTab re-applies it even on
-  // repeat clicks, then switch tabs.
+  // Home F&O prebuilt tile → Agents tab on its "Options" surface (the
+  // registered option strategies list). Bump the nonce so AgentsTab re-applies
+  // it even on repeat clicks, then switch tabs.
   const openAgentsStrategies = useCallback((): void => {
-    setAgentsSurfaceReq((prev) => ({ surface: "strategies", nonce: (prev?.nonce ?? 0) + 1 }));
+    setAgentsSurfaceReq((prev) => ({ surface: "options", nonce: (prev?.nonce ?? 0) + 1 }));
     goTab("agents");
   }, [goTab]);
 
@@ -1039,7 +1039,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <AgentsTab
                 onOpenWorkflow={openWorkflow}
                 onEditWithChat={editWorkflowWithChat}
-                onBrowseViews={() => goTab("views")}
                 surfaceRequest={agentsSurfaceReq}
                 onSendPrompt={sendChatPrompt}
               />
@@ -2139,9 +2138,11 @@ function Sidebar({
       {/* Conversation history — uppercase header + truncated titles.
           A "New chat" pill sits above the list so it's always reachable
           from the sidebar (replaces the old floating button that was
-          pinned to the chat surface's top-right). */}
+          pinned to the chat surface's top-right).
+          quartr-no-scrollbar: scroll still works, but the scrollbar track is
+          hidden so the list reads as a clean column. */}
       <div
-        className="flex-1 overflow-y-auto flex flex-col"
+        className="quartr-no-scrollbar flex-1 overflow-y-auto flex flex-col"
         style={{ gap: 14, padding: "0 4px" }}
       >
         <button

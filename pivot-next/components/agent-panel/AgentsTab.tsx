@@ -7,11 +7,10 @@
  *   • Equity agents (workflows) — real summary header + per-agent cards whose
  *     sparkline/return/run-stats come from GET /api/workflows/{id}/performance
  *     (lazy-loaded per card). Delete via DELETE /api/workflows/{id}.
- *   • Strategies — the user's own equity/ETF baskets (built here via the
- *     EquityBasketBuilder, GET /strategies/baskets) PLUS their registered F&O
- *     strategies (GET /users/option-strategies), together in one surface.
- *   • My Views — the user's deployed view positions (the same ledger the
- *     Views tab opens), from GET /api/views/positions.
+ *   • Options — the user's registered F&O strategies
+ *     (GET /users/option-strategies).
+ *   • Baskets — the user's own equity/ETF baskets, built here via the
+ *     EquityBasketBuilder (GET /strategies/baskets).
  *
  * All numbers are real. When an agent has no run/NAV history the card shows
  * "No runs yet" instead of a fabricated sparkline; empty sections show honest
@@ -58,8 +57,10 @@ import {
   deleteWorkflow,
   getWorkflowPerformance,
   getWorkflowsSummary,
+  listEquityBaskets,
   listRegisteredOptionStrategies,
   withdrawRegisteredOptionStrategy,
+  type EquityBasket,
   type RegisteredOptionStrategy,
   type StrategyReturn,
   type WorkflowPerformance,
@@ -69,7 +70,6 @@ import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
 import { EquityBasketsSection } from "./EquityBasketsSection";
-import { MyViews } from "@/components/views/MyViews";
 
 const BRAND_GREEN = "#4CAF50";
 
@@ -85,11 +85,9 @@ export type AgentsTabProps = {
    * so the chat surface can target this EXACT agent for amendment.
    */
   onEditWithChat?: (workflow: Workflow) => void;
-  /** "Browse views" from the Views surface — jump to the Views tab. */
-  onBrowseViews?: () => void;
   /**
    * External request to switch the surface toggle (e.g. the Home tab's F&O
-   * prebuilt tile asking for "strategies"). The `nonce` makes repeat requests
+   * prebuilt tile asking for "options"). The `nonce` makes repeat requests
    * for the same surface re-fire; robust against this tab mounting lazily
    * after the request is set. Null when no request is pending.
    */
@@ -101,7 +99,7 @@ export type AgentsTabProps = {
   onSendPrompt?: (prompt: string) => void;
 };
 
-type Surface = "equity" | "strategies" | "views";
+type Surface = "equity" | "options" | "baskets";
 type Filter = "all" | WorkflowStatus;
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -201,12 +199,11 @@ function deriveCadence(wf: WorkflowSummary): string {
 export function AgentsTab({
   onOpenWorkflow,
   onEditWithChat,
-  onBrowseViews,
   surfaceRequest,
   onSendPrompt,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
-  // Apply an external surface request (Home F&O tile → "strategies"), once per
+  // Apply an external surface request (Home F&O tile → "options"), once per
   // nonce. On lazy mount the effect fires with the pending request already set,
   // so a request made before this tab existed still lands.
   const appliedSurfaceNonce = useRef<number | null>(null);
@@ -227,6 +224,14 @@ export function AgentsTab({
   // Options strategies surface.
   const [optionsState, setOptionsState] = useState<OptionsState>({ kind: "loading" });
   const [optionsLoaded, setOptionsLoaded] = useState(false);
+
+  // Lightweight basket list — feeds ONLY the summary header's "Active baskets"
+  // card (count + names). EquityBasketsSection still owns the full basket grid
+  // and its own fetch; this is a small independent read so the header can show
+  // per-surface content without lifting that section's whole state up here.
+  const [baskets, setBaskets] = useState<EquityBasket[]>([]);
+  const [basketsLoading, setBasketsLoading] = useState(false);
+  const [basketsLoaded, setBasketsLoaded] = useState(false);
 
   // Delete-in-flight ids (both surfaces) so the kebab disables + the card dims.
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -288,6 +293,16 @@ export function AgentsTab({
       });
   }, []);
 
+  const loadBaskets = useCallback((): void => {
+    setBasketsLoading(true);
+    listEquityBaskets()
+      .then((result) => {
+        if (!isError(result)) setBaskets(result.data.baskets ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setBasketsLoading(false));
+  }, []);
+
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
@@ -297,13 +312,22 @@ export function AgentsTab({
   }, [filter, load]);
 
   // Lazy-load registered option strategies the first time the user opens the
-  // Strategies surface (equity baskets load themselves inside their section).
+  // Options surface.
   useEffect(() => {
-    if (surface === "strategies" && !optionsLoaded) {
+    if (surface === "options" && !optionsLoaded) {
       setOptionsLoaded(true);
       loadOptions();
     }
   }, [surface, optionsLoaded, loadOptions]);
+
+  // Lazy-load baskets the first time the Baskets surface opens (for the header
+  // card; the section below fetches its own full list independently).
+  useEffect(() => {
+    if (surface === "baskets" && !basketsLoaded) {
+      setBasketsLoaded(true);
+      loadBaskets();
+    }
+  }, [surface, basketsLoaded, loadBaskets]);
 
   const handleSelect = (id: string): void => {
     setOpeningId(id);
@@ -377,6 +401,52 @@ export function AgentsTab({
       .finally(() => setClosingOptionId((cur) => (cur === id ? null : cur)));
   };
 
+  // The page heading and the first summary card both track the active surface,
+  // and the card's count + rows are sourced from that surface's own data so the
+  // box changes with the toggle (not the agents summary on every tab).
+  const activeCard = ((): {
+    pageTitle: string;
+    label: string;
+    count: number;
+    rows: StrategyReturn[];
+    loading: boolean;
+  } => {
+    if (surface === "options") {
+      const items = optionsState.kind === "ok" ? optionsState.items : [];
+      return {
+        pageTitle: "Active Strategies",
+        label: "Active strategies",
+        count: items.length,
+        rows: items.map((s) => ({
+          workflow_id: s.id,
+          name: `${prettyTemplate(s.template)} · ${s.underlying}`,
+          return_pct: null,
+        })),
+        loading: optionsState.kind === "loading",
+      };
+    }
+    if (surface === "baskets") {
+      return {
+        pageTitle: "Active Baskets",
+        label: "Active baskets",
+        count: baskets.length,
+        rows: baskets.map((b) => ({
+          workflow_id: String(b.id),
+          name: b.name,
+          return_pct: null,
+        })),
+        loading: basketsLoading,
+      };
+    }
+    return {
+      pageTitle: "Active Agents",
+      label: "Active agents",
+      count: summary?.active_count ?? 0,
+      rows: summary?.strategy_returns ?? [],
+      loading: summaryLoading,
+    };
+  })();
+
   return (
     <div className="agents-tab flex flex-col" style={{ gap: 18 }} data-testid="agents-tab">
       {/* Page heading + surface toggle — heading on the left, toggle pushed to
@@ -393,17 +463,26 @@ export function AgentsTab({
             whiteSpace: "nowrap",
           }}
         >
-          Active Agents
+          {activeCard.pageTitle}
         </h1>
         <div className="hidden sm:block" style={{ flex: 1 }} />
         <SurfaceToggle value={surface} onChange={setSurface} />
       </div>
 
+      {/* Summary header — shown on every surface. The first card (title, count,
+          rows) is fed per-surface data so it tracks the toggle; the other two
+          cards (closed trades, daily P&L) stay portfolio-wide. */}
+      <AgentsSummaryHeader
+        summary={summary}
+        isLoading={summaryLoading}
+        activeLabel={activeCard.label}
+        activeCount={activeCard.count}
+        activeItems={activeCard.rows}
+        activeLoading={activeCard.loading}
+      />
+
       {surface === "equity" ? (
         <>
-          {/* Summary header — real data */}
-          <AgentsSummaryHeader summary={summary} isLoading={summaryLoading} />
-
           {/* Status filter chips */}
           <div
             className="flex flex-wrap items-center"
@@ -483,30 +562,26 @@ export function AgentsTab({
             </div>
           )}
         </>
-      ) : surface === "strategies" ? (
-        // Strategies = equity/ETF baskets (the ones we build) + registered
-        // option strategies, together in one place.
-        <div className="flex flex-col" style={{ gap: 32 }}>
-          <EquityBasketsSection onSendPrompt={onSendPrompt} />
-          <OptionsStrategiesSection
-            state={optionsState}
-            deletingId={deletingId}
-            closingId={closingOptionId}
-            onRetry={loadOptions}
-            onWithdraw={handleWithdrawOption}
-            onClose={handleCloseOption}
-          />
-        </div>
+      ) : surface === "options" ? (
+        // Options = the user's registered option strategies.
+        <OptionsStrategiesSection
+          state={optionsState}
+          deletingId={deletingId}
+          closingId={closingOptionId}
+          onRetry={loadOptions}
+          onWithdraw={handleWithdrawOption}
+          onClose={handleCloseOption}
+        />
       ) : (
-        // The user's deployed views — same ledger the Views tab opens.
-        <MyViews embedded onBrowse={onBrowseViews} />
+        // Baskets = the equity/ETF baskets the user builds here.
+        <EquityBasketsSection onSendPrompt={onSendPrompt} />
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SurfaceToggle — Equity agents · Strategies · My Opinions
+// SurfaceToggle — Equity agents · Options · Baskets
 // ---------------------------------------------------------------------------
 
 function SurfaceToggle({
@@ -518,8 +593,8 @@ function SurfaceToggle({
 }): React.ReactElement {
   const OPTIONS: { key: Surface; label: string }[] = [
     { key: "equity", label: "Equity agents" },
-    { key: "strategies", label: "Strategies" },
-    { key: "views", label: "My Opinions" },
+    { key: "options", label: "Options" },
+    { key: "baskets", label: "Baskets" },
   ];
   return (
     <div

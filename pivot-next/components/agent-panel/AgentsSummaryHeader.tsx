@@ -115,7 +115,10 @@ function cellColor(bin: Bin): { light: string; dark: string } {
     case -1: return { light: "#fda4af", dark: "#7f1d1d" };
     case -2: return { light: "#f87171", dark: "#b91c1c" };
     case -3: return { light: "#dc2626", dark: "#ef4444" };
-    default: return { light: "#ebedf0", dark: "#161b22" };
+    // Empty / no-data cell. The dark value must clear the near-black card
+    // (#1c1c1d) — GitHub's #161b22 is invisible on it — so we lift it to the
+    // shared empty-track grey.
+    default: return { light: "#e4e5e9", dark: "#34353b" };
   }
 }
 
@@ -126,9 +129,21 @@ function cellColor(bin: Bin): { light: string; dark: string } {
 export function AgentsSummaryHeader({
   summary,
   isLoading,
+  activeLabel = "Active strategies",
+  activeCount,
+  activeItems,
+  activeLoading,
 }: {
   summary: WorkflowsSummary | null;
   isLoading: boolean;
+  /** Title of the first ("active count") card — surface-aware so it reads
+   *  "Active agents" / "Active strategies" / "Active baskets". */
+  activeLabel?: string;
+  /** First card's count/rows/loading, sourced per-surface by the caller so the
+   *  card tracks the toggle. When omitted, falls back to the agents summary. */
+  activeCount?: number;
+  activeItems?: StrategyReturn[];
+  activeLoading?: boolean;
 }): React.ReactElement {
   const daily = summary?.daily_pnl;
   const cells = useMemo(() => {
@@ -140,8 +155,10 @@ export function AgentsSummaryHeader({
   const hasDailyData = (daily?.length ?? 0) > 0;
   const totalPnl = summary?.total_pnl ?? 0;
   const trades = summary?.trades_6mo ?? null;
-  const strategyReturns = summary?.strategy_returns ?? [];
-  const activeCount = summary?.active_count ?? 0;
+  // First card: per-surface data when provided, else the agents summary.
+  const strategyReturns = activeItems ?? summary?.strategy_returns ?? [];
+  const activeCountValue = activeCount ?? summary?.active_count ?? 0;
+  const firstLoading = activeLoading ?? isLoading;
 
   return (
     <div
@@ -149,12 +166,12 @@ export function AgentsSummaryHeader({
       data-testid="agents-summary-header"
     >
       <StatCard
-        label="Active strategies"
-        chip={isLoading ? "—" : activeCount.toLocaleString("en-IN")}
+        label={activeLabel}
+        chip={firstLoading ? "—" : activeCountValue.toLocaleString("en-IN")}
         bottom={
           <StrategyReturnRows
             returns={strategyReturns}
-            isLoading={isLoading}
+            isLoading={firstLoading}
           />
         }
       />
@@ -279,8 +296,8 @@ function StrategyReturnRows({
       <div style={gridStyle} aria-hidden={true}>
         {Array.from({ length: 3 }).map((_, i) => (
           <Fragment key={i}>
-            <span style={{ height: 11, background: "var(--bg-elevated)", borderRadius: 4, opacity: 0.7 }} />
-            <span style={{ height: 8, background: "var(--bg-elevated)", borderRadius: 9999, opacity: 0.7 }} />
+            <span style={{ height: 11, background: "var(--surface-track)", borderRadius: 4, opacity: 0.7 }} />
+            <span style={{ height: 8, background: "var(--surface-track)", borderRadius: 9999, opacity: 0.7 }} />
             <span style={{ height: 11, background: "var(--bg-elevated)", borderRadius: 4, opacity: 0.7 }} />
           </Fragment>
         ))}
@@ -352,7 +369,7 @@ function StrategyReturnRows({
               <div
                 style={{
                   height: 9,
-                  background: "var(--bg-elevated)",
+                  background: "var(--surface-track)",
                   borderRadius: 9999,
                   opacity: 0.5,
                 }}
@@ -410,7 +427,7 @@ function StrategyReturnRows({
             <div
               style={{
                 height: 9,
-                background: "var(--bg-elevated)",
+                background: "var(--surface-track)",
                 borderRadius: 9999,
                 overflow: "hidden",
                 position: "relative",
@@ -497,10 +514,10 @@ function WinLossBreakdown({
     return (
       <div className="flex flex-col gap-2" aria-hidden={true}>
         <div className="flex items-baseline justify-between gap-2">
-          <span style={{ height: 13, width: 64, background: "var(--bg-elevated)", borderRadius: 4, display: "inline-block", opacity: 0.7 }} />
-          <span style={{ height: 13, width: 64, background: "var(--bg-elevated)", borderRadius: 4, display: "inline-block", opacity: 0.7 }} />
+          <span style={{ height: 13, width: 64, background: "var(--surface-track)", borderRadius: 4, display: "inline-block", opacity: 0.7 }} />
+          <span style={{ height: 13, width: 64, background: "var(--surface-track)", borderRadius: 4, display: "inline-block", opacity: 0.7 }} />
         </div>
-        <div style={{ height: 8, background: "var(--bg-elevated)", borderRadius: 9999, opacity: 0.7 }} />
+        <div style={{ height: 8, background: "var(--surface-track)", borderRadius: 9999, opacity: 0.7 }} />
       </div>
     );
   }
