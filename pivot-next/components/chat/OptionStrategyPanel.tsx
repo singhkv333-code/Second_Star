@@ -321,7 +321,7 @@ export function OptionStrategyPanel({
   if (computeError) blockReasons.push(computeError);
   if (computing) blockReasons.push("Recomputing…");
   if (!validation.lot_multiple_ok) blockReasons.push("Lot count is not a valid multiple.");
-  if (validation.mcx_execution_blocked) blockReasons.push("MCX execution blocked — research only.");
+  if (validation.mcx_execution_blocked) blockReasons.push("This structure cannot be registered right now.");
   if (validation.requires_disclosure && !disclosureChecked)
     blockReasons.push("Acknowledge the disclosure first.");
   const canRegister = !isBusy && !isRegistered && !isWithdrawn && blockReasons.length === 0;

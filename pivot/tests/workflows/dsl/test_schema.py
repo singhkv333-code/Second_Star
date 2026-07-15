@@ -19,6 +19,7 @@ from backend.workflows.dsl.schema import (
     PriceNode,
     Tree,
     VolumeNode,
+    normalize_tree_aliases,
 )
 
 
@@ -442,3 +443,110 @@ def test_recursive_nesting_works():
     # Two top-level operands; first is itself a LogicNode (OR).
     assert isinstance(node.operands[0], LogicNode)
     assert node.operands[0].op == "or"
+
+
+# ── normalize_tree_aliases — LLM node-shape near-misses ──────────────
+#
+# Regression coverage for the 2026-07-14 eval #14 bug: "book profits on
+# my HDFCBANK position once it's up 8%, and cut losses if it drops 5%"
+# was hand-authored by the model as a trigger.exit_compound tree and
+# failed schema validation TWICE with two different unrecognised node
+# shapes — a `position_unrealised_pct` type-as-field-name leaf, then
+# (after a self-correction retry) a bare `{"type": "or", "conditions":
+# [...]}` root instead of `{"type": "logic", "op": "or", "operands":
+# [...]}`. Both shapes must normalize to something that validates.
+
+
+def test_normalize_position_field_spelled_as_type():
+    """`{"type": "position_unrealised_pct"}` → position leaf with
+    field="unrealised_pct". Extra `symbol` key is tolerated (Strict
+    models use extra='ignore') and simply dropped by PositionNode."""
+    raw = {"type": "position_unrealised_pct", "symbol": "HDFCBANK"}
+    normalized = normalize_tree_aliases(raw)
+    assert normalized["type"] == "position"
+    assert normalized["field"] == "unrealised_pct"
+    node = _TREE.validate_python(normalized)
+    assert isinstance(node, PositionNode)
+    assert node.field == "unrealised_pct"
+
+
+@pytest.mark.parametrize("op", ["and", "or"])
+def test_normalize_bare_logic_op_with_conditions_key(op):
+    """`{"type": "or"/"and", "conditions": [...]}` → the correct
+    `{"type": "logic", "op": ..., "operands": [...]}` shape."""
+    raw = {
+        "type": op,
+        "conditions": [
+            {"type": "constant", "value": 1},
+            {"type": "constant", "value": 2},
+        ],
+    }
+    normalized = normalize_tree_aliases(raw)
+    assert normalized["type"] == "logic"
+    assert normalized["op"] == op
+    assert normalized["operands"] == [
+        {"type": "constant", "value": 1},
+        {"type": "constant", "value": 2},
+    ]
+
+
+def test_normalize_bare_logic_not_with_conditions_key():
+    raw = {
+        "type": "not",
+        "conditions": [{"type": "constant", "value": 1}],
+    }
+    normalized = normalize_tree_aliases(raw)
+    node = _TREE.validate_python(normalized)
+    assert isinstance(node, LogicNode)
+    assert node.op == "not"
+    assert len(node.operands) == 1
+
+
+def test_normalize_hdfcbank_profit_loss_exit_tree_first_attempt():
+    """The EXACT first-attempt shape from eval #14 (position field
+    spelled as type, root op spelled as type) must now normalize into
+    a valid EXIT tree end to end."""
+    raw = {
+        "type": "or",
+        "conditions": [
+            {
+                "type": "comparison", "op": ">=",
+                "left": {"type": "position_unrealised_pct", "symbol": "HDFCBANK"},
+                "right": {"type": "constant", "value": 0.08},
+            },
+            {
+                "type": "comparison", "op": "<=",
+                "left": {"type": "position_unrealised_pct", "symbol": "HDFCBANK"},
+                "right": {"type": "constant", "value": -0.05},
+            },
+        ],
+    }
+    node = _TREE.validate_python(normalize_tree_aliases(raw))
+    assert isinstance(node, LogicNode)
+    assert node.op == "or"
+    assert all(isinstance(c.left, PositionNode) for c in node.operands)
+
+
+def test_normalize_hdfcbank_profit_loss_exit_tree_second_attempt():
+    """The second-attempt shape from eval #14: position leaf fixed to
+    the correct `{"type": "position", "field": ...}` shape, but the
+    root `or` was still spelled as a bare type — this is the shape
+    that failed validation a SECOND time in the live eval."""
+    raw = {
+        "type": "or",
+        "conditions": [
+            {
+                "type": "comparison", "op": ">=",
+                "left": {"type": "position", "symbol": "HDFCBANK", "field": "unrealised_pct"},
+                "right": {"type": "constant", "value": 0.08},
+            },
+            {
+                "type": "comparison", "op": "<=",
+                "left": {"type": "position", "symbol": "HDFCBANK", "field": "unrealised_pct"},
+                "right": {"type": "constant", "value": -0.05},
+            },
+        ],
+    }
+    node = _TREE.validate_python(normalize_tree_aliases(raw))
+    assert isinstance(node, LogicNode)
+    assert node.op == "or"

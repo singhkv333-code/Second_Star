@@ -25,6 +25,7 @@
  */
 
 import type { ApiResult, ErrorBody } from "@/lib/types";
+import { getAccessToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Response shapes (from the backend contract)
@@ -133,15 +134,6 @@ function getApiBase(): string {
   return base;
 }
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem("pivot_jwt");
-  } catch {
-    return null;
-  }
-}
-
 function buildUrl(
   path: string,
   query?: Record<string, string | number | undefined>,
@@ -168,7 +160,7 @@ async function getJson<T>(
   signal?: AbortSignal,
 ): Promise<ApiResult<T>> {
   const url = buildUrl(path, query);
-  const token = getToken();
+  const token = await getAccessToken();
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;

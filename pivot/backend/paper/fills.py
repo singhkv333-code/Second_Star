@@ -27,6 +27,20 @@ Caller contract: execute_market_fill assumes quantity > 0 (the broker
 rejects qty <= 0 before reaching here, which also avoids the new_qty
 division by zero).
 
+Shorting: CNC (delivery) stays long-only — India bans naked short
+delivery, so a CNC SELL past the held quantity is still rejected
+("insufficient_position"). MIS (intraday) may sell past the held
+quantity, which opens/extends a short (quantity goes negative); a BUY
+against a short quantity covers it. Both SELL and BUY split a fill
+that crosses zero into a "close the existing side" leg (realizes P&L
+at the OLD avg_cost) and an "open the new side" leg (seeds a fresh
+avg_cost from this fill's own price) — e.g. selling 15 against a held
+10 realizes P&L on 10 and opens a 5-share short at this fill's price.
+Equity positions have no separate margin check on the short leg (the
+P1 model doesn't price margin) — EOD auto square-off (see
+`backend/paper/jobs.py::squareoff_intraday_shorts`) is the guard that
+keeps MIS shorts from carrying overnight.
+
 Settlement: P1 uses the SIMPLIFIED model — a MARKET buy debits and a sell
 credits BOTH cash_available and cash_settled by net_cashflow, so on the
 pure MARKET path they move together. (The resting-BUY reserve moves
@@ -115,14 +129,43 @@ def execute_market_fill(
         pos = _get_or_create_position(
             db, order.account_id, order.user_id, order.symbol,
         )
-        was_flat = pos.quantity == 0
-        # avg_cost compounds, inclusive of buy charges.
-        new_qty = pos.quantity + qty
-        pos.avg_cost = to_money(
-            (to_money(pos.avg_cost) * pos.quantity + net_debit) / new_qty
-        )
+        current_qty = pos.quantity
+        # Covering leg: this BUY closes an existing short (current_qty < 0)
+        # first, realizing P&L at the short's entry avg_cost. Anything left
+        # over opens/extends a long. Both legs take their SHARE of the
+        # already-rounded net_debit (net_debit * leg_qty / qty) rather than
+        # rounding a per-unit price first — a pre-rounded per-unit price,
+        # re-multiplied, drifts from the total by a few paise; sharing the
+        # total keeps it exact, and collapses to the pre-shorting formula
+        # bit-for-bit when there's only one leg (cover_qty or open_qty == qty).
+        cover_qty = -current_qty if current_qty < 0 else Decimal(0)
+        cover_qty = min(qty, cover_qty)
+        open_qty = qty - cover_qty
+        existing_long_qty = current_qty if current_qty > 0 else Decimal(0)
+        opens_new_side = open_qty > 0 and existing_long_qty == 0
+
+        realized: Optional[Decimal] = None
+        if cover_qty > 0:
+            realized = to_money(
+                to_money(pos.avg_cost) * cover_qty
+                - net_debit * cover_qty / qty
+            )
+            pos.realized_pnl = to_money(pos.realized_pnl) + realized
+
+        new_qty = current_qty + qty
+        if open_qty > 0:
+            new_long_qty = existing_long_qty + open_qty
+            # avg_cost compounds, inclusive of buy charges.
+            pos.avg_cost = to_money(
+                (to_money(pos.avg_cost) * existing_long_qty
+                 + net_debit * open_qty / qty) / new_long_qty
+            )
+        elif new_qty == 0:
+            pos.avg_cost = to_money(0)
+        # else: new_qty < 0 — a partial cover, still short; avg_cost (the
+        # short's entry price) is untouched.
         pos.quantity = new_qty
-        if was_flat:
+        if opens_new_side:
             # Seed an immediate mark + a same-day reference at the moment a
             # position OPENS, rather than leaving last_price/prev_close None
             # until the next scheduler tick / the once-daily EOD snapshot.
@@ -135,12 +178,11 @@ def execute_market_fill(
             pos.last_mark_at = now_ist()
             pos.prev_close = float(price)
             pos.stale = False
-        realized: Optional[Decimal] = None
         ledger_kind = "buy_debit"
         settles_at = None
     elif side == "SELL":
-        # Long-only: can't sell more than held (no live shorts). Query the
-        # existing lot WITHOUT creating one, so an oversell leaves nothing.
+        # Query the existing lot WITHOUT creating one, so a rejected order
+        # (CNC oversell) leaves nothing behind.
         sell_pos = (
             db.query(PaperPosition)
             .filter(
@@ -149,20 +191,62 @@ def execute_market_fill(
             )
             .first()
         )
-        if sell_pos is None or qty > sell_pos.quantity:
+        current_qty = sell_pos.quantity if sell_pos is not None else Decimal(0)
+        product = str(getattr(order, "product", "CNC") or "CNC").upper()
+        shorting_allowed = product == "MIS"
+        # CNC stays long-only (no naked delivery shorts): reject an oversell.
+        # MIS may sell past the held quantity to open/extend a short.
+        if not shorting_allowed and (sell_pos is None or qty > current_qty):
             order.status = "rejected"
             order.reject_reason = "insufficient_position"
             db.flush()
             return None
+
         net_credit_f, charges_f = sell_cost(float(price), qty)
         net_credit = to_money(net_credit_f)
         charges = to_money(charges_f)
         net_cashflow = net_credit
-        realized = to_money(net_credit - to_money(sell_pos.avg_cost) * qty)
-        sell_pos.realized_pnl = to_money(sell_pos.realized_pnl) + realized
-        sell_pos.quantity -= qty
-        if sell_pos.quantity == 0:
-            sell_pos.avg_cost = to_money(0)
+
+        pos = sell_pos or _get_or_create_position(
+            db, order.account_id, order.user_id, order.symbol,
+        )
+        # Closing leg: this SELL closes an existing long first (at the
+        # long's avg_cost), realizing P&L. Anything left over (only
+        # possible with MIS) opens/extends a short. Both legs take their
+        # SHARE of the already-rounded net_credit (see the BUY-side note
+        # above on why — same reasoning, mirrored).
+        close_qty = min(qty, current_qty) if current_qty > 0 else Decimal(0)
+        open_qty = qty - close_qty
+        existing_short_qty = -current_qty if current_qty < 0 else Decimal(0)
+        opens_new_side = open_qty > 0 and existing_short_qty == 0
+
+        realized: Optional[Decimal] = None
+        if close_qty > 0:
+            realized = to_money(
+                net_credit * close_qty / qty
+                - to_money(pos.avg_cost) * close_qty
+            )
+            pos.realized_pnl = to_money(pos.realized_pnl) + realized
+
+        new_qty = current_qty - qty
+        if open_qty > 0:
+            new_short_qty = existing_short_qty + open_qty
+            pos.avg_cost = to_money(
+                (to_money(pos.avg_cost) * existing_short_qty
+                 + net_credit * open_qty / qty) / new_short_qty
+            )
+        elif new_qty == 0:
+            pos.avg_cost = to_money(0)
+        # else: new_qty > 0 — a partial close, still long; avg_cost
+        # (the long's cost basis) is untouched.
+        pos.quantity = new_qty
+        if opens_new_side:
+            # Mirrors the BUY-side seeding above — a freshly-opened short
+            # needs an immediate mark too.
+            pos.last_price = float(price)
+            pos.last_mark_at = now_ist()
+            pos.prev_close = float(price)
+            pos.stale = False
         ledger_kind = "sell_credit"
         settles_at = now_ist() + timedelta(days=1)
     else:

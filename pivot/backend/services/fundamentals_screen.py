@@ -401,6 +401,23 @@ _FIELD_DEFS: dict[str, dict] = {
         "items": list(FIELD_MAP["earnings_yield"][1]),
         "label": "P/E",
     },
+    # PEG = trailing P/E ÷ trailing YoY EPS growth (%, as a plain number, e.g.
+    # PE=20 growth=20% -> PEG=1.0). Was previously UNSUPPORTED (not a field,
+    # not expressible via custom_ratios either — custom_ratios only combines
+    # two raw line items, and "growth" is a paired-period derivation, not a
+    # line item) — so a "PEG < 1" constraint got silently left out of the
+    # tool call entirely upstream (2026-07-14 eval finding #11: 3-constraint
+    # screen ran with only 2 filters, no disclosure). Both P/E (pe_from_ey)
+    # and EPS growth (growth) are already computed elsewhere in this module;
+    # PEG composes those same two CTE shapes (see the "peg" kind below), so
+    # this is a genuine derivation, not an approximation.
+    "peg": {
+        "kind": "peg",
+        "items": [],
+        "pe_items": list(FIELD_MAP["earnings_yield"][1]),
+        "growth_items": list(FIELD_MAP["eps_basic"][1]),
+        "label": "PEG",
+    },
     "market_cap": {
         # mc.statement_lines has no market-cap line item and mc.companies.
         # market_cap is 100% NULL — but the enrich DB (enrich.company_profile.
@@ -557,6 +574,10 @@ _FIELD_ALIASES: dict[str, str] = {
     "p/e": "pe",
     "pe_ratio": "pe",
     "price_to_earnings": "pe",
+    "peg_ratio": "peg",
+    "peg ratio": "peg",
+    "price/earnings to growth": "peg",
+    "peg (pe/growth)": "peg",
     "d/e": "de",
     "debt_to_equity": "de",
     "debt_equity": "de",
@@ -664,6 +685,31 @@ _SECTOR_SLUG_PREFIXES: dict[str, list[str]] = {
     "textiles": ["textiles%"],
 }
 
+# mc.companies.industry_slug is scraped/derived upstream and is occasionally
+# wrong at the source — verified 2026-07-14: IGL (Indraprastha Gas Ltd, a
+# Delhi-NCR CNG/PNG city-gas distributor) carries "hospitalsmedicalservices",
+# which the (otherwise-correct) rules above map to "pharma" — so a pharma
+# screen surfaced IGL, and the display label agreed with that wrong tag.
+# This is a data-quality correction for known-bad rows, not a change to the
+# sector-mapping rules themselves — add more entries here as they're found.
+_INDUSTRY_SLUG_OVERRIDES: dict[str, str] = {
+    "IGL": "gasdistribution",
+}
+
+
+def _corrected_industry_slug_sql() -> str:
+    """SQL expression for `industry_slug` with `_INDUSTRY_SLUG_OVERRIDES`
+    applied, so the sector FILTER (SQL-side) and the displayed sector
+    LABEL (Python-side, via `_sector_for_slug`) never disagree."""
+    if not _INDUSTRY_SLUG_OVERRIDES:
+        return "c.industry_slug"
+    cases = " ".join(
+        f"WHEN {sym!r} THEN {slug!r}"
+        for sym, slug in _INDUSTRY_SLUG_OVERRIDES.items()
+    )
+    return f"(CASE c.nse_symbol {cases} ELSE c.industry_slug END)"
+
+
 # Default recency floor: keep the cross-section to companies whose latest
 # filing is within ~2 fiscal years. Without it, dormant shells with stale
 # 2006-2012 rows (and nonsense ratios) leak into every result.
@@ -715,6 +761,53 @@ def _resolve_item_key(tok: str) -> str | None:
     return t2 if t2 in FIELD_MAP else None
 
 
+def _matches_exclude_term(row: dict, term: str) -> bool:
+    """Coarse, conservative match of one user-stated carve-out against a
+    screen result row — mirrors strategy_builder._apply_exclusions so a raw
+    screen and a build_strategy basket honour the same "exclude X"
+    vocabulary. Matches an exact ticker, a substring of the company name
+    (catches "Adani" -> every Adani-group name), a sector-name substring, or
+    (for the literal "psu" term) the shared PSU membership set — since real
+    PSUs span energy/metals/defence sectors, not just a "psu" sector label.
+    """
+    t = (term or "").strip().lower()
+    if not t:
+        return False
+    sym = str(row.get("symbol") or "").strip().lower()
+    name = str(row.get("name") or "").strip().lower()
+    sec = str(row.get("sector") or "").strip().lower()
+    if t == sym or (name and t in name):
+        return True
+    if t == "psu":
+        from backend.services.sector_universe import is_psu
+        if is_psu(row.get("symbol")):
+            return True
+    if sec and t in sec:
+        return True
+    return False
+
+
+def _apply_exclude(result: dict, exclude: list[str] | None) -> dict:
+    """Hard-filter a screen result against user-stated carve-outs (a named
+    ticker/company, a sector word, or "PSU"). Returns ``result`` unchanged
+    when there's nothing to exclude or nothing was dropped; otherwise a
+    shallow copy with `results`/`count` trimmed and the drop disclosed in
+    `note` (never a silent filter)."""
+    terms = [str(t) for t in (exclude or []) if str(t).strip()]
+    if not terms or not result.get("results"):
+        return result
+    kept = [r for r in result["results"] if not any(_matches_exclude_term(r, t) for t in terms)]
+    dropped = len(result["results"]) - len(kept)
+    if not dropped:
+        return result
+    out = dict(result)
+    out["results"] = kept
+    out["count"] = len(kept)
+    excl_note = f"excluded per your stated preference: dropped {dropped} name(s) matching {', '.join(terms)}"
+    out["note"] = f"{result.get('note')}; {excl_note}" if result.get("note") else excl_note
+    return out
+
+
 def screen_by_fundamentals(
     filters: list[dict],
     sector: str | None = None,
@@ -724,6 +817,7 @@ def screen_by_fundamentals(
     market_cap_tier: str | None = None,
     custom_ratios: list[dict] | None = None,
     min_period_end: date | None | str = "default",
+    exclude: list[str] | None = None,
     session: Session | None = None,
 ) -> dict:
     """Return companies passing every fundamental constraint in `filters`.
@@ -732,7 +826,7 @@ def screen_by_fundamentals(
     ----------
     filters
         List of `{"field", "op", "value"}`. `field` is any metric the DB
-        carries — the ratio set (pe/roe/roce/de/payout/price_to_book/
+        carries — the ratio set (pe/peg/roe/roce/de/payout/price_to_book/
         ev_to_ebitda/roa/current_ratio/quick_ratio/interest_coverage/
         net_profit_margin/ebitda_margin/asset_turnover), the growth set
         (revenue_growth/net_profit_growth/eps_growth), the raw line items
@@ -759,6 +853,11 @@ def screen_by_fundamentals(
         Recency floor on the latest filing period. "default" -> ~2 fiscal
         years back; None -> no floor (includes dormant shells); or pass an
         explicit `date`.
+    exclude
+        Optional carve-outs (named ticker/company, sector word, or "PSU")
+        hard-filtered out of the result AFTER ranking — see
+        :func:`_apply_exclude`. Never silently dropped; a drop is disclosed
+        in the returned `note`.
 
     Returns
     -------
@@ -847,10 +946,18 @@ def screen_by_fundamentals(
         sort_field = valid_filters[0]["field"]
         sort_dir = "desc"
     if sort_field is None and sector:
-        # sector-only ask with no metric/sort -> rank by quality (ROE desc).
-        sort_field = "roe"
+        # A bare sector ask with no metric/sort named ("best bank
+        # stocks") used to default to ROE desc — that silently bakes in
+        # a "quality" opinion the user never asked for (reported
+        # 2026-07-14). Market cap is a neutral, non-judgmental ordering
+        # (size/recognizability, not a ratio-based investment call) —
+        # the same floor `apply_default_floor` already uses to surface
+        # recognizable large-caps for exactly this kind of bare ask.
+        # An explicit quality ask ("highest quality IT names") still
+        # sorts by ROE via the `sort_by` param above — untouched.
+        sort_field = "market_cap"
         sort_dir = "desc"
-        notes.append("no metric given — ranked by ROE (quality)")
+        notes.append("no metric given — ranked by market cap (largest first)")
 
     if not valid_filters and sort_field is None:
         return {
@@ -882,7 +989,7 @@ def screen_by_fundamentals(
             notes=list(notes),
         )
         if enr is not None and enr.get("results"):
-            return enr
+            return _apply_exclude(enr, exclude)
 
     # ── 3. Build one CTE per metric (branch by kind) ─────────────────────
     params: dict = {"floor": floor}
@@ -961,6 +1068,89 @@ def screen_by_fundamentals(
             join_sqls.append(f"JOIN {cte_name} ON {cte_name}.sc_id = c.sc_id")
             select_cols.append(f"{cte_name}.v AS val_{mf}")
             val_expr[mf] = f"{cte_name}.v"
+
+        elif kind == "peg":
+            # PEG = trailing P/E ÷ trailing YoY EPS growth (% as a plain
+            # number). Composes a "pe_from_ey"-shaped CTE with a
+            # "growth"-shaped CTE (own copy, not shared, so this addition
+            # can't regress the standalone growth kind above) — see those
+            # patterns for the query-shape rationale. Only defined when
+            # growth is positive (PEG on flat/declining earnings isn't a
+            # meaningful ratio) and P/E is positive. Dedupes to ONE row per
+            # (sc_id, basis, period_end) before pairing periods, same as
+            # `financials_db.get_fundamental_history`'s synonym-priority
+            # tiebreak, so a company with multiple EPS-line synonyms for the
+            # same year can't get paired across two different line items.
+            pe_key, gr_key = f"peg_pe_{i}", f"peg_gr_{i}"
+            params[pe_key] = defn["pe_items"]
+            params[gr_key] = defn["growth_items"]
+            pe_cte, gr_cte = f"{cte_name}_pe", f"{cte_name}_gr"
+            cte_sqls.append(
+                f"""{pe_cte} AS (
+                    SELECT DISTINCT ON (sl.sc_id)
+                           sl.sc_id, sl.value_numeric AS v
+                    FROM mc.statement_lines sl
+                    WHERE sl.line_item = ANY(:{pe_key})
+                      AND sl.value_numeric IS NOT NULL
+                      AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0
+                      AND (:floor IS NULL OR sl.period_end >= :floor)
+                    ORDER BY sl.sc_id,
+                             (sl.basis = 'consolidated') DESC,
+                             sl.period_end DESC NULLS LAST,
+                             sl.availability_date DESC NULLS LAST
+                )"""
+            )
+            cte_sqls.append(
+                f"""{gr_cte} AS (
+                    WITH base_raw AS (
+                        SELECT DISTINCT ON (sl.sc_id, sl.basis, sl.period_end)
+                               sl.sc_id, sl.basis, sl.value_numeric AS v,
+                               sl.period_end
+                        FROM mc.statement_lines sl
+                        WHERE sl.line_item = ANY(:{gr_key})
+                          AND sl.value_numeric IS NOT NULL
+                          AND sl.period_end IS NOT NULL
+                        ORDER BY sl.sc_id, sl.basis, sl.period_end DESC,
+                                 array_position(CAST(:{gr_key} AS text[]), sl.line_item)
+                    ),
+                    base AS (
+                        SELECT sc_id, basis, v, period_end,
+                               row_number() OVER (
+                                   PARTITION BY sc_id, basis
+                                   ORDER BY period_end DESC NULLS LAST) AS rn
+                        FROM base_raw
+                    ),
+                    paired AS (
+                        SELECT b1.sc_id, b1.basis, b1.period_end AS latest_end,
+                               CASE WHEN b2.v <> 0
+                                    THEN (b1.v - b2.v) / abs(b2.v) * 100.0 END AS g
+                        FROM base b1 JOIN base b2
+                          ON b1.sc_id = b2.sc_id AND b1.basis = b2.basis
+                         AND b1.rn = 1 AND b2.rn = 2
+                    )
+                    SELECT DISTINCT ON (sc_id) sc_id, g AS v
+                    FROM paired
+                    WHERE g IS NOT NULL
+                      AND (:floor IS NULL OR latest_end >= :floor)
+                    ORDER BY sc_id, (basis = 'consolidated') DESC
+                )"""
+            )
+            cte_sqls.append(
+                f"""{cte_name} AS (
+                    SELECT pe.sc_id,
+                           CASE WHEN pe.v > 0 AND gr.v > 0
+                                THEN (1.0 / pe.v) / gr.v END AS v
+                    FROM {pe_cte} pe JOIN {gr_cte} gr ON gr.sc_id = pe.sc_id
+                )"""
+            )
+            join_sqls.append(f"JOIN {cte_name} ON {cte_name}.sc_id = c.sc_id")
+            select_cols.append(f"{cte_name}.v AS val_{mf}")
+            val_expr[mf] = f"{cte_name}.v"
+            notes.append(
+                "PEG = trailing P/E ÷ trailing YoY EPS growth (historical "
+                "MC filings, not forward estimates) — undefined/excluded "
+                "when EPS growth isn't positive"
+            )
 
         elif kind == "ratio":
             # Custom ratio = latest numerator ÷ latest denominator per sc_id.
@@ -1052,7 +1242,9 @@ def screen_by_fundamentals(
         prefixes = _SECTOR_SLUG_PREFIXES.get(sec)
         if prefixes:
             params["sector_prefixes"] = prefixes
-            where_parts.append("c.industry_slug ILIKE ANY(:sector_prefixes)")
+            where_parts.append(
+                f"{_corrected_industry_slug_sql()} ILIKE ANY(:sector_prefixes)"
+            )
         else:
             notes.append(
                 f"unknown sector {sector!r} (known: "
@@ -1143,6 +1335,11 @@ def screen_by_fundamentals(
         elif kind == "growth":
             # base-effect artifacts on tiny prior-year values → bound generously.
             where_parts.append(f"{val_expr[mf]} BETWEEN -100 AND 1000")
+        elif kind == "peg":
+            # already >0 by construction (CASE guards pe>0 and growth>0); cap
+            # the upper end so a near-zero-growth denominator can't produce an
+            # absurd PEG that dominates the ORDER BY.
+            where_parts.append(f"{val_expr[mf]} <= 50")
         elif mf in _PLAUSIBLE:
             where_parts.append(f"{val_expr[mf]} {_PLAUSIBLE[mf]}")
     notes.append("data-quality bounds applied (extreme outliers excluded)")
@@ -1192,10 +1389,13 @@ def screen_by_fundamentals(
         nse_symbol = row["nse_symbol"]
         ticker = row["ticker"]
         symbol = nse_symbol or ticker or row["sc_id"]
+        _slug = _INDUSTRY_SLUG_OVERRIDES.get(
+            (nse_symbol or "").upper(), row["industry_slug"],
+        )
         rec: dict = {
             "symbol": symbol,
             "name": row["company_name"],
-            "sector": _sector_for_slug(row["industry_slug"]),
+            "sector": _sector_for_slug(_slug),
         }
         for mf in metric_fields:
             v = row.get(f"val_{mf}")
@@ -1222,13 +1422,13 @@ def screen_by_fundamentals(
             "micro-caps)"
         )
 
-    return {
+    return _apply_exclude({
         "count": len(results),
         "results": results,
         "applied_filters": valid_filters,
         "sorted_by": {"field": sort_field, "dir": sort_dir},
         "note": "; ".join(notes),
-    }
+    }, exclude)
 
 
 # ── Deterministic screen reply (skips the LLM narration hop) ────────────────
@@ -1243,7 +1443,7 @@ def screen_by_fundamentals(
 # "positive revenue growth" or "market cap above ₹20,000 Cr" screen renders a
 # clean table instead of falling back to the LLM narration hop.
 _METRIC_LABELS: dict[str, str] = {
-    "pe": "P/E", "roe": "ROE", "roce": "ROCE", "de": "D/E", "payout": "Payout",
+    "pe": "P/E", "peg": "PEG", "roe": "ROE", "roce": "ROCE", "de": "D/E", "payout": "Payout",
     "price_to_book": "P/B", "ev_to_ebitda": "EV/EBITDA", "roa": "ROA",
     "current_ratio": "Current", "quick_ratio": "Quick",
     "interest_coverage": "Int Cov", "net_profit_margin": "Net Margin",
@@ -1279,6 +1479,11 @@ _RANK_FRAMES: dict[tuple[str, str], tuple[str, str]] = {
     ("pe", "desc"): ("Richest-valued", "Ranked most-expensive-first on "
                      "earnings — a high P/E can mean growth expectations or "
                      "overvaluation."),
+    ("peg", "asc"): ("Cheapest on growth-adjusted P/E", "PEG = trailing P/E "
+                     "÷ trailing YoY EPS growth — below 1 is the classic "
+                     "'cheap relative to growth' heuristic, not a buy list."),
+    ("peg", "desc"): ("Richest on growth-adjusted P/E", "PEG = trailing P/E "
+                      "÷ trailing YoY EPS growth, ranked highest first."),
     ("roe", "desc"): ("Highest ROE", "Ranked by return on equity — a "
                       "profitability screen, not a buy list."),
     ("roce", "desc"): ("Highest ROCE", "Ranked by return on capital employed "

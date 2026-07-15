@@ -2,10 +2,9 @@
 
 This package used to host a dedicated ``/api/triggers/*`` REST/WS stack
 with an in-memory monitor task, store, basket builder, parser and
-fire-rule. That surface has been retired — news-driven workflows now
-live as ordinary steps (``fetch.news``, ``trigger.event``) inside the
-existing workflow engine, proposed by the chatbot's ``propose_workflow``
-tool.
+fire-rule. That surface has been retired — news reads now live as
+ordinary ``fetch.news`` steps inside the existing workflow engine,
+proposed by the chatbot's ``propose_workflow`` tool.
 
 What remains is a small library used by those step executors:
 

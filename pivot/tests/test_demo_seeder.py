@@ -37,7 +37,7 @@ def test_register_seeds_demo_workflows_and_trades(client, db):
     )
     assert len(workflows) == 3
     names = {wf.name for wf in workflows}
-    assert "RELIANCE 3:55 PM weekday buy" in names
+    assert "RELIANCE 3:15 PM weekday buy" in names
     assert "INFY weekly dip-buy" in names
     assert "TCS monthly SIP" in names
     # All three should be activated
@@ -64,7 +64,7 @@ def test_seed_workflow_steps_have_valid_step_types(client, db):
         db.query(Workflow).filter(Workflow.user_id == user_id).all()
     )
     canonical = next(
-        wf for wf in workflows if wf.name == "RELIANCE 3:55 PM weekday buy"
+        wf for wf in workflows if wf.name == "RELIANCE 3:15 PM weekday buy"
     )
     step_types = [s.step_type for s in sorted(canonical.steps, key=lambda x: x.step_index)]
     assert step_types == [
@@ -126,7 +126,7 @@ def test_seeded_workflows_visible_via_workflows_api(client, auth_headers):
     body = r.json()
     items = body.get("items", body)
     names = {item["name"] for item in items}
-    assert "RELIANCE 3:55 PM weekday buy" in names
+    assert "RELIANCE 3:15 PM weekday buy" in names
     assert "INFY weekly dip-buy" in names
     assert "TCS monthly SIP" in names
 

@@ -125,6 +125,45 @@ class _Strict(BaseModel):
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
+    @model_validator(mode="after")
+    def _resolve_commodity_exchange(self) -> "_Strict":
+        """Auto-route to MCX when the step's symbol is a recognised MCX
+        commodity (GOLD/SILVER/CRUDEOIL/NATURALGAS/COPPER/ZINC/ALUMINIUM/
+        LEAD/NICKEL and their mini variants).
+
+        Every `exchange` field in this module defaults to "NSE" — an
+        MCX commodity automation request ("alert me when GOLD crosses
+        75000", "buy CRUDEOIL when RSI<30") would otherwise silently
+        resolve the trigger/fetch step against a nonexistent NSE
+        contract of the same name (there is no equity ticker "GOLD" on
+        NSE), producing a broken draft with no error. Runs generically
+        via getattr so ANY step config carrying an `exchange` field
+        (paired with `symbol` or, for pair-trade fetches, `symbol_a`)
+        gets this for free — no per-class patch needed. Reuses the
+        single source of truth for MCX symbol classification
+        (`view_markets.expressions.commodities`) rather than
+        reinventing a commodity list here.
+
+        Gated on the field's own Literal actually allowing "MCX" (checked
+        via ``model_fields`` introspection) so multi-asset basket legs
+        (NSE/BSE/NASDAQ/NYSE/CRYPTO — no MCX in that Literal) are never
+        touched, even if a leg symbol happens to collide with a
+        commodity alias.
+        """
+        if not hasattr(self, "exchange"):
+            return self
+        symbol = getattr(self, "symbol", None) or getattr(self, "symbol_a", None)
+        if not isinstance(symbol, str) or not symbol.strip():
+            return self
+        field = type(self).model_fields.get("exchange")
+        allowed = getattr(field.annotation, "__args__", ()) if field is not None else ()
+        if "MCX" not in allowed:
+            return self
+        from backend.view_markets.expressions.commodities import is_commodity
+        if is_commodity(symbol):
+            self.exchange = "MCX"
+        return self
+
 
 # ── Triggers ─────────────────────────────────────────────────────────
 
@@ -221,7 +260,7 @@ class TriggerPriceConfig(_Strict):
     symbol: str
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
     value: float
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class TriggerIndicatorConfig(_Strict):
@@ -965,7 +1004,7 @@ class TriggerExitCompoundConfig(_Strict):
 
 class FetchQuoteConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchIndicatorConfig(_Strict):
@@ -1139,7 +1178,7 @@ class FetchNewsConfig(_Strict):
 
 class FetchDayOpenConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchRollingHighConfig(_Strict):
@@ -1171,7 +1210,7 @@ class FetchRollingHighConfig(_Strict):
             "returns the high unchanged."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchSpreadZScoreConfig(_Strict):
@@ -1199,7 +1238,7 @@ class FetchSpreadZScoreConfig(_Strict):
             "longer windows are slower to react to regime changes."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchRollingLowConfig(_Strict):
@@ -1214,12 +1253,12 @@ class FetchRollingLowConfig(_Strict):
             "the recent low' (mean-reversion long entry)."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchPriorCloseConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
     sessions_back: int = Field(
         default=1, ge=1, le=10,
         description=(
@@ -1289,7 +1328,7 @@ class FetchRelativeThresholdConfig(_Strict):
             "'below' (e.g. -5 means 5% below). Positive for 'above'."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 # ── Conditions ───────────────────────────────────────────────────────
@@ -2095,7 +2134,7 @@ class FetchPriceReferenceConfig(_Strict):
         ),
     )
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
     sessions_back: int = Field(
         default=1, ge=1, le=10,
         description=(
@@ -2133,4 +2172,4 @@ class FetchRollingExtremeConfig(_Strict):
             "recent low'."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"

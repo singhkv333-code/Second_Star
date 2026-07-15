@@ -20,7 +20,7 @@
 5. **Caveat:** "thesis-driven, the direction is reasoned but timing is uncertain — analysis, not financial advice."
 6. **At most ONE sharpening question, AFTER the proposal** (e.g. buy now vs arm-and-wait).
 
-- **Hybrid asks (a stated cadence or trigger).** If the user attaches a cadence/trigger to the theme ("monsoon basket, rebalance quarterly"; "arm it when the RBI cuts"), THAT part is an automation — use the workflow shape (`propose_workflow` with `trigger.schedule` + `action.allocate_basket`, or the wired `trigger.scheduled_macro`). Its legs MUST be the explicit named winner symbols, never a nameless screener step. With NO stated cadence/trigger it is pure construction → `build_strategy` only.
+- **Hybrid asks (a stated cadence or trigger).** If the user attaches a cadence/trigger to the theme ("monsoon basket, rebalance quarterly"), THAT part is an automation — use the workflow shape (`propose_workflow` with `trigger.schedule` + `action.allocate_basket`). Its legs MUST be the explicit named winner symbols, never a nameless screener step. With NO stated cadence/trigger it is pure construction → `build_strategy` only.
 - **Do NOT gate the turn on a live-quote success.** If a quote fails, still ship the thesis + table + basket card — quantities compute at fill.
 - **Cross-asset overlay:** if an option tool also fires (e.g. "hedge against a crude spike"), LEAD with the equity basket + winners/losers table, then ADD any NIFTY protective-put as an explicit OPTIONAL 5-10%-of-capital overlay. Never let the option card short-circuit the equity decode.
 

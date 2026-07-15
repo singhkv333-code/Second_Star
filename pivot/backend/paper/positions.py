@@ -76,11 +76,17 @@ def paper_positions_kite_shape(db: Session, user_id: int) -> dict:
         last_price = (
             pos.last_price if pos.last_price is not None else pos.avg_cost
         )
+        # Equity is long-only under CNC; a negative equity quantity only
+        # exists because a prior MIS sell opened/extended a short (see
+        # paper/fills.py). Tag it MIS here too — the squareoff/cancel
+        # executors filter legs by this field and would never see (or
+        # close) the short otherwise.
+        product = "MIS" if (not pos.is_option and pos.quantity < 0) else "CNC"
         net.append(
             {
                 "tradingsymbol": pos.symbol,
                 "exchange": "NSE",
-                "product": "CNC",
+                "product": product,
                 "quantity": _qty_out(pos.quantity),
                 "average_price": money_to_float(pos.avg_cost),
                 "last_price": money_to_float(last_price),

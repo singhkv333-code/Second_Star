@@ -61,6 +61,7 @@ from typing import Optional
 
 from backend.services import weighting as _weighting
 from backend.services.sector_universe import (
+    is_psu,
     normalize_sector,
     query_screener,
     resolve_theme,
@@ -383,7 +384,7 @@ def build_strategy(
         single_sector=single_sector,
     )
 
-    title = _title(slots, request, structure)
+    title = _title(slots, request, structure, has_gold=gold_pct > 0)
     rationale = _rationale(
         slots=slots,
         request=request,
@@ -547,9 +548,26 @@ def _build_pinned_strategy(
             )
         )
 
+    # A pinned universe is "already vetted" for DATA availability (never
+    # dropped for missing fundamentals) — but a user's explicit exclusion
+    # ("no PSU exposure", "not X") is a hard constraint that outranks a
+    # vetted pin, including the deterministic thematic-scenario seed (e.g.
+    # crude_spike pins ONGC/OIL straight into this path). Without this, an
+    # excluded name that happened to get pinned (by the model or the
+    # scenario backstop) shipped anyway — confirmed bug.
+    before_excl = [c.symbol for c in candidates]
+    candidates = _apply_exclusions(candidates, slots)
+    excluded = [s for s in before_excl if s not in {c.symbol for c in candidates}]
+    if excluded:
+        assumptions.append(
+            "excluded per your stated preference: " + ", ".join(excluded)
+        )
+    if not candidates:
+        return _empty_card(request, slots, gate, DEFAULT_SECTOR_CAP_PCT, assumptions)
+
     assumptions.append(
         f"pinned universe — building exactly the {len(candidates)} name(s) you/the flow "
-        "vetted; no discovery ran and none were dropped for missing data"
+        "vetted (after exclusions); no discovery ran and none were dropped for missing data"
     )
 
     # Fundamentals for the per-name gate_metrics DISPLAY only (never a drop gate).
@@ -612,7 +630,7 @@ def _build_pinned_strategy(
         pinned=True,
     )
 
-    title = _title(slots, request, structure)
+    title = _title(slots, request, structure, has_gold=gold_pct > 0)
     rationale = _rationale(
         slots=slots,
         request=request,
@@ -704,7 +722,23 @@ def _build_universe(
         # the gate then prunes on fundamentals (so this is a starting pool, not
         # the answer).
         rows = _broad_universe()
-        note = note or "no explicit theme/sector — drew a broad cross-sector pool, then gated on fundamentals"
+        if theme:
+            # A theme WAS named but couldn't be mapped to a sector this
+            # builder recognises ("mid-cap manufacturing", "insurance
+            # plays", etc.) — say so explicitly rather than the generic "no
+            # explicit theme/sector" line, which reads as if nothing was
+            # asked for at all. Honest boundary (confirmed bug): the basket
+            # below is a broad quality pool, NOT the specific universe the
+            # user named.
+            note = note or (
+                f"couldn't map '{theme}' to a specific sector in this "
+                "builder — built from a broad cross-sector quality pool "
+                "instead of the specific universe you asked for; name a "
+                "recognised sector (IT/pharma/auto/energy/metals/steel/"
+                "banking/fmcg/cement/defence/telecom) to narrow it"
+            )
+        else:
+            note = note or "no explicit theme/sector — drew a broad cross-sector pool, then gated on fundamentals"
 
     # Build candidates, de-duping by symbol (sector universes overlap — e.g. a
     # name can sit in both the broad pool and a sector pull; the first/best
@@ -746,8 +780,16 @@ def _broad_universe() -> list[dict]:
 
 def _apply_exclusions(candidates: list[_Candidate], slots: SlotState) -> list[_Candidate]:
     """Drop names the user carved out: a named ticker, a sector word, or
-    ``"PSU"`` (drops psu_bank). Free-text exclusions are matched coarsely —
-    honest and conservative."""
+    ``"PSU"``. Free-text exclusions are matched coarsely — honest and
+    conservative.
+
+    ``"PSU"`` is an OWNERSHIP tag, not a sector — only ``psu_bank`` carries
+    "psu" in the sector name, but real PSUs also sit in ``energy`` (ONGC,
+    IOC, NTPC...), ``metals``/``steel`` (COALINDIA, SAIL, NMDC) and
+    ``defence`` (HAL, BEL, BHEL...). Matching just ``"psu" in sec`` silently
+    kept every non-bank PSU in an "exclude PSU" basket (confirmed bug) — the
+    ``is_psu`` membership check catches those too, regardless of sector.
+    """
     excl = [e.strip().lower() for e in slots.asset_prefs.exclusions if e.strip()]
     if not excl:
         return candidates
@@ -757,7 +799,7 @@ def _apply_exclusions(candidates: list[_Candidate], slots: SlotState) -> list[_C
         sec = c.sector.lower()
         drop = False
         for e in excl:
-            if e == sym or e in sec or (e == "psu" and "psu" in sec):
+            if e == sym or e in sec or (e == "psu" and ("psu" in sec or is_psu(c.symbol))):
                 drop = True
                 break
             norm = normalize_sector(e)
@@ -1481,8 +1523,12 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
     hedge_cue = any(
         k in r for k in ("inflation", "hedge", "rupee", "safe haven", "ballast", "uncertain", "diversif")
     )
+    # An explicit "yes, gold" clarify answer is a direct instruction, not a
+    # second vote alongside the risk/horizon/hedge heuristic — it must win
+    # outright rather than still needing to "earn its place" (2026-07-14).
     earns = (
-        slots.risk == "conservative"
+        slots.asset_prefs.gold_requested
+        or slots.risk == "conservative"
         or slots.horizon == "long"
         or hedge_cue
     )
@@ -1824,16 +1870,24 @@ def _assert_guardrails(
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def _title(slots: SlotState, request: str, structure: str) -> str:
+def _title(slots: SlotState, request: str, structure: str,
+           has_gold: bool = False) -> str:
     bits: list[str] = []
     if slots.theme:
         bits.append(slots.theme.strip().title())
-    bits.append({
+    base = {
         "barbell": "Barbell Basket",
         "core-satellite": "Core-Satellite Basket",
         "focused": "Focused Basket",
         "diversified": "Diversified Equity Basket",
-    }.get(structure, "Equity Basket"))
+    }.get(structure, "Equity Basket")
+    # A basket with a real gold sleeve must say so — calling it a pure
+    # "Equity Basket" while it holds SGB/GOLDBEES is the same silent-
+    # mismatch bug this fix targets, just in the card's own title.
+    if has_gold:
+        base = (base.replace("Equity Basket", "Equity + Gold Basket")
+                if "Equity" in base else f"{base} + Gold")
+    bits.append(base)
     return " — ".join(bits) if len(bits) > 1 else bits[0]
 
 

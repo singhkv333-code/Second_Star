@@ -3243,9 +3243,7 @@ function CompareChip({
       className="inline-flex items-center"
       style={{
         gap: 4,
-        // Tight right padding leaves room for the X button; when the chip
-        // isn't removable there's no button, so pad both sides evenly.
-        padding: removable ? "3px 4px 3px 10px" : "3px 10px",
+        padding: "3px 4px 3px 10px",
         background: `${color}26`,
         borderRadius: "var(--radius-sm)",
         color,

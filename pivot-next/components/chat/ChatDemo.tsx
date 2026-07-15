@@ -75,6 +75,7 @@ import {
 import type { CompanySearchResult } from "@/lib/api";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
+import { getAccessToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -262,15 +263,6 @@ async function* streamChat(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem("pivot_jwt");
-  } catch {
-    return null;
-  }
-}
-
 const PLACEHOLDER_TEXT =
   "Ask Pivot anything about your portfolio, markets, or strategies…";
 
@@ -284,7 +276,7 @@ const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything…";
 const MAX_TEXTAREA_PX = 200;
 
 const EXAMPLE_PROMPT =
-  "Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
+  "Every weekday at 3:15 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -641,17 +633,32 @@ function hintToMessage(
   }
 
   if (hint === "indicator_backtest_chart" && rawData) {
+    const r = rawData as unknown as IndicatorBacktestPayload;
+    // A resumed conversation can carry a truncated/hint-only card (the
+    // backend down-samples large series but still guards against a
+    // malformed payload); these arrays are destructured with no
+    // defaults downstream and crash the render on `undefined` instead
+    // of degrading gracefully — reported 2026-07-14 as "This card
+    // couldn't be shown". Fall back to plain text rather than a
+    // guaranteed-to-throw payload.
+    if (!Array.isArray(r.equity_curve) || !Array.isArray(r.price_curve)) {
+      return { kind: "assistant", text: responseText };
+    }
     return {
       kind: "indicator_backtest",
-      payload: rawData as unknown as IndicatorBacktestPayload,
+      payload: r,
       intro: responseText,
     };
   }
 
   if (hint === "financial_backtest_chart" && rawData) {
+    const r = rawData as unknown as FinancialBacktestPayload;
+    if (!Array.isArray(r.equity_curve) || !Array.isArray(r.benchmark_curve)) {
+      return { kind: "assistant", text: responseText };
+    }
     return {
       kind: "financial_backtest",
-      payload: rawData as unknown as FinancialBacktestPayload,
+      payload: r,
       intro: responseText,
     };
   }
@@ -1302,7 +1309,7 @@ export function ChatDemo({
     abortRef.current = abortCtrl;
 
     try {
-      const token = getToken();
+      const token = await getAccessToken();
 
       // Append the transient streaming bubble and capture its index.
       // `startedAt` drives the elapsed-time counter in the status bar.
@@ -1554,7 +1561,7 @@ export function ChatDemo({
                 onClick={handleExampleClick}
                 data-testid="example-prompt-btn"
               >
-                Try: RELIANCE 3:55 PM buy example
+                Try: RELIANCE 3:15 PM buy example
               </button>
             </div>
           )}

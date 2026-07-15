@@ -485,6 +485,11 @@ def _compute_metrics(
     _sharpe, _sortino = sharpe_sortino(
         daily_returns_from_equity([p["v"] for p in equity_curve]),
         periods_per_year=periods_per_year,
+        # rf=0 — the sim holds idle capital in cash at 0%, so subtracting a
+        # risk-free rate charges every flat day a −rf excess and drags Sharpe
+        # deeply negative for any not-fully-invested strategy (see the twin
+        # note in workflow_backtester). Measure raw risk-adjusted return.
+        rf_annual=0.0,
     )
     return {
         "total_return_pct": round(total_ret, 2),

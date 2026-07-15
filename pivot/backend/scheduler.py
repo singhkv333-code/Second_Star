@@ -177,12 +177,28 @@ def _register_jobs():
             name="Paper: mark open positions intraday (every 5m, market hours IST)",
             replace_existing=True,
         )
+        # Force-cover every open intraday (MIS) short at EOD — India bans
+        # naked short delivery, so a paper short (see paper/fills.py) must
+        # not survive past the close. 15:32, after the 15:30 close and
+        # OFF the */5 resting-tick boundary, before the NAV snapshot so
+        # the day's NAV reflects the closed-out book.
+        scheduler.add_job(
+            squareoff_intraday_shorts_eod,
+            trigger=CronTrigger(
+                hour=15, minute=32, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_squareoff_intraday_shorts",
+            name="Paper: force-cover intraday shorts at 15:32 IST",
+            replace_existing=True,
+        )
         scheduler.add_job(
             snapshot_paper_navs,
             trigger=CronTrigger(
                 # 15:37 — deliberately OFF the */5 resting-tick boundary so
                 # the two jobs never coincide; after the 15:30 close + the
-                # last tick, so the snapshot sees the final marks.
+                # last tick, so the snapshot sees the final marks (and after
+                # the 15:32 short squareoff, above).
                 hour=15, minute=37, second=0,
                 day_of_week="mon-fri", timezone=IST,
             ),
@@ -335,6 +351,35 @@ async def mark_paper_positions_intraday():
     except Exception:
         db.rollback()
         logger.exception("paper intraday marking failed")
+    finally:
+        db.close()
+
+
+async def squareoff_intraday_shorts_eod():
+    """Force-cover every open equity short (MIS, opened by a sell past the
+    held quantity — see paper/fills.py) across every active paper account.
+    Runs at 15:32 IST, right after the close and before the NAV snapshot."""
+    from backend.database import SessionLocal
+    from backend.paper.jobs import squareoff_intraday_shorts
+
+    db = SessionLocal()
+    try:
+        summary = squareoff_intraday_shorts(db)
+        db.commit()
+        if summary["covered"]:
+            logger.info(
+                f"[paper] EOD short squareoff: covered "
+                f"{len(summary['covered'])} leg(s) across "
+                f"{summary['accounts']} account(s)"
+            )
+        if summary["failed"]:
+            logger.warning(
+                f"[paper] EOD short squareoff failed for accounts: "
+                f"{summary['failed']}"
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("paper EOD short squareoff failed")
     finally:
         db.close()
 

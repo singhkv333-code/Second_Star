@@ -87,6 +87,32 @@ def test_capital_echoed_onto_card():
     assert card.capital_inr == 200000.0
 
 
+def test_explicit_gold_answer_builds_the_sleeve_even_without_other_signals():
+    # Reported 2026-07-14: user picked "a roughly balanced mix of equity and
+    # gold" in the basket-structure clarify question, but risk="balanced" and
+    # horizon="medium" (neither "earns" the sleeve on the old heuristic) meant
+    # gold was silently dropped and the card was titled "Diversified Equity
+    # Basket" with zero gold exposure. gold_requested must override that.
+    from backend.services.strategy_contracts import AssetPrefs
+    slots = SlotState(asset_prefs=AssetPrefs(gold_requested=True))
+    card = sb.build_strategy(
+        "make me a basket", slots, ctx=None,
+        symbols=["RELIANCE", "TCS", "INFY"],
+    )
+    assert any(s.kind == "gold" for s in card.sleeves)
+    assert "gold" in card.title.lower()
+
+
+def test_no_gold_signal_still_skips_the_sleeve():
+    slots = SlotState()  # default: risk=balanced, horizon=medium, no hedge cue
+    card = sb.build_strategy(
+        "make me a basket", slots, ctx=None,
+        symbols=["RELIANCE", "TCS", "INFY"],
+    )
+    assert not any(s.kind == "gold" for s in card.sleeves)
+    assert "gold" not in card.title.lower()
+
+
 # ── B2: factor themes ────────────────────────────────────────────────────────
 
 
@@ -145,3 +171,123 @@ def test_no_seed_on_non_scenario_request():
         "request": "build me a long-term quality portfolio",
     })
     assert not slots.symbols
+
+
+# ── Exclusion-constraint regression (2026-07-14 eval finding) ────────────────
+#
+# An "exclude PSU" basket-build request shipped ONGC/IOC/COALINDIA anyway.
+# Two gaps, confirmed by reading the pipeline: (1) `_apply_exclusions` only
+# ever matched `"psu" in sector`, which is true for `psu_bank` alone — real
+# PSUs also sit in `energy`/`metals`/`defence`; (2) the PINNED allow-list path
+# (`_build_pinned_strategy` — used for explicit model-provided `symbols` AND
+# the deterministic thematic-scenario seed, e.g. crude_spike -> ONGC/OIL)
+# never called `_apply_exclusions` at all.
+
+
+def test_apply_exclusions_drops_non_bank_psu_names():
+    """'psu' must drop ONGC/COALINDIA (energy/metals PSUs), not just psu_bank."""
+    candidates = [
+        sb._Candidate(symbol="ONGC", name="ONGC", sector="energy"),
+        sb._Candidate(symbol="COALINDIA", name="Coal India", sector="metals"),
+        sb._Candidate(symbol="TCS", name="TCS", sector="it"),
+        sb._Candidate(symbol="SBIN", name="SBI", sector="psu_bank"),
+    ]
+    slots = SlotState()
+    slots.asset_prefs.exclusions = ["psu"]
+    out = sb._apply_exclusions(candidates, slots)
+    assert {c.symbol for c in out} == {"TCS"}
+
+
+def test_pinned_path_enforces_exclusions_not_just_missing_data():
+    """A user's explicit "no PSU exposure" must outrank a vetted/pinned
+    universe — including a name the deterministic scenario seed pinned."""
+    slots = SlotState()
+    slots.asset_prefs.exclusions = ["psu"]
+    card = sb.build_strategy(
+        "basket of these, no PSU exposure", slots, ctx=None,
+        symbols=["ONGC", "TCS", "INFY"],
+    )
+    syms = {c.symbol for c in card.constituents}
+    assert "ONGC" not in syms
+    assert syms == {"TCS", "INFY"}
+    assert any("exclu" in a.lower() for a in card.assumptions)
+
+
+def test_pinned_path_all_excluded_returns_honest_empty_card():
+    """If every pinned name is excluded, ship the honest empty-card boundary,
+    never a silent no-op basket of zero (mis-)constituents."""
+    slots = SlotState()
+    slots.asset_prefs.exclusions = ["psu"]
+    card = sb.build_strategy(
+        "just ONGC please, but no PSU exposure", slots, ctx=None,
+        symbols=["ONGC"],
+    )
+    assert card.constituents == []
+
+
+# ── Theme-mapping-failure honest boundary (2026-07-14 eval finding) ──────────
+#
+# When a named theme can't be mapped to a recognised sector ("mid-cap
+# manufacturing"), the builder must say so explicitly rather than silently
+# drawing a broad cross-sector pool and letting the note read as if no theme
+# was ever given.
+
+
+def test_unmappable_theme_gets_honest_note_not_silent_generic_fallback():
+    slots = SlotState(theme="mid-cap manufacturing")
+    card = sb.build_strategy(
+        "build a basket of mid-cap manufacturing companies", slots, ctx=None,
+    )
+    assert any("couldn't map" in a.lower() for a in card.assumptions), card.assumptions
+    assert any("mid-cap manufacturing" in a for a in card.assumptions)
+
+
+# ── Honest boundary: asset classes this builder can never construct ─────────
+#
+# Regression coverage for the bug where a chat user asked for a basket
+# "covering different securities" (equities + crypto/US-stocks/other
+# commodities), got an equity(+gold)-only basket back, and a follow-up turn
+# had NO accurate signal to explain why — so the model improvised a wrong
+# excuse. `_unsupported_asset_notes` gives the LLM (via `assumptions`, which
+# flows straight into `raw_data`) an explicit, request-specific reason instead
+# of a silent drop.
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "build me a basket covering equities, gold, and crypto exposure",
+        "diversify across stocks, US stocks and bitcoin",
+        "I want some ethereum and nasdaq exposure alongside NSE stocks",
+    ],
+)
+def test_unsupported_asset_notes_flags_crypto_and_us_equity(request_text):
+    notes = sb._unsupported_asset_notes(request_text)
+    assert notes, f"expected an honest-boundary note for: {request_text!r}"
+    assert any("crypto" in n or "US/international" in n for n in notes)
+
+
+def test_unsupported_asset_notes_silent_for_pure_equity_gold_ask():
+    notes = sb._unsupported_asset_notes(
+        "build me a balanced basket of quality NSE stocks with a gold sleeve"
+    )
+    assert notes == []
+
+
+def test_build_strategy_surfaces_unsupported_asset_note_in_assumptions(monkeypatch):
+    """The note must land in the returned card's `assumptions` — the same
+    field that already reaches `raw_data.build_strategy` and the FE `showWhy`
+    section — not just exist as a standalone helper."""
+    monkeypatch.setattr(sb, "_broad_universe", lambda: [
+        {"symbol": "RELIANCE", "name": "Reliance", "sector": "energy", "mcap_cr": 1_500_000},
+        {"symbol": "TCS", "name": "TCS", "sector": "it", "mcap_cr": 1_200_000},
+        {"symbol": "INFY", "name": "Infosys", "sector": "it", "mcap_cr": 600_000},
+        {"symbol": "ITC", "name": "ITC", "sector": "fmcg", "mcap_cr": 500_000},
+        {"symbol": "HCLTECH", "name": "HCL Tech", "sector": "it", "mcap_cr": 400_000},
+    ])
+
+    card = sb.build_strategy(
+        request="build me a basket with equities, gold and crypto exposure",
+        slots=SlotState(),
+        ctx=None,
+    )
+    assert any("crypto" in a for a in card.assumptions)

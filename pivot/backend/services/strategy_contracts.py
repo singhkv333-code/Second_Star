@@ -204,6 +204,13 @@ class AssetPrefs(BaseModel):
     allow: list[AssetClass] = Field(default_factory=lambda: ["equity", "etf_mf", "gold"])
     deny: list[AssetClass] = Field(default_factory=lambda: ["options"])
     exclusions: list[str] = Field(default_factory=list)
+    gold_requested: bool = False
+    """True when the user's OWN clarify answer explicitly asked for a gold
+    sleeve (e.g. "a mix of equity and gold"), as opposed to gold merely being
+    ALLOWED by default. The builder's gold-sleeve heuristic (conservative /
+    long-horizon / inflation-hedge signal) must never override an explicit
+    ask — that silently dropped gold after the user picked "equity + gold"
+    in the basket-structure clarify question (reported 2026-07-14)."""
 
 
 class SlotAssumptions(BaseModel):

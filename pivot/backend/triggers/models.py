@@ -4,7 +4,7 @@ After the dedicated ``/api/triggers/*`` REST/WS stack was retired (see
 ``backend/triggers/__init__.py``), the only model this package still
 exposes is ``NewsArticle`` — consumed by ``news_client.fetch_news`` and
 ``classifier.classify_article``, which together back the
-``fetch.news`` and ``trigger.event`` workflow step executors.
+``fetch.news`` workflow step executor.
 
 The other shapes (``Workflow``, ``ParsedWorkflow``, ``WorkflowStep``)
 were tied to the in-memory monitor / store / parser modules and were

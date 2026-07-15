@@ -65,9 +65,10 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 // Static reference maps (Quartr parity)
 // ---------------------------------------------------------------------------
 
-/** Light sector mapping so the "Sectors" tab in Asset Allocation has
- *  something to render even though the backend Holding type has no
- *  sector field. Anything not listed lands in "Other". */
+/** The backend now returns a rich `sector` on every Holding (hand-map →
+ *  screener universe label → "Other"). This tiny local map is only a last-
+ *  resort fallback for the rare row that arrives without one (e.g. a cached
+ *  pre-upgrade payload). Prefer `sectorOf(h)` — never read this map directly. */
 const SECTOR_MAP: Record<string, string> = {
   RELIANCE: "Energy",
   HDFCBANK: "Banking",
@@ -132,6 +133,13 @@ function fmtPlain(n: number, opts: { sign?: boolean } = {}): string {
 
 function holdingValue(h: Holding): number {
   return h.last_price * h.quantity;
+}
+
+/** Resolved sector for a holding: the backend's rich label first, then the
+ *  small local fallback map, then "Other". Single source of truth so the
+ *  holdings table, the concentration stat, and the allocation donut all agree. */
+function sectorOf(h: Holding): string {
+  return h.sector || SECTOR_MAP[h.tradingsymbol] || "Other";
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,11 +1020,11 @@ function PerformanceFooter({
     }
     const topHoldingPct = (holdingValue(topHolding) / total) * 100;
 
-    // Largest sector by market value (uses the local SECTOR_MAP; unknown
-    // symbols fall into "Other" — same convention as Asset Allocation).
+    // Largest sector by market value (backend sector, falling back to "Other"
+    // — same convention as Asset Allocation).
     const bySector = new Map<string, number>();
     for (const h of holdings) {
-      const sector = SECTOR_MAP[h.tradingsymbol] ?? "Other";
+      const sector = sectorOf(h);
       bySector.set(sector, (bySector.get(sector) ?? 0) + holdingValue(h));
     }
     let topSector = "Other";
@@ -1524,7 +1532,9 @@ function HoldingRow({
   const liveQuote = useLiveQuote(h.tradingsymbol);
   const ltp = liveQuote.ltp ?? h.last_price;
   const value = ltp * h.quantity;
-  const sector = SECTOR_MAP[h.tradingsymbol];
+  // Backend-resolved sector (was a tiny hardcoded map that left most names
+  // blank). "Other" is suppressed in the subtext below to avoid noise.
+  const sector = sectorOf(h);
   // Total P&L and Day P&L are re-derived from the live LTP rather than the
   // one-time snapshot fields — otherwise these cells sit frozen at whatever
   // they were on page load while the LTP cell next to them keeps moving.
@@ -1584,7 +1594,7 @@ function HoldingRow({
               </span>
               {h.tradingsymbol}
             </Link>
-            {sector && (
+            {sector && sector !== "Other" && (
               <span
                 style={{
                   fontSize: 11,
@@ -1764,7 +1774,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 
   const data = useMemo(() => {
     if (!holdings || holdings.length === 0) return { total: 0, rows: [] as AllocRow[] };
-    if (tab === "sectors") return aggregate(holdings, (h) => SECTOR_MAP[h.tradingsymbol] ?? "Other");
+    if (tab === "sectors") return aggregate(holdings, (h) => sectorOf(h));
     return aggregate(holdings, (h) => h.tradingsymbol);
   }, [holdings, tab]);
 

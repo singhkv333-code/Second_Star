@@ -436,9 +436,15 @@ def _patch_dsl_draft(prior: dict, fields: dict):
 
 def _tree_has_indicator(tree: Any) -> bool:
     """True when a translated DSL tree (dict, pre-validation) contains at
-    least one IndicatorNode — i.e. the trigger is timeframe-sensitive."""
+    least one IndicatorNode, or a PriceNode with offset > 0 — i.e. the
+    trigger is timeframe-sensitive. A price lookback ('price 1 bar ago')
+    is just as timeframe-sensitive as an indicator: offset=1 means
+    "yesterday's close" on daily bars but "5 minutes ago" on 5m bars,
+    and the DSL has no way to tell which the user meant without this."""
     if isinstance(tree, dict):
         if tree.get("type") == "indicator":
+            return True
+        if tree.get("type") == "price" and int(tree.get("offset") or 0) > 0:
             return True
         return any(_tree_has_indicator(v) for v in tree.values())
     if isinstance(tree, list):
@@ -448,9 +454,10 @@ def _tree_has_indicator(tree: Any) -> bool:
 
 def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
     """Walk a translated DSL tree (still a dict — pre-validation) and
-    set ``timeframe=interval`` on every IndicatorNode that doesn't have
-    one. The LLM grammar prompt doesn't yet know about non-daily
-    intervals, so the user's chat-level choice ('on 15-minute bars')
+    set ``timeframe=interval`` on every IndicatorNode, and on every
+    PriceNode with offset > 0, that doesn't already have one. The LLM
+    grammar prompt doesn't yet know about non-daily intervals, so the
+    user's chat-level choice ('on 15-minute bars', 'every 5 minutes')
     is plumbed in here rather than by re-prompting.
 
     Daily (the default) is a no-op so already-persisted trees and the
@@ -463,6 +470,12 @@ def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
         if isinstance(node, dict):
             if node.get("type") == "indicator" and not node.get("timeframe"):
                 node["timeframe"] = interval
+            elif (
+                node.get("type") == "price"
+                and int(node.get("offset") or 0) > 0
+                and not node.get("timeframe")
+            ):
+                node["timeframe"] = interval
             for v in node.values():
                 _walk(v)
         elif isinstance(node, list):
@@ -474,6 +487,28 @@ def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
 
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
+# Strip innocuous "short ..." phrases before checking for an actual
+# short-selling intent word: short-term/short of/shortfall, AND "short"
+# used as a crossover-leg adjective ("short SMA/MA/EMA/WMA/MACD crosses
+# the long ..." is THE flagship backtest_dsl_tree use case — a bare
+# indicator-direction word, not a short-sell request).
+_SHORT_BENIGN_RE = re.compile(
+    r"short[\s-]*(?:term|of|fall|sma|ma|ema|wma|macd|period|window|"
+    r"lookback|leg|line|average|moving)\b",
+    re.I,
+)
+_SHORT_INTENT_RE = re.compile(r"\bshort(?:ing|ed|s)?\b", re.I)
+
+
+def _mentions_short(text: str) -> bool:
+    """True if ``text`` reads as a short-selling request ('short X', 'go
+    short', 'sell short', 'shorting', 'short-sell') after stripping the
+    benign 'short-term'/'short of'/'shortfall'/'short SMA'-style
+    crossover-leg phrasings."""
+    if not text:
+        return False
+    return bool(_SHORT_INTENT_RE.search(_SHORT_BENIGN_RE.sub("", text)))
+
 
 async def backtest_dsl_tree(args: dict) -> dict:
     """Run a DSL-tree backtest from a natural-language condition.
@@ -484,7 +519,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
                           ``exit_condition`` — never bake it into this
                           field as an AND, that produces a contradiction.
       primary_symbol    — symbol the trade fires on (e.g. "TCS")
-      start_date        — ISO date (optional; defaults to 3y ago)
+      start_date        — ISO date (optional; defaults to 5y ago)
       end_date          — ISO date (optional; defaults to today)
       interval          — bar interval the backtest runs on
                           (1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo;
@@ -531,6 +566,27 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "trade fires on, e.g. TCS)."
         )
 
+    # This engine is LONG-ONLY: `_open_position`/`_close_position_at_price`
+    # in workflows/dsl/backtest/engine.py buy at entry and sell at exit —
+    # there is no direction/short mechanism anywhere in BacktestRequest or
+    # the sim loop (P&L, stop-loss bar-low semantics, and peak tracking all
+    # assume a long). Rather than silently running a "short" request long
+    # and narrating it as if shorting had been modeled (a mechanics
+    # fabrication caught in eval), refuse deterministically. Checked via
+    # BOTH the explicit `direction` arg AND a text backstop, because the
+    # chat LLM has been observed to drop "short" language before it ever
+    # reaches this tool's args.
+    direction = str(args.get("direction") or "long").strip().lower()
+    if direction == "short" or _mentions_short(condition) or _mentions_short(
+        exit_condition_text
+    ):
+        raise ValueError(
+            "backtest_dsl_tree only simulates LONG (buy-then-sell) "
+            "positions today — it has no short-selling mechanism, so it "
+            "cannot backtest shorting this. Say so plainly; do not run "
+            "this as a long backtest and describe it as a short."
+        )
+
     # 51-sweep arg-repair: "I hold 50 INFY at 1400 — backtest a 10%
     # trailing stop" arrives with the TRAILING rule in `condition` (the
     # entry slot), which the semantic validator rightly rejects
@@ -564,7 +620,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
-    # Date window — default to 3 years ending today.
+    # Date window — default to 5 years ending today. (Was 3y; the other two
+    # backtest engines — workflow_backtester + indicator_backtest — already
+    # default to 5y, and 3y starved slow signals: a 50/200 golden cross fired
+    # only 1 trade in 3y → "insufficient data". Kite serves 5y daily fine.
+    # This is only the DEFAULT — an explicit start_date gives any window.)
+    _DEFAULT_WINDOW_DAYS = 365 * 5 + 2
     today = date.today()
     try:
         end_d = (
@@ -577,10 +638,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
         start_d = (
             date.fromisoformat(args["start_date"])
             if args.get("start_date")
-            else end_d - timedelta(days=365 * 3 + 2)
+            else end_d - timedelta(days=_DEFAULT_WINDOW_DAYS)
         )
     except ValueError:
-        start_d = end_d - timedelta(days=365 * 3 + 2)
+        start_d = end_d - timedelta(days=_DEFAULT_WINDOW_DAYS)
     if end_d <= start_d:
         end_d = start_d + timedelta(days=365)
 
@@ -805,49 +866,67 @@ async def backtest_dsl_tree(args: dict) -> dict:
         total_return_pct=float(metrics.total_return_pct),
         n_trades=metrics.total_trades,
     )
-    _bench_txt = (
-        f" Buy-and-hold returned {metrics.benchmark_return_pct:+.1f}%."
-        if metrics.benchmark_return_pct is not None else ""
-    )
-    _sharpe_txt = (
-        f" Sharpe {metrics.sharpe_ratio:.2f}."
-        if metrics.sharpe_ratio is not None else ""
-    )
     _verdict_lead = (
-        f"Verdict — {_verdict_dict['label']}: {_verdict_dict['rationale']} "
+        f"**Verdict — {_verdict_dict['label']}.** {_verdict_dict['rationale']}"
         if _verdict_dict else ""
     )
     _psr = _fs_dict.get("psr") if _fs_dict else None
-    _psr_txt = (
-        f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
-        if isinstance(_psr, (int, float)) else ""
-    )
     _nt = (_fs_dict or {}).get("num_trials") or 1
     _dsr = (_fs_dict or {}).get("deflated_sharpe")
-    _dsr_txt = (
-        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
-        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
-    )
     _sizing_txt = ""
     if sizing.get("mode") == "vol_target":
-        _sizing_txt = f" Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
+        _sizing_txt = f"Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
     elif sizing.get("mode") == "atr_risk":
         _sizing_txt = (
-            f" Sized by ATR risk ({sizing.get('risk_pct', 0.01):.1%}/trade, "
+            f"Sized by ATR risk ({sizing.get('risk_pct', 0.01):.1%}/trade, "
             f"{sizing.get('atr_mult', 2.0):g}×ATR stop)."
         )
     elif sizing.get("mode") == "pct_equity":
-        _sizing_txt = f" Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
-    _assume_txt = (
-        " Assumptions: " + " ".join(assumptions) if assumptions else ""
+        _sizing_txt = f"Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
+    _assume_txt = ("Assumptions: " + " ".join(assumptions)) if assumptions else ""
+    # ── Results TABLE (structured, not a run-on paragraph) ──────────────
+    # Verdict + method stay prose; the numbers go in a compact two-column
+    # table. Signed values keep +/- so the FE colours them green / red.
+    # No `**bold**` in table cells — the FE renders cells as raw strings, so
+    # emphasis leaks literal asterisks; signed values get gain/loss colouring.
+    _mrows: list[tuple[str, str]] = [
+        ("Strategy return (whole account)", f"{metrics.total_return_pct:+.1f}%"),
+    ]
+    if metrics.return_on_deployed_pct is not None:
+        # Un-annualized, dollar-weighted return on capital actually put at
+        # risk — distinct from the whole-account figure above, which is
+        # diluted by however long capital sat idle in cash. Shown together
+        # with capital_utilization_pct so a rare-trigger strategy can't
+        # read as "always performs this well" from this row alone.
+        _mrows.append((
+            "Return on capital deployed",
+            f"{metrics.return_on_deployed_pct:+.1f}%",
+        ))
+    if metrics.capital_utilization_pct is not None:
+        _mrows.append((
+            "Capital deployed",
+            f"{metrics.capital_utilization_pct:.0f}% of the window",
+        ))
+    if metrics.benchmark_return_pct is not None:
+        _mrows.append(("Buy & hold", f"{metrics.benchmark_return_pct:+.1f}%"))
+    _mrows.append(("Trades", f"{metrics.total_trades}"))
+    _mrows.append(("Max drawdown", f"{metrics.max_drawdown_pct:.1f}%"))
+    _mrows.append(("Win rate", f"{metrics.win_rate_pct:.0f}%"))
+    if metrics.sharpe_ratio is not None:
+        _mrows.append(("Sharpe", f"{metrics.sharpe_ratio:.2f}"))
+    if isinstance(_psr, (int, float)):
+        _mrows.append(("PSR", f"{_psr:.0%}"))
+    if _nt > 1 and isinstance(_dsr, (int, float)):
+        _mrows.append((f"Deflated Sharpe ({_nt} variants)", f"{_dsr:.0%}"))
+    _table = "| Metric | Value |\n| --- | --- |\n" + "\n".join(
+        f"| {_k} | {_v} |" for _k, _v in _mrows
     )
-    summary = (
-        _verdict_lead +
-        f"Strategy returned {metrics.total_return_pct:+.1f}% across "
-        f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
-        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt}{_sizing_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_assume_txt}"
+    _tail_bits = [t for t in (_sizing_txt, _assume_txt) if t]
+    _tail = (" " + " ".join(_tail_bits)) if _tail_bits else ""
+    _method_line = (
+        f"_Results are {_method['costs']}, on {_method['basis']}.{_tail}_"
     )
+    summary = "\n\n".join(p for p in (_verdict_lead, _table, _method_line) if p)
 
     # Build the legacy-shaped signals list (buy + sell as separate
     # entries) AND a richer per-trade list so the card can show
@@ -919,6 +998,8 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "sortino": metrics.sortino_ratio,
             "n_trades": int(n_trades),
             "n_wins": int(n_wins),
+            "return_on_deployed_pct": metrics.return_on_deployed_pct,
+            "capital_utilization_pct": metrics.capital_utilization_pct,
             "benchmark_return_pct": metrics.benchmark_return_pct,
             "starting_capital": float(request.starting_capital),
             "ending_value": float(metrics.ending_value),
@@ -1219,10 +1300,11 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if not raw_interval and _tree_has_indicator(tree):
         raise ValueError(
             "propose_dsl_workflow: timeframe (bar interval) is required for an "
-            "indicator condition. Call ASK_USER first: ask 'Which timeframe — "
-            "1m / 5m / 15m / 30m / 1h / daily / weekly / monthly?'. Do NOT "
-            "default to daily — the indicator period counts BARS of the "
-            "chosen interval."
+            "indicator condition, or a price condition that looks back N bars "
+            "(e.g. 'lower than it was N minutes ago'). Call ASK_USER first: "
+            "ask 'Which timeframe — 1m / 5m / 15m / 30m / 1h / daily / weekly "
+            "/ monthly?'. Do NOT default to daily — the indicator period, or "
+            "the price lookback, counts BARS of the chosen interval."
         )
 
     # Overlay the user-specified interval on every IndicatorNode in the
@@ -1309,6 +1391,19 @@ async def propose_dsl_workflow(args: dict) -> dict:
     #   buy_limit    → action.place_order(side=buy, order_type=limit)
     if action_kind not in ("notify_only", "buy_market", "buy_limit"):
         action_kind = "notify_only"
+
+    # There is no short/sell ENTRY action in this v1 schema (only buy_
+    # market/buy_limit/notify_only) — the same long-only gap already
+    # refused honestly in backtest_dsl_tree (task #6, 2026-07-14). A
+    # "short X" entry condition must never silently register a BUY.
+    if (action_kind in ("buy_market", "buy_limit")
+            and (_mentions_short(condition) or _mentions_short(label))):
+        raise ValueError(
+            "propose_dsl_workflow: this entry action would place a BUY "
+            "order, but the request describes a SHORT/sell entry — "
+            "short-entry automations aren't supported yet. Do not "
+            "silently register a buy for a short ask."
+        )
 
     # Refuse silent qty=1 default for buy actions. The user must
     # have specified a quantity (the LLM should have asked first).

@@ -78,6 +78,8 @@ def load_bars(
     end: date,
     fetcher=None,
     interval: str = "1d",
+    primary_symbol: Optional[str] = None,
+    exchange: str = "NSE",
 ) -> LoadedBars:
     """Load OHLCV for every symbol referenced in ``tree`` at ``interval``.
 
@@ -89,11 +91,21 @@ def load_bars(
     we fall back to a positional call so daily-only callers/tests are
     unchanged.
 
-    Raises ``ValueError`` if the tree references no market data
-    (only constants), if the master calendar would be empty, or if
-    any individual fetch fails outright.
+    ``primary_symbol``/``exchange`` are always included even when the
+    tree references no market-data leaf at all — an ``always``-rooted
+    entry (unconditional "just buy X") or a pure ``position``-leaf
+    exit tree carries no symbol of its own; the engine still needs
+    that symbol's bars to simulate fills.
+
+    Raises ``ValueError`` if no symbol can be determined at all
+    (neither the tree nor ``primary_symbol``), if the master calendar
+    would be empty, or if any individual fetch fails outright.
     """
     keys = collect_symbols(tree)
+    if primary_symbol:
+        primary_key = (primary_symbol.strip().upper(), exchange.strip().upper())
+        if primary_key not in keys:
+            keys.append(primary_key)
     if not keys:
         raise ValueError(
             "tree has no market-data leaves — nothing to backtest. "

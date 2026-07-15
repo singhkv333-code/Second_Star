@@ -491,9 +491,26 @@ class WorkflowEngine:
                 error_message=f"unknown step_type {step.step_type!r}",
             )
 
-        # Defense-in-depth schema validation (§7 invariant 7).
+        # Defense-in-depth schema validation (§7 invariant 7). Also
+        # hydrates a LOCAL copy of the config with any Pydantic field
+        # defaults the caller omitted — routers/workflows.py validates
+        # the same way (model_validate for a pass/fail verdict) but
+        # never persists the defaulted values back to `workflow_steps.
+        # config`, so an optional field with a schema default (e.g.
+        # NotifyMessageConfig.template, .channel) reaches here as a
+        # genuinely missing key even though the step was accepted as
+        # valid at create time. 2026-07-14 audit: reproduced live — a
+        # chat-built notify.message step that omits `template` (the
+        # planner routinely does, since it has a default) crashed at
+        # runtime with `KeyError: 'template'` in execute_notify_message
+        # despite passing validation both here and at create. Merging
+        # `validated.model_dump()` UNDER the raw stored config (so any
+        # caller-supplied value — including an unresolved Mustache ref
+        # string in a ref-tolerant field — always wins) fixes the
+        # class of bug without touching the persisted row or any other
+        # step type's behavior.
         try:
-            defn.config_model.model_validate(step.config or {})
+            validated = defn.config_model.model_validate(step.config or {})
         except ValidationError as e:
             rs = self._upsert_run_step(
                 db, run, step,
@@ -507,6 +524,15 @@ class WorkflowEngine:
                 kind="failed",
                 error_message=f"config invalid: {e.errors()[0]['msg']}",
             )
+        try:
+            defaulted_config: dict[str, Any] = {
+                **validated.model_dump(mode="json"),
+                **(step.config or {}),
+            }
+        except Exception:
+            # Extremely defensive — a model_dump surprise should never
+            # block execution when the raw config already validated.
+            defaulted_config = dict(step.config or {})
 
         # Resolve refs against the run context. The webhook payload (if
         # present) lives at context["webhook_payload"]; numeric step
@@ -514,7 +540,7 @@ class WorkflowEngine:
         # care which.
         try:
             resolved_config = resolve_refs(
-                step.config or {},
+                defaulted_config,
                 context=run.context or {},
                 workflow_meta={
                     "id": workflow.id,

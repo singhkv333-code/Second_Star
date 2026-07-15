@@ -453,7 +453,13 @@ def _build_generator_user_payload(
             "risk": "conservative / balanced / aggressive appetite",
             "horizon": "tactical (<1y) / medium (1-5y) / long (5y+)",
             "capital_inr": "investable ₹ amount (gates #names, lots, SGB tickets)",
-            "asset_prefs": "which sleeves to allow: equity / ETF-MF / gold",
+            # Only name sleeves the builder can actually construct today
+            # (equity screen + a gold SGB/GOLDBEES sleeve) — the generator
+            # LLM otherwise echoes whatever this hint lists as if it were
+            # buildable, and it isn't (build_strategy is equity+gold only;
+            # ETF/MF sleeves aren't implemented). Never re-add "ETF-MF" here
+            # without also building that sleeve in strategy_builder.py.
+            "asset_prefs": "which sleeves to allow: equity / gold",
             "theme": "thematic tilt (quality, value, rate-cut beneficiaries, …)",
         },
         "grounding": grounding,
@@ -970,11 +976,17 @@ def normalize_answer_into_slots(
         # Map common asset-class words into allow/deny; additive (we never wipe
         # the default allow-list, only extend deny/exclusions on an opt-out).
         low = label.lower()
-        if "gold" in low or "sgb" in low:
+        wants_gold = "gold" in low or "sgb" in low
+        denies_gold = "no gold" in low or "without gold" in low
+        if wants_gold and not denies_gold:
             if "gold" not in slots.asset_prefs.allow:
                 slots.asset_prefs.allow.append("gold")  # type: ignore[arg-type]
+            # A direct "yes" to gold must build the sleeve — the builder's
+            # risk/horizon heuristic is for when the user DIDN'T say either
+            # way, not a second vote that can override an explicit answer.
+            slots.asset_prefs.gold_requested = True
             slots.mark_assumed("asset_prefs", value=False)
-        if "no gold" in low or "without gold" in low:
+        if denies_gold:
             slots.asset_prefs.deny.append("gold")  # type: ignore[arg-type]
             slots.mark_assumed("asset_prefs", value=False)
         if "etf" in low or "mutual fund" in low or "index fund" in low:
@@ -1094,9 +1106,10 @@ def fold_free_text_into_slots(text: str, slots: SlotState) -> SlotState:
                               "just stocks", "stocks only", "no gold",
                               "no derivatives", "no options", "gold", "sgb",
                               "etf", "mutual fund", "index fund")):
-        if "gold" in low or "sgb" in low:
+        if ("gold" in low or "sgb" in low) and "no gold" not in low:
             if "gold" not in slots.asset_prefs.allow:
                 slots.asset_prefs.allow.append("gold")  # type: ignore[arg-type]
+            slots.asset_prefs.gold_requested = True
         if "no gold" in low:
             slots.asset_prefs.deny.append("gold")  # type: ignore[arg-type]
         if "etf" in low or "mutual fund" in low or "index fund" in low:

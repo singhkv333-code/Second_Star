@@ -51,7 +51,6 @@ from backend.routers.quotes import router as quotes_router
 from backend.routers.portfolio_perf import router as portfolio_perf_router
 from backend.routers.paper import router as paper_router
 from backend.routers.ipo_applications import router as ipo_applications_router
-from backend.routers.events_calendar import router as events_calendar_router
 from backend.routers.stock_automations import router as stock_automations_router
 from backend.routers.news import router as news_router
 from backend.routers.admin import router as admin_router
@@ -94,8 +93,37 @@ app.add_middleware(RequestContextMiddleware)
 # Gzip large JSON payloads (screener grid, instrument lists, financials
 # histories) — pure win on transfer time for anything over ~1.5 KB; small
 # responses skip compression entirely.
+#
+# GZipMiddleware pipes every response chunk through zlib as it's sent, but
+# zlib's compressor only flushes its output buffer once enough data has
+# accumulated (or the stream closes) — see GZipResponder.send_with_gzip in
+# starlette/middleware/gzip.py. For POST /chat/stream (SSE), each token
+# delta is a handful of bytes, so zlib holds everything in its internal
+# buffer and only flushes once the whole reply is done, at which point the
+# entire response arrives in one shot. This silently defeats real,
+# correctly-built SSE streaming on both ends (chat_service.handle_stream
+# yields deltas; ChatDemo.tsx reads them incrementally) — the bytes just
+# never leave the server until the end. Route SSE responses around gzip
+# entirely; everything else keeps the compression win.
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
-app.add_middleware(GZipMiddleware, minimum_size=1500)
+from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
+
+_NO_GZIP_PATHS = {"/chat/stream"}
+
+
+class ConditionalGZipMiddleware:
+    def __init__(self, app: ASGIApp, **gzip_kwargs) -> None:
+        self.app = app
+        self._gzip = GZipMiddleware(app, **gzip_kwargs)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") in _NO_GZIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+        await self._gzip(scope, receive, send)
+
+
+app.add_middleware(ConditionalGZipMiddleware, minimum_size=1500)
 
 app.include_router(auth_router)
 app.include_router(orders_router)
@@ -122,7 +150,6 @@ app.include_router(quotes_router)
 app.include_router(portfolio_perf_router)
 app.include_router(paper_router)
 app.include_router(ipo_applications_router)
-app.include_router(events_calendar_router)
 app.include_router(stock_automations_router)
 app.include_router(news_router)
 app.include_router(conversations_router)
@@ -153,17 +180,6 @@ app.include_router(feedback_router)
 app.include_router(screener_router)
 # Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
 app.include_router(audio_router)
-
-# ── News & Event Trigger subsystem (flag-gated) ──────────────────────
-# Entire subsystem is opt-in via `settings.news_events_enabled`. With
-# the flag off, nothing below this comment imports, registers, or runs.
-# See docs/news_events_phase0_plan.md and backend/news_events/.
-if settings.news_events_enabled:
-    from backend.news_events.router import router as news_events_router
-
-    app.include_router(news_events_router)
-    logger.info("[news_events] router mounted under /api/news-events")
-
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
 #
@@ -331,56 +347,6 @@ async def startup():
             )
 
             register_view_markets_lifecycle(scheduler_module.scheduler)
-            # News & Event Trigger pollers — additive, flag-gated.
-            # With the flag off, this branch is a no-op and the
-            # subsystem's modules are never imported.
-            if settings.news_events_enabled:
-                from backend.news_events.workers.poller import register_poller
-                from backend.news_events.workers.funnel import register_funnel_worker
-                from backend.news_events.workers.retraction_watcher import (
-                    register_retraction_watcher,
-                )
-
-                register_poller(scheduler_module.scheduler)
-                register_funnel_worker(scheduler_module.scheduler)
-                register_retraction_watcher(scheduler_module.scheduler)
-
-                # Phase 7 Tier-A: Telegram MTProto channel reader.
-                # Long-lived asyncio task (not an APScheduler job)
-                # because Telethon's run_until_disconnected is its
-                # own event loop. start_telegram_worker is
-                # idempotent + gracefully no-ops when creds /
-                # session aren't configured.
-                if settings.telegram_enabled:
-                    from backend.news_events.workers.telegram_worker import (
-                        start_telegram_worker,
-                    )
-
-                    start_telegram_worker()
-
-                # Polymarket CLOB WS prediction-market trigger.
-                # Long-lived asyncio task that owns a persistent
-                # WS connection. start_polymarket_ws_worker is
-                # idempotent + gracefully no-ops when no active
-                # WS-mode specs exist (it never opens the socket
-                # until set_subscriptions lands a non-empty set).
-                if settings.polymarket_ws_enabled:
-                    from backend.news_events.workers.polymarket_ws_worker import (
-                        start_polymarket_ws_worker,
-                    )
-
-                    start_polymarket_ws_worker()
-
-                # Kalshi prediction-market trigger. Long-lived asyncio
-                # task that polls the keyless Kalshi REST market-data API
-                # and drives the SAME evaluator. Idempotent + no-ops when
-                # no active trigger.kalshi steps exist.
-                if settings.kalshi_rest_enabled:
-                    from backend.news_events.workers.kalshi_rest_worker import (
-                        start_kalshi_rest_worker,
-                    )
-
-                    start_kalshi_rest_worker()
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."
@@ -556,17 +522,6 @@ async def shutdown():
         get_ticker_manager().stop()
     except Exception:
         pass
-    # Phase 7 — graceful shutdown of the Telegram worker so the
-    # MTProto disconnect lands cleanly. No-op when the worker
-    # never started.
-    if settings.news_events_enabled and settings.telegram_enabled:
-        try:
-            from backend.news_events.workers.telegram_worker import (
-                stop_telegram_worker,
-            )
-            await stop_telegram_worker()
-        except Exception:
-            pass
     # Close the pooled LLM HTTP client (keep-alive connection pool).
     try:
         from backend.llm.openai_client import aclose_shared_async_client

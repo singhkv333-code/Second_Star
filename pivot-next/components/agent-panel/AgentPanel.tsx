@@ -343,25 +343,33 @@ function AgentPanelBody({
     );
   }
 
-  // For an unsaved draft: the controlled activeEditorDraft takes precedence
-  // over initialWorkflow so chat-pushed amendments re-render the editor
-  // without a remount. For a saved workflow (has real id), use initialWorkflow
-  // as before.
-  const isUnsavedDraft =
-    activeEditorDraft !== null &&
-    activeEditorDraft !== undefined &&
-    (activeEditorDraft.id === "" || activeEditorDraft.id.startsWith("local-")) &&
-    activeEditorDraft.status === "draft";
+  // The panel is bound to an editable draft SESSION whenever a non-null
+  // activeEditorDraft is present. It stays bound across Save/Activate — which
+  // give the draft a real id and flip its status draft→active — so the editor
+  // keeps rendering the fresh controlled copy (activeEditorDraft) instead of
+  // falling back to the stale `initialWorkflow` snapshot. `initialWorkflow`
+  // (panelWorkflow) is captured at open time and never sees the post-activate
+  // status, so the old draft/local-id gate flipped this off the instant the
+  // draft was activated and remounted the editor on the stale snapshot — which
+  // is why the "Activate" button stayed stuck until a tab switch refetched it.
+  //   AppShell.openWorkflow clears activeEditorDraft when a SAVED workflow is
+  // opened, so a leftover draft never shadows a real agent opened from a list.
+  const hasDraftSession =
+    activeEditorDraft !== null && activeEditorDraft !== undefined;
 
-  const resolved = isUnsavedDraft ? activeEditorDraft : (initialWorkflow ?? DEMO_WORKFLOW);
+  const resolved = hasDraftSession
+    ? activeEditorDraft
+    : (initialWorkflow ?? DEMO_WORKFLOW);
 
   // Key logic:
-  //   - Unsaved draft: key="unsaved-draft" so the editor stays mounted across
-  //     chat amendments. Changes arrive via the controlledWorkflow prop.
+  //   - Draft session: key="active-draft-session" so the editor stays mounted
+  //     across chat amendments AND the save/activate transition. Changes arrive
+  //     via the controlledWorkflow prop; the status pill + Activate/Pause button
+  //     update in place with no remount.
   //   - Saved workflow: key=id so switching agents remounts cleanly.
   //   - Demo: key="demo".
-  const editorKey = isUnsavedDraft
-    ? "unsaved-draft"
+  const editorKey = hasDraftSession
+    ? "active-draft-session"
     : (resolved.id || "demo");
 
   return (
@@ -369,8 +377,8 @@ function AgentPanelBody({
       key={editorKey}
       initialWorkflow={resolved}
       catalog={state.catalog}
-      controlledWorkflow={isUnsavedDraft ? activeEditorDraft : undefined}
-      onControlledWorkflowChange={isUnsavedDraft ? onActiveEditorDraftChange : undefined}
+      controlledWorkflow={hasDraftSession ? activeEditorDraft : undefined}
+      onControlledWorkflowChange={hasDraftSession ? onActiveEditorDraftChange : undefined}
     />
   );
 }

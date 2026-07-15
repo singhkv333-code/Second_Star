@@ -315,6 +315,19 @@ def _risk_parity_weights(cov: np.ndarray) -> np.ndarray:
     cyclical-coordinate update is the standard Spinu/Griveau-Billion-Richard-Roncalli
     fixed point and converges monotonically for a PSD ``Σ``; far more robust than
     a generic optimiser and dependency-free.
+
+    IMPORTANT: the fixed point solves ``y_i·(Σy)_i = target`` for a FIXED target
+    constant (``1/n``) on the UNNORMALISED iterate ``y`` — that fixed target is
+    what pins down y's absolute scale, not just its direction. Renormalising
+    mid-iteration (dividing by the running sum on every sweep, as an earlier
+    version of this function did) rescales ``y`` out from under that fixed
+    target, so each subsequent sweep solves a slightly different, moving-target
+    problem — the iteration "converges" (successive ``w`` deltas shrink to zero)
+    but to a fixed point that does NOT satisfy equal risk contribution once any
+    off-diagonal correlation is present (verified: an 8-asset correlated
+    covariance converged to per-asset risk-contribution shares spread over
+    [-0.07, +0.29] instead of the equal 0.125 each — even a NEGATIVE share,
+    i.e. not risk parity at all). Only normalise ONCE, after the loop.
     """
     n = cov.shape[0]
     w = np.full(n, 1.0 / n, dtype=float)
@@ -335,13 +348,12 @@ def _risk_parity_weights(cov: np.ndarray) -> np.ndarray:
             sigma_w += cov[:, i] * (w_i_new - w[i])  # incremental Σw update
             w[i] = w_i_new
         w = np.clip(w, 0.0, None)
-        s = w.sum()
-        if s <= 0.0:
-            raise ValueError("risk-parity weights collapsed to zero")
-        w /= s
         if np.abs(w - w_prev).sum() < _ERC_TOL:
             break
-    return w
+    s = w.sum()
+    if s <= 0.0:
+        raise ValueError("risk-parity weights collapsed to zero")
+    return w / s
 
 
 def _min_variance_weights(cov: np.ndarray) -> np.ndarray:

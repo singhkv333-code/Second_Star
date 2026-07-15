@@ -100,8 +100,18 @@ def calculate_metrics(
         denom = float(excess_daily.std())
         sharpe = (float(excess_daily.mean()) / denom * math.sqrt(TRADING_DAYS_PER_YEAR)
                   if denom > 0 else 0.0)
-        downside = daily_returns[daily_returns < 0]
-        downside_dev = float(downside.std() * math.sqrt(TRADING_DAYS_PER_YEAR)) if not downside.empty else 0.0
+        # Downside deviation (Sortino's own definition): RMS of the
+        # below-target (target=0) squared deviations over ALL n periods,
+        # not the sample std of just the negative subset. The previous
+        # `downside.std()` subtracted the negative subset's OWN mean and
+        # divided by (count_negative - 1) — neither of which is what
+        # "deviation below target" means, and it silently shrank/inflated
+        # the denominator depending on how many red days there were,
+        # independent of how far below zero they went.
+        downside_sq_sum = float((daily_returns.clip(upper=0.0) ** 2).sum())
+        downside_dev = (
+            math.sqrt(downside_sq_sum / len(daily_returns)) * math.sqrt(TRADING_DAYS_PER_YEAR)
+        )
         sortino = ((cagr_pct / 100.0 - risk_free_rate) / downside_dev
                    if downside_dev > 0 else 0.0)
         var_95 = float(np.percentile(daily_returns.values, 5) * 100.0)

@@ -118,9 +118,9 @@ const NAV_ITEMS: {
 }[] = [
   { key: "home", label: "Home", Icon: Home },
   { key: "chat", label: "Chat", Icon: MessageSquare },
+  { key: "views", label: "Opinions", Icon: Telescope },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
-  { key: "views", label: "Opinions", Icon: Telescope },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
@@ -600,6 +600,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const isUnsaved = !workflow.id || workflow.id === "" || workflow.id.startsWith("local-");
       if (isUnsaved && workflow.status === "draft") {
         setActiveEditorDraft(workflow);
+      } else {
+        // Opening a SAVED/live agent ends any prior draft session — otherwise a
+        // leftover activeEditorDraft would shadow it in AgentPanel (which now
+        // treats "any activeEditorDraft" as the bound editable session).
+        setActiveEditorDraft(null);
       }
       setPanelWorkflow(workflow);
       // Remember the tab the editor was opened from so it auto-closes when the
@@ -862,7 +867,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           conversations={conversations}
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
-          onBrandClick={() => goTab("home")}
+          onBrandClick={() => goTab("chat")}
         />
       )}
 
@@ -880,7 +885,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           onOpenBroker={() => setBrokerPanelOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenMobileNav={() => setMobileNavOpen(true)}
-          onBrandClick={() => goTab("home")}
+          onBrandClick={() => goTab("chat")}
           onLogout={async () => {
             await logoutUser();
             router.replace("/login");
@@ -966,7 +971,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               are unchanged; only the mount/hide policy moved. */}
           {children && (
             // Custom main-pane content (e.g. stock detail page).
-            <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-6 pb-8 sm:px-5 lg:px-8">
+            <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-6 pb-8">
               {children}
             </div>
           )}
@@ -1214,7 +1219,7 @@ function TopHeader({
       <button
         type="button"
         onClick={onBrandClick}
-        aria-label="Go to Pivot home"
+        aria-label="Go to Pivot chat"
         data-testid="brand-home-link"
         className="brand-slot flex shrink-0 items-center pl-0 lg:hidden"
         style={{
@@ -2031,7 +2036,7 @@ function Sidebar({
         <button
           type="button"
           onClick={onBrandClick}
-          aria-label="Go to Pivot home"
+          aria-label="Go to Pivot chat"
           data-testid="sidebar-brand-home-link"
           className="inline-flex shrink-0 items-center"
           style={{
@@ -2311,9 +2316,7 @@ function ConversationRow({
           color: highlighted ? "var(--text-primary)" : "var(--text-secondary)",
           fontFamily: "var(--font-ui)",
           fontSize: 13.5,
-          // Constant weight — the active/hover state reads via background +
-          // text color, never a weight change (no bold on select or hover).
-          fontWeight: 500,
+          fontWeight: active ? 600 : 500,
           textAlign: "left",
           whiteSpace: "nowrap",
           overflow: "hidden",

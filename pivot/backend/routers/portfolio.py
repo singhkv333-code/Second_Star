@@ -116,6 +116,59 @@ def _market_cap_tier(mcap_cr: Optional[float]) -> Optional[str]:
 _DERIVATIVE_SYMBOL_RE = re.compile(r"\d(?:CE|PE)$|FUT$")
 
 
+def universe_by_symbols(symbols: set[str]) -> dict[str, dict]:
+    """`{symbol: universe_row}` for the given symbols, from the Redis-cached
+    whole-market screener universe. Empty dict on any failure — sector/mcap
+    enrichment is best-effort and must never fail a portfolio read."""
+    if not symbols:
+        return {}
+    try:
+        from backend.routers.screener import _full_universe
+
+        return {r["symbol"]: r for r in _full_universe() if r["symbol"] in symbols}
+    except Exception:  # noqa: BLE001
+        logger.warning("[portfolio] universe lookup failed", exc_info=True)
+        return {}
+
+
+def resolve_sector(symbol: str, urow: Optional[dict] = None) -> str:
+    """Rich sector label for a holding: hand-map → screener universe
+    ``sector_label`` → "Other". F&O contracts read "F&O"; ETFs/BEES read their
+    label or "ETF". This is the single source of truth every portfolio surface
+    (``/holdings``, ``/sector``, the paper book) shares, so a name outside the
+    tiny hand-map still shows its real sector instead of "Other".
+
+    Pass ``urow`` (from ``universe_by_symbols``) when enriching a batch to avoid
+    a per-symbol universe scan; it's looked up lazily when omitted.
+    """
+    sym = symbol or ""
+    if _DERIVATIVE_SYMBOL_RE.search(sym):
+        return "F&O"
+    # Multi-asset legs (US equities/ETFs, crypto) aren't in the NSE universe, so
+    # bucket them by asset class instead of dumping them into "Other". Gate the
+    # heavier classify() behind the fast check so Indian names skip it.
+    try:
+        from backend.view_markets.security_meta import (
+            classify,
+            is_us_or_crypto_fast,
+        )
+
+        if is_us_or_crypto_fast(sym):
+            ac = classify(sym).get("asset_class")
+            if ac == "crypto":
+                return "Crypto"
+            if ac in ("us_equity", "us_etf"):
+                return "US Equity"
+    except Exception:  # noqa: BLE001 — classification is best-effort
+        pass
+    if urow is None:
+        urow = universe_by_symbols({sym}).get(sym)
+    sector = SECTOR_MAP.get(sym) or (urow or {}).get("sector_label")
+    if sym.endswith("BEES") or "ETF" in (sector or ""):
+        return sector or "ETF"
+    return sector or "Other"
+
+
 @router.get("/holdings")
 def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depends(get_db)):
     from backend.services.portfolio_source import resolve_holdings
@@ -127,32 +180,18 @@ def portfolio_holdings(user_id: int = Depends(get_user_id), db: Session = Depend
     # the cached one). Market-cap tier is best-effort: any lookup failure just
     # leaves it null rather than failing the whole holdings read.
     symbols = {h["tradingsymbol"] for h in holdings}
-    universe_by_symbol: dict[str, dict] = {}
-    if symbols:
-        try:
-            from backend.routers.screener import _full_universe
-
-            universe_by_symbol = {
-                r["symbol"]: r for r in _full_universe() if r["symbol"] in symbols
-            }
-        except Exception:  # noqa: BLE001
-            logger.warning("[portfolio] market-cap tier lookup failed", exc_info=True)
+    universe_by_symbol = universe_by_symbols(symbols)
     for h in holdings:
         sym = h["tradingsymbol"] or ""
         urow = universe_by_symbol.get(sym)
-        # Sector: hand-map first, then the screener universe's label, so
+        # Sector: shared resolver (hand-map → universe label → "Other"), so
         # anything the small SECTOR_MAP misses still gets its real sector.
-        sector = SECTOR_MAP.get(sym) or (urow or {}).get("sector_label")
+        h["sector"] = resolve_sector(sym, urow)
         if _DERIVATIVE_SYMBOL_RE.search(sym):
-            # F&O contracts get their own allocation bucket instead of
-            # polluting "Unclassified"/"Other".
-            h["sector"] = "F&O"
             h["market_cap_tier"] = "derivative"
-        elif "ETF" in (sector or "") or sym.endswith("BEES"):
-            h["sector"] = sector or "ETF"
+        elif h["sector"] == "ETF" or "ETF" in h["sector"] or sym.endswith("BEES"):
             h["market_cap_tier"] = "etf"
         else:
-            h["sector"] = sector or "Other"
             h["market_cap_tier"] = _market_cap_tier((urow or {}).get("mcap_cr"))
     return holdings
 
@@ -163,10 +202,11 @@ def sector_breakdown(user_id: int = Depends(get_user_id), db: Session = Depends(
 
     token = get_kite_token(user_id, db)
     holdings = resolve_holdings(db, user_id, token)
+    umap = universe_by_symbols({h["tradingsymbol"] for h in holdings})
     sector_totals = {}
     total_value = 0
     for h in holdings:
-        sector = SECTOR_MAP.get(h["tradingsymbol"], "Other")
+        sector = resolve_sector(h["tradingsymbol"], umap.get(h["tradingsymbol"]))
         value = h["last_price"] * h["quantity"]
         sector_totals[sector] = sector_totals.get(sector, 0) + value
         total_value += value

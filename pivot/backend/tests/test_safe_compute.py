@@ -2,10 +2,13 @@
 
 Two things matter and both are tested here:
   1. The calculator actually calculates (the percentile-ranking ask that
-     motivated the lane, plus the common finance transforms).
-  2. The whitelist holds — imports, attribute escapes, dunders, loops,
-     and resource bombs are all rejected or die in the child process,
-     never in the API worker.
+     motivated the lane, plus the common finance transforms, plus bounded
+     `for` loops for basket/weight-style computations).
+  2. The whitelist holds — imports, attribute escapes, dunders, `while`,
+     defs, and resource bombs are all rejected or die in the child
+     process, never in the API worker. `for` is allowed but stays bounded
+     by the same range-size cap / CPU rlimit / wall-clock timeout that
+     already bounded comprehensions and lambdas.
 """
 from __future__ import annotations
 
@@ -60,6 +63,66 @@ def test_lambda_sort_key() -> None:
     assert res.result == ["A", "C", "B"]
 
 
+# ── `for` loops (bounded, previously crashed the sandbox) ──────────────
+
+
+def test_for_loop_basket_weighting() -> None:
+    # The bug: the model built a basket with a plain `for` loop instead of
+    # a comprehension and the sandbox rejected the whole call, discarding
+    # an already-correct upstream result.
+    code = (
+        "prices = {'TCS': 3900, 'INFY': 1800, 'WIPRO': 550}\n"
+        "capital = 100000\n"
+        "alloc = {}\n"
+        "for sym, px in prices.items():\n"
+        "    alloc[sym] = int(capital / len(prices) / px)\n"
+        "alloc"
+    )
+    res = run_compute(code)
+    assert res.ok, res.error
+    assert res.result == {"TCS": 8, "INFY": 18, "WIPRO": 60}
+
+
+def test_dict_merge_with_bitor() -> None:
+    # Reported live 2026-07-14: a basket-allocation compute call used
+    # Python's `|` dict-merge operator and the whole call was rejected
+    # as "disallowed construct: BitOr", discarding an already-correct
+    # build_strategy result and aborting the turn.
+    code = (
+        "sleeve = {'TCS': 40000, 'INFY': 18000}\n"
+        "gold = {'SGB': 33000, 'total': 500000}\n"
+        "sleeve | gold"
+    )
+    res = run_compute(code)
+    assert res.ok, res.error
+    assert res.result == {"TCS": 40000, "INFY": 18000, "SGB": 33000, "total": 500000}
+
+
+def test_for_loop_with_if_break_continue() -> None:
+    code = (
+        "nums = [1,2,3,4,5,6,7,8,9,10]\n"
+        "total = 0\n"
+        "for n in nums:\n"
+        "    if n == 6:\n"
+        "        break\n"
+        "    if n % 2 == 0:\n"
+        "        continue\n"
+        "    total += n\n"
+        "total"
+    )
+    res = run_compute(code)
+    assert res.ok, res.error
+    assert res.result == 9
+
+
+def test_for_loop_still_bounded_by_range_cap() -> None:
+    # Allowing `for` at the AST level must not remove the runtime bound —
+    # a for-loop over an oversized range still dies honestly in the child.
+    res = run_compute("total = 0\nfor i in range(10_000_000):\n    total += i\ntotal")
+    assert not res.ok
+    assert "range too large" in (res.error or "")
+
+
 # ── Whitelist holds ───────────────────────────────────────────────────
 
 
@@ -70,8 +133,7 @@ def test_lambda_sort_key() -> None:
     "''.__class__.__mro__",                     # attribute escape
     "(1).__class__",                            # attribute escape via int
     "[x for x in ().__class__.__bases__]",      # attribute in comprehension
-    "for i in range(3): pass",                  # loops excluded
-    "while True: pass",                         # loops excluded
+    "while True: pass",                         # unbounded loop excluded
     "def f(): return 1",                        # defs excluded
     "exec('1+1')",                              # non-whitelisted call
     "eval('1+1')",                              # non-whitelisted call

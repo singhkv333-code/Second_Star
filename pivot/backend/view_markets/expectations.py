@@ -7,12 +7,6 @@ view's own number — and persists them to ``view_expectations``:
     probability (``implied_move``). Persisted with ``source="model"``.
   * Optional consensus expected-value (``feeds.consensus_for_event``), with the
     EAR-only fallback. Persisted with ``source="consensus"`` when available.
-  * Prediction-market odds (Polymarket / Kalshi) — **HIDDEN INTERNAL PRIOR
-    ONLY**. PROGA caveat: never surfaced, never written to ``view_expectations``
-    as a user-facing row in beta; read ONLY behind the existing flags
-    (``polymarket_ws_enabled`` / ``kalshi_rest_enabled``) and kept in-memory on
-    ``SurpriseFraming.hidden_prior`` to inform the OUTCOME dial's
-    "edge-vs-priced" component.
 
 Surprise sign: ``positive`` (user_view > expected), ``negative`` (user_view <
 expected), ``inline`` (within tolerance). Surfaced number is ALWAYS Pivot's
@@ -21,22 +15,15 @@ option-implied value, not a venue odds/bet.
 Reuses (real interfaces, pinned 2026-06-29):
   * ``backend.view_markets.implied_move.{implied_move, implied_probability}``.
   * ``backend.view_markets.feeds.{consensus_for_event, ConsensusPoint}``.
-  * ``backend.news_events.sources.polymarket.search_markets(query, *, limit=5)
-    -> list[PolymarketSnapshot]`` (``.yes_price`` 0..1) — flag-gated.
-  * ``backend.news_events.sources.kalshi.get_market(ticker) -> KalshiSnapshot |
-    None`` (``.yes_price`` 0..1) — flag-gated.
-  * ``backend.config.settings`` — ``polymarket_ws_enabled`` /
-    ``kalshi_rest_enabled`` (default False) gate the PM read.
   * ``backend.schemas.ViewExpectationInput`` (source / market_id /
     expected_value / user_view_value / surprise_sign).
   * ``backend.models.ViewExpectation`` (writes; ``source`` enum ∈
-    {polymarket, kalshi, consensus, model}, but beta only WRITES model /
-    consensus — PM stays a hidden prior).
+    {consensus, model}).
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -193,73 +180,16 @@ def compute_surprise(
 async def augment_with_prediction_market_prior(
     framing: SurpriseFraming,
     *,
-    pm_query: Optional[str] = None,
-    kalshi_ticker: Optional[str] = None,
+    pm_query: Optional[str] = None,  # noqa: ARG001 — retained for call-site compat
+    kalshi_ticker: Optional[str] = None,  # noqa: ARG001 — retained for call-site compat
 ) -> SurpriseFraming:
-    """Return a copy of ``framing`` with the HIDDEN prediction-market prior set.
+    """No-op stub retained for call-site compatibility.
 
-    Reads Polymarket (``search_markets(pm_query)``) and/or Kalshi
-    (``get_market(kalshi_ticker)``) ONLY when the corresponding flag
-    (``polymarket_ws_enabled`` / ``kalshi_rest_enabled``) is on; otherwise a
-    no-op returning ``framing`` unchanged. The odds populate
-    ``hidden_prior`` / ``hidden_prior_source`` for internal edge-vs-priced use
-    and are NEVER surfaced or persisted as a user-facing expectation (PROGA).
+    Prediction-market venues are no longer wired; this used to read
+    Polymarket / Kalshi to fill a hidden edge-vs-priced prior. Returns
+    ``framing`` unchanged.
     """
-    from backend.config import settings
-
-    hidden_prior: Optional[float] = None
-    hidden_prior_source: Optional[str] = None
-
-    # Polymarket (preferred when both are supplied). Flag-gated, fail-safe.
-    if (
-        pm_query
-        and getattr(settings, "polymarket_ws_enabled", False)
-    ):
-        try:
-            from backend.news_events.sources.polymarket import search_markets
-
-            snaps = await search_markets(pm_query, limit=5)
-            snap = next(
-                (s for s in (snaps or []) if not s.closed),
-                (snaps or [None])[0],
-            )
-            if snap is not None:
-                hidden_prior = float(snap.yes_price)
-                hidden_prior_source = "polymarket"
-        except Exception:  # noqa: BLE001 - PM read must never break the pipeline
-            logger.warning(
-                "polymarket hidden-prior read failed for %r", pm_query,
-                exc_info=True,
-            )
-
-    # Kalshi fallback (only when Polymarket did not yield a prior).
-    if (
-        hidden_prior is None
-        and kalshi_ticker
-        and getattr(settings, "kalshi_rest_enabled", False)
-    ):
-        try:
-            from backend.news_events.sources.kalshi import get_market
-
-            snap = await get_market(kalshi_ticker)
-            if snap is not None:
-                hidden_prior = float(snap.yes_price)
-                hidden_prior_source = "kalshi"
-        except Exception:  # noqa: BLE001 - PM read must never break the pipeline
-            logger.warning(
-                "kalshi hidden-prior read failed for %r", kalshi_ticker,
-                exc_info=True,
-            )
-
-    if hidden_prior is None:
-        # No flag on / no match / read failed: return unchanged (no fabrication).
-        return framing
-
-    return replace(
-        framing,
-        hidden_prior=hidden_prior,
-        hidden_prior_source=hidden_prior_source,
-    )
+    return framing
 
 
 def persist_expectations(

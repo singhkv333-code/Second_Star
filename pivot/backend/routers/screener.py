@@ -1000,21 +1000,33 @@ def get_screener_stocks(
         s.symbol for s in enriched if s.symbol.upper() not in mmap
     ]
     if page_missing_mkt:
-        mkt_topup, mkt_source = _compute_market_metrics(page_missing_mkt)
-        if mkt_topup:
-            _merge_market_metrics_cache(mkt_topup, mkt_source)
-            for s in enriched:
-                rec = mkt_topup.get(s.symbol.upper())
-                if not rec:
-                    continue
-                if s.price is None and rec.get("price") is not None:
-                    s.price = round(float(rec["price"]), 2)
-                if s.change_pct is None and rec.get("change_pct") is not None:
-                    s.change_pct = round(float(rec["change_pct"]), 2)
-                if s.one_year_pct is None and rec.get("one_year_pct") is not None:
-                    s.one_year_pct = round(float(rec["one_year_pct"]), 2)
+        # Only pay the synchronous top-up when Kite is live (one fast batch
+        # quote). Without a session, `_compute_market_metrics` falls through
+        # to a synchronous yfinance bulk download (~10-15s) — for sorts like
+        # market_cap_cr, whose top rows aren't tied to what's already warm
+        # in the curated ~80-name universe, this misses on nearly every
+        # request and stalls the response. Defer to the background warm
+        # instead so a cold Kite session never blocks the page.
+        from backend.kite.live_quote import kite_session_available
+
+        mkt_topup: dict[str, dict] = {}
+        if kite_session_available():
+            mkt_topup, mkt_source = _compute_market_metrics(page_missing_mkt)
+            if mkt_topup:
+                _merge_market_metrics_cache(mkt_topup, mkt_source)
+                for s in enriched:
+                    rec = mkt_topup.get(s.symbol.upper())
+                    if not rec:
+                        continue
+                    if s.price is None and rec.get("price") is not None:
+                        s.price = round(float(rec["price"]), 2)
+                    if s.change_pct is None and rec.get("change_pct") is not None:
+                        s.change_pct = round(float(rec["change_pct"]), 2)
+                    if s.one_year_pct is None and rec.get("one_year_pct") is not None:
+                        s.one_year_pct = round(float(rec["one_year_pct"]), 2)
         # Anything the synchronous top-up still couldn't resolve (e.g. a
-        # transient yfinance miss) keeps retrying in the background.
+        # transient miss, or no live Kite session at all) keeps retrying in
+        # the background rather than blocking this response.
         still_missing = [s.symbol for s in enriched if s.symbol.upper() not in mmap and s.symbol.upper() not in mkt_topup]
         if still_missing:
             _kick_page_metrics_warm(still_missing)

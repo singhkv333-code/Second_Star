@@ -16,9 +16,9 @@ Pipeline
      ``trigger.schedule`` / ``trigger.indicator`` / ``trigger.price``
      and every action is ``action.place_order``. Notify / wait steps
      are silently skipped during simulation. Anything else
-     (``trigger.event``, ``trigger.webhook``, ``action.cancel_orders``)
-     marks the workflow not-eligible with a specific reason the FE
-     surfaces verbatim.
+     (``trigger.webhook``, ``action.cancel_orders``) marks the
+     workflow not-eligible with a specific reason the FE surfaces
+     verbatim.
 
   2. ``backtest_workflow(steps, period='5y')`` — runs the simulation.
 
@@ -116,6 +116,12 @@ _BACKTESTABLE_ACTIONS = {
     "action.place_order",
     "action.set_stoploss",
     "action.set_takeprofit",
+    # Bare squareoff (dispatches on `scope`) + the three explicit variants.
+    # The bare form is what the planner emits for a "sell at close" / "exit"
+    # leg — without it here the leg was skipped, so a buy-at-open never got
+    # its close-at-close sell and read as one open position held to window
+    # end ("1 trade, still OPEN").
+    "action.squareoff",
     "action.squareoff_symbol",
     "action.squareoff_all_intraday",
     "action.squareoff_all",
@@ -148,8 +154,6 @@ _SKIPPABLE_STEPS = {
 
 # Steps that block backtesting entirely.
 _BLOCKING_STEPS_REASON = {
-    "trigger.event":          "Event trigger events cannot be backtested.",
-    "trigger.scheduled_macro": "Event trigger events cannot be backtested.",
     "trigger.webhook": "trigger.webhook can only fire from external traffic, so there's nothing historical to replay.",
     "trigger.manual":  "trigger.manual fires when you click 'Run now' — there's no historical signal to replay.",
     "fetch.news":      "fetch.news depends on real-time feed history we don't store.",
@@ -400,6 +404,10 @@ class TakeprofitOrder:
 @dataclass
 class SimState:
     cash: float = _STARTING_CAPITAL
+    # The capital this run actually started with — carried on the state
+    # (not just the module default) so helpers like the short-margin
+    # check use the REAL deployed amount, not a hardcoded floor.
+    starting_capital: float = _STARTING_CAPITAL
     holdings: dict[str, int] = field(default_factory=dict)
     avg_buy_price: dict[str, float] = field(default_factory=dict)
     # Per-symbol product tag (CNC / MIS) of the open lot. Squareoff_all_
@@ -420,6 +428,17 @@ class SimState:
     # the live held position of that order's symbol — the entry fill size
     # in this sim. Populated once before the loop in run_workflow_backtest.
     place_order_symbols: dict[int, str] = field(default_factory=dict)
+    # {branch.trigger_step_index: prev_state} for trigger.exit_compound
+    # evaluation. Keyed per branch (not global) so multiple exit-compound
+    # branches don't clobber each other's crosses_above/below memory.
+    exit_compound_prev_state: dict[int, dict] = field(default_factory=dict)
+    # {(branch.trigger_step_index, body_step_index): prev_state} for
+    # condition.compound gates — same crosses_above/below threading need
+    # as exit_compound, keyed per body step since a branch can have more
+    # than one condition.compound gate.
+    condition_compound_prev_state: dict[tuple[int, int], dict] = field(
+        default_factory=dict
+    )
 
 
 def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
@@ -558,7 +577,57 @@ def _load_bars(
     # only trade COMPLETED bars, keeping reruns reproducible.
     from backend.services.indicator_backtest import drop_partial_last_bar
     hist = drop_partial_last_bar(hist)
-    return hist[["Open", "High", "Low", "Close", "Volume"]]
+    hist = hist[["Open", "High", "Low", "Close", "Volume"]]
+    # Drop any bar whose Close is NaN — a raw source glitch (e.g. a
+    # suspended-trading print or corporate-action gap the source still
+    # date-stamps but returns no valid price for). Left unguarded, a NaN
+    # Close survives into a held symbol's mark-to-market and multiplies
+    # straight through every basket-level aggregate downstream
+    # (total_return_pct / cagr_pct / ending_value / the basket
+    # buy-and-hold benchmark), turning them into a literal NaN. Same
+    # raw-external-numeric-field bug class already guarded via
+    # yfinance_fundamentals._safe() and market/yfinance_service.py's
+    # _records_from_df (which drops NaN-close rows the same way) —
+    # mirror that fix here instead of inventing a new pattern.
+    hist = hist[hist["Close"].notna()]
+    if hist.empty:
+        raise ValueError(f"insufficient valid data for {symbol} (all bars had a NaN close)")
+    _warn_known_corporate_action_gap(symbol, hist, warnings_out)
+    return hist
+
+
+# Symbols with a KNOWN, unadjusted corporate-action price discontinuity in
+# the Kite/yfinance series this backtester reads (demerger/spin-off — NOT a
+# stock split, which IS adjusted). No split/spin-off adjustment exists in
+# this codebase (see market/yfinance_service.py's DELISTED_SUCCESSOR, which
+# only redirects the ticker, not the value). Reported live 2026-07-14: a
+# TATAMOTORS leg's mark-to-market return looked far worse than plausible —
+# traced to an unadjusted ~40% overnight cliff on the demerger date baked
+# straight into the price series. Rather than fabricate a correction factor
+# with no authoritative demerger-ratio data, disclose it honestly instead.
+_KNOWN_CORPORATE_ACTION_GAPS: dict[str, tuple[str, str]] = {
+    "TATAMOTORS": (
+        "2025-10-13",
+        "TATAMOTORS demerged into passenger-vehicle and commercial-vehicle "
+        "listings around this date; the price series isn't spin-off-"
+        "adjusted, so a return spanning it may look artificially worse "
+        "than what a real shareholder actually kept",
+    ),
+}
+
+
+def _warn_known_corporate_action_gap(
+    symbol: str, hist: pd.DataFrame, warnings_out: Optional[list[str]],
+) -> None:
+    if warnings_out is None:
+        return
+    entry = _KNOWN_CORPORATE_ACTION_GAPS.get(symbol.upper())
+    if entry is None or hist.empty:
+        return
+    gap_date, note = entry
+    gap_ts = pd.Timestamp(gap_date)
+    if hist.index[0] <= gap_ts <= hist.index[-1]:
+        warnings_out.append(note)
 
 
 def _period_to_days(period: str) -> Optional[int]:
@@ -1570,11 +1639,28 @@ def _eval_exit_compound(
     accessor = _BacktestPositionAwareAccessor(
         inner, state, symbol, symbol_bars, ts,
     )
+    # crosses_above/crosses_below need the PREVIOUS bar's value to detect
+    # a transition — a fresh {} every call (as this was before) means the
+    # comparison never has a baseline and can never fire, so an exit
+    # condition like "sell when 50 EMA crosses below 200 EMA" silently
+    # never triggers a single sell over the whole backtest (reported live
+    # 2026-07-14: "4 buys, 0 sells" on RELIANCE despite 5 genuine EMA(50)/
+    # EMA(200) crossunders in the window). Thread state per branch, same
+    # as `_expand_compound` already does for entry trees — but reset it
+    # the bar a NEW position opens: this gate is skipped entirely while
+    # flat (line above), so whatever was remembered from a PRIOR holding
+    # period is stale (compares across the flat gap, not consecutive
+    # bars) and could spuriously fire on the very first bar of a fresh
+    # position.
+    if state.entry_ts.get(symbol) == ts:
+        state.exit_compound_prev_state.pop(branch.trigger_step_index, None)
+    prev_state = state.exit_compound_prev_state.get(branch.trigger_step_index, {})
     try:
-        result = evaluate(tree, accessor=accessor, prev_state={})
+        result = evaluate(tree, accessor=accessor, prev_state=prev_state)
     except Exception as exc:  # noqa: BLE001
         logger.info("[backtest.exit_compound] eval crashed: %s", exc)
         return False
+    state.exit_compound_prev_state[branch.trigger_step_index] = result.new_state
     return result.value is Ternary.TRUE
 
 
@@ -1621,11 +1707,16 @@ def _expand_exit_compound(union_index: pd.DatetimeIndex) -> list[pd.Timestamp]:
 
 def _eval_condition_compound(
     cfg: dict[str, Any], symbol_bars: dict[str, pd.DataFrame],
-    ts: pd.Timestamp,
+    ts: pd.Timestamp, state: SimState, state_key: tuple[int, int],
 ) -> bool:
     """Walk a DSL tree against historical bars at ``ts``. Returns True
     to continue the branch, False on FALSE or UNKNOWN — same Kleene
-    halt semantics as the live executor."""
+    halt semantics as the live executor.
+
+    Threads prev_state across bars (keyed by state_key) so
+    crosses_above/crosses_below inside a condition.compound gate can
+    detect a transition — same bug class as trigger.exit_compound: a
+    fresh {} every call means a cross can never fire."""
     entry_raw = cfg.get("entry")
     if not isinstance(entry_raw, dict):
         return False
@@ -1638,11 +1729,13 @@ def _eval_condition_compound(
         logger.info("[backtest.cond_compound] tree parse failed: %s", exc)
         return False
     accessor = _BarStrictAccessor(symbol_bars, ts)
+    prev_state = state.condition_compound_prev_state.get(state_key, {})
     try:
-        result = evaluate(tree, accessor=accessor, prev_state={})
+        result = evaluate(tree, accessor=accessor, prev_state=prev_state)
     except Exception as exc:  # noqa: BLE001
         logger.info("[backtest.cond_compound] eval crashed: %s", exc)
         return False
+    state.condition_compound_prev_state[state_key] = result.new_state
     return result.value is Ternary.TRUE
 
 
@@ -1805,11 +1898,16 @@ def _evaluate_stoplosses(
     trigger price with one-side friction. Trailing stops also ratchet
     their trigger upward against the bar's HIGH before evaluating.
 
-    Order on a single bar: trailing stops update first → take-profits
-    fire (HIGH ≥ trigger) → stoplosses fire (LOW ≤ trigger). Pessimistic
-    when both hit on the same bar: the SL wins, since intraday lows
+    Order on a single bar: trailing stops update first → stoplosses fire
+    (LOW ≤ trigger) → take-profits fire (HIGH ≥ trigger). Pessimistic when
+    both hit on the same bar: the SL wins (evaluated — and, if it clears
+    the position, effectively consumed — first), since intraday lows
     typically print before highs in volatile sessions and we'd rather
-    underestimate strategy returns than inflate them.
+    underestimate strategy returns than inflate them. (Bug fix 2026-07:
+    stoplosses previously ran AFTER take-profits, so a bar that hit both
+    triggers silently resolved to the profitable exit — the opposite of
+    the documented pessimistic tie-break, and an optimistic-fill bug on
+    any strategy pairing a stop-loss with a take-profit.)
 
     Multi-symbol-aware: each stop's bar comes from ``symbol_bars[sym]``."""
     # Pass A — ratchet trailing stops against this bar's HIGH.
@@ -1827,37 +1925,8 @@ def _evaluate_stoplosses(
                 if new_trigger > stop.trigger_price:
                     stop.trigger_price = new_trigger
 
-    # Pass B — take-profits (HIGH ≥ trigger).
-    for sym in list(state.takeprofits.keys()):
-        tps = state.takeprofits.get(sym) or []
-        if not tps:
-            continue
-        bars = symbol_bars.get(sym)
-        if bars is None or ts not in bars.index:
-            continue
-        high = float(bars.at[ts, "High"])
-        # Fire lowest-trigger take-profit first (closer to market).
-        tps.sort(key=lambda t: t.trigger_price)
-        remaining_tps: list[TakeprofitOrder] = []
-        for tp in tps:
-            if high < tp.trigger_price:
-                remaining_tps.append(tp)
-                continue
-            held = state.holdings.get(sym, 0)
-            exec_qty = min(tp.quantity, held)
-            if exec_qty <= 0:
-                continue
-            fill = tp.trigger_price * (1 - _FRICTION)
-            _record_sell(
-                state, sym, exec_qty, fill, ts,
-                signals_out, trades_out, reason="takeprofit",
-            )
-        if state.holdings.get(sym, 0) > 0 and remaining_tps:
-            state.takeprofits[sym] = remaining_tps
-        else:
-            state.takeprofits.pop(sym, None)
-
-    # Pass C — stoplosses (LOW ≤ trigger).
+    # Pass B — stoplosses (LOW ≤ trigger). Evaluated BEFORE take-profits so
+    # a same-bar double-hit resolves to the stop (pessimistic tie-break).
     for sym in list(state.stoplosses.keys()):
         stops = state.stoplosses.get(sym) or []
         if not stops:
@@ -1887,6 +1956,38 @@ def _evaluate_stoplosses(
             state.stoplosses[sym] = remaining
         else:
             state.stoplosses.pop(sym, None)
+
+    # Pass C — take-profits (HIGH ≥ trigger). Runs AFTER stoplosses so any
+    # position the stop-loss pass already closed this bar is skipped here
+    # (held == 0 below) rather than double-exited at a better price.
+    for sym in list(state.takeprofits.keys()):
+        tps = state.takeprofits.get(sym) or []
+        if not tps:
+            continue
+        bars = symbol_bars.get(sym)
+        if bars is None or ts not in bars.index:
+            continue
+        high = float(bars.at[ts, "High"])
+        # Fire lowest-trigger take-profit first (closer to market).
+        tps.sort(key=lambda t: t.trigger_price)
+        remaining_tps: list[TakeprofitOrder] = []
+        for tp in tps:
+            if high < tp.trigger_price:
+                remaining_tps.append(tp)
+                continue
+            held = state.holdings.get(sym, 0)
+            exec_qty = min(tp.quantity, held)
+            if exec_qty <= 0:
+                continue
+            fill = tp.trigger_price * (1 - _FRICTION)
+            _record_sell(
+                state, sym, exec_qty, fill, ts,
+                signals_out, trades_out, reason="takeprofit",
+            )
+        if state.holdings.get(sym, 0) > 0 and remaining_tps:
+            state.takeprofits[sym] = remaining_tps
+        else:
+            state.takeprofits.pop(sym, None)
 
 
 # Triggers whose fire is computed from the SAME bar's OHLC (its close, range,
@@ -1924,6 +2025,33 @@ def _next_bar_ts(
     return idx[pos + 1]
 
 
+def _short_margin_exceeded(
+    state: SimState, symbol_bars: dict[str, pd.DataFrame],
+    ts: pd.Timestamp, qty: int, fill_price: float,
+) -> bool:
+    """Naive margin model shared by every short-opening path: deny if
+    this short would push total shorted notional past 50% of current
+    equity (rough, at the decision bar — real brokers cap at 25-33%,
+    this is generous but keeps the simulator from spiraling on absurd
+    workflows). Used by both the single place_order(short) path and
+    allocate_basket's short legs — the latter used to skip this check
+    entirely, letting a basket short leg take on unbounded exposure."""
+    cur_equity = state.cash + sum(
+        q * float(symbol_bars[s].at[ts, "Close"])
+        for s, q in state.holdings.items()
+        if s in symbol_bars and ts in symbol_bars[s].index
+    )
+    short_notional = (
+        sum(
+            abs(q) * float(symbol_bars[s].at[ts, "Close"])
+            for s, q in state.holdings.items()
+            if q < 0 and s in symbol_bars and ts in symbol_bars[s].index
+        )
+        + qty * fill_price
+    )
+    return short_notional > 0.5 * max(cur_equity, state.starting_capital)
+
+
 def _execute_branch(
     branch: Branch, state: SimState,
     symbol_bars: dict[str, pd.DataFrame],
@@ -1947,7 +2075,7 @@ def _execute_branch(
             branch.trigger_config, state, symbol_bars, ts, branch,
         ):
             return
-    for step in branch.body:
+    for step_idx, step in enumerate(branch.body):
         st = str(step.get("step_type") or "")
         cfg = step.get("config") or {}
         if st == "condition.numeric":
@@ -1965,7 +2093,10 @@ def _execute_branch(
                 return
             continue
         if st == "condition.compound":
-            if not _eval_condition_compound(cfg, symbol_bars, ts):
+            if not _eval_condition_compound(
+                cfg, symbol_bars, ts, state,
+                (branch.trigger_step_index, step_idx),
+            ):
                 return
             continue
         if st == "action.place_order":
@@ -2074,26 +2205,8 @@ def _execute_branch(
                     qty = int(notional // fill_price)
                 if qty <= 0:
                     continue
-                # Short open or extension. Naive margin model: deny if
-                # the proceeds would push notional shorted past 50% of
-                # current equity (rough margin check, at the decision bar).
-                # This is generous — real brokers cap at 25-33% — but keeps
-                # the simulator from spiraling on absurd workflows.
-                cur_equity = state.cash + sum(
-                    q * float(symbol_bars[s].at[ts, "Close"])
-                    for s, q in state.holdings.items()
-                    if s in symbol_bars and ts in symbol_bars[s].index
-                )
-                short_notional = (
-                    sum(
-                        abs(q) * float(symbol_bars[s].at[ts, "Close"])
-                        for s, q in state.holdings.items()
-                        if q < 0 and s in symbol_bars
-                        and ts in symbol_bars[s].index
-                    )
-                    + qty * fill_price
-                )
-                if short_notional > 0.5 * max(cur_equity, _STARTING_CAPITAL):
+                # Short open or extension — see _short_margin_exceeded.
+                if _short_margin_exceeded(state, symbol_bars, ts, qty, fill_price):
                     signals_out.append({
                         "t": _fmt_bar_ts(fill_ts),
                         "side": "short_skipped",
@@ -2179,6 +2292,38 @@ def _execute_branch(
                 )
             )
             continue
+        if st == "action.squareoff":
+            # Bare squareoff dispatches on `scope` (symbol / intraday / all) —
+            # mirrors the live executor. Fills at CLOSE (an EOD-style exit),
+            # so a same-bar buy-at-open → sell-at-close captures the intraday
+            # move instead of being skipped and held open forever.
+            scope = str(cfg.get("scope", "all")).lower()
+            if scope == "symbol":
+                _sq_sym = str(cfg.get("symbol") or "").upper()
+                _sq_syms = [_sq_sym] if _sq_sym else []
+            elif scope in ("intraday", "all_intraday"):
+                _sq_syms = [
+                    s for s in list(state.holdings.keys())
+                    if state.product.get(s) == "MIS"
+                ]
+            else:  # "all" (default)
+                _sq_syms = list(state.holdings.keys())
+            for _sq in _sq_syms:
+                qty = state.holdings.get(_sq, 0)
+                if qty == 0:
+                    continue
+                sym_bars = symbol_bars.get(_sq)
+                if sym_bars is None or ts not in sym_bars.index:
+                    continue
+                fill = float(sym_bars.at[ts, "Close"]) * (
+                    1 - _FRICTION if qty > 0 else 1 + _FRICTION
+                )
+                _record_trade(
+                    state, _sq, -qty, fill,
+                    state.product.get(_sq, "CNC"),
+                    ts, signals_out, trades_out, reason="squareoff",
+                )
+            continue
         if st == "action.squareoff_symbol":
             sym = str(cfg.get("symbol") or "").upper()
             product_filter = str(cfg.get("product", "MIS")).upper()
@@ -2261,15 +2406,39 @@ def _execute_branch(
                 if not leg_sym or w <= 0:
                     continue
                 lb = symbol_bars.get(leg_sym)
-                if lb is None or ts not in lb.index:
+                if lb is None:
                     continue
+                if ts in lb.index:
+                    entry_ts = ts
+                else:
+                    # Different constituents can have a slightly different
+                    # first available bar even under the "same" nominal
+                    # window (Kite vs yfinance fallback resolve `period`
+                    # independently, so one leg's series can start a few
+                    # calendar days off the rest). Snap forward to the
+                    # nearest available bar within 5 days rather than
+                    # silently dropping the leg — that turned a 7-name
+                    # basket into an unlabelled single-name position with
+                    # 89% of "deployed" capital actually sitting idle in
+                    # cash (2026-07-14 live report). Genuinely stale/short
+                    # series (gap > 5 days) still can't be filled honestly.
+                    _candidates = lb.index[lb.index >= ts]
+                    if len(_candidates) == 0 or (_candidates[0] - ts).days > 5:
+                        signals_out.append({
+                            "t": _fmt_bar_ts(ts),
+                            "side": "buy_skipped",
+                            "symbol": leg_sym,
+                            "reason": "no bar within 5 days of basket entry",
+                        })
+                        continue
+                    entry_ts = _candidates[0]
                 # NO LOOK-AHEAD: a signal-driven basket is decided on bar T's
                 # CLOSE (that's when the RSI/price condition is knowable), so it
                 # can only transact at T+1's open — never bar T's open (a price
                 # that occurred before the signal existed). Mirrors the
                 # single-order place_order path. Schedule-driven baskets fill
                 # same-bar open (the date is known a-priori).
-                fill_ts = _next_bar_ts(lb, ts) if signal_driven else ts
+                fill_ts = _next_bar_ts(lb, entry_ts) if signal_driven else entry_ts
                 if fill_ts is None:
                     # Signal printed on the final bar — no next open to fill.
                     continue
@@ -2294,6 +2463,20 @@ def _execute_branch(
                         "qty": qty_abs,
                     })
                     continue
+                # Short-side margin check — a basket short leg used to skip
+                # this entirely (only single place_order(short) enforced
+                # it), letting a basket take on unbounded short exposure.
+                if not paying and _short_margin_exceeded(
+                    state, symbol_bars, fill_ts, qty_abs, fill,
+                ):
+                    signals_out.append({
+                        "t": _fmt_bar_ts(fill_ts),
+                        "side": "short_skipped",
+                        "symbol": leg_sym,
+                        "price": fill,
+                        "qty": qty_abs,
+                    })
+                    continue
                 _record_trade(
                     state, leg_sym, signed, fill, "CNC", fill_ts,
                     signals_out, trades_out, reason="basket",
@@ -2307,8 +2490,8 @@ def _execute_branch(
 
 _EXIT_ACTION_TYPES = frozenset({
     "action.set_stoploss", "action.set_takeprofit",
-    "action.squareoff_symbol", "action.squareoff_all_intraday",
-    "action.squareoff_all",
+    "action.squareoff", "action.squareoff_symbol",
+    "action.squareoff_all_intraday", "action.squareoff_all",
 })
 _SIGNAL_TRIGGER_TYPES = frozenset({
     "trigger.indicator", "trigger.price", "trigger.compound",
@@ -2430,8 +2613,16 @@ def backtest_workflow(
     benchmark_symbol: Optional[str] = None,
     trial_group: Optional[str] = None,
     interval: str = "1d",
+    starting_capital: Optional[float] = None,
 ) -> IndicatorBacktestResult:
     """Simulate a workflow draft over historical bars at ``interval``.
+
+    ``starting_capital`` is the ₹ notional actually being deployed (e.g.
+    a basket's stated deploy amount) — it drives EVERY return/drawdown
+    number below, not just the displayed label, because discrete-share
+    rounding makes the % return itself capital-size-dependent. Falls
+    back to :data:`_STARTING_CAPITAL` only when genuinely unknown; never
+    silently reports against a different amount than what was asked.
 
     ``interval`` (default ``"1d"``) is any string accepted by
     ``backend.core.data.intervals.normalize_interval`` — daily / weekly /
@@ -2456,6 +2647,11 @@ def backtest_workflow(
     backtests where comparing to a single leg is misleading — pass
     ``benchmark_symbol='NIFTYBEES'`` to compare against the NIFTY 50.
     """
+    capital = (
+        float(starting_capital)
+        if starting_capital is not None and starting_capital > 0
+        else _STARTING_CAPITAL
+    )
     # The chat path validates drafts via DraftStep (propose.py), whose
     # Pydantic dump drops `step_index`. Without it, `_resolve_ref` can't
     # match `{{context.N.value}}` references — so any condition.numeric
@@ -2471,7 +2667,7 @@ def backtest_workflow(
     # squareoff/stop/target) is a buy-and-hold: the user means "put my money
     # in X and hold", not "buy N shares". If the model pinned a fixed share
     # `quantity` and no notional, the position deploys only qty×price of the
-    # ₹10L capital, leaving the rest idle → total_return_pct collapses to ~0
+    # deployed capital, leaving the rest idle → total_return_pct collapses to ~0
     # while the full-capital benchmark shows the real move (the silent-wrong
     # bug). Strip the quantity so the order deploys the full available cash
     # (see `_deploy_cash_buy`). Restricted to one-time/schedule shapes (no
@@ -2662,7 +2858,7 @@ def backtest_workflow(
         for ts in fires:
             events_by_ts.setdefault(ts, []).append(i)
 
-    state = SimState()
+    state = SimState(cash=capital, starting_capital=capital)
     # Map every action.place_order's step_index → its symbol, across all
     # branches, so _resolve_ref can turn `{{context.<idx>.quantity}}` into
     # the held position of that order's symbol (the entry fill size).
@@ -2686,6 +2882,23 @@ def backtest_workflow(
                 signals, trades,
             )
 
+    # A basket leg that couldn't be filled at all (no bar within the
+    # snap-forward tolerance) must be disclosed — silently shipping a
+    # "7-name basket" that actually only bought some of the names,
+    # with the rest sitting idle in cash, is exactly the fabrication
+    # this backtester is meant to avoid.
+    _skipped_legs = sorted({
+        s["symbol"] for s in signals
+        if s.get("side") == "buy_skipped" and s.get("symbol")
+        and s.get("reason") == "no bar within 5 days of basket entry"
+    })
+    if _skipped_legs:
+        elig.warnings.append(
+            f"{', '.join(_skipped_legs)}: no bar near the basket's entry "
+            "date — not bought; that share of capital sat in cash for "
+            "the whole window instead."
+        )
+
     # Bind the chart-equity-curve walker below to the primary symbol's
     # bar series for the price curve, but mark-to-market the entire
     # multi-symbol portfolio.
@@ -2697,7 +2910,7 @@ def backtest_workflow(
     # symbol so the user has one anchor to read the strategy against.
     price_curve: list[dict] = []
     equity_curve: list[dict] = []
-    walking_state = SimState()
+    walking_state = SimState(cash=capital, starting_capital=capital)
     # Next-open fills stamp a trade one bar AFTER its signal, so sort by
     # execution date before the single-pass walker consumes them (stable sort
     # preserves same-day entry-before-exit order). Same-bar fills are already
@@ -2705,7 +2918,19 @@ def backtest_workflow(
     trades.sort(key=lambda tr: tr["t"])
     trade_iter = iter(trades)
     next_trade = next(trade_iter, None)
-    for ts, row in bars.iterrows():
+    # Walk `union_index` — the SAME calendar the trigger/fill logic above
+    # uses — not just the primary symbol's own bars. A basket whose
+    # alphabetically-first leg (primary_symbol's fallback pick when there's
+    # no place_order to anchor on) starts trading a few days LATER than the
+    # rest used to silently drop every fill dated before that leg's own
+    # first bar (the fill's timestamp never appeared in the walker's
+    # iteration set), leaving `walking_state` empty all the way through and
+    # the equity curve flat at starting capital — a basket that genuinely
+    # moved would report exactly 0.0% (reported 2026-07-14). Carrying the
+    # last known primary close forward on union-only dates keeps the price
+    # line continuous.
+    _last_primary_close: Optional[float] = None
+    for ts in union_index:
         # Apply any trades scheduled today. Uses signed qty so short
         # legs replay correctly: trade rows still have side='buy'/'sell'
         # for cash-flow direction, but holdings can go negative.
@@ -2730,29 +2955,39 @@ def backtest_workflow(
                     / abs(new_qty)
                 )
             next_trade = next(trade_iter, None)
-        close = float(row["Close"])
+        if ts in bars.index:
+            close = float(bars.at[ts, "Close"])
+            _last_primary_close = close
+        elif _last_primary_close is not None:
+            close = _last_primary_close
+        else:
+            close = float(bars["Close"].iloc[0])
         market_value = 0.0
         for sym, qty in walking_state.holdings.items():
-            if qty <= 0:
+            if qty == 0:
                 continue
             sym_bars = symbol_bars.get(sym)
             if sym_bars is not None and ts in sym_bars.index:
-                market_value += qty * float(sym_bars.at[ts, "Close"])
+                mark_price = float(sym_bars.at[ts, "Close"])
             else:
                 # Symbol didn't trade today (or isn't in the registry —
                 # shouldn't happen). Carry the previous close, falling
                 # back to the entry price so equity stays conservative.
-                market_value += qty * walking_state.avg_buy_price.get(
-                    sym, close,
-                )
+                mark_price = walking_state.avg_buy_price.get(sym, close)
+            # Signed qty: a short (qty<0) SUBTRACTS its buy-back liability
+            # from equity — cash already carries the short-sale proceeds
+            # (see the trade-apply loop above), so skipping qty<=0 here
+            # (as this used to) left the liability out entirely and
+            # overstated equity for the whole time any short was open.
+            market_value += qty * mark_price
         equity = walking_state.cash + market_value
         price_curve.append({"t": _fmt_bar_ts(ts), "v": close})
         equity_curve.append({"t": _fmt_bar_ts(ts), "v": round(equity, 2)})
 
     # Metrics: total return %, CAGR, max drawdown, win rate, n_trades.
-    final_equity = equity_curve[-1]["v"] if equity_curve else _STARTING_CAPITAL
+    final_equity = equity_curve[-1]["v"] if equity_curve else capital
     total_return_pct = round(
-        (final_equity - _STARTING_CAPITAL) / _STARTING_CAPITAL * 100, 2,
+        (final_equity - capital) / capital * 100, 2,
     )
     # CAGR on a CALENDAR-year basis (standardized 2026-05-29; was n_days/252,
     # which over-states CAGR on short windows). Falls back to bar-count years
@@ -2762,7 +2997,7 @@ def backtest_workflow(
     )
     if len(equity_curve) >= 2:
         cagr_pct = round(calendar_cagr_pct(
-            _STARTING_CAPITAL, final_equity,
+            capital, final_equity,
             equity_curve[0]["t"], equity_curve[-1]["t"],
         ), 2)
     else:
@@ -2773,6 +3008,15 @@ def backtest_workflow(
         # weekly 52, monthly 12. A weekly equity curve run at √252
         # overstates Sharpe by ~2.2×; same magnitude bug intraday.
         periods_per_year=_bars_per_year(norm_interval),
+        # rf=0: the sim parks idle capital in cash at 0%, so subtracting a
+        # 6.5% risk-free rate charges every flat/cash day a −rf excess and
+        # drags Sharpe to ~−4 for ANY strategy that isn't fully invested —
+        # a cash-heavy mean-reversion strat that made +2.3% showed −4.22,
+        # which then poisoned PSR/DSR and the trust verdict ("no edge" for
+        # everything). Measuring raw risk-adjusted return (rf=0) is
+        # consistent with the 0%-cash equity curve and gives a sensible
+        # number (+0.57 for that same strat).
+        rf_annual=0.0,
     )
     # Bailey/Lopez de Prado rigor battery on the backtest equity curve — the
     # SAME lens the live forward-test scorecards apply to paper NAV. PSR =
@@ -2804,7 +3048,7 @@ def backtest_workflow(
                 steps, primary_symbol, period, start_date, end_date,
             ),
         )
-    peak = _STARTING_CAPITAL
+    peak = capital
     max_dd = 0.0
     for p in equity_curve:
         if p["v"] > peak:
@@ -2867,6 +3111,9 @@ def backtest_workflow(
     # and count how many sells were profitable. SIPs without sells
     # show 0 wins / 0 hit-rate, which the chart card displays sensibly.
     n_wins = 0
+    _entry_cost = 0.0
+    _realized_pnl = 0.0
+    _days_deployed = 0
     by_symbol_buys: dict[str, list[dict]] = {}
     for tr in trades:
         sym = tr["symbol"]
@@ -2880,12 +3127,63 @@ def backtest_workflow(
                 take = min(qty_left, buy["qty"])
                 if tr["price"] > buy["price"]:
                     n_wins += 1
+                _entry_cost += take * buy["price"]
+                _realized_pnl += take * (tr["price"] - buy["price"])
+                _days_deployed += max(
+                    (pd.Timestamp(tr["t"]) - pd.Timestamp(buy["t"])).days, 0,
+                )
                 qty_left -= take
                 buy["qty"] -= take
                 if buy["qty"] <= 0:
                     queue.pop(0)
     n_sells = sum(1 for t in trades if t["side"] == "sell")
     hit_rate_pct = round((n_wins / n_sells * 100) if n_sells else 0.0, 1)
+
+    # Still-open (never-sold) lots — mark them to the window's last known
+    # close and count them into the SAME deployed-capital totals. Without
+    # this, a pure buy-and-hold (no sells at all) always had
+    # _entry_cost == 0 / _days_deployed == 0, so return_on_deployed_pct
+    # came back None and capital_utilization_pct read "0% of the window"
+    # on a position that was, in fact, fully invested the whole time
+    # (reported 2026-07-14).
+    _window_end_ts = bars.index[-1] if len(bars.index) else None
+    for sym, queue in by_symbol_buys.items():
+        sym_bars = symbol_bars.get(sym)
+        last_close = (
+            float(sym_bars["Close"].iloc[-1])
+            if sym_bars is not None and len(sym_bars) else None
+        )
+        for buy in queue:
+            if buy["qty"] <= 0:
+                continue
+            _entry_cost += buy["qty"] * buy["price"]
+            if last_close is not None:
+                _realized_pnl += buy["qty"] * (last_close - buy["price"])
+            if _window_end_ts is not None:
+                _days_deployed += max(
+                    (_window_end_ts - pd.Timestamp(buy["t"])).days, 0,
+                )
+
+    # Return on capital actually deployed (dollar-weighted, not
+    # annualized) — mirrors workflows/dsl/backtest/engine.py's
+    # `return_on_deployed_pct` / `capital_utilization_pct` (already
+    # wired into IndicatorBacktestCard's FE type + copy) so a fixed-qty
+    # signal strategy trading a small slice of the simulated capital
+    # pool doesn't read as a near-zero "whole-account" return just
+    # because most of the pool sat idle in cash. `_realized_pnl` also
+    # carries still-open lots' unrealized mark-to-market P&L (above) —
+    # "capital deployed" means every rupee ever put to work, closed or
+    # still held, not just completed round-trips.
+    return_on_deployed_pct = (
+        round(_realized_pnl / _entry_cost * 100, 2) if _entry_cost > 0 else None
+    )
+    _window_days = (
+        (bars.index[-1] - bars.index[0]).days if len(bars.index) >= 2 else 0
+    )
+    capital_utilization_pct = (
+        round(min(_days_deployed / _window_days, 1.0) * 100, 1)
+        if _window_days > 0 else None
+    )
 
     # Synthesise the whole rigor battery into one honest verdict + rationale.
     from backend.services.backtest.validation import trust_verdict
@@ -2909,8 +3207,10 @@ def backtest_workflow(
         "n_trades": n_trades,
         "n_wins": n_wins,
         "hit_rate_pct": hit_rate_pct,
+        "return_on_deployed_pct": return_on_deployed_pct,
+        "capital_utilization_pct": capital_utilization_pct,
         "benchmark_return_pct": bench_pct,
-        "starting_capital": _STARTING_CAPITAL,
+        "starting_capital": capital,
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,
         "monte_carlo": monte_carlo,
@@ -2927,7 +3227,7 @@ def backtest_workflow(
         {
             "t": s["t"],
             "side": "buy" if s.get("side", "").startswith("buy") else "sell",
-            "price": s["price"],
+            "price": s.get("price", 0.0),
             "indicator_value": None,
         }
         for s in signals
@@ -2939,38 +3239,54 @@ def backtest_workflow(
     # -10% move on a large-cap). %-change thresholds are signed
     # fractions: -0.1 means -10%, so 0.1% is -0.001.
     if n_trades == 0:
-        zero_entry = any(
-            branch_fire_counts.get(i, 0) == 0
+        # WHY nothing traded depends on the zero-firing branch's TRIGGER TYPE.
+        # A price/indicator THRESHOLD that never crossed is a genuine "no
+        # opportunity" outcome; a SCHEDULE (e.g. quarterly rebalance) that
+        # fired zero times is a different, more suspicious situation — a
+        # periodic schedule should fire on its cadence regardless of any
+        # threshold, so 0 fires means it couldn't be simulated as specified,
+        # NOT that the market never gave it a chance. The two must not share an
+        # explanation: the "single-day move that large never happens" language
+        # only makes sense for a threshold crossing and is nonsensical (and
+        # misleading) for a schedule/basket strategy.
+        _THRESHOLD_TRIGGERS = {
+            "trigger.indicator", "trigger.price", "trigger.compound",
+            "trigger.global_price",
+        }
+        _SCHEDULE_TRIGGERS = {"trigger.schedule", "trigger.expiry_day"}
+        zero_branches = [
+            b for i, b in enumerate(elig.branches)
+            if branch_fire_counts.get(i, 0) == 0
             and b.trigger_type != "trigger.exit_compound"
-            for i, b in enumerate(elig.branches)
-        )
-        if zero_entry:
+        ]
+        if any(b.trigger_type in _THRESHOLD_TRIGGERS for b in zero_branches):
             elig.warnings.append(
                 "the entry condition never triggered across this period — "
                 "the threshold may be unreachable (e.g. a single-day move "
                 "that large never happens for this stock). Try a wider "
                 "lookback window (a multi-day dip) or a smaller threshold"
             )
+        elif any(b.trigger_type in _SCHEDULE_TRIGGERS for b in zero_branches):
+            elig.warnings.append(
+                "the scheduled entry produced no fills across this window — "
+                "a periodic schedule should fire on its cadence, so zero "
+                "fires means the strategy couldn't be simulated as specified "
+                "rather than that it had no opportunities. Treat this result "
+                "as inconclusive, not as evidence the strategy has no edge"
+            )
+        elif zero_branches:
+            elig.warnings.append(
+                "no entry fired across this period, so there's nothing to "
+                "stand on — treat this result as inconclusive"
+            )
 
     from backend.services.backtest_metrics import methodology_note
     _method = methodology_note(period_label=period)
-    _sharpe_txt = f" Sharpe {_sharpe:.2f}." if _sharpe is not None else ""
+    # Raw stat values — rendered into the results TABLE below (was prose
+    # bullets). `_conc` still feeds the fragility caveat.
     _psr = forward_stats.get("psr")
-    _psr_txt = (
-        f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
-        if isinstance(_psr, (int, float)) else ""
-    )
-    _mc_txt = (
-        f" Monte-Carlo: 5%-worst drawdown {monte_carlo['dd_p95_severity_pct']:.0f}%,"
-        f" P(end in loss) {monte_carlo['prob_loss']:.0%}."
-        if monte_carlo else ""
-    )
     _nt = forward_stats.get("num_trials") or 1
     _dsr = forward_stats.get("deflated_sharpe")
-    _dsr_txt = (
-        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
-        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
-    )
     _conc = (sub_periods or {}).get("concentration")
     _sp_txt = (
         f" ⚠ Fragile: {_conc:.0%} of the return came from a single sub-period."
@@ -3041,32 +3357,51 @@ def backtest_workflow(
     except Exception:
         _actual_years = None
     _span_txt = f"~{_actual_years:.1f}y" if _actual_years else period
-    _ret = (
-        f"Strategy **{total_return_pct:+.1f}%**{_cagr_txt} over {_span_txt} "
-        f"on {_subject}, across {n_trades} trade(s)."
-    )
+    # ── Results TABLE (structured, not a bullet run-on) ─────────────────
+    # Verdict + method + notes stay prose; the numbers go in a compact
+    # two-column table the reader can scan. Signed values keep their +/-
+    # so the FE colours gains green / losses red inside the table cells.
+    # NOTE: no `**bold**` inside table cells — the FE table renderer treats
+    # each cell as a raw string, so markdown emphasis leaks literal asterisks.
+    # Signed values are coloured by the table's own gain/loss colouring.
+    _mrows: list[tuple[str, str]] = [
+        ("Strategy return", f"{total_return_pct:+.1f}%{_cagr_txt}"),
+    ]
+    if return_on_deployed_pct is not None:
+        # Un-annualized, dollar-weighted return on capital actually put at
+        # risk — distinct from "Strategy return" above, which is diluted by
+        # however long capital sat idle in cash (a fixed-qty signal trade
+        # deploying ₹1k of a simulated ₹10L pool otherwise reads as ~0%
+        # even when every individual trade had real edge). Shown together
+        # with the utilization row so it can't read as "always this good".
+        _mrows.append(("Return on capital deployed", f"{return_on_deployed_pct:+.1f}%"))
+    if capital_utilization_pct is not None:
+        _mrows.append(("Capital deployed", f"{capital_utilization_pct:.0f}% of the window"))
+    _bench_note = ""
     if _is_basket and not bench_sym and _bh_resolvable:
-        _ret += f" Buy-and-hold this basket at ideal weights {bench_pct:+.1f}%."
+        _mrows.append(("Buy & hold (ideal weights)", f"{bench_pct:+.1f}%"))
     elif _is_basket and not bench_sym:
-        # Couldn't resolve every leg's bars (e.g. a mid-window listing) — no
-        # meaningful basket-wide benchmark to show; steer to an index rather
-        # than comparing to one arbitrary constituent.
-        _ret += " Add a benchmark (e.g. NIFTYBEES) to compare vs the index."
+        # Couldn't resolve every leg's bars — no basket-wide benchmark to show.
+        _bench_note = ("Add a benchmark (e.g. `NIFTYBEES`) to compare vs the "
+                       "index.")
     elif bench_sym:
-        _ret += f" Benchmark {bench_sym} {bench_pct:+.1f}%."
+        _mrows.append((f"Benchmark ({bench_sym})", f"{bench_pct:+.1f}%"))
     else:
-        _ret += f" Buy-and-hold {bench_pct:+.1f}%."
-    _risk = (_sharpe_txt + _psr_txt).strip()
-    _robust = (_mc_txt + _dsr_txt + _sp_txt).strip()
-    # Scannable layout: verdict paragraph, then one bullet per dimension
-    # (markdown collapses single newlines, so bullets + blank-line breaks are
-    # what render as discrete lines rather than a wall of text), then a quiet
-    # method footnote.
-    _bullets = [f"**Return** · {_ret}{_hold_txt}"]
-    if _risk:
-        _bullets.append(f"**Risk** · {_risk}")
-    if _robust:
-        _bullets.append(f"**Robustness** · {_robust}")
+        _mrows.append(("Buy & hold", f"{bench_pct:+.1f}%"))
+    _mrows.append(("Trades", f"{n_trades} on {_subject} over {_span_txt}"))
+    if _sharpe is not None:
+        _mrows.append(("Sharpe", f"{_sharpe:.2f}"))
+    if isinstance(_psr, (int, float)):
+        _mrows.append(("PSR", f"{_psr:.0%}"))
+    if _nt > 1 and isinstance(_dsr, (int, float)):
+        _mrows.append((f"Deflated Sharpe ({_nt} variants)", f"{_dsr:.0%}"))
+    if monte_carlo:
+        _mrows.append(("Monte-Carlo 5%-worst drawdown",
+                       f"{monte_carlo['dd_p95_severity_pct']:.0f}%"))
+        _mrows.append(("P(end in loss)", f"{monte_carlo['prob_loss']:.0%}"))
+    _table = "| Metric | Value |\n| --- | --- |\n" + "\n".join(
+        f"| {_k} | {_v} |" for _k, _v in _mrows
+    )
     _bar_label = {
         "1d": "daily", "1wk": "weekly", "1mo": "monthly",
         "1h": "hourly", "1m": "1-minute", "3m": "3-minute",
@@ -3080,7 +3415,13 @@ def backtest_workflow(
     _lines = [
         f"**Verdict — {verdict['label']}.** {verdict['rationale']}",
         "",
-        *[f"- {b}" for b in _bullets],
+        _table,
+    ]
+    # Textual caveats that don't belong inside the metric table.
+    for _cav in (_hold_txt.strip(), _bench_note, _sp_txt.strip()):
+        if _cav:
+            _lines += ["", _cav]
+    _lines += [
         "",
         (
             f"_Method: results are {_method['costs']}, on {_method['basis']}. "

@@ -415,6 +415,24 @@ class BacktestMetrics(_Strict):
     losing_trades: int
     average_win_pct: Optional[float] = None
     average_loss_pct: Optional[float] = None
+    # Dollar-weighted return on the capital actually put at risk: total
+    # net P&L ÷ total entry cost across every trade. NOT annualized —
+    # deliberately, since annualizing either re-dilutes it back over the
+    # full calendar window (defeating the point) or extrapolates a short
+    # holding period into an absurd yearly figure. For a strategy whose
+    # entry condition rarely fires, `cagr_pct`/`total_return_pct` above
+    # are diluted by however long capital sat idle in cash — this is the
+    # answer to "the strategy sold at +5% profit, why does the account
+    # only show +0.03%?": the account figure IS honest (idle capital is
+    # real opportunity cost), this figure answers the narrower "how did
+    # the capital I actually deployed do" question instead of replacing it.
+    return_on_deployed_pct: Optional[float] = None
+    # % of the backtest's calendar window during which a position was
+    # actually open (sum of per-trade holding days ÷ window days). Must
+    # be shown alongside `return_on_deployed_pct` — without it a
+    # rare-trigger strategy (2 trades in 5 years) reads as if it performs
+    # like `return_on_deployed_pct` all the time, hiding how seldom it fires.
+    capital_utilization_pct: Optional[float] = None
     profit_factor: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     sortino_ratio: Optional[float] = None

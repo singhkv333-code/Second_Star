@@ -181,25 +181,33 @@ def _parse_response(
         elif itype == "message":
             for c in item.get("content") or []:
                 if isinstance(c, dict) and c.get("type") == "output_text":
-                    text_parts.append(c.get("text", ""))
+                    text = c.get("text", "")
                     # Hosted web_search attaches url_citation annotations to
                     # the output_text — collect them (deduped, order kept) so
-                    # the chat layer can render/verify sources.
-                    for ann in (c.get("annotations") or []):
-                        if not isinstance(ann, dict):
-                            continue
-                        if ann.get("type") not in ("url_citation", "url"):
-                            continue
-                        url = ann.get("url")
-                        if not url or url in _seen_urls:
-                            continue
-                        _seen_urls.add(url)
-                        citations.append({
-                            "url": url,
-                            "title": ann.get("title") or "",
-                            "start_index": ann.get("start_index"),
-                            "end_index": ann.get("end_index"),
-                        })
+                    # the chat layer can render/verify sources, AND replace
+                    # the raw inline marker (e.g. "citeturn0search0") each
+                    # annotation's span points at with a real markdown link
+                    # in-place — leaving it verbatim was a raw-token leak
+                    # into user-facing text (found in today's eval).
+                    anns = [a for a in (c.get("annotations") or [])
+                            if isinstance(a, dict)
+                            and a.get("type") in ("url_citation", "url")
+                            and a.get("url")]
+                    for ann in sorted(
+                        anns, key=lambda a: a.get("start_index") or 0,
+                        reverse=True,
+                    ):
+                        url = ann["url"]
+                        start, end = ann.get("start_index"), ann.get("end_index")
+                        if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(text):
+                            text = text[:start] + f"[{ann.get('title') or url}]({url})" + text[end:]
+                        if url not in _seen_urls:
+                            _seen_urls.add(url)
+                            citations.append({
+                                "url": url, "title": ann.get("title") or "",
+                                "start_index": start, "end_index": end,
+                            })
+                    text_parts.append(text)
         # `reasoning` items are present on GPT-5 outputs; we don't
         # surface their content (it's the <think> trace) but the
         # token counts are accounted for via `usage.reasoning_tokens`.
@@ -485,6 +493,7 @@ async def stream_openai(
     temperature: float = 0.2,
     response_format: Optional[Literal["json_object"]] = None,
     prompt_cache_key: Optional[str] = None,
+    hosted_tools: Optional[list[dict[str, Any]]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a Responses API call.
 
@@ -529,8 +538,17 @@ async def stream_openai(
         effort_on_wire = client._translate_reasoning_effort(reasoning_effort)
         if effort_on_wire:
             payload["reasoning"] = {"effort": effort_on_wire}
-    if tools:
-        payload["tools"] = _tools_to_responses_format(tools)
+    _wire_tools: list[dict[str, Any]] = (
+        _tools_to_responses_format(tools) if tools else []
+    )
+    # Provider-hosted tools (e.g. {"type": "web_search_preview"}) run
+    # server-side and stream their result as normal text + url_citation
+    # annotations. Append them so the streaming path can browse too — the
+    # non-streaming complete() already does this.
+    if hosted_tools:
+        _wire_tools.extend(hosted_tools)
+    if _wire_tools:
+        payload["tools"] = _wire_tools
         payload["tool_choice"] = tool_choice if tool_choice in {"required", "none"} else "auto"
     if response_format == "json_object":
         payload["text"] = {"format": {"type": "json_object"}}

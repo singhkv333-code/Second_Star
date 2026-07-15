@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   Diagnostic,
   Step,
@@ -560,17 +561,28 @@ export function WorkflowEditorMock({
             {actionState === "saving" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
             Save
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => { void handleRunNow(); }}
-            disabled={busy || workflow.status === "archived"}
-            data-testid="run-now-btn"
-            className="rounded-lg"
-          >
-            {actionState === "running" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-            Run now
-          </Button>
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { void handleRunNow(); }}
+                  disabled={busy || workflow.status === "archived"}
+                  data-testid="run-now-btn"
+                  className="rounded-lg"
+                >
+                  {actionState === "running" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                  Run now
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[220px] text-xs">
+                Checks the trigger and conditions right now. The action only
+                fires if they&apos;re currently met — otherwise the run halts
+                as &quot;condition not met&quot;.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {workflow.status !== "archived" && (
             <Button
               size="sm"

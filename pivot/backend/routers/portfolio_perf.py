@@ -150,24 +150,30 @@ _PERIOD_SPAN_DAYS: dict[str, int] = {
 def _paper_performance(
     db, user_id: int, period: _PeriodLiteral,
 ) -> Optional[dict]:
-    """Real paper-book equity curve, reconstructed from the account's FILLS.
+    """Real paper-book equity curve = NAV (cash + positions) over time.
 
-    This is the honest "value of my portfolio over time" the user asked for:
-    it starts at the FIRST actual trade (never before), replays every fill in
-    order to know the exact holdings + cash on each date, and marks those
-    holdings at their real historical close each day. So the curve reflects
-    the movement of the positions AFTER they were opened — not a backtest of
-    today's basket projected backward over a period the user held nothing.
+    This is the honest "value of my portfolio over time": it anchors at the
+    account's **starting capital** (the all-cash NAV before any trade), replays
+    every fill in order to know the exact holdings + cash on each date, marks
+    those holdings at their real historical close each day, and ends at the live
+    NAV. So the curve begins at the initial capital and its slope reflects the
+    book's actual P&L — a book in the red slopes DOWN, never up.
 
     Value identity at each date d:
-        value(d) = cash(d) + Σ_sym qty(sym, d) · close(sym, d)
+        value(d) = cash(d) + Σ_sym qty(sym, d) · mark(sym, d)
     where ``cash(d) = starting_capital + Σ net_cashflow(fills ≤ d)`` (buys
     debit, sells credit, both charge-inclusive) — i.e. exactly NAV = cash +
-    positions_mv. The final point is pinned to the live NAV so the chart's end
-    matches the portfolio header.
+    positions_mv. Before a symbol's first fill its qty is 0, so the pre-trade
+    span honestly shows the all-cash starting capital (NOT a backward projection
+    of today's book). Quantities are kept FRACTIONAL (crypto/US positions are
+    sub-unit); ``mark`` is the historical close for NSE names and the position's
+    average cost for US/crypto (whose INR history we don't reconstruct) so those
+    legs sit flat at cost until the live-NAV endpoint reflects their real move.
+    The final point is pinned to the live NAV so the chart end == the header.
     """
-    from backend.models import PaperAccount, PaperFill
+    from backend.models import PaperAccount, PaperFill, PaperPosition
     from backend.services.portfolio_source import paper_cash_and_nav
+    from backend.view_markets.security_meta import is_us_or_crypto_fast
 
     account = (
         db.query(PaperAccount)
@@ -185,6 +191,8 @@ def _paper_performance(
         # than fabricating a flat ₹0 line.
         return None
 
+    seed = float(account.starting_capital or 0.0)
+
     fills = (
         db.query(PaperFill)
         .filter(PaperFill.account_id == account.id)
@@ -192,46 +200,59 @@ def _paper_performance(
         .all()
     )
     if not fills:
-        # All-cash book — honest flat NAV line, no positions to reconstruct.
+        # All-cash book — honest flat NAV line at the starting capital.
         return _flat_series(period, nav_now)
 
     yf_period, yf_interval = _PERIOD_MAP[period]
     end = pd.Timestamp.utcnow().tz_localize(None).normalize()
     period_start = end - pd.Timedelta(days=_PERIOD_SPAN_DAYS[period])
     first_fill = pd.Timestamp(fills[0].filled_at.date())
-    # Clamp the axis start to the first fill so the window never shows the
-    # pre-trade past — that projection is exactly the "backtested" look the
-    # chart must NOT have.
-    axis_start = max(period_start, first_fill)
+    # Start ONE bar before the first trade so the chart opens on the all-cash
+    # starting-capital baseline (the "start at ₹5L" the value identity gives for
+    # free), then moves as positions are opened. For a book older than the
+    # window we start at period_start instead (mid-hold), never before it.
+    pre_trade = first_fill - pd.Timedelta(days=1)
+    axis_start = pre_trade if pre_trade > period_start else period_start
 
-    # The REAL held span (since the first fill) can be much shorter than the
-    # selected range's calendar span — e.g. a 5Y view on a 9-day-old paper
-    # book. Bucketing at that range's native interval (1mo for 5Y, 1wk for 1Y)
-    # over a real span that short collapses the whole window into ~1 yfinance
-    # bar, which then ffills/bfills that single coarse sample across every
-    # date on the axis. The same calendar date then shows a different value
-    # depending only on which range is selected (e.g. "1 Jul" on 3M vs 5Y) —
-    # confusing, not a real discrepancy. Force the finer daily interval
-    # whenever the real span doesn't have room for at least a few bars at the
-    # selected interval, so every range agrees on any date they both cover.
+    # The REAL held span can be much shorter than the selected range's calendar
+    # span (e.g. a 1Y view on a 2-day-old book). Bucketing at the range's native
+    # interval (1wk/1mo) over so short a span collapses the window into ~1 bar;
+    # force the finer daily interval so the recent movement is actually visible.
     _BAR_DAYS = {"1d": 1, "1wk": 7, "1mo": 30}
     real_span_days = max((end - axis_start).days, 1)
     if real_span_days < _BAR_DAYS.get(yf_interval, 1) * 3:
         yf_interval = "1d"
 
-    # Per-symbol historical closes (concurrent yfinance fetch). The paper book
-    # is NSE equities; assume .NS unless already suffixed.
+    # Per-symbol average cost (charge-inclusive) — the flat historical mark for
+    # legs whose historical close we don't fetch (US/crypto) or can't fetch.
+    avg_cost: dict[str, float] = {
+        str(p.symbol): float(p.avg_cost or 0.0)
+        for p in db.query(PaperPosition)
+        .filter(PaperPosition.account_id == account.id)
+        .all()
+    }
+    for f in fills:  # closed-lot / missing fallback: last fill price
+        avg_cost.setdefault(str(f.symbol), 0.0)
+        if not avg_cost[str(f.symbol)]:
+            try:
+                avg_cost[str(f.symbol)] = float(f.fill_price)
+            except (TypeError, ValueError):
+                pass
+
+    # Historical closes — NSE equities only. US/crypto have no INR daily-close
+    # path here (appending ".NS" to "SOL-USD" just fails), so they mark at cost.
     symbols = sorted({str(f.symbol) for f in fills})
+    indian = [s for s in symbols if not is_us_or_crypto_fast(s)]
     specs = [
         (1.0, s if s.endswith((".NS", ".BO")) else f"{s}.NS")
-        for s in symbols
+        for s in indian
     ]
     closes: dict[str, pd.Series] = {}
     if specs:
         with ThreadPoolExecutor(max_workers=min(8, len(specs))) as pool:
             futures = {
                 sym: pool.submit(_fetch_one_series, spec, yf_period, yf_interval)
-                for sym, spec in zip(symbols, specs)
+                for sym, spec in zip(indian, specs)
             }
             for sym, fut in futures.items():
                 _, series = fut.result()
@@ -242,44 +263,37 @@ def _paper_performance(
                     series = series.copy()
                     series.index = idx.tz_localize(None)
                 series.index = series.index.normalize()
+                # Intraday history collapses to duplicate dates after
+                # normalize(); keep one row per date (last close wins) so a
+                # duplicate index can't make `s.get(ts)` return a Series.
+                series = series[~series.index.duplicated(keep="last")]
                 closes[sym] = series
 
-    # Fallback mark per symbol (its last fill price) so a symbol yfinance can't
-    # price contributes a flat, honest value instead of vanishing from the sum.
-    fallback_px: dict[str, float] = {}
-    for f in fills:
-        try:
-            fallback_px[str(f.symbol)] = float(f.fill_price)
-        except (TypeError, ValueError):
-            pass
-
-    # Common naive date axis over [axis_start, end], anchored at both ends,
-    # forward-filled from each symbol's closes.
-    union = pd.DatetimeIndex([axis_start, end])
+    # Naive date axis over [axis_start, end]: a regular grid at the interval,
+    # plus the key anchors (start, first-fill day, end) and every real close
+    # date, so the flat all-cash baseline AND the post-trade movement both draw.
+    freq = {"1d": "D", "1wk": "W", "1mo": "MS"}.get(yf_interval, "W")
+    grid = pd.date_range(start=axis_start, end=end, freq=freq)
+    union = grid.union(pd.DatetimeIndex([axis_start, first_fill, end]))
     for s in closes.values():
         union = union.union(s.index)
-    union = union[(union >= axis_start) & (union <= end)].sort_values()
+    union = union[(union >= axis_start) & (union <= end)].unique().sort_values()
     if len(union) == 0:
         union = pd.DatetimeIndex([axis_start, end])
     aligned = {sym: s.reindex(union).ffill().bfill() for sym, s in closes.items()}
 
-    seed = float(account.starting_capital or 0.0)
-
     # Sweep the axis, folding in each fill as its date is reached.
     i = 0
-    held: dict[str, int] = {}
+    held: dict[str, float] = {}
     cash = seed
     points: list[PerfPoint] = []
     for ts in union:
         while i < len(fills) and pd.Timestamp(fills[i].filled_at.date()) <= ts:
             f = fills[i]
-            signed = (
-                int(f.quantity)
-                if str(f.transaction_type).upper() == "BUY"
-                else -int(f.quantity)
-            )
+            qty = float(f.quantity or 0.0)  # fractional for crypto/US lots
+            signed = qty if str(f.transaction_type).upper() == "BUY" else -qty
             sym = str(f.symbol)
-            held[sym] = held.get(sym, 0) + signed
+            held[sym] = held.get(sym, 0.0) + signed
             cash += float(f.net_cashflow)
             i += 1
         val = cash
@@ -290,10 +304,12 @@ def _paper_performance(
             s = aligned.get(sym)
             if s is not None:
                 raw = s.get(ts)
+                if isinstance(raw, pd.Series):
+                    raw = raw.iloc[-1] if not raw.empty else None
                 if raw is not None and not pd.isna(raw):
                     px = float(raw)
-            if px is None:
-                px = fallback_px.get(sym)
+            if px is None:  # US/crypto or unfetched NSE → flat at average cost
+                px = avg_cost.get(sym)
             if px is not None:
                 val += q * px
         points.append(PerfPoint(t=ts.to_pydatetime(), v=round(val, 2)))
@@ -304,7 +320,10 @@ def _paper_performance(
     else:
         points = [PerfPoint(t=end.to_pydatetime(), v=round(nav_now, 2))]
 
-    starting = float(points[0].v)
+    # Report return against the STARTING CAPITAL (the curve's anchor), so the
+    # chart's headline return agrees with the portfolio's Total P&L. When the
+    # window opens mid-hold (older book), the first plotted point is the anchor.
+    starting = seed if axis_start <= first_fill else float(points[0].v)
     ending = float(points[-1].v)
     total_return = ending - starting
     total_return_pct = (total_return / starting * 100) if starting > 0 else 0.0

@@ -3,7 +3,7 @@
 // lib/screenerApi) with a real search box + real company logos. The ETF /
 // Index / Mutual-Fund screens remain mock (screenerData.ts) and unchanged in
 // look — no live endpoints back them yet, so they stay client-filtered.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -1079,8 +1079,6 @@ function WatchCard({
 
 // "+ Add" tile that opens a small searchable popover of the STOCKS universe
 // (minus what's already in the active list) so the user can grow the list.
-const POPOVER_WIDTH = 260;
-
 function AddStockMenu({
   existing,
   onAdd,
@@ -1090,21 +1088,7 @@ function AddStockMenu({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  // When the "+" tile sits near the right edge of the viewport (the common
-  // case — it lives at the end of the watchlist row), a left-anchored 260px
-  // popover overflows the viewport and widens the whole document, producing a
-  // horizontal scrollbar that clips the left of the page. Anchor it to the
-  // tile's right edge instead so it opens leftward and stays on-screen.
-  const [alignRight, setAlignRight] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-
-  // Decide open direction from the trigger's live position each time it opens.
-  useLayoutEffect(() => {
-    if (!open || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    // 260 = popover width; 12 = a small safety gutter from the viewport edge.
-    setAlignRight(rect.left + POPOVER_WIDTH + 12 > window.innerWidth);
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1174,12 +1158,9 @@ function AddStockMenu({
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
-            // Open leftward (anchored to the tile's right edge) when there
-            // isn't room on the right, so the popover never pushes the
-            // document wider than the viewport.
-            ...(alignRight ? { right: 0 } : { left: 0 }),
+            left: 0,
             zIndex: 20,
-            width: POPOVER_WIDTH,
+            width: 260,
             background: "var(--bg-primary)",
             border: "1px solid var(--glass-border)",
             borderRadius: "var(--radius-md)",

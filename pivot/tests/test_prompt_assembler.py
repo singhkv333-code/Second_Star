@@ -105,3 +105,35 @@ def test_unknown_role_falls_back_safely():
     out = build_system_prompt("correlation_decompose")  # placeholder
     # Doesn't blow up; primer still attached.
     assert _load_domain_primer() in out
+
+
+def test_current_date_line_present_and_fresh():
+    """Reported 2026-07-14: with no real date injected anywhere, the
+    model anchored on system_core.md's illustrative "assume today is
+    2026-05-28" worked example as literal fact. `build_system_prompt`
+    must always carry a real, freshly-computed date fact — for every
+    role, since propose_workflow also resolves relative valid_until
+    phrasing — and the stale example date must be gone from the file."""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    from backend.prompts.assembler import _load_chat_system_md
+
+    today_str = _dt.datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+    for role in ("chat", "propose_workflow"):
+        out = build_system_prompt(role)
+        assert "## Current date" in out
+        assert today_str in out
+
+    sysmd = _load_chat_system_md()
+    assert "assume today is 2026-05-28" not in sysmd
+
+
+def test_current_date_line_comes_after_stable_cached_prefix():
+    """The daily-changing date line must sit AFTER the large, rarely-
+    changing role-instructions/primer blocks, so the OpenAI prompt
+    cache's prefix (thousands of stable tokens) doesn't get busted every
+    single day just because the date rolled over."""
+    out = build_system_prompt("chat")
+    sysmd = _load_chat_system_md()
+    assert out.index(sysmd) < out.index("## Current date")
