@@ -249,6 +249,14 @@ function OrderTicketSheet({
     // that's a failed order and must not read as a success.
     if (/reject/i.test(status)) {
       toast.error(`${side} ${qtyNum} ${symbol} — ${status}`);
+    } else if (order.queued) {
+      // Market was closed → queued as an after-market order (AMO). Say so
+      // plainly and point to where it can be cancelled.
+      toast(`${side} ${qtyNum} ${symbol} queued`, {
+        description:
+          "Market closed — this order will execute at the next open. Cancel it before then from Portfolio → Orders.",
+        duration: 9000,
+      });
     } else {
       toast.success(`${side} ${qtyNum} ${symbol} — ${status}${exitsNote}`);
     }
