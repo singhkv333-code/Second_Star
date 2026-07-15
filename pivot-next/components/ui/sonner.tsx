@@ -113,7 +113,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "0 1px 2px rgba(15,18,22,0.06), 0 8px 24px rgba(15,18,22,0.12)",
         },
         classNames: {
-          toast: "items-start gap-2.5",
+          // "group toast" is load-bearing, not decorative: every
+          // `group-[.toast]:` variant below (closeButton, actionButton,
+          // cancelButton) only matches an ancestor carrying BOTH literal
+          // classes together. Without it those overrides are silent
+          // no-ops and each element falls back to sonner's own
+          // hardcoded (non-theme-aware) default colors.
+          toast: "group toast items-start gap-2.5",
           icon: "m-0",
           content: "gap-0.5",
           title: "text-[13px] font-medium leading-[18px] text-[var(--text-primary)]",
@@ -123,8 +129,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "group-[.toast]:h-7 group-[.toast]:rounded-md group-[.toast]:bg-[var(--text-primary)] group-[.toast]:px-2.5 group-[.toast]:text-[12px] group-[.toast]:font-medium group-[.toast]:text-[var(--bg-primary)]",
           cancelButton:
             "group-[.toast]:h-7 group-[.toast]:rounded-md group-[.toast]:bg-transparent group-[.toast]:px-2 group-[.toast]:text-[12px] group-[.toast]:text-[var(--text-secondary)] group-[.toast]:hover:text-[var(--text-primary)]",
+          // Sonner's own stylesheet pins the close button's resting
+          // background to a fixed near-white gray via a plain (non-:where)
+          // selector, which beats this Tailwind class on specificity — so
+          // in dark mode you'd get a white circle with a low-contrast gray
+          // X inside. `!bg-` forces our theme-aware background to win.
           closeButton:
-            "group-[.toast]:border-[var(--glass-border)] group-[.toast]:bg-[var(--bg-primary)] group-[.toast]:text-[var(--text-secondary)] group-[.toast]:hover:text-[var(--text-primary)]",
+            "group-[.toast]:!bg-[var(--bg-primary)] group-[.toast]:!border-[var(--glass-border)] group-[.toast]:!text-[var(--text-secondary)] group-[.toast]:hover:!text-[var(--text-primary)]",
         },
       }}
       {...props}

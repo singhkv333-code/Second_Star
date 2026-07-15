@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   Diagnostic,
   Step,
@@ -40,7 +39,6 @@ import {
   createWorkflow,
   lintWorkflow,
   pauseWorkflow,
-  runWorkflow,
   updateWorkflow,
 } from "@/lib/api";
 import { StepCard } from "@/components/agent-panel/step-card";
@@ -66,7 +64,7 @@ const STATUS_COPY: Record<WorkflowStatus, { label: string; tone: "muted" | "succ
   archived: { label: "Archived", tone: "muted" },
 };
 
-type ActionState = "idle" | "saving" | "activating" | "pausing" | "running";
+type ActionState = "idle" | "saving" | "activating" | "pausing";
 
 export type WorkflowEditorMockProps = {
   /** The workflow to render. Mutations persist via PATCH /api/workflows/{id}. */
@@ -387,51 +385,6 @@ export function WorkflowEditorMock({
     setActionState("idle");
   };
 
-  const handleRunNow = async (): Promise<void> => {
-    if (actionState !== "idle") return;
-    setActionState("running");
-    setActionError(null);
-
-    // Archive can't run — guard
-    if (workflow.status === "archived") {
-      setActionError("Archived workflows cannot be run.");
-      setActionState("idle");
-      return;
-    }
-
-    // If draft/no-id, save first.
-    let targetId = workflow.id;
-    if (!targetId || targetId.startsWith("00000000-")) {
-      const saveResult = await createWorkflow({
-        name: workflow.name,
-        description: workflow.description ?? undefined,
-        single_instance: workflow.single_instance,
-        steps: workflow.steps.map((s) => ({
-          step_type: s.step_type,
-          label: s.label,
-          config: s.config,
-        })),
-      });
-      if (isError(saveResult)) {
-        setActionError(saveResult.error.message);
-        setActionState("idle");
-        return;
-      }
-      targetId = saveResult.data.id;
-      setWorkflow(saveResult.data);
-    }
-
-    const result = await runWorkflow(targetId);
-    if (isError(result)) {
-      setActionError(result.error.message);
-      toast.error(result.error.message);
-    } else {
-      toast.success("Run started");
-      setViewingRunId(result.data.run_id);
-    }
-    setActionState("idle");
-  };
-
   // If viewing a run, show RunView
   if (viewingRunId) {
     return (
@@ -546,9 +499,10 @@ export function WorkflowEditorMock({
           </p>
         )}
 
-        {/* Action bar — a primary Save + Run now pair, then the lifecycle /
-            history controls as quiet ghost buttons so the hierarchy reads at
-            a glance instead of a flat row of equal-weight buttons. */}
+        {/* Action bar — a primary Save, then the lifecycle / history
+            controls as quiet ghost buttons so the hierarchy reads at a
+            glance instead of a flat row of equal-weight buttons. Activate
+            covers running the agent, so there's no separate Run now. */}
         <div className="mt-4 flex flex-wrap items-center gap-1">
           <Button
             size="sm"
@@ -561,28 +515,6 @@ export function WorkflowEditorMock({
             {actionState === "saving" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
             Save
           </Button>
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => { void handleRunNow(); }}
-                  disabled={busy || workflow.status === "archived"}
-                  data-testid="run-now-btn"
-                  className="rounded-lg"
-                >
-                  {actionState === "running" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                  Run now
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[220px] text-xs">
-                Checks the trigger and conditions right now. The action only
-                fires if they&apos;re currently met — otherwise the run halts
-                as &quot;condition not met&quot;.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
           {workflow.status !== "archived" && (
             <Button
               size="sm"
