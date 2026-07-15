@@ -2619,6 +2619,31 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
 # the cost of a false-dependent is the user gets a workflow-card under
 # their unrelated answer (the most-reported failure shape).
 
+# Fresh top-level build/create intents — checked BEFORE `_DEPENDENT_INTENT_RE`
+# in `_is_independent_prompt`, not folded into `_INDEPENDENT_INTENT_RE` below
+# (which is only consulted AFTER the dependent-verb branch, so it never gets
+# a say when a bare amendment verb like "make it" also appears later in the
+# same message — see the call site for the live repro this fixes).
+_FRESH_BUILD_INTENT_RE = re.compile(
+    r"\b(?:also\s+build|another\s+(?:agent|workflow|automation)|"
+    r"now\s+also\s+(?:build|set|make|create)|"
+    r"build\s+(?:me\s+)?another|"
+    r"new\s+(?:agent|workflow|automation)|"
+    r"different\s+(?:agent|workflow|automation))\b"
+    # Fresh agent-build / workflow-build / strategy-build top-level
+    # intents. WHY: when the user types "make me an agent that buys X at
+    # open and sells at close…" while a stale draft for a DIFFERENT
+    # symbol is sitting in active_draft from a prior turn, the amendment
+    # path was being taken — so the model re-emitted the old draft
+    # instead of building the new one. These phrases are unambiguously
+    # fresh top-level intents; they should always evict the prior draft.
+    r"|\b(?:build|make|create|set\s*up|design|spin\s+up)\s+"
+    r"(?:me\s+)?(?:an?|some)\s+(?:agent|workflow|automation|strategy|rule|bot|sip)\b"
+    r"|\bmake\s+(?:an?|some)\s+(?:agent|workflow|automation)\s+that\b"
+    r"|\b(?:agent|workflow|automation)\s+that\s+(?:buys?|sells?|alerts?|notifies)\b",
+    re.IGNORECASE,
+)
+
 # Verbs / phrasings that indicate a fresh top-level intent. If ANY
 # match, we drop the active draft. Each entry is documented inline so
 # adding a new one is obvious.
@@ -2710,18 +2735,7 @@ _INDEPENDENT_INTENT_RE = re.compile(
     # conversational ask.
     r"|\bwhat\s+else\b|\banything\s+else\b"
     r"|\bwhat\s+(?:now|next)\b|\bnow\s+what\b"
-    r"|^\s*(?:and\s+now|next)\??\s*$"
-    # Fresh agent-build / workflow-build top-level intents. WHY: when
-    # the user types "make me an agent that buys X at open and sells
-    # at close…" while a stale draft for a DIFFERENT symbol is sitting
-    # in active_draft from a prior turn, the amendment path was being
-    # taken — so the model re-emitted the old draft instead of
-    # building the new one. These phrases are unambiguously fresh
-    # top-level intents; they should always evict the prior draft.
-    r"|\b(?:build|make|create|set\s*up|design|spin\s+up)\s+"
-    r"(?:me\s+)?(?:an?|some)\s+(?:agent|workflow|automation|strategy|rule|bot|sip)\b"
-    r"|\bmake\s+(?:an?|some)\s+(?:agent|workflow|automation)\s+that\b"
-    r"|\b(?:agent|workflow|automation)\s+that\s+(?:buys?|sells?|alerts?|notifies)\b",
+    r"|^\s*(?:and\s+now|next)\??\s*$",
     re.IGNORECASE,
 )
 
@@ -2895,18 +2909,23 @@ def _is_independent_prompt(message: str) -> bool:
     msg = (message or "").strip()
     if not msg:
         return False
-    # Explicit "build another / also build" phrasing trumps any
-    # amendment-shape match. Otherwise "Now also build a sell agent
-    # for TCS at 4200" gets caught by the stepwise "at <number>"
-    # pattern and treated as an amendment to the prior draft.
-    if re.search(
-        r"\b(?:also\s+build|another\s+(?:agent|workflow|automation)|"
-        r"now\s+also\s+(?:build|set|make|create)|"
-        r"build\s+(?:me\s+)?another|"
-        r"new\s+(?:agent|workflow|automation)|"
-        r"different\s+(?:agent|workflow|automation))\b",
-        msg, re.IGNORECASE,
-    ):
+    # An unambiguous top-level build/create phrasing trumps any
+    # amendment-shape match found ANYWHERE ELSE in the same message.
+    # Two live repros forced this to run BEFORE `_DEPENDENT_INTENT_RE`:
+    #   - "Now also build a sell agent for TCS at 4200" was caught by the
+    #     stepwise "at <number>" amendment pattern.
+    #   - "build me a strategy that has high correlation with gold... make
+    #     it aggressive and concentrated" (2026-07-15): the trailing "make
+    #     it <adjective>" tripped `\bmake\s+it\b` in `_DEPENDENT_INTENT_RE`,
+    #     which returned early — the active draft (a prior, unrelated
+    #     workflow) was kept and "amended" instead of building the new
+    #     strategy fresh, so the resulting card was a reskin of the old
+    #     draft's schedule/steps. `_INDEPENDENT_INTENT_RE` already had a
+    #     matching "build me a strategy" branch, but it was only ever
+    #     reached AFTER `_DEPENDENT_INTENT_RE`'s unconditional early
+    #     return, so it never got a chance to win. Fresh top-level build
+    #     intents belong in this same priority tier, not after it.
+    if _FRESH_BUILD_INTENT_RE.search(msg):
         return True
     # Explicit amend wins (after the multi-build override).
     if _DEPENDENT_INTENT_RE.search(msg):
@@ -6060,6 +6079,7 @@ class ChatService:
             if (_active_opt is not None
                     and _active_opt.tool_name == "build_option_strategy"
                     and _DEPENDENT_INTENT_RE.search(message)
+                    and not _FRESH_BUILD_INTENT_RE.search(message)
                     and not _INDEPENDENT_INTENT_RE.search(message)):
                 selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                     "build_strategy", "propose_basket_allocation",
@@ -6999,6 +7019,13 @@ class ChatService:
         # ASK_USER, the chat layer pushes a "USE ASK_USER" directive
         # and forces one more hop. Flag prevents infinite recursion.
         ask_user_retry_used = False
+        # A CONSTRUCTION ask must actually build the basket — a read tool
+        # left in scope for grounding (screen_fundamentals) also satisfies
+        # hop-1's tool_choice=required, so the model can call it and stop.
+        # Force exactly ONE more hop, scoped to build_strategy/
+        # ask_user_dynamic, before accepting prose as final.
+        construction_retry_used = False
+        _force_construction_tools = False
         # Track whether the previous hop emitted a macro-draft tool —
         # used to shrink max_output on the post-draft prose hop in
         # compact mode (the FE already has the card; prose can be
@@ -7029,8 +7056,10 @@ class ChatService:
             # hops carry tool results and must allow the model to emit
             # a final text response (otherwise the loop never exits).
             hop_tool_choice: Literal["auto", "required"] = (
-                agent_tool_choice if hop_index == 1 else "auto"
+                "required" if _force_construction_tools
+                else (agent_tool_choice if hop_index == 1 else "auto")
             )
+            _force_construction_tools = False
             # Compact-draft hop budget: when we just emitted a macro
             # draft tool, the next prose hop only needs ~50 words.
             hop_max_output = (
@@ -7120,6 +7149,41 @@ class ChatService:
             if response.finish_reason != "tool_calls":
                 # Final text — return it.
                 text, sanitised = _post_process(response.content or "")
+                # CONSTRUCTION ask that finalised without ever building the
+                # basket. A read tool alone (screen_fundamentals,
+                # query_financials, etc.) is grounding input, never the
+                # answer, to a build/create-a-strategy ask.
+                if (
+                    is_construction_intent and not construction_retry_used
+                    and not any(
+                        t in ("build_strategy", "ask_user_dynamic")
+                        for t in tools_called
+                    )
+                ):
+                    construction_retry_used = True
+                    _force_construction_tools = True
+                    tooldefs = _registry_tools_as_tooldefs(
+                        frozenset({"build_strategy", "ask_user_dynamic"})
+                    )
+                    trace.event("construction.retry_forced",
+                                tools_so_far=tools_called)
+                    messages.append(LLMMessage(role="assistant", content=text))
+                    messages.append(LLMMessage(
+                        role="system",
+                        content=(
+                            "## FINISH THE STRATEGY BUILD\n"
+                            "This is a CONSTRUCTION ask (build/own a basket "
+                            "now). Any read tool you just called (e.g. a "
+                            "sector screen) is an INPUT to the basket, not "
+                            "the answer — the turn is not done. Call "
+                            "`build_strategy` now, using the real names from "
+                            "what you just fetched, or `ask_user_dynamic` "
+                            "if a genuinely blocking detail is missing. Do "
+                            "NOT present the screen/table itself as the "
+                            "final answer."
+                        ),
+                    ))
+                    continue
                 if sanitised and text == _GENERIC_FALLBACK and tools_called:
                     text = _tool_summary_line(tools_called[-1], logiccard)
                     sanitised = False
@@ -7606,9 +7670,13 @@ class ChatService:
             # the reply, rendered verbatim (render_screen_markdown), so the
             # narration hop (whose only job was restating them as a table)
             # is skipped. Gated to single-tool turns so a multi-tool turn's
-            # extra context is never silently dropped.
+            # extra context is never silently dropped. NEVER on a
+            # CONSTRUCTION ask — a screen is grounding input to the basket,
+            # not the answer, and this shortcut returns before the model
+            # ever gets a hop to continue to `build_strategy`.
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
+                    and not is_construction_intent
                     and tools_called == ["screen_fundamentals"]):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
@@ -8126,6 +8194,7 @@ class ChatService:
             if (_active_opt is not None
                     and _active_opt.tool_name == "build_option_strategy"
                     and _DEPENDENT_INTENT_RE.search(message)
+                    and not _FRESH_BUILD_INTENT_RE.search(message)
                     and not _INDEPENDENT_INTENT_RE.search(message)):
                 selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                     "build_strategy", "propose_basket_allocation",
@@ -8745,6 +8814,19 @@ class ChatService:
         # into `selected_names` after every find_tool success so the
         # next hop sees the schemas.
         loaded_extras: set[str] = set()
+        # A CONSTRUCTION ask must actually build the basket — mirror of
+        # the non-streaming path's gate (see there for the WHY). Track
+        # whether build_strategy/ask_user_dynamic has fired; if a
+        # construction turn finalises without either, force exactly ONE
+        # more hop scoped to just those two tools before accepting prose
+        # as final.
+        construction_retry_used = False
+        _force_construction_tools = False
+        # When the construction-retry fires, the model already streamed a
+        # stale (screener-only) answer. Suppress that hop's live deltas
+        # and emit the corrected basket answer as a single 'replace' so
+        # the FE swaps it in cleanly instead of appending garble.
+        _suppress_stream_deltas = False
 
         while hop_index < _MAX_TOOL_CALLS:
             hop_index += 1
@@ -8752,8 +8834,10 @@ class ChatService:
             # A1: only force tool_choice on hop 1; later hops MUST be
             # allowed to emit final text (otherwise the loop never ends).
             hop_tool_choice: Literal["auto", "required"] = (
-                agent_tool_choice if hop_index == 1 else "auto"
+                "required" if _force_construction_tools
+                else (agent_tool_choice if hop_index == 1 else "auto")
             )
+            _force_construction_tools = False
             hop_max_output = (
                 _COMPACT_POST_MACRO_MAX_OUTPUT
                 if (_COMPACT_DRAFTS and last_was_macro_draft)
@@ -8803,8 +8887,12 @@ class ChatService:
                     delta = ev.get("delta") or ""
                     if delta:
                         text_parts.append(delta)
-                        # Stream user-visible text live.
-                        yield {"type": "delta", "text": delta}
+                        # Stream user-visible text live (unless we're on a
+                        # construction-reprompt hop, where the stale
+                        # screener-only answer already streamed and we'll
+                        # swap the final text via 'replace').
+                        if not _suppress_stream_deltas:
+                            yield {"type": "delta", "text": delta}
                     continue
 
                 if etype == "response.output_item.added":
@@ -8895,6 +8983,43 @@ class ChatService:
             # No tool calls → final hop. Wrap up.
             if not tc_acc:
                 text, sanitised = _post_process(hop_text)
+                # CONSTRUCTION ask that finalised without ever building the
+                # basket — mirror of the non-streaming path's gate. A read
+                # tool alone (screen_fundamentals, query_financials, etc.)
+                # is grounding input, never the answer, to a
+                # build/create-a-strategy ask.
+                if (
+                    is_construction_intent and not construction_retry_used
+                    and not any(
+                        t in ("build_strategy", "ask_user_dynamic")
+                        for t in tools_called
+                    )
+                ):
+                    construction_retry_used = True
+                    _force_construction_tools = True
+                    _suppress_stream_deltas = True
+                    tooldefs = _registry_tools_as_tooldefs(
+                        frozenset({"build_strategy", "ask_user_dynamic"})
+                    )
+                    trace.event("construction.retry_forced",
+                                tools_so_far=tools_called)
+                    messages.append(LLMMessage(role="assistant", content=text))
+                    messages.append(LLMMessage(
+                        role="system",
+                        content=(
+                            "## FINISH THE STRATEGY BUILD\n"
+                            "This is a CONSTRUCTION ask (build/own a basket "
+                            "now). Any read tool you just called (e.g. a "
+                            "sector screen) is an INPUT to the basket, not "
+                            "the answer — the turn is not done. Call "
+                            "`build_strategy` now, using the real names "
+                            "from what you just fetched, or "
+                            "`ask_user_dynamic` if a genuinely blocking "
+                            "detail is missing. Do NOT present the "
+                            "screen/table itself as the final answer."
+                        ),
+                    ))
+                    continue
                 if sanitised and text == _GENERIC_FALLBACK and tools_called:
                     text = _tool_summary_line(tools_called[-1], logiccard)
                     sanitised = False
@@ -8911,10 +9036,11 @@ class ChatService:
                 if augmented != text:
                     sanitised = True
                     text = augmented
-                # If the post-processor rewrote the text, the user has
-                # already seen the raw stream — emit a correction by
-                # sending the cleaned text as a single replacement.
-                if sanitised:
+                # If the post-processor rewrote the text, OR we ran a
+                # construction-reprompt (whose deltas were suppressed),
+                # the user's on-screen text is stale — send the final
+                # text as a single replacement so the FE swaps it in.
+                if sanitised or construction_retry_used:
                     yield {"type": "replace", "text": text}
                 self.store.append(conv_id, message, text)
                 # Successful turn supersedes any pending state.
@@ -9323,8 +9449,11 @@ class ChatService:
 
             # Screen turn finalized deterministically (stream mirror of
             # handle()) — the ranked rows render verbatim; no narration hop.
+            # NEVER on a CONSTRUCTION ask — see the twin guard in handle()
+            # for the WHY.
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
+                    and not is_construction_intent
                     and tools_called == ["screen_fundamentals"]):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
