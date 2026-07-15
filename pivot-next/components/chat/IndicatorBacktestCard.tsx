@@ -19,7 +19,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Calendar, Info, ShieldAlert, X } from "lucide-react";
+import { ArrowUpRight, Calendar, Info, ShieldAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useExclusiveSidePanel } from "@/lib/sidePanels";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,34 @@ export type IndicatorBacktestPayload = {
     n_wins: number;
     starting_capital: number;
     ending_value: number;
+    // Dollar-weighted return on capital actually put at risk (total P&L
+    // ÷ total entry cost), NOT annualized. Distinct from cagr_pct/
+    // total_return_pct, which are diluted by however long the strategy
+    // sat idle in cash — a sparse-trigger strategy (few fires over a
+    // long window) shows a low whole-account figure even when every
+    // individual trade hit its target. Always paired with
+    // capital_utilization_pct so this can't read as "the strategy always
+    // performs this well".
+    return_on_deployed_pct?: number | null;
+    capital_utilization_pct?: number | null;
+    // ── Trust ladder (present on responses that ran the rigor battery —
+    // PSR / Deflated Sharpe / Monte-Carlo / sub-period concentration —
+    // absent on older/legacy payloads). ``trust_verdict`` is the
+    // plain-English synthesis; ``forward_stats`` carries the raw PSR/DSR
+    // numbers for the tooltip.
+    trust_verdict?: {
+      verdict: "insufficient_data" | "no_edge" | "unproven" | "promising";
+      label: string;
+      confidence: number;
+      rationale: string;
+      flags: string[];
+    } | null;
+    forward_stats?: {
+      psr?: number | null;
+      deflated_sharpe?: number | null;
+      num_trials?: number;
+      n_obs?: number;
+    } | null;
   };
   bench_buy_hold_return_pct: number | null;
   // What bench_buy_hold_return_pct actually measures: the primary symbol,
@@ -214,6 +242,18 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
   const positive = (metrics?.total_return_pct ?? 0) >= 0;
   const conditionLabel = conditionFor(payload);
 
+  // A sparse-trigger strategy (capital deployed <20% of the window) makes
+  // the whole-account cagr_pct/total_return_pct read as near-zero even
+  // when every trade hit its target — the account figure is honest (idle
+  // capital IS real opportunity cost) but isn't "the number that matters"
+  // for judging the trades themselves. Below that threshold, headline the
+  // deployed-capital return instead and demote the account figure to a
+  // caption so neither number goes missing.
+  const isSparse =
+    typeof metrics?.capital_utilization_pct === "number" &&
+    metrics.capital_utilization_pct < 20 &&
+    typeof metrics?.return_on_deployed_pct === "number";
+
   // Pull the company name the same way LogicCardChip does — best effort,
   // falls back to the title-cased ticker if the quote endpoint is offline
   // or returns no name (also keeps the unit test that renders without a
@@ -347,21 +387,36 @@ export function IndicatorBacktestCard({ payload }: Props): React.ReactElement {
       </div>
 
       {/* Accent return — shows CAGR when available (more comparable across
-          backtests of different lengths); falls back to total return. */}
+          backtests of different lengths); falls back to total return. For a
+          sparse-trigger strategy, headline return-on-deployed-capital
+          instead (the account figure is diluted by mostly-idle cash) and
+          caption the account figure + utilization so it isn't hidden. */}
       <div className="mt-5">
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          {metrics.cagr_pct != null ? "Strategy Annual Return" : "Strategy total return"}
+          {isSparse
+            ? "Return on Capital Deployed"
+            : metrics.cagr_pct != null
+              ? "Strategy Annual Return"
+              : "Strategy total return"}
         </p>
         <p
           className={cn(
             "mt-1 text-[26px] leading-none font-semibold tabular-nums tracking-tight",
-            positive
+            (isSparse ? (metrics.return_on_deployed_pct ?? 0) >= 0 : positive)
               ? "text-emerald-600 dark:text-emerald-400"
               : "text-rose-600 dark:text-rose-400",
           )}
         >
-          {fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
+          {isSparse
+            ? fmtPct(metrics.return_on_deployed_pct)
+            : fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
         </p>
+        {isSparse && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {fmtPct(metrics.total_return_pct)} whole-account · capital deployed{" "}
+            {Math.round(metrics.capital_utilization_pct ?? 0)}% of the window
+          </p>
+        )}
       </div>
 
       {/* View pill — opens the full detail in a right-side sidebar, the
@@ -470,14 +525,25 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
 
   const positive = metrics.total_return_pct >= 0;
 
+  // See IndicatorBacktestCard's isSparse for the rationale: below 20%
+  // capital utilization, the whole-account CAGR is diluted by mostly-idle
+  // cash, so headline return-on-deployed-capital instead.
+  const isSparse =
+    typeof metrics.capital_utilization_pct === "number" &&
+    metrics.capital_utilization_pct < 20 &&
+    typeof metrics.return_on_deployed_pct === "number";
+
   // Compare like-with-like. The strategy headline shows an ANNUAL figure
   // (CAGR) when available; the raw benchmark is a TOTAL buy-and-hold return
   // over the same window. Showing strategy-annual next to bench-total is an
   // apples-to-oranges comparison — so when we display the annual strategy
   // figure we annualise the benchmark over the SAME window (identical basis
   // to the backend's CAGR: equity-curve span / 365.25) and compute the
-  // delta on both-annual figures.
-  const showAnnual = metrics.cagr_pct != null;
+  // delta on both-annual figures. When isSparse, the strategy headline is
+  // itself un-annualized (return-on-deployed-capital) — annualizing the
+  // benchmark to match it would be apples-to-oranges again, so skip that
+  // and compare both as TOTAL-over-window figures instead.
+  const showAnnual = metrics.cagr_pct != null && !isSparse;
   const yearsSpan = ((): number | null => {
     if (equity_curve.length < 2) return null;
     const t0 = new Date(equity_curve[0]!.t).getTime();
@@ -497,9 +563,12 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
   // benchmark. Guard every derivation so a null neither crashes (fmtPct) nor
   // silently coerces to 0 and renders a misleading "beat buy-and-hold".
   const hasBench = bench_buy_hold_return_pct != null;
-  // Strategy + benchmark at the SAME measuring level (both annual, or both
-  // total when no CAGR is available).
-  const strategyDisplayPct = metrics.cagr_pct ?? metrics.total_return_pct;
+  // Strategy + benchmark at the SAME measuring level (both annual, both
+  // total when no CAGR is available, or both un-annualized total-over-
+  // window when isSparse and the strategy headline is return-on-deployed).
+  const strategyDisplayPct = isSparse
+    ? metrics.return_on_deployed_pct!
+    : (metrics.cagr_pct ?? metrics.total_return_pct);
   const benchDisplayPct = hasBench ? annualizePct(bench_buy_hold_return_pct!) : null;
   const beatsBench = benchDisplayPct != null && strategyDisplayPct > benchDisplayPct;
   const benchDelta = benchDisplayPct != null ? strategyDisplayPct - benchDisplayPct : 0;
@@ -603,63 +672,47 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           </div>
         </div>
 
-        {/* ── HERO STAT: Strategy return + vs B&H (compact) ────────── */}
-        <div className="grid grid-cols-2 gap-x-4">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-              {metrics.cagr_pct != null ? "Strategy Annual Return" : "Strategy return"}
+        {/* ── HERO STAT: Strategy return (compact). Sparse-trigger
+            strategies headline return-on-deployed-capital instead of the
+            whole-account figure — see isSparse above. ────────────────── */}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+            {isSparse
+              ? "Return on Capital Deployed"
+              : metrics.cagr_pct != null
+                ? "Strategy Annual Return"
+                : "Strategy return"}
+          </span>
+          <div className="flex flex-col gap-0.5">
+            <span
+              className={cn(
+                "text-[24px] leading-none font-semibold tabular-nums tracking-tight sm:text-[28px]",
+                (isSparse ? (metrics.return_on_deployed_pct ?? 0) >= 0 : positive)
+                  ? "text-[var(--color-profit)]"
+                  : "text-[var(--color-loss)]",
+              )}
+            >
+              {isSparse
+                ? fmtPct(metrics.return_on_deployed_pct)
+                : fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
             </span>
-            <div className="flex flex-col gap-0.5">
-              <span
-                className={cn(
-                  "text-[24px] leading-none font-semibold tabular-nums tracking-tight sm:text-[28px]",
-                  positive ? "text-[var(--color-profit)]" : "text-[var(--color-loss)]",
-                )}
-              >
-                {fmtPct(metrics.cagr_pct ?? metrics.total_return_pct)}
-              </span>
-              <span
-                className={cn(
-                  "text-[11.5px] font-medium tabular-nums",
-                  netPnl >= 0 ? "text-[var(--color-profit)]/80" : "text-[var(--color-loss)]/80",
-                )}
-              >
-                {netPnl >= 0 ? "+" : ""}
-                {fmtINR(netPnl)}
-              </span>
-            </div>
-          </div>
-          {hasBench && (
-          <div className="flex min-w-0 flex-col gap-0.5 border-l border-border/40 pl-4 sm:pl-5">
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-              vs Buy &amp; hold
+            <span
+              className={cn(
+                "text-[11.5px] font-medium tabular-nums",
+                netPnl >= 0 ? "text-[var(--color-profit)]/80" : "text-[var(--color-loss)]/80",
+              )}
+            >
+              {netPnl >= 0 ? "+" : ""}
+              {fmtINR(netPnl)}
             </span>
-            <div className="flex flex-col gap-0.5">
-              <span
-                className={cn(
-                  "inline-flex items-baseline gap-1 text-[24px] leading-none font-semibold tabular-nums tracking-tight sm:text-[28px]",
-                  benchEqual
-                    ? "text-foreground"
-                    : beatsBench
-                      ? "text-[var(--color-profit)]"
-                      : "text-[var(--color-loss)]",
-                )}
-              >
-                {!benchEqual &&
-                  (beatsBench ? (
-                    <ArrowUp className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
-                  ) : (
-                    <ArrowDown className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
-                  ))}
-                {Math.abs(benchDelta).toFixed(2)}%
+            {isSparse && (
+              <span className="text-[11px] text-muted-foreground">
+                {fmtPct(metrics.total_return_pct)} whole-account · capital
+                deployed {Math.round(metrics.capital_utilization_pct ?? 0)}% of
+                the window
               </span>
-              <span className="text-[11.5px] font-medium tabular-nums text-muted-foreground">
-                B&amp;H {fmtPct(benchDisplayPct)}
-                {showAnnual ? "/yr" : ""}
-              </span>
-            </div>
+            )}
           </div>
-          )}
         </div>
 
         {/* ── CHARTS + PERFORMANCE — single column. The panel is ~520px
@@ -813,6 +866,16 @@ export function IndicatorBacktestDetail({ payload }: Props): React.ReactElement 
           </div>
         </div>
 
+        {/* ── TRUST VERDICT — the rigor-battery synthesis (PSR / Deflated
+            Sharpe / Monte-Carlo / trial-count deflation collapsed into one
+            honest call + rationale). Absent on older/legacy payloads. */}
+        {metrics.trust_verdict ? (
+          <TrustVerdictBanner
+            verdict={metrics.trust_verdict}
+            forwardStats={metrics.forward_stats ?? null}
+          />
+        ) : null}
+
         {/* ── INSIGHT + DISCLAIMER ─────────────────────────────────── */}
         <div className="flex flex-col gap-2 border-t border-border/40 pt-4">
           <p className="text-[12px] leading-snug text-foreground/75">
@@ -911,6 +974,100 @@ function SignalDensityBand({
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// TrustVerdictBanner — the rigor battery (PSR / Deflated Sharpe / Monte-Carlo
+// / trial-count deflation) rolled into one plain-English call. Renders the
+// verdict's OWN rationale text (never a generic label) plus the underlying
+// PSR/DSR numbers and any risk flags, so the trust ladder that already runs
+// on every backtest is actually visible on the card, not just in raw_data.
+const _VERDICT_STYLE: Record<
+  string,
+  { tone: "profit" | "loss" | "neutral"; dot: string }
+> = {
+  promising: { tone: "profit", dot: "bg-[var(--color-profit)]" },
+  no_edge: { tone: "loss", dot: "bg-[var(--color-loss)]" },
+  unproven: { tone: "neutral", dot: "bg-amber-500" },
+  insufficient_data: { tone: "neutral", dot: "bg-muted-foreground/50" },
+};
+
+const _FLAG_LABEL: Record<string, string> = {
+  selection_bias: "Many variants tried",
+  return_concentrated: "Return concentrated in one period",
+  drawdown_risk: "Deep bootstrap drawdown",
+  loss_likely: "Bootstrap favors a loss",
+};
+
+function TrustVerdictBanner({
+  verdict,
+  forwardStats,
+}: {
+  verdict: {
+    verdict: string;
+    label: string;
+    confidence: number;
+    rationale: string;
+    flags: string[];
+  };
+  forwardStats: {
+    psr?: number | null;
+    deflated_sharpe?: number | null;
+    num_trials?: number;
+    n_obs?: number;
+  } | null;
+}): React.ReactElement {
+  const style: { tone: "profit" | "loss" | "neutral"; dot: string } =
+    _VERDICT_STYLE[verdict.verdict] ?? {
+      tone: "neutral",
+      dot: "bg-amber-500",
+    };
+  const psrPct =
+    typeof forwardStats?.psr === "number" ? Math.round(forwardStats.psr * 100) : null;
+  const dsrPct =
+    typeof forwardStats?.deflated_sharpe === "number"
+      ? Math.round(forwardStats.deflated_sharpe * 100)
+      : null;
+  return (
+    <div className="flex flex-col gap-2 border-t border-border/40 pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <HintLabel
+          label="Trust verdict"
+          tip="A statistical rigor check on this backtest — Probabilistic Sharpe (PSR), Deflated Sharpe (penalises trying many variants), and a Monte-Carlo bootstrap of the return path — rolled into one honest call on whether this edge is real."
+        />
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums",
+            style.tone === "profit" && "bg-[var(--color-profit)]/10 text-[var(--color-profit)]",
+            style.tone === "loss" && "bg-[var(--color-loss)]/10 text-[var(--color-loss)]",
+            style.tone === "neutral" && "bg-muted text-foreground/80",
+          )}
+        >
+          <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} aria-hidden="true" />
+          {verdict.label}
+        </span>
+      </div>
+      <p className="text-[12px] leading-snug text-foreground/75">{verdict.rationale}</p>
+      {(psrPct != null || dsrPct != null || verdict.flags.length > 0) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+          {psrPct != null ? <span>PSR {psrPct}%</span> : null}
+          {dsrPct != null ? (
+            <span>
+              Deflated Sharpe {dsrPct}%
+              {forwardStats?.num_trials && forwardStats.num_trials > 1
+                ? ` (${forwardStats.num_trials} variants)`
+                : ""}
+            </span>
+          ) : null}
+          {verdict.flags.map((f) => (
+            <span key={f} className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
+              {_FLAG_LABEL[f] ?? f}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -26,6 +26,8 @@ Design choices
 from __future__ import annotations
 
 import ast
+import math
+import time
 from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import date
@@ -306,10 +308,37 @@ def _session() -> Session:
     return FinancialsSessionLocal()
 
 
+# `resolve_symbol` is called once per FIELD_MAP metric (get_fundamental →
+# _get_line_item_value) even within a single fetch_fundamentals() snapshot
+# — 8 metrics meant 8 re-runs of the 5-way UNION below (one branch an EXISTS
+# subquery against statement_lines), the dominant cost in a ~5.5s single-
+# symbol fetch (live-probed 2026-07-14 on a "compare oil majors" turn that
+# took 52s end-to-end). The sc_id mapping is static reference data — a
+# company doesn't change its sc_id intraday — so cache it in-process rather
+# than threading an "already resolved" flag through every caller in the
+# resolve_metric/get_fundamental/get_company chain (get_company already
+# calls this too). Read-only DB, so a stale-for-a-few-minutes cache is safe;
+# TTL just bounds how long a scraper-side rename takes to show up.
+_SYMBOL_CACHE_TTL_S = 300
+_symbol_cache: dict[str, tuple[str | None, float]] = {}
+
+
 def resolve_symbol(symbol: str, *, session: Session | None = None) -> str | None:
     """Map a user-facing symbol (NSE ticker, BSE code, sc_id, or name) → sc_id.
+    Cached in-process for `_SYMBOL_CACHE_TTL_S` — see module note above."""
+    key = (symbol or "").strip().upper()
+    if not key:
+        return None
+    cached = _symbol_cache.get(key)
+    if cached is not None and (time.monotonic() - cached[1]) < _SYMBOL_CACHE_TTL_S:
+        return cached[0]
+    result = _resolve_symbol_uncached(symbol, session=session)
+    _symbol_cache[key] = (result, time.monotonic())
+    return result
 
-    Order of attempts:
+
+def _resolve_symbol_uncached(symbol: str, *, session: Session | None = None) -> str | None:
+    """Order of attempts:
       1. exact sc_id match
       2. exact `ticker` match (case-insensitive)
       3. exact `nse_symbol` match (case-insensitive)
@@ -1487,23 +1516,42 @@ _PRICE_RATIO_DIVISOR: dict[str, tuple[str, ...]] = {
 
 def _latest_price(symbol_or_sc_id: str, *, session: Session | None = None) -> float | None:
     """Live last price for a symbol (Kite REST, Redis-cached) with a yfinance
-    fallback. Resolves an sc_id back to its NSE symbol first. None on miss —
-    the caller then can't compute a price ratio and reports it unavailable."""
+    fallback. Resolves an sc_id back to its verified NSE symbol first. None
+    on miss — the caller then can't compute a price ratio and reports it
+    unavailable.
+
+    Used to gate the sc_id→symbol resolution on `sym.isdigit()`, assuming
+    Moneycontrol's sc_id was always numeric. It isn't — e.g. Reliance
+    Industries' sc_id is the alphanumeric code "RI", not a digit string — so
+    that guard let raw sc_ids straight through to the yfinance fallback,
+    which then queried Yahoo for a nonexistent "RI.NS" instead of the real
+    "RELIANCE.NS" (live-probed 2026-07-14: a 5-symbol comparison spent ~6s
+    per miss on this before timing out). `get_company` already resolves both
+    real tickers and sc_ids correctly (via `resolve_symbol`'s priority
+    match, now in-process cached — see module note above `resolve_symbol`),
+    so call it unconditionally and prefer its verified `nse_symbol` whenever
+    one exists, rather than guessing from the input's shape.
+    """
     sym = (symbol_or_sc_id or "").strip().upper()
-    # If we were handed an sc_id, map it to a tradable NSE symbol.
-    if not sym or sym.isdigit():
-        try:
-            comp = get_company(symbol_or_sc_id, session=session)
-            sym = (comp.nse_symbol or comp.ticker or "").strip().upper() if comp else sym
-        except Exception:  # noqa: BLE001
-            pass
+    if not sym:
+        return None
+    try:
+        comp = get_company(symbol_or_sc_id, session=session)
+        if comp:
+            verified = (comp.nse_symbol or comp.ticker or "").strip().upper()
+            if verified:
+                sym = verified
+    except Exception:  # noqa: BLE001
+        pass
     if not sym:
         return None
     try:
         from backend.kite.live_quote import get_kite_quote
         q = get_kite_quote(sym, exchange="NSE")
         if q and q.get("last_price"):
-            return float(q["last_price"])
+            px = float(q["last_price"])
+            if not math.isnan(px):
+                return px
     except Exception:  # noqa: BLE001 — never fatal
         pass
     # yfinance fallback (bounded — never hang the request).
@@ -1514,7 +1562,15 @@ def _latest_price(symbol_or_sc_id: str, *, session: Session | None = None) -> fl
             lambda: yf.Ticker(f"{sym}.NS").history(period="5d"), timeout=6.0,
         )
         if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+            # A gapped/incomplete OHLCV row can carry a NaN close (seen live
+            # on INFY) — NaN is truthy and fails every `<=`/`==` comparison,
+            # so it silently poisons every downstream price-ratio guard
+            # (`not price or price <= 0` does NOT catch it) all the way to
+            # a JSON-serialization crash on the chat response. Reject it
+            # here, at the source, the same way a missing price is rejected.
+            px = float(hist["Close"].iloc[-1])
+            if not math.isnan(px):
+                return px
     except Exception:  # noqa: BLE001
         pass
     return None
@@ -1592,11 +1648,11 @@ def compute_price_ratio(
         per_share = _derive_per_share(
             symbol_or_sc_id, k, as_of_date=as_of_date, basis=basis, session=session,
         )
-    if per_share is None or per_share <= 0:
+    if per_share is None or per_share <= 0 or math.isnan(per_share):
         return None
     if price is None:
         price = _latest_price(symbol_or_sc_id, session=session)
-    if not price or price <= 0:
+    if not price or price <= 0 or math.isnan(price):
         return None
     return float(price) / per_share
 

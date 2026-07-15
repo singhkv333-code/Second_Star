@@ -11,11 +11,9 @@ deploy with ``book='live'`` (the user confirms + places in their own broker app)
 
 Trigger steps come straight from ``config.timing`` (``timing.timing_to_trigger``,
 already stamped by dispatch): each ``tranches[*].trigger`` is a ``{step_type,
-config}`` pair (``trigger.schedule`` one-time / ``trigger.scheduled_macro`` /
-``trigger.event`` / ``trigger.indicator`` / ``trigger.price``). Prediction-market
-triggers are NEVER emitted — ``timing.py`` already guarantees this (PROGA-hidden).
-The ``invalidation`` spec (thesis-break) becomes an exit branch (its trigger +
-``action.squareoff_all`` / a notify) when present.
+config}`` pair (``trigger.schedule`` one-time / ``trigger.indicator`` /
+``trigger.price``). The ``invalidation`` spec (thesis-break) becomes an exit
+branch (its trigger + ``action.squareoff_all`` / a notify) when present.
 
 Action step per kind (:data:`ACTION_STEP_BY_KIND`):
 

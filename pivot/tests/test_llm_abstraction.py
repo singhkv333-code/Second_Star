@@ -160,10 +160,11 @@ def test_openai_parse_text_only_response():
             }
         ],
     }
-    content, tool_calls, finish = _parse_response(data)
+    content, tool_calls, finish, citations = _parse_response(data)
     assert content == "hello"
     assert tool_calls == []
     assert finish == "stop"
+    assert citations == []
 
 
 def test_openai_parse_function_call_response():
@@ -174,7 +175,7 @@ def test_openai_parse_function_call_response():
              "arguments": '{"foo": "bar"}'},
         ],
     }
-    content, tool_calls, finish = _parse_response(data)
+    content, tool_calls, finish, _ = _parse_response(data)
     assert content is None
     assert tool_calls == [{"id": "abc", "name": "do_x",
                            "arguments": {"foo": "bar"}}]
@@ -189,7 +190,7 @@ def test_openai_parse_malformed_function_args_does_not_crash():
              "arguments": "{not-json"},
         ],
     }
-    _, tool_calls, _ = _parse_response(data)
+    _, tool_calls, _, _ = _parse_response(data)
     # Surface the parse error in args so the validator can react.
     assert tool_calls[0]["arguments"]["_parse_error"] is True
 
@@ -202,8 +203,37 @@ def test_openai_parse_length_finish():
             {"type": "output_text", "text": "partial..."},
         ]}],
     }
-    _, _, finish = _parse_response(data)
+    _, _, finish, _ = _parse_response(data)
     assert finish == "length"
+
+
+def test_openai_parse_strips_inline_citation_marker():
+    # Regression: eval50 (2026-07-14) found raw citeturn0search0-style
+    # markers leaking verbatim into user-facing text. The annotation's
+    # start/end span must be replaced with a real markdown link, not
+    # left as a bare inline token.
+    text = "Reliance is diversifying into retailciteturn0search0 and telecom."
+    marker_start = text.index("citeturn0search0")
+    marker_end = marker_start + len("citeturn0search0")
+    data = {
+        "status": "completed",
+        "output": [{"type": "message", "content": [{
+            "type": "output_text",
+            "text": text,
+            "annotations": [{
+                "type": "url_citation", "url": "https://example.com/a",
+                "title": "Reliance retail news",
+                "start_index": marker_start, "end_index": marker_end,
+            }],
+        }]}],
+    }
+    content, _, _, citations = _parse_response(data)
+    assert "citeturn0search0" not in content
+    assert "[Reliance retail news](https://example.com/a)" in content
+    assert citations == [{
+        "url": "https://example.com/a", "title": "Reliance retail news",
+        "start_index": marker_start, "end_index": marker_end,
+    }]
 
 
 def test_is_reasoning_model_classification():

@@ -81,13 +81,22 @@ class BacktestDataAccessor:
         exchange: str = "NSE",
         basis: str = "close",
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         """Returns the ``basis`` (close/open/high/low) of bar
         ``as_of_idx - offset``. ``None`` if the symbol isn't loaded,
         the bar's value is NaN, or the offset reaches before bar 0.
         Same no-lookahead guarantees as the rest of the accessor:
         no read past ``as_of_idx``.
+
+        ``timeframe`` is accepted (and normalized) for signature parity
+        with the live accessor; it's informational only here — the
+        backtest's bars are already loaded at the run's chosen
+        interval, so 'offset' is implicitly counted in BARS of those
+        bars. We do not refetch.
         """
+        from backend.core.data.intervals import normalize_interval
+        _ = normalize_interval(timeframe)
         df = self._df_for(symbol, exchange)
         if df is None:
             return None

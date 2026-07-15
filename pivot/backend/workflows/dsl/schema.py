@@ -112,6 +112,30 @@ _NODE_TYPE_ALIASES = {
 }
 _POSITION_FIELD_KEY_ALIASES = ("require", "metric", "property", "attribute")
 
+# Another common near-miss: the model spells the position FIELD directly
+# as the node's "type" (e.g. `{"type": "position_unrealised_pct"}`)
+# instead of `{"type": "position", "field": "unrealised_pct"}`. Seen in
+# the wild when a hand-authored `trigger.exit_compound` tree (built via
+# propose_workflow rather than the dedicated DSL translator) encodes a
+# profit/loss-target exit — 2026-07-14 eval #14 (HDFCBANK profit/loss
+# automation) failed validation on exactly this shape twice.
+_POSITION_FIELD_TYPE_ALIASES = {
+    "position_entry_price": "entry_price",
+    "position_unrealised_pct": "unrealised_pct",
+    "position_unrealised_abs": "unrealised_abs",
+    "position_bars_held": "bars_held",
+    "position_peak_unrealised_pct": "peak_unrealised_pct",
+    "position_drawdown_from_peak_pct": "drawdown_from_peak_pct",
+}
+
+# The model also sometimes spells the boolean op directly as the node's
+# "type" (`{"type": "or", "conditions": [...]}`) instead of the correct
+# `{"type": "logic", "op": "or", "operands": [...]}`. Same eval #14 root
+# cause: attempt 2 fixed the position leaf but kept this shape and failed
+# again — "failed validation twice" from a single unrecognised alias.
+_BARE_LOGIC_OP_ALIASES = ("and", "or", "not")
+_LOGIC_OPERANDS_KEY_ALIASES = ("conditions", "clauses", "items")
+
 
 def normalize_tree_aliases(node: object) -> object:
     """Recursively rewrite well-known LLM node-shape aliases in a raw
@@ -123,7 +147,19 @@ def normalize_tree_aliases(node: object) -> object:
         return node
     out = {k: normalize_tree_aliases(v) for k, v in node.items()}
     t = out.get("type")
-    if isinstance(t, str) and t in _NODE_TYPE_ALIASES:
+    if isinstance(t, str) and t in _POSITION_FIELD_TYPE_ALIASES:
+        out["type"] = "position"
+        out.setdefault("field", _POSITION_FIELD_TYPE_ALIASES[t])
+        t = out["type"]
+    elif isinstance(t, str) and t in _BARE_LOGIC_OP_ALIASES:
+        for alias in _LOGIC_OPERANDS_KEY_ALIASES:
+            if alias in out and "operands" not in out:
+                out["operands"] = out.pop(alias)
+                break
+        out["op"] = t
+        out["type"] = "logic"
+        t = "logic"
+    elif isinstance(t, str) and t in _NODE_TYPE_ALIASES:
         out["type"] = _NODE_TYPE_ALIASES[t]
         t = out["type"]
     if t == "position" and "field" not in out:
@@ -239,6 +275,16 @@ class PriceNode(_Strict):
         description=(
             "How many bars in the past to read. 0 = current bar's "
             "basis; 1 = previous bar's basis; max 500."
+        ),
+    )
+    timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = Field(
+        default="1d",
+        description=(
+            "Bar timeframe ``offset`` counts in. Canonical set: "
+            "1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo. Only meaningful when "
+            "offset > 0 — 'price 1 bar ago on 5m bars' needs this set "
+            "to '5m', otherwise offset resolves against DAILY bars "
+            "(offset=1 means yesterday's close, not '5 minutes ago')."
         ),
     )
 
@@ -384,6 +430,21 @@ class SessionDayNode(_Strict):
     days: list[
         Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     ] = Field(..., min_length=1, max_length=7)
+
+
+class AlwaysNode(_Strict):
+    """Boolean leaf, unconditionally True on every bar.
+
+    Legal root for a genuinely unconditional entry/exit ("buy at open
+    every day", "just buy now, no filter") — the only case the grammar
+    previously had no way to express, which pushed the LLM translator
+    toward faking it with a self-comparison (``price >= price``), a
+    tautology `_check_no_vacuous_comparisons` correctly rejects as a
+    day-of-week-filter fake. This is the legitimate escape hatch for
+    the *other* case that guard doesn't cover: no filter at all.
+    """
+
+    type: Literal["always"] = "always"
 
 
 class GapNode(_Strict):
@@ -646,6 +707,7 @@ Tree = Annotated[
         ConstantNode,
         PositionNode,
         SessionDayNode,
+        AlwaysNode,
         GapNode,
         PctChangeNode,
         SpreadNode,

@@ -73,8 +73,21 @@ NAME_TO_TICKER: dict[str, str] = {
     "hcltech": "HCLTECH",
     "tech mahindra": "TECHM",
     "techm": "TECHM",
-    "tata motors": "TATAMOTORS",
-    "tatamotors": "TATAMOTORS",
+    # Tata Motors demerged (2025) into two separately-listed entities; the old
+    # single `TATAMOTORS` ticker is delisted. The unqualified brand → the
+    # passenger-vehicle flagship (retains the Tata Motors identity + JLR); the
+    # commercial-vehicle sibling is reachable by its own name/ticker. See
+    # DELISTED_SUCCESSOR for the raw-ticker redirect. Verified live on yfinance.
+    "tata motors": "TMPV",
+    "tatamotors": "TMPV",
+    "tata motors pv": "TMPV",
+    "tata motors passenger": "TMPV",
+    "tata motors passenger vehicles": "TMPV",
+    "tmpv": "TMPV",
+    "tata motors cv": "TMCV",
+    "tata motors commercial": "TMCV",
+    "tata motors commercial vehicles": "TMCV",
+    "tmcv": "TMCV",
     "maruti": "MARUTI",
     "ongc": "ONGC",
     "ntpc": "NTPC",
@@ -120,7 +133,8 @@ DISPLAY_NAMES: dict[str, str] = {
     "WIPRO": "Wipro",
     "HCLTECH": "HCL Technologies",
     "TECHM": "Tech Mahindra",
-    "TATAMOTORS": "Tata Motors",
+    "TMPV": "Tata Motors (PV)",
+    "TMCV": "Tata Motors (CV)",
     "MARUTI": "Maruti Suzuki",
     "ONGC": "ONGC",
     "NTPC": "NTPC",
@@ -173,6 +187,18 @@ def resolve_period(period: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported period: {period!r}")
 
 
+# Corporate-action ticker redirects: an NSE equity symbol that was DELISTED by
+# a rename or demerger → its live successor symbol. Without this, a request for
+# the old (now dead) ticker hits `<OLD>.NS`, yfinance returns no data, and the
+# user gets a generic "no live level" refusal for a company that very much
+# still trades. Only add entries verified live on yfinance. For a demerger that
+# split a parent into two, the successor is the flagship that kept the brand;
+# the sibling is added to NAME_TO_TICKER so it's reachable by its own name.
+DELISTED_SUCCESSOR: dict[str, str] = {
+    "TATAMOTORS": "TMPV",   # 2025 demerger → PV (flagship) + TMCV (commercial)
+}
+
+
 def resolve_symbol(symbol: str) -> str:
     """Map a user-supplied symbol/name to a yfinance ticker."""
     if not symbol:
@@ -188,6 +214,11 @@ def resolve_symbol(symbol: str) -> str:
         if canonical in INDEX_TICKERS:
             return INDEX_TICKERS[canonical]
         return f"{canonical}.NS"
+    # Raw ticker input (e.g. "TATAMOTORS" or "TATAMOTORS.NS") for a symbol that
+    # was delisted by a corporate action → redirect to the live successor.
+    bare = upper[:-3] if upper.endswith(".NS") else upper
+    if bare in DELISTED_SUCCESSOR:
+        return f"{DELISTED_SUCCESSOR[bare]}.NS"
     if upper.endswith(".NS") or upper.startswith("^"):
         return upper
     return f"{upper}.NS"
@@ -204,6 +235,12 @@ def canonical_symbol(symbol: str) -> str:
         return upper.replace(" ", "")
     if lower in NAME_TO_TICKER:
         return NAME_TO_TICKER[lower]
+    # Keep canonical/display in lockstep with resolve_symbol's redirect so a
+    # delisted raw ticker never resolves to the successor's data but displays
+    # under the dead symbol.
+    bare = upper[:-3] if upper.endswith(".NS") else upper
+    if bare in DELISTED_SUCCESSOR:
+        return DELISTED_SUCCESSOR[bare]
     return upper.replace(".NS", "")
 
 

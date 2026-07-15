@@ -1,11 +1,9 @@
 """Per-symbol earnings calendar + outcome verifier (beta).
 
 This package powers ``trigger.earnings`` — the scheduler-armed,
-outcome-verified earnings trigger. It is the earnings-specific sibling
-of :mod:`backend.macro_events`: same fail-safe philosophy, same fire-
-once / audit-context shape, but the calendar is *live* (yfinance per
-ticker) and the verifier is arithmetic (reported vs. estimate) rather
-than LLM-parsed text.
+outcome-verified earnings trigger. Fail-safe philosophy: the calendar
+is *live* (yfinance per ticker) and the verifier is arithmetic
+(reported vs. estimate) rather than LLM-parsed text.
 
 Public surface:
 

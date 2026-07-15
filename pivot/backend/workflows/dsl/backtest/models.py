@@ -1,7 +1,7 @@
 """ORM model for the dsl_backtest_runs table.
 
 Mirrors migration 0011_dsl_backtest_runs.py. Same dual-dialect
-conventions as backend/news_events/models.py (String(36) UUID PKs,
+conventions as the workflow ORM (String(36) UUID PKs,
 SQLAlchemy JSON column type which renders as JSONB on Postgres
 and JSON on SQLite).
 """

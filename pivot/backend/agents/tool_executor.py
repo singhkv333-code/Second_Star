@@ -9,10 +9,26 @@ Returns: { success, data, logiccard, error }
 import logging
 from typing import Optional
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from backend.agents.tools import get_tool_defaults
 from backend.safety import validate_order_value
 
 logger = logging.getLogger(__name__)
+
+# Generic, user-safe failure for any DB-layer error while registering a
+# workflow. The full exception is logged server-side (stack + SQL); the chat
+# reply must NEVER carry a raw psycopg2/SQLAlchemy string — the register path
+# interpolates `error` verbatim into the user-facing text.
+_REGISTER_DB_ERROR = {
+    "success": False,
+    "error": (
+        "couldn't save the agent just now — a temporary issue on our end. "
+        "Nothing was armed; try registering it again in a moment."
+    ),
+    "data": {},
+    "logiccard": None,
+}
 
 
 async def execute_tool(tool_name: str, arguments: dict,
@@ -92,8 +108,6 @@ def _build_handlers() -> dict:
         "propose_threshold_order":    _propose_threshold_order,
         "propose_basket_allocation":  _propose_basket_allocation,
         "propose_holding_action":     _propose_holding_action,
-        "propose_polymarket_trigger": _propose_polymarket_trigger,
-        "browse_polymarket_markets":  _browse_polymarket_markets,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -654,7 +668,6 @@ async def _propose_workflow(a, kt, db, uid):
         ProposalValidationError,
         _ensure_step_labels,
         propose_workflow_async,
-        resolve_polymarket_event_descriptions,
         validate_draft_against_registry,
     )
 
@@ -675,12 +688,6 @@ async def _propose_workflow(a, kt, db, uid):
     # New path — chat hop emits the structured draft directly.
     if isinstance(a.get("steps"), list):
         try:
-            # Resolve any trigger.polymarket steps that carry only the
-            # event_description escape hatch BEFORE the sync validator
-            # sees them. High-confidence matches fill in ids in-place;
-            # low-confidence raises so the LLM knows to call
-            # propose_polymarket_trigger first.
-            await resolve_polymarket_event_descriptions(a)
             draft = validate_draft_against_registry(a)
         except ProposalValidationError as e:
             logger.info("propose_workflow validation failed: %s", e)
@@ -861,6 +868,7 @@ async def _backtest_workflow(a, kt, db, uid):
     end_date = a.get("end_date") or None
     benchmark_symbol = a.get("benchmark_symbol") or None
     interval = str(a.get("interval") or "1d")
+    starting_capital = a.get("starting_capital")
 
     validated_steps = [s.model_dump() for s in draft.steps]
     try:
@@ -873,6 +881,9 @@ async def _backtest_workflow(a, kt, db, uid):
             end_date=end_date,
             benchmark_symbol=benchmark_symbol,
             interval=interval,
+            starting_capital=(
+                float(starting_capital) if starting_capital else None
+            ),
             # Group this CONVERSATION's backtests (falls back to user) so the
             # Deflated Sharpe deflates for how many variants were tried in this
             # session — tuning one idea deflates together; unrelated chats stay
@@ -1015,227 +1026,6 @@ def _derive_threshold_presets(current_yes: float, direction: str) -> list[float]
     if direction == "below":
         rounded = list(reversed(rounded))  # higher = closer to current = more frequent
     return rounded
-
-
-async def _propose_polymarket_trigger(a, kt, db, uid):
-    """Match a free-text event to a Polymarket contract; return a draft
-    card. Pure — never writes to the DB. Confirmation persists via
-    POST /api/news-events/specs/polymarket; activation kicks off the
-    WS subscription via POST /api/news-events/specs/{id}/activate.
-
-    Two modes supported (carried on the card; FE renders differently):
-      threshold (default) — fires when YES probability crosses a number.
-                            Threshold may be omitted by the LLM; the
-                            handler derives 3 preset chips from current
-                            YES price.
-      resolution          — fires when Polymarket officially declares a
-                            winner. Threshold / direction ignored;
-                            resolve_on picks which outcome fires (YES,
-                            NO, ANY).
-
-    Render hints:
-      polymarket_trigger_draft  → high-confidence auto-pick.
-      polymarket_trigger_picker → low-confidence; FE shows a candidate
-                                  list with the matcher's best guess
-                                  pre-highlighted (if any).
-    """
-    from backend.news_events.parsing.polymarket_match import (
-        match_event_to_polymarket_contract,
-    )
-    from backend.news_events.sources.polymarket import get_market
-
-    a = a or {}
-    desc = str(a.get("event_description") or "").strip()
-    if not desc:
-        return {
-            "success": False,
-            "error": "event_description is required",
-            "data": {},
-            "logiccard": None,
-        }
-    mode = str(a.get("mode", "threshold")).lower()
-    if mode not in {"threshold", "resolution"}:
-        mode = "threshold"
-    resolve_on = str(a.get("resolve_on", "YES")).upper()
-    if resolve_on not in {"YES", "NO", "ANY"}:
-        resolve_on = "YES"
-    direction = str(a.get("direction", "above")).lower()
-    if direction not in {"above", "below"}:
-        direction = "above"
-
-    # Threshold: optional only when mode='threshold' (handler derives
-    # presets); ignored when mode='resolution'.
-    threshold_raw = a.get("threshold")
-    user_supplied_threshold: Optional[float] = None
-    if mode == "threshold" and threshold_raw is not None:
-        try:
-            user_supplied_threshold = float(threshold_raw)
-        except (TypeError, ValueError):
-            return {
-                "success": False,
-                "error": "threshold must be a number in [0, 1]",
-                "data": {},
-                "logiccard": None,
-            }
-        if not (0.0 <= user_supplied_threshold <= 1.0):
-            return {
-                "success": False,
-                "error": f"threshold {user_supplied_threshold} out of [0, 1]",
-                "data": {},
-                "logiccard": None,
-            }
-
-    workflow_note = str(a.get("workflow_action_summary") or "").strip() or None
-
-    try:
-        match = await match_event_to_polymarket_contract(desc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "polymarket_trigger matcher_failed err=%s", exc,
-        )
-        return {
-            "success": False,
-            "error": f"matcher failed: {exc}",
-            "data": {},
-            "logiccard": None,
-        }
-
-    candidate_views = [
-        {
-            "index": i,
-            "market_id": c.market_id,
-            "question": c.question,
-            "slug": c.slug,
-            "yes_price": c.yes_price,
-            "yes_token_id": c.yes_token_id,
-            "no_token_id": c.no_token_id,
-            "closed": c.closed,
-        }
-        for i, c in enumerate(match.candidates)
-    ]
-
-    # Pull the chosen / best-guess current YES price so we can derive
-    # threshold presets even on the picker path.
-    chosen_yes_price: Optional[float] = None
-    chosen_market_id = match.market_id  # set on both matched + low-conf paths
-    if chosen_market_id is not None:
-        for c in match.candidates:
-            if c.market_id == chosen_market_id:
-                chosen_yes_price = float(c.yes_price)
-                break
-
-    # Auto-fetch end_date for the chosen market so the card carries
-    # the natural deadline. Best-effort — never blocks the card.
-    timeline_default: Optional[str] = None
-    if chosen_market_id is not None:
-        try:
-            snap = await get_market(chosen_market_id)
-            if snap is not None:
-                raw_end = (snap.raw or {}).get("endDate")
-                if raw_end:
-                    timeline_default = str(raw_end)
-        except Exception:  # noqa: BLE001 — never block the card on metadata fetch
-            timeline_default = None
-
-    # Threshold presets only applicable in threshold mode + when we
-    # have a current YES price.
-    threshold_presets: list[float] = []
-    threshold_preselected: Optional[float] = None
-    threshold_was_assumed = False
-    effective_threshold: Optional[float] = user_supplied_threshold
-    if mode == "threshold" and chosen_yes_price is not None:
-        threshold_presets = _derive_threshold_presets(chosen_yes_price, direction)
-        if threshold_presets:
-            mid = threshold_presets[len(threshold_presets) // 2]
-            threshold_preselected = mid
-            if effective_threshold is None:
-                effective_threshold = mid
-                threshold_was_assumed = True
-
-    base = {
-        "event_description": desc,
-        "mode": mode,
-        "resolve_on": resolve_on if mode == "resolution" else None,
-        "threshold": effective_threshold if mode == "threshold" else None,
-        "threshold_presets": threshold_presets if mode == "threshold" else [],
-        "threshold_preselected": threshold_preselected if mode == "threshold" else None,
-        "threshold_was_assumed": threshold_was_assumed if mode == "threshold" else False,
-        "direction": direction if mode == "threshold" else None,
-        "current_yes_price": chosen_yes_price,
-        "timeline_default": timeline_default,
-        "workflow_action_summary": workflow_note,
-        "matcher_reason": match.reason,
-        "candidates": candidate_views,
-    }
-
-    if match.matched:
-        base.update({
-            "_render_hint": "polymarket_trigger_draft",
-            "matched": True,
-            "market_id": match.market_id,
-            "token_id": match.token_id,
-            "side": match.side,
-            "question": match.question,
-            "confidence": match.confidence,
-        })
-        return {"success": True, "data": base, "logiccard": None}
-
-    # Low-confidence — show the picker. Pre-highlight the matcher's
-    # best guess if it had one (low confidence is still surfaced on
-    # MatchResult.market_id/token_id/side). Threshold presets above
-    # also apply so the user picks contract + threshold in one card.
-    base.update({
-        "_render_hint": "polymarket_trigger_picker",
-        "matched": False,
-        "best_guess_market_id": match.market_id,
-        "best_guess_token_id": match.token_id,
-        "best_guess_side": match.side,
-        "best_guess_question": match.question,
-        "best_guess_confidence": match.confidence,
-    })
-    return {"success": True, "data": base, "logiccard": None}
-
-
-async def _browse_polymarket_markets(a, kt, db, uid):
-    """Catalog browse — list open Polymarket events optionally filtered
-    by topic. Pure read-only; no DB write. Returns a render hint the
-    FE renders as a scrollable list of event cards; clicking one
-    drills into its markets and routes to propose_polymarket_trigger.
-    """
-    from backend.news_events.sources.polymarket import browse_events
-
-    a = a or {}
-    topic = str(a.get("topic") or "").strip() or None
-    try:
-        limit = int(a.get("limit", 10))
-    except (TypeError, ValueError):
-        limit = 10
-    limit = max(1, min(20, limit))
-
-    try:
-        events = await browse_events(topic, limit=limit, markets_per_event=3)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("browse_polymarket_markets failed err=%s", exc)
-        return {
-            "success": False,
-            "error": f"browse failed: {exc}",
-            "data": {},
-            "logiccard": None,
-        }
-
-    payload = {
-        "_render_hint": "polymarket_market_browse_card",
-        "topic": topic,
-        "limit": limit,
-        "events": events,
-        "result_count": len(events),
-    }
-    if not events:
-        payload["empty_reason"] = (
-            f"no open markets matched {topic!r}"
-            if topic else "no open events returned by Polymarket"
-        )
-    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):
@@ -1613,6 +1403,7 @@ async def _screen_fundamentals(a, kt, db, uid):
         limit=int(a.get("limit", 15)),
         market_cap_tier=a.get("market_cap_tier"),
         custom_ratios=a.get("custom_ratios") or None,
+        exclude=a.get("exclude") or None,
     )
     return {"success": True, "data": out, "logiccard": None}
 
@@ -2133,28 +1924,48 @@ async def _get_ipo_listing(a, kt, db, uid):
 # or registers an option order by itself.
 
 
-def _normalize_expiry_arg(raw) -> tuple[str | None, bool]:
-    """LLMs pass 'nearest'/'current'/'current_week'/'next' as expiry.
-    Returns (iso_or_none, want_next): None = nearest; want_next picks the
-    second listed expiry."""
+def _normalize_expiry_arg(raw) -> tuple[str | None, str | None]:
+    """LLMs pass 'nearest'/'current'/'current_week'/'next'/'monthly' as
+    expiry. Returns (iso_or_none, mode) where mode is one of
+    {None, "next_weekly", "next_monthly"} when iso is None.
+
+    'monthly'/'next_month' used to be folded into the same bucket as
+    'next'/'next_week' and resolved to the SECOND listed expiry — which
+    is normally the next WEEKLY, not the monthly one (list_expiries
+    tags each entry with its real "kind"). A user asking for an
+    "iron condor expiring next month" would silently get the nearer
+    weekly expiry instead. Kept as a distinct mode so the caller can
+    filter by kind=="monthly"."""
     val = str(raw or "").strip().lower()
     if not val or val in ("nearest", "current", "current_week", "this_week", "weekly"):
-        return None, False
-    if val in ("next", "next_week", "next_expiry", "monthly", "next_month"):
-        return None, True
-    return str(raw)[:10], False
+        return None, None
+    if val in ("next", "next_week", "next_expiry"):
+        return None, "next_weekly"
+    if val in ("monthly", "next_month", "month", "monthly_expiry"):
+        return None, "next_monthly"
+    return str(raw)[:10], None
 
 
 def _resolve_expiry_for_tool(db, underlying: str, raw) -> str | None:
     from backend.market.instrument_master import list_expiries
 
-    iso, want_next = _normalize_expiry_arg(raw)
+    iso, mode = _normalize_expiry_arg(raw)
     if iso:
         return iso
-    if want_next:
+    if mode == "next_weekly":
         expiries = list_expiries(db, underlying)
         if len(expiries) > 1:
             return expiries[1]["expiry"]
+    elif mode == "next_monthly":
+        expiries = list_expiries(db, underlying)
+        monthly = [e for e in expiries if e.get("kind") == "monthly"]
+        if monthly:
+            return monthly[0]["expiry"]
+        # No monthly-tagged row for this underlying (e.g. weeklies-only) —
+        # fall back to the furthest listed expiry rather than silently
+        # handing back the nearest one, which is the opposite of "monthly".
+        if expiries:
+            return expiries[-1]["expiry"]
     return None  # nearest
 
 
@@ -2688,7 +2499,15 @@ async def _register_workflow(a, kt, db, uid):
             expires_at=expires_at,
         )
         db.add(wf)
-        db.flush()
+        try:
+            db.flush()
+        except SQLAlchemyError:
+            # Never leak a raw DB exception (e.g. a psycopg2
+            # ForeignKeyViolation / IntegrityError string) into the
+            # user-facing reply — the caller interpolates `error` verbatim.
+            db.rollback()
+            logger.exception("[register_workflow] persist (flush) failed")
+            return dict(_REGISTER_DB_ERROR)
         _replace_steps(db, wf, steps_in)
 
     # Activate — identical sequence to POST /workflows/{id}/activate.
@@ -2702,7 +2521,15 @@ async def _register_workflow(a, kt, db, uid):
         return {"success": False,
                 "error": f"invalid schedule on the draft: {exc}",
                 "data": {}, "logiccard": None}
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        # Same guard on the commit path: a deferred constraint or a
+        # step-insert failure surfaces here, and its raw text must not
+        # reach the chat reply.
+        db.rollback()
+        logger.exception("[register_workflow] commit failed")
+        return dict(_REGISTER_DB_ERROR)
     db.refresh(wf)
     try:
         _register_armed_idea(db, uid, wf)

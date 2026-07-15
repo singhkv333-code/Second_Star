@@ -398,16 +398,6 @@
       "note": "News-gated intraday workflow. Use propose_workflow whenever a workflow has a news condition gating a downstream order. fetch.news's `matched` aggregate feeds condition.boolean."
     },
     {
-      "id": "news_gate_on_iphone_basket",
-      "prompt": "If Apple confirms iPhone manufacturing expansion in India in the next 2 days, buy a basket of 5 Indian electronics manufacturing stocks.",
-      "tool": "propose_workflow",
-      "args": {
-        "_steps_summary": "trigger.event(event_description: \"Apple confirms iPhone manufacturing expansion in India\", keywords: [\"Apple\",\"iPhone\",\"manufacturing\",\"India\",\"Foxconn\",\"Tata Electronics\"], min_confidence: 0.85, hours_back: 48) \u2192 fetch.screener(sector: electronics, sort_by: mcap, limit: 5) \u2192 action.allocate_notional(symbols: {{context.1.ranked}}, total_inr: 100000, strategy: equal)"
-      },
-      "confidence": 0.92,
-      "note": "Pure news-event trigger (no schedule). Use trigger.event when the event itself is the trigger and there is no pre-news leg. Keywords specific, event_description in natural language for the LLM verifier."
-    },
-    {
       "id": "top_gainers_open_to_close",
       "prompt": "create me an agent that buys the top gainers after the open and sells them before the close.",
       "tool": "propose_workflow",

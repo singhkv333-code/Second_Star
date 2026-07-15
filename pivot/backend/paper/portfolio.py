@@ -34,7 +34,7 @@ from backend.paper.valuation import (
     position_market_value,
     position_unrealized_pnl,
 )
-from backend.routers.portfolio import SECTOR_MAP
+from backend.routers.portfolio import resolve_sector, universe_by_symbols
 
 PriceFn = Callable[[str], Optional[Decimal]]
 
@@ -223,6 +223,35 @@ def holdings(
         .all()
     )
 
+    # Rich sector per symbol (hand-map → screener universe → "Other"), built
+    # once for the whole book so a name outside the tiny hand-map still shows
+    # its real sector in paper mode (the FE reads this row's `sector`).
+    umap = universe_by_symbols({p.symbol for p in positions})
+
+    # Clean weighted-average BUY price per symbol (the price actually paid,
+    # EXCLUDING charges), so the holdings table can show "the price it was
+    # bought at" next to the LTP — instead of the charge-inclusive cost basis,
+    # which made a fresh buy look like an instant loss equal to the charges.
+    buy_agg: dict[str, list[float]] = {}
+    for _sym, _px, _q in (
+        db.query(PaperFill.symbol, PaperFill.fill_price, PaperFill.quantity)
+        .filter(
+            PaperFill.account_id == account.id,
+            PaperFill.transaction_type == "BUY",
+        )
+        .all()
+    ):
+        try:
+            agg = buy_agg.setdefault(str(_sym), [0.0, 0.0])
+            agg[0] += float(_px) * float(_q)
+            agg[1] += float(_q)
+        except (TypeError, ValueError):
+            continue
+
+    def _buy_price(sym: str, fallback: float) -> float:
+        agg = buy_agg.get(sym)
+        return round(agg[0] / agg[1], 4) if agg and agg[1] else fallback
+
     rows = []
     for pos in positions:
         mark = pf(pos.symbol)  # live price, or None → stored/book fallback
@@ -242,6 +271,10 @@ def holdings(
             "symbol": pos.symbol,
             "quantity": qty_display(pos.quantity),
             "avg_cost": money_to_float(pos.avg_cost),
+            # The clean price paid (ex-charges) — what the UI shows as "Avg".
+            "buy_price": _buy_price(
+                str(pos.symbol), money_to_float(pos.avg_cost)
+            ),
             "last_price": (
                 float(display_price) if display_price is not None else None
             ),
@@ -251,7 +284,7 @@ def holdings(
             "day_pnl": money_to_float(position_day_pnl(pos, mark=mark)),
             "invested": money_to_float(invested),
             "realized_pnl": money_to_float(pos.realized_pnl),
-            "sector": SECTOR_MAP.get(pos.symbol, "Other"),
+            "sector": resolve_sector(pos.symbol, umap.get(pos.symbol)),
             # Live-marked rows aren't stale; only an unpriced one inherits it.
             "stale": bool(pos.stale) if mark is None else False,
             "last_mark_at": _iso(pos.last_mark_at),

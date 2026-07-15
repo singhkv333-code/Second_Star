@@ -308,11 +308,11 @@ class RunCancelResponse(BaseModel):
 
 
 class ScheduledRunItem(BaseModel):
-    """One upcoming fire of an active workflow's `trigger.schedule`
-    or `trigger.event`. Used by the FE Calendar tab."""
+    """One upcoming fire of an active workflow's `trigger.schedule`.
+    Used by the FE Calendar tab."""
     workflow_id: str
     workflow_name: str
-    trigger_type: str  # 'trigger.schedule' | 'trigger.event'
+    trigger_type: str  # 'trigger.schedule'
     fire_time: datetime  # UTC, ISO 8601
     fire_time_local: str  # Pre-formatted in trigger's tz, e.g. "3:55 PM IST"
 

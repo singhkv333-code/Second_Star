@@ -25,4 +25,4 @@
 ### Pairing rules
 - Pair `notify.webhook` with `notify.message` when the user wants BOTH ("ping my server AND alert me in-app").
 - For a webhook-only ask, do not also add an in-app notify step.
-- Good pairing: `notify.webhook` with `trigger.global_price`, `trigger.earnings`, or `trigger.scheduled_macro` — for users wiring Pivot into their own infrastructure.
+- Good pairing: `notify.webhook` with `trigger.global_price` or `trigger.earnings` — for users wiring Pivot into their own infrastructure.

@@ -17,6 +17,7 @@
  */
 
 import type { ApiResult, ErrorBody } from "@/lib/types";
+import { getAccessToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Response shapes (from the backend contract for GET /portfolio/scores)
@@ -94,20 +95,11 @@ function getLegacyBase(): string {
   return base.replace(/\/api\/?$/, "");
 }
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem("pivot_jwt");
-  } catch {
-    return null;
-  }
-}
-
 async function getLegacy<T>(path: string): Promise<ApiResult<T>> {
   const base = getLegacyBase();
   const sep = base.endsWith("/") || path.startsWith("/") ? "" : "/";
   const url = `${base}${sep}${path}`;
-  const token = getToken();
+  const token = await getAccessToken();
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -200,7 +192,7 @@ async function getApi<T>(path: string): Promise<ApiResult<T>> {
   const base = getApiBase();
   const sep = base.endsWith("/") || path.startsWith("/") ? "" : "/";
   const url = `${base}${sep}${path}`;
-  const token = getToken();
+  const token = await getAccessToken();
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;

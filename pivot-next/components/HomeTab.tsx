@@ -27,6 +27,7 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   Activity,
@@ -313,17 +314,17 @@ function makeDraft(
 const PREBUILT_STRATEGIES: StrategyTile[] = [
   {
     kind: "agent",
-    title: "RELIANCE 3:55 PM buy",
+    title: "RELIANCE 3:15 PM buy",
     subtitle: "Weekday buy when buying power is high",
     tag: "Automation",
-    matchName: "RELIANCE 3:55 PM weekday buy",
+    matchName: "RELIANCE 3:15 PM weekday buy",
     Icon: TrendingUp,
     draft: makeDraft(
-      "reliance-355",
-      "RELIANCE 3:55 PM weekday buy",
-      "Every weekday at 3:55 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
+      "reliance-315",
+      "RELIANCE 3:15 PM weekday buy",
+      "Every weekday at 3:15 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
       [
-        { step_type: "trigger.schedule", label: "Every weekday at 3:55 PM IST", config: { cron: "55 15 * * 1-5", timezone: "Asia/Kolkata" } },
+        { step_type: "trigger.schedule", label: "Every weekday at 3:15 PM IST", config: { cron: "15 15 * * 1-5", timezone: "Asia/Kolkata" } },
         { step_type: "fetch.portfolio", label: "Get portfolio", config: {} },
         { step_type: "condition.numeric", label: "Buying power > ₹50,000", config: { left: { ref: "portfolio.cash" }, operator: ">", right: 50000 } },
         { step_type: "action.place_order", label: "Buy 10 RELIANCE", config: { symbol: "RELIANCE", side: "buy", quantity: 10, order_type: "market", requires_approval: false } },
@@ -398,6 +399,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
 export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }: HomeTabProps): React.ReactElement {
   const [greetName, setGreetName] = useState<string | null>(null);
   const device = useDevice();
+  const router = useRouter();
 
   useEffect(() => {
     getMe().then((r) => {
@@ -466,11 +468,7 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
         </div>
 
         <IndicesStrip
-          onSelect={(idx) =>
-            onSendPrompt(
-              `Give me a market pulse on ${idx.name}: the current level and trend, key support/resistance levels, and what's driving it right now.`,
-            )
-          }
+          onSelect={(idx) => router.push(`/stock/${encodeURIComponent(idx.symbol)}`)}
         />
       </div>
 
@@ -1662,18 +1660,36 @@ function StrategyCard({
         <Icon size={16} strokeWidth={1.8} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 3 }}>
-        <span
-          style={{
-            fontFamily: "var(--font-ui)",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            letterSpacing: "-0.01em",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {tile.title}
-        </span>
+        <div className="flex items-center" style={{ gap: 8 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "-0.01em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {tile.title}
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 9.5,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              color: "var(--text-tertiary)",
+              border: "1px solid var(--glass-border)",
+              borderRadius: "var(--radius-pill)",
+              padding: "1.5px 7px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {tile.tag}
+          </span>
+        </div>
         <span
           style={{
             fontFamily: "var(--font-ui)",

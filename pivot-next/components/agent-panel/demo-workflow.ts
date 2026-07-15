@@ -10,9 +10,9 @@ import type { Workflow } from "@/lib/types";
  */
 export const DEMO_WORKFLOW: Workflow = {
   id: "00000000-0000-4000-8000-000000000001",
-  name: "RELIANCE 3:55 PM buy",
+  name: "RELIANCE 3:15 PM buy",
   description:
-    "Every weekday at 3:55 PM IST, if buying power is over ₹50,000, buy 10 shares of RELIANCE and notify by email.",
+    "Every weekday at 3:15 PM IST, if buying power is over ₹50,000, buy 10 shares of RELIANCE and notify by email.",
   status: "draft",
   version: 1,
   single_instance: true,
@@ -26,8 +26,8 @@ export const DEMO_WORKFLOW: Workflow = {
       id: "00000000-0000-4000-8000-000000000010",
       step_index: 0,
       step_type: "trigger.schedule",
-      label: "Every weekday at 3:55 PM IST",
-      config: { cron: "55 15 * * 1-5", timezone: "Asia/Kolkata" },
+      label: "Every weekday at 3:15 PM IST",
+      config: { cron: "15 15 * * 1-5", timezone: "Asia/Kolkata" },
     },
     {
       id: "00000000-0000-4000-8000-000000000011",

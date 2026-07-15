@@ -61,6 +61,7 @@ import type {
 import { isError } from "@/lib/types";
 import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
+import { refreshAccessToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -799,7 +800,7 @@ export type ScheduledRun = {
   trigger_type: "trigger.schedule" | "trigger.event";
   /** ISO 8601 UTC */
   fire_time: string;
-  /** Pre-formatted in trigger's tz, e.g. "3:55 PM IST" */
+  /** Pre-formatted in trigger's tz, e.g. "3:15 PM IST" */
   fire_time_local: string;
 };
 
@@ -816,8 +817,14 @@ export type Holding = {
   average_price: number;
   last_price: number;
   pnl: number;
+  /** PER-SHARE day move (LTP − prev close). NOT the position's total day P&L.
+   *  Callers derive prev close as `last_price − day_change`. */
   day_change: number;
   day_change_percentage: number;
+  /** Rich sector label from the backend (hand-map → screener universe →
+   *  "Other"); F&O contracts read "F&O", ETFs "ETF". Present on both the live
+   *  `/portfolio/holdings` and paper `/paper/holdings` reads. */
+  sector?: string | null;
   /** "large" | "mid" | "small" | null — same thresholds as the screener's
    *  market-cap tiers; null when the symbol has no market-cap data. */
   market_cap_tier?: "large" | "mid" | "small" | null;
@@ -891,12 +898,21 @@ function adaptPaperHolding(h: PaperHolding): Holding {
     tradingsymbol: h.symbol,
     exchange: "NSE", // paper book has no exchange field; it is NSE-only
     quantity: h.quantity,
-    average_price: h.avg_cost,
-    last_price: h.last_price ?? h.avg_cost, // unmarked lot → book cost
+    // Show the price actually PAID (ex-charges), not the charge-inclusive cost
+    // basis — so a fresh buy reads Avg == LTP (P&L ≈ 0) instead of an instant
+    // "loss" equal to the entry charges. Falls back to avg_cost pre-upgrade.
+    average_price: h.buy_price ?? h.avg_cost,
+    last_price: h.last_price ?? h.buy_price ?? h.avg_cost, // unmarked lot → book
     pnl: h.unrealized_pnl,
-    day_change: h.day_pnl,
+    // `Holding.day_change` is PER-SHARE (matches the live `/portfolio/holdings`
+    // shape, which the Portfolio table uses to back out prev close as
+    // `last_price − day_change`). The paper book's `day_pnl` is the position's
+    // TOTAL day move, so divide by quantity — otherwise the table's Day P&L is
+    // off by a factor of `quantity` (a 10-share lot showed ~10× the real move).
+    day_change: h.quantity !== 0 ? h.day_pnl / h.quantity : 0,
     day_change_percentage:
       h.invested !== 0 ? (h.day_pnl / h.invested) * 100 : 0,
+    sector: h.sector,
   };
 }
 
@@ -1587,8 +1603,12 @@ export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
  * _doRequest which is defined earlier in this module.
  */
 async function _tryRefresh(): Promise<boolean> {
-  const result = await refreshAccess();
-  return !("error" in result);
+  // Route through the shared, deduped refresh gate in authToken so the 401
+  // retry here and the proactive refreshes from the data modules can never
+  // fire two concurrent /auth/refresh calls (which would race on refresh-
+  // token rotation and log the user out).
+  const token = await refreshAccessToken();
+  return token !== null;
 }
 
 /** `POST /auth/logout` — best-effort server-side session revocation. */
@@ -2025,6 +2045,8 @@ export type PaperHolding = {
   symbol: string;
   quantity: number;
   avg_cost: number;
+  /** Clean weighted-average BUY price (ex-charges) — what to show as "Avg". */
+  buy_price?: number;
   last_price: number | null;
   market_value: number;
   unrealized_pnl: number;

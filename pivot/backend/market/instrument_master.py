@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as _time, timedelta
 from typing import Any, Optional, Sequence
 
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from backend.kite.system import get_system_kite
@@ -44,6 +45,24 @@ _OPT_SEGMENTS = ("NFO-OPT", "BFO-OPT", "MCX-OPT")
 _SELECT_PERCENTILE = 40.0       # keep underlyings ≥ this percentile of score
 _MAX_SPREAD_PCT_ATM = 0.05      # reject if ATM spread is wider than 5%
 _ATM_SAMPLE_HALF_WIDTH = 5      # strikes each side of ATM for the sample
+
+# The synthetic mock dump (see ``_mock_instrument_rows``) allocates tokens
+# from this deterministic band — real Kite NFO/BFO/MCX tokens never fall
+# in this narrow window. Shared by the write-side purge below AND the
+# read-side dedup in ``chain_instruments``/``future_instrument``: if a
+# refresh runs in mock mode (e.g. Kite session not yet up at the scheduled
+# refresh time) while real rows from a prior day are still present, both
+# bands coexist until the next healthy Kite-sourced purge. A mock row can
+# carry the SAME (strike, instrument_type, expiry) as a real row yet a
+# tradingsymbol that happens to match a *different*, real, listed
+# contract — so quoting it live silently mixes another expiry's premium
+# into this chain. Never let a mock-band row win over a real one.
+_MOCK_TOKEN_LOW = 10_000_000
+_MOCK_TOKEN_HIGH = 10_002_000
+
+
+def _is_mock_token(token: Optional[int]) -> bool:
+    return token is not None and _MOCK_TOKEN_LOW <= int(token) < _MOCK_TOKEN_HIGH
 
 
 # ── Mock dump (deterministic, date-relative — NO hardcoded dates) ────
@@ -274,8 +293,8 @@ def refresh_instrument_master(db: Session, *, today: Optional[date] = None) -> d
         purged += (
             db.query(InstrumentMaster)
             .filter(
-                InstrumentMaster.instrument_token >= 10_000_000,
-                InstrumentMaster.instrument_token < 10_002_000,
+                InstrumentMaster.instrument_token >= _MOCK_TOKEN_LOW,
+                InstrumentMaster.instrument_token < _MOCK_TOKEN_HIGH,
             )
             .delete(synchronize_session=False)
         )
@@ -313,8 +332,22 @@ def list_option_underlyings(db: Session) -> list[dict[str, str]]:
 def list_expiries(
     db: Session, underlying: str, *, today: Optional[date] = None,
 ) -> list[dict[str, Any]]:
-    """Tradable option expiries for an underlying, soonest first."""
-    today = today or date.today()
+    """Tradable option expiries for an underlying, soonest first.
+
+    When ``today`` isn't pinned by the caller, "today" stops counting as
+    a live expiry once NSE market hours have passed — an expiry whose
+    own trading day already ended is a DEAD, already-settled contract:
+    zero time value, no solvable IV/greeks, and no real chain to build a
+    strategy from. Without this, asking after-hours on the actual weekly
+    expiry date resolved to that dead contract (t_years=0.0, spot=None)
+    and every strategy candidate correctly failed as "too illiquid" —
+    reported 2026-07-14, live-verified via get_option_chain."""
+    if today is None:
+        from backend.utils.time_utils import now_ist
+        now = now_ist()
+        today = now.date()
+        if now.time() > _time(15, 30):
+            today = today + timedelta(days=1)
     rows = (
         db.query(
             InstrumentMaster.expiry, InstrumentMaster.expiry_kind,
@@ -370,8 +403,16 @@ def get_lot_size(
 def chain_instruments(
     db: Session, underlying: str, expiry: date,
 ) -> list[InstrumentMaster]:
-    """CE/PE rows for one (underlying, expiry), strike-ordered."""
-    return (
+    """CE/PE rows for one (underlying, expiry), strike-ordered.
+
+    Exactly one row per (strike, instrument_type): if a stale synthetic
+    mock-dump row (see ``_MOCK_TOKEN_LOW``/``_HIGH``) and a real row both
+    claim the same strike/type/expiry — an incompletely-purged mock
+    refresh — the mock row is dropped. Left undeduped, a live quote fetch
+    keyed off the mock row's tradingsymbol can resolve to a genuinely
+    different, real contract (e.g. a monthly expiry sharing a strike with
+    this weekly), silently mixing two expiries' premiums into one chain."""
+    rows = (
         db.query(InstrumentMaster)
         .filter(
             InstrumentMaster.underlying == underlying.strip().upper(),
@@ -380,6 +421,29 @@ def chain_instruments(
         )
         .order_by(InstrumentMaster.strike)
         .all()
+    )
+    by_key: dict[tuple[float, str], InstrumentMaster] = {}
+    for r in rows:
+        key = (float(r.strike or 0.0), r.instrument_type)
+        existing = by_key.get(key)
+        if existing is None or (
+            _is_mock_token(existing.instrument_token)
+            and not _is_mock_token(r.instrument_token)
+        ):
+            by_key[key] = r
+    return sorted(by_key.values(), key=lambda r: r.strike)
+
+
+def _prefer_real_token():
+    """Order key: real (non-mock-band) rows sort first — see
+    ``chain_instruments`` for why a stale mock row must never win a tie."""
+    return case(
+        (
+            (InstrumentMaster.instrument_token >= _MOCK_TOKEN_LOW)
+            & (InstrumentMaster.instrument_token < _MOCK_TOKEN_HIGH),
+            1,
+        ),
+        else_=0,
     )
 
 
@@ -394,6 +458,7 @@ def future_instrument(
             InstrumentMaster.instrument_type == "FUT",
             InstrumentMaster.expiry == expiry,
         )
+        .order_by(_prefer_real_token())
         .first()
     )
     if exact:
@@ -405,7 +470,7 @@ def future_instrument(
             InstrumentMaster.instrument_type == "FUT",
             InstrumentMaster.expiry >= date.today(),
         )
-        .order_by(InstrumentMaster.expiry)
+        .order_by(InstrumentMaster.expiry, _prefer_real_token())
         .first()
     )
 
@@ -423,15 +488,14 @@ def is_research_only(db: Session, underlying: str) -> bool:
     )
     if row is not None:
         return bool(row.research_only)
-    seg = (
-        db.query(InstrumentMaster.segment)
-        .filter(
-            InstrumentMaster.underlying == underlying.strip().upper(),
-            InstrumentMaster.segment.in_(_OPT_SEGMENTS),
-        )
-        .first()
-    )
-    return bool(seg and seg[0] == "MCX-OPT")
+    # No universe row yet (e.g. before the first dynamic-selection scan
+    # has run for this underlying) — this used to fall back to "MCX
+    # segment => research-only", which encoded the PRE-2026-06-29 policy
+    # (when MCX genuinely was execution-blocked) and silently overrode
+    # the "currently always False" rule above whenever the universe
+    # table hadn't been populated yet. No segment is currently product-
+    # blocked, so the honest fallback is False, not a stale MCX check.
+    return False
 
 
 # ── Dynamic universe selection ───────────────────────────────────────

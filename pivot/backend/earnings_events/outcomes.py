@@ -1,9 +1,7 @@
 """Result type for the earnings-outcome verifier.
 
 Kept dependency-free so both the verifier and the scheduler poll loop
-can import it without dragging in yfinance / pandas. Mirrors the shape
-of :mod:`backend.macro_events.outcomes` so the scheduler can treat the
-two trigger families with the same fire-once/audit-context machinery.
+can import it without dragging in yfinance / pandas.
 """
 from __future__ import annotations
 
@@ -30,11 +28,10 @@ class EarningsOutcome:
     ``condition`` ("beat" | "miss" | "meet"). Everything else is for the
     audit context that rides into ``fire_external_event(audit_context=...)``.
 
-    Unlike :class:`backend.macro_events.outcomes.OutcomeResult` we do NOT
-    have a tiered (official/llm/pm) source — yfinance returns reported +
-    estimated numbers DIRECTLY, so verification is arithmetic, not LLM
-    parsing. Confidence is therefore 1.0 whenever both numbers are
-    concrete; absent data fails closed to :py:meth:`unknown`.
+    yfinance returns reported + estimated numbers DIRECTLY, so
+    verification is arithmetic, not LLM parsing. Confidence is therefore
+    1.0 whenever both numbers are concrete; absent data fails closed to
+    :py:meth:`unknown`.
     """
 
     matched: bool

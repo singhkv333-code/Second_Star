@@ -96,6 +96,7 @@ def run_backtest(
     loaded = load_bars(
         tree, start=request.start_date, end=request.end_date, fetcher=fetcher,
         interval=request.interval,
+        primary_symbol=request.primary_symbol, exchange=request.exchange,
     )
 
     primary_key = (request.primary_symbol, request.exchange)
@@ -699,6 +700,29 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     )
     profit_factor = _profit_factor(st.trades)
 
+    # Return on capital actually deployed (dollar-weighted, NOT
+    # annualized — see the field docstring in schema.py for why not).
+    # Answers "how did the trades themselves do", separate from
+    # cagr_pct/total_return_pct's honest "how did the whole account do
+    # including idle cash" — a sparse-trigger strategy dilutes the
+    # latter without either number being wrong.
+    _total_entry_cost = sum(t.entry_price * t.quantity for t in st.trades)
+    return_on_deployed = (
+        sum(t.net_pnl for t in st.trades) / _total_entry_cost
+        if _total_entry_cost > 0 else None
+    )
+    _window_days = (
+        (st.equity_curve[-1].date - st.equity_curve[0].date).days
+        if len(st.equity_curve) >= 2 else 0
+    )
+    _days_deployed = sum(
+        max((t.exit_date - t.entry_date).days, 0) for t in st.trades
+    )
+    capital_utilization = (
+        min(_days_deployed / _window_days, 1.0)
+        if _window_days > 0 else None
+    )
+
     # Sharpe/Sortino from the daily equity curve (was hardcoded None).
     from backend.services.backtest_metrics import (
         daily_returns_from_equity, sharpe_sortino,
@@ -711,7 +735,14 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     from backend.services.forward_stats import forward_stats_block
     from backend.services.trading_costs import leg_bps
     _equity_vals = [p.equity for p in st.equity_curve]
-    _sharpe, _sortino = sharpe_sortino(daily_returns_from_equity(_equity_vals))
+    # rf=0: the sim holds idle capital in cash at 0%, so subtracting a 6.5%
+    # risk-free rate charges every flat/cash day a −rf excess and drags Sharpe
+    # to ~−4 for ANY not-fully-invested strategy — a mean-reversion strat that
+    # made +2.3% while 75% in cash showed −4.22, inconsistent with its PSR
+    # (which uses rf=0 observed_sharpe). Measure raw risk-adjusted return.
+    _sharpe, _sortino = sharpe_sortino(
+        daily_returns_from_equity(_equity_vals), rf_annual=0.0,
+    )
     # Bailey/Lopez de Prado rigor battery (PSR / MinTRL / DSR) — same lens the
     # live forward-test scorecards apply to paper NAV.
     _forward_stats = forward_stats_block(_equity_vals)
@@ -751,6 +782,12 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         losing_trades=len(losses),
         average_win_pct=avg_win * 100.0 if avg_win is not None else None,
         average_loss_pct=avg_loss * 100.0 if avg_loss is not None else None,
+        return_on_deployed_pct=(
+            return_on_deployed * 100.0 if return_on_deployed is not None else None
+        ),
+        capital_utilization_pct=(
+            capital_utilization * 100.0 if capital_utilization is not None else None
+        ),
         profit_factor=profit_factor,
         sharpe_ratio=_sharpe,
         sortino_ratio=_sortino,

@@ -212,6 +212,22 @@ def test_holdings_market_buy_seeds_last_price_immediately(session):
     assert h[0]["sector"] == "Energy"
 
 
+def test_holdings_buy_price_is_clean_fill_price_not_cost_basis(session):
+    """The row exposes ``buy_price`` = the price actually PAID (the fill price),
+    NOT the charge-inclusive ``avg_cost``. This is what the holdings table shows
+    as "Avg" so a fresh buy reads Avg == LTP (no phantom instant loss)."""
+    u = _user(session)
+    _buy(session, u.id, "RELIANCE", 4, 100)
+    h = holdings(session, u.id, price_fn=lambda s: None)
+    assert h[0]["buy_price"] == pytest.approx(100.0, abs=1e-6)
+    # avg_cost carries the (now tiny, brokerage-free) statutory charges, so it
+    # is strictly above the clean buy price — the two must NOT be equal.
+    assert h[0]["avg_cost"] > h[0]["buy_price"]
+    # And those charges are small (STT/stamp/slippage only, no ₹20 brokerage):
+    # under ~0.3% of notional, not the old ~₹20/₹400 = 5% on a 4-share lot.
+    assert (h[0]["avg_cost"] - h[0]["buy_price"]) / h[0]["buy_price"] < 0.005
+
+
 def test_holdings_unmarked_position_falls_back_to_avg_cost(session):
     """A position that genuinely has no mark (e.g. a symbol the marker
     can't price at all) still values at book cost, never None/zero."""

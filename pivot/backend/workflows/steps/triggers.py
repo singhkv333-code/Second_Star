@@ -21,11 +21,10 @@ with `succeeded` + `halt_reason='condition_not_met'` (the same outcome
 action. Data-fetch failures fail OPEN (proceed) — we only block on a
 *confirmed* false, never on "couldn't tell right now".
 
-The remaining event-driven triggers (event/webhook/scheduled_macro/
-polymarket/kalshi/ipo_open/manual) have no live point-in-time
-condition to re-derive this way and stay pass-through — manually
-testing them without waiting for the real-world event is the whole
-point of a manual run for that class.
+The remaining event-driven triggers (webhook/ipo_open/manual) have
+no live point-in-time condition to re-derive this way and stay
+pass-through — manually testing them without waiting for the
+real-world event is the whole point of a manual run for that class.
 """
 from __future__ import annotations
 
@@ -36,7 +35,6 @@ from backend.workflows.registry import register_step
 from backend.workflows.schemas import (
     TriggerCompoundConfig,
     TriggerEarningsConfig,
-    TriggerEventConfig,
     TriggerExitCompoundConfig,
     TriggerGlobalPriceConfig,
     TriggerIndicatorConfig,
@@ -44,9 +42,6 @@ from backend.workflows.schemas import (
     TriggerIpoOpenConfig,
     TriggerManualConfig,
     TriggerMarketRelativeTimeConfig,
-    TriggerKalshiConfig,
-    TriggerPolymarketConfig,
-    TriggerScheduledMacroConfig,
     TriggerPriceConfig,
     TriggerScheduleConfig,
     TriggerWebhookConfig,
@@ -430,68 +425,6 @@ async def execute_trigger_exit_compound(ctx: Any) -> Optional[dict[str, Any]]:
 
 
 @register_step(
-    step_type="trigger.event",
-    category="trigger",
-    label="When a news event happens",
-    description=(
-        "Fire when a news article confirms an event you describe — "
-        "e.g. 'RBI announces a repo-rate cut'."
-    ),
-    icon="newspaper",
-    max_retries=0,
-    trigger_only=True,
-    config_model=TriggerEventConfig,
-    group="Events & external",
-    output_schema={
-        "type": "object",
-        "properties": {
-            "articles": {"type": "array"},
-            "matched": {"type": "boolean"},
-            "max_confidence": {"type": "number"},
-            "matched_count": {"type": "integer"},
-            "top_article": {"type": ["object", "null"]},
-            "event_description": {"type": "string"},
-        },
-        "required": [
-            "articles", "matched", "max_confidence",
-            "matched_count", "event_description",
-        ],
-    },
-)
-async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
-    """Single-shot news-event check.
-
-    Design note: ``poll_seconds`` / ``max_runtime_minutes`` are part of
-    the trigger config so the LLM can express *"watch for up to 2 hours"*
-    intent, but this executor does NOT block-poll inside one call. The
-    existing scheduler watcher (``backend/workflows/scheduler.py
-    :_poll_watch_triggers``) is only wired for ``trigger.price`` and
-    ``trigger.indicator`` today; arming a per-event polling loop in the
-    scheduler is a bigger change than this slice can absorb without
-    breaking the watcher contract.
-
-    Until that wiring lands, this executor performs ONE fetch+classify
-    pass on each scheduler invocation. The downstream steps see the
-    standard aggregate (``matched``, ``top_article``, etc.). A workflow
-    author who wants polling semantics today should pair this with a
-    ``trigger.schedule`` cron that re-fires the run every N minutes.
-
-    Reuses the same fetch+classify pipeline as ``fetch.news`` — see
-    ``backend.workflows.steps.fetches.execute_fetch_news`` for the
-    full flow. Trigger executors carry max_retries=0 so any raise
-    fails the run immediately (ARCHITECTURE.md §7 invariant 3).
-    """
-    from backend.workflows.steps.fetches import execute_fetch_news
-
-    # The two configs intentionally share the keyword / event_description
-    # / sources / min_confidence / hours_back fields, so we can delegate
-    # to fetch.news's executor wholesale. The extra trigger-only knobs
-    # (poll_seconds, max_runtime_minutes) are picked up by the scheduler,
-    # not the executor — silently ignored here is the correct shape.
-    return await execute_fetch_news(ctx)
-
-
-@register_step(
     step_type="trigger.manual",
     category="trigger",
     label="Manual (Run now)",
@@ -506,125 +439,6 @@ async def execute_trigger_event(ctx: Any) -> Optional[dict[str, Any]]:
 async def execute_trigger_manual(ctx: Any) -> Optional[dict[str, Any]]:
     """No-op: the user clicked Run now. The run row carries
     `triggered_by='manual'`."""
-    return None
-
-
-@register_step(
-    step_type="trigger.scheduled_macro",
-    category="trigger",
-    label="On a scheduled macro event",
-    description=(
-        "Fire on a known-date macro release once its OUTCOME is verified "
-        "against the official source — e.g. 'when RBI cuts the repo rate' "
-        "or 'when US CPI prints above 3%'."
-    ),
-    icon="calendar-check",
-    max_retries=0,
-    trigger_only=True,
-    config_model=TriggerScheduledMacroConfig,
-    group="Events & external",
-    output_schema={
-        "type": "object",
-        "properties": {
-            "kind": {"type": "string"},
-            "expected_outcome": {"type": "string"},
-            "decision": {"type": ["string", "null"]},
-            "matched": {"type": "boolean"},
-            "tier": {"type": ["string", "null"]},
-            "confidence": {"type": ["number", "null"]},
-            "evidence": {"type": ["string", "null"]},
-        },
-        "required": ["kind", "expected_outcome"],
-    },
-)
-async def execute_trigger_scheduled_macro(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the macro watcher (``backend/workflows/scheduler.py
-    :_poll_scheduled_macro_triggers``) opens the verify window around the
-    calendar date, runs ``macro_events.verifier.verify_macro_outcome``,
-    and fires this trigger out-of-band via ``fire_external_event`` only on
-    a confident outcome match. By the time the engine reaches this
-    executor the run row already carries ``triggered_by='event_alert'``
-    and ``run.context['scheduled_macro']`` holds the verification
-    snapshot. Same pattern as trigger.event / trigger.polymarket."""
-    return None
-
-
-@register_step(
-    step_type="trigger.polymarket",
-    category="trigger",
-    label="On a Polymarket market",
-    description=(
-        "Fire when a Polymarket prediction market crosses a probability "
-        "you set, or resolves."
-    ),
-    icon="trending-up",
-    max_retries=0,
-    trigger_only=True,
-    config_model=TriggerPolymarketConfig,
-    group="Events & external",
-    output_schema={
-        "type": "object",
-        "properties": {
-            "market_id": {"type": "string"},
-            "token_id": {"type": "string"},
-            "side": {"type": "string"},
-            "mode": {"type": "string"},
-            "fired_at_price": {"type": ["number", "null"]},
-            "fired_on_resolution_winner": {"type": ["string", "null"]},
-        },
-        "required": ["market_id", "token_id", "side", "mode"],
-    },
-)
-async def execute_trigger_polymarket(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the Polymarket WS supervisor / evaluator (see
-    backend/news_events/workers/polymarket_ws_worker.py +
-    backend/news_events/pipeline/prediction_market_ws.py) fires this
-    trigger from out-of-band by calling fire_external_event(). By the
-    time the engine reaches this executor the run row already carries
-    triggered_by='event_alert' and the audit_context dict in
-    run.context["polymarket"] has the firing snapshot.
-
-    Same pattern as trigger.price / trigger.event — the executor
-    exists purely so the engine can advance to step N+1 without
-    needing a special trigger-step skip path.
-    """
-    return None
-
-
-@register_step(
-    step_type="trigger.kalshi",
-    category="trigger",
-    label="On a Kalshi market",
-    description=(
-        "Fire when a Kalshi prediction market crosses a probability you "
-        "set, or settles."
-    ),
-    icon="trending-up",
-    max_retries=0,
-    trigger_only=True,
-    config_model=TriggerKalshiConfig,
-    group="Events & external",
-    output_schema={
-        "type": "object",
-        "properties": {
-            "market_id": {"type": "string"},
-            "token_id": {"type": "string"},
-            "side": {"type": "string"},
-            "mode": {"type": "string"},
-            "fired_at_price": {"type": ["number", "null"]},
-            "fired_on_resolution_winner": {"type": ["string", "null"]},
-        },
-        "required": ["market_id", "token_id", "side", "mode"],
-    },
-)
-async def execute_trigger_kalshi(ctx: Any) -> Optional[dict[str, Any]]:
-    """No-op: the Kalshi REST poll worker
-    (``backend/news_events/workers/kalshi_rest_worker.py``) drives the
-    shared prediction-market evaluator and fires this trigger out-of-band
-    via ``fire_external_event``. By the time the engine reaches this
-    executor the run row already carries ``triggered_by='event_alert'``
-    and ``run.context['kalshi']`` holds the firing snapshot. Same pattern
-    as trigger.polymarket."""
     return None
 
 
@@ -755,6 +569,5 @@ async def execute_trigger_earnings(ctx: Any) -> Optional[dict[str, Any]]:
     carries ``triggered_by='event_alert'`` (the value
     ``fire_external_event`` sets — the only external-fire class allowed by
     the workflow_runs CHECK constraint) and ``run.context`` holds the
-    verification snapshot (reported/estimate/surprise/evidence). Same
-    no-op pattern as trigger.scheduled_macro / trigger.polymarket."""
+    verification snapshot (reported/estimate/surprise/evidence)."""
     return None

@@ -53,16 +53,27 @@ from backend.workflows.schemas import (
 )
 
 
-def _paper_squareoff(ctx: Any, *, symbol_filter: Optional[str] = None) -> dict[str, Any]:
+def _paper_squareoff(
+    ctx: Any,
+    *,
+    symbol_filter: Optional[str] = None,
+    product_filter: Optional[str] = None,
+) -> dict[str, Any]:
     """Square off paper positions (P4): read the PAPER book, place opposite-
     side MARKET orders through the paper broker so they fill into the same
-    book. Paper is CNC long-only, so we flatten the CNC legs."""
+    book. Equity is CNC (long) by default, but a MIS sell can open a short
+    (see paper/fills.py) — flatten both product legs unless the caller
+    narrows to one (``product_filter="MIS"`` for an intraday-only close)."""
     from backend.paper.positions import paper_positions_kite_shape
 
     positions = paper_positions_kite_shape(ctx.db, int(ctx.workflow.user_id))
-    legs = _build_squareoff_legs(
-        positions, product_filter="CNC", symbol_filter=symbol_filter,
-    )
+    products = [product_filter] if product_filter else ["CNC", "MIS"]
+    legs: list[dict] = []
+    for p in products:
+        for leg in _build_squareoff_legs(
+            positions, product_filter=p, symbol_filter=symbol_filter,
+        ):
+            legs.append({**leg, "product": p})
     placed: list[dict] = []
     skipped: list[dict] = []
     for leg in legs:
@@ -74,7 +85,7 @@ def _paper_squareoff(ctx: Any, *, symbol_filter: Optional[str] = None) -> dict[s
                 quantity=leg["quantity"],
                 order_type="MARKET",
                 exchange=leg["exchange"],
-                product="CNC",
+                product=leg.get("product", "CNC"),
                 # Retry-stable per-symbol key (one position per symbol per
                 # pass) so a re-fire of the step dedups instead of re-selling.
                 leg_key=leg["symbol"],
@@ -320,7 +331,18 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
     # Phase 2: place the real order (or mock-order in test mode).
     token = _kite_token_for_run(ctx)
     side = cfg["side"]
-    transaction_type = "BUY" if side == "buy" else "SELL"
+    # buy/short both submit BUY-side... no: buy and cover BOTH buy shares
+    # (cover buys back to close a short); sell and short both sell shares
+    # (short sells past the held quantity to open one). Only "cover" was
+    # previously mismapped to SELL, which bought nothing back.
+    transaction_type = "SELL" if side in ("sell", "short") else "BUY"
+    product = str(cfg.get("product", "CNC")).upper()
+    if side == "short":
+        # A short can only be opened intraday (CNC stays long-only in the
+        # fill engine) — force MIS regardless of what the draft specified,
+        # so "short" always actually shorts instead of hitting
+        # insufficient_position under a CNC default.
+        product = "MIS"
     order_type = cfg.get("order_type", "market").upper()
     price = (
         float(cfg["limit_price"])
@@ -379,7 +401,7 @@ async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
         quantity=quantity,
         order_type=order_type,
         price=price,
-        product=str(cfg.get("product", "CNC")).upper(),
+        product=product,
         tag=f"wf_{ctx.client_request_id[:16]}",
     )
 
@@ -1371,13 +1393,11 @@ async def execute_action_squareoff_all_intraday(
     from backend.kite.portfolio import get_positions
 
     if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
-        # Paper is CNC delivery-only — there are no intraday (MIS) positions
-        # to flatten, so this is a clean no-op.
-        return {
-            "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
-            "scope": "intraday",
-            "note": "paper has no intraday (MIS) positions",
-        }
+        # A paper MIS sell can open a short (see paper/fills.py) — close
+        # just the MIS legs, leaving any CNC holdings alone.
+        result = _paper_squareoff(ctx, product_filter="MIS")
+        result["scope"] = "intraday"
+        return result
     _armed = _unattended_live_exit_gate(ctx, scope="intraday")
     if _armed is not None:
         return _armed

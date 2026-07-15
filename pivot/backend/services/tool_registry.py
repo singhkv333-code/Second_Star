@@ -190,14 +190,6 @@ _PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     # propose_workflow. Sibling to ask_user_dynamic (which clarifies
     # strategy/basket builds → build_strategy).
     "ask_agent_clarify",
-    # Polymarket — prediction-market trigger + catalog browse.
-    # propose_polymarket_trigger emits a draft card (threshold or
-    # resolution mode); persistence + activation happen via the
-    # /api/news-events/specs/polymarket REST endpoints. The matcher
-    # resolves the contract from natural-language, the picker handles
-    # ambiguous matches, and the supervisor (news_events worker) opens
-    # the CLOB WS subscription when the spec / workflow step activates.
-    "propose_polymarket_trigger", "browse_polymarket_markets",
     # L14: orchestrator + analytics helpers for multi-step compound intents.
     # `compose_multistep` resolves $step.field refs server-side between
     # sub-calls; `compare_backtests` runs 2-4 strategies in parallel.

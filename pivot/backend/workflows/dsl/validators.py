@@ -24,6 +24,7 @@ from typing import Iterable, Optional
 
 from backend.workflows.dsl.schema import (
     AggregateNode,
+    AlwaysNode,
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
@@ -78,12 +79,13 @@ def _check_root_shape(node) -> None:
     not a number. A leaf node alone (e.g. just an IndicatorNode) at
     the root would evaluate to a float and the engine wouldn't know
     when to fire."""
-    if isinstance(node, (ComparisonNode, LogicNode)):
+    if isinstance(node, (ComparisonNode, LogicNode, AlwaysNode)):
         return
     raise DSLValidationError(
-        "Tree root must be a 'comparison' or 'logic' node — a leaf "
-        "by itself doesn't tell the engine when to fire. Wrap it in "
-        "a comparison, e.g. {indicator} > {constant}."
+        "Tree root must be a 'comparison', 'logic', or 'always' node "
+        "— a leaf by itself doesn't tell the engine when to fire. "
+        "Wrap it in a comparison (e.g. {indicator} > {constant}), or "
+        "use {'type': 'always'} for a genuinely unconditional trigger."
     )
 
 

@@ -15,6 +15,8 @@
  *   browser upgrade request carries auth without a custom header.
  */
 
+import { getAccessToken } from "@/lib/authToken";
+
 // ---------------------------------------------------------------------------
 // Types (exported for consumers)
 // ---------------------------------------------------------------------------
@@ -65,16 +67,7 @@ function normalise(symbol: string): string {
   return symbol.trim().toUpperCase().replace(/ /g, "_");
 }
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem("pivot_jwt");
-  } catch {
-    return null;
-  }
-}
-
-function buildWsUrl(): string {
+async function buildWsUrl(): Promise<string> {
   if (typeof window === "undefined") return "ws://localhost/api/ws/quotes";
   const envBase =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_WS_BASE;
@@ -85,7 +78,10 @@ function buildWsUrl(): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     base = `${proto}//${window.location.host}/api`;
   }
-  const token = getToken();
+  // Proactively refresh an expired/near-expiry access token before handing it
+  // to the WS handshake — otherwise a token that lapsed overnight makes the
+  // socket 401 and live quotes silently stop until a manual re-login.
+  const token = await getAccessToken();
   const url = new URL(`${base}/ws/quotes`);
   if (token) url.searchParams.set("token", token);
   return url.toString();
@@ -153,15 +149,27 @@ function resubscribeAll(): void {
   }
 }
 
-function connect(): void {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+// Guards re-entrancy: buildWsUrl() is now async (it may await a token
+// refresh), so a second connect() could slip in during that await. This flag
+// blocks the window between "started connecting" and "socket assigned".
+let connecting = false;
+
+async function connect(): Promise<void> {
+  if (
+    connecting ||
+    (ws &&
+      (ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING))
+  ) {
     return;
   }
+  connecting = true;
 
   let url: string;
   try {
-    url = buildWsUrl();
+    url = await buildWsUrl();
   } catch {
+    connecting = false;
     scheduleReconnect();
     return;
   }
@@ -169,9 +177,11 @@ function connect(): void {
   try {
     ws = new WebSocket(url);
   } catch {
+    connecting = false;
     scheduleReconnect();
     return;
   }
+  connecting = false;
 
   ws.onopen = () => {
     reconnectAttempts = 0;
@@ -210,7 +220,7 @@ function scheduleReconnect(): void {
   reconnectAttempts += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect();
+    void connect();
   }, delay);
 }
 
@@ -300,7 +310,7 @@ export function subscribe(symbol: string, listener: Listener): void {
   cancelIdle();
 
   // Ensure connection is up.
-  connect();
+  void connect();
 
   if (prev === 0) {
     // First subscriber for this symbol.

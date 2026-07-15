@@ -16,10 +16,10 @@ Two layers of defence, both required:
 1.  **AST whitelist (in-process, before any execution).** Only the
     expression-language subset a calculator needs: literals,
     arithmetic/bool/compare ops, comprehensions, lambda, subscripts,
-    f-strings, assignments, and calls to whitelisted builtins or
-    ``math.*`` / ``statistics.*``. No imports, no attribute access
-    (except the two module namespaces), no dunders, no loops
-    (comprehensions cover ranking/aggregation), no huge literals.
+    f-strings, assignments, bounded `for` loops, and calls to
+    whitelisted builtins or ``math.*`` / ``statistics.*``. No imports, no
+    attribute access (except the two module namespaces), no dunders, no
+    `while` (unbounded looping), no defs, no huge literals.
 
 2.  **Isolated subprocess (execution).** Even whitelisted code can be a
     resource bomb ("a"*10**6 repeated, deep lambda recursion), so the
@@ -67,8 +67,13 @@ _ALLOWED_NODES: tuple[type, ...] = (
     ast.Module, ast.Expr, ast.Assign, ast.AugAssign, ast.AnnAssign,
     ast.Name, ast.Load, ast.Store, ast.Constant,
     ast.Tuple, ast.List, ast.Dict, ast.Set,
-    ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp,
+    ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp, ast.If,
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    # BitOr doubles as Python's dict-merge operator (`d1 | d2`) — common
+    # in basket/weighting code the model writes. Pure arithmetic/merge,
+    # no new escape surface; already sandboxed by the same subprocess +
+    # rlimits as every other operator here.
+    ast.BitOr,
     ast.USub, ast.UAdd, ast.Not, ast.And, ast.Or,
     ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn,
     ast.Call, ast.keyword, ast.Attribute,
@@ -76,6 +81,13 @@ _ALLOWED_NODES: tuple[type, ...] = (
     ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
     ast.comprehension, ast.Lambda, ast.arguments, ast.arg,
     ast.JoinedStr, ast.FormattedValue, ast.Starred,
+    # Bounded `for` loops (basket weighting, running totals, etc). Not a
+    # new escape surface — `range()` is already capped at 200k in the
+    # runner and the CPU rlimit + wall-clock timeout bound worst-case
+    # runtime the same way they already bound comprehensions/lambdas.
+    # `while` stays unlisted: an unbounded while can spin the full
+    # timeout on trivial code, which `for`-over-range/collection cannot.
+    ast.For, ast.Break, ast.Continue,
 )
 
 

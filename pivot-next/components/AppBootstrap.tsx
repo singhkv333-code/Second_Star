@@ -15,13 +15,17 @@
  *     generated email → token stored → app comes alive.
  *   - Or paste a JWT from /auth/register / /auth/login manually.
  *
- * Out of scope here: refresh-token rotation, sign-out flow, 401 detection
- * mid-session. v1 demo only needs first-run-friendly auth.
+ * Refresh-token rotation IS now handled: when a token is present we start a
+ * background auto-refresh (scheduleAutoRefresh) that silently trades the
+ * 7-day refresh token for a fresh 12h access token before it expires and
+ * whenever the tab regains focus — so users stay signed in across days
+ * instead of hitting a wall of 401s every morning. Sign-out tears it down.
  */
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
+import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
 
 const TOKEN_KEY = "pivot_jwt";
@@ -64,6 +68,10 @@ export function AppBootstrap({
     }
     if (stored) {
       setPhase("ready");
+      // Keep the access token warm for the whole session (timer + on focus),
+      // so the direct-fetch data modules (chat, live quotes, portfolio,
+      // screener) never hit an expired token mid-use.
+      scheduleAutoRefresh();
     } else {
       setPhase("needs-auth");
       // Redirect to /login instead of showing a modal gate — but never
@@ -75,6 +83,7 @@ export function AppBootstrap({
         router.replace("/login");
       }
     }
+    return () => stopAutoRefresh();
   }, [router, ungated]);
 
   if (ungated) return <>{children}</>;

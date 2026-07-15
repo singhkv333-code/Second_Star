@@ -973,7 +973,12 @@ _USER_QTY_PATTERNS = re.compile(
     r"|[₹$]\s*[\d,]+|\b(?:rs\.?|inr|usd)\s*[\d,]+\b"
     # "₹X worth" / "₹X of"
     r"|[\d,]+\s+(?:k|K)\b|\blakh|\bcrore",
-    re.IGNORECASE,
+    # MULTILINE so the ^…$ bare-number anchor matches a qty turn on its
+    # own line inside `qty_context` (chat_service._recent_user_text joins
+    # prior user turns with "\n" precisely so this anchor survives —
+    # without MULTILINE a bare "10" reply from an earlier turn can never
+    # match once it's adjacent to other turns' text).
+    re.IGNORECASE | re.MULTILINE,
 )
 
 

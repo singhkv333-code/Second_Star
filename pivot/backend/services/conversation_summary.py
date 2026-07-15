@@ -94,7 +94,14 @@ async def generate_and_store(
         "Summarise this investing-assistant conversation in 2-4 sentences for "
         "the user's own later recall: what they asked about, the symbols / "
         "strategies / automations / backtests discussed, and any decision or "
-        "next step. Be concrete and neutral. No preamble, no bullet points."
+        "next step. Be concrete and neutral. No preamble, no bullet points. "
+        "Preserve any specific numeric result verbatim (trade counts, win "
+        "rates, returns, prices, quantities) — a later turn may ask to "
+        "recall an exact figure, and a paraphrase that drops it makes that "
+        "recall impossible even though the number was genuinely available "
+        "here (reported 2026-07-14: a backtest's win-rate/return figures "
+        "were unrecallable a few turns later because the summary dropped "
+        "them)."
     )
     try:
         client = get_llm_client()

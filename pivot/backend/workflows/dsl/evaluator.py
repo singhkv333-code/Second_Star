@@ -45,6 +45,7 @@ from backend.core.data.intervals import normalize_interval
 from backend.workflows.dsl.data_accessor import DataAccessor
 from backend.workflows.dsl.schema import (
     AggregateNode,
+    AlwaysNode,
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
@@ -127,12 +128,19 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
     if isinstance(node, ConstantNode):
         return float(node.value)
     if isinstance(node, PriceNode):
-        return accessor.get_price(
+        _price_kw = dict(
             symbol=node.symbol,
             exchange=node.exchange,
             basis=node.basis,
             offset=node.offset + _additional_offset(),
         )
+        tf = normalize_interval(getattr(node, "timeframe", None))
+        try:
+            return accessor.get_price(timeframe=tf, **_price_kw)
+        except TypeError:
+            # Legacy accessor without a `timeframe` kwarg — safe only
+            # for the daily default, which is what callers got before.
+            return accessor.get_price(**_price_kw)
     if isinstance(node, IndicatorNode):
         _ind_kw = dict(
             symbol=node.symbol,
@@ -199,6 +207,8 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
         if fn is None:
             return None
         return fn(underlying=node.underlying, expiry_rule=node.expiry_rule)
+    if isinstance(node, AlwaysNode):
+        return True
     if isinstance(node, SessionDayNode):
         day = accessor.get_session_day()
         if day is None:

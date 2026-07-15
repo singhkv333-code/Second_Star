@@ -123,7 +123,8 @@ export function RunHistory({
         <Clock className="mb-3 h-6 w-6 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm font-medium">No runs yet</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Click &quot;Run now&quot; to start the first run.
+          Click &quot;Run now&quot; to check conditions immediately — the action
+          only fires if they&apos;re currently met.
         </p>
       </div>
     );

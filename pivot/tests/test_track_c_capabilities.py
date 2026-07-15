@@ -509,6 +509,19 @@ def test_router_surfaces_roll_and_status_tools():
     assert "register_workflow" in sel2
 
 
+def test_typo_d_movers_query_still_surfaces_top_movers_tool():
+    """Reported 2026-07-14: "what is the bigggest gainer in themarket
+    today" (typo'd) missed BOTH keyword rules that would normally pull
+    in get_top_movers (the "biggest" spelling and the "market" word
+    boundary), fell through to the fallback floor, and got a hedged
+    non-answer because the tool wasn't even offered to the model.
+    get_top_movers is now in the fallback floor itself."""
+    from backend.services.tool_router import select_tool_names
+
+    sel = select_tool_names("what is the bigggest gainer in themarket today")
+    assert sel is None or "get_top_movers" in sel
+
+
 # ── #1 register_workflow / get_workflow_status ───────────────────────
 
 
@@ -689,6 +702,70 @@ def test_select_active_draft_named_backref(db):
     clause = svc._parked_draft_clause(conv, active)
     assert "WIPRO" in clause and "UNTOUCHED" in clause
     svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_clears_on_unrelated_symbol(db):
+    """Reported 2026-07-14 (tool-stickiness): a stale active draft must
+    not silently answer for a message that names a DIFFERENT, unparked
+    symbol — that's a fresh ask, not an amendment. Root-cause fix in
+    `_select_active_draft`, not a new keyword/regex gate."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("GOLDBEES", 2), "propose_workflow")
+
+    trace = start_turn(conv, "build me a bullish option strategy on RELIANCE")
+    active = svc._select_active_draft(
+        conv, "build me a bullish option strategy on RELIANCE", trace,
+    )
+    assert active is None
+    svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_unaffected_when_no_symbol_named(db):
+    """A generic amendment with no symbol at all ("change the number of
+    shares to 7") must still resolve to the active draft — the
+    contradiction check only fires on an actual, different symbol."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("INFY", 5), "propose_workflow")
+
+    trace = start_turn(conv, "change the number of shares to 7")
+    active = svc._select_active_draft(
+        conv, "change the number of shares to 7", trace,
+    )
+    assert active is not None and active.symbol == "INFY"
+    svc.store.clear_active_draft(conv)
+
+
+def test_non_stashing_order_tools_evict_stale_active_draft():
+    """Reported 2026-07-14: a successful GTT/SL/OCO/SIP/squareoff order
+    call never touched the active_draft slot, so a PRIOR propose_workflow
+    draft stayed "active" and the next generic amendment ("change the
+    number of shares to 7") re-fired the WRONG tool. `handle()`/
+    `handle_stream()` now call `clear_active_draft` for exactly this set
+    — verify it's the right set: real order/macro tools that render their
+    own card, minus anything that already stashes its own amendable
+    draft."""
+    from backend.services.chat_service import (
+        _ORDER_AND_MACRO_TOOLS, _OPTION_CARD_TOOLS, _STASH_DRAFT_TOOLS,
+    )
+
+    non_stashing = _ORDER_AND_MACRO_TOOLS - _STASH_DRAFT_TOOLS - _OPTION_CARD_TOOLS
+    for t in ("create_gtt_order", "create_sl_order", "create_oco_order",
+              "place_market_order", "place_limit_order", "place_order",
+              "create_sip", "squareoff_all_intraday", "squareoff_symbol"):
+        assert t in non_stashing, t
+    # Draft-producing macros must NOT be in this eviction set — they
+    # stash their OWN amendable draft and must stay the active target.
+    for t in ("propose_workflow", "propose_threshold_order",
+              "propose_scheduled_order", "propose_basket_allocation"):
+        assert t not in non_stashing, t
 
 
 def test_register_intent_regexes():

@@ -11,9 +11,11 @@ no-op (the paper account/holdings step has its own independent
 idempotency check, since it runs after the commit below).
 
 What we seed (and why):
-  - **RELIANCE 3:55 PM weekday buy** — the canonical demo workflow
+  - **RELIANCE 3:15 PM weekday buy** — the canonical demo workflow
     referenced throughout chat tests + docs (5 steps). Lets a new
     user immediately see what an agent looks like in the editor.
+    3:15 PM IST, not 3:55 — NSE closes at 3:30 PM IST, so 3:55 was
+    past close and would never actually fill.
   - **INFY weekly dip-buy** — 2 steps (schedule + action). Compact
     example, contrasts with the 5-step one.
   - **TCS monthly SIP** — 2 steps. Reinforces the SIP automation
@@ -81,13 +83,13 @@ _DEMO_HOLDINGS: list[dict[str, Any]] = [
 
 _DEMO_WORKFLOWS: list[dict[str, Any]] = [
     {
-        "name": "RELIANCE 3:55 PM weekday buy",
-        "description": "Every weekday at 3:55 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
+        "name": "RELIANCE 3:15 PM weekday buy",
+        "description": "Every weekday at 3:15 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
         "steps": [
             {
                 "step_type": "trigger.schedule",
-                "label": "Every weekday at 3:55 PM IST",
-                "config": {"cron": "55 15 * * 1-5", "timezone": "Asia/Kolkata"},
+                "label": "Every weekday at 3:15 PM IST",
+                "config": {"cron": "15 15 * * 1-5", "timezone": "Asia/Kolkata"},
             },
             {
                 "step_type": "fetch.portfolio",

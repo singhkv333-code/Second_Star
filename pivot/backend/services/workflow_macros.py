@@ -694,7 +694,9 @@ def hydrate_basket_allocation(
         },
     })
 
-    name_bits = [f"{sector.capitalize()} basket"]
+    # Acronym-aware sector label so "it" → "IT basket", not "It basket".
+    from backend.services.fundamentals_screen import _format_sector_display
+    name_bits = [f"{_format_sector_display(sector)} basket"]
     if gap_condition:
         name_bits.append(f"{index_symbol} {gap_condition.replace('_', '-')}")
     name = " · ".join(name_bits)

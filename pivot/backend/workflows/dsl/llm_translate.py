@@ -26,6 +26,7 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
   { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
   { "type": "constant", "value": <number> }
+  { "type": "always" }                                                          // boolean: unconditionally TRUE, no fields
   { "type": "session_day", "days": ["mon"|"tue"|"wed"|"thu"|"fri"|"sat"|"sun", ...] }   // boolean: TRUE on listed weekdays
   { "type": "gap", "symbol": "<SYM>" }                                          // (open - prev_close) / prev_close, signed
   { "type": "pct_change", "symbol": "<SYM>", "bars": <int> }                    // (close - close[bars]) / close[bars]
@@ -62,7 +63,7 @@ Supported comparison operators: ">", "<", ">=", "<=", "==", "crosses_above", "cr
 
 Logic operators: "and", "or" need 2-8 operands; "not" needs exactly 1.
 
-The root MUST be a "comparison" or "logic" node.
+The root MUST be a "comparison", "logic", or "always" node.
 
 Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
 
@@ -73,6 +74,10 @@ Day-of-week filters: when the user says "on Tuesday", "every Monday", "Mon-Wed",
   "Monday and Friday"    → { "type": "session_day", "days": ["mon", "fri"] }
 Compose with other conditions via logic.and / logic.or.
 NEVER fake a day-of-week filter using indicator equality (e.g. RSI == RSI) — the validator rejects tautologies, and the result would never fire correctly.
+
+UNCONDITIONAL / NO-FILTER entries: when the user states no real trigger at all — "buy at open" (with no condition, just naming the fill price), "buy every day", "buy immediately", "just buy X" — use the ALWAYS leaf as the root:
+  "buy RELIANCE at the market open"   → { "type": "always" }
+NEVER fake "always true" with a self-comparison (e.g. price >= price, or any node compared to itself) — the validator rejects that as a tautology. ALWAYS is the correct, explicit way to say "no filter."
 
 ENTRY vs EXIT — the tree returned from THIS prompt is the ENTRY condition only. Exits are translated in a separate hop with their own tree. NEVER AND together a buy condition and a sell condition in one tree (e.g. RSI<30 AND RSI>30) — the validator rejects the empty intersection.
 

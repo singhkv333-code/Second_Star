@@ -154,6 +154,38 @@ _UNIVERSE: list[_SectorEntry] = [
 ]
 
 
+# ── PSU (govt-owned) membership — spans MULTIPLE sectors ────────────
+#
+# "PSU" is an ownership tag, not a sector: only `psu_bank` carries it in the
+# `SectorName` taxonomy above, but real PSUs also sit in `energy` (ONGC, OIL,
+# IOC, NTPC, POWERGRID, GAIL, BPCL, HINDPETRO), `metals`/`steel` (COALINDIA,
+# SAIL, NMDC), and `defence` (HAL, BEL, BHEL, MAZDOCK, COCHINSHIP — all
+# govt-owned). A caller that only checks `"psu" in sector` (matching just
+# `psu_bank`) silently keeps every non-bank PSU in an "exclude PSU" ask —
+# the confirmed bug this set exists to close (build_strategy's exclusion
+# filter let ONGC/IOC/COALINDIA through an explicit "no PSU exposure" ask).
+# Kept here (not in strategy_builder / fundamentals_screen) so both callers
+# share one definition instead of drifting.
+_PSU_SYMBOLS: frozenset[str] = frozenset({
+    # psu_bank
+    "SBIN", "BANKBARODA", "PNB", "CANBK", "UNIONBANK",
+    # energy PSUs
+    "ONGC", "OIL", "IOC", "NTPC", "POWERGRID", "GAIL", "BPCL", "HINDPETRO",
+    # metals/steel PSUs
+    "COALINDIA", "SAIL", "NMDC",
+    # defence PSUs (govt-owned manufacturers, not private defence contractors)
+    "HAL", "BEL", "BHEL", "MAZDOCK", "COCHINSHIP",
+})
+
+
+def is_psu(symbol: str) -> bool:
+    """True when ``symbol`` is a known government-owned (PSU) company,
+    regardless of which sector bucket it lives in. Conservative: only the
+    curated set above returns True; an unrecognised symbol returns False
+    rather than guessing."""
+    return (symbol or "").strip().upper() in _PSU_SYMBOLS
+
+
 # Aliases the user might type. Maps to the canonical SectorName above.
 _SECTOR_ALIASES: dict[str, SectorName] = {
     "steel": "steel",

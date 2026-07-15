@@ -171,60 +171,15 @@ def advance_one_view(
     return None
 
 
-def _macro_kind_for_view(view: "MarketView") -> Optional[str]:
-    """Best-effort macro-kind for the verifier read: ``category`` if it already
-    names a macro kind, else a coarse keyword match on title/category/thesis.
-    ``None`` when nothing matches (the view is then never auto-resolved — honest,
-    no fabrication)."""
-    # Lazy import so module import stays side-effect-free.
-    from backend.macro_events.source_of_truth import all_kinds
-
-    macro_kinds = frozenset(all_kinds())
-    category = (view.category or "").strip().lower()
-    if category in macro_kinds:
-        return category
-
-    haystack = " ".join(
-        (view.title or "", view.category or "", view.thesis or "")
-    ).lower()
-    for keywords, kind in _KIND_KEYWORDS:
-        if kind in macro_kinds and any(k in haystack for k in keywords):
-            return kind
-    return None
-
-
 async def _read_outcome_for_view(
-    view: "MarketView", *, now: Optional[datetime] = None,
+    view: "MarketView",  # noqa: ARG001 — retained for signature compat
+    *,
+    now: Optional[datetime] = None,  # noqa: ARG001
 ) -> Optional[object]:
-    """Async verifier read for ONE view, or ``None`` when it isn't time / the
-    view isn't a resolvable macro EVENT. Kept module-level (not a closure) and
-    routed through ``feeds.read_event_outcome`` so tests can monkeypatch it."""
-    if view.view_type != ViewType.event:
-        return None
-    res = _as_utc(view.resolution_date)
-    if res is None:
-        return None
-    now_utc = _as_utc(now) or _utcnow()
-    if now_utc < res:
-        return None  # not yet in the resolution window
-    if view.status in (ViewStatus.resolved, ViewStatus.archived):
-        return None
-
-    kind = _macro_kind_for_view(view)
-    if kind is None:
-        return None
-
-    from backend.view_markets import feeds
-
-    expected = view.thesis or view.title or ""
-    try:
-        return await feeds.read_event_outcome(kind, expected)
-    except Exception:  # noqa: BLE001 - a feed error must never wedge the sweep
-        logger.warning(
-            "view-markets outcome read failed for view %s (kind=%s)",
-            getattr(view, "id", "?"), kind, exc_info=True,
-        )
-        return None
+    """No macro-outcome verifier is wired any more; always returns ``None``
+    so the lifecycle sweep advances views purely on time / resolution-date
+    boundaries. Kept async + module-level so tests can monkeypatch it."""
+    return None
 
 
 async def advance_view_lifecycle() -> dict:

@@ -145,10 +145,10 @@
   }
 
   .dark {
-    --background: 0 0% 0%;
+    --background: 0 0% 5%;
     --foreground: 0 0% 96%;
 
-    --card: 240 2% 11%;
+    --card: 0 0% 7%;
     --card-foreground: 0 0% 96%;
 
     --popover: 0 0% 7%;
@@ -160,10 +160,10 @@
     --primary: 180 7% 99%;
     --primary-foreground: 240 4% 5%;
 
-    --secondary: 0 0% 12%;
+    --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 96%;
 
-    --muted: 0 0% 12%;
+    --muted: 0 0% 10%;
     --muted-foreground: 0 0% 60%;
 
     --accent: 0 0% 10%;
@@ -189,15 +189,15 @@
     --bg-base:       #000000;   /* page bg — ElevenLabs-style true black */
     --bg-primary:    #111212;
     --bg-secondary:  #1c1c1d;   /* ElevenLabs' exact greyish sidebar surface */
-    --bg-card:       #1c1c1d;
+    --bg-card:       #181a1f;
     --bg-elevated:   #1e1e1e;   /* hover / active — lighter than the sidebar */
 
     --glass-bg:           #111212;
     --glass-bg-hover:     #181a1f;
     --glass-bg-active:    #1f2127;
-    --glass-border:       rgba(255, 255, 255, 0.14);
-    --glass-border-hover: rgba(255, 255, 255, 0.22);
-    --glass-border-focus: rgba(255, 255, 255, 0.36);
+    --glass-border:       rgba(255, 255, 255, 0.06);
+    --glass-border-hover: rgba(255, 255, 255, 0.12);
+    --glass-border-focus: rgba(255, 255, 255, 0.24);
 
     /* Theme-aware active/hover tints — mirrors the values defined in
        :root for light mode. In dark, these are the white-over-black
@@ -229,7 +229,7 @@
 
     /* Dark: cards are already lighter than the page, so elevation reads via
        that contrast plus a soft black shadow; the inset page stays near-black. */
-    --bg-inset:          #000000;
+    --bg-inset:          #0a0a0b;
     --shadow-card:       none;
     --shadow-card-hover: none;
     --accent:            var(--pivot-blue);

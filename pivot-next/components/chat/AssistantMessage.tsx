@@ -25,6 +25,55 @@ export function extractTickerSymbol(raw: string): string | null {
   return m ? (m[2] ?? null) : null;
 }
 
+// ── Source citation chips ────────────────────────────────────────────────
+// Web-search answers cite sources as external links whose text is usually the
+// raw domain ("economictimes.indiatimes.com"). We render them as a compact
+// gray chip with the outlet's proper name + favicon instead of an underlined
+// bracket link. Unknown hosts fall back to a cleaned-up domain label.
+const SOURCE_NAMES: Record<string, string> = {
+  "economictimes.indiatimes.com": "The Economic Times",
+  "m.economictimes.com": "The Economic Times",
+  "moneycontrol.com": "Moneycontrol",
+  "livemint.com": "Mint",
+  "mint.com": "Mint",
+  "business-standard.com": "Business Standard",
+  "reuters.com": "Reuters",
+  "bloomberg.com": "Bloomberg",
+  "cnbctv18.com": "CNBC-TV18",
+  "ndtvprofit.com": "NDTV Profit",
+  "ndtv.com": "NDTV",
+  "financialexpress.com": "Financial Express",
+  "thehindubusinessline.com": "BusinessLine",
+  "thehindu.com": "The Hindu",
+  "zeebiz.com": "Zee Business",
+  "rediff.com": "Rediff",
+  "money.rediff.com": "Rediff Money",
+  "euronext.com": "Euronext",
+  "investing.com": "Investing.com",
+  "bseindia.com": "BSE India",
+  "nseindia.com": "NSE India",
+};
+
+/** Bare registrable-ish host, lowercased, `www.`/`m.`/`amp.` stripped. */
+function hostFromHref(href: string): string | null {
+  try {
+    const h = new URL(href).hostname.toLowerCase();
+    return h.replace(/^(www|m|amp)\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Human display name for a source host — mapped outlet name, else a
+ * title-cased second-level domain ("financialexpress" → "Financialexpress"). */
+function sourceLabel(host: string): string {
+  if (SOURCE_NAMES[host]) return SOURCE_NAMES[host];
+  const stripped = host.replace(/^(www|m|amp)\./, "");
+  if (SOURCE_NAMES[stripped]) return SOURCE_NAMES[stripped];
+  const core = stripped.split(".").slice(-2, -1)[0] ?? stripped;
+  return core.charAt(0).toUpperCase() + core.slice(1);
+}
+
 // ── Gain/loss number coloring ────────────────────────────────────────────
 // Only numbers carrying an EXPLICIT +/-/− sign are colored — an unsigned
 // "8.2%" is ambiguous (could be a P/E, an expense ratio, anything) and
@@ -59,6 +108,15 @@ function withGainLossColoring(children: React.ReactNode): React.ReactNode {
   return arr.map((child, i) =>
     typeof child === "string" ? colorizeGainLoss(child, `gl-${i}`) : child,
   );
+}
+
+// Web-search answers often wrap a citation in parentheses:
+// "...positive global cues. ([business-standard.com](https://…))". Rendered
+// as a chip, the stray "(" ")" look odd — strip parens that wrap a lone link.
+const CITATION_IN_PARENS_RE =
+  /\(\s*(\[[^\]]+\]\((?:https?:)?[^\s)]+\))\s*\)/g;
+function stripCitationParens(text: string): string {
+  return text.replace(CITATION_IN_PARENS_RE, "$1");
 }
 
 type Props = {
@@ -150,14 +208,44 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
             // Internal stock-page links (the model writes these for company
             // mentions it can resolve to a ticker) navigate client-side and
             // read bolder — they're the company name, not an external ref.
+            // No persistent underline (looked cluttered on tickers); the
+            // primary color + hover underline is enough of an affordance.
             if (href?.startsWith("/")) {
               return (
                 <Link
                   href={href}
-                  className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                  className="font-semibold text-primary decoration-primary/40 underline-offset-2 hover:underline"
                 >
                   {children}
                 </Link>
+              );
+            }
+            // External link → render as a compact gray SOURCE CHIP with the
+            // outlet's proper name + favicon, not an underlined domain link.
+            const host = href ? hostFromHref(href) : null;
+            if (host) {
+              const label = sourceLabel(host);
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={label}
+                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-[1px] align-middle text-[11px] font-medium leading-none text-muted-foreground no-underline transition-colors hover:bg-muted/70 hover:text-foreground"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://www.google.com/s2/favicons?domain=${host}&sz=64`}
+                    alt=""
+                    width={12}
+                    height={12}
+                    className="h-3 w-3 shrink-0 rounded-sm"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                  <span className="truncate">{label}</span>
+                </a>
               );
             }
             return (
@@ -165,7 +253,7 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-primary underline underline-offset-2 hover:opacity-80"
+                className="font-medium text-primary underline-offset-2 hover:underline"
               >
                 {children}
               </a>
@@ -199,7 +287,7 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
                 return (
                   <Link
                     href={`/stock/${encodeURIComponent(ticker)}`}
-                    className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                    className="font-semibold text-primary decoration-primary/40 underline-offset-2 hover:underline"
                   >
                     {text}
                   </Link>
@@ -234,7 +322,7 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
           table: ({ node }) => <SmartMarkdownTable node={node} />,
         }}
       >
-        {text}
+        {stripCitationParens(text)}
       </ReactMarkdown>
     </div>
   );

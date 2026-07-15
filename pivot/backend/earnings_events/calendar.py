@@ -1,13 +1,12 @@
 """Per-symbol earnings calendar, fed from yfinance.
 
 The calendar's job is to answer: *for symbol ``X``, is a fresh earnings
-release within the verification window right now?* Unlike the macro
-calendar (RBI / FOMC dates are hardcoded a year out), earnings dates are
+release within the verification window right now?* Earnings dates are
 per-ticker and shift quarter-to-quarter, so the registry is *live*:
 :func:`fetch_earnings_rows` pulls the next 8 rows from yfinance's
 ``get_earnings_dates`` and caches them in Redis for ~12 h.
 
-Public surface mirrors :mod:`backend.macro_events.calendar`:
+Public surface:
 
   - :class:`EarningsEventDef` — one occurrence (symbol + report-at + window).
   - :func:`fetch_earnings_rows` — raw provider rows for a symbol.

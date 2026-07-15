@@ -43,6 +43,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import unicodedata
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -237,6 +239,112 @@ def public_fundamentals_view(d: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(limited|ltd|private|pvt|incorporated|inc|corporation|corp|company|co|plc)\b\.?",
+    re.IGNORECASE,
+)
+
+
+def _strip_corp_suffix(name: str) -> str:
+    return _CORP_SUFFIX_RE.sub("", name or "").strip()
+
+
+def _normalise_company_name(name: str | None) -> str:
+    """Lowercase, fold accents (Nestl\u00e9 -> nestle), strip corporate
+    suffixes/punctuation, collapse whitespace \u2014 for a conservative
+    plausibility comparison, never for display."""
+    stripped = _strip_corp_suffix(name)
+    folded = unicodedata.normalize("NFKD", stripped).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]", "", folded.lower())
+
+
+_ACRONYM_SUFFIX_RE = re.compile(
+    r"\b(limited|ltd|private|pvt|incorporated|inc|plc)\b\.?", re.IGNORECASE,
+)
+_ACRONYM_CONNECTOR_WORDS = {"and", "of", "the", "for", "&"}
+
+
+def _acronym(name: str | None) -> str:
+    """First letter of each significant word, e.g. 'Tata Consultancy
+    Services' -> 'tcs', 'Oil and Natural Gas Corporation' -> 'ongc' \u2014 lets a
+    legitimate short-name row (TCS, ONGC, NTPC, IOC) match its own
+    spelled-out long_name without being flagged as a mismatch."""
+    words = re.findall(r"[a-zA-Z0-9]+", _ACRONYM_SUFFIX_RE.sub("", name or ""))
+    letters = [w[0] for w in words if w and w.lower() not in _ACRONYM_CONNECTOR_WORDS]
+    return "".join(letters).lower()
+
+
+def _names_plausibly_match(a: str | None, b: str | None) -> bool:
+    """True unless two company-name strings are clearly unrelated.
+
+    Guards against a corrupted enrich-DB row silently attaching an unrelated
+    company's profile onto a correctly-resolved symbol: the offline script
+    that builds the `pivot_enrich` table keys its yfinance lookup off
+    Moneycontrol's internal `ticker` shorthand (e.g. 'BI' for Britannia),
+    which sometimes collides with a DIFFERENT company's real listing \u2014
+    e.g. sc_id 'BI' / company_name 'Britannia' carries long_name 'Bilcare
+    Limited', because 'BI' is not Britannia's real NSE symbol so the
+    yfinance fetch landed on an unrelated company.
+
+    Two independent checks, either is sufficient: (1) one normalised name
+    fully contains the other; (2) one side is the word-initial acronym of
+    the other's spelled-out name (TCS / "Tata Consultancy Services").
+    Deliberately NOT a fuzzy/prefix match or an abbreviation dictionary \u2014
+    Indian company names very commonly share a name-root across unrelated
+    companies ("Rishabh Yarn"/"Rishabh Agro"/"Rishabh Instruments"), and
+    Moneycontrol's own `company_name` field is frequently a generic/
+    truncated/legacy label for the SAME company (e.g. 'Hind Zinc' for
+    Hindustan Zinc, 'BLS E-Services' for Bharat Electronics under sc_id
+    'BEL') that no string heuristic can reliably decode without also
+    reopening the Britannia/Bilcare hole \u2014 see `_enrich_row_symbol_verified`
+    for how those are recovered safely instead. A false negative here just
+    means "skip enrichment for this field", never a wrong value, so
+    under-matching is the safe failure mode.
+    """
+    if not a or not b:
+        return True
+    na, nb = _normalise_company_name(a), _normalise_company_name(b)
+    if not na or not nb:
+        return True
+    if na in nb or nb in na:
+        return True
+    return na == _acronym(b) or nb == _acronym(a)
+
+
+def _enrich_row_symbol_verified(out: dict[str, Any], rec: Any) -> bool:
+    """True when the enrich row's own ticker/yf_symbol is demonstrably the
+    SAME real NSE listing as the symbol we resolved `out` by \u2014 a
+    ticker-identity check, independent of Moneycontrol's often generic/
+    truncated free-text `company_name` (e.g. 'Hind Zinc', 'BLS E-Services',
+    'Active Clothing', 'Hindustan Udyog' \u2014 all genuinely the right company,
+    just badly labeled by the MC scraper).
+
+    Root-caused 2026-07-14: `_names_plausibly_match` alone rejected real
+    tickers (HINDZINC, NESTLEIND, ACC, HINDUNILVR, HINDPETRO, GAIL, BEL,
+    DIVISLAB) because `company_name` and `long_name` diverge as STRINGS even
+    for the correct company. The reliable signal instead: did the
+    enrichment script fetch `long_name` using the SAME real ticker the
+    caller resolved by? If so, `long_name`/sector are guaranteed correct
+    regardless of what `company_name` says. BRITANNIA correctly stays
+    rejected by this check \u2014 its enrich row's `ticker` is 'BI' (Moneycontrol's
+    internal shorthand, not Britannia's real NSE symbol), so it still falls
+    through to `_names_plausibly_match`, which correctly fails it.
+
+    Only meaningful when `rec` was looked up by sc_id; must NOT be used to
+    bypass the name check for a `get_by_ticker()` result \u2014 that query
+    already filters `WHERE ticker = out['symbol']`, so this check would be
+    a tautology there and would silently readmit the exact ticker-collision
+    rows the name check exists to catch.
+    """
+    sym = (out.get("symbol") or "").strip().upper()
+    if not sym:
+        return False
+    rec_ticker = (getattr(rec, "ticker", None) or "").strip().upper()
+    rec_yf_symbol = getattr(rec, "yf_symbol", None) or ""
+    rec_yf_base = rec_yf_symbol.split(".")[0].strip().upper()
+    return sym in (rec_ticker, rec_yf_base)
+
+
 def _apply_enrichment(out: dict[str, Any]) -> None:
     """Merge yfinance-derived company profile into a fundamentals snapshot.
 
@@ -247,13 +355,18 @@ def _apply_enrichment(out: dict[str, Any]) -> None:
 
     Additive and best-effort: never raises. Prefers the enrich DB; falls back
     to a live cached yfinance profile for names absent from it. Existing
-    (DB-sourced) values win.
+    (DB-sourced) values win. Guarded by `_names_plausibly_match` /
+    `_enrich_row_symbol_verified` against a corrupted enrich-DB row silently
+    attaching an unrelated company's profile onto a correctly-resolved
+    symbol (see their docstrings).
     """
     try:
         rec = None
+        rec_via_sc_id = False
         if enrich_db.is_enabled():
             if out.get("sc_id"):
                 rec = enrich_db.get_by_sc_id(out["sc_id"])
+                rec_via_sc_id = rec is not None
             if rec is None and out.get("symbol"):
                 rec = enrich_db.get_by_ticker(out["symbol"])
         if rec is None:
@@ -261,6 +374,13 @@ def _apply_enrichment(out: dict[str, Any]) -> None:
             # ITC). Fall back to a live, cached yfinance profile so listed
             # names still get sector/profile/promoter.
             prof = _yfinance_profile(out.get("symbol", ""))
+            if prof and not _names_plausibly_match(out.get("name"), prof.get("long_name")):
+                logger.warning(
+                    "enrichment skipped for %s: live yfinance profile name "
+                    "%r doesn't match resolved name %r",
+                    out.get("symbol"), prof.get("long_name"), out.get("name"),
+                )
+                prof = {}
             if prof:
                 if not out.get("sector") and prof.get("sector"):
                     out["sector"] = prof["sector"]
@@ -282,6 +402,26 @@ def _apply_enrichment(out: dict[str, Any]) -> None:
                         out["name"] = prof["long_name"]
                 out["enriched"] = True
                 out["enrichment_source"] = "yfinance_live"
+            return
+        if not (
+            (rec_via_sc_id and _enrich_row_symbol_verified(out, rec))
+            or (
+                _names_plausibly_match(out.get("name"), rec.company_name)
+                and _names_plausibly_match(rec.company_name, rec.long_name)
+            )
+        ):
+            # Corrupted enrich-DB row (see _names_plausibly_match /
+            # _enrich_row_symbol_verified docstrings) — refuse the merge
+            # entirely rather than attach an unrelated company's
+            # sector/summary/promoter data. Never a partial merge: every
+            # yfinance-derived field in this row comes from the SAME
+            # (wrong) underlying lookup, so if one is off they all are.
+            logger.warning(
+                "enrichment skipped for %s (sc_id=%s): enrich-DB row name "
+                "%r / long_name %r inconsistent with resolved name %r",
+                out.get("symbol"), out.get("sc_id"), rec.company_name,
+                rec.long_name, out.get("name"),
+            )
             return
         out["enrichment_source"] = "enrich_db"
         if not out.get("sector") and rec.sector:

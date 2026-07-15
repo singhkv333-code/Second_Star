@@ -230,7 +230,7 @@ def test_backtest_workflow_one_time_buy_and_hold(monkeypatch):
         "Open": closes, "High": closes + 1, "Low": closes - 1,
         "Close": closes, "Volume": np.full(n, 1_000_000.0),
     }, index=idx)
-    monkeypatch.setattr(wb, "_load_bars", lambda sym, period: bars)
+    monkeypatch.setattr(wb, "_load_bars", lambda sym, period, **_kw: bars)
 
     steps = [
         {"step_type": "trigger.schedule",
@@ -264,7 +264,7 @@ def test_one_time_buy_and_hold_tracks_underlying(monkeypatch):
         "Open": closes, "High": closes + 2, "Low": closes - 2,
         "Close": closes, "Volume": np.full(n, 1_000_000.0),
     }, index=idx)
-    monkeypatch.setattr(wb, "_load_bars", lambda sym, period: bars)
+    monkeypatch.setattr(wb, "_load_bars", lambda sym, period, **_kw: bars)
 
     def _run(order_cfg):
         steps = [
@@ -302,7 +302,7 @@ def test_backtest_workflow_run_at_predating_window_notes_it(monkeypatch):
         "Open": closes, "High": closes + 1, "Low": closes - 1,
         "Close": closes, "Volume": np.full(n, 1_000_000.0),
     }, index=idx)
-    monkeypatch.setattr(wb, "_load_bars", lambda sym, period: bars)
+    monkeypatch.setattr(wb, "_load_bars", lambda sym, period, **_kw: bars)
 
     steps = [
         {"step_type": "trigger.schedule",
@@ -394,3 +394,120 @@ def test_handler_seeded_position_assumption_and_run(monkeypatch):
     assert any("Seeded an existing holding of 50 TCS" in a for a in out["assumptions"])
     # The seeded trade actually ran (a trade closed at the window end).
     assert out["metrics"]["n_trades"] >= 1
+
+
+# ── Short-position honesty guard ─────────────────────────────────────
+#
+# This engine is long-only end to end (workflows/dsl/backtest/engine.py
+# only ever buys-at-entry / sells-at-exit). Ground-truth eval caught a
+# "Backtest shorting BANKNIFTY futures on a gap-down" request silently
+# running LONG and being narrated as a short — a mechanics fabrication,
+# not just a wrong number. The handler must refuse instead, via either
+# channel: the explicit `direction` tool arg, or short language surviving
+# in the natural-language condition/exit_condition text.
+
+
+def test_handler_refuses_explicit_short_direction(monkeypatch):
+    _patch_handler(monkeypatch)
+    with pytest.raises(ValueError, match=r"only simulates LONG"):
+        _run_handler({
+            "condition": "buy BANKNIFTY on a gap-down",
+            "primary_symbol": "BANKNIFTY", "interval": "1d",
+            "direction": "short",
+        })
+
+
+def test_handler_refuses_short_language_in_condition(monkeypatch):
+    """Backstop: even if the chat LLM never sets `direction`, short
+    language surviving verbatim in `condition` must still be refused —
+    it must NOT silently run a long backtest."""
+    _patch_handler(monkeypatch)
+    with pytest.raises(ValueError, match=r"only simulates LONG"):
+        _run_handler({
+            "condition": "short BANKNIFTY on a gap-down",
+            "primary_symbol": "BANKNIFTY", "interval": "1d",
+        })
+
+
+def test_handler_refuses_short_on_ticker_starting_with_benign_prefix(monkeypatch):
+    """A ticker like MARUTI/MARICO/EMAMI starts with a benign token ('MA',
+    'EMA') the crossover-leg strip must ignore — the strip has to consume
+    whole benign WORDS only, never a ticker's leading letters, or a real
+    'short MARUTI' request would be swallowed and silently run long."""
+    _patch_handler(monkeypatch, symbol="MARUTI")
+    with pytest.raises(ValueError, match=r"only simulates LONG"):
+        _run_handler({
+            "condition": "short MARUTI on a gap-down",
+            "primary_symbol": "MARUTI", "interval": "1d",
+        })
+
+
+def test_handler_refuses_short_language_in_exit_condition(monkeypatch):
+    _patch_handler(monkeypatch)
+    with pytest.raises(ValueError, match=r"only simulates LONG"):
+        _run_handler({
+            "condition": "RSI(14) < 30", "primary_symbol": "TCS",
+            "interval": "1d", "exit_condition": "cover the short at RSI > 70",
+        })
+
+
+def test_handler_does_not_misfire_on_benign_short_phrasing(monkeypatch):
+    """'short-term' / 'short of' must NOT trip the refusal — only a
+    genuine short-selling intent word should."""
+    _patch_handler(monkeypatch)
+    out = _run_handler({
+        "condition": "buy TCS when momentum is short-term bullish",
+        "primary_symbol": "TCS", "interval": "1d",
+    })
+    assert "metrics" in out  # ran normally, no ValueError raised
+
+
+def test_handler_does_not_misfire_on_short_ma_crossover(monkeypatch):
+    """'short SMA crosses long SMA' is THE flagship backtest_dsl_tree
+    crossover use case ('short'/'long' as MA-leg adjectives) — must NOT
+    be misread as a short-sell request."""
+    _patch_handler(monkeypatch)
+    out = _run_handler({
+        "condition": "buy TCS when the short SMA crosses above the long SMA",
+        "primary_symbol": "TCS", "interval": "1d",
+    })
+    assert "metrics" in out  # ran normally, no ValueError raised
+
+
+# ── propose_dsl_workflow: same long-only gap, live registration path ─
+# Flagged by the backtest_dsl_tree fix's own author: a "short X" entry
+# condition must not silently register a BUY automation — there's no
+# short-entry action_kind in this schema, so refuse honestly instead.
+
+
+def test_propose_dsl_workflow_refuses_short_entry_as_buy(monkeypatch):
+    from backend.services import _dsl_chat_tools as dct
+
+    async def _fake_translate(condition, **kwargs):
+        return ({"type": "comparison", "op": ">",
+                 "left": {"type": "price", "symbol": "BANKNIFTY"},
+                 "right": {"type": "constant", "value": 100}}, {"stub": True})
+
+    monkeypatch.setattr(dct, "translate_condition_to_tree", _fake_translate)
+    with pytest.raises(ValueError, match="short"):
+        asyncio.run(dct.propose_dsl_workflow({
+            "condition": "short BANKNIFTY when it gaps down",
+            "primary_symbol": "BANKNIFTY", "action_kind": "buy_market",
+            "quantity": 25,
+        }))
+
+
+def test_propose_dsl_workflow_short_term_phrasing_still_builds(monkeypatch):
+    from backend.services import _dsl_chat_tools as dct
+
+    async def _fake_translate(condition, **kwargs):
+        return ({"type": "comparison", "op": ">",
+                 "left": {"type": "price", "symbol": "TCS"},
+                 "right": {"type": "constant", "value": 100}}, {"stub": True})
+
+    monkeypatch.setattr(dct, "translate_condition_to_tree", _fake_translate)
+    out = asyncio.run(dct.propose_dsl_workflow({
+        "condition": "buy TCS on a short-term dip below 100",
+        "primary_symbol": "TCS", "action_kind": "buy_market", "quantity": 10,
+    }))
+    assert out.get("steps")  # built normally, no false-positive refusal

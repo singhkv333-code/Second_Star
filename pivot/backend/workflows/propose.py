@@ -580,13 +580,40 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
         # in-place so the validated step + downstream executor see
         # the repaired config. Saves an LLM retry hop on common
         # LLM mistakes ("quantity": "ten", "channel": "email", etc.).
+        #
+        # The channel collapse is a SILENT downgrade unless we disclose
+        # it: a user who asked for "notify me by email/WhatsApp" gets a
+        # step that validates fine (channel -> "push") with nothing in
+        # the response telling them their stated channel wasn't honored
+        # (Pivot v1 only delivers in-app push — email/SMS/WhatsApp/Slack
+        # aren't wired). Capture the pre-repair value here and, if it
+        # actually got collapsed, surface it via `draft.warnings` — the
+        # same field the FE's WorkflowDraftCard already renders as a
+        # visible warning badge (see e.g. the top-movers template's
+        # budget/universe warnings above).
+        requested_channel = (
+            (step.config or {}).get("channel")
+            if step.step_type == "notify.message" else None
+        )
         from backend.services.arg_repair import repair_step_config
         repaired_cfg, _notes = repair_step_config(step.step_type, step.config or {})
         if repaired_cfg is not step.config:
             step.config = repaired_cfg
+        if (
+            step.step_type == "notify.message"
+            and isinstance(requested_channel, str)
+            and requested_channel.strip().lower() != "push"
+            and step.config.get("channel") == "push"
+        ):
+            draft.warnings.append(
+                f"You asked for \"{requested_channel.strip()}\" notifications, "
+                "but Pivot v1 only delivers in-app push — email/SMS/WhatsApp/"
+                "Slack aren't wired yet. This step will send a push alert "
+                "instead."
+            )
 
         try:
-            defn.config_model.model_validate(step.config)
+            validated_cfg = defn.config_model.model_validate(step.config)
         except ValidationError as e:
             first = e.errors()[0]
             field = ".".join(str(p) for p in first.get("loc", []))
@@ -594,6 +621,16 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"step {idx} ({step.step_type}) config invalid: "
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
+        # Persist the resolved `exchange` back onto the stored step
+        # config. `_Strict._resolve_commodity_exchange` (schemas.py) only
+        # mutates the transient validated model above; the live watcher
+        # (workflows/scheduler.py) reads `cfg.get("exchange", "NSE")`
+        # straight off the JSON config dict, not a re-validated model.
+        # Without writing it back, an MCX commodity trigger with no
+        # explicit `exchange` in the LLM's emitted config would still
+        # persist with a missing/NSE exchange and silently mis-fire.
+        if hasattr(validated_cfg, "exchange"):
+            step.config["exchange"] = validated_cfg.exchange
         prev_was_trigger = is_trigger
 
     # Conservative-beta event-trigger allow-list. Runs after per-step

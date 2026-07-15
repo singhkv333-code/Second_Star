@@ -101,7 +101,7 @@ def test_engine_deflates_across_distinct_variants(monkeypatch):
         },
         index=idx,
     )
-    monkeypatch.setattr(wb, "_load_bars", lambda sym, period: bars)
+    monkeypatch.setattr(wb, "_load_bars", lambda sym, period, **_kw: bars)
     reset_group("uTEST")
 
     steps_a = [

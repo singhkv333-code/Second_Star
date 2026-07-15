@@ -600,7 +600,7 @@ export function StrategyBuilderCard({
       .map((c) => `${c.symbol} ${fmtPct(c.weight_pct)}`)
       .join(", ");
     return (
-      "Backtest this basket buy-and-hold over the last 3 years — hold to end, " +
+      "Backtest this basket buy-and-hold over the last 5 years — hold to end, " +
       `no rebalancing. Constituents: ${legs}.`
     );
   }, [card.constituents]);

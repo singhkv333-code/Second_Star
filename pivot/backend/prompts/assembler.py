@@ -369,6 +369,31 @@ def _format_user_context(ctx: UserContext) -> str:
     return "\n".join(bits) if len(bits) > 1 else ""
 
 
+def _current_date_line() -> str:
+    """A real, always-fresh "today" fact — computed per call, never
+    cached (unlike the file loaders above, which cache static content).
+
+    Without this, the ONLY date-shaped text anywhere in the assembled
+    prompt was a worked-example table in system_core.md illustrating
+    `valid_until` resolution, headed "assume today is 2026-05-28" — the
+    model had nothing else to anchor "today" to, so it read that
+    illustrative placeholder as fact (reproduced live 2026-07-14: asked
+    directly, it answered "May 28, 2026"). Fixing it here, dynamically,
+    means it can't go stale again the way a hardcoded prompt string does.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    return (
+        "## Current date\n"
+        f"Today is {now.strftime('%Y-%m-%d')} ({now.strftime('%A')}), "
+        "Asia/Kolkata. Use this — not any date in an illustrative example "
+        "elsewhere in this prompt — for every relative-date resolution "
+        "(valid_until, \"this week\", \"tomorrow\", expiries, schedules)."
+    )
+
+
 def build_system_prompt(
     role: PromptRole,
     user_context: Optional[UserContext] = None,
@@ -380,8 +405,14 @@ def build_system_prompt(
       1. Role identity + instructions (from system.md for 'chat',
          else from ROLE_INSTRUCTIONS).
       2. Domain primer (always included).
-      3. User context (only when provided).
-      4. Extra context (only when provided) — caller-injected text,
+      3. Current date (always included, computed fresh every call) —
+         placed AFTER the large stable blocks above so the prompt-cache
+         prefix (role instructions + calibration examples + domain
+         primer, thousands of tokens, rarely changes) survives the
+         once-a-day rollover; only this line and whatever follows it
+         needs revalidating at midnight IST.
+      4. User context (only when provided).
+      5. Extra context (only when provided) — caller-injected text,
          e.g. catalog summary for propose_workflow.
 
     Returns a single newline-joined string ready to send as the system
@@ -402,6 +433,7 @@ def build_system_prompt(
         parts.append(ROLE_INSTRUCTIONS.get(role, _CHAT_FALLBACK).strip())
 
     parts.append(_load_domain_primer())
+    parts.append(_current_date_line())
 
     if user_context:
         block = _format_user_context(user_context)

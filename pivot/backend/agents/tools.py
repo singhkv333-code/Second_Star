@@ -776,7 +776,7 @@ tool("get_returns",
 
 _SCREEN_FIELDS = [
     # valuation / quality / balance-sheet ratios
-    "pe", "roe", "roce", "de", "payout", "price_to_book", "ev_to_ebitda", "roa",
+    "pe", "peg", "roe", "roce", "de", "payout", "price_to_book", "ev_to_ebitda", "roa",
     "current_ratio", "quick_ratio", "interest_coverage", "net_profit_margin",
     "ebitda_margin", "asset_turnover",
     # extended ratio set (scraped + pivot-derived backfill)
@@ -802,7 +802,8 @@ tool("screen_fundamentals",
      "fetch_fundamentals.\n\n"
      "SCREENABLE FIELDS (any metric the DB carries — use the one the user "
      "actually names, do NOT substitute a different metric):\n"
-     " • ratios: pe, roe, roce, de (debt/equity), payout, price_to_book (P/B), "
+     " • ratios: pe, peg (trailing P/E ÷ trailing YoY EPS growth — 'PEG "
+     "below 1'), roe, roce, de (debt/equity), payout, price_to_book (P/B), "
      "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
      "net_profit_margin, ebitda_margin, asset_turnover\n"
      " • GROWTH (YoY, latest two annual filings): revenue_growth, "
@@ -842,7 +843,8 @@ tool("screen_fundamentals",
      "number) auto-floors micro-caps so recognizable names lead. Never invent "
      "names or numbers.\n\n"
      "LIMIT: honour the user's 'top N' — if they say 'top 5' set limit=5, "
-     "'top 10' → limit=10. Default 15 when unspecified.\n\n"
+     "'top 10' → limit=10, 'exactly N companies' → limit=N. Default 15 when "
+     "unspecified.\n\n"
      "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the user "
      "to pick a threshold): 'cheap banking stocks' → sector=bank, "
      "sort_by={field:pe,dir:asc}; 'fastest-growing IT' → sector=it, "
@@ -853,7 +855,14 @@ tool("screen_fundamentals",
      "ALL of them (do not silently drop one).\n\n"
      "CAP WORD: if the user says 'large cap'/'bluechip'/'big companies'/'mid "
      "cap'/'small cap' with no ₹ number, set market_cap_tier — REQUIRED to "
-     "honour that phrasing.",
+     "honour that phrasing.\n\n"
+     "EXCLUDE: if the user carves out a name/sector/'PSU' ('excluding banks', "
+     "'not X', 'no PSU names'), pass it in `exclude` — do NOT silently drop the "
+     "carve-out or only mention it in prose; it must be enforced.\n\n"
+     "This is a READ-ONLY ranking/screen, NOT a constructed basket — it has no "
+     "weighting scheme and no per-name rationale. For a 'build me a basket' ask "
+     "that also wants sizing/weights/a gate (not just a filtered list), use "
+     "build_strategy instead, which can also gate on the exact universe.",
      {
          "filters": {"type": "array",
                      "description": "Numeric constraints, AND-ed. Include EVERY "
@@ -884,6 +893,9 @@ tool("screen_fundamentals",
                          "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
+         "exclude": {"type": "array", "items": {"type": "string"},
+                     "description": "Sectors, 'PSU', or named companies/tickers "
+                     "to carve out of the results (hard-filtered, not advisory)."},
      },
      [],
      defaults={"limit": 15})
@@ -1347,6 +1359,19 @@ tool("backtest_workflow",
                  "'period' exceeds it (1h yfinance=730d, Kite=400d)."
              ),
          },
+         "starting_capital": {
+             "type": "number",
+             "description": (
+                 "The ACTUAL ₹ amount being deployed. ALWAYS pass this "
+                 "when a real figure is known — a basket's stated deploy "
+                 "amount, a capital_inr the user gave, or an amount from "
+                 "earlier in this conversation. Discrete-share rounding "
+                 "makes the return % itself depend on capital size, so "
+                 "silently defaulting to ₹10,00,000 when the user asked "
+                 "about a different amount misreports the result, not "
+                 "just the label. Omit ONLY when no figure is known."
+             ),
+         },
      },
      ["name", "steps"])
 
@@ -1474,6 +1499,11 @@ tool("backtest_dsl_tree",
          "starting_capital": {
              "type": "number",
              "default": 100000,
+             "description": (
+                 "The ACTUAL ₹ amount being deployed, if known from this "
+                 "conversation — never leave at the default when a real "
+                 "figure was stated."
+             ),
          },
          "quantity": {
              "type": "integer",
@@ -1499,6 +1529,19 @@ tool("backtest_dsl_tree",
                       "atr_risk: fraction of equity risked per trade (0.01 = 1%)."},
          "atr_mult": {"type": "number", "description":
                       "atr_risk: stop distance in ATRs (default 2)."},
+         "direction": {
+             "type": "string",
+             "enum": ["long", "short"],
+             "default": "long",
+             "description": (
+                 "This engine only SIMULATES LONG (buy-then-sell) positions. "
+                 "If the user asks to short / sell-short / go short, still "
+                 "pass direction='short' here (do NOT silently drop it and "
+                 "run it long) — the tool will refuse honestly rather than "
+                 "fabricate a short. Never claim you backtested a short when "
+                 "this returns an error."
+             ),
+         },
      },
      ["condition", "primary_symbol", "interval"])
 
@@ -1652,7 +1695,14 @@ tool("propose_dsl_workflow",
              "description": (
                  "notify_only (default) sends a push; buy_market/buy_limit "
                  "place an order. Exit branch (when exit_condition set) "
-                 "always market-sells runtime-held quantity."
+                 "always market-sells runtime-held quantity. ONLY in-app "
+                 "push is wired for notify_only — email/SMS/WhatsApp "
+                 "delivery does not exist yet. If the user asked for one "
+                 "of those, still build the push alert but say so plainly "
+                 "in your reply ('this'll alert you in Pivot — WhatsApp/"
+                 "email delivery isn't wired up yet') — do not silently "
+                 "build a push alert while implying it goes to the "
+                 "channel they named."
              ),
          },
          "quantity": {
@@ -1686,7 +1736,12 @@ tool("propose_dsl_workflow",
                  "Optional ISO YYYY-MM-DD. Set ONLY for TTL phrases ('for "
                  "next 30 days', 'until 30 June', 'till Friday'). Resolve "
                  "relative phrases yourself. Omit for perpetual. Scheduler "
-                 "auto-deactivates at 23:59 IST."
+                 "auto-deactivates at 23:59 IST. Granularity is a full DAY — "
+                 "do NOT set this for a sub-day window ('for the next hour', "
+                 "'for 30 minutes'); rounding that up to end-of-day silently "
+                 "misrepresents the duration. Omit it instead and say plainly "
+                 "in your reply that the card has no built-in expiry and the "
+                 "user should deactivate it manually when the window passes."
              ),
          },
          "interval": {
@@ -1697,9 +1752,11 @@ tool("propose_dsl_workflow",
              ],
              "default": "1d",
              "description": (
-                 "Bar interval for entry/exit indicators. 'period' (RSI(14), "
-                 "SMA(50)) counts BARS of THIS interval. If user did NOT pin "
-                 "a timeframe, ASK — do not guess. Default '1d'."
+                 "Bar interval for entry/exit indicators AND for any price "
+                 "leg with offset > 0 ('lower than it was N minutes ago' — "
+                 "'previous bar' means nothing without this). 'period' "
+                 "(RSI(14), SMA(50)) counts BARS of THIS interval. If user "
+                 "did NOT pin a timeframe, ASK — do not guess. Default '1d'."
              ),
          },
      },
