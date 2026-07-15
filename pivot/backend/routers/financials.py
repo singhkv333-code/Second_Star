@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from backend.config import settings
 from backend.auth.jwt_handler import get_user_id_from_token
@@ -283,3 +283,72 @@ def _build_financials_payload(sym: str) -> dict:
         "profile": profile,
         "source": "moneycontrol_with_yfinance_fallback",
     }
+
+
+# ── Full balance sheet grid (stock detail page's Balance Sheet tab) ─────────
+# Separate from the flat FIELD_MAP snapshot above: this returns every line
+# item MC publishes for the statement, with section headers and a multi-year
+# column, sourced ONLY from mc_html/mc_api (never yfinance, never
+# pivot_derived — that source has no balance_sheet rows anyway). No
+# fallback-to-yfinance here on purpose: yfinance's balance sheet has a
+# completely different line-item vocabulary, so filling gaps from it would
+# silently mix two incompatible schemas in one table.
+_BS_CACHE_PREFIX = "financials:bs:v1:"
+
+
+@router.get("/{symbol}/balance_sheet")
+def get_balance_sheet(
+    symbol: str,
+    basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Full balance sheet for `symbol`.
+
+    Shape:
+      {
+        "available": bool,
+        "company": {...} | null,
+        "basis": "consolidated" | "standalone",
+        "unit": "Rs. Cr." | null,
+        "periods": ["Mar 26", "Mar 25", ...],
+        "rows": [
+          {"section": str | null, "line_item": str,
+           "values": {period_label: float | null},
+           "value_texts": {period_label: str | null}},
+          ...
+        ],
+        "source": "moneycontrol"
+      }
+    """
+    _auth(authorization)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    cache_key = f"{_BS_CACHE_PREFIX}{sym}:{basis}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("balance_sheet cache read miss/error for %s", sym, exc_info=True)
+
+    company = fdb.get_company(sym)
+    statement = fdb.get_balance_sheet_statement(sym, basis=basis)
+
+    result = {
+        "available": bool(statement and statement.get("rows")),
+        "company": company.to_dict() if company is not None else None,
+        "basis": (statement or {}).get("basis", basis),
+        "unit": (statement or {}).get("unit"),
+        "periods": (statement or {}).get("periods", []),
+        "rows": (statement or {}).get("rows", []),
+        "source": "moneycontrol",
+    }
+    try:
+        redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("balance_sheet cache write failed for %s", sym, exc_info=True)
+    return result

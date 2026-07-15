@@ -421,6 +421,11 @@ export function AgentsTab({
           workflow_id: s.id,
           name: `${prettyTemplate(s.template)} · ${s.underlying}`,
           return_pct: null,
+          series: [],
+          run_count: 0,
+          success_rate: null,
+          last_run_at: null,
+          has_data: false,
         })),
         loading: optionsState.kind === "loading",
       };
@@ -434,6 +439,11 @@ export function AgentsTab({
           workflow_id: String(b.id),
           name: b.name,
           return_pct: null,
+          series: [],
+          run_count: 0,
+          success_rate: null,
+          last_run_at: null,
+          has_data: false,
         })),
         loading: basketsLoading,
       };

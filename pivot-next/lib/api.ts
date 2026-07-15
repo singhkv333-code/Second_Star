@@ -981,6 +981,38 @@ export function getFinancials(symbol: string): Promise<ApiResult<FinancialsRespo
   return request<FinancialsResponse>(`/financials/${encodeURIComponent(symbol)}`);
 }
 
+/** One balance-sheet line item across every fetched fiscal year. `section`
+ *  is set on the row immediately following a section header (e.g.
+ *  "SHAREHOLDER'S FUNDS") and null for plain line items. */
+export type BalanceSheetRow = {
+  section: string | null;
+  line_item: string;
+  values: Record<string, number | null>;
+  value_texts: Record<string, string | null>;
+};
+
+export type BalanceSheetResponse = {
+  available: boolean;
+  company: FinancialsCompany | null;
+  basis: "consolidated" | "standalone";
+  unit: string | null;
+  periods: string[];
+  rows: BalanceSheetRow[];
+  source: string;
+};
+
+/** `GET /api/financials/{symbol}/balance_sheet` — full MC balance sheet grid
+ *  (every line item, section headers, multi-year), sourced only from a real
+ *  Moneycontrol scrape — never yfinance, never derived. */
+export function getBalanceSheet(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+): Promise<ApiResult<BalanceSheetResponse>> {
+  return request<BalanceSheetResponse>(
+    `/financials/${encodeURIComponent(symbol)}/balance_sheet?basis=${basis}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Orders — chat-confirm register flow (POST /orders/register)
 //

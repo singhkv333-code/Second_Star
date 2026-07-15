@@ -1052,6 +1052,7 @@ def _get_line_item_value(
                       AND line_item = ANY(:items)
                       AND value_numeric IS NOT NULL
                       AND (:as_of IS NULL OR availability_date <= :as_of)
+                      AND (statement <> 'ratios' OR source IN ('mc_html', 'mc_api'))
                     ORDER BY period_end DESC NULLS LAST,
                              availability_date DESC NULLS LAST
                     LIMIT 1
@@ -1138,6 +1139,7 @@ def get_fundamental_history(
                       AND value_numeric IS NOT NULL
                       AND period_end IS NOT NULL
                       AND (:as_of IS NULL OR availability_date <= :as_of)
+                      AND (statement <> 'ratios' OR source IN ('mc_html', 'mc_api'))
                     ORDER BY period_end DESC,
                              array_position(CAST(:items AS text[]), line_item)
                     LIMIT :lim
@@ -1231,6 +1233,7 @@ def get_company_fundamentals_bulk(
                       AND statement::text = ANY(:stmts)
                       AND line_item = ANY(:items)
                       AND (:as_of IS NULL OR availability_date <= :as_of)
+                      AND (statement::text <> 'ratios' OR source IN ('mc_html', 'mc_api'))
                     """
                 ),
                 {
@@ -1302,6 +1305,92 @@ def get_company_fundamentals_bulk(
         history[field] = [_fv(r, field) for _, r in ordered[:history_limit]]
 
     return latest, history
+
+
+def get_balance_sheet_statement(
+    symbol_or_sc_id: str,
+    *,
+    basis: str = "consolidated",
+    years: int = 10,
+    as_of_date: date | None = None,
+    session: Session | None = None,
+) -> dict | None:
+    """Full balance sheet grid for one company: every line item MC publishes
+    under statement='balance_sheet', with section headers and a multi-year
+    column, straight from mc_html/mc_api — never pivot_derived (that source
+    has no balance_sheet rows anyway) and never fabricated.
+
+    Falls back from `basis` to the other basis if the preferred one has no
+    rows, mirroring `get_fundamental_history`. Returns None only when the
+    symbol itself doesn't resolve; a resolved company with no scraped
+    balance sheet gets an empty `rows`/`periods` payload so the caller can
+    say so honestly rather than erroring.
+    """
+    owns = session is None
+    s = session or _session()
+    try:
+        sc_id = resolve_symbol(symbol_or_sc_id, session=s)
+        if sc_id is None:
+            return None
+
+        raw_rows: list = []
+        used_basis = basis
+        for active_basis in (basis, "standalone" if basis == "consolidated" else "consolidated"):
+            raw_rows = s.execute(
+                text(
+                    """
+                    SELECT line_item, section, line_order, period_label, period_end,
+                           value_numeric, value_text, unit
+                    FROM mc.statement_lines
+                    WHERE sc_id = :sc
+                      AND statement = 'balance_sheet'
+                      AND basis = :basis
+                      AND source IN ('mc_html', 'mc_api')
+                      AND (:as_of IS NULL OR availability_date <= :as_of)
+                    ORDER BY line_order, period_end DESC
+                    """
+                ),
+                {"sc": sc_id, "basis": active_basis, "as_of": as_of_date},
+            ).fetchall()
+            if raw_rows:
+                used_basis = active_basis
+                break
+
+        if not raw_rows:
+            return {"sc_id": sc_id, "basis": basis, "unit": None, "periods": [], "rows": []}
+
+        period_pairs = sorted(
+            {(r[3], r[4]) for r in raw_rows},
+            key=lambda p: (p[1] is None, p[1]),
+            reverse=True,
+        )
+        periods = [p[0] for p in period_pairs[:years]]
+        period_set = set(periods)
+
+        by_row: dict[tuple, dict] = {}
+        unit: str | None = None
+        for line_item, section, line_order, period_label, _period_end, value_numeric, value_text, u in raw_rows:
+            if period_label not in period_set:
+                continue
+            key = (line_order, line_item)
+            row = by_row.setdefault(
+                key, {"section": section, "line_item": line_item, "values": {}, "value_texts": {}}
+            )
+            row["values"][period_label] = float(value_numeric) if value_numeric is not None else None
+            row["value_texts"][period_label] = value_text
+            unit = unit or u
+
+        ordered_rows = [by_row[k] for k in sorted(by_row.keys(), key=lambda k: k[0])]
+        return {
+            "sc_id": sc_id,
+            "basis": used_basis,
+            "unit": unit,
+            "periods": periods,
+            "rows": ordered_rows,
+        }
+    finally:
+        if owns:
+            s.close()
 
 
 def get_ohlcv(
