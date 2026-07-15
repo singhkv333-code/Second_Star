@@ -1660,36 +1660,18 @@ function StrategyCard({
         <Icon size={16} strokeWidth={1.8} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 3 }}>
-        <div className="flex items-center" style={{ gap: 8 }}>
-          <span
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.01em",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {tile.title}
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: 9.5,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              color: "var(--text-tertiary)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-pill)",
-              padding: "1.5px 7px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {tile.tag}
-          </span>
-        </div>
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {tile.title}
+        </span>
         <span
           style={{
             fontFamily: "var(--font-ui)",
