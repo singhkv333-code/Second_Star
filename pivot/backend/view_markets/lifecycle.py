@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Optional
 # Module-level import so tests can monkeypatch lifecycle.SessionLocal -> the
 # in-memory test session (see tests/view_markets/conftest.py).
 from backend.database import SessionLocal  # noqa: F401  (rebound by tests; used by advance_view_lifecycle)
-from backend.models import MarketView, ViewStatus, ViewType
+from backend.models import MarketView, ViewStatus
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from apscheduler.schedulers.asyncio import AsyncIOScheduler

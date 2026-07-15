@@ -23,7 +23,7 @@ Reuses (real interfaces, pinned 2026-06-29):
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
