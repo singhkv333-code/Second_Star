@@ -292,7 +292,7 @@ export function AgentPanel({
               size="icon"
               aria-label="Close agent panel"
               onClick={() => onOpenChange(false)}
-              className="rounded-full"
+              className="rounded-full text-muted-foreground hover:text-foreground"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </Button>
