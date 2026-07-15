@@ -1049,6 +1049,7 @@ def screen_by_fundamentals(
                         FROM mc.statement_lines sl
                         WHERE sl.line_item = ANY(:{items_key})
                           AND sl.value_numeric IS NOT NULL
+                          AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                     ),
                     paired AS (
                         SELECT b1.sc_id, b1.basis, b1.period_end AS latest_end,
@@ -1094,6 +1095,7 @@ def screen_by_fundamentals(
                       AND sl.value_numeric IS NOT NULL
                       AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0
                       AND (:floor IS NULL OR sl.period_end >= :floor)
+                      AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                     ORDER BY sl.sc_id,
                              (sl.basis = 'consolidated') DESC,
                              sl.period_end DESC NULLS LAST,
@@ -1110,6 +1112,7 @@ def screen_by_fundamentals(
                         WHERE sl.line_item = ANY(:{gr_key})
                           AND sl.value_numeric IS NOT NULL
                           AND sl.period_end IS NOT NULL
+                          AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                         ORDER BY sl.sc_id, sl.basis, sl.period_end DESC,
                                  array_position(CAST(:{gr_key} AS text[]), sl.line_item)
                     ),
@@ -1165,6 +1168,7 @@ def screen_by_fundamentals(
                           WHERE sl.line_item = ANY(:{num_key})
                             AND sl.value_numeric IS NOT NULL
                             AND (:floor IS NULL OR sl.period_end >= :floor)
+                            AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                           ORDER BY sl.sc_id, (sl.basis='consolidated') DESC,
                                    sl.period_end DESC NULLS LAST) n
                     JOIN (SELECT DISTINCT ON (sl.sc_id) sl.sc_id, sl.value_numeric AS v
@@ -1172,6 +1176,7 @@ def screen_by_fundamentals(
                           WHERE sl.line_item = ANY(:{den_key})
                             AND sl.value_numeric IS NOT NULL
                             AND (:floor IS NULL OR sl.period_end >= :floor)
+                            AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                           ORDER BY sl.sc_id, (sl.basis='consolidated') DESC,
                                    sl.period_end DESC NULLS LAST) d
                       ON d.sc_id = n.sc_id
@@ -1197,6 +1202,7 @@ def screen_by_fundamentals(
                       AND sl.value_numeric IS NOT NULL
                       {extra}
                       AND (:floor IS NULL OR sl.period_end >= :floor)
+                      AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                     ORDER BY sl.sc_id,
                              (sl.basis = 'consolidated') DESC,
                              sl.period_end DESC NULLS LAST,
@@ -1713,6 +1719,7 @@ def fetch_gate_inputs(
                       AND sl.value_numeric IS NOT NULL
                       {extra}
                       AND (:floor IS NULL OR sl.period_end >= :floor)
+                      AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
                     ORDER BY sl.sc_id,
                              (sl.basis = 'consolidated') DESC,
                              sl.period_end DESC NULLS LAST,

@@ -29,7 +29,7 @@
  * row from the reference is intentionally cut.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   ComposedChart,
@@ -57,6 +57,7 @@ import {
   getSparkline,
   getOhlc,
   getFinancials,
+  getBalanceSheet,
   getMetricSeries,
   type StockQuote,
   type SparklineRange,
@@ -65,6 +66,7 @@ import {
   type FinancialsResponse,
   type FinancialsHistoryPoint,
   type MetricSeriesResponse,
+  type BalanceSheetResponse,
 } from "@/lib/api";
 import { isError, type ApiResult } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
@@ -391,6 +393,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
+  const [balanceSheet, setBalanceSheet] = useState<BalanceSheetResponse | null>(null);
+  const [bsBasis, setBsBasis] = useState<"consolidated" | "standalone">("consolidated");
   // Phone reflows the page: chart on top, then Performance, then a 2-way
   // Overview/Financials switch (desktop keeps the two-column overview+chart row).
   const [isPhone, setIsPhone] = useState(false);
@@ -454,6 +458,24 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
       });
     return () => { cancelled = true; };
   }, [symbol]);
+
+  // ── Full balance sheet grid (Moneycontrol DB, every line item) ─────────
+  // Separate fetch from the flat `financials` snapshot above — this powers
+  // the Balance Sheet tab's full statement view. Re-fetches on a basis
+  // toggle (standalone/consolidated) as well as symbol change.
+  useEffect(() => {
+    let cancelled = false;
+    setBalanceSheet(null);
+    getBalanceSheet(symbol, bsBasis)
+      .then((res) => {
+        if (cancelled) return;
+        setBalanceSheet(isError(res) ? null : res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setBalanceSheet(null);
+      });
+    return () => { cancelled = true; };
+  }, [symbol, bsBasis]);
 
   // ── Sparkline series (one per ticker) ──────────────────────────────────
   useEffect(() => {
@@ -546,6 +568,9 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           <PhoneLayout
             quote={quoteState.quote}
             financials={financials}
+            balanceSheet={balanceSheet}
+            bsBasis={bsBasis}
+            onBsBasisChange={setBsBasis}
             tickers={tickers}
             peerQuotes={peerQuotes}
             series={series}
@@ -605,7 +630,13 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 
           {/* Unified Financials panel */}
           {quoteState.kind === "ok" && (
-            <FinancialsPanel quote={quoteState.quote} financials={financials} />
+            <FinancialsPanel
+              quote={quoteState.quote}
+              financials={financials}
+              balanceSheet={balanceSheet}
+              bsBasis={bsBasis}
+              onBsBasisChange={setBsBasis}
+            />
           )}
         </>
       )}
@@ -627,6 +658,9 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 function PhoneLayout({
   quote,
   financials,
+  balanceSheet,
+  bsBasis,
+  onBsBasisChange,
   tickers,
   peerQuotes,
   series,
@@ -637,6 +671,9 @@ function PhoneLayout({
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
+  balanceSheet: BalanceSheetResponse | null;
+  bsBasis: "consolidated" | "standalone";
+  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
   series: SeriesEntry[];
@@ -709,7 +746,13 @@ function PhoneLayout({
           {financials && financials.available && (
             <KeyMetricsStrip financials={financials} />
           )}
-          <FinancialsPanel quote={quote} financials={financials} />
+          <FinancialsPanel
+            quote={quote}
+            financials={financials}
+            balanceSheet={balanceSheet}
+            bsBasis={bsBasis}
+            onBsBasisChange={onBsBasisChange}
+          />
         </>
       )}
 
@@ -3798,9 +3841,15 @@ function FinBarChart({
 function FinancialsPanel({
   quote,
   financials,
+  balanceSheet,
+  bsBasis,
+  onBsBasisChange,
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
+  balanceSheet: BalanceSheetResponse | null;
+  bsBasis: "consolidated" | "standalone";
+  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
 
@@ -3922,6 +3971,133 @@ function FinancialsPanel({
             </table>
           </div>
         </div>
+
+        {tab === "financials" && (
+          <FullBalanceSheetSection
+            balanceSheet={balanceSheet}
+            basis={bsBasis}
+            onBasisChange={onBsBasisChange}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Full Moneycontrol balance sheet: every line item, section headers, real
+ *  fiscal-year columns (not the synthetic FY_YEARS used by the summary
+ *  chart above). Sourced only from a real MC scrape (mc_html/mc_api) — never
+ *  yfinance, never fabricated, so this renders nothing rather than guessing
+ *  when a company has no scraped balance sheet. */
+function FullBalanceSheetSection({
+  balanceSheet,
+  basis,
+  onBasisChange,
+}: {
+  balanceSheet: BalanceSheetResponse | null;
+  basis: "consolidated" | "standalone";
+  onBasisChange: (basis: "consolidated" | "standalone") => void;
+}): React.ReactElement | null {
+  if (balanceSheet === null) {
+    return (
+      <div style={{ padding: "20px 24px", fontSize: 12.5, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>
+        Loading full balance sheet…
+      </div>
+    );
+  }
+  if (!balanceSheet.available || balanceSheet.rows.length === 0) {
+    return (
+      <div style={{ padding: "20px 24px", fontSize: 12.5, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>
+        Full balance sheet not available for this company from Moneycontrol.
+      </div>
+    );
+  }
+
+  const { periods, rows, unit } = balanceSheet;
+
+  return (
+    <div style={{ borderTop: "1px solid var(--glass-border)" }}>
+      <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+          Full Balance Sheet{unit ? ` (${unit})` : ""}
+        </span>
+        <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
+          {(["consolidated", "standalone"] as const).map((b) => {
+            const active = basis === b;
+            return (
+              <button key={b} type="button" onClick={() => onBasisChange(b)} style={{
+                padding: "5px 12px", border: "none", cursor: "pointer",
+                fontSize: 11.5, fontFamily: "var(--font-ui)", fontWeight: active ? 600 : 400,
+                background: active ? "var(--pivot-blue, #1b7cc7)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
+                textTransform: "capitalize", transition: "background 120ms, color 120ms",
+              }}>
+                {b}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", padding: "0 24px 20px" }}>
+        <table style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", minWidth: "100%" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+              <th style={{ padding: "8px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap", position: "sticky", left: 0, background: "var(--bg-primary)" }}>
+                Line Item
+              </th>
+              {periods.map((p, i) => (
+                <th key={p} style={{
+                  padding: "8px 12px", fontSize: 10.5, fontWeight: 600,
+                  textTransform: "uppercase", letterSpacing: "0.06em",
+                  textAlign: "right", whiteSpace: "nowrap",
+                  color: i === 0 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                }}>
+                  {p}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => {
+              const prevSection = idx > 0 ? (rows[idx - 1]?.section ?? null) : null;
+              const showSectionHeader = r.section !== null && r.section !== prevSection;
+              return (
+                <Fragment key={r.line_item + idx}>
+                  {showSectionHeader && (
+                    <tr key={`sec-${idx}`}>
+                      <td colSpan={periods.length + 1} style={{
+                        padding: "10px 12px 4px", fontSize: 10.5, fontWeight: 700,
+                        textTransform: "uppercase", letterSpacing: "0.05em",
+                        color: "var(--text-tertiary)", position: "sticky", left: 0,
+                      }}>
+                        {r.section}
+                      </td>
+                    </tr>
+                  )}
+                  <tr key={r.line_item + idx}
+                    style={{ borderBottom: "1px solid var(--glass-border)" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <td style={{ padding: "8px 12px 8px 20px", fontSize: 12, color: "var(--text-primary)", whiteSpace: "nowrap", position: "sticky", left: 0, background: "inherit" }}>
+                      {r.line_item}
+                    </td>
+                    {periods.map((p, i) => (
+                      <td key={p} className="tabular-nums" style={{
+                        padding: "8px 12px", textAlign: "right",
+                        fontSize: 11.5, fontFamily: "var(--font-mono)",
+                        fontWeight: i === 0 ? 600 : 400,
+                        color: i === 0 ? "var(--text-primary)" : "var(--text-secondary)",
+                      }}>
+                        {r.value_texts[p] ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
