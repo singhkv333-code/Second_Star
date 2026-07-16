@@ -1406,6 +1406,7 @@ async def _screen_fundamentals(a, kt, db, uid):
         custom_ratios=a.get("custom_ratios") or None,
         exclude=a.get("exclude") or None,
         growth_years=a.get("growth_years"),
+        title=(a.get("title") or "").strip() or None,
     )
     return {"success": True, "data": out, "logiccard": None}
 

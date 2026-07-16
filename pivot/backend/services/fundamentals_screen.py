@@ -932,6 +932,7 @@ def screen_by_fundamentals(
     min_period_end: date | None | str = "default",
     exclude: list[str] | None = None,
     growth_years: int | None = None,
+    title: str | None = None,
     session: Session | None = None,
 ) -> dict:
     """Return companies passing every fundamental constraint in `filters`.
@@ -1145,6 +1146,8 @@ def screen_by_fundamentals(
             notes=list(notes),
         )
         if enr is not None and enr.get("results"):
+            if title:
+                enr["title"] = title
             return _apply_exclude(enr, exclude)
 
     # ── 3. Build one CTE per metric (branch by kind) ─────────────────────
@@ -1703,6 +1706,8 @@ def screen_by_fundamentals(
         "sorted_by": {"field": sort_field, "dir": sort_dir},
         "note": "; ".join(notes),
     }
+    if title:
+        out["title"] = title
     if gy > 1:
         out["growth_years"] = gy
     return _apply_exclude(out, exclude)
@@ -1919,10 +1924,13 @@ def render_screen_markdown(data: dict) -> str | None:
         cols.append("1-Year Return")
         aligns.append("---:")
 
-    # No heading/framing preamble — the table opens the reply directly
-    # (the "Energy — Ranked by…" + "a growth screen, not a buy list" lines
-    # read as boilerplate; removed on request 2026-07-17).
+    # Heading: the MODEL-authored title from the tool call (specific to the
+    # ask), never the old code-generated "<Sector> — Ranked by <metric>"
+    # boilerplate. No title supplied → the table opens the reply directly.
     lines: list[str] = []
+    model_title = (data.get("title") or "").strip()
+    if model_title:
+        lines += [f"## {model_title}", ""]
     filt = data.get("applied_filters") or []
     if filt:
         shown = " · ".join(

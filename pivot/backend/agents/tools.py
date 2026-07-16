@@ -930,6 +930,13 @@ tool("screen_fundamentals",
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Sectors, 'PSU', or named companies/tickers "
                      "to carve out of the results (hard-filtered, not advisory)."},
+         "title": {"type": "string", "maxLength": 90,
+                     "description": "REQUIRED with presentation='table': a "
+                     "short, specific title rendered as the reply's heading "
+                     "(3–9 words, title case). Make it reflect THIS ask — "
+                     "'Profitable Growers: P/E Above 10, ROE Above 20%' or "
+                     "'Cheapest Large Caps by Earnings' — never a generic "
+                     "'Fundamental Screen' or a restated metric name."},
          "growth_years": {"type": "integer", "minimum": 1,
                      "description": "Horizon for ALL growth fields, in "
                      "financial years. Set this ONLY when the user names a "
