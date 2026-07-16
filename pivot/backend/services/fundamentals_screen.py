@@ -96,6 +96,11 @@ _MCAP_TTL_S = 3600  # market caps drift slowly; refresh hourly per process
 _PE_CACHE: dict[str, object] = {"ts": 0.0, "map": {}}
 _PE_TTL_S = 3600
 
+# 1-year price return (%) from enrich raw_info '52WeekChange' (a fraction) —
+# a CONTEXT column on every screen row, same loader pattern as caps/P/E.
+_YR1_CACHE: dict[str, object] = {"ts": 0.0, "map": {}}
+_YR1_TTL_S = 3600
+
 # tier -> (min_cr inclusive, max_cr exclusive), ₹ crore. Matches sector_universe.
 _CAP_TIER_RANGES: dict[str, tuple[float | None, float | None]] = {
     "large": (50_000, None),
@@ -192,6 +197,44 @@ def _load_trailing_pe() -> dict[str, float]:
     if out:
         _PE_CACHE["map"] = out
         _PE_CACHE["ts"] = now
+    return out or cached or {}
+
+
+def _load_52w_change() -> dict[str, float]:
+    """{sc_id: one_year_return_pct} from enrich raw_info '52WeekChange'
+    (stored as a fraction; ×100 here), cached ~1h, fail-open like the caps
+    and trailing-P/E loaders. Context-only — never filters or sorts."""
+    now = time.time()
+    cached: dict[str, float] = _YR1_CACHE["map"]  # type: ignore[assignment]
+    if cached and now - float(_YR1_CACHE["ts"]) < _YR1_TTL_S:
+        return cached
+    out: dict[str, float] = {}
+    try:
+        from backend.market.enrich_db import EnrichSessionLocal, is_enabled
+
+        if is_enabled():
+            s = EnrichSessionLocal()
+            try:
+                rows = s.execute(
+                    text(
+                        "SELECT sc_id, (raw_info->>'52WeekChange')::float "
+                        "FROM enrich.company_profile "
+                        "WHERE raw_info->>'52WeekChange' ~ "
+                        "'^-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?$' "
+                        "AND (raw_info->>'52WeekChange')::float BETWEEN -0.99 AND 20"
+                    )
+                ).fetchall()
+            finally:
+                s.close()
+            for sc_id, frac in rows:
+                if sc_id is not None and frac is not None:
+                    out[str(sc_id)] = float(frac) * 100.0
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screen] 52w-change load failed: %s", exc)
+        return cached or {}
+    if out:
+        _YR1_CACHE["map"] = out
+        _YR1_CACHE["ts"] = now
     return out or cached or {}
 
 
@@ -368,7 +411,11 @@ def screen_from_enrich(
     inner = f"""
         SELECT DISTINCT ON (UPPER(ticker))
                ticker, COALESCE(long_name, company_name) AS name, industry,
-               market_cap, {select_metrics}
+               market_cap, {select_metrics},
+               (CASE WHEN raw_info->>'52WeekChange' ~
+                     '^-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?$'
+                     THEN (raw_info->>'52WeekChange')::float * 100 END
+               ) AS ctx_yr1_pct
         FROM enrich.company_profile
         WHERE {" AND ".join(where)}
         ORDER BY UPPER(ticker), match_score DESC NULLS LAST, market_cap DESC NULLS LAST
@@ -389,7 +436,7 @@ def screen_from_enrich(
     # (without it, parallel plans reorder equal-valued rows run-to-run).
     sql = f"""
         SELECT ticker, name, industry, market_cap,
-               {", ".join(f"val_{m}" for m in metric_fields)}
+               {", ".join(f"val_{m}" for m in metric_fields)}, ctx_yr1_pct
         FROM ({inner}) t
         {"WHERE " + " AND ".join(outer_where) if outer_where else ""}
         ORDER BY val_{sf} {order} NULLS LAST, ticker ASC
@@ -416,6 +463,8 @@ def screen_from_enrich(
         for m in metric_fields:
             v = r[metric_idx[m]]
             rec[m] = round(float(v), 2) if v is not None else None
+        if r[-1] is not None:  # ctx_yr1_pct — appended last in the SELECT
+            rec["one_year_pct"] = round(float(r[-1]), 1)
         results.append(rec)
 
     notes.append("sector + P/E from company profiles (yfinance) — not the MC ratios DB")
@@ -1135,6 +1184,19 @@ def screen_by_fundamentals(
             join_sqls.append("LEFT JOIN caps ON caps.sc_id = c.sc_id")
             select_cols.append("caps.cr AS ctx_mcap_cr")
 
+    # 1-year return as a second CONTEXT column (LEFT JOIN, never filters).
+    yr1 = _load_52w_change()
+    if yr1:
+        params["yr1_ids"] = list(yr1.keys())
+        params["yr1_pcts"] = [float(v) for v in yr1.values()]
+        cte_sqls.append(
+            "yr1 AS (SELECT sc_id, pct FROM "
+            "unnest(:yr1_ids ::text[], :yr1_pcts ::float8[]) AS t(sc_id, pct))"
+        )
+        join_sqls.append("LEFT JOIN yr1 ON yr1.sc_id = c.sc_id")
+        select_cols.append("yr1.pct AS ctx_yr1_pct")
+        notes.append("1-year return from the yfinance enrichment snapshot (may lag)")
+
     # Real trailing P/E (enrich) injected as an in-memory CTE and PREFERRED over
     # the 1/Earnings-Yield derivation (which quantizes because MC stores EY at
     # 2 dp). LEFT JOIN so it supplies a value only where enrich has the name; the
@@ -1574,6 +1636,9 @@ def screen_by_fundamentals(
         ctx_mcap = row.get("ctx_mcap_cr")
         if ctx_mcap is not None:
             rec["market_cap_cr"] = round(float(ctx_mcap))
+        ctx_yr1 = row.get("ctx_yr1_pct")
+        if ctx_yr1 is not None:
+            rec["one_year_pct"] = round(float(ctx_yr1), 1)
         for mf in metric_fields:
             v = row.get(f"val_{mf}")
             if v is None:
@@ -1777,23 +1842,31 @@ def render_screen_markdown(data: dict) -> str | None:
     title = (f"{sector_disp} — Ranked by {full_label}"
              if sector else f"Fundamental Screen — Ranked by {full_label}")
 
-    # Columns: the ranked metric first, then any other metrics present, then a
-    # single market-cap column at the end (unless market cap IS the ranked
-    # metric). market_cap is excluded from extra_metrics so it never duplicates.
+    # Column order: Rank · Company · Market cap · screened metrics (ranked
+    # first) · Sector · 1-Year Return. Market cap / sector / 1-year return are
+    # ALWAYS-ON context columns; each is deduped when it's itself the screened
+    # thing (mcap drops out of the metric list, a single-sector screen carries
+    # sector in the heading instead of a column).
     extra_metrics = [m for m in _METRIC_LABELS
                      if m != field and m != "market_cap"
                      and results[0].get(m) is not None]
-    has_mcap = field != "market_cap" and results[0].get("market_cap_cr") is not None
-
-    # Mixed-sector screens get a per-row Sector column for instant context;
-    # single-sector screens already carry it in the heading.
+    metrics_cols = ([field] if field != "market_cap" else []) + extra_metrics
+    show_mcap = any(r.get("market_cap_cr") is not None for r in results)
     show_sector = not sector and any((r.get("sector") or "").strip() for r in results)
-    cols = (["Rank", "Company"] + (["Sector"] if show_sector else [])
-            + [label] + [_METRIC_LABELS[m] for m in extra_metrics])
-    aligns = (["---:", "---"] + (["---"] if show_sector else [])
-              + ["---:"] + ["---:"] * len(extra_metrics))
-    if has_mcap:
+    show_yr = any(r.get("one_year_pct") is not None for r in results)
+
+    cols = ["Rank", "Company"]
+    aligns = ["---:", "---"]
+    if show_mcap:
         cols.append("Market cap")
+        aligns.append("---:")
+    cols += [_METRIC_LABELS[m] for m in metrics_cols]
+    aligns += ["---:"] * len(metrics_cols)
+    if show_sector:
+        cols.append("Sector")
+        aligns.append("---")
+    if show_yr:
+        cols.append("1-Year Return")
         aligns.append("---:")
 
     lines = [f"## {title}", "", framing, ""]
@@ -1811,13 +1884,15 @@ def render_screen_markdown(data: dict) -> str | None:
     lines.append("|" + "|".join(aligns) + "|")
     for i, r in enumerate(results, 1):
         row = [str(i), f"{r.get('name') or r['symbol']} (`{r['symbol']}`)"]
+        if show_mcap:
+            row.append(_inr_cr(r.get("market_cap_cr")))
+        row += [_fmt_metric(m, r.get(m)) for m in metrics_cols]
         if show_sector:
             rs = (r.get("sector") or "").strip()
             row.append(_SECTOR_DISPLAY.get(rs, rs.replace("_", " ").title()) or "—")
-        row.append(_fmt_metric(field, r.get(field)))
-        row += [_fmt_metric(m, r.get(m)) for m in extra_metrics]
-        if has_mcap:
-            row.append(_inr_cr(r.get("market_cap_cr")))
+        if show_yr:
+            v = r.get("one_year_pct")
+            row.append(f"{v:+.1f}%" if v is not None else "—")
         lines.append("| " + " | ".join(row) + " |")
 
     top = results[0]
