@@ -392,7 +392,14 @@ class OrderRegisterRequest(BaseModel):
 
 
 def _persist_leg(
-    db: Session, user_id: int, leg: dict, *, conversation_id: Optional[str] = None,
+    db: Session,
+    user_id: int,
+    leg: dict,
+    *,
+    conversation_id: Optional[str] = None,
+    origin_kind: str = "chat",
+    strategy_id: Optional[int] = None,
+    label: Optional[str] = None,
 ) -> TradeLog:
     """Persist a chat order intent as a TradeLog row, routing it by the
     account's paper-vs-live mode.
@@ -494,6 +501,9 @@ def _persist_leg(
                 source="chat",
                 conversation_id=conversation_id,
                 client_request_id=_crid,
+                origin_kind=origin_kind,
+                strategy_id=strategy_id,
+                label=label,
             )
             broker_order_id = result.get("order_id")
         # paper_status (simulated book: filled/resting/rejected/pending) takes
@@ -677,6 +687,21 @@ def _arm_bracket_exits(
     return exits, None
 
 
+def _is_queued_status(status: str, order_type: str) -> bool:
+    """True for an order that rested instead of filling because the market
+    was closed at placement — the LIVE path stamps this ``"queued"`` (see
+    the after-market override in ``_persist_leg`` above); the PAPER broker
+    stamps the very same situation ``"resting"`` for a MARKET order (see the
+    market-hours gate in ``paper/broker.py``). A LIMIT/SL order also rests
+    as ``"resting"``, but for a different reason (price not hit yet, not
+    market-closed) — so that case must NOT trip the "market closed, will
+    execute at next open" messaging."""
+    s = str(status).lower()
+    if s == "queued":
+        return True
+    return s == "resting" and str(order_type).upper() == "MARKET"
+
+
 @router.post("/register", status_code=201)
 async def register_order(
     request: OrderRegisterRequest,
@@ -712,7 +737,7 @@ async def register_order(
                     "transaction_type": r.transaction_type, "order_type": r.order_type,
                     "quantity": r.quantity, "price": r.price,
                     "trigger_price": r.trigger_price, "status": r.status,
-                    "queued": str(r.status).lower() == "queued",
+                    "queued": _is_queued_status(r.status, r.order_type),
                     "placed_at": format_ist(r.placed_at),
                 }
                 for r in rows
@@ -768,7 +793,7 @@ async def register_order(
         "transaction_type": row.transaction_type, "order_type": row.order_type,
         "quantity": row.quantity, "price": row.price,
         "trigger_price": row.trigger_price, "status": row.status,
-        "queued": str(row.status).lower() == "queued",
+        "queued": _is_queued_status(row.status, row.order_type),
         "market_open": is_market_open(),
         "next_open": format_ist(next_market_open(), include_seconds=False),
         "placed_at": format_ist(row.placed_at),
