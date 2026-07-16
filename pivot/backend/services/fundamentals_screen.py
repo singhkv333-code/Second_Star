@@ -1137,7 +1137,7 @@ def screen_by_fundamentals(
             items_key = f"items_{i}"
             params[items_key] = defn["items"]
             cte_sqls.append(
-                f"""{cte_name} AS (
+                f"""{cte_name} AS MATERIALIZED (
                     WITH base_raw AS (
                         SELECT DISTINCT ON (sl.sc_id, sl.basis, sl.period_end)
                                sl.sc_id, sl.basis, sl.value_numeric AS v,
@@ -1193,7 +1193,7 @@ def screen_by_fundamentals(
             params[gr_key] = defn["growth_items"]
             pe_cte, gr_cte = f"{cte_name}_pe", f"{cte_name}_gr"
             cte_sqls.append(
-                f"""{pe_cte} AS (
+                f"""{pe_cte} AS MATERIALIZED (
                     SELECT DISTINCT ON (sl.sc_id)
                            sl.sc_id, sl.value_numeric AS v
                     FROM mc.statement_lines sl
@@ -1209,7 +1209,7 @@ def screen_by_fundamentals(
                 )"""
             )
             cte_sqls.append(
-                f"""{gr_cte} AS (
+                f"""{gr_cte} AS MATERIALIZED (
                     WITH base_raw AS (
                         SELECT DISTINCT ON (sl.sc_id, sl.basis, sl.period_end)
                                sl.sc_id, sl.basis, sl.value_numeric AS v,
@@ -1245,7 +1245,7 @@ def screen_by_fundamentals(
                 )"""
             )
             cte_sqls.append(
-                f"""{cte_name} AS (
+                f"""{cte_name} AS MATERIALIZED (
                     SELECT pe.sc_id,
                            CASE WHEN pe.v > 0 AND gr.v > 0
                                 THEN (1.0 / pe.v) / gr.v END AS v
@@ -1267,7 +1267,7 @@ def screen_by_fundamentals(
             params[num_key] = defn["num_items"]
             params[den_key] = defn["den_items"]
             cte_sqls.append(
-                f"""{cte_name} AS (
+                f"""{cte_name} AS MATERIALIZED (
                     SELECT n.sc_id, (n.v / NULLIF(d.v, 0)) AS v
                     FROM (SELECT DISTINCT ON (sl.sc_id) sl.sc_id, sl.value_numeric AS v
                           FROM mc.statement_lines sl
@@ -1300,7 +1300,7 @@ def screen_by_fundamentals(
             if kind == "pe_from_ey":
                 extra = "AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0"
             cte_sqls.append(
-                f"""{cte_name} AS (
+                f"""{cte_name} AS MATERIALIZED (
                     SELECT DISTINCT ON (sl.sc_id)
                            sl.sc_id, sl.value_numeric AS v
                     FROM mc.statement_lines sl
@@ -1880,7 +1880,7 @@ def fetch_gate_inputs(
             if defn["kind"] == "pe_from_ey":
                 extra = "AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0"
             cte_sqls.append(
-                f"""{cte_name} AS (
+                f"""{cte_name} AS MATERIALIZED (
                     SELECT DISTINCT ON (sl.sc_id)
                            sl.sc_id, sl.value_numeric AS v
                     FROM mc.statement_lines sl
