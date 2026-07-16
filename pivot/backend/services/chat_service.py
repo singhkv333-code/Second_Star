@@ -7582,6 +7582,10 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Turn-level screen-call counter: the deterministic table reply is
+        # only valid when ONE screen was the whole ask — multiple screens
+        # mean the model is gathering inputs for a synthesis it must write.
+        screen_calls_this_turn = 0
         # M1: When the LLM writes a free-form question (assistant text
         # ending with "?" / "do you want" / etc.) WITHOUT calling
         # ASK_USER, the chat layer pushes a "USE ASK_USER" directive
@@ -7902,6 +7906,8 @@ class ChatService:
             for tc in response.tool_calls or []:
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                if tc.get("name") == "screen_fundamentals":
+                    screen_calls_this_turn += 1
                 # H1: only ONE strategy card renders per turn — a second
                 # build_option_strategy would silently overwrite the first
                 # card (observed live on two-name hedge asks). Reject it
@@ -8323,7 +8329,14 @@ class ChatService:
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
                     and not is_construction_intent
-                    and tools_called == ["screen_fundamentals"]):
+                    and tools_called == ["screen_fundamentals"]
+                    # tools_called is DEDUPED — three parallel screens still
+                    # read as one entry. Multiple screens = ingredients for a
+                    # synthesis (e.g. "who wins if the monsoon fails"); the
+                    # model keeps its narration hop (live repro 2026-07-17:
+                    # this branch swallowed a 3-screen thematic ask and the
+                    # user got one bare FMCG table instead of an answer).
+                    and screen_calls_this_turn == 1):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
                 )
@@ -9548,6 +9561,10 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Turn-level screen-call counter: the deterministic table reply is
+        # only valid when ONE screen was the whole ask — multiple screens
+        # mean the model is gathering inputs for a synthesis it must write.
+        screen_calls_this_turn = 0
         # Mirror of the non-streaming path's compact-draft tracker.
         last_was_macro_draft = False
         # Track the most recent tool error so the streaming
@@ -9941,6 +9958,8 @@ class ChatService:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                if tc.get("name") == "screen_fundamentals":
+                    screen_calls_this_turn += 1
                 # H1 (stream mirror): one strategy card per turn — reject
                 # a duplicate build_option_strategy so it can't overwrite
                 # the card already built this turn.
@@ -10303,7 +10322,14 @@ class ChatService:
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
                     and not is_construction_intent
-                    and tools_called == ["screen_fundamentals"]):
+                    and tools_called == ["screen_fundamentals"]
+                    # tools_called is DEDUPED — three parallel screens still
+                    # read as one entry. Multiple screens = ingredients for a
+                    # synthesis (e.g. "who wins if the monsoon fails"); the
+                    # model keeps its narration hop (live repro 2026-07-17:
+                    # this branch swallowed a 3-screen thematic ask and the
+                    # user got one bare FMCG table instead of an answer).
+                    and screen_calls_this_turn == 1):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
                 )

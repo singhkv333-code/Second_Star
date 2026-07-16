@@ -872,12 +872,19 @@ tool("screen_fundamentals",
      {
          "filters": {"type": "array",
                      "description": "Numeric constraints, AND-ed. Include EVERY "
-                     "constraint the user named.",
+                     "constraint the user named. Compare against a NUMBER via "
+                     "`value`, or against ANOTHER FIELD via `value_field` "
+                     "('operating cash flow exceeds net profit' → {field:"
+                     "'cash_from_ops', op:'>', value_field:'net_profit'}; 'P/E "
+                     "below its growth rate' → {field:'pe', op:'<', value_field:"
+                     "'net_profit_growth'}). Exactly one of value/value_field.",
                      "items": {"type": "object", "properties": {
                          "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
-                         "value": {"type": "number"}},
-                         "required": ["field", "op", "value"]}},
+                         "value": {"type": "number"},
+                         "value_field": {"type": "string",
+                                         "enum": list(_SCREEN_FIELDS)}},
+                         "required": ["field", "op"]}},
          "sector":  {"type": "string",
                      "description": "Coarse sector. Set ONLY when the user "
                      "explicitly names a sector/industry. NEVER infer a sector "

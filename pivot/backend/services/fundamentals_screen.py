@@ -983,6 +983,17 @@ def screen_by_fundamentals(
         if defn["kind"] == "unsupported":
             notes.append(f"{field} not available in this DB — filter skipped")
             continue
+        # Field-vs-field comparison ("operating cash flow exceeds net
+        # profit"): `value_field` names the right-hand metric instead of
+        # a number. Both sides build their metric CTE like any filter.
+        vf_raw = raw.get("value_field")
+        if vf_raw:
+            vf = _normalise_field(str(vf_raw))
+            if vf not in field_defs or field_defs[vf]["kind"] == "unsupported":
+                notes.append(f"unknown comparison field {vf_raw!r} skipped")
+                continue
+            valid_filters.append({"field": field, "op": op, "value_field": vf})
+            continue
         try:
             value = float(raw.get("value"))
         except (TypeError, ValueError):
@@ -1049,7 +1060,11 @@ def screen_by_fundamentals(
             or "give me a metric (PE/ROE/ROCE/D-E/payout) or a sector to screen",
         }
 
-    metric_fields = list({f["field"] for f in valid_filters} | {sort_field})
+    metric_fields = list(
+        {f["field"] for f in valid_filters}
+        | {f["value_field"] for f in valid_filters if f.get("value_field")}
+        | {sort_field}
+    )
 
     # ── 2b. Route SECTOR screens to the enrich DB (clean sectors + real P/E) ─
     # when every referenced metric is one enrich serves cleanly (pe/roe/payout).
@@ -1057,7 +1072,8 @@ def screen_by_fundamentals(
     # (see _ENRICH_SECTOR_INDUSTRIES). A bare sector ranking (no explicit numeric
     # filter, no cap word) gets a recognizable-name floor so micro-caps don't
     # dominate. Falls through to the mc path on any enrich miss.
-    if _enrich_can_serve(sector, {m for m in metric_fields if m}):
+    if (_enrich_can_serve(sector, {m for m in metric_fields if m})
+            and not any(f.get("value_field") for f in valid_filters)):
         apply_default_floor = (not valid_filters) and (tier is None)
         enr = screen_from_enrich(
             sector=sector,  # type: ignore[arg-type]
@@ -1099,7 +1115,11 @@ def screen_by_fundamentals(
             valid_filters = [f for f in valid_filters if f["field"] != "market_cap"]
             if sort_field == "market_cap":
                 sort_field = valid_filters[0]["field"] if valid_filters else "roe"
-            metric_fields = list({f["field"] for f in valid_filters} | {sort_field})
+            metric_fields = list(
+                {f["field"] for f in valid_filters}
+                | {f["value_field"] for f in valid_filters if f.get("value_field")}
+                | {sort_field}
+            )
 
     # Real trailing P/E (enrich) injected as an in-memory CTE and PREFERRED over
     # the 1/Earnings-Yield derivation (which quantizes because MC stores EY at
@@ -1332,6 +1352,18 @@ def screen_by_fundamentals(
         mf = f["field"]
         defn = field_defs[mf]
         val_param = f"val_{j}"
+        if f.get("value_field"):
+            # Field-vs-field: compare the two metric expressions directly.
+            # A P/E side gets a > 0 guard so negative-earnings names can't
+            # slip through comparisons like "P/E below growth rate".
+            lhs, rhs = val_expr[mf], val_expr[f["value_field"]]
+            cond = f"{lhs} {f['op']} {rhs}"
+            if defn["kind"] == "pe_from_ey":
+                cond = f"{lhs} > 0 AND {cond}"
+            if field_defs[f["value_field"]]["kind"] == "pe_from_ey":
+                cond = f"{rhs} > 0 AND {cond}"
+            where_parts.append(cond)
+            continue
         if defn["kind"] == "pe_from_ey":
             # Filter on the SAME P/E value we display and rank (real trailing P/E
             # where enrich has it, else 1/EY) so the filter and the shown number
@@ -1672,7 +1704,9 @@ def _inr_cr(v: float | int | None) -> str:
     """Indian-grouped ₹-crore ('₹2,81,115 Cr')."""
     if v is None:
         return "—"
-    n = f"{int(round(float(v))):,}"
+    iv = int(round(float(v)))
+    sign = "-" if iv < 0 else ""
+    n = f"{abs(iv):,}"
     # Re-group western 1,234,567 → Indian 12,34,567.
     digits = n.replace(",", "")
     if len(digits) > 3:
@@ -1684,7 +1718,7 @@ def _inr_cr(v: float | int | None) -> str:
         if head:
             parts.insert(0, head)
         n = ",".join(parts + [tail])
-    return f"₹{n} Cr"
+    return f"₹{sign}{n} Cr"
 
 
 def _fmt_metric(field: str, v: float | None) -> str:
@@ -1744,7 +1778,9 @@ def render_screen_markdown(data: dict) -> str | None:
     filt = data.get("applied_filters") or []
     if filt:
         shown = " · ".join(
-            f"{_METRIC_LABELS.get(f['field'], f['field'])} {f['op']} {f['value']:g}"
+            f"{_METRIC_LABELS.get(f['field'], f['field'])} {f['op']} "
+            + (_METRIC_LABELS.get(f["value_field"], f["value_field"])
+               if f.get("value_field") else f"{f['value']:g}")
             for f in filt if f.get("field") in _METRIC_LABELS
         )
         if shown:
