@@ -932,13 +932,15 @@ tool("screen_fundamentals",
                      "to carve out of the results (hard-filtered, not advisory)."},
          "growth_years": {"type": "integer", "minimum": 1,
                      "description": "Horizon for ALL growth fields, in "
-                     "financial years. Omit or 1 = YoY (latest two annual "
-                     "filings). N>1 = CAGR between the latest filing and the "
-                     "one N filings earlier ('revenue growth over the last 5 "
-                     "years' → growth_years=5). Any N works — bounded only by "
-                     "a company's actual filing history; names without enough "
-                     "filings drop out rather than getting a fabricated "
-                     "number."},
+                     "financial years. Set this ONLY when the user names a "
+                     "horizon ('over the last 5 years' → growth_years=5, "
+                     "'10-year growth' → 10); when they don't, OMIT it — "
+                     "never guess a window, the default is YoY (latest two "
+                     "annual filings). N>1 = CAGR between the latest filing "
+                     "and the one N filings earlier. Any N works — bounded "
+                     "only by a company's actual filing history; names "
+                     "without enough filings drop out rather than getting a "
+                     "fabricated number."},
          "presentation": {"type": "string", "enum": ["table", "analysis"],
                      "default": "table",
                      "description": "How the rows reach the user. 'table' "
