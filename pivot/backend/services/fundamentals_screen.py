@@ -1919,7 +1919,10 @@ def render_screen_markdown(data: dict) -> str | None:
         cols.append("1-Year Return")
         aligns.append("---:")
 
-    lines = [f"## {title}", "", framing, ""]
+    # No heading/framing preamble — the table opens the reply directly
+    # (the "Energy — Ranked by…" + "a growth screen, not a buy list" lines
+    # read as boilerplate; removed on request 2026-07-17).
+    lines: list[str] = []
     filt = data.get("applied_filters") or []
     if filt:
         shown = " · ".join(
