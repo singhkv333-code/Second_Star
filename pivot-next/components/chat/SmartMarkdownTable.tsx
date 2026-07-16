@@ -27,6 +27,8 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react";
 import { searchCompanies } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { StockHoverActions } from "@/components/StockHoverActions";
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { colorizeGainLoss } from "@/components/chat/AssistantMessage";
 
 // ── hast extraction (minimal local typing — we only walk tag + children) ──
@@ -70,7 +72,11 @@ function extractTable(node: HastNode): { header: string[]; rows: string[][] } {
 
 const NAME_HEADER_RE = /^(name|company|companies|stock|scrip)s?$/i;
 const TICKER_HEADER_RE = /^(symbol|ticker)s?$/i;
+const RANK_HEADER_RE = /^(rank|#|sr\.?(\s*no\.?)?)$/i;
 const TICKER_RE = /^[A-Z0-9&.\-]{2,20}$/;
+// "Bank of Maharashtra (MAHABANK)" — the ticker the deterministic screen
+// render appends in parens, resolvable statically (no search round-trip).
+const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9.&-]{1,19})\)\s*$/;
 
 function isBlank(v: string): boolean {
   return v === "" || v === "—" || v === "-" || v === "–";
@@ -172,17 +178,65 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     );
   };
 
-  /** The ticker for a row: the (folded) symbol column when present, else a
-   * ticker-looking name, else whatever the hover-resolution cached. */
-  const tickerFor = (row: string[]): string | null => {
+  /** Ticker resolvable WITHOUT any lookup: the (folded) symbol column, the
+   * "(SYMBOL)" the screen render appends to the name, or a ticker-looking
+   * bare name. Null when only a hover-time search could resolve it. */
+  const staticTickerFor = (row: string[]): string | null => {
     if (plan.tickerCol !== -1) {
       const t = (row[plan.tickerCol] ?? "").trim();
       if (t) return t.toUpperCase();
     }
     const name = (row[plan.nameCol] ?? "").trim();
+    const paren = PAREN_TICKER_RE.exec(name);
+    if (paren?.[1]) return paren[1];
     if (TICKER_RE.test(name) && name === name.toUpperCase()) return name;
+    return null;
+  };
+
+  /** The ticker for a row: static when possible, else whatever the
+   * hover-resolution cached. */
+  const tickerFor = (row: string[]): string | null => {
+    const t = staticTickerFor(row);
+    if (t) return t;
+    const name = (row[plan.nameCol] ?? "").trim();
     return resolvedRef.current.get(name)?.symbol ?? null;
   };
+
+  // Company logos for every statically-resolvable row, one batched request
+  // through the module-level cache (same source as the Screener tab).
+  const logoSymbols = useMemo(
+    () =>
+      plan.nameCol === -1
+        ? []
+        : rows.map((r) => staticTickerFor(r)).filter((t): t is string => !!t),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, plan.nameCol, plan.tickerCol],
+  );
+  const logos = useCompanyLogos(logoSymbols);
+
+  // Frozen lead columns: Rank (when it leads) + the name column stay pinned
+  // while the metric columns scroll horizontally underneath.
+  const firstVis = plan.visible[0];
+  const rankLeads =
+    firstVis !== undefined && RANK_HEADER_RE.test((header[firstVis] ?? "").trim());
+  const nameVisIdx = plan.visible.indexOf(plan.nameCol);
+  const stickyCount =
+    plan.nameCol !== -1 && (nameVisIdx === 0 || (rankLeads && nameVisIdx === 1))
+      ? nameVisIdx + 1
+      : rankLeads
+        ? 1
+        : 0;
+  const RANK_W = 52; // px — fixed so the name column's sticky offset is exact
+  const stickyStyle = (vi: number): React.CSSProperties | undefined =>
+    vi < stickyCount
+      ? {
+          position: "sticky",
+          left: vi === 0 ? 0 : rankLeads ? RANK_W : 0,
+          zIndex: 2,
+          background: "hsl(var(--background))",
+          ...(vi === 0 && rankLeads ? { width: RANK_W, minWidth: RANK_W } : {}),
+        }
+      : undefined;
 
   const resolveForHover = (row: string[]): void => {
     if (tickerFor(row)) return; // already resolvable
@@ -226,7 +280,9 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full border-collapse text-sm">
+      {/* border-separate (not collapse): collapsed borders detach from
+          position:sticky cells and smear while the rest scrolls. */}
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
             {plan.visible.map((i, vi) => {
@@ -239,9 +295,16 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                   aria-sort={
                     active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined
                   }
-                  style={isName ? { width: "44%", minWidth: 220 } : undefined}
+                  style={{
+                    ...(isName ? { width: "44%", minWidth: 220 } : {}),
+                    ...(stickyStyle(vi) ?? {}),
+                    // Sticky header cells need an OPAQUE fill (muted/60 lets
+                    // scrolled columns bleed through underneath).
+                    ...(vi < stickyCount ? { background: "hsl(var(--muted))" } : {}),
+                  }}
                   className={[
-                    "border-b-2 border-border bg-muted/60 px-3 py-2",
+                    "border-b-2 border-border px-3 py-2",
+                    vi < stickyCount ? "" : "bg-muted/60",
                     // Ink-black header — the row must read as the table's
                     // anchor, not another data row.
                     "text-[13px] font-semibold text-foreground",
@@ -291,18 +354,30 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                 return (
                   <td
                     key={ci}
+                    style={stickyStyle(vi)}
                     className={[
                       "border-b border-border/50 px-3 py-2 align-middle",
                       vi < plan.visible.length - 1 ? "border-r border-border/40" : "",
                       plan.numeric[ci]
                         ? "text-right tabular-nums text-foreground"
                         : "text-foreground",
-                      // Positioning context for the pinned quick-action bar.
-                      isName ? "relative" : "",
+                      // Positioning context for the pinned quick-action bar
+                      // (sticky cells are already their own context).
+                      isName && vi >= stickyCount ? "relative" : "",
                     ].join(" ")}
                   >
                     {isName ? (
                       <>
+                        {ticker && (
+                          <span className="mr-2 inline-block align-middle">
+                            <CompanyLogo
+                              logoUrl={logos[ticker] ?? null}
+                              name={cell.replace(PAREN_TICKER_RE, "").trim() || ticker}
+                              symbol={ticker}
+                              size={22}
+                            />
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => void openCompany(row)}
