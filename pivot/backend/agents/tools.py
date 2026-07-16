@@ -859,6 +859,12 @@ tool("screen_fundamentals",
      "EXCLUDE: if the user carves out a name/sector/'PSU' ('excluding banks', "
      "'not X', 'no PSU names'), pass it in `exclude` — do NOT silently drop the "
      "carve-out or only mention it in prose; it must be enforced.\n\n"
+     "RANKING: set sort_by ONLY when the user names an ordering ('cheapest', "
+     "'highest ROE', 'fastest-growing', 'largest'). When they don't, OMIT "
+     "sort_by — the screen applies a fixed, deterministic default rank (market "
+     "cap when it's a filter, else a fixed metric priority) so the SAME screen "
+     "returns the SAME order every time. Do NOT guess a sort just to fill the "
+     "field; an omitted sort is deterministic, a guessed one flips between runs.\n\n"
      "This is a READ-ONLY ranking/screen, NOT a constructed basket — it has no "
      "weighting scheme and no per-name rationale. For a 'build me a basket' ask "
      "that also wants sizing/weights/a gate (not just a filtered list), use "
@@ -873,6 +879,11 @@ tool("screen_fundamentals",
                          "value": {"type": "number"}},
                          "required": ["field", "op", "value"]}},
          "sector":  {"type": "string",
+                     "description": "Coarse sector. Set ONLY when the user "
+                     "explicitly names a sector/industry. NEVER infer a sector "
+                     "from the metrics, and NEVER narrow an all-market screen to "
+                     "a sector the user did not ask for — an unsectored screen "
+                     "spans the whole market.",
                      "enum": ["pharma", "bank", "it", "energy", "auto",
                               "autoancillary", "metal", "finance", "chemicals",
                               "fmcg", "infra", "textiles"]},
@@ -1690,19 +1701,16 @@ tool("propose_dsl_workflow",
          },
          "action_kind": {
              "type": "string",
-             "enum": ["notify_only", "buy_market", "buy_limit"],
-             "default": "notify_only",
+             "enum": ["buy_market", "buy_limit"],
+             "default": "buy_market",
              "description": (
-                 "notify_only (default) sends a push; buy_market/buy_limit "
-                 "place an order. Exit branch (when exit_condition set) "
-                 "always market-sells runtime-held quantity. ONLY in-app "
-                 "push is wired for notify_only — email/SMS/WhatsApp "
-                 "delivery does not exist yet. If the user asked for one "
-                 "of those, still build the push alert but say so plainly "
-                 "in your reply ('this'll alert you in Pivot — WhatsApp/"
-                 "email delivery isn't wired up yet') — do not silently "
-                 "build a push alert while implying it goes to the "
-                 "channel they named."
+                 "buy_market/buy_limit place an ORDER when the condition "
+                 "fires. Exit branch (when exit_condition set) always "
+                 "market-sells the runtime-held quantity. This tool builds "
+                 "ORDER automations only — price/condition ALERTS and "
+                 "notifications are NOT available, so never use this to build "
+                 "a 'just alert me' / 'notify me' / 'ping me' workflow; state "
+                 "that boundary in prose instead."
              ),
          },
          "quantity": {

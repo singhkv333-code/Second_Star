@@ -3603,20 +3603,19 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "change' + credit/max-profit/max-loss/breakevens from the card."
         )
 
-    # R3 — fully-specified notify-only alert → notify_only DSL, no ASK_USER.
+    # R3 — price/condition ALERT ask → state the boundary, do NOT draft.
+    # Alerts/notifications are not available (product decision); a notify-only
+    # workflow has no wired delivery channel. Do not build one.
     if _is_notify_only_alert(message):
         guards.append(
-            "## Notify-only alert — register it, do NOT ASK_USER\n"
-            "The user wants a price ALERT with an explicit 'no order' / "
-            "'just alert' marker and a price level. Call "
-            "`propose_dsl_workflow(action_kind='notify_only', "
-            "primary_symbol=<symbol>, condition='price crosses "
-            "above/below <level>')` IMMEDIATELY. Do NOT ask quantity. Do "
-            "NOT ask whether the alert is in-app — IN-APP IS THE ONLY "
-            "CHANNEL, so there is nothing to clarify; just disclose it in "
-            "the read-back. NEVER call ASK_USER for this turn. Read-back: "
-            "'Watching <SYMBOL> — I'll alert you the moment it crosses "
-            "<above/below> ₹<level>. No order is placed (in-app alert).'"
+            "## Alert ask — state the boundary, do NOT draft a workflow\n"
+            "The user asked to be ALERTED / pinged / notified when a price or "
+            "condition is hit. Alerts and notifications are NOT available right "
+            "now — Pivot doesn't send alerts or pings. Do NOT call "
+            "propose_dsl_workflow / propose_workflow / any notify tool; they "
+            "will refuse. In ONE plain line, say alerts aren't available yet. "
+            "The user said no trade, so do NOT offer or draft an order either — "
+            "just state the boundary and stop."
         )
 
     # H1 — hedge construction: a hedge OFFSETS exposure, never adds it.
@@ -6164,6 +6163,36 @@ class ChatService:
                 latency_breakdown=breakdown,
             )
 
+        # ── Alert-ask boundary (deterministic, pre-LLM) ────────────
+        # Price/condition ALERTS are not available (product decision). A
+        # detected alert ask returns the boundary DIRECTLY — zero LLM hops, no
+        # tool — so no notify workflow is ever built AND the model can't convert
+        # the alert into an order the user didn't ask for. `_is_notify_only_alert`
+        # requires a leading alert verb + a price level and NO trade verb (or an
+        # explicit no-trade marker), so genuine "buy when X" automations, which
+        # carry a trade verb, are unaffected.
+        if _is_notify_only_alert(message):
+            boundary = (
+                "Price alerts aren't available yet — Pivot doesn't send alerts, "
+                "pings, or “tell me when” notifications right now, so I "
+                "can't watch that level for you. No order or workflow was "
+                "created. If you'd want to *act* at that level instead, I can "
+                "register a broker-held order (GTT) there — just say so and the "
+                "quantity."
+            )
+            self.store.append(conv_id, message, boundary)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["alert_boundary"] = total
+            breakdown["total"] = total
+            _log_timing("alert_boundary", message, total, breakdown, tools=[])
+            trace.event("turn.end", total_ms=total, tools_called=[])
+            trace.end()
+            return ChatTurn(
+                response=boundary,
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
         # (F&O pre-LLM decline removed in P1 — options strategy verbs
         # now route to the suggest/build/critique tools via the router
         # and the _mentions_fno tool gate further down.)
@@ -6909,21 +6938,10 @@ class ChatService:
                 agent_tool_choice = "auto"
             cache_key = cache_key_for(selected_names)
             trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
-        # R3: fully-specified notify-only alert → force propose_dsl_workflow,
-        # drop ASK_USER so it can't ask about the single channel.
-        elif _notify_only and selected_names is not None:
-            selected_names = (selected_names | frozenset({
-                "propose_dsl_workflow",
-            })) - frozenset({
-                "place_market_order", "place_limit_order", "place_order",
-                "create_gtt_order", "create_sl_order",
-            })
-            tooldefs = [
-                t for t in _registry_tools_as_tooldefs(selected_names)
-                if t.name != ASK_USER_TOOL_NAME
-            ]
-            cache_key = cache_key_for(selected_names)
-            agent_tool_choice = "required"
+        # R3: price/condition ALERT ask → NOT forced. Alerts aren't available
+        # (the notify tools refuse); the boundary guard tells the model to state
+        # the boundary in prose. No tool forcing, so tool_choice stays auto and
+        # the model answers with the boundary line instead of a refused draft.
         # R2: at-open/at-close build → ensure the DSL/workflow tools are in
         # scope and force a tool so it can't downgrade to 09:30 / ASK_USER.
         elif _at_open_close and selected_names is not None:
@@ -8435,6 +8453,35 @@ class ChatService:
             trace.end()
             return
 
+        # ── Alert-ask boundary (deterministic, pre-LLM) ────────────
+        # Mirror of the handle() short-circuit: price/condition alerts aren't
+        # available, so a detected alert ask streams the boundary directly.
+        if _is_notify_only_alert(message):
+            boundary = (
+                "Price alerts aren't available yet — Pivot doesn't send alerts, "
+                "pings, or “tell me when” notifications right now, so I "
+                "can't watch that level for you. No order or workflow was "
+                "created. If you'd want to *act* at that level instead, I can "
+                "register a broker-held order (GTT) there — just say so and the "
+                "quantity."
+            )
+            self.store.append(conv_id, message, boundary)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["alert_boundary"] = total
+            breakdown["total"] = total
+            yield {"type": "delta", "text": boundary}
+            yield {
+                "type": "done",
+                "response": boundary,
+                "tools_called": [],
+                "logiccard": None,
+                "raw_data": None,
+                "latency_ms": total,
+                "latency_breakdown": breakdown,
+            }
+            trace.end()
+            return
+
         # ── Workflow skeleton fast-path ────────────────────────────
         skeleton = try_workflow_skeleton(message)
         if skeleton is not None:
@@ -9055,19 +9102,8 @@ class ChatService:
                 agent_tool_choice = "auto"
             cache_key = cache_key_for(selected_names)
             trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
-        elif _notify_only and selected_names is not None:
-            selected_names = (selected_names | frozenset({
-                "propose_dsl_workflow",
-            })) - frozenset({
-                "place_market_order", "place_limit_order", "place_order",
-                "create_gtt_order", "create_sl_order",
-            })
-            tooldefs = [
-                t for t in _registry_tools_as_tooldefs(selected_names)
-                if t.name != ASK_USER_TOOL_NAME
-            ]
-            cache_key = cache_key_for(selected_names)
-            agent_tool_choice = "required"
+        # R3: price/condition ALERT ask → NOT forced (alerts aren't available;
+        # the notify tools refuse and the boundary guard states it in prose).
         elif _at_open_close and selected_names is not None:
             selected_names = selected_names | frozenset({
                 "propose_dsl_workflow", "propose_workflow",

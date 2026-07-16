@@ -1086,6 +1086,23 @@ async def propose_dsl_workflow(args: dict) -> dict:
     primary = (args.get("primary_symbol") or "").strip().upper()
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
     action_kind = (args.get("action_kind") or "notify_only").lower()
+
+    # Price/condition ALERTS are not available (product decision). A notify-only
+    # DSL workflow has no wired delivery channel, so rather than render a card
+    # that never notifies, refuse deterministically — this closes BOTH the path
+    # where the LLM picks action_kind='notify_only' itself AND the forced-alert
+    # path. An order automation (action_kind='buy_market'/'buy_limit') is
+    # unaffected. Checked here (not just in the prompt) because the LLM has been
+    # observed to draft an alert despite the system-prompt boundary.
+    if action_kind == "notify_only":
+        raise ValueError(
+            "Price/condition ALERTS and notifications aren't available right "
+            "now — Pivot doesn't send alerts, pings, or 'tell me when' "
+            "messages. Do NOT draft an alert/notify workflow. State this "
+            "boundary in one plain line. Only if the user wants to ACT at that "
+            "level, offer a broker-held GTT/threshold ORDER instead — never for "
+            "a 'just alert / don't trade' ask."
+        )
     exit_condition_text = (args.get("exit_condition") or "").strip()
     # User-specified bar interval flows onto every IndicatorNode in the
     # translated entry/exit trees. Default '1d' keeps existing daily

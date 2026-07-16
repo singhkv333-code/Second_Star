@@ -86,6 +86,16 @@ logger = logging.getLogger(__name__)
 _MCAP_CACHE: dict[str, object] = {"ts": 0.0, "map": {}}
 _MCAP_TTL_S = 3600  # market caps drift slowly; refresh hourly per process
 
+# Real trailing P/E (live price ÷ TTM EPS) from the enrich DB, keyed by the same
+# sc_id as mc.companies. The mc financials DB stores only Earnings Yield rounded
+# to 2 dp, so P/E derived as 1/EY snaps onto a coarse grid (25.00, 16.67, 12.50…)
+# — the artifact the screen showed. enrich.company_profile.raw_info->'trailingPE'
+# carries the un-quantized real value for ~4k names, so we PREFER it and fall
+# back to 1/EY only where enrich lacks the name. Same cache/fail-open contract as
+# the market-cap snapshot above.
+_PE_CACHE: dict[str, object] = {"ts": 0.0, "map": {}}
+_PE_TTL_S = 3600
+
 # tier -> (min_cr inclusive, max_cr exclusive), ₹ crore. Matches sector_universe.
 _CAP_TIER_RANGES: dict[str, tuple[float | None, float | None]] = {
     "large": (50_000, None),
@@ -96,6 +106,19 @@ _CAP_TIER_RANGES: dict[str, tuple[float | None, float | None]] = {
 # ask with no explicit numeric filter and no cap word) so obscure micro-cap
 # names don't dominate the ranking — the user means recognizable companies.
 _DEFAULT_SECTOR_FLOOR_CR = 3_000
+
+# Fixed metric priority for the default rank when the caller named no sort AND no
+# market_cap filter — so the chosen ranking never depends on the order the caller
+# listed the filters in. Growth and quality metrics lead (they read as the user's
+# likely intent); valuation ratios rank last (a screen rarely means "rank by the
+# cheapest" unless it said so).
+_DEFAULT_SORT_PRIORITY: tuple[str, ...] = (
+    "revenue_growth", "net_profit_growth", "eps_growth",
+    "roe", "roce", "roic", "roa",
+    "net_profit_margin", "operating_margin", "ebitda_margin", "gross_margin",
+    "payout", "interest_coverage", "current_ratio", "quick_ratio",
+    "pe", "peg", "price_to_book", "ev_to_ebitda", "de",
+)
 
 
 def _load_market_caps() -> dict[str, float]:
@@ -130,6 +153,45 @@ def _load_market_caps() -> dict[str, float]:
     if out:
         _MCAP_CACHE["map"] = out
         _MCAP_CACHE["ts"] = now
+    return out or cached or {}
+
+
+def _load_trailing_pe() -> dict[str, float]:
+    """{sc_id: trailing_pe} from enrich.company_profile.raw_info, cached ~1h.
+    Only rows with a numeric trailingPE in (0, 500] (a plausibility bound that
+    drops junk casts). Fails open to the last snapshot (or {}) so the screen
+    degrades to the Earnings-Yield fallback rather than erroring."""
+    now = time.time()
+    cached: dict[str, float] = _PE_CACHE["map"]  # type: ignore[assignment]
+    if cached and now - float(_PE_CACHE["ts"]) < _PE_TTL_S:
+        return cached
+    out: dict[str, float] = {}
+    try:
+        from backend.market.enrich_db import EnrichSessionLocal, is_enabled
+
+        if is_enabled():
+            s = EnrichSessionLocal()
+            try:
+                rows = s.execute(
+                    text(
+                        "SELECT sc_id, (raw_info->>'trailingPE')::float AS pe "
+                        "FROM enrich.company_profile "
+                        "WHERE raw_info->>'trailingPE' ~ '^-?[0-9]+(\\.[0-9]+)?$' "
+                        "AND (raw_info->>'trailingPE')::float > 0 "
+                        "AND (raw_info->>'trailingPE')::float <= 500"
+                    )
+                ).fetchall()
+            finally:
+                s.close()
+            for sc_id, pe in rows:
+                if sc_id is not None and pe:
+                    out[str(sc_id)] = float(pe)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screen] trailing-P/E load failed: %s", exc)
+        return cached or {}
+    if out:
+        _PE_CACHE["map"] = out
+        _PE_CACHE["ts"] = now
     return out or cached or {}
 
 
@@ -321,14 +383,16 @@ def screen_from_enrich(
     # Plausibility bounds on every metric in play.
     for m in metric_fields:
         outer_where.append(_enrich_plausible(m, f"val_{m}"))
-    sf = sort_field if sort_field in metric_fields else metric_fields[0]
+    sf = sort_field if sort_field in metric_fields else sorted(metric_fields)[0]
     order = "ASC" if sort_dir == "asc" else "DESC"
+    # `ticker` is the final tiebreak so tied metric values order deterministically
+    # (without it, parallel plans reorder equal-valued rows run-to-run).
     sql = f"""
         SELECT ticker, name, industry, market_cap,
                {", ".join(f"val_{m}" for m in metric_fields)}
         FROM ({inner}) t
         {"WHERE " + " AND ".join(outer_where) if outer_where else ""}
-        ORDER BY val_{sf} {order} NULLS LAST
+        ORDER BY val_{sf} {order} NULLS LAST, ticker ASC
         LIMIT :lim
     """
     s = EnrichSessionLocal()
@@ -943,8 +1007,25 @@ def screen_by_fundamentals(
         elif sf:
             notes.append(f"cannot sort by {sf!r}")
     if sort_field is None and valid_filters:
-        sort_field = valid_filters[0]["field"]
+        # DETERMINISTIC default rank, INDEPENDENT of the order the caller listed
+        # the filters in. Previously this took `valid_filters[0]` — so the SAME
+        # three-filter screen ranked differently depending only on the order the
+        # LLM happened to emit the filters, which is a chunk of the "same prompt,
+        # three different answers" the user reported. Rule: rank by market cap
+        # when it's one of the filters (a neutral size ordering), else by a fixed
+        # metric priority, else alphabetically — never by emission order.
+        ff = {f["field"] for f in valid_filters}
+        if "market_cap" in ff:
+            sort_field = "market_cap"
+        else:
+            sort_field = next(
+                (m for m in _DEFAULT_SORT_PRIORITY if m in ff), sorted(ff)[0]
+            )
         sort_dir = "desc"
+        notes.append(
+            f"no sort given — ranked by {_METRIC_LABELS.get(sort_field, sort_field)} "
+            "(largest/highest first)"
+        )
     if sort_field is None and sector:
         # A bare sector ask with no metric/sort named ("best bank
         # stocks") used to default to ROE desc — that silently bakes in
@@ -1020,6 +1101,23 @@ def screen_by_fundamentals(
                 sort_field = valid_filters[0]["field"] if valid_filters else "roe"
             metric_fields = list({f["field"] for f in valid_filters} | {sort_field})
 
+    # Real trailing P/E (enrich) injected as an in-memory CTE and PREFERRED over
+    # the 1/Earnings-Yield derivation (which quantizes because MC stores EY at
+    # 2 dp). LEFT JOIN so it supplies a value only where enrich has the name; the
+    # Earnings-Yield CTE below stays the fallback for the rest.
+    pe_real_available = False
+    if "pe" in metric_fields:
+        pe_map = _load_trailing_pe()
+        if pe_map:
+            params["pe_ids"] = list(pe_map.keys())
+            params["pe_vals"] = [float(v) for v in pe_map.values()]
+            cte_sqls.append(
+                "pe_real AS (SELECT sc_id, pe FROM "
+                "unnest(:pe_ids ::text[], :pe_vals ::float8[]) AS t(sc_id, pe))"
+            )
+            join_sqls.append("LEFT JOIN pe_real ON pe_real.sc_id = c.sc_id")
+            pe_real_available = True
+
     for i, mf in enumerate(metric_fields):
         if mf == "market_cap":
             continue  # handled above
@@ -1040,16 +1138,24 @@ def screen_by_fundamentals(
             params[items_key] = defn["items"]
             cte_sqls.append(
                 f"""{cte_name} AS (
-                    WITH base AS (
-                        SELECT sl.sc_id, sl.basis, sl.value_numeric AS v,
-                               sl.period_end,
-                               row_number() OVER (
-                                   PARTITION BY sl.sc_id, sl.basis
-                                   ORDER BY sl.period_end DESC NULLS LAST) AS rn
+                    WITH base_raw AS (
+                        SELECT DISTINCT ON (sl.sc_id, sl.basis, sl.period_end)
+                               sl.sc_id, sl.basis, sl.value_numeric AS v,
+                               sl.period_end
                         FROM mc.statement_lines sl
                         WHERE sl.line_item = ANY(:{items_key})
                           AND sl.value_numeric IS NOT NULL
+                          AND sl.period_end IS NOT NULL
                           AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
+                        ORDER BY sl.sc_id, sl.basis, sl.period_end DESC,
+                                 array_position(CAST(:{items_key} AS text[]), sl.line_item)
+                    ),
+                    base AS (
+                        SELECT sc_id, basis, v, period_end,
+                               row_number() OVER (
+                                   PARTITION BY sc_id, basis
+                                   ORDER BY period_end DESC NULLS LAST) AS rn
+                        FROM base_raw
                     ),
                     paired AS (
                         SELECT b1.sc_id, b1.basis, b1.period_end AS latest_end,
@@ -1206,15 +1312,16 @@ def screen_by_fundamentals(
                     ORDER BY sl.sc_id,
                              (sl.basis = 'consolidated') DESC,
                              sl.period_end DESC NULLS LAST,
-                             sl.availability_date DESC NULLS LAST
+                             sl.availability_date DESC NULLS LAST,
+                             array_position(CAST(:{items_key} AS text[]), sl.line_item)
                 )"""
             )
             join_sqls.append(f"JOIN {cte_name} ON {cte_name}.sc_id = c.sc_id")
             if kind == "pe_from_ey":
-                select_cols.append(
-                    f"CASE WHEN {cte_name}.v <> 0 THEN 1.0/{cte_name}.v END AS val_{mf}"
-                )
-                val_expr[mf] = f"(CASE WHEN {cte_name}.v <> 0 THEN 1.0/{cte_name}.v END)"
+                ey_pe = f"(CASE WHEN {cte_name}.v <> 0 THEN 1.0/{cte_name}.v END)"
+                pe_val = f"COALESCE(pe_real.pe, {ey_pe})" if pe_real_available else ey_pe
+                select_cols.append(f"{pe_val} AS val_{mf}")
+                val_expr[mf] = pe_val
             else:
                 select_cols.append(f"{cte_name}.v AS val_{mf}")
                 val_expr[mf] = f"{cte_name}.v"
@@ -1226,14 +1333,21 @@ def screen_by_fundamentals(
         defn = field_defs[mf]
         val_param = f"val_{j}"
         if defn["kind"] == "pe_from_ey":
-            # PE op value  <=>  EY (inv_op) (1/value), EY>0 assumed.
-            inv = _OP_INVERT[f["op"]]
-            if f["value"] == 0:
-                notes.append("pe comparison against 0 skipped")
+            # Filter on the SAME P/E value we display and rank (real trailing P/E
+            # where enrich has it, else 1/EY) so the filter and the shown number
+            # can never disagree at the boundary. `> 0` guards the derived-null.
+            if f["value"] <= 0:
+                notes.append("pe comparison against a non-positive value skipped")
                 continue
-            params[val_param] = 1.0 / f["value"]
-            where_parts.append(f"m_{mf}.v > 0 AND m_{mf}.v {inv} :{val_param}")
-            if not any("P/E derived" in n for n in notes):
+            params[val_param] = f["value"]
+            pe_val = val_expr[mf]
+            where_parts.append(f"{pe_val} > 0 AND {pe_val} {f['op']} :{val_param}")
+            if pe_real_available and not any("P/E is trailing" in n for n in notes):
+                notes.append(
+                    "P/E is trailing (live price ÷ TTM EPS) where available, "
+                    "else derived from MC Earnings Yield"
+                )
+            elif not pe_real_available and not any("P/E derived" in n for n in notes):
                 notes.append(
                     "P/E derived from MC Earnings Yield (2-dp) — values are "
                     "quantized and may display on the filter boundary"
@@ -1319,9 +1433,12 @@ def screen_by_fundamentals(
         # can't dominate the ORDER BY. Generous so legit outliers survive.
         "roa":                  "BETWEEN -100 AND 100",
         "roic":                 "BETWEEN -100 AND 200",
-        "net_profit_margin":    "BETWEEN -200 AND 200",
-        "operating_margin":     "BETWEEN -200 AND 200",
-        "ebitda_margin":        "BETWEEN -200 AND 200",
+        # A reported "margin" above 100% (profit > revenue) is essentially always
+        # a data artifact — a tiny-revenue shell whose non-operating income
+        # dwarfs sales. Cap the upper end so those never top a margin screen.
+        "net_profit_margin":    "BETWEEN -100 AND 100",
+        "operating_margin":     "BETWEEN -100 AND 100",
+        "ebitda_margin":        "BETWEEN -100 AND 100",
         "gross_margin":         "BETWEEN -100 AND 100",
         "current_ratio":        "BETWEEN 0 AND 100",
         "quick_ratio":          "BETWEEN 0 AND 100",
@@ -1336,11 +1453,16 @@ def screen_by_fundamentals(
     for mf in metric_fields:
         kind = field_defs[mf]["kind"]
         if kind == "pe_from_ey":
-            # derived P/E = 1/v; keep P/E in (0, 500].
-            where_parts.append(f"m_{mf}.v > 0 AND 1.0/m_{mf}.v <= 500")
+            # keep the displayed P/E (real-or-derived) in (0, 500].
+            pe_val = val_expr[mf]
+            where_parts.append(f"{pe_val} > 0 AND {pe_val} <= 500")
         elif kind == "growth":
-            # base-effect artifacts on tiny prior-year values → bound generously.
-            where_parts.append(f"{val_expr[mf]} BETWEEN -100 AND 1000")
+            # Base-effect artifacts on tiny prior-year values produce absurd
+            # "growth" (a ₹2 Cr → ₹20 Cr shell reads +900%). A real company
+            # rarely grows a line item more than ~300% YoY, so cap there — this
+            # keeps aggressive-but-plausible growers and drops the shells that
+            # otherwise dominate a "fastest-growing" rank.
+            where_parts.append(f"{val_expr[mf]} BETWEEN -100 AND 300")
         elif kind == "peg":
             # already >0 by construction (CASE guards pe>0 and growth>0); cap
             # the upper end so a near-zero-growth denominator can't produce an
@@ -1375,7 +1497,7 @@ def screen_by_fundamentals(
     FROM mc.companies c
     {" ".join(join_sqls)}
     WHERE {" AND ".join(where_parts)}
-    ORDER BY val_{sort_field} {order_dir} NULLS LAST
+    ORDER BY val_{sort_field} {order_dir} NULLS LAST, c.sc_id ASC
     LIMIT :lim
     """
 
@@ -1451,18 +1573,50 @@ def screen_by_fundamentals(
 _METRIC_LABELS: dict[str, str] = {
     "pe": "P/E", "peg": "PEG", "roe": "ROE", "roce": "ROCE", "de": "D/E", "payout": "Payout",
     "price_to_book": "P/B", "ev_to_ebitda": "EV/EBITDA", "roa": "ROA",
-    "current_ratio": "Current", "quick_ratio": "Quick",
-    "interest_coverage": "Int Cov", "net_profit_margin": "Net Margin",
-    "ebitda_margin": "EBITDA Mgn", "asset_turnover": "Asset TO",
-    "revenue_growth": "Rev Growth", "net_profit_growth": "Profit Growth",
+    "current_ratio": "Current Ratio", "quick_ratio": "Quick Ratio",
+    "interest_coverage": "Interest Cover", "net_profit_margin": "Net Margin",
+    "ebitda_margin": "EBITDA Margin", "asset_turnover": "Asset Turns",
+    "revenue_growth": "Revenue Growth", "net_profit_growth": "Profit Growth",
     "eps_growth": "EPS Growth", "market_cap": "Market Cap",
-    "roic": "ROIC", "operating_margin": "Op Margin", "gross_margin": "Gross Mgn",
-    "inventory_turnover": "Inv TO", "receivables_turnover": "Recv TO",
+    "roic": "ROIC", "operating_margin": "Op. Margin", "gross_margin": "Gross Margin",
+    "inventory_turnover": "Inventory Turns", "receivables_turnover": "Receivable Turns",
     "revenue": "Revenue", "net_profit": "Net Profit",
-    "operating_profit": "Op. Profit", "eps_basic": "EPS", "eps_diluted": "EPS (Dil)",
-    "book_value_per_share": "BVPS", "enterprise_value_cr": "EV",
+    "operating_profit": "Operating Profit", "eps_basic": "EPS", "eps_diluted": "EPS (Diluted)",
+    "book_value_per_share": "Book Value/Sh", "enterprise_value_cr": "Enterprise Value",
     "total_debt": "Total Debt", "total_equity": "Total Equity",
-    "cash_from_ops": "CFO", "reserves": "Reserves", "interest_expense": "Interest",
+    "cash_from_ops": "Cash from Ops", "reserves": "Reserves", "interest_expense": "Interest Exp.",
+}
+# Full-word labels for the section HEADING (the table columns stay short — a
+# heading like "Information Technology — ranked by Return on Equity" reads far
+# better than "It — ranked by ROE").
+_METRIC_FULL_LABELS: dict[str, str] = {
+    "pe": "Price-to-Earnings", "peg": "PEG (Growth-Adjusted P/E)",
+    "roe": "Return on Equity", "roce": "Return on Capital Employed",
+    "de": "Debt-to-Equity", "payout": "Dividend Payout",
+    "price_to_book": "Price-to-Book", "ev_to_ebitda": "EV/EBITDA",
+    "roa": "Return on Assets", "current_ratio": "Current Ratio",
+    "quick_ratio": "Quick Ratio", "interest_coverage": "Interest Coverage",
+    "net_profit_margin": "Net Profit Margin", "ebitda_margin": "EBITDA Margin",
+    "asset_turnover": "Asset Turnover", "revenue_growth": "Revenue Growth",
+    "net_profit_growth": "Net Profit Growth", "eps_growth": "EPS Growth",
+    "market_cap": "Market Capitalisation", "roic": "Return on Invested Capital",
+    "operating_margin": "Operating Margin", "gross_margin": "Gross Margin",
+    "inventory_turnover": "Inventory Turnover",
+    "receivables_turnover": "Receivables Turnover", "revenue": "Revenue",
+    "net_profit": "Net Profit", "operating_profit": "Operating Profit",
+    "eps_basic": "Earnings per Share", "eps_diluted": "Diluted EPS",
+    "book_value_per_share": "Book Value per Share",
+    "enterprise_value_cr": "Enterprise Value", "total_debt": "Total Debt",
+    "total_equity": "Total Equity", "cash_from_ops": "Cash from Operations",
+    "reserves": "Reserves", "interest_expense": "Interest Expense",
+}
+# Proper display names for the coarse sector slugs (headings, not slugs).
+_SECTOR_DISPLAY: dict[str, str] = {
+    "auto": "Automobiles", "auto ancillary": "Auto Ancillaries",
+    "bank": "Banking", "chemicals": "Chemicals", "energy": "Energy",
+    "finance": "Financial Services", "fmcg": "FMCG", "infra": "Infrastructure",
+    "it": "Information Technology", "metal": "Metals & Mining",
+    "pharma": "Pharmaceuticals", "textiles": "Textiles",
 }
 # Fields displayed as a percent.
 _PCT_METRICS = frozenset({
@@ -1556,19 +1710,21 @@ def render_screen_markdown(data: dict) -> str | None:
         return None
     dir_ = "asc" if (sb.get("dir") or "desc") == "asc" else "desc"
     label = _METRIC_LABELS[field]
+    full_label = _METRIC_FULL_LABELS.get(field, label)
     head_word, framing = _RANK_FRAMES.get(
         (field, dir_),
-        (f"Top by {label}",
-         f"Ranked by {label} ({'ascending' if dir_ == 'asc' else 'descending'})."),
+        (f"Top by {full_label}",
+         f"Ranked by {full_label} ({'lowest first' if dir_ == 'asc' else 'highest first'})."),
     )
 
     # Only title by sector when the WHOLE result set shares one (a real sector
-    # screen) — otherwise "Bank —" would mislead on an unsectored screen whose
-    # #1 row happens to be a bank.
+    # screen) — otherwise "Banking —" would mislead on an unsectored screen whose
+    # #1 row happens to be a bank. Full words in the heading, never slugs.
     secs = {(r.get("sector") or "").strip() for r in results}
     sector = next(iter(secs)) if len(secs) == 1 and "" not in secs else ""
-    title = (f"{sector.replace('_', ' ').title()} — ranked by {label}"
-             if sector else f"Fundamental screen — ranked by {label}")
+    sector_disp = _SECTOR_DISPLAY.get(sector, sector.replace("_", " ").title())
+    title = (f"{sector_disp} — Ranked by {full_label}"
+             if sector else f"Fundamental Screen — Ranked by {full_label}")
 
     # Columns: the ranked metric first, then any other metrics present, then a
     # single market-cap column at the end (unless market cap IS the ranked
@@ -1605,11 +1761,25 @@ def render_screen_markdown(data: dict) -> str | None:
 
     top = results[0]
     top_val = _fmt_metric(field, top.get(field))
+    top_name = top.get("name") or top["symbol"]
     if field == "pe":
-        top_line = f"**{head_word}:** `{top['symbol']}` at {top_val}× P/E."
+        top_line = (f"**{head_word}:** {top_name} (`{top['symbol']}`) at "
+                    f"{top_val}× P/E.")
     else:
-        top_line = f"**{head_word}:** `{top['symbol']}` at {top_val} {label}."
-    lines += ["", top_line]
+        top_line = (f"**{head_word}:** {top_name} (`{top['symbol']}`) at "
+                    f"{top_val} {label}.")
+
+    # Deterministic supporting sentence from the ACTUAL rows (never invented):
+    # the spread of the ranked metric across the names shown, so the reader gets
+    # a sense of the range, not just the leader.
+    vals = [r.get(field) for r in results if r.get(field) is not None]
+    spread = ""
+    if len(vals) >= 2:
+        lo, hi = min(vals), max(vals)
+        spread = (f" Across the {len(results)} names shown, {full_label.lower()} "
+                  f"ranges from {_fmt_metric(field, lo)} to {_fmt_metric(field, hi)}.")
+    lines += ["", top_line + spread]
+
     note = (data.get("note") or "").strip()
     if note:
         lines += ["", f"_{note}_"]
