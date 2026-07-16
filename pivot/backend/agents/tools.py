@@ -845,14 +845,21 @@ tool("screen_fundamentals",
      "LIMIT: honour the user's 'top N' — if they say 'top 5' set limit=5, "
      "'top 10' → limit=10, 'exactly N companies' → limit=N. Default 15 when "
      "unspecified.\n\n"
-     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the user "
-     "to pick a threshold): 'cheap banking stocks' → sector=bank, "
-     "sort_by={field:pe,dir:asc}; 'fastest-growing IT' → sector=it, "
-     "sort_by={field:revenue_growth,dir:desc}; 'best dividend payers' → "
-     "sort_by={field:payout,dir:desc}; 'highest quality IT names' → sector=it, "
-     "sort_by={field:roe,dir:desc}. filters is OPTIONAL — pass it only when the "
-     "user named an explicit number. When several constraints are named, include "
-     "ALL of them (do not silently drop one).\n\n"
+     "VAGUE asks that name ONE dimension → use sort_by with NO hard filter (do "
+     "NOT ask the user to pick a threshold): 'cheap banking stocks' → "
+     "sector=bank, sort_by={field:pe,dir:asc}; 'fastest-growing IT' → "
+     "sector=it, sort_by={field:revenue_growth,dir:desc}; 'best dividend "
+     "payers' → sort_by={field:payout,dir:desc}.\n\n"
+     "BROAD/JUDGMENT asks ('best stocks', 'best in terms of financials', "
+     "'strongest fundamentals', 'research the sector') are MULTI-dimensional — "
+     "NEVER collapse them to a single metric like ROE. Put SEVERAL relevant "
+     "metrics in play (e.g. roe + net_profit_margin + revenue_growth + de, as "
+     "generous filters or with sort_by on the dimension the user emphasised) "
+     "so the table shows the full picture, AND set presentation='analysis' so "
+     "you write the comparative judgment the user actually asked for.\n\n"
+     "filters is OPTIONAL — pass it only when the user named an explicit "
+     "number. When several constraints are named, include ALL of them (do not "
+     "silently drop one).\n\n"
      "CAP WORD: if the user says 'large cap'/'bluechip'/'big companies'/'mid "
      "cap'/'small cap' with no ₹ number, set market_cap_tier — REQUIRED to "
      "honour that phrasing.\n\n"
@@ -914,6 +921,19 @@ tool("screen_fundamentals",
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Sectors, 'PSU', or named companies/tickers "
                      "to carve out of the results (hard-filtered, not advisory)."},
+         "presentation": {"type": "string", "enum": ["table", "analysis"],
+                     "default": "table",
+                     "description": "How the rows reach the user. 'table' "
+                     "(default): the ranked rows ARE the answer — a "
+                     "deterministic table renders verbatim and you write "
+                     "nothing more. 'analysis': the rows are INPUT to "
+                     "research — the same exact table still renders, and YOU "
+                     "write the analysis below it (comparisons, tradeoffs, "
+                     "caveats, a defended view). Choose 'analysis' whenever "
+                     "the user asks to analyze/research, says 'best' about a "
+                     "broad judgment, or wants a view — a bare table is an "
+                     "incomplete answer to those. Choose 'table' for a plain "
+                     "'show me companies with X' screen."},
      },
      [],
      defaults={"limit": 15})

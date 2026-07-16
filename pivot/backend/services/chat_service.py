@@ -7586,6 +7586,12 @@ class ChatService:
         # only valid when ONE screen was the whole ask — multiple screens
         # mean the model is gathering inputs for a synthesis it must write.
         screen_calls_this_turn = 0
+        # presentation='analysis' (model-chosen on screen_fundamentals): the
+        # rows are INPUT to a written analysis — the narration hop runs and
+        # the deterministic table is prepended to the model's text on finalize
+        # so displayed numbers can never drift from the tool result.
+        screen_analysis_mode = False
+        screen_table_for_analysis: Optional[dict] = None
         # M1: When the LLM writes a free-form question (assistant text
         # ending with "?" / "do you want" / etc.) WITHOUT calling
         # ASK_USER, the chat layer pushes a "USE ASK_USER" directive
@@ -7851,6 +7857,16 @@ class ChatService:
                         ),
                     ))
                     continue
+                # presentation='analysis': prepend the tool-exact table
+                # so the numbers the user sees can never drift.
+                if (screen_table_for_analysis is not None
+                        and screen_calls_this_turn == 1 and text):
+                    from backend.services.fundamentals_screen import (
+                        render_screen_markdown,
+                    )
+                    _tbl = render_screen_markdown(screen_table_for_analysis)
+                    if _tbl:
+                        text = _tbl + "\n\n" + text
                 # Always ensure the assistant text describes any widget
                 # that's about to render. Prevents a card-with-no-text
                 # bubble that reads as a glitch in the chat.
@@ -7908,6 +7924,8 @@ class ChatService:
                             args=tc.get("arguments"))
                 if tc.get("name") == "screen_fundamentals":
                     screen_calls_this_turn += 1
+                    if (tc.get("arguments") or {}).get("presentation") == "analysis":
+                        screen_analysis_mode = True
                 # H1: only ONE strategy card renders per turn — a second
                 # build_option_strategy would silently overwrite the first
                 # card (observed live on two-name hedge asks). Reject it
@@ -7998,6 +8016,16 @@ class ChatService:
                 # docstring.
                 if guarded.success:
                     tool_msg_content = _summarise_tool_result(guarded)
+                    if (guarded.name == "screen_fundamentals"
+                            and screen_analysis_mode
+                            and guarded.data and guarded.data.get("results")):
+                        tool_msg_content += (
+                            "\n\n[presentation=analysis: the ranked table "
+                            "renders VERBATIM above your reply — do not "
+                            "restate its rows. Write the analysis over it: "
+                            "what stands out, contrasts, caveats, and a "
+                            "defended view grounded in these exact values.]"
+                        )
                     messages.append(LLMMessage(
                         role="tool",
                         tool_call_id=tc.get("id", f"call_{hop_index}"),
@@ -8070,11 +8098,13 @@ class ChatService:
                     # so those turns keep the LLM narration hop (the ANALYSIS
                     # directive mandates the ## View section).
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")
-                            and not re.search(
-                                r"\b(?:outlook|prospects?|view)\b",
-                                message, re.IGNORECASE)):
-                        hop_screen_data = guarded.data
+                            and guarded.data and guarded.data.get("results")):
+                        if screen_analysis_mode:
+                            # Model chose presentation='analysis': keep its
+                            # narration hop; table prepends at finalize.
+                            screen_table_for_analysis = guarded.data
+                        else:
+                            hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
                     # find_tool lazy-load: union the candidate tool
@@ -9565,6 +9595,12 @@ class ChatService:
         # only valid when ONE screen was the whole ask — multiple screens
         # mean the model is gathering inputs for a synthesis it must write.
         screen_calls_this_turn = 0
+        # presentation='analysis' (model-chosen on screen_fundamentals): the
+        # rows are INPUT to a written analysis — the narration hop runs and
+        # the deterministic table is prepended to the model's text on finalize
+        # so displayed numbers can never drift from the tool result.
+        screen_analysis_mode = False
+        screen_table_for_analysis: Optional[dict] = None
         # Mirror of the non-streaming path's compact-draft tracker.
         last_was_macro_draft = False
         # Track the most recent tool error so the streaming
@@ -9880,6 +9916,18 @@ class ChatService:
                 if sanitised and text == _GENERIC_FALLBACK and tools_called:
                     text = _tool_summary_line(tools_called[-1], logiccard)
                     sanitised = False
+                # presentation='analysis': prepend the tool-exact table
+                # (mirror of handle(); the replace yield below swaps the
+                # streamed text for the composed table+analysis).
+                if (screen_table_for_analysis is not None
+                        and screen_calls_this_turn == 1 and text):
+                    from backend.services.fundamentals_screen import (
+                        render_screen_markdown,
+                    )
+                    _tbl = render_screen_markdown(screen_table_for_analysis)
+                    if _tbl:
+                        text = _tbl + "\n\n" + text
+                        sanitised = True
                 # Caption-augment for widgets — ensures a workflow_draft_card
                 # / logic_card / backtest_chart never renders without a
                 # short conversational lead-in.
@@ -9960,6 +10008,8 @@ class ChatService:
                             args=tc.get("arguments"))
                 if tc.get("name") == "screen_fundamentals":
                     screen_calls_this_turn += 1
+                    if (tc.get("arguments") or {}).get("presentation") == "analysis":
+                        screen_analysis_mode = True
                 # H1 (stream mirror): one strategy card per turn — reject
                 # a duplicate build_option_strategy so it can't overwrite
                 # the card already built this turn.
@@ -10050,6 +10100,16 @@ class ChatService:
                 # error returns a deterministic question. No retry.
                 if guarded.success:
                     tool_msg_content = _summarise_tool_result(guarded)
+                    if (guarded.name == "screen_fundamentals"
+                            and screen_analysis_mode
+                            and guarded.data and guarded.data.get("results")):
+                        tool_msg_content += (
+                            "\n\n[presentation=analysis: the ranked table "
+                            "renders VERBATIM above your reply — do not "
+                            "restate its rows. Write the analysis over it: "
+                            "what stands out, contrasts, caveats, and a "
+                            "defended view grounded in these exact values.]"
+                        )
                     messages.append(LLMMessage(
                         role="tool",
                         tool_call_id=tc.get("id", f"call_{hop_index}"),
@@ -10095,11 +10155,13 @@ class ChatService:
                     # Screen rows → deterministic table reply (mirror).
                     # EXCEPT sector-OUTLOOK asks — see handle().
                     if (guarded.name == "screen_fundamentals"
-                            and guarded.data and guarded.data.get("results")
-                            and not re.search(
-                                r"\b(?:outlook|prospects?|view)\b",
-                                message, re.IGNORECASE)):
-                        hop_screen_data = guarded.data
+                            and guarded.data and guarded.data.get("results")):
+                        if screen_analysis_mode:
+                            # Model chose presentation='analysis': keep its
+                            # narration hop; table prepends at finalize.
+                            screen_table_for_analysis = guarded.data
+                        else:
+                            hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
                     # Mirror of handle(): lazy-load find_tool matches
