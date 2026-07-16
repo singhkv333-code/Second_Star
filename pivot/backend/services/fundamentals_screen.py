@@ -1916,9 +1916,13 @@ def render_screen_markdown(data: dict) -> str | None:
                   f"ranges from {_fmt_metric(field, lo)} to {_fmt_metric(field, hi)}.")
     lines += ["", top_line + spread]
 
+    # Internal mechanics (sort default, recency floor, basis, bounds) stay in
+    # raw_data["note"] for the model and debugging — they are NOT printed:
+    # the italic footer read as noise to users (removed on request 2026-07-17).
+    # The one user-actionable line survives: how to widen a floored screen.
     note = (data.get("note") or "").strip()
-    if note:
-        lines += ["", f"_{note}_"]
+    if "include small caps" in note:
+        lines += ["", "_Say “include small caps” to widen this screen._"]
     return "\n".join(lines)
 
 
