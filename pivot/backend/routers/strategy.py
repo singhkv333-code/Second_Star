@@ -537,7 +537,14 @@ def trade_basket(
             ),
         )
     rows = [
-        _persist_leg(db, user_id, {k: v for k, v in leg.items() if not k.startswith("_")})
+        _persist_leg(
+            db,
+            user_id,
+            {k: v for k, v in leg.items() if not k.startswith("_")},
+            origin_kind="strategy",
+            strategy_id=basket_id,
+            label=s.name,
+        )
         for leg in legs
     ]
     db.commit()
@@ -556,4 +563,65 @@ def trade_basket(
             for r in rows
         ],
         "skipped": skipped,
+    }
+
+
+@router.get("/baskets/{basket_id}/performance")
+def basket_performance(
+    basket_id: int,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """Live NAV sparkline + headline return for one basket — mirrors
+    `GET /api/workflows/{id}/performance`, keyed on the ForwardIdea whose
+    ``strategy_id`` matches this basket instead of ``workflow_id``. Fills
+    only attribute to that idea once a leg has been traded via
+    ``trade_basket`` (origin_kind="strategy"); an untraded basket has no
+    idea yet, so this returns has_data=false rather than 404."""
+    _load_basket_or_404(db, user_id, basket_id)
+
+    from backend.models import ForwardIdea, PaperIdeaNavSnapshot
+
+    series: list[dict] = []
+    return_pct = None
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "strategy",
+            ForwardIdea.strategy_id == basket_id,
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is not None:
+        from backend.routers.workflows import _live_idea_return_pct
+
+        return_pct = _live_idea_return_pct(db, idea)
+        snaps = (
+            db.query(PaperIdeaNavSnapshot)
+            .filter(PaperIdeaNavSnapshot.idea_id == idea.id)
+            .order_by(PaperIdeaNavSnapshot.as_of_date.asc())
+            .all()
+        )
+        for snap in snaps:
+            series.append({"date": snap.as_of_date.isoformat(), "nav": float(snap.idea_nav)})
+
+        try:
+            from backend.paper.idea_valuation import compute_idea_nav
+            from datetime import datetime as _dt, timezone as _tz
+
+            live_nav = float(compute_idea_nav(db, idea)["idea_nav"])
+            today = _dt.now(_tz.utc).date().isoformat()
+            if series and series[-1]["date"] == today:
+                series[-1] = {"date": today, "nav": live_nav}
+            else:
+                series.append({"date": today, "nav": live_nav})
+        except Exception:
+            pass
+
+    return {
+        "series": series,
+        "return_pct": return_pct,
+        "has_data": bool(series),
     }

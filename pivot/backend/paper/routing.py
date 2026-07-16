@@ -469,6 +469,8 @@ def submit_order_for_user(
     source: str = "chat",
     conversation_id: Optional[str] = None,
     label: Optional[str] = None,
+    origin_kind: str = "chat",
+    strategy_id: Optional[int] = None,
     **_ignored: Any,
 ) -> dict:
     uid = int(user_id)
@@ -493,8 +495,9 @@ def submit_order_for_user(
             variety=variety,
             client_request_id=client_request_id,
             source=source,
-            origin_kind="chat",
+            origin_kind=origin_kind,
             conversation_id=conversation_id,
+            strategy_id=strategy_id,
             # Chat idea label = the SYMBOL (not side+symbol), so a BUY and a
             # later SELL of the same symbol in one conversation attribute to
             # ONE idea (the chat natural key is conversation_id+label). The

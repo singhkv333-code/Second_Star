@@ -1183,6 +1183,14 @@ export function getOpenOrders(): Promise<ApiResult<OpenOrder[]>> {
 
 function adaptPaperOpenOrder(o: PaperOpenOrder): OpenOrder {
   const st = o.status.toLowerCase();
+  // A "resting" MARKET order rests because the market was CLOSED at
+  // placement (paper/broker.py's market-hours gate) — that's the same
+  // "queued for next open" state as a live AMO. A resting LIMIT/SL order
+  // rests for a different reason (price not hit yet), so it stays "Open".
+  const queued =
+    st === "queued" ||
+    st === "pending" ||
+    (st === "resting" && o.order_type.toUpperCase() === "MARKET");
   return {
     id: o.id,
     symbol: o.symbol,
@@ -1193,7 +1201,7 @@ function adaptPaperOpenOrder(o: PaperOpenOrder): OpenOrder {
     price: o.limit_price,
     trigger_price: o.trigger_price,
     status: o.status,
-    queued: st === "queued" || st === "pending",
+    queued,
     placed_at: o.created_at ?? "",
   };
 }

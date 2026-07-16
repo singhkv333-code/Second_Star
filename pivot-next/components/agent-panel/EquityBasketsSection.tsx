@@ -141,13 +141,7 @@ export function EquityBasketsSection({
 
   return (
     <div className="flex flex-col gap-4" data-testid="equity-baskets-section">
-      <div className="flex items-center justify-between gap-3">
-        <h2
-          className="q-serif m-0"
-          style={{ fontSize: 16, letterSpacing: "-0.02em", color: "var(--text-primary)" }}
-        >
-          Equity baskets
-        </h2>
+      <div className="flex items-center justify-end gap-3">
         <Button size="sm" onClick={openCreate} className="gap-1.5" data-testid="new-basket-btn">
           <Plus className="h-4 w-4" aria-hidden="true" />
           New basket

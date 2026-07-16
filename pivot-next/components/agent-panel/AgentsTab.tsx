@@ -55,6 +55,7 @@ import {
 import {
   closeOptionStrategy,
   deleteWorkflow,
+  getBasketPerformance,
   getWorkflowPerformance,
   getWorkflowsSummary,
   listEquityBaskets,
@@ -232,6 +233,10 @@ export function AgentsTab({
   const [baskets, setBaskets] = useState<EquityBasket[]>([]);
   const [basketsLoading, setBasketsLoading] = useState(false);
   const [basketsLoaded, setBasketsLoaded] = useState(false);
+  // Per-basket live return %, keyed by basket id — fetched once the basket
+  // list itself resolves (a basket's return lives on its linked forward-test
+  // idea, a separate on-read call per basket, not part of the list payload).
+  const [basketReturns, setBasketReturns] = useState<Record<number, number | null>>({});
 
   // Delete-in-flight ids (both surfaces) so the kebab disables + the card dims.
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -297,7 +302,14 @@ export function AgentsTab({
     setBasketsLoading(true);
     listEquityBaskets()
       .then((result) => {
-        if (!isError(result)) setBaskets(result.data.baskets ?? []);
+        if (isError(result)) return;
+        const items = result.data.baskets ?? [];
+        setBaskets(items);
+        Promise.all(
+          items.map((b) =>
+            getBasketPerformance(b.id).then((r) => [b.id, isError(r) ? null : r.data.return_pct] as const),
+          ),
+        ).then((pairs) => setBasketReturns(Object.fromEntries(pairs)));
       })
       .catch(() => {})
       .finally(() => setBasketsLoading(false));
@@ -438,7 +450,7 @@ export function AgentsTab({
         rows: baskets.map((b) => ({
           workflow_id: String(b.id),
           name: b.name,
-          return_pct: null,
+          return_pct: basketReturns[b.id] ?? null,
           series: [],
           run_count: 0,
           success_rate: null,
@@ -1088,13 +1100,6 @@ function OptionsStrategiesSection({
 }): React.ReactElement {
   return (
     <div className="flex flex-col gap-4" data-testid="options-section">
-      <h2
-        className="q-serif m-0"
-        style={{ fontSize: 16, letterSpacing: "-0.02em", color: "var(--text-primary)" }}
-      >
-        Options strategies
-      </h2>
-
       {state.kind === "loading" && <AgentsGridSkeleton />}
 
       {state.kind === "error" && (

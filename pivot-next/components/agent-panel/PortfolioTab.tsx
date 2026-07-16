@@ -2441,15 +2441,120 @@ type TradeRow = {
 };
 
 
-// Mirrors the screener table's cell rhythm (ScreenerPage `td`): hairline
-// glass-border dividers, generous padding, 12.5px text — so the history
-// table reads with the same clean, borderless cadence.
+// Shared cell rhythm for the Orders + History tables, matched to the
+// HoldingsTable: hairline glass-border dividers, 16×18 padding, 12.5px text —
+// so all three portfolio tables read as one clean, consistent surface.
 const HIST_TD: React.CSSProperties = {
-  padding: "14px 16px",
+  padding: "16px 18px",
   fontSize: 12.5,
   borderBottom: "1px solid var(--glass-border)",
   whiteSpace: "nowrap",
 };
+
+// Numeric cell — mono, tabular, right-aligned — mirroring HoldingsTable's
+// NumCell so quantities/prices line up column-clean across every table.
+const HIST_TD_NUM: React.CSSProperties = {
+  ...HIST_TD,
+  fontFamily: "var(--font-mono)",
+  fontWeight: 500,
+  textAlign: "right",
+  fontVariantNumeric: "tabular-nums",
+  color: "var(--text-secondary)",
+};
+
+// Shared header cell for the Orders + History tables — matches HoldingsTable's
+// <th> (10px uppercase, display weight, 1.5px underline, 13×18 padding).
+function TxnHeadCell({
+  label,
+  align = "left",
+}: {
+  label: string;
+  align?: "left" | "right";
+}): React.ReactElement {
+  return (
+    <th
+      style={{
+        padding: "13px 18px",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        fontWeight: "var(--weight-display)" as unknown as number,
+        color: "var(--text-tertiary)",
+        textAlign: align,
+        whiteSpace: "nowrap",
+        // Same elevated header bar as HoldingsTable's <th> — lighter than the
+        // rows so the head reads as a distinct band, not a blended first row.
+        background: "var(--bg-secondary)",
+        borderBottom: "1.5px solid var(--glass-border)",
+      }}
+    >
+      {label}
+    </th>
+  );
+}
+
+// Symbol cell shared by the Orders + History tables — the same brand
+// glyph + exchange-prefixed, stock-linked symbol + sector subtext as
+// HoldingRow, so the first column reads identically across all three.
+function TxnSymbolCell({
+  symbol,
+  exchange,
+  logoUrl,
+}: {
+  symbol: string;
+  exchange?: string;
+  logoUrl?: string | null;
+}): React.ReactElement {
+  const sector = SECTOR_MAP[symbol];
+  return (
+    <td style={HIST_TD}>
+      <div className="inline-flex items-center" style={{ gap: 12 }}>
+        <HoldingGlyph symbol={symbol} hueKey={sector} logoUrl={logoUrl} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <Link
+            href={`/stock/${encodeURIComponent(symbol)}`}
+            className="inline-flex items-baseline"
+            style={{
+              gap: 6,
+              fontFamily: "var(--font-ui)",
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--text-primary)",
+              textDecoration: "none",
+            }}
+          >
+            <span style={{ color: "var(--text-tertiary)", fontSize: 10, fontWeight: 400 }}>
+              {exchange || "NSE"}
+            </span>
+            {symbol}
+          </Link>
+          {sector && (
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{sector}</span>
+          )}
+        </div>
+      </div>
+    </td>
+  );
+}
+
+// Buy/Sell pill shared by the Orders + History tables.
+function TxnSideBadge({ side }: { side: string }): React.ReactElement {
+  const isBuy = side.toUpperCase() !== "SELL";
+  return (
+    <span
+      style={{
+        padding: "2px 8px",
+        borderRadius: 4,
+        fontSize: 11,
+        fontWeight: 600,
+        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+        color: isBuy ? "#10b981" : "#ef4444",
+      }}
+    >
+      {isBuy ? "BUY" : "SELL"}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // PendingOrders — the "Orders" tab. Lists still-open (cancellable) orders:
@@ -2493,6 +2598,7 @@ function PendingOrders({
   const [errored, setErrored] = useState(false);
   // ids currently being cancelled — disables their button + dims the row.
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
+  const logos = useCompanyLogos((rows ?? []).map((o) => o.symbol));
 
   useEffect(() => {
     let alive = true;
@@ -2599,8 +2705,12 @@ function PendingOrders({
   return (
     <div className="flex flex-col" style={{ gap: 12 }} data-testid="pending-orders">
       <div
-        className="overflow-x-auto rounded-2xl bg-card"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        className="overflow-x-auto"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          background: "var(--bg-base)",
+          borderRadius: "var(--radius-md)",
+        }}
       >
         <table
           className="w-full"
@@ -2612,31 +2722,18 @@ function PendingOrders({
         >
           <thead>
             <tr>
-              {["Symbol", "Side", "Type", "Qty", "Price (₹)", "Placed", "Status", ""].map(
-                (h, i) => (
-                  <th
-                    key={i}
-                    style={{
-                      padding: "13px 16px",
-                      fontSize: 10,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      fontWeight: "var(--weight-display)" as unknown as number,
-                      color: "var(--text-tertiary)",
-                      textAlign: h === "" ? "right" : "left",
-                      whiteSpace: "nowrap",
-                      borderBottom: "1.5px solid var(--glass-border)",
-                    }}
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
+              <TxnHeadCell label="Symbol" />
+              <TxnHeadCell label="Side" />
+              <TxnHeadCell label="Type" />
+              <TxnHeadCell label="Qty" align="right" />
+              <TxnHeadCell label="Price (₹)" align="right" />
+              <TxnHeadCell label="Placed" />
+              <TxnHeadCell label="Status" />
+              <TxnHeadCell label="" align="right" />
             </tr>
           </thead>
           <tbody>
             {rows.map((o) => {
-              const isBuy = o.transaction_type.toUpperCase() !== "SELL";
               const busy = cancelling.has(o.id);
               const priceShown =
                 o.price != null && o.price > 0
@@ -2645,31 +2742,31 @@ function PendingOrders({
                     ? `${o.trigger_price.toLocaleString("en-IN")} (trig)`
                     : "Market";
               return (
-                <tr key={o.id} style={{ opacity: busy ? 0.5 : 1 }}>
-                  <td style={{ ...HIST_TD, fontWeight: 600, color: "var(--text-primary)" }}>
-                    {o.symbol}
-                  </td>
+                <tr
+                  key={o.id}
+                  style={{ opacity: busy ? 0.5 : 1, transition: "background 150ms" }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <TxnSymbolCell
+                    symbol={o.symbol}
+                    exchange={o.exchange}
+                    logoUrl={logos[o.symbol.toUpperCase()]}
+                  />
                   <td style={HIST_TD}>
-                    <span
-                      style={{
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-                        color: isBuy ? "#10b981" : "#ef4444",
-                      }}
-                    >
-                      {isBuy ? "BUY" : "SELL"}
-                    </span>
+                    <TxnSideBadge side={o.transaction_type} />
                   </td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
                     {o.order_type}
                   </td>
-                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                  <td style={HIST_TD_NUM}>
                     {o.quantity}
                   </td>
-                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                  <td style={HIST_TD_NUM}>
                     {priceShown}
                   </td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
@@ -2740,6 +2837,7 @@ function TradeHistory(): React.ReactElement {
   const mode = useTradingMode();
   const [rows, setRows] = useState<TradeRow[] | null>(null);
   const [errored, setErrored] = useState(false);
+  const logos = useCompanyLogos((rows ?? []).map((t) => t.symbol));
 
   useEffect(() => {
     let alive = true;
@@ -2823,8 +2921,12 @@ function TradeHistory(): React.ReactElement {
   return (
     <div className="flex flex-col" style={{ gap: 12 }}>
       <div
-        className="overflow-x-auto rounded-2xl bg-card"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        className="overflow-x-auto"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          background: "var(--bg-base)",
+          borderRadius: "var(--radius-md)",
+        }}
       >
         <table
           className="w-full"
@@ -2836,36 +2938,25 @@ function TradeHistory(): React.ReactElement {
         >
           <thead>
             <tr>
-              {["Symbol", "Side", "Qty", "Price (₹)", "Amount (₹)", "Date", "Time", "Agent"].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: "13px 16px",
-                    fontSize: 10,
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
-                    fontWeight: "var(--weight-display)" as unknown as number,
-                    color: "var(--text-tertiary)",
-                    textAlign: "left",
-                    whiteSpace: "nowrap",
-                    borderBottom: "1.5px solid var(--glass-border)",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              <TxnHeadCell label="Symbol" />
+              <TxnHeadCell label="Side" />
+              <TxnHeadCell label="Qty" align="right" />
+              <TxnHeadCell label="Price (₹)" align="right" />
+              <TxnHeadCell label="Amount (₹)" align="right" />
+              <TxnHeadCell label="Date" />
+              <TxnHeadCell label="Time" />
+              <TxnHeadCell label="Agent" />
             </tr>
           </thead>
           <tbody>
             {(rows ?? []).map((t) => {
               const { date, time } = fmt(t.datetime);
-              const isBuy = t.side === "BUY";
               return (
                 <tr
                   key={t.id}
                   style={{
                     background: "transparent",
-                    transition: "background-color 0.15s var(--ease-quartr)",
+                    transition: "background 150ms",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "var(--bg-secondary)";
@@ -2874,28 +2965,15 @@ function TradeHistory(): React.ReactElement {
                     e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  <td style={{ ...HIST_TD, fontWeight: 600, color: "var(--text-primary)" }}>
-                    {t.symbol}
-                  </td>
+                  <TxnSymbolCell symbol={t.symbol} logoUrl={logos[t.symbol.toUpperCase()]} />
                   <td style={HIST_TD}>
-                    <span
-                      style={{
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        background: isBuy ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-                        color: isBuy ? "#10b981" : "#ef4444",
-                      }}
-                    >
-                      {t.side}
-                    </span>
+                    <TxnSideBadge side={t.side} />
                   </td>
-                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{t.quantity}</td>
-                  <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>
+                  <td style={HIST_TD_NUM}>{t.quantity}</td>
+                  <td style={HIST_TD_NUM}>
                     {t.price > 0 ? t.price.toLocaleString("en-IN") : "—"}
                   </td>
-                  <td style={{ ...HIST_TD, fontWeight: 500, color: "var(--text-primary)" }}>
+                  <td style={{ ...HIST_TD_NUM, fontWeight: 500, color: "var(--text-primary)" }}>
                     {t.amount > 0 ? `₹${t.amount.toLocaleString("en-IN")}` : "—"}
                   </td>
                   <td style={{ ...HIST_TD, color: "var(--text-secondary)" }}>{date}</td>

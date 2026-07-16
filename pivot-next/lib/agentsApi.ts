@@ -332,3 +332,21 @@ export function tradeEquityBasket(
     { method: "POST", body },
   );
 }
+
+// ── Basket performance ──────────────────────────────────────────────────────
+
+export type BasketPerformance = {
+  series: WorkflowNavPoint[];
+  return_pct: number | null;
+  has_data: boolean;
+};
+
+/** `GET /strategies/baskets/{id}/performance` — live NAV sparkline + headline
+ *  return for a basket, on-read from its linked forward-test idea. A basket
+ *  that's never been traded has no idea yet, so this comes back
+ *  `has_data: false` rather than 404. */
+export function getBasketPerformance(
+  id: number,
+): Promise<ApiResult<BasketPerformance>> {
+  return requestLegacy<BasketPerformance>(`/strategies/baskets/${id}/performance`);
+}
