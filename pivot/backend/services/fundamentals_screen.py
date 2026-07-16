@@ -1120,6 +1120,20 @@ def screen_by_fundamentals(
                 | {f["value_field"] for f in valid_filters if f.get("value_field")}
                 | {sort_field}
             )
+    else:
+        # Market cap isn't screened here — still surface it as a CONTEXT
+        # column (LEFT JOIN, never filters or reorders): size is the one
+        # number that gives the reader an instant gist of every row.
+        caps = _load_market_caps()
+        if caps:
+            params["cap_ids"] = list(caps.keys())
+            params["cap_crs"] = [float(v) for v in caps.values()]
+            cte_sqls.append(
+                "caps AS (SELECT sc_id, cr FROM "
+                "unnest(:cap_ids ::text[], :cap_crs ::float8[]) AS t(sc_id, cr))"
+            )
+            join_sqls.append("LEFT JOIN caps ON caps.sc_id = c.sc_id")
+            select_cols.append("caps.cr AS ctx_mcap_cr")
 
     # Real trailing P/E (enrich) injected as an in-memory CTE and PREFERRED over
     # the 1/Earnings-Yield derivation (which quantizes because MC stores EY at
@@ -1557,6 +1571,9 @@ def screen_by_fundamentals(
             "name": row["company_name"],
             "sector": _sector_for_slug(_slug),
         }
+        ctx_mcap = row.get("ctx_mcap_cr")
+        if ctx_mcap is not None:
+            rec["market_cap_cr"] = round(float(ctx_mcap))
         for mf in metric_fields:
             v = row.get(f"val_{mf}")
             if v is None:
@@ -1768,8 +1785,13 @@ def render_screen_markdown(data: dict) -> str | None:
                      and results[0].get(m) is not None]
     has_mcap = field != "market_cap" and results[0].get("market_cap_cr") is not None
 
-    cols = ["Rank", "Company", label] + [_METRIC_LABELS[m] for m in extra_metrics]
-    aligns = ["---:", "---", "---:"] + ["---:"] * len(extra_metrics)
+    # Mixed-sector screens get a per-row Sector column for instant context;
+    # single-sector screens already carry it in the heading.
+    show_sector = not sector and any((r.get("sector") or "").strip() for r in results)
+    cols = (["Rank", "Company"] + (["Sector"] if show_sector else [])
+            + [label] + [_METRIC_LABELS[m] for m in extra_metrics])
+    aligns = (["---:", "---"] + (["---"] if show_sector else [])
+              + ["---:"] + ["---:"] * len(extra_metrics))
     if has_mcap:
         cols.append("Market cap")
         aligns.append("---:")
@@ -1788,8 +1810,11 @@ def render_screen_markdown(data: dict) -> str | None:
     lines.append("| " + " | ".join(cols) + " |")
     lines.append("|" + "|".join(aligns) + "|")
     for i, r in enumerate(results, 1):
-        row = [str(i), f"{r.get('name') or r['symbol']} (`{r['symbol']}`)",
-               _fmt_metric(field, r.get(field))]
+        row = [str(i), f"{r.get('name') or r['symbol']} (`{r['symbol']}`)"]
+        if show_sector:
+            rs = (r.get("sector") or "").strip()
+            row.append(_SECTOR_DISPLAY.get(rs, rs.replace("_", " ").title()) or "—")
+        row.append(_fmt_metric(field, r.get(field)))
         row += [_fmt_metric(m, r.get(m)) for m in extra_metrics]
         if has_mcap:
             row.append(_inr_cr(r.get("market_cap_cr")))
