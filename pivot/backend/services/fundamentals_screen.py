@@ -931,6 +931,7 @@ def screen_by_fundamentals(
     custom_ratios: list[dict] | None = None,
     min_period_end: date | None | str = "default",
     exclude: list[str] | None = None,
+    growth_years: int | None = None,
     session: Session | None = None,
 ) -> dict:
     """Return companies passing every fundamental constraint in `filters`.
@@ -981,6 +982,15 @@ def screen_by_fundamentals(
     """
     limit = max(1, min(int(limit), 100))
     tier = _CAP_TIER_ALIASES.get((market_cap_tier or "").strip().lower())
+    # Growth horizon in financial years. 1 (default) = YoY over the two
+    # latest annual filings; N>1 = CAGR between the latest filing and the
+    # one N filings earlier. Not artificially capped — bounded only by how
+    # much filing history a company actually has (too little → it drops out
+    # of the pairing, never a fabricated number).
+    try:
+        gy = max(1, int(growth_years)) if growth_years is not None else 1
+    except (TypeError, ValueError):
+        gy = 1
 
     if min_period_end == "default":
         floor: date | None = _screen_min_period_end()
@@ -1232,6 +1242,23 @@ def screen_by_fundamentals(
             # query run index-only off statement_lines_screen_cov_idx.
             items_key = f"items_{i}"
             params[items_key] = defn["items"]
+            # Growth expression by horizon: gy=1 keeps the simple YoY change
+            # (sign-safe via abs); gy>1 is a CAGR annualised over the ACTUAL
+            # date gap between the paired filings (a company with a missing
+            # filing year still annualises correctly), defined only when both
+            # endpoints are positive — a sign flip has no meaningful CAGR.
+            if gy == 1:
+                growth_expr = ("CASE WHEN b2.v <> 0 "
+                               "THEN (b1.v - b2.v) / abs(b2.v) * 100.0 END")
+            else:
+                growth_expr = (
+                    "CASE WHEN b1.v > 0 AND b2.v > 0 "
+                    "AND (b1.period_end - b2.period_end) > 0 "
+                    "THEN (power(b1.v / b2.v, "
+                    "365.25 / (b1.period_end - b2.period_end)) - 1) * 100.0 END"
+                )
+            # Literal (not a bind param): the planner needs the rn value to
+            # estimate the pairing join; a bind here cost ~6s on sector screens.
             cte_sqls.append(
                 f"""{cte_name} AS MATERIALIZED (
                     WITH base_raw AS (
@@ -1255,11 +1282,10 @@ def screen_by_fundamentals(
                     ),
                     paired AS (
                         SELECT b1.sc_id, b1.basis, b1.period_end AS latest_end,
-                               CASE WHEN b2.v <> 0
-                                    THEN (b1.v - b2.v) / abs(b2.v) * 100.0 END AS g
+                               {growth_expr} AS g
                         FROM base b1 JOIN base b2
                           ON b1.sc_id = b2.sc_id AND b1.basis = b2.basis
-                         AND b1.rn = 1 AND b2.rn = 2
+                         AND b1.rn = 1 AND b2.rn = {gy + 1}
                     )
                     SELECT DISTINCT ON (sc_id) sc_id, g AS v
                     FROM paired
@@ -1656,6 +1682,12 @@ def screen_by_fundamentals(
     if floor is not None:
         notes.append(f"latest filing on/after {floor.isoformat()} (recency floor)")
     notes.append("basis: consolidated preferred, else standalone")
+    if gy > 1 and any(field_defs[m]["kind"] == "growth" for m in metric_fields):
+        notes.append(
+            f"growth = CAGR between the latest filing and the one {gy} filings "
+            "earlier, annualised over the actual date gap; names without "
+            "enough filing history are excluded"
+        )
 
     if tier in ("large", "mid") and not results:
         notes.append(
@@ -1664,13 +1696,16 @@ def screen_by_fundamentals(
             "micro-caps)"
         )
 
-    return _apply_exclude({
+    out: dict = {
         "count": len(results),
         "results": results,
         "applied_filters": valid_filters,
         "sorted_by": {"field": sort_field, "dir": sort_dir},
         "note": "; ".join(notes),
-    }, exclude)
+    }
+    if gy > 1:
+        out["growth_years"] = gy
+    return _apply_exclude(out, exclude)
 
 
 # ── Deterministic screen reply (skips the LLM narration hop) ────────────────
@@ -1825,13 +1860,28 @@ def render_screen_markdown(data: dict) -> str | None:
     if field not in _METRIC_LABELS:
         return None
     dir_ = "asc" if (sb.get("dir") or "desc") == "asc" else "desc"
-    label = _METRIC_LABELS[field]
-    full_label = _METRIC_FULL_LABELS.get(field, label)
+    # Custom growth horizon → the growth labels say so ("Revenue Growth
+    # (5y CAGR)") everywhere the metric is named.
+    _gy = data.get("growth_years")
+
+    def _adorn(m: str, base: str) -> str:
+        return (f"{base} ({_gy}y CAGR)"
+                if _gy and m.endswith("_growth") else base)
+
+    label = _adorn(field, _METRIC_LABELS[field])
+    full_label = _adorn(field, _METRIC_FULL_LABELS.get(field, _METRIC_LABELS[field]))
     head_word, framing = _RANK_FRAMES.get(
         (field, dir_),
         (f"Top by {full_label}",
          f"Ranked by {full_label} ({'lowest first' if dir_ == 'asc' else 'highest first'})."),
     )
+    # The canned growth framings say "YoY (latest two annual filings)" —
+    # wrong under a custom horizon; restate for the actual window.
+    if _gy and field.endswith("_growth"):
+        _base = _METRIC_FULL_LABELS.get(field, _METRIC_LABELS[field]).lower()
+        framing = (f"Ranked by {_base} as a {_gy}-year CAGR, annualised over "
+                   "each company's actual filing dates — a growth screen, "
+                   "not a buy list.")
 
     # Only title by sector when the WHOLE result set shares one (a real sector
     # screen) — otherwise "Banking —" would mislead on an unsectored screen whose
@@ -1860,7 +1910,7 @@ def render_screen_markdown(data: dict) -> str | None:
     if show_mcap:
         cols.append("Market cap")
         aligns.append("---:")
-    cols += [_METRIC_LABELS[m] for m in metrics_cols]
+    cols += [_adorn(m, _METRIC_LABELS[m]) for m in metrics_cols]
     aligns += ["---:"] * len(metrics_cols)
     if show_sector:
         cols.append("Sector")

@@ -806,10 +806,13 @@ tool("screen_fundamentals",
      "below 1'), roe, roce, de (debt/equity), payout, price_to_book (P/B), "
      "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
      "net_profit_margin, ebitda_margin, asset_turnover\n"
-     " • GROWTH (YoY, latest two annual filings): revenue_growth, "
-     "net_profit_growth, eps_growth — use these for 'growing revenue/profits', "
-     "'positive revenue growth', 'fastest-growing'. 'positive revenue growth' = "
-     "filter {field:revenue_growth, op:'>', value:0}.\n"
+     " • GROWTH: revenue_growth, net_profit_growth, eps_growth — use these "
+     "for 'growing revenue/profits', 'positive revenue growth', "
+     "'fastest-growing'. Default horizon is YoY (latest two annual filings); "
+     "when the user names a horizon ('over the last 5 years', '10-year "
+     "growth'), set growth_years=N — the fields become an N-year CAGR. "
+     "'positive revenue growth' = filter {field:revenue_growth, op:'>', "
+     "value:0}.\n"
      " • market_cap — a REAL numeric field in ₹ crore (enrich-backed). "
      "'market cap above ₹20,000 Cr' = filter {field:market_cap, op:'>', "
      "value:20000}. (For a vague 'large/mid/small cap' WORD with no number, use "
@@ -921,6 +924,15 @@ tool("screen_fundamentals",
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Sectors, 'PSU', or named companies/tickers "
                      "to carve out of the results (hard-filtered, not advisory)."},
+         "growth_years": {"type": "integer", "minimum": 1,
+                     "description": "Horizon for ALL growth fields, in "
+                     "financial years. Omit or 1 = YoY (latest two annual "
+                     "filings). N>1 = CAGR between the latest filing and the "
+                     "one N filings earlier ('revenue growth over the last 5 "
+                     "years' → growth_years=5). Any N works — bounded only by "
+                     "a company's actual filing history; names without enough "
+                     "filings drop out rather than getting a fabricated "
+                     "number."},
          "presentation": {"type": "string", "enum": ["table", "analysis"],
                      "default": "table",
                      "description": "How the rows reach the user. 'table' "
