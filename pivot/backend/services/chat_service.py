@@ -2064,12 +2064,26 @@ def _build_staged_exit_draft(parsed: dict) -> Optional[dict]:
             },
         },
     ]
+    # The stop must be ARMED AT EVERY STAGE. Steps run strictly in order, so a
+    # stop appended after the profit legs cannot fire until every target above
+    # it has fired — i.e. it is disarmed on exactly the path it exists for (a
+    # gap-down straight after entry). OR the stop into each tranche's trigger
+    # so any stage can exit on the downside. Found 2026-07-17: the shipped
+    # staged draft serialized the stop behind both take-profits.
+    _stop_leaf = _exit_tree("<=", round(-stop_pct / 100.0, 6), "low")
     for qty, pct in targets:
         steps.append({
             "step_type": "trigger.exit_compound",
-            "label": f"Up {pct:g}% (one-shot)",
+            "label": f"Up {pct:g}% or stop −{stop_pct:g}% (one-shot)",
             "config": {
-                "entry": _exit_tree(">=", round(pct / 100.0, 6), "high"),
+                "entry": {
+                    "type": "logic",
+                    "op": "or",
+                    "operands": [
+                        _exit_tree(">=", round(pct / 100.0, 6), "high"),
+                        _stop_leaf,
+                    ],
+                },
                 "target_symbol": symbol,
                 "one_shot": True,
             },
@@ -2091,11 +2105,21 @@ def _build_staged_exit_draft(parsed: dict) -> Optional[dict]:
             "one_shot": True,
         },
     })
+    # Sell the TRUE remainder, not the whole entry. With the stop OR-ed into
+    # every tranche above, any stop path fires those tranches first, so by the
+    # time this step runs exactly (entry_qty - staged_total) is still held —
+    # on both paths:
+    #   targets hit then -stop%  → tranches sold staged_total, remainder left
+    #   -stop% straight away     → tranches fire on their OR, remainder left
+    # Asking for entry_qty here would try to sell more than is held, which the
+    # order layer can turn into an accidental SHORT (actions.py: a sell past
+    # the held quantity opens one) rather than a flat exit.
+    _remainder = entry_qty - staged_total
     steps.append({
         "step_type": "action.place_order",
-        "label": f"Sell remaining {symbol} (up to {entry_qty})",
+        "label": f"Sell remaining {_remainder} {symbol}",
         "config": {
-            "symbol": symbol, "side": "sell", "quantity": entry_qty,
+            "symbol": symbol, "side": "sell", "quantity": _remainder,
             "order_type": "market", "requires_approval": False,
         },
     })

@@ -151,14 +151,27 @@ _EXIT_PEAK_RE = re.compile(
     r"|\btrail[^.]{0,20}?(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE,
 )
+# NOTE the `%` inside every gap class. With a plain `[^.]` gap these spans
+# jump ACROSS the other leg of a bracket: on "exit at 7% gain or 4% loss" the
+# loss pattern matched "7% …loss" and bound 7, so the stop came out at -7%
+# instead of -4% (found 2026-07-17). A gap may never cross another percentage.
 _EXIT_PROFIT_RE = re.compile(
-    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:profit|gain|up)\b",
+    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:profit|gain|up)\b",
     re.IGNORECASE,
 )
 _EXIT_LOSS_RE = re.compile(
-    r"\b(?:down|loses?|lose|falls?|drops?|loss\s+of)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:loss|down|drop)\b",
+    r"\b(?:down|loses?|losses|lose|falls?|drops?|loss(?:es)?\s+(?:of|at)|"
+    r"stop(?:\s*-?\s*loss)?(?:\s+at)?|sl)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:loss(?:es)?|down|drop)\b",
+    re.IGNORECASE,
+)
+# Any mention of a downside leg at all. If this fires but _EXIT_LOSS_RE can't
+# bind a NUMBER, the fast path must NOT ship a take-profit-only tree — it
+# defers to the LLM translator, which handles brackets correctly. Silently
+# dropping a stop the user asked for is the one outcome never worth a saved hop.
+_LOSS_WORD_RE = re.compile(
+    r"\b(?:loss(?:es)?|stop[\s-]?loss|\bsl\b|cut\s+loss(?:es)?|downside)\b",
     re.IGNORECASE,
 )
 _EXIT_BARS_RE = re.compile(
@@ -195,12 +208,40 @@ def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[
     m = _EXIT_PEAK_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("drawdown_from_peak_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_PROFIT_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_LOSS_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", "<=", round(-v / 100.0, 6))
+
+    _mp = _EXIT_PROFIT_RE.search(t)
+    _vp = _first_group(_mp) if _mp else None
+    _ml = _EXIT_LOSS_RE.search(t)
+    _vl = _first_group(_ml) if _ml else None
+
+    # A BRACKET ("exit at 7% gain or 4% loss") names BOTH legs — the most
+    # common exit shape there is — and regex CANNOT reliably say which number
+    # belongs to which leg: "book profit at 12% or cut losses at 5%" binds the
+    # stop to 12. This fast path used to match the profit branch and return
+    # immediately, silently discarding the stop entirely, so the card took
+    # profit at +7% and never stopped out while the reply promised both
+    # (found 2026-07-17). Two legs ⇒ hand it to the LLM translator, which
+    # composes the OR correctly. One saved hop is never worth a wrong or
+    # missing stop.
+    _two_legged = (_vp is not None and (_vl is not None or _LOSS_WORD_RE.search(t)))
+    if _two_legged and not force:
+        return None
+
+    if _vp is not None and _vl is not None:
+        # force=True (translate already failed): best-effort OR beats refusing
+        # a supported shape — both legs present, numbers as parsed.
+        return {
+            "type": "logic",
+            "op": "or",
+            "operands": [
+                _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6)),
+                _cmp("unrealised_pct", "<=", round(-_vl / 100.0, 6)),
+            ],
+        }
+    if _vp is not None:
+        return _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6))
+    if _vl is not None:
+        return _cmp("unrealised_pct", "<=", round(-_vl / 100.0, 6))
     m = _EXIT_BARS_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("bars_held", ">=", int(v))
