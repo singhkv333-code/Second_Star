@@ -1875,27 +1875,13 @@ def render_screen_markdown(data: dict) -> str | None:
 
     label = _adorn(field, _METRIC_LABELS[field])
     full_label = _adorn(field, _METRIC_FULL_LABELS.get(field, _METRIC_LABELS[field]))
-    head_word, framing = _RANK_FRAMES.get(
-        (field, dir_),
-        (f"Top by {full_label}",
-         f"Ranked by {full_label} ({'lowest first' if dir_ == 'asc' else 'highest first'})."),
-    )
-    # The canned growth framings say "YoY (latest two annual filings)" —
-    # wrong under a custom horizon; restate for the actual window.
-    if _gy and field.endswith("_growth"):
-        _base = _METRIC_FULL_LABELS.get(field, _METRIC_LABELS[field]).lower()
-        framing = (f"Ranked by {_base} as a {_gy}-year CAGR, annualised over "
-                   "each company's actual filing dates — a growth screen, "
-                   "not a buy list.")
+    head_word = _RANK_FRAMES.get((field, dir_), (f"Top by {full_label}",))[0]
 
-    # Only title by sector when the WHOLE result set shares one (a real sector
-    # screen) — otherwise "Banking —" would mislead on an unsectored screen whose
-    # #1 row happens to be a bank. Full words in the heading, never slugs.
+    # Only treat the screen as single-sector when the WHOLE result set shares one
+    # — otherwise an unsectored screen whose #1 row happens to be a bank would
+    # lose its Sector column.
     secs = {(r.get("sector") or "").strip() for r in results}
     sector = next(iter(secs)) if len(secs) == 1 and "" not in secs else ""
-    sector_disp = _SECTOR_DISPLAY.get(sector, sector.replace("_", " ").title())
-    title = (f"{sector_disp} — Ranked by {full_label}"
-             if sector else f"Fundamental Screen — Ranked by {full_label}")
 
     # Column order: Rank · Company · Market cap · screened metrics (ranked
     # first) · Sector · 1-Year Return. Market cap / sector / 1-year return are
