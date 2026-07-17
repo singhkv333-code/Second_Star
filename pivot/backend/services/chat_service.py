@@ -3492,13 +3492,16 @@ matches. The shapes to distinguish:
   build_strategy (a construction, NOT a workflow draft).
 - BACKTEST → backtest_workflow; a verb-less tweak right after a backtest
   ("now try RSI<25") re-runs it with that one change.
+- CONTRADICTION: an ask to buy AND sell the same instrument at the same
+  time is contradictory — ask which action was meant; never draft both.
 
 ## Clarify discipline
 Call ASK_USER (structured, tappable) only when a REQUIRED field is
 genuinely missing and no sensible default exists. Named option template +
 underlying (straddle/condor/spread on NIFTY…) is buildable NOW — the
 engine fills strikes/width/qty defaults; vague modifiers are not missing
-fields. If the user is confused by a menu you offered, teach one option
+fields. Indicator rules (RSI/SMA/…) default to DAILY bars — never ask
+daily-vs-intraday; build daily unless the user names an interval. If the user is confused by a menu you offered, teach one option
 in plain prose and end with one yes/no — never re-dump the menu.
 
 ## Construction honesty
