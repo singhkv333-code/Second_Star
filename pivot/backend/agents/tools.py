@@ -2168,7 +2168,22 @@ tool("build_strategy",
      "multifactor) are INTERNAL levers YOU pick — NEVER ask the user to "
      "choose one and NEVER echo these enum names in a question. For an "
      "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call "
-     "ask_user_dynamic FIRST, not this tool directly.",
+     "ask_user_dynamic FIRST, not this tool directly.\n\n"
+     "PASS THE USER'S CONSTRAINTS — don't clarify them and don't drop them. "
+     "`filters` (ROE/ROCE/D-E/PE/earnings-yield/payout/market-cap thresholds), "
+     "`mcap_band` (large|mid|small), `weight_by` (weight ∝ a metric), "
+     "`gold_pct` (a stated equity/gold split) and `asset_prefs.exclusions` "
+     "(no-PSU, no-Tata, sectors, tickers) all reach the engine. A constraint "
+     "OUTSIDE that set (dividend yield, promoter pledge, ESG…) is NOT "
+     "screenable — say so plainly rather than pretending it applied.\n\n"
+     "THE RESULT IS SELF-SUFFICIENT — do NOT pre-call screen_fundamentals / "
+     "fetch_fundamentals / compare_performance / compute to build a basket. "
+     "This tool already returns, per leg: sector, `gate_metrics` (ROE, ROCE, "
+     "D/E, P/E, earnings yield), `weight_pct`, `allocation_inr` (the ₹ slice — "
+     "never recompute weight × capital yourself), and `weight_reason`. Plus "
+     "card-level `rejected` (names excluded + why), `constraints_not_applied` "
+     "(anything it could not honour — you MUST disclose these in your reply), "
+     "`assumptions`, `sleeves` and `alternatives`. Call it FIRST and quote it.",
      {
          "request": {
              "type": "string",
@@ -2189,6 +2204,71 @@ tool("build_strategy",
                  "conviction": {"type": "string",
                                 "enum": ["low", "medium", "high"]},
              },
+         },
+         "filters": {
+             "type": "array",
+             "description": (
+                 "The user's HARD fundamental constraints — pass EVERY one "
+                 "they stated ('ROE above 15, debt-to-equity under 1' → "
+                 "[{field:'roe',op:'>',value:15},{field:'de',op:'<',value:1}]). "
+                 "These EXCLUDE names (the internal gate only ranks), and a "
+                 "name that fails comes back in `rejected` with the reason. "
+                 "Fields outside the enum aren't screenable — don't invent one; "
+                 "state the gap in your reply instead."
+             ),
+             "items": {
+                 "type": "object",
+                 "properties": {
+                     "field": {"type": "string",
+                               "enum": ["roe", "roce", "de", "pe",
+                                        "earnings_yield", "payout",
+                                        "market_cap_cr"]},
+                     "op": {"type": "string", "enum": [">", ">=", "<", "<="]},
+                     "value": {"type": "number"},
+                 },
+                 "required": ["field", "op", "value"],
+             },
+         },
+         "max_names": {
+             "type": "integer",
+             "description": (
+                 "How many constituents the user asked for ('exactly 5 "
+                 "stocks', 'a 4-stock basket'). Overrides the engine's own "
+                 "size band — pass it whenever a count is stated, and never "
+                 "clarify a count the user already gave."
+             ),
+         },
+         "mcap_band": {
+             "type": "string",
+             "enum": ["large", "mid", "small"],
+             "description": (
+                 "Restrict discovery to a size band when the user names one "
+                 "('midcap manufacturing basket', 'quality smallcaps'). "
+                 "large ≥ ₹20,000 cr · mid ₹5,000-20,000 cr · small < ₹5,000 cr. "
+                 "Omit when no size was asked for."
+             ),
+         },
+         "weight_by": {
+             "type": "string",
+             "enum": ["roe", "roce", "de", "pe", "earnings_yield", "payout",
+                      "market_cap_cr"],
+             "description": (
+                 "Weight the legs IN PROPORTION to this metric when the user "
+                 "says so ('4 private banks weighted by ROE' → 'roe'). This is "
+                 "the answer to 'weighted by <metric>' — never clarify it and "
+                 "never fall back to asking. Lower-is-better metrics (de, pe) "
+                 "are inverted automatically. Omit to let the engine choose."
+             ),
+         },
+         "gold_pct": {
+             "type": "number",
+             "description": (
+                 "Gold sleeve as a % of the WHOLE portfolio when the user "
+                 "states a split ('70% equity 30% gold' → 30). Required for any "
+                 "stated split — without it the engine's own heuristic caps "
+                 "gold at ~15% and your split will NOT be honoured. Omit when "
+                 "the user didn't name a gold share."
+             ),
          },
          "risk": {
              "type": "string",
@@ -2226,9 +2306,19 @@ tool("build_strategy",
          },
          "theme": {
              "type": "string",
-             "description": "Optional thematic tilt ('quality compounders', "
-                            "'rate-cut beneficiaries') resolved against the "
-                            "thematic map.",
+             "description": (
+                 "Optional sector/tilt for DISCOVERY. Resolvable sector words: "
+                 "banking, private bank, psu bank, financial services, it, "
+                 "auto, pharma, fmcg, energy, metals, steel, cement, infra, "
+                 "realty, defence, telecom, consumer durables, media, "
+                 "chemicals (plus tilts like 'quality compounders', "
+                 "'momentum'). Anything else (a macro view, 'PLI "
+                 "electronics', 'demographic dividend') does NOT resolve — the "
+                 "engine falls back to a broad cross-sector pool and says so "
+                 "in `assumptions`, which means the basket is NOT the universe "
+                 "the user named. For those, reason out the names yourself and "
+                 "pin `symbols` + `symbol_reasons` instead."
+             ),
          },
          "symbols": {
              "type": "array",

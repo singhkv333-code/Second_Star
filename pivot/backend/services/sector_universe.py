@@ -26,7 +26,7 @@ NSE-friendly buckets ("steel", "banking", "IT") not GICS subindustries.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
 
 
 SectorName = Literal[
@@ -187,6 +187,10 @@ def is_psu(symbol: str) -> bool:
 
 
 # Aliases the user might type. Maps to the canonical SectorName above.
+_CANONICAL_SECTORS: frozenset[str] = frozenset(get_args(SectorName))
+"""Every canonical SectorName — `normalize_sector` maps each to itself so a
+caller passing the taxonomy's own name is never read as 'no filter'."""
+
 _SECTOR_ALIASES: dict[str, SectorName] = {
     "steel": "steel",
     "metals": "metals",
@@ -194,10 +198,21 @@ _SECTOR_ALIASES: dict[str, SectorName] = {
     "mining": "metals",
     "banking": "banking",
     "banks": "banking",
+    "bank": "banking",
+    # Singular/“sector” phrasings resolve too — "private bank" silently fell
+    # through to the broad cross-sector pool while "private banks" worked
+    # (2026-07-17 eval, B12: a private-bank ask built BRITANNIA/HINDZINC/TCS).
+    "private bank": "private_bank",
     "private banks": "private_bank",
     "private banking": "private_bank",
+    "private sector bank": "private_bank",
+    "private sector banks": "private_bank",
+    "private sector banking": "private_bank",
+    "psu bank": "psu_bank",
     "psu banks": "psu_bank",
     "psu banking": "psu_bank",
+    "public sector bank": "psu_bank",
+    "public sector banks": "psu_bank",
     "financial": "financial_services",
     "financial services": "financial_services",
     "finance": "financial_services",
@@ -238,11 +253,32 @@ def normalize_sector(raw: str) -> Optional[SectorName]:
     """Map a free-form user sector phrase to a canonical SectorName.
     Returns None if the phrase isn't recognised — caller can either
     ask the user or fall back to no filter.
+
+    A CANONICAL name always maps to itself. This used to consult the alias
+    dict only, so the six underscored names (private_bank, psu_bank,
+    financial_services, consumer_durables, media, chemicals) returned None —
+    and since `query_screener` treats None as "no sector filter", asking it for
+    sector="private_bank" silently returned the WHOLE universe by market cap
+    rather than nothing. That is how a private-bank basket came back holding
+    HINDZINC and TCS (2026-07-17 eval, B12). Underscores/spaces/hyphens are
+    interchangeable so "private bank" and "private_bank" behave the same.
     """
     if not raw:
         return None
     key = raw.strip().lower()
-    return _SECTOR_ALIASES.get(key)
+    if key in _CANONICAL_SECTORS:
+        return key  # type: ignore[return-value]
+    hit = _SECTOR_ALIASES.get(key)
+    if hit is not None:
+        return hit
+    # "private bank" ⇄ "private_bank" ⇄ "private-bank"
+    flat = key.replace("-", " ").replace("_", " ").strip()
+    if flat in _SECTOR_ALIASES:
+        return _SECTOR_ALIASES[flat]
+    under = flat.replace(" ", "_")
+    if under in _CANONICAL_SECTORS:
+        return under  # type: ignore[return-value]
+    return None
 
 
 # ── Theme → sector(s) mapping ──────────────────────────────────────

@@ -192,6 +192,37 @@ class ViewSlot(BaseModel):
     conviction: Conviction = "medium"
 
 
+# Fundamental fields the builder can actually FILTER on (the ratios the gate
+# pipeline already fetches per candidate). Anything the user asks for outside
+# this set is echoed back on the card as `constraints_not_applied` rather than
+# silently ignored — the 2026-07-17 eval's B11 failure (a "dividend yield > 3%"
+# ask shipped a card violating it, with no disclosure).
+FilterField = Literal[
+    "roe", "roce", "de", "pe", "earnings_yield", "payout", "market_cap_cr",
+]
+
+FilterOp = Literal[">", ">=", "<", "<=",]
+
+McapBand = Literal["large", "mid", "small"]
+"""Market-cap band for the discovery universe. Bounds (₹ cr) are the same ones
+the screener uses: large ≥ 20,000 · mid 5,000-20,000 · small < 5,000."""
+
+
+class MetricFilter(BaseModel):
+    """One user-stated hard constraint on a fundamental ("ROE above 15").
+
+    HARD, not advisory: a name failing it is dropped from the basket and listed
+    in :attr:`StrategyBuilderCard.rejected` with the reason. Names the DB is
+    silent on are dropped too (we cannot assert they pass) and the card says so
+    — never a silent pass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: FilterField
+    op: FilterOp
+    value: float
+
+
 class AssetPrefs(BaseModel):
     """Which asset classes the user will / won't hold, plus exclusions.
 
@@ -269,6 +300,32 @@ class SlotState(BaseModel):
     the caller/flow already chose the names. ``None`` ⇒ the builder discovers the
     universe from theme/sector as before. Travels in-band with the rest of the
     slot-state so a clarify round-trip preserves the pin."""
+
+    filters: list[MetricFilter] = Field(default_factory=list)
+    """User-stated HARD fundamental constraints ("ROE above 15, D/E under 1").
+    Applied on top of the selection gate — the gate ranks, these exclude. Any
+    constraint the builder cannot express lands in
+    :attr:`StrategyBuilderCard.constraints_not_applied`."""
+
+    max_names: Optional[int] = None
+    """How many constituents the user asked for ("exactly 4 private banks").
+    Overrides the risk-keyed target band. ``None`` ⇒ the band decides."""
+
+    mcap_band: Optional[McapBand] = None
+    """Restrict discovery to a market-cap band ("midcap manufacturing basket").
+    ``None`` ⇒ no band filter. Ignored on a pinned (``symbols``) build — the
+    caller already chose the names."""
+
+    weight_by: Optional[FilterField] = None
+    """Weight constituents in PROPORTION to this metric ("4 private banks
+    weighted by ROE"). Overrides the internal scheme choice with a conviction
+    split whose reason names the metric. Names missing the metric fall back to
+    the mean so they are never silently zero-weighted."""
+
+    gold_pct: Optional[float] = None
+    """Explicit gold-sleeve share of the OVERALL portfolio ("70% equity, 30%
+    gold"). ``None`` ⇒ the builder's own gold heuristic decides. Set this for
+    any user-stated split — the heuristic cannot infer a precise percentage."""
 
     assumed: SlotAssumptions = Field(default_factory=SlotAssumptions)
     """Which slots are running on defaults (vs. explicitly set)."""
@@ -370,6 +427,12 @@ class StrategyConstituent(BaseModel):
     name: str
     sector: str
     weight_pct: float
+    allocation_inr: Optional[float] = None
+    """This leg's ₹ slice of the stated capital (weight × equity sleeve share).
+    ``None`` when no capital was stated. Present so the reply can quote the
+    rupee split verbatim instead of spending a `compute` hop multiplying
+    weights by capital (2026-07-17 eval: B04/B06 each burned a ~7s hop on it)."""
+
     gate_metrics: dict[str, float] = Field(default_factory=dict)
     # WHY this name carries THIS weight — the causal/thematic hook or the
     # quality-gate rationale (e.g. "Direct beneficiary — solar/agri pumps" or
@@ -377,6 +440,16 @@ class StrategyConstituent(BaseModel):
     # so the card shows differentiated, reasoned weights rather than a bare
     # equal split. Empty only when genuinely no rationale is available.
     weight_reason: str = ""
+
+
+class RejectedName(BaseModel):
+    """A candidate the filters/gate excluded, and why — so the reply can say
+    "SHAKTIPUMP is out: ROE 11.2 vs your >15" instead of silently omitting it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    reason: str
 
 
 class GoldInstrument(BaseModel):
@@ -469,6 +542,16 @@ class StrategyBuilderCard(BaseModel):
     one-line ``detail`` beneath each — NOT as additional constituents. They are
     suggestions only; nothing here is selected or registered until the user
     re-asks for one of them."""
+
+    constraints_not_applied: list[str] = Field(default_factory=list)
+    """Every user constraint the builder could NOT honour, in plain words
+    ("dividend yield > 3% — not a field this builder screens on"). The reply
+    MUST disclose these; shipping a card that quietly violates a stated
+    constraint is the 2026-07-17 eval's B11/B09/B16 failure class."""
+
+    rejected: list[RejectedName] = Field(default_factory=list)
+    """Names the filters/gate excluded, with the reason. Lets the reply say
+    WHY a name the user might expect is absent, without a second screen call."""
 
     capital_inr: Optional[float] = None
     """The investable capital the basket was sized against (₹), echoed from

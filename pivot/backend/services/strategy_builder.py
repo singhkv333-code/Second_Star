@@ -72,6 +72,8 @@ from backend.services.strategy_contracts import (
     DEFAULT_SECTOR_CAP_PCT,
     MIN_HISTORY_BARS_FOR_COV,
     GoldInstrument,
+    MetricFilter,
+    RejectedName,
     SelectionGate,
     Sleeve,
     SlotState,
@@ -247,6 +249,10 @@ def build_strategy(
         assumptions.append(gate_note)
 
     _lo, hi = _TARGET_NAMES.get(slots.risk, _TARGET_NAMES["balanced"])
+    # A stated count ("exactly 4 private banks") is an instruction, not a
+    # preference the risk-band gets to override.
+    if slots.max_names:
+        hi = max(1, int(slots.max_names))
 
     # A deliberate single-sector basket reports a 100% sector cap (the cap is
     # there to stop ACCIDENTAL collapse, not to forbid an explicit focused
@@ -327,6 +333,28 @@ def build_strategy(
         _deduped.append(c)
     shortlist = _deduped
 
+    # ── Step 1b2: the USER's own hard constraints. The gate above ranks on our
+    # quality opinion; these EXCLUDE on what the user actually asked for, and a
+    # name that fails is reported (never silently absent). Runs before the cap
+    # so the cap fills the basket from names that already clear the ask. ──
+    rejected: list[RejectedName] = []
+    shortlist, _rej = _apply_user_filters(shortlist, slots.filters)
+    rejected.extend(_rej)
+    shortlist, _rej = _apply_mcap_band(shortlist, slots.mcap_band)
+    rejected.extend(_rej)
+    if not shortlist:
+        _asked = "; ".join(
+            f"{_FILTER_LABELS.get(f.field, f.field)} {f.op} {f.value:g}"
+            for f in slots.filters
+        ) or (f"{slots.mcap_band}-cap universe" if slots.mcap_band else "")
+        assumptions.append(
+            f"no name in the resolved universe clears your constraints ({_asked}) — "
+            "nothing was substituted; relax a threshold or widen the sector"
+        )
+        card = _empty_card(request, slots, gate, sector_cap, assumptions)
+        card.rejected = rejected[:12]
+        return card
+
     # ── Step 1c: enforce the sector cap on the AUTHORITATIVE (full-data) ranking,
     # selecting the final ~hi names — provably cap-compliant at its own size. ──
     candidates, cap_note = _enforce_sector_cap(
@@ -344,9 +372,26 @@ def build_strategy(
         assumptions.append(scheme_note)
 
     factor_emphasis = _detect_factor_style(slots, request)
-    weights, weight_note = _compute_weights(
-        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    # A user-named weighting metric ("weighted by ROE") wins over the internal
+    # scheme choice — it is an explicit instruction, not a preference we get to
+    # optimise away.
+    _by_weights, _by_note = (
+        _metric_proportional_weights(candidates, slots.weight_by)
+        if slots.weight_by else ({}, "")
     )
+    if _by_weights:
+        weights, weight_note, scheme = _by_weights, "", "conviction"
+        assumptions.append(_by_note)
+    else:
+        if slots.weight_by:
+            assumptions.append(
+                f"no usable {_FILTER_LABELS.get(slots.weight_by, slots.weight_by)} "
+                "data for these names — could not weight by it; used the "
+                f"{scheme.replace('_', ' ')} split instead"
+            )
+        weights, weight_note = _compute_weights(
+            scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+        )
     if weight_note:
         # Covariance too thin etc. → honest equal-weight fallback + restate.
         scheme = "equal"
@@ -414,9 +459,35 @@ def build_strategy(
         sleeves=sleeves,
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
+        constraints_not_applied=_unapplied_constraints(slots, pinned=False),
+        rejected=rejected[:12],
         capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
+
+
+def _unapplied_constraints(slots: SlotState, *, pinned: bool) -> list[str]:
+    """Every user constraint this build could NOT honour, in plain words.
+
+    The reply must disclose these — a card that quietly violates a stated
+    constraint is worse than an honest boundary (2026-07-17 eval B11/B09/B16).
+    Only reports what is genuinely dropped: expressible constraints are applied
+    upstream and never appear here."""
+    out: list[str] = []
+    if pinned:
+        # A pinned build honours the caller's names verbatim; universe-shaping
+        # constraints have nothing to shape.
+        if slots.mcap_band:
+            out.append(
+                f"{slots.mcap_band}-cap universe — not applied: you pinned the "
+                "names, so the band didn't filter anything"
+            )
+        if slots.filters:
+            out.append(
+                "your fundamental filters weren't used as a screen — the pinned "
+                "names were built as given (their ratios are shown per leg)"
+            )
+    return out
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -481,6 +552,115 @@ def _curated_row_map() -> dict[str, dict]:
         for r in query_screener(sector=sec, limit=_SCREEN_LIMIT):
             m[str(r["symbol"]).upper()] = r
     return m
+
+
+# ── User-stated hard constraints (filters / mcap band) ──────────────────────
+# The selection gate RANKS; these EXCLUDE. Kept separate so a user constraint
+# is never silently replaced by the builder's own quality opinion (the
+# 2026-07-17 eval's B11/B16 failure class).
+
+_MCAP_BANDS: dict[str, tuple[float, float]] = {
+    "large": (20000.0, float("inf")),
+    "mid": (5000.0, 20000.0),
+    "small": (0.0, 5000.0),
+}
+
+_FILTER_LABELS: dict[str, str] = {
+    "roe": "ROE", "roce": "ROCE", "de": "D/E", "pe": "P/E",
+    "earnings_yield": "earnings yield", "payout": "payout ratio",
+    "market_cap_cr": "market cap (₹ cr)",
+}
+
+
+def _candidate_metric(c: _Candidate, field: str) -> Optional[float]:
+    return {
+        "roe": c.roe, "roce": c.roce, "de": c.de, "pe": c.pe,
+        "earnings_yield": c.earnings_yield, "payout": c.payout,
+        "market_cap_cr": c.mcap_cr,
+    }.get(field)
+
+
+def _passes(value: float, op: str, target: float) -> bool:
+    return {
+        ">": value > target, ">=": value >= target,
+        "<": value < target, "<=": value <= target,
+    }[op]
+
+
+def _apply_user_filters(
+    candidates: list[_Candidate], filters: list[MetricFilter],
+) -> tuple[list[_Candidate], list[RejectedName]]:
+    """Drop every candidate failing a user-stated filter. A name the DB is
+    silent on is ALSO dropped — we cannot assert it passes, and quietly keeping
+    it is how a "ROE > 15" basket shipped ROE-unknown names. Returns
+    (survivors, rejected-with-reason)."""
+    if not filters:
+        return candidates, []
+    kept: list[_Candidate] = []
+    rejected: list[RejectedName] = []
+    for c in candidates:
+        fail: Optional[str] = None
+        for f in filters:
+            label = _FILTER_LABELS.get(f.field, f.field)
+            v = _candidate_metric(c, f.field)
+            if v is None:
+                fail = f"no {label} data — can't confirm it clears {label} {f.op} {f.value:g}"
+                break
+            if not _passes(float(v), f.op, float(f.value)):
+                fail = f"{label} {float(v):.2f} vs your {label} {f.op} {f.value:g}"
+                break
+        (kept if fail is None else rejected).append(
+            c if fail is None else RejectedName(symbol=c.symbol, reason=fail)
+        )
+    return kept, rejected
+
+
+def _apply_mcap_band(
+    candidates: list[_Candidate], band: Optional[str],
+) -> tuple[list[_Candidate], list[RejectedName]]:
+    """Restrict to a market-cap band. Unknown-mcap names are KEPT (unlike a
+    metric filter): the band is a universe preference, not an assertion about
+    the name, and dropping every DB-silent name would empty a smallcap ask."""
+    if not band or band not in _MCAP_BANDS:
+        return candidates, []
+    lo, hi = _MCAP_BANDS[band]
+    kept: list[_Candidate] = []
+    rejected: list[RejectedName] = []
+    for c in candidates:
+        m = c.mcap_cr
+        if m is None or lo <= float(m) < hi:
+            kept.append(c)
+        else:
+            rejected.append(RejectedName(
+                symbol=c.symbol,
+                reason=f"₹{float(m):,.0f} cr market cap — outside the {band}-cap band",
+            ))
+    return kept, rejected
+
+
+def _metric_proportional_weights(
+    candidates: list[_Candidate], field: str,
+) -> tuple[dict[str, float], str]:
+    """Weights ∝ a named metric ("weighted by ROE"). Non-positive/missing values
+    take the positive mean so a name is never silently zero-weighted; for
+    lower-is-better metrics (D/E, P/E) proportionality is inverted."""
+    label = _FILTER_LABELS.get(field, field)
+    vals = {c.symbol: _candidate_metric(c, field) for c in candidates}
+    positive = [float(v) for v in vals.values() if v is not None and float(v) > 0]
+    if not positive:
+        return {}, ""
+    mean = sum(positive) / len(positive)
+    invert = field in ("de", "pe")
+    raw: dict[str, float] = {}
+    for sym, v in vals.items():
+        x = float(v) if v is not None and float(v) > 0 else mean
+        raw[sym] = (1.0 / x) if invert else x
+    total = sum(raw.values()) or 1.0
+    note = (
+        f"weighted in proportion to {label}"
+        + (" (inverted — lower is better)" if invert else "")
+    )
+    return {s: v / total for s, v in raw.items()}, note
 
 
 def _pinned_gate_metrics(candidates: list[_Candidate], gate: SelectionGate) -> None:
@@ -659,6 +839,7 @@ def _build_pinned_strategy(
         sleeves=sleeves,
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
+        constraints_not_applied=_unapplied_constraints(slots, pinned=True),
         capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
@@ -1517,12 +1698,26 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
     """
     notes: list[str] = []
     if "gold" not in slots.asset_prefs.allow:
+        if slots.gold_pct:
+            notes.append(
+                f"you asked for a {slots.gold_pct:g}% gold sleeve but gold is "
+                "excluded by the asset preferences on this build — no gold added"
+            )
         return [], 0.0, notes
 
     r = request.lower()
     hedge_cue = any(
         k in r for k in ("inflation", "hedge", "rupee", "safe haven", "ballast", "uncertain", "diversif")
     )
+    # An explicitly STATED split ("70% equity / 30% gold") is an instruction:
+    # it bypasses the earns-its-place heuristic AND the 5-15% band, which
+    # otherwise silently capped a 30% ask at 15% (2026-07-17 eval, B09).
+    if slots.gold_pct is not None:
+        _explicit = max(0.0, min(100.0, float(slots.gold_pct)))
+        if _explicit <= 0:
+            notes.append("gold sleeve set to 0% as asked")
+            return [], 0.0, notes
+        return _gold_sleeve_at(_explicit, notes, stated=True)
     # An explicit "yes, gold" clarify answer is a direct instruction, not a
     # second vote alongside the risk/horizon/hedge heuristic — it must win
     # outright rather than still needing to "earn its place" (2026-07-14).
@@ -1541,9 +1736,16 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
         [slots.risk == "conservative", slots.horizon == "long", hedge_cue]
     )
     gold_pct = max(_GOLD_PCT_MIN, min(_GOLD_PCT_MAX, _GOLD_PCT_BASE + (signals - 1) * 3.0))
+    return _gold_sleeve_at(gold_pct, notes, stated=False)
 
-    # Split the sleeve: SGB long-core (the larger, illiquid-but-tax-efficient
-    # leg) + GOLDBEES ETF (the liquid leg). Weights are % of OVERALL portfolio.
+
+def _gold_sleeve_at(
+    gold_pct: float, notes: list[str], *, stated: bool,
+) -> tuple[list[Sleeve], float, list[str]]:
+    """Build the SGB + GOLDBEES sleeve at a given % of the OVERALL portfolio.
+    ``stated=True`` means the user named the split — the note says so, and no
+    band clamp applies."""
+    # SGB long-core (illiquid but tax-efficient) + GOLDBEES ETF (liquid leg).
     sgb_pct = round(gold_pct * 0.6, 2)
     etf_pct = round(gold_pct - sgb_pct, 2)
     instruments = [
@@ -1560,7 +1762,10 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
             weight_pct=etf_pct,
         ),
     ]
-    note = "inflation / rupee hedge + low-correlation ballast"
+    note = (
+        "the split you asked for" if stated
+        else "inflation / rupee hedge + low-correlation ballast"
+    )
     sleeve = Sleeve(kind="gold", pct=round(gold_pct, 2), instruments=instruments, note=note)
     notes.append(
         f"gold sleeve {gold_pct:.0f}% (SGB {sgb_pct:.0f}% + GOLDBEES {etf_pct:.0f}%) — {note}"
@@ -1747,6 +1952,12 @@ def _size_constituents(
     rank_of = {c.symbol: i for i, c in enumerate(ranking)}
 
     total_w = sum(weights.get(c.symbol, 0.0) for c in candidates) or 1.0
+    # Per-leg rupees, computed HERE so the reply can quote the split instead of
+    # burning a `compute` hop on weight × capital (2026-07-17 eval: B04/B06).
+    _equity_capital = (
+        slots.capital_inr * (equity_share / 100.0)
+        if slots.capital_inr is not None else None
+    )
     constituents: list[StrategyConstituent] = []
     for c in candidates:
         w = weights.get(c.symbol, 0.0) / total_w
@@ -1764,6 +1975,11 @@ def _size_constituents(
             )
         )
     _normalise_to_100(constituents)
+    # Rupees AFTER normalisation so the split always reconciles to the weights
+    # actually shown on the card (and thus to the stated capital).
+    if _equity_capital is not None:
+        for _c in constituents:
+            _c.allocation_inr = round(_equity_capital * (_c.weight_pct / 100.0), 2)
 
     if equity_share < 100.0:
         notes.append(

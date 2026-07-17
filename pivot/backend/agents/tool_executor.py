@@ -1474,12 +1474,59 @@ def _slot_state_from_args(a: dict):
     """
     from backend.services.strategy_contracts import (
         AssetPrefs,
+        MetricFilter,
         SlotState,
         ViewSlot,
     )
 
     slots = SlotState()
     cleared: list[str] = []
+
+    # User-stated hard constraints. Each is parsed independently and a
+    # malformed one is skipped rather than failing the build — but a VALID one
+    # is never dropped: these are the user's own words, not our preferences.
+    filters_in = a.get("filters")
+    if isinstance(filters_in, (list, tuple)):
+        for f in filters_in:
+            if not isinstance(f, dict):
+                continue
+            try:
+                slots.filters.append(MetricFilter(
+                    field=str(f.get("field") or "").strip().lower(),
+                    op=str(f.get("op") or "").strip(),
+                    value=float(f.get("value")),
+                ))
+            except Exception:
+                continue
+
+    mn_in = a.get("max_names")
+    if mn_in is not None:
+        try:
+            slots.max_names = max(1, min(20, int(mn_in)))
+        except (TypeError, ValueError):
+            slots.max_names = None
+
+    band_in = a.get("mcap_band")
+    if isinstance(band_in, str) and band_in.strip().lower() in ("large", "mid", "small"):
+        slots.mcap_band = band_in.strip().lower()  # type: ignore[assignment]
+
+    wb_in = a.get("weight_by")
+    if isinstance(wb_in, str) and wb_in.strip():
+        try:
+            slots.weight_by = wb_in.strip().lower()  # type: ignore[assignment]
+            SlotState.model_validate(slots.model_dump())  # enum check
+        except Exception:
+            slots.weight_by = None
+
+    gp_in = a.get("gold_pct")
+    if gp_in is not None:
+        try:
+            slots.gold_pct = float(gp_in)
+            # A stated split is an explicit gold ask — the sleeve heuristic
+            # must not get a second vote on whether gold "earns its place".
+            slots.asset_prefs.gold_requested = True
+        except (TypeError, ValueError):
+            slots.gold_pct = None
 
     view_in = a.get("view")
     if isinstance(view_in, dict) and view_in:
