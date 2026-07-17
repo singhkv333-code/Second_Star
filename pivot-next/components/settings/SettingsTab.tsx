@@ -166,11 +166,18 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="gap-0 p-0 sm:max-w-[940px] sm:rounded-2xl"
+        // max-sm:h-[100dvh] pins the mobile full-screen sheet to the *visible*
+        // viewport height — plain inset-0 can run behind the phone browser's
+        // bottom toolbar and clip the last rows of content.
+        className="gap-0 p-0 max-sm:h-[100dvh] sm:max-w-[940px] sm:rounded-2xl"
         style={{ background: "var(--bg-base)", overflow: "hidden" }}
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
-        <div className="flex h-full flex-col sm:h-[78vh] sm:max-h-[660px] sm:flex-row">
+        {/* w-full min-w-0: the dialog is a CSS grid, whose item defaults to
+            min-width:auto — without this the horizontal section-nav's
+            intrinsic width blows the column out past the viewport on mobile,
+            pushing the (mx-auto, 560px) content block off to the right. */}
+        <div className="flex h-full w-full min-w-0 flex-col sm:h-[78vh] sm:max-h-[660px] sm:flex-row">
           {/* Left rail — search + section nav. */}
           <SettingsRail
             active={section}
@@ -230,9 +237,11 @@ function SettingsRail({
         borderBottom: HAIRLINE,
       }}
     >
-      {/* Search */}
+      {/* Search — on mobile the dialog's close (X) button floats over the
+          top-right corner of this rail, so leave room for it (44px) at <sm;
+          the sidebar rail on sm+ has the X clear of it, so no margin there. */}
       <div
-        className="flex items-center gap-2"
+        className="mr-11 flex items-center gap-2 sm:mr-0"
         style={{
           height: 34,
           padding: "0 10px",
@@ -277,7 +286,7 @@ function SettingsRail({
       {/* Nav */}
       <nav
         aria-label="Settings sections"
-        className="flex gap-1 overflow-x-auto sm:flex-col sm:gap-0.5 sm:overflow-visible"
+        className="quartr-no-scrollbar flex gap-1 overflow-x-auto sm:flex-col sm:gap-0.5 sm:overflow-visible"
       >
         {items.map(({ key, label, Icon }) => {
           const isActive = key === active;
@@ -902,7 +911,11 @@ function BrokersSection({ onOpenBroker }: { onOpenBroker: () => void }): React.R
           style={{
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--primary-foreground, #fff)",
+            // --bg-base is the correct inverse of the --text-primary background
+            // (white↔black across themes). --primary-foreground is a bare HSL
+            // triplet meant for hsl(), so using it raw yields an invalid color
+            // and the label falls back to near-black — invisible on the button.
+            color: "var(--bg-base)",
             background: "var(--text-primary)",
             border: "none",
             borderRadius: "var(--radius-sm)",
