@@ -394,6 +394,16 @@ def resolve_theme(raw: str) -> Optional[ThemeMapping]:
 
 # ── Query ──────────────────────────────────────────────────────────
 
+# Umbrella sector -> the concrete sectors that actually carry members.
+# A sector named in `SectorName` but absent from `_UNIVERSE` matches nothing
+# on a literal filter, so any user-facing bucket that is really a family of
+# finer buckets must be listed here or it silently returns an empty universe.
+_SECTOR_PROMOTIONS: dict[str, tuple[str, ...]] = {
+    "metals": ("metals", "steel"),
+    "banking": ("private_bank", "psu_bank"),
+    "financial_services": ("private_bank", "psu_bank"),
+}
+
 
 def query_screener(
     *,
@@ -414,14 +424,21 @@ def query_screener(
     Note: when sector="metals" the steel subset is included by promotion
     (steel IS a kind of metal in the user's mental model). The reverse
     isn't true — sector="steel" returns ONLY steel, not all metals.
+    The same holds for "banking", which spans private + PSU banks.
     """
     normalized = normalize_sector(sector) if sector else None
     rows: list[_SectorEntry] = list(_UNIVERSE)
 
     if normalized is not None:
-        if normalized == "metals":
-            # Promote steel into the metals bucket for "metals" queries.
-            rows = [r for r in rows if r.sector in ("metals", "steel")]
+        # Umbrella sectors hold no members of their own — every bank in the
+        # universe is tagged private_bank or psu_bank, so a "banking" query
+        # matched literally returned ZERO rows and the caller fell through to
+        # a broad cross-sector pool: a "banking basket" that wasn't banks
+        # (found 2026-07-17 — it was silent because the fallback disclosed
+        # itself in `assumptions`, which reads as honest while being wrong).
+        parents = _SECTOR_PROMOTIONS.get(normalized)
+        if parents:
+            rows = [r for r in rows if r.sector in parents]
         else:
             rows = [r for r in rows if r.sector == normalized]
 
@@ -458,6 +475,142 @@ def symbol_sector_map() -> dict[str, str]:
     network-free sector lookup (used by the portfolio engine's sector caps).
     Symbols not present here resolve to ``None`` at the call site."""
     return {r.symbol: r.sector for r in _UNIVERSE}
+
+
+# ── The REAL listed universe (symbol existence + name + mcap) ──────
+#
+# `_UNIVERSE` above is 80 hand-curated names across 12 sectors — a
+# ranking convenience, NOT the market. Treating it as the universe is
+# what let a caller pin "BERGERPAINT"/"HPCL" (neither is a live NSE
+# symbol; the real ones are BERGEPAINT and HINDPETRO) and have them
+# ship as basket legs with a real ₹ slice: absent from an 80-name list
+# is not evidence of anything.
+#
+# `mc.companies.nse_symbol` IS authoritative — ~4,600 verified NSE
+# symbols — so existence questions resolve against it and nothing else.
+# Sector is the awkward part: pivot_enrich carries only yfinance's
+# coarse 11-bucket taxonomy ("Financial Services" can't distinguish a
+# private bank from a PSU bank), so canonical sector still comes from
+# the curated map when it has an opinion, with the coarse label as a
+# clearly-marked fallback. Callers that need a canonical sector must
+# check `sector_is_canonical` rather than assume.
+
+_NSE_UNIVERSE_TTL_SECONDS = 3600.0
+_nse_universe_cache: Optional[dict[str, dict]] = None
+_nse_universe_cached_at: float = 0.0
+
+
+def _load_nse_universe() -> dict[str, dict]:
+    """Build ``{SYMBOL: row}`` by merging the two source DBs. Raises on a
+    DB failure — the caller decides how to degrade."""
+    from sqlalchemy import text as _text
+
+    from backend.database import EnrichSessionLocal, FinancialsSessionLocal
+
+    fin = FinancialsSessionLocal()
+    try:
+        sym_rows = fin.execute(
+            _text(
+                "SELECT sc_id, upper(nse_symbol) AS sym, company_name "
+                "FROM mc.companies "
+                "WHERE nse_symbol IS NOT NULL AND nse_symbol <> ''"
+            )
+        ).fetchall()
+    finally:
+        fin.close()
+
+    enrich: dict[str, dict] = {}
+    if EnrichSessionLocal is not None:
+        edb = EnrichSessionLocal()
+        try:
+            for r in edb.execute(
+                _text(
+                    "SELECT sc_id, long_name, sector, market_cap "
+                    "FROM enrich.v_company_enriched"
+                )
+            ).fetchall():
+                m = r._mapping
+                enrich[m["sc_id"]] = {
+                    "name": m["long_name"],
+                    "sector": (m["sector"] or "").strip(),
+                    # enrich stores market cap ABSOLUTE; the builder thinks in ₹ cr.
+                    "mcap_cr": (float(m["market_cap"]) / 1e7
+                                if m["market_cap"] else None),
+                }
+        except Exception:  # noqa: BLE001 — enrichment is optional, existence isn't
+            enrich = {}
+        finally:
+            edb.close()
+
+    curated_sector = symbol_sector_map()
+    out: dict[str, dict] = {}
+    for row in sym_rows:
+        m = row._mapping
+        sym = m["sym"]
+        if not sym:
+            continue
+        e = enrich.get(m["sc_id"]) or {}
+        canon = curated_sector.get(sym)
+        out[sym] = {
+            "symbol": sym,
+            "name": e.get("name") or m["company_name"] or sym,
+            "sector": canon or (e.get("sector") or "unknown"),
+            "sector_is_canonical": canon is not None,
+            "mcap_cr": e.get("mcap_cr"),
+        }
+    return out
+
+
+def nse_universe_map(*, refresh: bool = False) -> dict[str, dict]:
+    """``{SYMBOL: {symbol, name, sector, sector_is_canonical, mcap_cr}}`` for
+    every NSE symbol we can VERIFY is listed (~4,600).
+
+    Membership is the point: a symbol absent from this map is one we cannot
+    confirm trades, and money must not be allocated to it. Presence with
+    ``mcap_cr=None`` or ``sector="unknown"`` is an honest data gap on a real
+    name — a different thing entirely, and not a reason to drop it.
+
+    Process-cached for an hour. On a DB failure this degrades to the curated
+    80-name universe, which means EXISTENCE ANSWERS GET WEAKER, not wrong-
+    but-confident: callers should treat a miss as "unverified", never as
+    "does not exist".
+    """
+    global _nse_universe_cache, _nse_universe_cached_at
+    import time as _time
+
+    now = _time.monotonic()
+    if (
+        not refresh
+        and _nse_universe_cache is not None
+        and now - _nse_universe_cached_at < _NSE_UNIVERSE_TTL_SECONDS
+    ):
+        return _nse_universe_cache
+
+    try:
+        loaded = _load_nse_universe()
+    except Exception:  # noqa: BLE001
+        loaded = {}
+    if not loaded:
+        # Degrade to the curated list rather than claiming an empty market.
+        loaded = {
+            r.symbol: {
+                "symbol": r.symbol,
+                "name": r.name or r.symbol,
+                "sector": r.sector,
+                "sector_is_canonical": True,
+                "mcap_cr": r.mcap_cr,
+            }
+            for r in _UNIVERSE
+        }
+    _nse_universe_cache = loaded
+    _nse_universe_cached_at = now
+    return loaded
+
+
+def is_listed_symbol(symbol: str) -> bool:
+    """True when ``symbol`` is a verified listed NSE symbol. False means
+    UNVERIFIED (usually invented/mis-spelled/delisted), not proven absent."""
+    return str(symbol or "").replace(".NS", "").strip().upper() in nse_universe_map()
 
 
 # ── Macro beneficiary tagging (crude up/down, INR weak, etc.) ──────

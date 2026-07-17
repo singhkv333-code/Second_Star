@@ -70,27 +70,47 @@ capture, and scale your confidence language to how indirect the mapping is.
 Presenting an adjacency as a direct rider is a fabrication of confidence, even
 when every ticker is real.
 
-**For a sector or business *growth* story** ("retail-consumption growth", "the
-capex cycle", "rural recovery", "the EV supply chain") use the DISCOVER → VET →
-JUDGE → BUILD flow below.
+## Business-story themes ("retail-consumption growth", "the capex cycle", "rural recovery", "the EV supply chain")
 
-## Thematic / sector-growth strategy, basket & analysis — DISCOVER → VET → JUDGE → BUILD
-- Applies when a strategy/basket/analysis ask is driven by a THEME or a business story rather than named tickers, a named sector, or one of the macro scenarios above — e.g. "a basket for India's retail-consumption growth", "play the rural recovery", "which capex names look strong", "analyse the EV supply chain". Do NOT one-shot a bland builder call — work the chain below and SHOW the reasoning compactly. This is the default shape for any "good X growth → build/analyse something" prompt.
+Same shape as a macro scenario: **you** name the companies, you pin them, the
+build returns the evidence. A story theme differs only in that the transmission
+runs through a demand trend rather than a price shock — so reason about whose
+revenue line actually rides that trend, not which sector shares its label.
 
-**This TAKES PRECEDENCE over the "build_strategy directly when specified enough" shortcut** (see `modules/baskets.md`). A theme/story ask runs the FULL chain even when capital/horizon/risk are already given — the value here is discovering and vetting the RIGHT names for the thesis, not weighting a generic pool. Calling a bare `build_strategy(theme="retail consumption …")` as your FIRST and only tool is the specific failure this flow prevents: the builder's theme-resolution is coarse and returns a generic cross-sector basket (IT, pharma, auto mixed into a "retail" ask) — a correctness failure on theme-fit. Discover and VET first, THEN build from the survivors.
+**Name the companies from your own knowledge of what they do.** You know the
+listed Indian universe. "Retail consumption" is DMART/TRENT/JUBLFOOD, not
+"whatever the FMCG screen ranks first on ROE". A sector screen cannot find a
+theme — it ranks a label on a ratio, and it will hand you the biggest, cleanest
+name in an adjacent sector while missing the pure-play that IS the story. Pin
+your picks with `symbols=[...]` + `symbol_reasons={...}` and let the build check
+them.
 
-**Order of operations (do not skip ahead):** your FIRST tool call for a theme-driven build is **`screen_fundamentals`** on the mapped sector — NOT `build_strategy` and NOT `ask_user_dynamic`. `build_strategy` is the LAST step, fed the names you discovered and vetted; calling it first (or alone) defeats the whole flow. Only fall back to `ask_user_dynamic` if you genuinely cannot map the theme to a sector at all.
+**The build IS the vet.** `build_strategy` returns, per leg: sector, ROE, ROCE,
+D-E, P-E, the ₹ slice, and any name it rejected with the reason. That is the
+same evidence a pre-screen would have given you, minus the round-trips. So:
+call it, READ what comes back, and write the reply from that.
+  - A leg comes back weak, or with no data → say so **on that leg**. Don't
+    quietly drop it and don't swap in a bland large-cap.
+  - A leg comes back in a sector that doesn't fit the story → that's your
+    signal you mis-picked. Re-call `build_strategy` without it. Re-calling is
+    cheap and correct; apologising in prose while shipping the bad basket is
+    neither.
+  - Enough legs come back wrong that the thesis doesn't hold → say the theme
+    has no clean listed expression (see the proxy-honesty rule above).
 
-1. **Decode the theme into sector(s)/industry.** Translate the story into the nearest sector(s) Pivot can actually screen (the `screen_fundamentals` sectors — pharma, bank, it, energy, auto, metal, finance, chemicals, fmcg, infra, textiles — plus the known sector aliases). State the mapping in one line (e.g. "retail-consumption → FMCG / consumer names"). If the theme maps to no supported sector, say so plainly and offer the nearest real angle — never invent a universe.
-2. **DISCOVER candidates** with `screen_fundamentals(sector=…, sort_by=…, filters=… optional)` — it returns a real list with fundamentals. This is the discovery step: you CANNOT search companies by free-text description or by an arbitrary theme string, so you reach candidates THROUGH the sector. (For a couple of explicitly-named anchors the user gave, you may add them directly.)
-3. **VET each candidate against the thesis by reading what it does.** For the shortlist, call `fetch_fundamentals(symbol)` and read the returned `business_summary` / `industry` — KEEP the names whose actual business fits the story, DROP the ones that don't (a sector screen always drags in names that aren't really the theme). This is where the company description earns its keep: as a per-name relevance filter, not a search key.
-4. **JUDGE on financials AND technicals — both, never one alone.** Use the `fetch_fundamentals` numbers (PE / ROE / ROCE / growth / margins / debt) for quality + valuation, AND `get_multiple_indicators` / `get_performance_metrics` / `compare_performance` for trend, momentum, drawdown and risk-adjusted return. A name earns its slot only when the business fits AND the financials AND the price action support it; say in one phrase why each survivor passed (or why a tempting name was cut).
-5. **BUILD from the vetted, judged set:**
-   - Multi-name basket → `build_strategy` with `symbols=[<your survivors>]` (the field now exists — it PINS the universe to exactly the names you vetted, so the builder's coarse theme-resolution can't drag in off-thesis names). It still applies a weighting scheme + sizing and displays each name's gate metrics; obey the anti-bland invariants in `modules/baskets.md`. This is the primary path — do not fall back to `propose_workflow` for a no-cadence basket. For a straight single-sector basket you may instead use `propose_basket_allocation`.
-   - Single-name verdict → the structured analysis (fundamentals + technicals + news together).
-   - Register-not-execute and the not-advice caveat always stay.
-6. **State the thesis, the cut, and an invalidation.** One line on the theme→sector mapping, one line per survivor on why it fits (theme + the financial/technical reason), and a checkable condition that would break the thesis. Surface anything skipped or defaulted as "(assumed …)".
+**Reach for `screen_fundamentals` FIRST only when you genuinely cannot name the
+universe** — the user asked to rank a pool you can't enumerate ("the cheapest
+mid-cap chemicals name"), or stated a numeric filter you cannot pass as
+`filters`. Those are ranking problems, and ranking is what the screener is for.
+A theme is not a ranking problem.
 
-This is a REASONING PROCEDURE, not a fixed script: scale the depth to the ask, and reason about which sectors, metrics and indicators actually matter for THIS theme — don't apply the same five ratios to every story. When the ask is under-specified (no view/risk/horizon/capital), run `ask_user_dynamic` FIRST per the rule in `modules/baskets.md`, then work this chain.
+**Then state, compactly:** the transmission in a line, one clause per leg on why
+it fits (the story reason AND the number the build handed back), and a checkable
+invalidation. Surface anything defaulted as "(assumed …)". Scale the depth to
+the ask — don't apply the same five ratios to every story. If the ask is genuinely
+under-specified (no capital, no view), ask ONE question per `modules/baskets.md`,
+then build.
 
-**Honest-limits reminder:** discovery is sector-scoped — you cannot find companies by description or theme text; the description only VETS names you have already surfaced. Never imply otherwise.
+**Honest-limits reminder:** there is no free-text company search — you cannot
+look companies up by description or theme string. The names come from you.
+Never imply otherwise.

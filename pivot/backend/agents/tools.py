@@ -2198,7 +2198,16 @@ tool("build_strategy",
      "never recompute weight × capital yourself), and `weight_reason`. Plus "
      "card-level `rejected` (names excluded + why), `constraints_not_applied` "
      "(anything it could not honour — you MUST disclose these in your reply), "
-     "`assumptions`, `sleeves` and `alternatives`. Call it FIRST and quote it.",
+     "`assumptions`, `sleeves` and `alternatives`. Call it FIRST and quote it.\n\n"
+     "SYMBOLS ARE CHECKED, NOT TRUSTED. A pinned symbol that isn't in the NSE "
+     "universe is NOT allocated — it comes back in `rejected` as 'not found in "
+     "Pivot's NSE universe'. That means you named a ticker that doesn't trade "
+     "(a mis-remembered spelling, a delisted name, or an unlisted company). Do "
+     "NOT present the basket as if that leg exists and do NOT paper over it: "
+     "either RE-CALL with the correct ticker (you have the hops) or say plainly "
+     "that the name you wanted has no listed expression. A name that resolves "
+     "but has no fundamentals is different — that one is real, is kept, and "
+     "shows '(no data)'; report it as a data gap, not a bad ticker.",
      {
          "request": {
              "type": "string",
@@ -2322,34 +2331,39 @@ tool("build_strategy",
          "theme": {
              "type": "string",
              "description": (
-                 "Optional sector/tilt for DISCOVERY. Resolvable sector words: "
-                 "banking, private bank, psu bank, financial services, it, "
-                 "auto, pharma, fmcg, energy, metals, steel, cement, infra, "
-                 "realty, defence, telecom, consumer durables, media, "
-                 "chemicals (plus tilts like 'quality compounders', "
-                 "'momentum'). Anything else (a macro view, 'PLI "
-                 "electronics', 'demographic dividend') does NOT resolve — the "
-                 "engine falls back to a broad cross-sector pool and says so "
-                 "in `assumptions`, which means the basket is NOT the universe "
-                 "the user named. For those, reason out the names yourself and "
-                 "pin `symbols` + `symbol_reasons` instead."
+                 "Optional sector/tilt for DISCOVERY — used ONLY when you are "
+                 "not pinning `symbols`. Sectors with a real curated universe "
+                 "behind them: banking (spans private+psu), private bank, psu "
+                 "bank, it, auto, pharma, fmcg, energy, metals (includes "
+                 "steel), steel, cement, defence, telecom — plus tilts like "
+                 "'quality compounders' / 'momentum'. THAT IS THE WHOLE LIST. "
+                 "Anything else — chemicals, infra, realty, media, consumer "
+                 "durables, a macro view, 'PLI electronics', 'demographic "
+                 "dividend' — has NO universe behind it: the engine silently "
+                 "falls back to a broad cross-sector pool and notes it in "
+                 "`assumptions`, so the basket is NOT what the user asked for "
+                 "even though the card looks fine. For anything off that list, "
+                 "name the companies yourself and pin `symbols` + "
+                 "`symbol_reasons` — a pinned basket is checked against the "
+                 "full ~4,600-name NSE universe, a theme string is not."
              ),
          },
          "symbols": {
              "type": "array",
              "items": {"type": "string"},
-             "description": "Optional explicit NSE constituents ALREADY vetted "
-                            "(e.g. winners from the DISCOVER→VET→JUDGE thematic "
-                            "flow). When present, builder PINS the universe to "
-                            "exactly these names — runs NO discovery, never "
-                            "drops a name for missing data (silent DB name → "
-                            "'(no data)', not removed), and sector cap becomes "
-                            "advisory. Weighting scheme + sizing still computed. "
-                            "OMIT for an open build where the backend discovers "
-                            "the universe from theme/sector/view. For a THEMATIC "
-                            "ask, reason out WHO ACTUALLY BENEFITS and PIN them "
-                            "here — the builder has no thematic knowledge of its "
-                            "own.",
+             "description": "Explicit NSE constituents YOU chose. When present "
+                            "the builder PINS the universe to exactly these "
+                            "names — no discovery runs and the sector cap turns "
+                            "advisory. A name with no fundamentals is KEPT and "
+                            "shown as '(no data)'; a name that doesn't resolve "
+                            "to a listed NSE symbol is NOT allocated and comes "
+                            "back in `rejected`. Weighting + sizing still "
+                            "computed. This is the THEMATIC path: the builder "
+                            "has no thematic knowledge of its own, so reason out "
+                            "who actually benefits and pin them here rather than "
+                            "passing a `theme` string and hoping. OMIT only for "
+                            "an open build where the backend should discover the "
+                            "universe from sector/view.",
          },
          "rationale": {
              "type": "string",

@@ -63,6 +63,7 @@ from backend.services import weighting as _weighting
 from backend.services.sector_universe import (
     is_psu,
     normalize_sector,
+    nse_universe_map,
     query_screener,
     resolve_theme,
     symbol_sector_map,
@@ -199,12 +200,15 @@ def build_strategy(
     (a DB session if present) and otherwise opens its own read-only sessions
     via the reused helpers.
 
-    ``symbols`` (plan §3 B1) is an optional explicit **allow-list** of NSE
-    constituents the caller has already vetted (the DISCOVER→VET→JUDGE thematic
-    flow's winners). When present — or carried in ``slots.symbols`` — the builder
-    PINS the universe to exactly these names (no discovery, no dropping a name for
-    missing data) via :func:`_build_pinned_strategy`; the weighting scheme + sizing
-    are still computed and the sector cap becomes advisory.
+    ``symbols`` (plan §3 B1) is an explicit **allow-list** of NSE constituents
+    the caller chose — the thematic path, where the caller reasons out who
+    benefits and pins them. When present — or carried in ``slots.symbols`` — the
+    builder PINS the universe to exactly these names via
+    :func:`_build_pinned_strategy`: no discovery runs, the sector cap turns
+    advisory, and the weighting scheme + sizing are still computed. A pinned
+    name with no fundamentals is kept and shown as "(no data)"; a pinned name
+    that does not resolve to a listed NSE symbol is NOT allocated and is
+    returned in ``rejected`` (see :func:`_build_pinned_strategy`).
     """
     request = request or ""
     assumptions: list[str] = _assumption_lines(slots)
@@ -551,14 +555,17 @@ def _clean_symbols(symbols: Optional[list[str]]) -> list[str]:
 
 
 def _curated_row_map() -> dict[str, dict]:
-    """``{SYMBOL -> universe row}`` across the whole curated universe, network-
-    free — used to resolve name/sector/mcap for pinned symbols we recognise. A
-    pinned symbol absent here still builds (symbol as name, 'unknown' sector)."""
-    m: dict[str, dict] = {}
-    for sec in sorted(set(symbol_sector_map().values())):
-        for r in query_screener(sector=sec, limit=_SCREEN_LIMIT):
-            m[str(r["symbol"]).upper()] = r
-    return m
+    """``{SYMBOL -> universe row}`` for every VERIFIED listed NSE symbol
+    (~4,600), used to resolve existence + name/sector/mcap for pinned symbols.
+
+    This used to walk ``query_screener(limit=30)`` over the curated sector list
+    and returned **80 names across 12 sectors** — so every pinned leg outside
+    that sample resolved to 'unknown' sector with no market cap, silently
+    degrading the sector-cap advisory, the mcap band and conviction weighting
+    on most real baskets. Membership now means "we confirmed this trades";
+    absence is what the pinned path rejects on.
+    """
+    return nse_universe_map()
 
 
 # ── User-stated hard constraints (filters / mcap band) ──────────────────────
@@ -725,14 +732,30 @@ def _build_pinned_strategy(
 
     row_map = _curated_row_map()
     candidates: list[_Candidate] = []
+    unresolved: list[RejectedName] = []
     for sym in pinned:
         row = row_map.get(sym)
+        # A pin we cannot find ANYWHERE in the NSE universe is not a data gap —
+        # it is very likely a symbol the caller mis-remembered or invented
+        # (2026-07-17 eval: a crude-crash basket pinned "HPCL"/"BERGERPAINT",
+        # neither a live NSE symbol; both shipped as legs with a real ₹ slice).
+        # Allocating money to a symbol we cannot confirm trades is a fabrication
+        # no disclaimer repairs, so reject it and SAY the name back — the caller
+        # can then re-call with the right ticker or drop it.
+        if row is None:
+            unresolved.append(RejectedName(
+                symbol=sym,
+                reason="not found in Pivot's NSE universe — could not confirm "
+                       "it is a listed symbol, so it was not allocated. Re-call "
+                       "with the correct ticker if you meant a different name.",
+            ))
+            continue
         candidates.append(
             _Candidate(
                 symbol=sym,
-                name=str(row.get("name") or sym) if row else sym,
-                sector=str(row.get("sector") or "unknown") if row else "unknown",
-                mcap_cr=float(row["mcap_cr"]) if row and row.get("mcap_cr") is not None else None,
+                name=str(row.get("name") or sym),
+                sector=str(row.get("sector") or "unknown"),
+                mcap_cr=float(row["mcap_cr"]) if row.get("mcap_cr") is not None else None,
             )
         )
 
@@ -750,8 +773,16 @@ def _build_pinned_strategy(
         assumptions.append(
             "excluded per your stated preference: " + ", ".join(excluded)
         )
+    if unresolved:
+        assumptions.append(
+            "did NOT allocate to " + ", ".join(r.symbol for r in unresolved)
+            + " — not found in the NSE universe (see `rejected`); every other "
+            "leg was re-weighted over the remaining names"
+        )
     if not candidates:
-        return _empty_card(request, slots, gate, DEFAULT_SECTOR_CAP_PCT, assumptions)
+        card = _empty_card(request, slots, gate, DEFAULT_SECTOR_CAP_PCT, assumptions)
+        card.rejected = list(unresolved) + list(card.rejected)
+        return card
 
     assumptions.append(
         f"pinned universe — building exactly the {len(candidates)} name(s) you/the flow "
@@ -759,6 +790,10 @@ def _build_pinned_strategy(
     )
 
     # Fundamentals for the per-name gate_metrics DISPLAY only (never a drop gate).
+    # NOTE the distinction this path now draws: a name that RESOLVES but has no
+    # fundamentals row is a real data gap — keep it, show "(no data)". A name
+    # that never resolved at all was already rejected above and never reaches
+    # here. Collapsing those two is what let an invented ticker take a ₹ slice.
     _backfill_gate_inputs(candidates)
     _backfill_fundamentals_parallel(candidates)
     _pinned_gate_metrics(candidates, gate)
@@ -766,7 +801,8 @@ def _build_pinned_strategy(
     if no_data:
         assumptions.append(
             "no DB fundamentals for " + ", ".join(no_data)
-            + " — shown without gate metrics (no data), kept as pinned (not fabricated)"
+            + " — a real listed name we hold no ratios for; shown without gate "
+            "metrics (no data), kept as pinned (not fabricated)"
         )
 
     # Sector cap is advisory for a pinned basket (warn, don't trim).
@@ -851,6 +887,7 @@ def _build_pinned_strategy(
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
         constraints_not_applied=_unapplied_constraints(slots, pinned=True),
+        rejected=unresolved,
         capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )

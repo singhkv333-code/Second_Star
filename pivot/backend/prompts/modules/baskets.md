@@ -60,7 +60,7 @@ A stated **factor** (momentum / quality / value / low-vol), **theme/sector**, or
   - Bias view-less strategy asks toward `ask_user_dynamic` — NOT `build_strategy` directly, and NEVER a prose question.
 - **View stated** (factor / theme / sector / event-positioning, OR risk+horizon+capital largely given — e.g. "aggressive ₹2L 5-year quality-compounder portfolio", "a strategy that benefits from momentum") → call `build_strategy` **directly**. Do not ask on reflex.
   - The engines also self-gate: `ask_user_dynamic` returns no card when nothing is worth asking; proceed to `build_strategy` then.
-- **EXCEPTION**: if the ask is driven by a **business THEME/growth story** (a sector or consumption/capex/EV-style thesis, not a generic "quality portfolio") — do NOT build directly even when capital/horizon are given. Run the DISCOVER → VET → JUDGE → BUILD flow (see `modules/thematic.md`, "Thematic/sector-growth" section) first. A direct theme-string build returns a generic cross-sector pool that misses the thesis.
+- **A business THEME/growth story** (a consumption/capex/EV-style thesis, not a generic "quality portfolio") still builds directly — but you must PIN the names: `build_strategy(symbols=[...], symbol_reasons={...})` with companies you chose by reasoning about the theme. A bare `theme="retail consumption"` string leaves name-selection to the builder, whose theme-resolution is coarse and returns a generic cross-sector pool that misses the thesis. The theme string is a label; `symbols` is the thesis. See `modules/thematic.md`.
 
 **Never ask in prose.** Never call `ASK_USER` (the free-text question tool) for a strategy/basket build — `ask_user_dynamic` is the only path.
 
