@@ -120,6 +120,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
   const resolvedRef = useRef<Map<string, { symbol: string; name: string } | null>>(
     new Map(),
   );
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [, bumpResolved] = useState(0);
 
   // ── Column plan ────────────────────────────────────────────────────
@@ -241,14 +242,16 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
   const resolveForHover = (row: string[]): void => {
     if (tickerFor(row)) return; // already resolvable
     const name = (row[plan.nameCol] ?? "").trim();
-    if (!name || resolvedRef.current.has(name)) return;
-    resolvedRef.current.set(name, null); // in flight
+    // In-flight is tracked separately from the result cache: a failed lookup
+    // used to cache `null`, which the `has(name)` guard then read as "already
+    // answered" — so one network blip hid that row's action bar for good.
+    // Misses stay uncached, so the next hover retries.
+    if (!name || inFlightRef.current.has(name)) return;
+    inFlightRef.current.add(name);
     void searchCompanies(name, 1).then((res) => {
       const hit = !isError(res) ? res.data.results[0] : undefined;
-      resolvedRef.current.set(
-        name,
-        hit ? { symbol: hit.symbol, name: hit.name } : null,
-      );
+      inFlightRef.current.delete(name);
+      if (hit) resolvedRef.current.set(name, { symbol: hit.symbol, name: hit.name });
       bumpResolved((n) => n + 1);
     });
   };
@@ -351,6 +354,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                 const cell = row[ci] ?? "";
                 const isName = ci === plan.nameCol && cell.trim() !== "";
                 const ticker = isName ? tickerFor(row) : null;
+                const showActions = isName && hoverRow === ri && !!ticker;
                 return (
                   <td
                     key={ci}
@@ -361,9 +365,6 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                       plan.numeric[ci]
                         ? "text-right tabular-nums text-foreground"
                         : "text-foreground",
-                      // Positioning context for the pinned quick-action bar
-                      // (sticky cells are already their own context).
-                      isName && vi >= stickyCount ? "relative" : "",
                     ].join(" ")}
                   >
                     {isName ? (
@@ -378,51 +379,60 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                             />
                           </span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => void openCompany(row)}
-                          title={`Open ${cell}`}
-                          className="inline-flex items-center gap-1.5 font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            font: "inherit",
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {cell}
-                          {resolving === cell.trim() && (
-                            <Loader2
-                              size={11}
-                              className="animate-spin"
-                              aria-hidden="true"
+                        {/* The name and the quick-action bar share one box:
+                            hovering FLIPS the name out and the bar in, so the
+                            bar lands exactly where the name was instead of
+                            floating over it. A right-pinned bar covered long
+                            names (129px bar vs 57px of free space) while
+                            clearing short ones — the same row reading as
+                            broken or fine purely by name length. `visibility`
+                            (not `display`) keeps the name's width reserved, so
+                            the column never reflows on hover. */}
+                        <span className="relative inline-flex items-center align-middle">
+                          <button
+                            type="button"
+                            onClick={() => void openCompany(row)}
+                            title={`Open ${cell}`}
+                            aria-hidden={showActions}
+                            tabIndex={showActions ? -1 : undefined}
+                            className="inline-flex items-center gap-1.5 font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              cursor: "pointer",
+                              font: "inherit",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                              visibility: showActions ? "hidden" : "visible",
+                            }}
+                          >
+                            {cell}
+                            {resolving === cell.trim() && (
+                              <Loader2
+                                size={11}
+                                className="animate-spin"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </button>
+                          {showActions && ticker && (
+                            <StockHoverActions
+                              symbol={ticker}
+                              name={cell.trim()}
+                              className="absolute"
+                              style={{
+                                // Anchored to the name's own left edge — the
+                                // bar occupies the name's slot exactly.
+                                left: 0,
+                                top: "50%",
+                                marginTop: -14,
+                                padding: 2,
+                                zIndex: 5,
+                              }}
                             />
                           )}
-                        </button>
-                        {/* Quick actions — PINNED to the name column's right
-                            edge (same X on every row, Kite-style) and
-                            absolutely positioned so the row height never
-                            changes when it appears. */}
-                        {hoverRow === ri && ticker && (
-                          <StockHoverActions
-                            symbol={ticker}
-                            name={cell.trim()}
-                            className="absolute"
-                            style={{
-                              // Pinned to the name column's right edge —
-                              // one constant axis for every row, never
-                              // crossing into the next column's values.
-                              right: 8,
-                              top: "50%",
-                              marginTop: -14,
-                              padding: 2,
-                              zIndex: 5,
-                            }}
-                          />
-                        )}
+                        </span>
                       </>
                     ) : plan.numeric[ci] ? (
                       colorizeGainLoss(cell, `cell-${ri}-${ci}`)
