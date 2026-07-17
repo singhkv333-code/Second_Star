@@ -346,12 +346,15 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
 }
 
-/* Phone/mobile cleanup: the dashboard tabs scroll inside <main>'s panes —
-   hide their scrollbar for a cleaner edge-to-edge reading, and drop the
-   header's hairline (set inline, so it needs !important to override). */
+/* Phone/mobile cleanup: on touch-sized viewports every scroll region should
+   read edge-to-edge with no visible scrollbar (content still scrolls). Hiding
+   globally covers the chat-history drawer <nav>, the dashboard tab panes, the
+   Home main view, and any nested scroll surface — not just <main>'s direct
+   children. Also drops the header's hairline (set inline, so it needs
+   !important to override). */
 @media (max-width: 1023.98px) {
-  .app-shell-root main > div { scrollbar-width: none; }
-  .app-shell-root main > div::-webkit-scrollbar { width: 0; height: 0; }
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { width: 0; height: 0; }
   .top-header { border-bottom: none !important; }
 }
 
@@ -893,6 +896,18 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .app-shell-root h2:not([class*="text-"]) {
     font-size: clamp(18px, 5vw, 22px);
   }
+}
+
+/* Mobile viewport height — the shell root uses Tailwind's `h-screen`
+   (height: 100vh). On phones `100vh` resolves to the LARGE viewport (as if
+   the browser's URL/toolbar were retracted), so while the toolbar is showing
+   the bottom of the layout — where the chat composer is pinned — falls behind
+   the browser chrome and gets clipped. `100dvh` tracks the *visible* height
+   and shrinks/grows with the toolbar, keeping the composer on-screen. The
+   `100vh` from `h-screen` stays as the fallback for browsers without `dvh`
+   (they simply ignore this declaration). */
+.app-shell-root {
+  height: 100dvh;
 }
 
 /* Topbar brand — on phone the hamburger + account avatar live at the
