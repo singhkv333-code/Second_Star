@@ -2192,6 +2192,11 @@ _COMPACT_PROSE_TOOLS: frozenset[str] = frozenset({
 def _classify_intent(message: str) -> str:
     """Return one of {'construction', 'agent', 'automation', 'other'}.
 
+    Under `llm_owned_interpretation` always returns 'other': the model
+    interprets the ask itself (see _LLM_OWNED_DIRECTIONS) and no
+    intent-keyed tool-surface surgery runs. The FE mode pill still
+    overrides downstream — an explicit user pick is not interpretation.
+
     CONSTRUCTION wins over agent — "build me a strategy/basket/portfolio"
     with no contingent action is a basket-build (build_strategy →
     strategy_builder_card), NOT a workflow draft. It is checked BEFORE the
@@ -2209,7 +2214,7 @@ def _classify_intent(message: str) -> str:
     which then asked for permission and built a daily 15:25 agent
     around it (PDF report).
     """
-    if not message:
+    if not message or _settings.llm_owned_interpretation:
         return "other"
     if (
         _TWO_ACTION_NOW_RE.search(message)
@@ -2551,7 +2556,12 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     The first three mirror intent_kind (with 'agent' renamed to 'draft'
     for clarity at the reply-budget layer); the rest sub-classify the
     'other' bucket so each shape gets a fitting length + format budget.
+
+    Under `llm_owned_interpretation` returns 'model_owned' — one generous
+    budget + a sizing DIRECTION; the model decides length and shape.
     """
+    if _settings.llm_owned_interpretation:
+        return "model_owned"
     if intent_kind == "agent":
         return "draft"
     if intent_kind == "construction":
@@ -2594,6 +2604,16 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
 # max_output_tokens from 1500 → 4000 so any caller that doesn't pass an
 # explicit budget also gets the headroom.
 _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
+    "model_owned": (3800, (
+        "REPLY SIZING — you decide. Size and structure the reply to the "
+        "ask itself: a quick fact gets 1-3 direct sentences; a comparison "
+        "or analysis gets 250-450 words with ## sections and markdown "
+        "tables for any multi-name numbers; a concept explainer up to 500 "
+        "words with headers/bullets; when a CARD renders below your text, "
+        "one plain-English summary sentence and let the card speak. Never "
+        "pad a simple answer, never compress a data-rich answer into a "
+        "blurb, and never restate a card's full field list in prose."
+    )),
     "draft": (3500, (
         "REPLY-CLASS: DRAFT. A workflow/agent CARD is being rendered "
         "below your text — DO NOT restate the full trigger/action list. "
@@ -3455,14 +3475,68 @@ def _is_news_browse_ask(message: str) -> bool:
     return bool(_NEWS_BROWSE_RE.search(message or ""))
 
 
+# ── LLM-owned interpretation (experiment): one static direction block ──
+# Replaces the regex-triggered steering guards + intent surgery when
+# `llm_owned_interpretation` is on. Byte-stable so it caches; describes
+# HOW to interpret and construct, never forces a tool.
+_LLM_OWNED_DIRECTIONS = """## Interpreting the ask — you own this decision
+Decide from the message itself what the user wants and pick the tool that
+matches. The shapes to distinguish:
+- QUESTION / data read → answer it (call read tools); never block a read
+  on a clarifying question.
+- IMMEDIATE ORDER ("buy 10 INFY") → the order tool, one-time. Never
+  upgrade a one-time buy into a recurring workflow.
+- RECURRING / CONDITIONAL ("every Friday…", "when RSI<30…") → the
+  workflow/automation tools. Never silently drop a stated condition.
+- STRATEGY / BASKET / PORTFOLIO build with no trigger language →
+  build_strategy (a construction, NOT a workflow draft).
+- BACKTEST → backtest_workflow; a verb-less tweak right after a backtest
+  ("now try RSI<25") re-runs it with that one change.
+
+## Clarify discipline
+Call ASK_USER (structured, tappable) only when a REQUIRED field is
+genuinely missing and no sensible default exists. Named option template +
+underlying (straddle/condor/spread on NIFTY…) is buildable NOW — the
+engine fills strikes/width/qty defaults; vague modifiers are not missing
+fields. If the user is confused by a menu you offered, teach one option
+in plain prose and end with one yes/no — never re-dump the menu.
+
+## Construction honesty
+- A hedge must OFFSET exposure (canonical: protective put via
+  build_option_strategy) — never buy more of the hedged name. One card
+  per turn; offer the second name as a follow-up.
+- "At the open / at the close" = trigger.market_relative_time
+  (anchor='open'|'close'). NEVER approximate a price, percent, or
+  open/close condition with a time-of-day cron — a 09:30 daily check is
+  not the same thing and is a correctness failure.
+- THEMATIC asks ("profits from a weak rupee / monsoon / crude spike"):
+  reason out who ACTUALLY benefits — real NSE tickers, not sector
+  clichés (weak rupee → IT/pharma exporters, NOT importers; rising crude
+  → upstream ONGC/OIL, NOT refiners IOC/BPCL/HPCL). Reply with a short
+  thesis, a winners/losers markdown table with one-line WHYs, what would
+  confirm or invalidate the view, then offer a basket card
+  (propose_basket_allocation) sized to the user's capital if stated.
+  Never a generic staples basket, never a bare clarify punt.
+- For a strategy-framed draft, explain WHAT it does and WHY it fits
+  (with the real fetched numbers) before the card readback."""
+
+
 def _build_deterministic_guards(message: str, history: list) -> list[str]:
     """GAN R2 R2–R6: deterministic directive blocks that suppress the
     over-eager ASK_USER escape hatch / 09:30 downgrade and force the
     documented canonical behaviour. Prose in system.md alone proved
     insufficient — these fire as additional hard system messages and the
     caller pairs them with scope-narrowing / tool_choice in the routing
-    layer. Returns a list of directive strings (possibly empty)."""
+    layer. Returns a list of directive strings (possibly empty).
+
+    Under `llm_owned_interpretation`, the STEERING guards (named-option,
+    hedge choreography, at-open-close, confusion-teach, strategy-framed,
+    thematic template, vague-onboarding) are replaced by the single
+    static _LLM_OWNED_DIRECTIONS block; the BOUNDARY/HONESTY guards
+    (news grounding, unsupported rails, alert boundary, unrealistic
+    return, scared idle cash) fire in both arms."""
     guards: list[str] = []
+    _llm_owned = _settings.llm_owned_interpretation
 
     # NEWS ask → hard-direct the model to BROWSE (only when web search is on).
     # Without this, a "latest news around NIFTY" ask gets anchored on the
@@ -3497,7 +3571,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
         )
 
     # R6 — confusion AFTER an ASK_USER menu → TEACH, never re-dump.
-    if _is_confusion_after_menu(message, history):
+    if not _llm_owned and _is_confusion_after_menu(message, history):
         guards.append(
             "## Confusion after a clarification menu — TEACH, do NOT "
             "re-ask\n"
@@ -3586,7 +3660,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             )
 
     # R4 — named multi-leg option TEMPLATE build → build, never clarify.
-    if _is_named_option_build(message):
+    if not _llm_owned and _is_named_option_build(message):
         guards.append(
             "## Named option strategy build — BUILD, do NOT ASK_USER\n"
             "The user named a known multi-leg option template (iron condor / "
@@ -3619,7 +3693,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
         )
 
     # H1 — hedge construction: a hedge OFFSETS exposure, never adds it.
-    if _is_hedge_request(message):
+    if not _llm_owned and _is_hedge_request(message):
         guards.append(
             "## Hedge request — a hedge must OFFSET the exposure\n"
             "The user asked to HEDGE an existing position/portfolio. It is "
@@ -3650,7 +3724,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
         )
 
     # H1b — acceptance of the "build the same for <other>" offer.
-    if _is_hedge_followup(message, history):
+    if not _llm_owned and _is_hedge_followup(message, history):
         guards.append(
             "## Hedge follow-up — build the SECOND option card NOW\n"
             "The user just accepted your offer to build the same hedge "
@@ -3667,7 +3741,8 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
     # H2 — strategy-framed draft: explain the strategy WITH the card.
     # Suppressed on named option-template builds: R4 above mandates the
     # tight legs+economics readback there and the two shapes conflict.
-    if _is_strategy_framed(message, history) and not _is_named_option_build(message):
+    if (not _llm_owned and _is_strategy_framed(message, history)
+            and not _is_named_option_build(message)):
         guards.append(
             "## Strategy-framed draft — EXPLAIN the strategy, then hand "
             "off\n"
@@ -3687,7 +3762,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
         )
 
     # R2 — buy/sell at open|close → market_relative_time, never 09:30.
-    if _is_at_open_close_build(message):
+    if not _llm_owned and _is_at_open_close_build(message):
         guards.append(
             "## At-open / at-close order — two-branch card, NEVER 09:30\n"
             "The user wants an action at the market OPEN or CLOSE. This is "
@@ -3711,7 +3786,8 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
     # thematic.md module still carries the seed map + the hybrid rule). The
     # construction thematic guard only owns the no-cadence "own this now" ask.
     _scenario = detect_thematic_scenario(message)
-    if _scenario is not None and not _HAS_CONTINGENCY_RE.search(message):
+    if (not _llm_owned and _scenario is not None
+            and not _HAS_CONTINGENCY_RE.search(message)):
         guards.append(_thematic_guard_text(message, _scenario))
 
     # ── GAN R4 F5/C4: unrealistic-return decode ──────────────────────
@@ -3769,7 +3845,7 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
         )
 
     # ── GAN R4 F2/C2: vague onboarding → value-first prefilled SIP ────
-    elif is_vague_onboarding(message):
+    elif not _llm_owned and is_vague_onboarding(message):
         _cap = extract_capital_inr(message)
         _cap_line = (
             f"The user stated ₹{_cap:,} — USE it to size the split, NEVER "
@@ -3799,6 +3875,8 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "not financial advice.'"
         )
 
+    if _llm_owned:
+        guards.append(_LLM_OWNED_DIRECTIONS)
     return guards
 
 
@@ -3921,6 +3999,10 @@ def _apply_scenario_routing(
         matched=False,
         drop_ask_user=False,
     )
+    if _settings.llm_owned_interpretation:
+        # Experiment arm: no scenario tool-forcing — _LLM_OWNED_DIRECTIONS
+        # tells the model how to construct scenario answers itself.
+        return no_change
     if selected_names is None:
         # Whitelist mode (full registry) — leave it; the guards still
         # steer the model and the full toolset already has every path.
@@ -6680,6 +6762,7 @@ class ChatService:
         # Exception: advisory phrasing + workflow-building keywords (e.g.
         # "should I set up an RSI strategy") keeps macros in scope.
         if (intent_kind == "other"
+                and not _settings.llm_owned_interpretation
                 and selected_names is not None
                 and _ADVISORY_INTENT_RE.search(message)
                 and not _ADVISORY_WORKFLOW_EXCEPTION_RE.search(message)):
@@ -6779,6 +6862,7 @@ class ChatService:
             and bool(_BACKTEST_INTENT_RE.search(_clarify_orig_intent))
         )
         if (selected_names is not None
+                and not _settings.llm_owned_interpretation
                 and (_is_backtest_tweak or _is_backtest_clarify_followup)):
             if _is_backtest_tweak:
                 # NARROW to the backtest tools (+ ASK_USER) so the model re-runs
@@ -6828,7 +6912,9 @@ class ChatService:
         # macros so the model can't draft both, force ASK_USER.
         is_contradiction = _is_buy_sell_contradiction(message)
 
-        if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
+        if (not _settings.llm_owned_interpretation
+                and (is_underspec_agent or is_filler_after_q
+                     or mentions_fno or is_contradiction)):
             # Genuine clarification cases (an underspecified agent build, or a
             # buy/sell contradiction) must surface a STRUCTURED ASK_USER with
             # tappable options — NOT a free-form prose question. With the build
@@ -6889,7 +6975,8 @@ class ChatService:
         _hedge_request = _is_hedge_request(message) or _hedge_followup
         # R4: named option template build → force build_option_strategy,
         # remove ASK_USER from scope so the model cannot escape to it.
-        if _named_option_build and selected_names is not None:
+        if (not _settings.llm_owned_interpretation
+                and _named_option_build and selected_names is not None):
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                 "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
@@ -6906,7 +6993,8 @@ class ChatService:
         # the model can't escape to a hedged non-answer (reported
         # 2026-07-14: identical phrasing intermittently skipped the tool
         # call entirely under tool_choice="auto").
-        elif _option_view_ask and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _option_view_ask and selected_names is not None):
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                 "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order",
@@ -6921,7 +7009,8 @@ class ChatService:
         # a buy-the-hedged-symbols draft is structurally impossible this
         # turn. tool_choice stays auto: the directive wants prose-first
         # (explain the hedge) and the model may need to ask position size.
-        elif _hedge_request and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _hedge_request and selected_names is not None):
             selected_names = (
                 selected_names | _OPTIONS_TOOLS
             ) - _HEDGE_STRIP_TOOLS
@@ -6944,7 +7033,8 @@ class ChatService:
         # the model answers with the boundary line instead of a refused draft.
         # R2: at-open/at-close build → ensure the DSL/workflow tools are in
         # scope and force a tool so it can't downgrade to 09:30 / ASK_USER.
-        elif _at_open_close and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _at_open_close and selected_names is not None):
             selected_names = selected_names | frozenset({
                 "propose_dsl_workflow", "propose_workflow",
             })
@@ -6958,7 +7048,7 @@ class ChatService:
         # boundary/teach in PROSE; drop tool_choice to auto so the model is
         # free to answer without forcing a tool, and (R6) drop ASK_USER so
         # it cannot re-dump the menu.
-        if _confusion_menu:
+        if _confusion_menu and not _settings.llm_owned_interpretation:
             agent_tool_choice = "auto"
             if selected_names is not None:
                 tooldefs = [
@@ -7031,10 +7121,11 @@ class ChatService:
         # 300-500 words). Force the analysis class so they don't get the
         # 120-word analytical_short cap that produced the 22-89-word
         # baseline blurbs.
-        if (detect_thematic_scenario(message) is not None
-                or is_vague_onboarding(message)
-                or is_scared_idle_cash(message)
-                or is_unrealistic_return(message)):
+        if (not _settings.llm_owned_interpretation
+                and (detect_thematic_scenario(message) is not None
+                     or is_vague_onboarding(message)
+                     or is_scared_idle_cash(message)
+                     or is_unrealistic_return(message))):
             reply_class = "analysis"
         # STRATEGY budget override: a strategy/basket/portfolio build
         # (build_strategy / propose_basket_allocation) classifies as
@@ -7043,7 +7134,8 @@ class ChatService:
         # the high-cap 'strategy' class instead. _is_strategy_framed also
         # catches the affirmative-follow-up turn ("yes, build it") that
         # carries the framing only in recent history.
-        if _is_strategy_framed(message, history):
+        if (_is_strategy_framed(message, history)
+                and not _settings.llm_owned_interpretation):
             reply_class = "strategy"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
@@ -7519,7 +7611,8 @@ class ChatService:
         # editable fields, and no commitment surface. This hard
         # directive tells the model: in this state, ASK_USER is the
         # ONLY correct action.
-        if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
+        if ((is_underspec_agent or is_filler_after_q) and not _scenario_routed
+                and not _settings.llm_owned_interpretation):
             base_messages.append(LLMMessage(
                 role="system",
                 content=(
@@ -9008,6 +9101,7 @@ class ChatService:
             )
         # Mirror of non-streaming advisory-strip — see handle() for WHY.
         if (intent_kind == "other"
+                and not _settings.llm_owned_interpretation
                 and selected_names is not None
                 and _ADVISORY_INTENT_RE.search(message)
                 and not _ADVISORY_WORKFLOW_EXCEPTION_RE.search(message)):
@@ -9057,7 +9151,9 @@ class ChatService:
         )
         mentions_fno = _mentions_fno(message)
         is_contradiction = _is_buy_sell_contradiction(message)
-        if is_underspec_agent or is_filler_after_q or mentions_fno or is_contradiction:
+        if (not _settings.llm_owned_interpretation
+                and (is_underspec_agent or is_filler_after_q
+                     or mentions_fno or is_contradiction)):
             # Genuine clarification cases (an underspecified agent build, or a
             # buy/sell contradiction) must surface a STRUCTURED ASK_USER with
             # tappable options — NOT a free-form prose question. With the build
@@ -9107,7 +9203,8 @@ class ChatService:
         _unsupported_rail = _names_unsupported_rail(message)
         _hedge_followup = _is_hedge_followup(message, history)
         _hedge_request = _is_hedge_request(message) or _hedge_followup
-        if _named_option_build and selected_names is not None:
+        if (not _settings.llm_owned_interpretation
+                and _named_option_build and selected_names is not None):
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                 "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order", "suggest_option_strategy",
@@ -9120,7 +9217,8 @@ class ChatService:
             cache_key = cache_key_for(selected_names)
             agent_tool_choice = "required"
         # R4b (stream mirror): see the non-streaming R4b comment above.
-        elif _option_view_ask and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _option_view_ask and selected_names is not None):
             selected_names = (selected_names | _OPTIONS_TOOLS) - frozenset({
                 "place_market_order", "place_limit_order", "place_order",
                 "create_gtt_order",
@@ -9133,7 +9231,8 @@ class ChatService:
             agent_tool_choice = "required"
         # H1 (stream mirror): hedge construction → options surface in,
         # order macros OUT; tool_choice auto for the explain-first reply.
-        elif _hedge_request and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _hedge_request and selected_names is not None):
             selected_names = (
                 selected_names | _OPTIONS_TOOLS
             ) - _HEDGE_STRIP_TOOLS
@@ -9152,7 +9251,8 @@ class ChatService:
             trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
         # R3: price/condition ALERT ask → NOT forced (alerts aren't available;
         # the notify tools refuse and the boundary guard states it in prose).
-        elif _at_open_close and selected_names is not None:
+        elif (not _settings.llm_owned_interpretation
+                and _at_open_close and selected_names is not None):
             selected_names = selected_names | frozenset({
                 "propose_dsl_workflow", "propose_workflow",
             })
@@ -9162,7 +9262,7 @@ class ChatService:
             ]
             cache_key = cache_key_for(selected_names)
             agent_tool_choice = "required"
-        if _confusion_menu:
+        if _confusion_menu and not _settings.llm_owned_interpretation:
             agent_tool_choice = "auto"
             if selected_names is not None:
                 tooldefs = [
@@ -9218,16 +9318,18 @@ class ChatService:
         reply_class = _classify_reply_class(message, intent_kind)
         # GAN R4: force the structured analysis budget on the scenario
         # classes (mirror of handle()).
-        if (detect_thematic_scenario(message) is not None
-                or is_vague_onboarding(message)
-                or is_scared_idle_cash(message)
-                or is_unrealistic_return(message)):
+        if (not _settings.llm_owned_interpretation
+                and (detect_thematic_scenario(message) is not None
+                     or is_vague_onboarding(message)
+                     or is_scared_idle_cash(message)
+                     or is_unrealistic_return(message))):
             reply_class = "analysis"
         # STRATEGY budget override (mirror of handle()): route a
         # strategy/basket build to the high-cap 'strategy' class so the
         # connection + rationale + alternatives + table reply isn't
         # truncated at the 1500-token draft cap.
-        if _is_strategy_framed(message, history):
+        if (_is_strategy_framed(message, history)
+                and not _settings.llm_owned_interpretation):
             reply_class = "strategy"
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
@@ -9573,7 +9675,8 @@ class ChatService:
             ))
             agent_tool_choice = "required"
         # Mirror of non-streaming underspec/filler hint.
-        if (is_underspec_agent or is_filler_after_q) and not _scenario_routed:
+        if ((is_underspec_agent or is_filler_after_q) and not _scenario_routed
+                and not _settings.llm_owned_interpretation):
             base_msgs.append(LLMMessage(
                 role="system",
                 content=(

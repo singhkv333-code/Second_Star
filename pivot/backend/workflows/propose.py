@@ -184,6 +184,20 @@ Rules:
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
   - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
 
+COMPOUND / EXIT TREE GRAMMAR — trigger.compound and trigger.exit_compound take `entry`: a condition TREE, not an opaque object. Node types:
+  {{ "type":"comparison", "op":">="|"<="|">"|"<", "left":<node>, "right":<node> }}
+  {{ "type":"logic", "op":"and"|"or", "operands":[<node>,...] }}
+  {{ "type":"price", "symbol":"<SYM>", "basis":"close"|"open"|"high"|"low" }}   {{ "type":"constant", "value":<number> }}
+  {{ "type":"indicator", "indicator":"rsi"|"sma"|"ema"|"atr"|..., "symbol":"<SYM>", "period":<n> }}
+  {{ "type":"position", "field":"entry_price"|"unrealised_pct"|"unrealised_abs"|"bars_held"|"peak_unrealised_pct"|"drawdown_from_peak_pct", "basis":"close"|"low"|"high" }}   (exit trees only; percent fields are FRACTIONS: +5% = 0.05)
+  trigger.exit_compound config also takes: "target_symbol": "<SYM>", "one_shot": true (fire once, then disarm).
+
+PERCENT-FROM-ENTRY EXITS ARE FULLY SUPPORTED — never approximate them. "Sell 3 at +5% from entry" is ONE exit branch:
+  {{ "step_type":"trigger.exit_compound", "config": {{ "entry": {{ "type":"comparison", "op":">=", "left": {{ "type":"position", "field":"unrealised_pct", "basis":"high" }}, "right": {{ "type":"constant", "value":0.05 }} }}, "target_symbol":"<SYM>", "one_shot":true }} }}
+followed by its action.place_order sell step. A staged scale-out ("buy 9, sell 3 at +5%, 3 at +10%, all out at -3%") = the entry (trigger.market_relative_time anchor="open" + buy) THEN one exit_compound+sell pair per tranche THEN a stop branch (op:"<=", value:-0.03, basis:"low") selling the remainder.
+
+NEVER approximate a price / percent / at-open / at-close condition with trigger.schedule. A "check daily at 09:30" cron is NOT a level trigger — it misses intraday moves and lies about the mechanics. "At the open/close" = trigger.market_relative_time(anchor="open"|"close"). trigger.schedule is ONLY for genuinely time-based asks ("every Friday", "on the 5th monthly").
+
 EVENT / EXTERNAL TRIGGERS — pick the right one (these are wired and should NOT be refused):
   - trigger.scheduled_macro — RBI / Fed / CPI calendar outcomes (allowed kinds only: rbi_mpc, us_fomc, india_cpi, us_cpi).
   - trigger.polymarket / trigger.kalshi — listed prediction-market resolutions/thresholds.
