@@ -2241,7 +2241,20 @@ tool("build_strategy",
                             "'(no data)', not removed), and sector cap becomes "
                             "advisory. Weighting scheme + sizing still computed. "
                             "OMIT for an open build where the backend discovers "
-                            "the universe from theme/sector/view.",
+                            "the universe from theme/sector/view. For a THEMATIC "
+                            "ask, reason out WHO ACTUALLY BENEFITS and PIN them "
+                            "here — the builder has no thematic knowledge of its "
+                            "own.",
+         },
+         "symbol_reasons": {
+             "type": "object",
+             "description": "Per-symbol one-line WHY, authored by YOU — the "
+                            "causal hook tying each pinned name to the thesis "
+                            "({\"ONGC\": \"upstream producer; realisations rise "
+                            "with crude\"}). Shown on the card as each leg's "
+                            "reason. Supply alongside `symbols` for any "
+                            "thematic/view-driven build; without it legs fall "
+                            "back to generic quality-metric text.",
          },
          "weight_overrides": {
              "type": "object",

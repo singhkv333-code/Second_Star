@@ -133,24 +133,16 @@ def test_factor_emphasis_tilts_weights_toward_momentum():
     assert w["UP"] > w["DOWN"]
 
 
-def test_thematic_seed_backstop_pins_scenario_winners():
-    """build_strategy args with NO symbols but a recognised scenario request
-    must get the curated winners seeded deterministically (executor backstop),
-    so the builder never falls back to a generic quality basket."""
+def test_thematic_ask_no_longer_auto_seeded():
+    """2026-07-17: the deterministic thematic seed was REMOVED — the model
+    reasons out and PINS the beneficiaries itself (symbols + symbol_reasons;
+    thematic.md carries the pattern). A bare scenario request must NOT get
+    code-injected symbols anymore."""
     from backend.agents.tool_executor import _slot_state_from_args
-    from backend.services.thematic_map import (
-        basket_weights,
-        detect_thematic_scenario,
-    )
 
     req = "Make me a basket of stocks that profit from a good monsoon."
-    scn = detect_thematic_scenario(req)
-    assert scn is not None, "sanity: the monsoon scenario must be detected"
-    expected = [tk for tk, _w in basket_weights(scn)]
-
     slots = _slot_state_from_args({"request": req})
-    assert slots.symbols == expected
-    assert slots.theme  # seeded from the scenario label when absent
+    assert not slots.symbols  # no code-side pin; model owns name selection
 
 
 def test_thematic_seed_backstop_respects_explicit_symbols():
