@@ -403,9 +403,13 @@ def _patch_dsl_draft(prior: dict, fields: dict):
                 pass
         if fields.get("name"):
             draft["name"] = str(fields["name"])
-        else:
-            # GAN R2 R10: regenerate the title from the draft's readback so a
-            # stale/mis-rendered legacy name doesn't survive the mutation.
+        elif not (draft.get("name") or "").strip():
+            # No model name at all → regenerate from the readback (R10).
+            # A model-authored human title is otherwise KEPT across
+            # mutations: the description/readback subtitle is always
+            # re-derived from the tree, so the conditions can't go stale;
+            # the tool description asks the model to re-supply a name when
+            # a mutation changes the symbol or meaning.
             _rb = (draft.get("readback") or "").strip()
             _erb = (draft.get("exit_readback") or "").strip()
             if _rb:
@@ -1528,25 +1532,32 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if exit_readback:
         description += f" · Exit: {exit_readback}"
 
-    # GAN R2 R10: regenerate the card title from the CURRENT DSL readback
-    # rather than trusting the LLM-supplied `name`. A stale/mis-rendered
-    # free-text name (the "4%" → "AXISBANK price below ₹4" freeze) was
-    # surviving DSL mutations because the title was never re-derived from
-    # the tree. The readback is the single source of truth for the title.
-    _readback_title = readback.strip()
-    if exit_readback:
-        _readback_title = f"{_readback_title} → {exit_readback.strip()}"
-    # Keep it a short label: prefix the symbol if not already present.
-    if primary and primary.upper() not in _readback_title.upper():
-        _readback_title = f"{primary}: {_readback_title}"
-    label = _word_cap(_readback_title, 90) or label
+    # Title: the MODEL-authored `name` wins (short human label — the card
+    # subtitle carries the exact regenerated readback, so a friendly name
+    # can't hide the conditions). The R10 readback title is the FALLBACK
+    # for calls that omitted a name — the "AXISBANK price below ₹4"
+    # stale-name freeze can't recur because description/readback below
+    # are always re-derived from the tree.
+    _model_name = str(args.get("name") or "").strip()
+    if _model_name:
+        label = _word_cap(_model_name, 60)
+    else:
+        _readback_title = readback.strip()
+        if exit_readback:
+            _readback_title = f"{_readback_title} → {exit_readback.strip()}"
+        # Keep it a short label: prefix the symbol if not already present.
+        if primary and primary.upper() not in _readback_title.upper():
+            _readback_title = f"{primary}: {_readback_title}"
+        label = _word_cap(_readback_title, 90) or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
+    _model_summary = str(args.get("summary") or "").strip()
     draft = {
         "_render_hint": "workflow_draft_card",
         "draft_id": str(uuid.uuid4()),
         "name": label,
         "description": description,
+        **({"summary": _model_summary[:400]} if _model_summary else {}),
         "steps": steps,
         "readback": readback,
         "exit_readback": exit_readback,

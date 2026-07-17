@@ -10614,6 +10614,16 @@ def _workflow_skeleton_caption(skeleton: dict) -> str:
     """
     steps = skeleton.get("steps") or []
     name = (skeleton.get("name") or "Agent draft").rstrip(".")
+    # Model-authored summary (propose_dsl_workflow `summary` arg): the model
+    # already wrote the how-it-works prose — lead with it instead of the
+    # code-assembled phrase.
+    _summary = str(skeleton.get("summary") or "").strip()
+    if _summary:
+        return (
+            f"**{name}** — {_summary} "
+            "Review the steps below and click Activate when you're happy "
+            "with it."
+        )
     trigger_step = next((s for s in steps if s.get("step_type", "").startswith("trigger.")), None)
     action_step = next(
         (

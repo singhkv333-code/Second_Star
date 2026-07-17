@@ -1751,7 +1751,22 @@ tool("propose_dsl_workflow",
          },
          "name": {
              "type": "string",
-             "description": "Short human label, e.g. 'TCS RSI oversold buy'.",
+             "description": (
+                 "REQUIRED in practice — a short human title YOU author, "
+                 "3-6 words, like a nickname a trader would use: 'RELIANCE "
+                 "dip buyer', 'TCS momentum exit'. NEVER a condition dump "
+                 "('RSI(14) of X crosses…') — the card's subtitle already "
+                 "shows the exact conditions. Re-supply an updated name "
+                 "when an amendment changes the symbol or the meaning."
+             ),
+         },
+         "summary": {
+             "type": "string",
+             "description": (
+                 "1-2 plain-English sentences YOU author on how this agent "
+                 "behaves — what gets it in, what gets it out, how often it "
+                 "checks. Shown as the text above the card. No jargon dumps."
+             ),
          },
          "action_kind": {
              "type": "string",
