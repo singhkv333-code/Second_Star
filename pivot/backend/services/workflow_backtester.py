@@ -2984,6 +2984,56 @@ def backtest_workflow(
         price_curve.append({"t": _fmt_bar_ts(ts), "v": close})
         equity_curve.append({"t": _fmt_bar_ts(ts), "v": round(equity, 2)})
 
+    # ── Deployed-capital basis ────────────────────────────────────────
+    # A fixed-quantity strategy ("buy 10 RELIANCE per signal") uses a tiny
+    # slice of the simulation pool; measuring it against the whole pool
+    # dilutes the headline toward 0% (₹10,00,000 → ₹10,00,229 = "+0.02%"
+    # on a trade sequence that actually made ~+1.7% on its money). When no
+    # capital was STATED and every buy is explicitly share-sized (nothing
+    # scales with the pool), the fills are identical under any sufficient
+    # cash level — so rebase the curve to the strategy's PEAK CONCURRENT
+    # deployed cost: byte-equivalent to a re-run with capital=peak.
+    capital_basis = "stated" if starting_capital is not None else "pool"
+    if starting_capital is None and trades:
+        _fixed_qty = all(
+            (s.get("config") or {}).get("side", "buy") != "buy"
+            or (isinstance((s.get("config") or {}).get("quantity"), (int, float))
+                and not any(k in (s.get("config") or {})
+                            for k in ("notional", "notional_inr", "amount",
+                                      "total_inr")))
+            for s in steps
+            if isinstance(s, dict)
+            and s.get("step_type") in ("action.place_order",)
+        ) and not any(
+            isinstance(s, dict)
+            and str(s.get("step_type", "")).startswith("action.allocate")
+            for s in steps
+        )
+        _open_cost: dict[str, float] = {}
+        _open_qty: dict[str, float] = {}
+        _peak = 0.0
+        _short_seen = False
+        for t in trades:
+            sym, q, px = t["symbol"], float(t["qty"]), float(t["price"])
+            if t["side"] == "buy":
+                _open_cost[sym] = _open_cost.get(sym, 0.0) + q * px
+                _open_qty[sym] = _open_qty.get(sym, 0.0) + q
+            else:
+                oq = _open_qty.get(sym, 0.0)
+                if q > oq + 1e-9:  # sells more than held → short leg
+                    _short_seen = True
+                    break
+                if oq > 0:
+                    _open_cost[sym] -= q * (_open_cost[sym] / oq)
+                    _open_qty[sym] = oq - q
+            _peak = max(_peak, sum(_open_cost.values()))
+        if (_fixed_qty and not _short_seen and 0 < _peak < capital * 0.5):
+            _offset = round(capital - _peak, 2)
+            for p in equity_curve:
+                p["v"] = round(p["v"] - _offset, 2)
+            capital = _peak
+            capital_basis = "peak_deployed"
+
     # Metrics: total return %, CAGR, max drawdown, win rate, n_trades.
     final_equity = equity_curve[-1]["v"] if equity_curve else capital
     total_return_pct = round(
@@ -3122,11 +3172,17 @@ def backtest_workflow(
         elif tr["side"] == "sell":
             queue = by_symbol_buys.get(sym) or []
             qty_left = tr["qty"]
+            # A win is decided ONCE PER SELL against its blended matched
+            # cost — counting per matched LOT while dividing by sell count
+            # pushed hit-rate past 100% (one sell closing three winning
+            # lots read as 3 wins / 1 sell → the "157% hit rate" card).
+            _m_cost = 0.0
+            _m_qty = 0.0
             while qty_left > 0 and queue:
                 buy = queue[0]
                 take = min(qty_left, buy["qty"])
-                if tr["price"] > buy["price"]:
-                    n_wins += 1
+                _m_cost += take * buy["price"]
+                _m_qty += take
                 _entry_cost += take * buy["price"]
                 _realized_pnl += take * (tr["price"] - buy["price"])
                 _days_deployed += max(
@@ -3136,6 +3192,8 @@ def backtest_workflow(
                 buy["qty"] -= take
                 if buy["qty"] <= 0:
                     queue.pop(0)
+            if _m_qty > 0 and tr["price"] * _m_qty > _m_cost:
+                n_wins += 1
     n_sells = sum(1 for t in trades if t["side"] == "sell")
     hit_rate_pct = round((n_wins / n_sells * 100) if n_sells else 0.0, 1)
 
@@ -3210,6 +3268,10 @@ def backtest_workflow(
         "return_on_deployed_pct": return_on_deployed_pct,
         "capital_utilization_pct": capital_utilization_pct,
         "benchmark_return_pct": bench_pct,
+        # 'peak_deployed' = curve rebased to the strategy's own peak
+        # concurrent cost (fixed-qty draft, no stated capital);
+        # 'stated' = caller passed real capital; 'pool' = default ₹10L.
+        "capital_basis": capital_basis,
         "starting_capital": capital,
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,
