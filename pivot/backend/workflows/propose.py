@@ -194,16 +194,43 @@ COMPOUND / EXIT TREE GRAMMAR — trigger.compound and trigger.exit_compound take
 
 PERCENT-FROM-ENTRY EXITS ARE FULLY SUPPORTED — never approximate them. "Sell 3 at +5% from entry" is ONE exit branch:
   {{ "step_type":"trigger.exit_compound", "config": {{ "entry": {{ "type":"comparison", "op":">=", "left": {{ "type":"position", "field":"unrealised_pct", "basis":"high" }}, "right": {{ "type":"constant", "value":0.05 }} }}, "target_symbol":"<SYM>", "one_shot":true }} }}
-followed by its action.place_order sell step. A staged scale-out ("buy 9, sell 3 at +5%, 3 at +10%, all out at -3%") = the entry (trigger.market_relative_time anchor="open" + buy) THEN one exit_compound+sell pair per tranche THEN a stop branch (op:"<=", value:-0.03, basis:"low") selling the remainder.
+followed by its action.place_order sell step.
+
+STAGED SCALE-OUT — THE STOP MUST BE ARMED AT EVERY STAGE. Steps run STRICTLY IN
+ORDER: the engine does not evaluate step 6 until step 4 has fired. So a stop
+branch appended AFTER the profit tranches cannot fire until every target above
+it has already hit — it is disarmed on exactly the path it exists for (a
+gap-down straight after entry). Do NOT lay it out that way. OR the stop leaf
+into EACH tranche's trigger, so any stage can exit on the downside, then add a
+final stop branch for whatever quantity is left.
+  "buy 9 SYM at open, sell 3 at +5%, 3 at +10%, all out at -3%":
+    1. trigger.market_relative_time anchor="open"     2. action.place_order buy 9
+    3. trigger.exit_compound {{ "entry": {{ "type":"logic","op":"or","operands":[
+         {{ "type":"comparison","op":">=","left":{{ "type":"position","field":"unrealised_pct","basis":"high" }},"right":{{ "type":"constant","value":0.05 }} }},
+         {{ "type":"comparison","op":"<=","left":{{ "type":"position","field":"unrealised_pct","basis":"low"  }},"right":{{ "type":"constant","value":-0.03 }} }} ]}},
+       "target_symbol":"SYM", "one_shot":true }}                4. action.place_order sell 3
+    5. SAME or-tree but with 0.10 as the target                  6. action.place_order sell 3
+    7. trigger.exit_compound on the bare stop leaf (-0.03)       8. action.place_order sell 3 (the REMAINDER)
+  The final sell is the remainder — entry_qty minus everything the tranches
+  already sold (9 - 3 - 3 = 3), NOT the full entry quantity: selling 9 when 6
+  are gone opens a SHORT. Same rule for the take-profit ladder: the quantities
+  must sum to the entry, never exceed it.
 
 NEVER approximate a price / percent / at-open / at-close condition with trigger.schedule. A "check daily at 09:30" cron is NOT a level trigger — it misses intraday moves and lies about the mechanics. "At the open/close" = trigger.market_relative_time(anchor="open"|"close"). trigger.schedule is ONLY for genuinely time-based asks ("every Friday", "on the 5th monthly").
 
-EVENT / EXTERNAL TRIGGERS — pick the right one (these are wired and should NOT be refused):
-  - trigger.scheduled_macro — RBI / Fed / CPI calendar outcomes (allowed kinds only: rbi_mpc, us_fomc, india_cpi, us_cpi).
-  - trigger.polymarket / trigger.kalshi — listed prediction-market resolutions/thresholds.
-  - trigger.earnings — a NAMED company's quarterly EPS print vs the consensus estimate.
-       Fields: symbol (NSE ticker like INFY/TCS); metric: "eps" (revenue is roadmap-only, refuse politely if asked); condition: "beat" | "miss" | "meet"; optional surprise_threshold_pct (number, e.g. 5 for "beats by >=5%"); optional min_confidence (default 0.85).
-       USE for asks like "alert me when INFY beats earnings", "if TCS misses EPS estimate notify me", "ping me if RELIANCE beats by 5%". Source is the yfinance earnings calendar; scheduler opens a 48h verify window around the reported date and fires fail-safe (only when matched).
+NOT AVAILABLE — DO NOT DRAFT THESE, under any phrasing:
+  - Prediction-market triggers (Polymarket, Kalshi, "what's priced in", odds/contract resolutions).
+  - News- or headline-driven triggers ("when there's news about X", "if there's a war/tariff announcement", "if SEBI probes Y").
+  - Macro-outcome triggers ("if the RBI cuts", "on an FOMC decision", "when the CPI print lands").
+{earnings_unavailable}  A claim about the WORLD is not a trigger we can fire on — we watch prices and
+  indicators, not events. If the user asks for one, say so in ONE plain line and
+  offer the nearest thing that IS wired: a PRICE or INDICATOR level on the
+  instrument the event would move ("NIFTYBEES below X", "RSI(14) under 30"), or
+  a SCHEDULE if their ask was really about timing. Never draft one of these
+  steps, and never imply we watch headlines.
+
+{earnings_block}
+EXTERNAL TRIGGERS — this one IS wired and should NOT be refused:
   - trigger.global_price — USD-denominated CRYPTO / FOREX / global COMMODITY prices NOT served by Kite.
        Fields: asset_class: "crypto" | "forex" | "commodity"; symbol: canonical upper-case (e.g. "BTC", "ETH", "EURUSD", "USDINR", "WTI", "BRENT", "XAUUSD", "XAGUSD"); operator: ">" | "<" | "crosses_above" | "crosses_below"; value: numeric threshold in the asset's quote currency; optional quote_currency.
        USE for asks like "alert me when BTC crosses $100k", "tell me if USDINR goes above 87", "buy NIFTYBEES when WTI crude drops below 60".
@@ -235,8 +262,34 @@ INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting
 """
 
 
+_EARNINGS_WIRED_BLOCK = """EVENT TRIGGERS:
+  - trigger.earnings — a NAMED company's quarterly EPS print vs the consensus estimate.
+       Fields: symbol (NSE ticker like INFY/TCS); metric: "eps" (revenue is roadmap-only, refuse politely if asked); condition: "beat" | "miss" | "meet"; optional surprise_threshold_pct (number, e.g. 5 for "beats by >=5%"); optional min_confidence (default 0.85).
+       USE for asks like "alert me when INFY beats earnings", "if TCS misses EPS estimate notify me". Source is the yfinance earnings calendar; scheduler opens a 48h verify window around the reported date and fires fail-safe (only when matched).
+
+"""
+
+_EARNINGS_UNAVAILABLE_LINE = (
+    '  - Earnings-outcome triggers ("when INFY beats EPS", "if TCS misses '
+    'estimates"). The step type exists but its watcher is switched off, so the '
+    "agent would arm and then never fire — worse than a refusal, because it "
+    "looks like it is working.\n"
+)
+
+
 def build_system_prompt() -> str:
-    return _SYSTEM_PROMPT_TEMPLATE.format(catalog=_build_catalog_summary())
+    """Assemble the planner prompt for the CURRENT capability set.
+
+    The earnings lane is described as available or refused depending on
+    `earnings_events_enabled`, rather than being asserted wired in prose that
+    then drifts from reality (it had: the prompt promised a trigger whose
+    watcher has been flag-off, so those agents never fired)."""
+    on = getattr(settings, "earnings_events_enabled", False)
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        catalog=_build_catalog_summary(),
+        earnings_block=_EARNINGS_WIRED_BLOCK if on else "",
+        earnings_unavailable="" if on else _EARNINGS_UNAVAILABLE_LINE,
+    )
 
 
 # ── Validation ────────────────────────────────────────────────────────
@@ -244,6 +297,64 @@ def build_system_prompt() -> str:
 
 class ProposalValidationError(ValueError):
     """Raised when the LLM returns a draft that doesn't validate."""
+
+
+# World-claim triggers: they fire on something happening OUT THERE (a headline,
+# a rate decision, a contract resolving) rather than on a number on a chart.
+# Pivot does not support that lane for now (2026-07-17).
+#
+# Four of these are not even in the step registry, so a draft naming one
+# already died — but with a generic "unknown step type", which tells the model
+# nothing about what to do instead. The fifth is worse: `trigger.earnings` IS
+# registered, so it validates and activates cleanly while its watcher sits
+# behind `earnings_events_enabled` (default False) and never polls. That agent
+# is indistinguishable from one patiently waiting — it just never fires.
+# Silence is the failure mode here, so refuse EARLY and say why.
+_WORLD_CLAIM_TRIGGERS: dict[str, str] = {
+    "trigger.polymarket": "prediction-market (Polymarket)",
+    "trigger.kalshi": "prediction-market (Kalshi)",
+    "trigger.scheduled_macro": "macro-calendar outcome (RBI/Fed/CPI)",
+    "trigger.event": "news/headline event",
+    "trigger.earnings": "earnings-print outcome",
+}
+
+
+def _unavailable_triggers() -> dict[str, str]:
+    """The world-claim triggers that are off RIGHT NOW. Earnings drops out of
+    the list the moment its watcher is switched on, so the boundary tracks the
+    real capability instead of hard-coding today's answer."""
+    out = dict(_WORLD_CLAIM_TRIGGERS)
+    if getattr(settings, "earnings_events_enabled", False):
+        out.pop("trigger.earnings", None)
+    return out
+
+
+def _reject_unavailable_triggers(draft):
+    """Refuse news / macro-outcome / prediction-market / earnings triggers.
+
+    Takes the RAW draft (dict or model) and runs BEFORE registry validation, so
+    the model gets an instruction it can act on rather than "unknown step type".
+    """
+    steps = (
+        draft.get("steps") if isinstance(draft, dict)
+        else getattr(draft, "steps", None)
+    ) or []
+    unavailable = _unavailable_triggers()
+    hit: set[str] = set()
+    for s in steps:
+        t = s.get("step_type") if isinstance(s, dict) else getattr(s, "step_type", "")
+        if t in unavailable:
+            hit.add(unavailable[t])
+    if hit:
+        raise ProposalValidationError(
+            f"{', '.join(sorted(hit))} triggers are NOT available — Pivot does "
+            "not watch news, macro outcomes, earnings prints or prediction "
+            "markets, so this workflow could never fire. Do NOT draft one. "
+            "State the boundary in one plain line, then offer the nearest WIRED "
+            "trigger: a PRICE or INDICATOR level on the instrument that view "
+            "would move, or a SCHEDULE if the ask was really about timing."
+        )
+    return draft
 
 
 def _reject_notify_only(draft):
@@ -1477,7 +1588,8 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
     tm_draft = _top_movers_template(user_intent)
     if tm_draft is not None:
         try:
-            return _reject_notify_only(validate_draft_against_registry(tm_draft.model_dump()))
+            return _reject_notify_only(validate_draft_against_registry(
+                _reject_unavailable_triggers(tm_draft.model_dump())))
         except ProposalValidationError:
             # Template drifted from the registry — fall through to the LLM
             # rather than hard-failing a request we can still try to build.
@@ -1490,10 +1602,12 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
         # and screencast runs work without network. NOT a graceful
         # degradation when an LLM call fails.
         draft = _mock_propose(user_intent)
-        return _reject_notify_only(validate_draft_against_registry(draft.model_dump()))
+        return _reject_notify_only(validate_draft_against_registry(
+            _reject_unavailable_triggers(draft.model_dump())))
 
     # LLM is configured — propose for real, no safety net. If the model
     # can't produce a valid draft after one retry, the caller (chat
     # service / propose endpoint) gets the validation error and is
     # responsible for telling the user what's missing.
-    return _reject_notify_only(await _propose_via_llm(user_intent))
+    return _reject_notify_only(_reject_unavailable_triggers(
+        await _propose_via_llm(user_intent)))

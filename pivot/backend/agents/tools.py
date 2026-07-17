@@ -1302,10 +1302,12 @@ tool("propose_workflow",
      "- action.place_order: quantity OR notional_inr; order_type∈{market,limit}.\n"
      "- action.set_stoploss: trigger_price OR trigger_offset_pct (2 = 2%).\n"
      "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp NOT wired).\n"
-     "- trigger.polymarket: mode='threshold' (default, YES prob crosses `threshold` "
-     "in `direction`) or 'resolution' (market RESOLVES; resolve_on∈{YES,NO,ANY}). "
-     "REQUIRED market_id+token_id+side come from calling `propose_polymarket_trigger` "
-     "FIRST. DO NOT invent them; resolver rejects drafts at matcher confidence<0.85.\n\n"
+     "- NOT AVAILABLE: prediction-market (Polymarket/Kalshi), macro-calendar "
+     "outcome and news/headline triggers. A view about the WORLD ('if the RBI "
+     "cuts', 'when there's news on X') is not a trigger we can fire on — say so "
+     "in one line and offer the nearest wired thing: a PRICE or INDICATOR level "
+     "on the instrument that view would move, or a SCHEDULE if the ask was "
+     "really about timing. Drafts naming one are rejected.\n\n"
      "HARD RULES:\n"
      "1. STAY LITERAL — only what the user asked for. No unprompted sell/SL/trim branches.\n"
      "2. Multi-condition buy/sell → STOP and call `propose_dsl_workflow` "
@@ -1321,10 +1323,7 @@ tool("propose_workflow",
      "   {step_type:'fetch.quote', config:{symbol:'RELIANCE'}},\n"
      "   {step_type:'fetch.relative_threshold', config:{symbol:'RELIANCE',reference:'day_open',offset_pct:-5}},\n"
      "   {step_type:'condition.numeric', config:{left:'{{context.1.ltp}}',operator:'<=',right:'{{context.2.value}}'}},\n"
-     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]\n\n"
-     "For Polymarket-driven workflows: call propose_polymarket_trigger FIRST "
-     "to resolve the contract; then emit with returned market_id/token_id/side "
-     "INLINE. Use mode='resolution' for 'sell when X actually resolves YES'.",
+     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]",
      {
          "name": {
              "type": "string",
@@ -1725,10 +1724,15 @@ tool("propose_dsl_workflow",
      "Multi-symbol intents need propose_workflow with one branch per "
      "(symbol × action) — routing multi-symbol here silently drops "
      "all-but-one ticker.\n\n"
-     "ALSO DO NOT pick when the prompt mentions news / SEBI / RBI / "
-     "earnings / event / announcement / report / confirms / breaks / "
-     "polymarket / prediction market. The DSL has no news leaf; route to "
-     "propose_workflow with trigger.event / fetch.news instead.\n\n"
+     "ALSO DO NOT pick for an EARNINGS-print trigger ('when INFY beats EPS') "
+     "— the DSL has no earnings leaf; that one is wired as "
+     "propose_workflow + trigger.earnings.\n\n"
+     "A trigger on NEWS, a HEADLINE, a MACRO OUTCOME (RBI/Fed/CPI), a SEBI "
+     "announcement or a PREDICTION MARKET is NOT AVAILABLE in any tool — do "
+     "not route it anywhere, and do not draft it. Those fire on a claim about "
+     "the world, which Pivot does not watch. Say so in one line and offer the "
+     "nearest wired trigger: a PRICE or INDICATOR level on the instrument the "
+     "event would move, or a SCHEDULE if the ask was really about timing.\n\n"
      "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit contains "
      "ANY of — pick this tool, NOT propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"
@@ -2481,153 +2485,6 @@ tool("propose_holding_action",
          },
      },
      ["symbol", "action_kind", "trigger_kind"])
-
-
-# ── EVENT TRIGGERS: Polymarket prediction-market price-cross ───────────────
-#
-# The user types: "alert me if Trump wins 2028 probability goes above 70%".
-# We hand the description to an LLM matcher that hits Polymarket's
-# /public-search, picks the best contract + which side (YES/NO) is meant,
-# and returns either:
-#   - a HIGH-CONFIDENCE draft → chat card "I found X — confirm threshold?"
-#   - a LOW-CONFIDENCE picker → chat card with candidates to choose from
-# In both cases this tool is PURE: no DB write. Confirmation goes through
-# POST /api/news-events/specs/polymarket which persists the draft, then
-# POST /api/news-events/specs/{id}/activate which kicks off the WS
-# subscription (immediate reconcile, no 30s wait).
-
-tool("propose_polymarket_trigger",
-     "Build a Polymarket prediction-market trigger from a natural-language "
-     "event description. USE for asks like 'alert me if Trump wins 2028 "
-     "above 70%', 'tell me when Bitcoin $150k probability hits 30%', 'ping "
-     "me when the Fed cuts rates'. Does NOT execute or activate — emits a "
-     "draft card. NOT for Indian-stock indicator alerts (use "
-     "propose_threshold_order / propose_holding_action). NOT for news-"
-     "article-driven triggers (use the /api/news-events/ Tier-1/2/3 path).\n\n"
-     "The chat hop fills `event_description` from the user's wording verbatim "
-     "(the matcher needs the full ask for side disambiguation — 'wins' vs "
-     "'doesn't win'). `threshold` is the YES probability the user named "
-     "expressed 0..1 (70% → 0.70) — OMIT IT entirely if the user did not "
-     "name a number. The handler derives three sensible preset chips "
-     "(anchored to current YES price) for the draft card; the user picks one "
-     "or types a custom value. Asking the user to invent a number when they "
-     "didn't give one is friction we do not want. `direction='above'` is "
-     "the common case; use 'below' only when the user explicitly asked for "
-     "a drop ('alert me if Modi's chances drop below 40%').\n\n"
-     "COMPOUND-WORKFLOW USE: when the user asks for a workflow that includes "
-     "a Polymarket trigger ('buy RELIANCE, sell when crude > $100 on poly "
-     "fires'), CALL THIS TOOL FIRST to nail the contract + threshold; THEN "
-     "emit `propose_workflow` with the resolved `market_id` + `token_id` + "
-     "`side` inline on the trigger.polymarket step. Do NOT try to write the "
-     "workflow in one shot — the resolver inside propose_workflow only "
-     "accepts a single-shot escape hatch when matcher confidence is ≥0.85 "
-     "and will reject lower-confidence drafts back to you.\n\n"
-     "TWO TRIGGER MODES — `mode='threshold'` (default) fires when the YES "
-     "probability crosses a number ('alert me when X chance goes above "
-     "70%'). `mode='resolution'` fires WHEN THE MARKET ACTUALLY RESOLVES — "
-     "use it for 'execute when X actually happens', 'buy oil when Iran-"
-     "ceasefire-holds resolves YES', 'sell my hedge when Trump-wins-2028 "
-     "resolves NO', 'once the election is decided'. Resolution mode "
-     "ignores threshold/direction entirely; it just waits for Polymarket "
-     "to declare the winner. `resolve_on='YES' | 'NO' | 'ANY'` picks "
-     "which outcome fires (default YES).",
-     {
-         "event_description": {
-             "type": "string",
-             "description":
-                 "The user's full event wording verbatim, including any "
-                 "negation ('Trump does NOT win'). The matcher uses it to "
-                 "pick a Polymarket contract AND which side (YES/NO).",
-         },
-         "threshold": {
-             "type": "number",
-             "minimum": 0.0,
-             "maximum": 1.0,
-             "description":
-                 "YES probability at which to fire, 0..1. OMIT this field "
-                 "entirely if the user did not name a number — the handler "
-                 "will derive 3 preset chips from the current YES price. "
-                 "Ignored when mode='resolution'.",
-         },
-         "direction": {
-             "type": "string",
-             "enum": ["above", "below"],
-             "description":
-                 "'above' fires when probability rises through threshold; "
-                 "'below' fires when it falls through. Default 'above'. "
-                 "Ignored when mode='resolution'.",
-         },
-         "mode": {
-             "type": "string",
-             "enum": ["threshold", "resolution"],
-             "description":
-                 "'threshold' (default) = fire on probability cross. "
-                 "'resolution' = fire when the market officially resolves "
-                 "YES or NO. Pick 'resolution' for asks like 'when X "
-                 "actually happens', 'once X is decided', 'when X "
-                 "resolves', 'after the event completes'.",
-         },
-         "resolve_on": {
-             "type": "string",
-             "enum": ["YES", "NO", "ANY"],
-             "description":
-                 "Which resolved outcome fires the trigger. Default 'YES'. "
-                 "Use 'NO' when user explicitly wants to fire on negative "
-                 "resolution ('sell my hedge when Trump 2028 resolves NO'). "
-                 "'ANY' fires on either outcome. Only honored when "
-                 "mode='resolution'.",
-         },
-         "workflow_action_summary": {
-             "type": "string",
-             "description":
-                 "Optional one-line note on what should happen when the "
-                 "trigger fires ('sell my NIFTYBEES', 'send a push'). "
-                 "Surfaced on the confirm card so the user knows what "
-                 "they're activating. Workflow wiring is a follow-up.",
-         },
-     },
-     ["event_description"],
-     defaults={"direction": "above", "mode": "threshold", "resolve_on": "YES"})
-
-
-tool("browse_polymarket_markets",
-     "Browse open prediction-market contracts on Polymarket — discovery, "
-     "not subscription. USE when the user asks 'what's hot on Polymarket', "
-     "'show me open Bitcoin markets', 'what crypto / politics / sports "
-     "markets are trading', 'what can I bet on Trump 2028?'. The user "
-     "browses; they pick a contract; THEN they call "
-     "`propose_polymarket_trigger` to set up an alert on it.\n\n"
-     "`topic` is an optional keyword/category to filter on (Bitcoin, "
-     "Politics, NBA, Iran, Trump, election, etc.). Empty/omitted → "
-     "returns the top open events by 24h volume across all categories. "
-     "Returns events grouped (one event can hold many candidate "
-     "markets — e.g. '2028 Presidential' has 128 per-candidate markets). "
-     "Each event row carries title, 24h volume, primary tags, end date, "
-     "and the top markets within it (question + YES price + token ids "
-     "ready for `propose_polymarket_trigger`).\n\n"
-     "NOT for live price reads on a known market (use `propose_polymarket"
-     "_trigger` or the REST cross-check). NOT for Indian-stock listings.",
-     {
-         "topic": {
-             "type": "string",
-             "description":
-                 "Optional keyword / category filter. Examples: 'Bitcoin', "
-                 "'Trump 2028', 'NBA Finals', 'Iran', 'Fed rate'. "
-                 "Empty → top events overall.",
-         },
-         "limit": {
-             "type": "integer",
-             "minimum": 1,
-             "maximum": 20,
-             "default": 10,
-             "description":
-                 "How many events to return (default 10, max 20). Each "
-                 "event surfaces its top 3 markets — don't crank this "
-                 "high; chat UX gets cluttered above 10.",
-         },
-     },
-     [],
-     defaults={"limit": 10})
 
 
 # ── META: find_tool (lazy-loader escape hatch) ─────────────────────────────

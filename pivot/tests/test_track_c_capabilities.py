@@ -288,61 +288,44 @@ def test_draft_primary_symbol_helper():
 
 
 # ── #5 Staged scale-out exits ────────────────────────────────────────
+#
+# The deterministic staged-exit fast path (_parse_staged_exit /
+# _build_staged_exit_draft / _try_staged_exit) was DELETED 2026-07-17. It was a
+# regex reading a trade's exit legs out of prose, and it got them wrong in a way
+# that mattered: it laid the stop out AFTER both take-profit tranches, and steps
+# run strictly in order, so the stop could not fire until every target above it
+# had — disarmed on exactly the path it existed for. It also wrote its own reply
+# from a fixed template, bypassing the model entirely.
+#
+# Staged exits now go to the planner (propose.py carries the grammar, including
+# the or-the-stop-into-every-tranche rule and the sell-the-remainder rule).
+# These tests hold the BOUNDARY: nothing may intercept a staged ask before the
+# model sees it.
 
 
-def test_staged_exit_parse_and_draft():
-    from backend.services.chat_service import (
-        _build_staged_exit_draft,
-        _parse_staged_exit,
-    )
-    from backend.workflows.propose import validate_draft_against_registry
+def test_staged_exit_fast_path_is_gone():
+    """No deterministic staged-exit interceptor may come back."""
+    import backend.services.chat_service as cs
 
-    msg = ("Buy 10 INFY at open. Sell 5 when up 3%, 5 more at 6%, "
-           "and all out if it drops 2%.")
-    p = _parse_staged_exit(msg)
-    assert p == {
-        "symbol": "INFY", "entry_qty": 10,
-        "targets": [(5, 3.0), (5, 6.0)], "stop_pct": 2.0,
-    }
-    draft = _build_staged_exit_draft(p)
-    types = [s["step_type"] for s in draft["steps"]]
-    assert types.count("trigger.exit_compound") == 3
-    assert types.count("action.place_order") == 4  # entry buy + 3 sells
-    # Every exit branch is one-shot and symbol-scoped.
-    for s in draft["steps"]:
-        if s["step_type"] == "trigger.exit_compound":
-            assert s["config"]["one_shot"] is True
-            assert s["config"]["target_symbol"] == "INFY"
-    # Stop branch uses the LOW basis, targets use HIGH.
-    exit_cfgs = [s["config"] for s in draft["steps"]
-                 if s["step_type"] == "trigger.exit_compound"]
-    assert exit_cfgs[0]["entry"]["left"]["basis"] == "high"
-    assert exit_cfgs[-1]["entry"]["left"]["basis"] == "low"
-    assert exit_cfgs[-1]["entry"]["right"]["value"] == pytest.approx(-0.02)
-    # Validates against the real step registry.
-    validate_draft_against_registry(draft)
+    for name in ("_parse_staged_exit", "_build_staged_exit_draft",
+                 "_try_staged_exit", "_STAGED_EXIT_HONEST_OFFER"):
+        assert not hasattr(cs, name), (
+            f"{name} is back — a regex must not author exit legs; the planner "
+            "owns staged scale-outs (see propose.py STAGED SCALE-OUT grammar)"
+        )
 
 
-def test_staged_exit_no_entry_returns_offer_shape():
-    from backend.services.chat_service import (
-        _build_staged_exit_draft,
-        _parse_staged_exit,
-    )
-    # Holding case — no parseable entry → parse keeps symbol empty,
-    # builder declines (honest offer path in the guard).
-    msg = ("I hold some shares. Sell 5 when up 3%, 5 more at 6%, "
-           "all out if it drops 2%.")
-    p = _parse_staged_exit(msg)
-    assert p is not None and p["symbol"] == ""
-    assert _build_staged_exit_draft(p) is None
+def test_planner_grammar_teaches_armed_stop_and_remainder():
+    """The two things the deleted code got wrong must be stated to the model,
+    since the model is now the only thing that gets them right."""
+    from backend.workflows.propose import build_system_prompt
 
-
-def test_staged_exit_gate_rejects_plain_orders():
-    from backend.services.chat_service import _parse_staged_exit
-    assert _parse_staged_exit("buy 10 INFY at market") is None
-    assert _parse_staged_exit(
-        "sell 5 INFY when it is up 3%",
-    ) is None  # single tranche, no stop → not a staged shape
+    p = build_system_prompt()
+    assert "STAGED SCALE-OUT" in p
+    # The stop must be OR-ed into every tranche, not appended after them.
+    assert "ARMED AT EVERY STAGE" in p
+    # And the final sell is the remainder, not the entry quantity.
+    assert "REMAINDER" in p or "remainder" in p
 
 
 def test_exit_compound_one_shot_latch_short_circuits():
@@ -786,3 +769,48 @@ def test_register_intent_regexes():
                 "is the workflow running"]:
         assert _WF_STATUS_RE.search(msg), msg
     assert not _WF_STATUS_RE.search("show me the NIFTY option chain")
+
+
+# ── Bracket exits: the fallback must never guess which leg is the stop ───────
+#
+# 2026-07-17: the regex fast path ran AHEAD of the translator and matched the
+# profit branch of "exit at 7% gain or 4% loss" first, returning immediately and
+# discarding the stop — the card took profit at +7% and never stopped out while
+# the reply promised both. The fast path is gone; the translator owns exit
+# interpretation. What remains is a provider-outage fallback, and it is only
+# allowed to bind ONE unambiguous leg: "book profit at 12% or cut losses at 5%"
+# cannot be read by a regex without binding the stop to 12.
+
+
+@pytest.mark.parametrize("text", [
+    "exit at 7% gain or 4% loss",
+    "book profit at 12% or cut losses at 5%",
+    "take profit at 8% with a stop loss",
+    "sell at +10% or -5%, whichever comes first",
+])
+def test_fallback_refuses_two_legged_exits(text):
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    assert _fallback_position_exit(text) is None, (
+        "a two-legged bracket must never be bound by regex — which number is "
+        "the stop is a reading question, and getting it backwards arms a "
+        "'stop' above the entry"
+    )
+
+
+def test_fallback_still_binds_an_unambiguous_single_leg():
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    tp = _fallback_position_exit("exit when up 6%")
+    assert tp["op"] == ">=" and tp["right"]["value"] == pytest.approx(0.06)
+    sl = _fallback_position_exit("cut losses at 3%")
+    assert sl["op"] == "<=" and sl["right"]["value"] == pytest.approx(-0.03)
+
+
+def test_no_regex_fast_path_ahead_of_the_translator():
+    """The interpreter is the translator, not a regex."""
+    import backend.services._dsl_chat_tools as m
+
+    assert not hasattr(m, "_deterministic_position_exit"), (
+        "the exit fast path is back — it dropped two stop-losses last time"
+    )

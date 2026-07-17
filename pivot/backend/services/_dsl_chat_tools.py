@@ -166,10 +166,7 @@ _EXIT_LOSS_RE = re.compile(
     r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:loss(?:es)?|down|drop)\b",
     re.IGNORECASE,
 )
-# Any mention of a downside leg at all. If this fires but _EXIT_LOSS_RE can't
-# bind a NUMBER, the fast path must NOT ship a take-profit-only tree — it
-# defers to the LLM translator, which handles brackets correctly. Silently
-# dropping a stop the user asked for is the one outcome never worth a saved hop.
+# Any mention of a downside leg at all — used to REFUSE, never to bind.
 _LOSS_WORD_RE = re.compile(
     r"\b(?:loss(?:es)?|stop[\s-]?loss|\bsl\b|cut\s+loss(?:es)?|downside)\b",
     re.IGNORECASE,
@@ -190,11 +187,24 @@ def _first_group(m: "re.Match") -> Optional[float]:
     return None
 
 
-def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[dict]:
-    """Build a position-leaf exit tree for the common phrasings without an
-    LLM hop. ``force=True`` is the failure-fallback: when the LLM translate
-    errored/timed out but the text clearly names a position exit, still
-    produce the right leaf rather than refusing a supported shape."""
+def _fallback_position_exit(text: str) -> Optional[dict]:
+    """Last-resort exit leaf for when the LLM translator is UNAVAILABLE
+    (errored, timed out, or returned a tree that failed validation).
+
+    This is NOT a fast path and must never be used as one. It used to run
+    ahead of the translator to save a hop, which meant a regex was deciding
+    which number was the profit target and which was the stop — something it
+    cannot do: "book profit at 12% or cut losses at 5%" binds the stop to 12,
+    and "exit at 7% gain or 4% loss" matched the profit branch and returned
+    early, dropping the stop entirely while the reply promised both (found
+    2026-07-17, twice, both on the safety-critical leg). The translator owns
+    interpretation now; this only exists so a provider outage degrades to a
+    correct-but-narrow answer instead of nothing.
+
+    So it is deliberately timid: it binds ONE unambiguous leg and refuses
+    anything two-legged. A bracket with no model to read it gets an honest
+    failure, not a card with a stop we guessed at.
+    """
     t = (text or "").strip().lower()
     if not t:
         return None
@@ -214,30 +224,14 @@ def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[
     _ml = _EXIT_LOSS_RE.search(t)
     _vl = _first_group(_ml) if _ml else None
 
-    # A BRACKET ("exit at 7% gain or 4% loss") names BOTH legs — the most
-    # common exit shape there is — and regex CANNOT reliably say which number
-    # belongs to which leg: "book profit at 12% or cut losses at 5%" binds the
-    # stop to 12. This fast path used to match the profit branch and return
-    # immediately, silently discarding the stop entirely, so the card took
-    # profit at +7% and never stopped out while the reply promised both
-    # (found 2026-07-17). Two legs ⇒ hand it to the LLM translator, which
-    # composes the OR correctly. One saved hop is never worth a wrong or
-    # missing stop.
-    _two_legged = (_vp is not None and (_vl is not None or _LOSS_WORD_RE.search(t)))
-    if _two_legged and not force:
+    # TWO LEGS ⇒ REFUSE. Which number is the target and which is the stop is a
+    # reading-comprehension question, and getting it backwards arms a "stop" at
+    # +12%. With no translator to ask, the honest answer is no card.
+    if _vp is not None and (_vl is not None or _LOSS_WORD_RE.search(t)):
+        return None
+    if _vl is not None and (_vp is not None or _EXIT_PROFIT_RE.search(t)):
         return None
 
-    if _vp is not None and _vl is not None:
-        # force=True (translate already failed): best-effort OR beats refusing
-        # a supported shape — both legs present, numbers as parsed.
-        return {
-            "type": "logic",
-            "op": "or",
-            "operands": [
-                _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6)),
-                _cmp("unrealised_pct", "<=", round(-_vl / 100.0, 6)),
-            ],
-        }
     if _vp is not None:
         return _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6))
     if _vl is not None:
@@ -245,16 +239,6 @@ def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[
     m = _EXIT_BARS_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("bars_held", ">=", int(v))
-    if force:
-        # Last resort: any % near a peak/profit/loss word.
-        mm = re.search(r"(\d+(?:\.\d+)?)\s*%", t)
-        if mm:
-            v = float(mm.group(1)) / 100.0
-            if "peak" in t or "high" in t or "trail" in t:
-                return _cmp("drawdown_from_peak_pct", ">=", round(v, 6))
-            if any(w in t for w in ("loss", "down", "drop", "fall", "stop")):
-                return _cmp("unrealised_pct", "<=", round(-v, 6))
-            return _cmp("unrealised_pct", ">=", round(v, 6))
     return None
 
 
@@ -1396,35 +1380,33 @@ async def propose_dsl_workflow(args: dict) -> dict:
     exit_tx_meta = None
     exit_readback = None
     if exit_condition_text:
-        # Fast path: parse the common position-exit phrasings deterministically
-        # (no LLM hop). Falls through to the LLM translator only for shapes the
-        # parser doesn't recognise, and that call is TIME-CAPPED so a hung
-        # provider can't stall the turn ~2 minutes. On any failure we fall back
-        # to the deterministic leaf rather than refusing a supported exit shape.
-        exit_tree = _deterministic_position_exit(exit_condition_text)
-        if exit_tree is None:
-            try:
-                exit_tree, exit_tx_meta = await asyncio.wait_for(
-                    translate_condition_to_tree(
-                        exit_condition_text,
-                        allow_position=True,
-                        primary_symbol=primary,
-                        cache_key="dsl.chat.propose.exit.v1",
-                    ),
-                    timeout=25,
-                )
-            except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
-                exit_tree = _deterministic_position_exit(
-                    exit_condition_text, force=True,
-                )
-                if exit_tree is None:
-                    raise ValueError(
-                        f"could not translate exit_condition into a DSL tree: {exc}"
-                    ) from None
-                logger.info(
-                    "exit translate failed (%s); used deterministic leaf for %r",
-                    type(exc).__name__, exit_condition_text[:60],
-                )
+        # The TRANSLATOR owns exit interpretation — always. It is a small
+        # dedicated call (minimal effort, 1.2k out, its own prompt-cache key),
+        # not a main-loop hop, so there is nothing meaningful to save by
+        # regexing ahead of it, and what the regex fast path bought instead was
+        # two dropped stop-losses. It is TIME-CAPPED so a hung provider can't
+        # stall the turn; only on genuine failure do we fall back, and then
+        # only to an unambiguous single leg (see _fallback_position_exit).
+        try:
+            exit_tree, exit_tx_meta = await asyncio.wait_for(
+                translate_condition_to_tree(
+                    exit_condition_text,
+                    allow_position=True,
+                    primary_symbol=primary,
+                    cache_key="dsl.chat.propose.exit.v1",
+                ),
+                timeout=25,
+            )
+        except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+            exit_tree = _fallback_position_exit(exit_condition_text)
+            if exit_tree is None:
+                raise ValueError(
+                    f"could not translate exit_condition into a DSL tree: {exc}"
+                ) from None
+            logger.info(
+                "exit translate failed (%s); used fallback leaf for %r",
+                type(exc).__name__, exit_condition_text[:60],
+            )
         # Overlay user-specified interval on indicator leaves in the
         # exit tree too (same defence-in-depth as the entry tree above).
         _apply_interval_to_indicators(exit_tree, interval)
@@ -1432,8 +1414,8 @@ async def propose_dsl_workflow(args: dict) -> dict:
             parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
             semantic_validate(parsed_exit, allow_position=True)
         except (DSLValidationError, ValidationError) as exc:
-            # Last-ditch deterministic leaf before refusing.
-            fb = _deterministic_position_exit(exit_condition_text, force=True)
+            # Translator produced an unusable tree — last-ditch single leaf.
+            fb = _fallback_position_exit(exit_condition_text)
             if fb is not None and fb is not exit_tree:
                 try:
                     _apply_interval_to_indicators(fb, interval)
