@@ -300,7 +300,14 @@ function OrderTicketSheet({
           width: "min(780px, calc(100vw - 24px))",
           zIndex: 341,
           borderRadius: 6,
-          overflow: "hidden",
+          // Never taller than the viewport (with a small gutter) — on short
+          // phones the ticket would otherwise push its header off the top of
+          // the screen where overflow:hidden clipped it out of reach. Cap the
+          // height and let the body scroll instead so every field stays
+          // reachable. overflowX stays hidden to keep the rounded corners clean.
+          maxHeight: "calc(100dvh - 32px)",
+          overflowX: "hidden",
+          overflowY: "auto",
           background: "var(--bg-primary)",
           border: "1px solid var(--glass-border)",
           boxShadow: "0 12px 48px rgba(0,0,0,0.28)",
@@ -644,6 +651,11 @@ function OrderTicketSheet({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            // Wrap on narrow phones so the Buy/Cancel group drops to its own
+            // line instead of overflowing the card (where overflow-x:hidden
+            // would clip it). rowGap keeps the two lines legible.
+            flexWrap: "wrap",
+            gap: 12,
             padding: "12px 18px 14px",
           }}
         >
@@ -674,7 +686,7 @@ function OrderTicketSheet({
               </button>
             </span>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, marginLeft: "auto" }}>
             <button
               type="button"
               onClick={() => void submit()}
