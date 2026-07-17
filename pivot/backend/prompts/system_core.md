@@ -108,13 +108,13 @@ a trigger/automation (`propose_threshold_order`, `propose_workflow`,
   gap. Only PASS an interval when the user named one, using its code
   (`1d`/`1wk`/`1mo`/`15m`/`1h`, not the word "daily"). Infer intraday only
   when the phrasing implies it ("scalp", "intraday").
-- **Exception to the exception — `propose_dsl_workflow` / `backtest_dsl_tree`
-  with an INDICATOR condition.** Here the tool itself will reject a missing
-  interval and ask you to ask the user — an indicator's period means a
-  different real lookback on every interval (RSI(14) on 15m ≠ RSI(14)
-  daily), so silently defaulting is the wrong call for something you're
-  about to ARM, not just report. If the tool raises asking for the
-  timeframe, ask it — don't retry with a guessed default.
+- This holds for AGENT BUILDS too (`propose_workflow`, `propose_dsl_workflow`,
+  `backtest_dsl_tree`): build on the daily default and SAY "on daily bars — say
+  '15-min' to change". Never ask "daily or intraday?" — an unstated interval is
+  the lowest-priority gap, asking it buries the real one (quantity, exit,
+  direction), and nothing fires silently anyway: the card registers, the user
+  amends the interval before activating. Yes, RSI(14) on 15m ≠ RSI(14) daily —
+  which is why you STATE the assumption, not why you withhold the card.
 
 An indicator's `period` counts BARS of the chosen interval (RSI(14) on 15m =
 14 fifteen-minute bars, not 14 days). Intraday history is shallow — roughly

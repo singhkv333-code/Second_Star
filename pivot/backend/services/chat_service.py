@@ -3494,6 +3494,15 @@ matches. The shapes to distinguish:
   ("now try RSI<25") re-runs it with that one change.
 - CONTRADICTION: an ask to buy AND sell the same instrument at the same
   time is contradictory — ask which action was meant; never draft both.
+- "crosses N" with no direction means crosses ABOVE (from below). Build that
+  and note the assumption; don't spend the turn asking which way.
+- A staged exit ("sell a third at +5%, a third at +10%, all out at −3%") must
+  keep the STOP ARMED AT EVERY STAGE: express each stage as a compound exit
+  (its take-profit OR the stop), never a linear chain where the stop sits
+  behind the profit legs — in a chain the stop cannot fire until the targets
+  do, which silently disarms it on the exact path it exists for.
+- A card caption summarises EVERY leg (entry and each exit), not just the
+  entry — a caption that describes only the buy hides the mechanics.
 
 ## Clarify discipline
 Call ASK_USER (structured, tappable) only when a REQUIRED field is

@@ -1313,20 +1313,21 @@ async def propose_dsl_workflow(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
-    # Always-ask the timeframe: if the user didn't name one (the chat loop
-    # strips a guessed `interval` for this tool when the message has no
-    # timeframe) and the entry tree actually uses an indicator, raise so the
-    # LLM asks — never build an indicator trigger on a silent daily default.
-    raw_interval = (args.get("interval") or "").strip()
-    if not raw_interval and _tree_has_indicator(tree):
-        raise ValueError(
-            "propose_dsl_workflow: timeframe (bar interval) is required for an "
-            "indicator condition, or a price condition that looks back N bars "
-            "(e.g. 'lower than it was N minutes ago'). Call ASK_USER first: "
-            "ask 'Which timeframe — 1m / 5m / 15m / 30m / 1h / daily / weekly "
-            "/ monthly?'. Do NOT default to daily — the indicator period, or "
-            "the price lookback, counts BARS of the chosen interval."
-        )
+    # Indicator timeframe: DEFAULT to daily when the user didn't name one,
+    # rather than refusing to build — the same call `propose_workflow` already
+    # made. This lane used to raise so the LLM would ask, which meant the two
+    # agent lanes disagreed: "buy INFY when RSI(14)<30" BUILT via the simple
+    # lane on an implicit daily default, while the same rule with an exit
+    # routed here and came back as "daily or 15-min?". The 2026-07-17 eval's
+    # two richest agent builds (A22 entry+TP/SL, A24 MACD+RSI) produced no card
+    # at all for exactly this reason. The bar-interval is the LOWEST-priority
+    # clarify with a safe standard default (system_core clarify priority) and
+    # asking it buries the real gap (quantity/exit). Nothing fires silently:
+    # the card is register-not-execute and the reply states the daily
+    # assumption, so the user can amend the interval before activating.
+    _timeframe_assumed = (
+        not (args.get("interval") or "").strip() and _tree_has_indicator(tree)
+    )
 
     # Overlay the user-specified interval on every IndicatorNode in the
     # translated tree (the LLM grammar prompt doesn't know about it yet,
@@ -1558,6 +1559,9 @@ async def propose_dsl_workflow(args: dict) -> dict:
         "name": label,
         "description": description,
         **({"summary": _model_summary[:400]} if _model_summary else {}),
+        # The reply must state a defaulted bar-interval (we build on daily
+        # rather than asking; the user amends before activating).
+        **({"timeframe_assumed": "daily"} if _timeframe_assumed else {}),
         "steps": steps,
         "readback": readback,
         "exit_readback": exit_readback,
