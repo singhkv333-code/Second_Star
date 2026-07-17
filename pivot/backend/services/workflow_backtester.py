@@ -79,7 +79,27 @@ logger = logging.getLogger(__name__)
 # touching the fill loops. See backend/services/trading_costs.py.
 from backend.services.trading_costs import leg_bps as _leg_bps
 _FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
+# The simulation's cash pool when the user names no capital. This is a
+# SUFFICIENT-CASH constant so fills are never starved — it is NOT a claim that
+# the user has ₹10L, and it must never end up as the denominator of a reported
+# percent (see the capital-basis block in `_run`). Kept high enough that a
+# realistic basket or SIP never trips the cash check.
 _STARTING_CAPITAL = 1_000_000.0
+
+# What each basis MEANS, in the reply's own terms — shipped on the card so the
+# model states the denominator instead of inferring one.
+_CAPITAL_BASIS_LEGEND: dict[str, str] = {
+    "stated": "the capital the user named — idle cash included, because they "
+              "asked about that amount",
+    "deployed": "the peak capital the strategy actually had at risk at any one "
+                "time (open long cost + short notional); no idle cash diluting "
+                "it, so this is the return on the money the rule really used",
+    "pool": "the simulation's ASSUMED cash pool — either the strategy sizes "
+            "itself off available cash (so the pool is the capital), or it "
+            "holds a short, whose capital is margin and this simulator does "
+            "not model margin. Say the assumed amount out loud; do not present "
+            "this percent as a return on the user's own money",
+}
 
 
 # ── Eligibility ──────────────────────────────────────────────────────
@@ -2930,6 +2950,8 @@ def backtest_workflow(
     # last known primary close forward on union-only dates keeps the price
     # line continuous.
     _last_primary_close: Optional[float] = None
+    _peak_deployed = 0.0
+    _short_held = False
     for ts in union_index:
         # Apply any trades scheduled today. Uses signed qty so short
         # legs replay correctly: trade rows still have side='buy'/'sell'
@@ -2962,6 +2984,20 @@ def backtest_workflow(
             close = _last_primary_close
         else:
             close = float(bars["Close"].iloc[0])
+        # Capital the strategy has AT RISK right now, at cost — the running
+        # peak of this is what it actually needed, and the honest denominator
+        # for every percent we report. Longs only: a SHORT's capital is margin,
+        # which this simulator does not model, and its notional is not a stand-
+        # in (a short's equity isn't "cash deployed + P&L", so rebasing on
+        # notional drives the curve to zero on a 100% adverse move). Runs
+        # holding a short keep the pool basis and say so.
+        _deployed_now = 0.0
+        for _s, _q in walking_state.holdings.items():
+            if _q > 0:
+                _deployed_now += _q * walking_state.avg_buy_price.get(_s, 0.0)
+            elif _q < 0:
+                _short_held = True
+        _peak_deployed = max(_peak_deployed, _deployed_now)
         market_value = 0.0
         for sym, qty in walking_state.holdings.items():
             if qty == 0:
@@ -2984,55 +3020,49 @@ def backtest_workflow(
         price_curve.append({"t": _fmt_bar_ts(ts), "v": close})
         equity_curve.append({"t": _fmt_bar_ts(ts), "v": round(equity, 2)})
 
-    # ── Deployed-capital basis ────────────────────────────────────────
-    # A fixed-quantity strategy ("buy 10 RELIANCE per signal") uses a tiny
-    # slice of the simulation pool; measuring it against the whole pool
-    # dilutes the headline toward 0% (₹10,00,000 → ₹10,00,229 = "+0.02%"
-    # on a trade sequence that actually made ~+1.7% on its money). When no
-    # capital was STATED and every buy is explicitly share-sized (nothing
-    # scales with the pool), the fills are identical under any sufficient
-    # cash level — so rebase the curve to the strategy's PEAK CONCURRENT
-    # deployed cost: byte-equivalent to a re-run with capital=peak.
-    capital_basis = "stated" if starting_capital is not None else "pool"
-    if starting_capital is None and trades:
-        _fixed_qty = all(
-            (s.get("config") or {}).get("side", "buy") != "buy"
-            or (isinstance((s.get("config") or {}).get("quantity"), (int, float))
-                and not any(k in (s.get("config") or {})
-                            for k in ("notional", "notional_inr", "amount",
-                                      "total_inr")))
-            for s in steps
-            if isinstance(s, dict)
-            and s.get("step_type") in ("action.place_order",)
-        ) and not any(
-            isinstance(s, dict)
-            and str(s.get("step_type", "")).startswith("action.allocate")
-            for s in steps
-        )
-        _open_cost: dict[str, float] = {}
-        _open_qty: dict[str, float] = {}
-        _peak = 0.0
-        _short_seen = False
-        for t in trades:
-            sym, q, px = t["symbol"], float(t["qty"]), float(t["price"])
-            if t["side"] == "buy":
-                _open_cost[sym] = _open_cost.get(sym, 0.0) + q * px
-                _open_qty[sym] = _open_qty.get(sym, 0.0) + q
-            else:
-                oq = _open_qty.get(sym, 0.0)
-                if q > oq + 1e-9:  # sells more than held → short leg
-                    _short_seen = True
-                    break
-                if oq > 0:
-                    _open_cost[sym] -= q * (_open_cost[sym] / oq)
-                    _open_qty[sym] = oq - q
-            _peak = max(_peak, sum(_open_cost.values()))
-        if (_fixed_qty and not _short_seen and 0 < _peak < capital * 0.5):
-            _offset = round(capital - _peak, 2)
-            for p in equity_curve:
-                p["v"] = round(p["v"] - _offset, 2)
-            capital = _peak
-            capital_basis = "peak_deployed"
+    # ── Capital basis: what every percent below is a percent OF ───────
+    #
+    # `_STARTING_CAPITAL` is a SUFFICIENT-CASH constant, not a claim about the
+    # user's money. Reporting against it turns a real edge into noise: "buy 25
+    # ITC when RSI<35" risks ~₹10k, and scoring that against a ₹10,00,000 pool
+    # reported +0.5% for a sequence that made ~+17% on the money it used.
+    #
+    # So the denominator is the capital the strategy ACTUALLY NEEDED: the peak
+    # of (open long cost + short notional) accumulated over the walk above. That
+    # is one rule for every shape — fixed-qty, notional, SIP, basket/allocate,
+    # shorts — replacing a per-shape conditional that only fired for fixed-qty
+    # long-only runs deploying under half the pool, and silently left baskets
+    # and notional sizing on the ₹10L pool.
+    #
+    # Rebasing the curve by (pool - peak) is EXACT when the pool never bound the
+    # fills: with cash never a constraint, the same fills happen at any
+    # sufficient level and the whole curve just shifts. `_pool_bound` below is
+    # what checks that — if a buy was skipped for cash, or a short for margin,
+    # or any order sized itself off the available cash, then the answer really
+    # does depend on the pool and we keep it and say so.
+    _pool_bound = any(
+        s.get("side") in ("buy_skipped", "short_skipped") for s in signals
+    ) or any(
+        isinstance(s, dict)
+        and str(s.get("step_type", "")).startswith("action.allocate")
+        and not (s.get("config") or {}).get("total_inr")
+        for s in steps
+    ) or bool(_sizing_note)  # buy-and-hold normalisation deploys the pool
+
+    if starting_capital is not None:
+        # The user named their capital: that IS the denominator, whatever the
+        # strategy chose to deploy of it. Idle cash is part of their answer.
+        capital_basis = "stated"
+    elif _pool_bound or _short_held:
+        capital_basis = "pool"
+    elif _peak_deployed > 0:
+        _offset = round(capital - _peak_deployed, 2)
+        for p in equity_curve:
+            p["v"] = round(p["v"] - _offset, 2)
+        capital = round(_peak_deployed, 2)
+        capital_basis = "deployed"
+    else:
+        capital_basis = "pool"
 
     # Metrics: total return %, CAGR, max drawdown, win rate, n_trades.
     final_equity = equity_curve[-1]["v"] if equity_curve else capital
@@ -3276,18 +3306,24 @@ def backtest_workflow(
         "return_on_deployed_pct": return_on_deployed_pct,
         "capital_utilization_pct": capital_utilization_pct,
         "benchmark_return_pct": bench_pct,
-        # 'peak_deployed' = curve rebased to the strategy's own peak
-        # concurrent cost (fixed-qty draft, no stated capital);
-        # 'stated' = caller passed real capital; 'pool' = default ₹10L.
+        # 'stated'   = the caller named their capital; that's the denominator.
+        # 'deployed' = no capital named: curve rebased to the peak capital the
+        #              strategy actually had at risk. The default for any
+        #              self-sizing-free run — fixed-qty, basket, SIP alike.
+        # 'pool'     = we could NOT honestly name a deployed figure: the
+        #              strategy sizes off available cash, or it holds a short
+        #              (margin, which we don't model). Assumed ₹10L; say so.
         "capital_basis": capital_basis,
         # Self-describing units, so a reply quotes a number on the RIGHT basis
         # instead of guessing. The 2026-07-17 eval saw account-basis and
         # deployed-basis percentages mixed inside one comparison table (K35),
         # and a drawdown reported as "+2.7%" — both are unlabeled-number bugs.
         "metric_legend": {
+            "capital_basis": _CAPITAL_BASIS_LEGEND[capital_basis],
             "total_return_pct": (
-                f"% on the {capital_basis} basis (₹{capital:,.0f} start) — "
-                "use ONE basis for every leg of a comparison"
+                f"% of ₹{capital:,.0f} — the {capital_basis} basis "
+                f"({_CAPITAL_BASIS_LEGEND[capital_basis]}). Use ONE basis for "
+                "every leg of a comparison, and say which one in your reply"
             ),
             "return_on_deployed_pct": (
                 "% on capital actually put to work (dollar-weighted, "

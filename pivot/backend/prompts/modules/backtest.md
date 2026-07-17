@@ -42,6 +42,22 @@ When the user says "buy on a 5% dip" (or "buy the dip", "on a X% pullback/correc
 - Do **NOT** express a dip as a single-bar percentage drop ("today's close is 5% below yesterday's close") — an index ETF like NIFTYBEES almost never falls 5% in ONE bar, so that condition returns **0 trades** and is silent-wrong versus what the user meant. If a first attempt yields 0 trades on a dip rule, it's the single-bar reading — re-express it against the rolling high.
 - The window length (20-bar high) is a sensible default — pick it and run; don't ask the user which lookback defines "recent high".
 
+## Every % is a % OF something — name the basis
+The return numbers are a percent of a specific rupee amount, and the result
+tells you which one in `metrics.capital_basis` (with `metric_legend.capital_basis`
+spelling it out). QUOTE that amount so the user knows what the % is on:
+- **`deployed`** — the user named no capital, so the % is on the peak the
+  strategy actually put to work (e.g. "+34% on the ~₹540 it deployed per signal",
+  "+45% on the ₹3L basket"). This is NOT a percent of ₹10 lakh — the ₹10L is
+  just the simulator's cash pool, never the denominator. Do not present it as
+  "+0.3% on ₹10 lakh"; that dilution is the exact bug this basis fixes.
+- **`stated`** — the user gave their capital; the % is on THAT, idle cash and all.
+- **`pool`** — we could not honestly name a deployed figure (the strategy sizes
+  off available cash, or it holds a short whose capital is margin we don't model).
+  Say the assumed ₹10L out loud and don't dress it up as a return on their money.
+- **In a comparison (SIP vs dip-buy, strategy vs strategy), both legs MUST be on
+  the SAME basis** — never put a `deployed` % next to a `stated` % in one table.
+
 ## State the assumption — never silent
 When you assumed something the user didn't pin, SAY it in one clause. The tool result carries an `assumptions` array (default exit policy, seeded basis, one-time-date notes) — surface every entry verbatim.
 - The default `n_day_hold(10)` exit is an ASSUMPTION, not the user's plan: if they gave no sell rule and didn't phrase a hold, report e.g. "assumed a 10-bar hold exit — say 'hold till end' to carry it to the window end."

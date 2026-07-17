@@ -181,7 +181,7 @@ def test_return_on_deployed_pct_for_small_fixed_qty_signal_trade(monkeypatch):
     # fixed-qty draft with no stated capital rebases the curve to its own
     # peak concurrent cost, so the ~40% trade reads as ~40%, not the
     # ₹10L-pool-diluted ~0% this test originally documented.
-    assert res.metrics["capital_basis"] == "peak_deployed"
+    assert res.metrics["capital_basis"] == "deployed"
     assert res.metrics["starting_capital"] < 1000.0  # ~5 shares @ ~105
     assert res.metrics["total_return_pct"] > 30.0
     # The dollar-weighted deployed return agrees.
