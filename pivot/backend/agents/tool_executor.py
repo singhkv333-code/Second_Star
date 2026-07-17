@@ -1337,6 +1337,7 @@ async def _get_multiple_indicators(a, kt, db, uid):
         indicators=a.get("indicators", []),
         history_period=a.get("history_period", "6mo"),
         interval=a.get("interval", "1d"),
+        period=a.get("period"),
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}
@@ -1404,6 +1405,8 @@ async def _screen_fundamentals(a, kt, db, uid):
         market_cap_tier=a.get("market_cap_tier"),
         custom_ratios=a.get("custom_ratios") or None,
         exclude=a.get("exclude") or None,
+        growth_years=a.get("growth_years"),
+        title=(a.get("title") or "").strip() or None,
     )
     return {"success": True, "data": out, "logiccard": None}
 

@@ -145,6 +145,10 @@ def get_indicator(
     # that interval, so e.g. RSI(14) on 15m has enough bars to settle.
     if is_intraday(norm_interval) and history_period == "6mo":
         history_period = default_period_for(norm_interval)
+    # Long daily lookbacks (e.g. SMA(200)) need more bars than the ~125
+    # in the default 6mo window — widen so the value can actually settle.
+    elif history_period == "6mo" and period > 75:
+        history_period = "2y"
     try:
         df = get_ohlcv(sym, period=history_period, interval=norm_interval)
     except DataUnavailableError as e:
@@ -176,21 +180,32 @@ def get_multiple_indicators(
     indicators: list[str],
     history_period: str = "6mo",
     interval: str = "1d",
+    period: int | None = None,
 ) -> dict[str, Any]:
     """Compute several indicators for one ticker in a single call.
 
     Use for: "give me RSI, MACD, and Bollinger for ETERNAL". Saves a
     chat round-trip vs calling get_indicator three times. All indicators
     are computed on the same ``interval`` (period counts BARS of it).
+    ``period`` applies to every requested indicator; omit for defaults.
     """
     sym = _normalise_symbol(symbol)
     if not indicators:
         return _err("indicators list is empty", symbol=sym)
     results: dict[str, Any] = {"symbol": sym, "indicators": {}, "interval": interval}
+    kw = {"period": int(period)} if period else {}
     for ind in indicators:
         results["indicators"][ind] = get_indicator(
-            sym, ind, history_period=history_period, interval=interval,
+            sym, ind, history_period=history_period, interval=interval, **kw,
         )
+    # Self-describing terminal state: name what failed and why, so the
+    # caller reports it instead of retrying other routes.
+    errs = [f"{k} unavailable ({v['error']})"
+            for k, v in results["indicators"].items()
+            if isinstance(v, dict) and v.get("error")]
+    if errs:
+        results["data_status"] = ("degraded — " + "; ".join(errs)
+                                  + ". No alternative source this turn.")
     return results
 
 

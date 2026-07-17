@@ -806,10 +806,13 @@ tool("screen_fundamentals",
      "below 1'), roe, roce, de (debt/equity), payout, price_to_book (P/B), "
      "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
      "net_profit_margin, ebitda_margin, asset_turnover\n"
-     " • GROWTH (YoY, latest two annual filings): revenue_growth, "
-     "net_profit_growth, eps_growth — use these for 'growing revenue/profits', "
-     "'positive revenue growth', 'fastest-growing'. 'positive revenue growth' = "
-     "filter {field:revenue_growth, op:'>', value:0}.\n"
+     " • GROWTH: revenue_growth, net_profit_growth, eps_growth — use these "
+     "for 'growing revenue/profits', 'positive revenue growth', "
+     "'fastest-growing'. Default horizon is YoY (latest two annual filings); "
+     "when the user names a horizon ('over the last 5 years', '10-year "
+     "growth'), set growth_years=N — the fields become an N-year CAGR. "
+     "'positive revenue growth' = filter {field:revenue_growth, op:'>', "
+     "value:0}.\n"
      " • market_cap — a REAL numeric field in ₹ crore (enrich-backed). "
      "'market cap above ₹20,000 Cr' = filter {field:market_cap, op:'>', "
      "value:20000}. (For a vague 'large/mid/small cap' WORD with no number, use "
@@ -845,20 +848,39 @@ tool("screen_fundamentals",
      "LIMIT: honour the user's 'top N' — if they say 'top 5' set limit=5, "
      "'top 10' → limit=10, 'exactly N companies' → limit=N. Default 15 when "
      "unspecified.\n\n"
-     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the user "
-     "to pick a threshold): 'cheap banking stocks' → sector=bank, "
-     "sort_by={field:pe,dir:asc}; 'fastest-growing IT' → sector=it, "
-     "sort_by={field:revenue_growth,dir:desc}; 'best dividend payers' → "
-     "sort_by={field:payout,dir:desc}; 'highest quality IT names' → sector=it, "
-     "sort_by={field:roe,dir:desc}. filters is OPTIONAL — pass it only when the "
-     "user named an explicit number. When several constraints are named, include "
-     "ALL of them (do not silently drop one).\n\n"
+     "VAGUE asks that name ONE dimension → use sort_by with NO hard filter (do "
+     "NOT ask the user to pick a threshold): 'cheap banking stocks' → "
+     "sector=bank, sort_by={field:pe,dir:asc}; 'fastest-growing IT' → "
+     "sector=it, sort_by={field:revenue_growth,dir:desc}; 'best dividend "
+     "payers' → sort_by={field:payout,dir:desc}.\n\n"
+     "BROAD/JUDGMENT asks ('best stocks', 'best in terms of financials', "
+     "'strongest fundamentals', 'research the sector') are MULTI-dimensional — "
+     "NEVER collapse them to a single metric like ROE. Put SEVERAL relevant "
+     "metrics in play (e.g. roe + net_profit_margin + revenue_growth + de, as "
+     "generous filters or with sort_by on the dimension the user emphasised) "
+     "so the table shows the full picture, AND set presentation='analysis' so "
+     "you write the comparative judgment the user actually asked for.\n\n"
+     "filters is OPTIONAL — pass it only when the user named an explicit "
+     "number. When several constraints are named, include ALL of them (do not "
+     "silently drop one). If a named constraint CANNOT be expressed as a "
+     "filter (stability/consistency/quality-over-time, e.g. 'stable "
+     "margins'), do NOT use presentation='table' — that mode gives you no "
+     "voice to disclose the gap. Use presentation='analysis', screen on what "
+     "IS expressible, then verify the inexpressible part yourself for the "
+     "shortlisted names (query_financials history) and say exactly what you "
+     "checked.\n\n"
      "CAP WORD: if the user says 'large cap'/'bluechip'/'big companies'/'mid "
      "cap'/'small cap' with no ₹ number, set market_cap_tier — REQUIRED to "
      "honour that phrasing.\n\n"
      "EXCLUDE: if the user carves out a name/sector/'PSU' ('excluding banks', "
      "'not X', 'no PSU names'), pass it in `exclude` — do NOT silently drop the "
      "carve-out or only mention it in prose; it must be enforced.\n\n"
+     "RANKING: set sort_by ONLY when the user names an ordering ('cheapest', "
+     "'highest ROE', 'fastest-growing', 'largest'). When they don't, OMIT "
+     "sort_by — the screen applies a fixed, deterministic default rank (market "
+     "cap when it's a filter, else a fixed metric priority) so the SAME screen "
+     "returns the SAME order every time. Do NOT guess a sort just to fill the "
+     "field; an omitted sort is deterministic, a guessed one flips between runs.\n\n"
      "This is a READ-ONLY ranking/screen, NOT a constructed basket — it has no "
      "weighting scheme and no per-name rationale. For a 'build me a basket' ask "
      "that also wants sizing/weights/a gate (not just a filtered list), use "
@@ -866,13 +888,25 @@ tool("screen_fundamentals",
      {
          "filters": {"type": "array",
                      "description": "Numeric constraints, AND-ed. Include EVERY "
-                     "constraint the user named.",
+                     "constraint the user named. Compare against a NUMBER via "
+                     "`value`, or against ANOTHER FIELD via `value_field` "
+                     "('operating cash flow exceeds net profit' → {field:"
+                     "'cash_from_ops', op:'>', value_field:'net_profit'}; 'P/E "
+                     "below its growth rate' → {field:'pe', op:'<', value_field:"
+                     "'net_profit_growth'}). Exactly one of value/value_field.",
                      "items": {"type": "object", "properties": {
                          "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
-                         "value": {"type": "number"}},
-                         "required": ["field", "op", "value"]}},
+                         "value": {"type": "number"},
+                         "value_field": {"type": "string",
+                                         "enum": list(_SCREEN_FIELDS)}},
+                         "required": ["field", "op"]}},
          "sector":  {"type": "string",
+                     "description": "Coarse sector. Set ONLY when the user "
+                     "explicitly names a sector/industry. NEVER infer a sector "
+                     "from the metrics, and NEVER narrow an all-market screen to "
+                     "a sector the user did not ask for — an unsectored screen "
+                     "spans the whole market.",
                      "enum": ["pharma", "bank", "it", "energy", "auto",
                               "autoancillary", "metal", "finance", "chemicals",
                               "fmcg", "infra", "textiles"]},
@@ -896,6 +930,37 @@ tool("screen_fundamentals",
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Sectors, 'PSU', or named companies/tickers "
                      "to carve out of the results (hard-filtered, not advisory)."},
+         "title": {"type": "string", "maxLength": 90,
+                     "description": "REQUIRED with presentation='table': a "
+                     "short, specific title rendered as the reply's heading "
+                     "(3–9 words, title case). Make it reflect THIS ask — "
+                     "'Profitable Growers: P/E Above 10, ROE Above 20%' or "
+                     "'Cheapest Large Caps by Earnings' — never a generic "
+                     "'Fundamental Screen' or a restated metric name."},
+         "growth_years": {"type": "integer", "minimum": 1,
+                     "description": "Horizon for ALL growth fields, in "
+                     "financial years. Set this ONLY when the user names a "
+                     "horizon ('over the last 5 years' → growth_years=5, "
+                     "'10-year growth' → 10); when they don't, OMIT it — "
+                     "never guess a window, the default is YoY (latest two "
+                     "annual filings). N>1 = CAGR between the latest filing "
+                     "and the one N filings earlier. Any N works — bounded "
+                     "only by a company's actual filing history; names "
+                     "without enough filings drop out rather than getting a "
+                     "fabricated number."},
+         "presentation": {"type": "string", "enum": ["table", "analysis"],
+                     "default": "table",
+                     "description": "How the rows reach the user. 'table' "
+                     "(default): the ranked rows ARE the answer — a "
+                     "deterministic table renders verbatim and you write "
+                     "nothing more. 'analysis': the rows are INPUT to "
+                     "research — the same exact table still renders, and YOU "
+                     "write the analysis below it (comparisons, tradeoffs, "
+                     "caveats, a defended view). Choose 'analysis' whenever "
+                     "the user asks to analyze/research, says 'best' about a "
+                     "broad judgment, or wants a view — a bare table is an "
+                     "incomplete answer to those. Choose 'table' for a plain "
+                     "'show me companies with X' screen."},
      },
      [],
      defaults={"limit": 15})
@@ -1690,19 +1755,16 @@ tool("propose_dsl_workflow",
          },
          "action_kind": {
              "type": "string",
-             "enum": ["notify_only", "buy_market", "buy_limit"],
-             "default": "notify_only",
+             "enum": ["buy_market", "buy_limit"],
+             "default": "buy_market",
              "description": (
-                 "notify_only (default) sends a push; buy_market/buy_limit "
-                 "place an order. Exit branch (when exit_condition set) "
-                 "always market-sells runtime-held quantity. ONLY in-app "
-                 "push is wired for notify_only — email/SMS/WhatsApp "
-                 "delivery does not exist yet. If the user asked for one "
-                 "of those, still build the push alert but say so plainly "
-                 "in your reply ('this'll alert you in Pivot — WhatsApp/"
-                 "email delivery isn't wired up yet') — do not silently "
-                 "build a push alert while implying it goes to the "
-                 "channel they named."
+                 "buy_market/buy_limit place an ORDER when the condition "
+                 "fires. Exit branch (when exit_condition set) always "
+                 "market-sells the runtime-held quantity. This tool builds "
+                 "ORDER automations only — price/condition ALERTS and "
+                 "notifications are NOT available, so never use this to build "
+                 "a 'just alert me' / 'notify me' / 'ping me' workflow; state "
+                 "that boundary in prose instead."
              ),
          },
          "quantity": {

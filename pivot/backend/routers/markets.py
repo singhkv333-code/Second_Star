@@ -312,14 +312,14 @@ def _db_meta(symbol: str) -> dict:
             out["name"] = e.long_name or e.company_name
             out["sector"] = e.sector
             out["industry"] = e.industry
-            out["market_cap"] = e.market_cap
+            out["market_cap"] = _safe_float(e.market_cap)
     except Exception:  # noqa: BLE001 — DB best-effort
         pass
     try:
         from backend.services.fundamentals_screen import fetch_gate_inputs
         g = fetch_gate_inputs([symbol]).get(symbol.upper())
         if g and g.get("pe") is not None:
-            out["pe_ratio"] = float(g["pe"])
+            out["pe_ratio"] = _safe_float(g["pe"])
     except Exception:  # noqa: BLE001
         pass
 
@@ -441,6 +441,14 @@ def get_quote(
             503, "not_yet_available",
             f"yfinance lookup failed for {sym}: {str(e)[:160]}",
         )
+
+    # Yahoo's most-recent daily bar is sometimes Volume-only (OHLC all NaN)
+    # before today's candle settles — building a quote from that produced an
+    # unhandled 500 (Starlette's JSON encoder rejects NaN) for EVERY symbol,
+    # since Kite has no live session on Azure and every quote falls through
+    # to this path. Drop unsettled rows so we always use the last real close.
+    if not hist.empty:
+        hist = hist.dropna(subset=["Close"])
 
     if hist.empty:
         raise http_error(

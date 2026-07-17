@@ -180,7 +180,7 @@ Rules:
   - Times default to "Asia/Kolkata" unless the user specifies otherwise.
   - "if my buying power is over X" → fetch.portfolio THEN condition.numeric on context.<idx>.buying_power.
   - Order placement that mentions confirmation / approval / "ask me first" → action.place_order with requires_approval=true.
-  - "notify me" / "alert me" → notify.message at the end.
+  - Price/condition ALERTS are NOT available: a workflow whose only action is an in-app notify.message (a "just alert me / notify me / ping me" ask with no order) will be REJECTED. Do not build a notify-only alert workflow. (notify.message may still accompany an ORDER action as a fire confirmation, and notify.webhook remains valid for an explicit external POST.)
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
   - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
 
@@ -237,6 +237,27 @@ def build_system_prompt() -> str:
 
 class ProposalValidationError(ValueError):
     """Raised when the LLM returns a draft that doesn't validate."""
+
+
+def _reject_notify_only(draft):
+    """Refuse a pure ALERT workflow (in-app `notify.message` with no order
+    action) — price/condition alerts aren't available (product decision), so a
+    card that only pushes an alert would never actually notify. Order
+    automations (any `action.*` step) and explicit `notify.webhook`
+    integrations pass through untouched. Returns the draft or raises."""
+    steps = getattr(draft, "steps", None) or []
+    types = [getattr(s, "step_type", "") for s in steps]
+    has_inapp_alert = any(t == "notify.message" for t in types)
+    has_order = any(t.startswith("action.") for t in types)
+    if has_inapp_alert and not has_order:
+        raise ProposalValidationError(
+            "Price/condition ALERTS and notifications aren't available right "
+            "now — Pivot doesn't send alerts, pings, or 'tell me when' "
+            "messages. Do NOT draft an alert/notify workflow; state this "
+            "boundary in one plain line. Only if the user wants to ACT at that "
+            "level, offer a broker-held GTT/threshold ORDER instead."
+        )
+    return draft
 
 
 async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
@@ -1449,7 +1470,7 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
     tm_draft = _top_movers_template(user_intent)
     if tm_draft is not None:
         try:
-            return validate_draft_against_registry(tm_draft.model_dump())
+            return _reject_notify_only(validate_draft_against_registry(tm_draft.model_dump()))
         except ProposalValidationError:
             # Template drifted from the registry — fall through to the LLM
             # rather than hard-failing a request we can still try to build.
@@ -1462,10 +1483,10 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
         # and screencast runs work without network. NOT a graceful
         # degradation when an LLM call fails.
         draft = _mock_propose(user_intent)
-        return validate_draft_against_registry(draft.model_dump())
+        return _reject_notify_only(validate_draft_against_registry(draft.model_dump()))
 
     # LLM is configured — propose for real, no safety net. If the model
     # can't produce a valid draft after one retry, the caller (chat
     # service / propose endpoint) gets the validation error and is
     # responsible for telling the user what's missing.
-    return await _propose_via_llm(user_intent)
+    return _reject_notify_only(await _propose_via_llm(user_intent))

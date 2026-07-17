@@ -3603,20 +3603,19 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "change' + credit/max-profit/max-loss/breakevens from the card."
         )
 
-    # R3 — fully-specified notify-only alert → notify_only DSL, no ASK_USER.
+    # R3 — price/condition ALERT ask → state the boundary, do NOT draft.
+    # Alerts/notifications are not available (product decision); a notify-only
+    # workflow has no wired delivery channel. Do not build one.
     if _is_notify_only_alert(message):
         guards.append(
-            "## Notify-only alert — register it, do NOT ASK_USER\n"
-            "The user wants a price ALERT with an explicit 'no order' / "
-            "'just alert' marker and a price level. Call "
-            "`propose_dsl_workflow(action_kind='notify_only', "
-            "primary_symbol=<symbol>, condition='price crosses "
-            "above/below <level>')` IMMEDIATELY. Do NOT ask quantity. Do "
-            "NOT ask whether the alert is in-app — IN-APP IS THE ONLY "
-            "CHANNEL, so there is nothing to clarify; just disclose it in "
-            "the read-back. NEVER call ASK_USER for this turn. Read-back: "
-            "'Watching <SYMBOL> — I'll alert you the moment it crosses "
-            "<above/below> ₹<level>. No order is placed (in-app alert).'"
+            "## Alert ask — state the boundary, do NOT draft a workflow\n"
+            "The user asked to be ALERTED / pinged / notified when a price or "
+            "condition is hit. Alerts and notifications are NOT available right "
+            "now — Pivot doesn't send alerts or pings. Do NOT call "
+            "propose_dsl_workflow / propose_workflow / any notify tool; they "
+            "will refuse. In ONE plain line, say alerts aren't available yet. "
+            "The user said no trade, so do NOT offer or draft an order either — "
+            "just state the boundary and stop."
         )
 
     # H1 — hedge construction: a hedge OFFSETS exposure, never adds it.
@@ -6164,6 +6163,36 @@ class ChatService:
                 latency_breakdown=breakdown,
             )
 
+        # ── Alert-ask boundary (deterministic, pre-LLM) ────────────
+        # Price/condition ALERTS are not available (product decision). A
+        # detected alert ask returns the boundary DIRECTLY — zero LLM hops, no
+        # tool — so no notify workflow is ever built AND the model can't convert
+        # the alert into an order the user didn't ask for. `_is_notify_only_alert`
+        # requires a leading alert verb + a price level and NO trade verb (or an
+        # explicit no-trade marker), so genuine "buy when X" automations, which
+        # carry a trade verb, are unaffected.
+        if _is_notify_only_alert(message):
+            boundary = (
+                "Price alerts aren't available yet — Pivot doesn't send alerts, "
+                "pings, or “tell me when” notifications right now, so I "
+                "can't watch that level for you. No order or workflow was "
+                "created. If you'd want to *act* at that level instead, I can "
+                "register a broker-held order (GTT) there — just say so and the "
+                "quantity."
+            )
+            self.store.append(conv_id, message, boundary)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["alert_boundary"] = total
+            breakdown["total"] = total
+            _log_timing("alert_boundary", message, total, breakdown, tools=[])
+            trace.event("turn.end", total_ms=total, tools_called=[])
+            trace.end()
+            return ChatTurn(
+                response=boundary,
+                latency_ms=total,
+                latency_breakdown=breakdown,
+            )
+
         # (F&O pre-LLM decline removed in P1 — options strategy verbs
         # now route to the suggest/build/critique tools via the router
         # and the _mentions_fno tool gate further down.)
@@ -6909,21 +6938,10 @@ class ChatService:
                 agent_tool_choice = "auto"
             cache_key = cache_key_for(selected_names)
             trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
-        # R3: fully-specified notify-only alert → force propose_dsl_workflow,
-        # drop ASK_USER so it can't ask about the single channel.
-        elif _notify_only and selected_names is not None:
-            selected_names = (selected_names | frozenset({
-                "propose_dsl_workflow",
-            })) - frozenset({
-                "place_market_order", "place_limit_order", "place_order",
-                "create_gtt_order", "create_sl_order",
-            })
-            tooldefs = [
-                t for t in _registry_tools_as_tooldefs(selected_names)
-                if t.name != ASK_USER_TOOL_NAME
-            ]
-            cache_key = cache_key_for(selected_names)
-            agent_tool_choice = "required"
+        # R3: price/condition ALERT ask → NOT forced. Alerts aren't available
+        # (the notify tools refuse); the boundary guard tells the model to state
+        # the boundary in prose. No tool forcing, so tool_choice stays auto and
+        # the model answers with the boundary line instead of a refused draft.
         # R2: at-open/at-close build → ensure the DSL/workflow tools are in
         # scope and force a tool so it can't downgrade to 09:30 / ASK_USER.
         elif _at_open_close and selected_names is not None:
@@ -7564,6 +7582,14 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Turn-level screen-call counter: the deterministic table reply is
+        # only valid when ONE screen was the whole ask — multiple screens
+        # mean the model is gathering inputs for a synthesis it must write.
+        screen_calls_this_turn = 0
+        # presentation='analysis' (model-chosen on screen_fundamentals): the
+        # model owns the WHOLE reply — tables included (instructed to quote
+        # tool values verbatim); the deterministic render never fires.
+        screen_analysis_mode = False
         # M1: When the LLM writes a free-form question (assistant text
         # ending with "?" / "do you want" / etc.) WITHOUT calling
         # ASK_USER, the chat layer pushes a "USE ASK_USER" directive
@@ -7884,6 +7910,10 @@ class ChatService:
             for tc in response.tool_calls or []:
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                if tc.get("name") == "screen_fundamentals":
+                    screen_calls_this_turn += 1
+                    if (tc.get("arguments") or {}).get("presentation") == "analysis":
+                        screen_analysis_mode = True
                 # H1: only ONE strategy card renders per turn — a second
                 # build_option_strategy would silently overwrite the first
                 # card (observed live on two-name hedge asks). Reject it
@@ -7974,6 +8004,37 @@ class ChatService:
                 # docstring.
                 if guarded.success:
                     tool_msg_content = _summarise_tool_result(guarded)
+                    if (guarded.name == "screen_fundamentals"
+                            and screen_analysis_mode
+                            and guarded.data and guarded.data.get("results")):
+                        tool_msg_content += (
+                            "\n\n[presentation=analysis: NO table is "
+                            "auto-rendered — your reply must include the "
+                            "ranked results as a markdown table, quoting "
+                            "these tool values VERBATIM (never round, "
+                            "reorder, or invent), followed by your "
+                            "analysis in YOUR OWN structured form: "
+                            "open with one '## <specific title>' heading "
+                            "that names THIS answer, then "
+                            "markdown ## section headings (e.g. what "
+                            "stands out / caveats / view — pick headings "
+                            "that fit THIS answer), bold key numbers, "
+                            "bullets where they help. Never a wall of "
+                            "plain paragraphs. Include the FULL ranked "
+                            "table ONLY when the user asked for a screen/"
+                            "list ('screen me…', 'show me companies with "
+                            "X'). For an analyze/research/suggest ask, do "
+                            "NOT dump the whole screen — table only the "
+                            "shortlisted names your analysis actually "
+                            "discusses; the screen is your working "
+                            "material, not the deliverable. If the user named "
+                            "a constraint you could NOT express as a "
+                            "filter (e.g. stability/consistency over "
+                            "time), say so explicitly and verify it "
+                            "yourself for the shortlisted names (e.g. "
+                            "query_financials history) before ranking "
+                            "them.]"
+                        )
                     messages.append(LLMMessage(
                         role="tool",
                         tool_call_id=tc.get("id", f"call_{hop_index}"),
@@ -8047,9 +8108,7 @@ class ChatService:
                     # directive mandates the ## View section).
                     if (guarded.name == "screen_fundamentals"
                             and guarded.data and guarded.data.get("results")
-                            and not re.search(
-                                r"\b(?:outlook|prospects?|view)\b",
-                                message, re.IGNORECASE)):
+                            and not screen_analysis_mode):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
@@ -8305,7 +8364,14 @@ class ChatService:
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
                     and not is_construction_intent
-                    and tools_called == ["screen_fundamentals"]):
+                    and tools_called == ["screen_fundamentals"]
+                    # tools_called is DEDUPED — three parallel screens still
+                    # read as one entry. Multiple screens = ingredients for a
+                    # synthesis (e.g. "who wins if the monsoon fails"); the
+                    # model keeps its narration hop (live repro 2026-07-17:
+                    # this branch swallowed a 3-screen thematic ask and the
+                    # user got one bare FMCG table instead of an answer).
+                    and screen_calls_this_turn == 1):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
                 )
@@ -8426,6 +8492,35 @@ class ChatService:
             yield {
                 "type": "done",
                 "response": fast_response,
+                "tools_called": [],
+                "logiccard": None,
+                "raw_data": None,
+                "latency_ms": total,
+                "latency_breakdown": breakdown,
+            }
+            trace.end()
+            return
+
+        # ── Alert-ask boundary (deterministic, pre-LLM) ────────────
+        # Mirror of the handle() short-circuit: price/condition alerts aren't
+        # available, so a detected alert ask streams the boundary directly.
+        if _is_notify_only_alert(message):
+            boundary = (
+                "Price alerts aren't available yet — Pivot doesn't send alerts, "
+                "pings, or “tell me when” notifications right now, so I "
+                "can't watch that level for you. No order or workflow was "
+                "created. If you'd want to *act* at that level instead, I can "
+                "register a broker-held order (GTT) there — just say so and the "
+                "quantity."
+            )
+            self.store.append(conv_id, message, boundary)
+            total = int((time.monotonic() - turn_started) * 1000)
+            breakdown["alert_boundary"] = total
+            breakdown["total"] = total
+            yield {"type": "delta", "text": boundary}
+            yield {
+                "type": "done",
+                "response": boundary,
                 "tools_called": [],
                 "logiccard": None,
                 "raw_data": None,
@@ -9055,19 +9150,8 @@ class ChatService:
                 agent_tool_choice = "auto"
             cache_key = cache_key_for(selected_names)
             trace.event("hedge_guard.scope_forced", followup=_hedge_followup)
-        elif _notify_only and selected_names is not None:
-            selected_names = (selected_names | frozenset({
-                "propose_dsl_workflow",
-            })) - frozenset({
-                "place_market_order", "place_limit_order", "place_order",
-                "create_gtt_order", "create_sl_order",
-            })
-            tooldefs = [
-                t for t in _registry_tools_as_tooldefs(selected_names)
-                if t.name != ASK_USER_TOOL_NAME
-            ]
-            cache_key = cache_key_for(selected_names)
-            agent_tool_choice = "required"
+        # R3: price/condition ALERT ask → NOT forced (alerts aren't available;
+        # the notify tools refuse and the boundary guard states it in prose).
         elif _at_open_close and selected_names is not None:
             selected_names = selected_names | frozenset({
                 "propose_dsl_workflow", "propose_workflow",
@@ -9512,6 +9596,14 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Turn-level screen-call counter: the deterministic table reply is
+        # only valid when ONE screen was the whole ask — multiple screens
+        # mean the model is gathering inputs for a synthesis it must write.
+        screen_calls_this_turn = 0
+        # presentation='analysis' (model-chosen on screen_fundamentals): the
+        # model owns the WHOLE reply — tables included (instructed to quote
+        # tool values verbatim); the deterministic render never fires.
+        screen_analysis_mode = False
         # Mirror of the non-streaming path's compact-draft tracker.
         last_was_macro_draft = False
         # Track the most recent tool error so the streaming
@@ -9905,6 +9997,10 @@ class ChatService:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
+                if tc.get("name") == "screen_fundamentals":
+                    screen_calls_this_turn += 1
+                    if (tc.get("arguments") or {}).get("presentation") == "analysis":
+                        screen_analysis_mode = True
                 # H1 (stream mirror): one strategy card per turn — reject
                 # a duplicate build_option_strategy so it can't overwrite
                 # the card already built this turn.
@@ -9995,6 +10091,37 @@ class ChatService:
                 # error returns a deterministic question. No retry.
                 if guarded.success:
                     tool_msg_content = _summarise_tool_result(guarded)
+                    if (guarded.name == "screen_fundamentals"
+                            and screen_analysis_mode
+                            and guarded.data and guarded.data.get("results")):
+                        tool_msg_content += (
+                            "\n\n[presentation=analysis: NO table is "
+                            "auto-rendered — your reply must include the "
+                            "ranked results as a markdown table, quoting "
+                            "these tool values VERBATIM (never round, "
+                            "reorder, or invent), followed by your "
+                            "analysis in YOUR OWN structured form: "
+                            "open with one '## <specific title>' heading "
+                            "that names THIS answer, then "
+                            "markdown ## section headings (e.g. what "
+                            "stands out / caveats / view — pick headings "
+                            "that fit THIS answer), bold key numbers, "
+                            "bullets where they help. Never a wall of "
+                            "plain paragraphs. Include the FULL ranked "
+                            "table ONLY when the user asked for a screen/"
+                            "list ('screen me…', 'show me companies with "
+                            "X'). For an analyze/research/suggest ask, do "
+                            "NOT dump the whole screen — table only the "
+                            "shortlisted names your analysis actually "
+                            "discusses; the screen is your working "
+                            "material, not the deliverable. If the user named "
+                            "a constraint you could NOT express as a "
+                            "filter (e.g. stability/consistency over "
+                            "time), say so explicitly and verify it "
+                            "yourself for the shortlisted names (e.g. "
+                            "query_financials history) before ranking "
+                            "them.]"
+                        )
                     messages.append(LLMMessage(
                         role="tool",
                         tool_call_id=tc.get("id", f"call_{hop_index}"),
@@ -10041,9 +10168,7 @@ class ChatService:
                     # EXCEPT sector-OUTLOOK asks — see handle().
                     if (guarded.name == "screen_fundamentals"
                             and guarded.data and guarded.data.get("results")
-                            and not re.search(
-                                r"\b(?:outlook|prospects?|view)\b",
-                                message, re.IGNORECASE)):
+                            and not screen_analysis_mode):
                         hop_screen_data = guarded.data
                     if guarded.name == "find_tool":
                         hop_find_tool = True
@@ -10267,7 +10392,14 @@ class ChatService:
             if (hop_screen_data is not None and not hop_error
                     and not hop_find_tool
                     and not is_construction_intent
-                    and tools_called == ["screen_fundamentals"]):
+                    and tools_called == ["screen_fundamentals"]
+                    # tools_called is DEDUPED — three parallel screens still
+                    # read as one entry. Multiple screens = ingredients for a
+                    # synthesis (e.g. "who wins if the monsoon fails"); the
+                    # model keeps its narration hop (live repro 2026-07-17:
+                    # this branch swallowed a 3-screen thematic ask and the
+                    # user got one bare FMCG table instead of an answer).
+                    and screen_calls_this_turn == 1):
                 from backend.services.fundamentals_screen import (
                     render_screen_markdown,
                 )
