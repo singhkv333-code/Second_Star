@@ -113,6 +113,7 @@ export function StockPriceChart({
   volume,
   height = 320,
   intraday = false,
+  refitKey,
 }: {
   /** Primary first. Raw prices — normalisation happens here in compare mode. */
   seriesDefs: PriceSeriesDef[];
@@ -121,6 +122,8 @@ export function StockPriceChart({
   height?: number | string;
   /** Intraday ranges (1D/1W) show clock times on the axis. */
   intraday?: boolean;
+  /** Change on any non-data container resize (e.g. fullscreen) to refit. */
+  refitKey?: string | number;
 }): React.ReactElement {
   const dark = useIsDark();
   const t = THEME[dark ? "dark" : "light"];
@@ -326,6 +329,7 @@ export function StockPriceChart({
     <div ref={wrapRef} style={{ position: "relative", height }}>
     <LightweightChart
       height={height}
+      refitKey={refitKey}
       deps={[seriesDefs, volume, compare, showVolume, dark, intraday]}
       options={{
         // NOTE: the wrapper merges these SHALLOWLY over its defaults, so any

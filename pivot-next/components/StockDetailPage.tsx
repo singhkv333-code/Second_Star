@@ -592,14 +592,17 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             style={{ marginTop: 24, gap: 14 }}
           >
             {/* Left column — Overview + Statistics merged */}
-            <div className="flex min-h-0 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-col">
               {quoteState.kind === "ok" && (
                 <MergedOverviewCard quote={quoteState.quote} financials={financials} />
               )}
             </div>
 
-            {/* Right column — Comparison chart */}
-            <div className="flex min-h-0 flex-col">
+            {/* Right column — Comparison chart. min-w-0 is load-bearing: grid
+                items default to min-width:auto, so the chart canvas's stale
+                fullscreen width would otherwise prop this track open forever
+                after collapsing the overlay. */}
+            <div className="flex min-h-0 min-w-0 flex-col">
               <ChartCard
                 tickers={tickers}
                 peerQuotes={peerQuotes}
@@ -2152,6 +2155,9 @@ function ChartCard({
           height: expanded ? "auto" : chartHeight,
           flex: expanded ? 1 : undefined,
           minHeight: expanded ? 0 : undefined,
+          // Lets the box shrink back below the canvas's stale expanded width
+          // instead of the canvas dictating the column width on collapse.
+          minWidth: 0,
           padding: "0 18px",
         }}
       >
@@ -2186,6 +2192,7 @@ function ChartCard({
               volume={volumePoints}
               height="100%"
               intraday={range === "1D" || range === "1W"}
+              refitKey={expanded ? "expanded" : "collapsed"}
             />
           )
         ) : (

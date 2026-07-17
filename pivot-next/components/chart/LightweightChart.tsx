@@ -36,6 +36,9 @@ type Props = {
   onReady: ChartReady;
   /** Re-run onReady (rebuild series) when any of these change. */
   deps?: React.DependencyList;
+  /** Change this whenever the container is resized by something other than a
+   *  data change (e.g. a fullscreen toggle) to refit the time scale. */
+  refitKey?: string | number;
 };
 
 // ISO string / date → UTC seconds, the time form lightweight-charts accepts
@@ -53,8 +56,10 @@ export function LightweightChart({
   options,
   onReady,
   deps = [],
+  refitKey,
 }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const chartRef = React.useRef<IChartApi | null>(null);
 
   React.useEffect(() => {
     const el = containerRef.current;
@@ -92,6 +97,7 @@ export function LightweightChart({
       ...options,
     });
 
+    chartRef.current = chart;
     const cleanup = onReady(chart);
     chart.timeScale().fitContent();
 
@@ -99,12 +105,32 @@ export function LightweightChart({
       try {
         if (typeof cleanup === "function") cleanup();
       } finally {
+        chartRef.current = null;
         chart.remove();
       }
     };
     // onReady is recreated each render by callers; deps drives rebuilds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+
+  // `autoSize` holds bar spacing constant across a resize, so a width change
+  // silently grows/shrinks the visible range instead of keeping the same
+  // window of data. Refit once the resize has landed: the effect runs before
+  // layout, and autoSize's ResizeObserver fires after it, so we wait two
+  // frames to refit against the container's new width rather than the old one.
+  React.useEffect(() => {
+    if (refitKey === undefined) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        chartRef.current?.timeScale().fitContent();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [refitKey]);
 
   return <div ref={containerRef} className={className} style={{ height }} />;
 }
