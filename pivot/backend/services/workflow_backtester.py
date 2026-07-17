@@ -3265,6 +3265,14 @@ def backtest_workflow(
         "n_trades": n_trades,
         "n_wins": n_wins,
         "hit_rate_pct": hit_rate_pct,
+        # Contribution facts — a recurring/SIP shape is a series of buys, so a
+        # reply claiming "25 trades" on a 36-month SIP has nothing to check
+        # itself against. XIRR/money-weighted return is NOT computed; these are
+        # the inputs a reply needs to say so honestly (2026-07-17 eval, K31).
+        "n_buys": sum(1 for t in trades if t["side"] == "buy"),
+        "total_contributed_inr": round(
+            sum(t["qty"] * t["price"] for t in trades if t["side"] == "buy"), 2,
+        ),
         "return_on_deployed_pct": return_on_deployed_pct,
         "capital_utilization_pct": capital_utilization_pct,
         "benchmark_return_pct": bench_pct,
@@ -3272,6 +3280,24 @@ def backtest_workflow(
         # concurrent cost (fixed-qty draft, no stated capital);
         # 'stated' = caller passed real capital; 'pool' = default ₹10L.
         "capital_basis": capital_basis,
+        # Self-describing units, so a reply quotes a number on the RIGHT basis
+        # instead of guessing. The 2026-07-17 eval saw account-basis and
+        # deployed-basis percentages mixed inside one comparison table (K35),
+        # and a drawdown reported as "+2.7%" — both are unlabeled-number bugs.
+        "metric_legend": {
+            "total_return_pct": (
+                f"% on the {capital_basis} basis (₹{capital:,.0f} start) — "
+                "use ONE basis for every leg of a comparison"
+            ),
+            "return_on_deployed_pct": (
+                "% on capital actually put to work (dollar-weighted, "
+                "not annualised) — differs from total_return_pct whenever "
+                "cash sat idle"
+            ),
+            "max_drawdown_pct": "already NEGATIVE (e.g. -6.3); never re-sign it",
+            "benchmark_return_pct": "buy & hold over the same window, net of one round-trip",
+            "cagr_pct": "calendar-annualised from the equity curve",
+        },
         "starting_capital": capital,
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,

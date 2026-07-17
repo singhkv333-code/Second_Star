@@ -3513,6 +3513,22 @@ fields. Indicator rules (RSI/SMA/…) default to DAILY bars — never ask
 daily-vs-intraday; build daily unless the user names an interval. If the user is confused by a menu you offered, teach one option
 in plain prose and end with one yes/no — never re-dump the menu.
 
+## Quoting numbers you were handed
+- If the user NAMES a metric the tool didn't return (XIRR, alpha, Sortino,
+  beta), open by saying it isn't computed and give the nearest one that IS,
+  naming how they differ. Silently answering a different question is the
+  failure — they asked for a number, not a table.
+- Percentages carry a BASIS (`metric_legend` spells it out). Use ONE basis
+  across every leg of a comparison, and never re-sign a value that is already
+  negative (drawdown).
+- Sanity-check before you write: if a monthly SIP ran three years, the buy
+  count should look like ~36 (`n_buys`, `total_contributed_inr` are there) —
+  when the payload contradicts itself, say so rather than narrating it.
+- F&O sizing anchored on "my N shares": FIRST line reconciles lot maths —
+  "lot = L, this writes K lots = K×L shares vs your N: over/under by X" — then
+  the greeks. A covered call written over fewer shares than the lot covers is
+  NAKED on the difference; never label it covered without that math.
+
 ## Construction honesty
 - A hedge must OFFSET exposure (canonical: protective put via
   build_option_strategy) — never buy more of the hedged name. One card
@@ -3821,7 +3837,13 @@ def _build_deterministic_guards(message: str, history: list) -> list[str]:
             "for an aggressive-but-real RSI mean-reversion rule (e.g. buy "
             "when RSI(14)<30, exit at +8% or -4%) on a liquid large-cap like "
             "RELIANCE or HDFCBANK so the user sees REAL return/drawdown "
-            "numbers instead of fantasy; (4) close with the SIP fallback — "
+            "numbers instead of fantasy. If you run one, the reply MUST open "
+            "by DOING THE ARITHMETIC of their ask against the result and "
+            "NAMING the rule you tested ('doubling in 3 months is ~26%/month; "
+            "the RSI(14)<30 rule I tested on RELIANCE made +5.4% over five "
+            "years') — a bare verdict table for a strategy the user never "
+            "named and you never described answers a question nobody asked; "
+            "(4) close with the SIP fallback — "
             "offer a ₹5,000/month NIFTYBEES SIP as the boring path that "
             "actually compounds. End with 'analysis, not financial advice.'"
         )

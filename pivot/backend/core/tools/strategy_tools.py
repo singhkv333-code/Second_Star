@@ -198,6 +198,35 @@ def get_multiple_indicators(
         results["indicators"][ind] = get_indicator(
             sym, ind, history_period=history_period, interval=interval, **kw,
         )
+    # Price CONTEXT alongside the indicator values. "Is RELIANCE above its
+    # 200-DMA?" is one question, but without the last close (and the gap to
+    # each level) the caller had to fetch the quote and then run a compute hop
+    # just to subtract two numbers — 4 hops and ~20s for a yes/no read
+    # (2026-07-17 eval, R43). Levels the price can be compared against get a
+    # signed %-distance here; oscillators (RSI/MACD/…) are left alone.
+    _levels = {"sma", "ema", "wma", "vwap", "supertrend"}
+    _last = None
+    for v in results["indicators"].values():
+        if isinstance(v, dict) and v.get("last_close") is not None:
+            _last = float(v["last_close"])
+            break
+    if _last is None:
+        try:
+            _series = get_close_series(sym, period="1mo")
+            _last = float(_series.iloc[-1]) if len(_series) else None
+        except Exception:  # price context is a bonus — never fail the call
+            _last = None
+    if _last is not None:
+        results["last_close"] = round(_last, 2)
+        for name, v in results["indicators"].items():
+            if not isinstance(v, dict) or v.get("error"):
+                continue
+            val = v.get("current_value")
+            if name.split("_")[0].lower() in _levels and isinstance(val, (int, float)) and val:
+                v["last_close"] = round(_last, 2)
+                v["pct_vs_last_close"] = round((_last - float(val)) / float(val) * 100.0, 2)
+                v["price_is_above"] = _last > float(val)
+
     # Self-describing terminal state: name what failed and why, so the
     # caller reports it instead of retrying other routes.
     errs = [f"{k} unavailable ({v['error']})"
