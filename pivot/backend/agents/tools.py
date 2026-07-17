@@ -2336,6 +2336,17 @@ tool("build_strategy",
                             "here — the builder has no thematic knowledge of its "
                             "own.",
          },
+         "rationale": {
+             "type": "string",
+             "description": (
+                 "The card's defence, authored by YOU — 3-5 sentences tying "
+                 "the thesis to THIS structure in the user's own terms: why "
+                 "these names, why these weights, what would confirm or "
+                 "invalidate it, and what it is NOT. Omit and the engine falls "
+                 "back to a generic template that cannot know your thesis — "
+                 "supply it for any view-driven or thematic build."
+             ),
+         },
          "symbol_reasons": {
              "type": "object",
              "description": "Per-symbol one-line WHY, authored by YOU — the "

@@ -1655,6 +1655,7 @@ async def _build_strategy(a, kt, db, uid):
         request, slots, ctx=db, symbols=slots.symbols,
         constituent_reasons=reasons or None,
         weight_overrides=wov,
+        rationale_override=str(a.get("rationale") or "").strip()[:1200] or None,
     )
     payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
     return {"success": True, "data": payload, "logiccard": None}

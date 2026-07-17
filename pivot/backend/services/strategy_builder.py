@@ -189,6 +189,7 @@ def build_strategy(
     symbols: Optional[list[str]] = None,
     constituent_reasons: Optional[dict[str, str]] = None,
     weight_overrides: Optional[dict[str, float]] = None,
+    rationale_override: Optional[str] = None,
 ) -> StrategyBuilderCard:
     """Run the §3a equity+gold construction pipeline → a render-ready card.
 
@@ -217,6 +218,7 @@ def build_strategy(
             request, slots, pinned, assumptions,
             constituent_reasons=constituent_reasons,
             weight_overrides=weight_overrides,
+            rationale_override=rationale_override,
         )
 
     # ── Step 1: universe → fundamentals gate/rank → sector cap + corr check ──
@@ -420,7 +422,7 @@ def build_strategy(
     assumptions.extend(sizing_notes)
 
     # ── Anti-bland guardrails (assert before render) ──
-    _assert_guardrails(
+    _conc_note = _assert_guardrails(
         constituents=constituents,
         scheme=scheme,
         gate=gate,
@@ -428,9 +430,14 @@ def build_strategy(
         slots=slots,
         single_sector=single_sector,
     )
+    if _conc_note:
+        assumptions.append(_conc_note)
 
     title = _title(slots, request, structure, has_gold=gold_pct > 0)
-    rationale = _rationale(
+    # The MODEL's own defence wins when it wrote one — it has the user's actual
+    # words and the thesis; the template below is the fallback for callers that
+    # didn't author one (and never claims the user said anything they didn't).
+    rationale = (rationale_override or "").strip() or _rationale(
         slots=slots,
         request=request,
         scheme=scheme,
@@ -706,6 +713,7 @@ def _build_pinned_strategy(
     assumptions: list[str],
     constituent_reasons: Optional[dict[str, str]] = None,
     weight_overrides: Optional[dict[str, float]] = None,
+    rationale_override: Optional[str] = None,
 ) -> StrategyBuilderCard:
     """B1 — PINNED allow-list path. The caller (e.g. the DISCOVER→VET→JUDGE
     thematic flow) has already vetted the names, so we build EXACTLY these:
@@ -811,7 +819,10 @@ def _build_pinned_strategy(
     )
 
     title = _title(slots, request, structure, has_gold=gold_pct > 0)
-    rationale = _rationale(
+    # The MODEL's own defence wins when it wrote one — it has the user's actual
+    # words and the thesis; the template below is the fallback for callers that
+    # didn't author one (and never claims the user said anything they didn't).
+    rationale = (rationale_override or "").strip() or _rationale(
         slots=slots,
         request=request,
         scheme=scheme,
@@ -2021,10 +2032,13 @@ def _assert_guardrails(
     slots: SlotState,
     single_sector: bool = False,
     pinned: bool = False,
-) -> None:
+) -> str:
     """The §3a anti-bland invariants. These are *internal* asserts — they catch
     a builder regression in dev/tests, not a user-input problem. A violation is
     a bug in this module, so failing loudly is correct.
+
+    Returns a concentration note ("" when clean) for the one invariant a thin
+    universe can make unsatisfiable — see #3.
 
     For a PINNED basket (B1) the universe SHAPE was chosen by the caller/flow,
     not the builder: the count, the sector spread, and (when history is thin) an
@@ -2032,7 +2046,7 @@ def _assert_guardrails(
     relaxed. The weights-sanity check still runs — that's a real math invariant."""
     n = len(constituents)
     if n == 0:
-        return  # the empty-card path handled this honestly already.
+        return ""  # the empty-card path handled this honestly already.
 
     if pinned:
         # Only the math invariant applies to a pinned basket.
@@ -2040,7 +2054,7 @@ def _assert_guardrails(
         assert all(c.weight_pct >= 0 for c in constituents) and abs(total - 100.0) < 1.0, (
             f"weights must be ≥0 and sum ~100 (got {total:.2f})"
         )
-        return
+        return ""
 
     # #1: no bare equal-weight unless ≤4 names.
     assert not (scheme == "equal" and n > _EQUAL_WEIGHT_MAX_NAMES), (
@@ -2055,16 +2069,36 @@ def _assert_guardrails(
 
     # #3: sector cap enforced (no single sector over the ceiling by count).
     # Skipped for a deliberate single-sector basket (sector_cap reported 100%).
-    if not single_sector:
+    #
+    # A THIN pool can make the cap arithmetically unsatisfiable: a 3-name
+    # basket under a 32% cap allows 1 name per sector, so any two names sharing
+    # a sector "violate" it with nothing the trimmer can do short of shipping a
+    # 2-name basket. That is a disclosure, not a builder bug — crashing the
+    # turn on it took out every thin-universe sector ask (`theme="defence"`
+    # raised AssertionError before this; found 2026-07-17). We assert only when
+    # a compliant basket was actually reachable, and return a concentration
+    # note otherwise so the caller can surface it honestly.
+    concentration_note = ""
+    if not single_sector and constituents:
         counts: dict[str, int] = {}
         for c in constituents:
             counts[c.sector] = counts.get(c.sector, 0) + 1
         max_allowed = max(1, math.ceil((sector_cap / 100.0) * n))
-        worst = max(counts.values())
-        assert worst <= max_allowed, (
-            f"anti-bland #3: a sector holds {worst}/{n} names, over the "
-            f"{sector_cap:.0f}% cap ({max_allowed} max)"
-        )
+        worst_sector, worst = max(counts.items(), key=lambda kv: kv[1])
+        if worst > max_allowed:
+            # Reachable ⇒ real bug. Unreachable ⇒ honest note.
+            reachable = len(counts) >= math.ceil(n / max_allowed)
+            assert not reachable, (
+                f"anti-bland #3: a sector holds {worst}/{n} names, over the "
+                f"{sector_cap:.0f}% cap ({max_allowed} max)"
+            )
+            concentration_note = (
+                f"{worst} of {n} names are {worst_sector} — above the "
+                f"~{sector_cap:.0f}% sector guide, but the pool that cleared "
+                "the quality gate was too thin to diversify further without "
+                "dropping to a smaller basket; concentrated by data, not design"
+            )
+    return concentration_note
 
     # #4: a stated directional view must map to a tilt (BL / factor / focused),
     # never get flattened into a passive equal/mcap basket.
@@ -2184,8 +2218,20 @@ def _rationale(
             "the basket is small enough that equal-weight is the honest, cost-efficient choice (1/N "
             "earns its place at this name count)"
         )
+    elif scheme == "conviction":
+        why_scheme = (
+            "weights follow conviction — the thesis/quality order decides size, "
+            "so the names carrying the argument carry the capital"
+        )
     else:  # mcap
-        why_scheme = "you asked to 'own the market', so we weight by market cap — index-like by design"
+        # NEVER put words in the user's mouth: this used to read "you asked to
+        # 'own the market'" as a QUOTE on every mcap build, including ones
+        # where the user said no such thing (2026-07-17 eval flagged it as a
+        # fabricated quote contradicting the reply on 4/10 baskets).
+        why_scheme = (
+            "we weight by market cap — index-like by design, so the basket "
+            "tracks the market rather than taking a name-level bet"
+        )
 
     # 4. WHY the sector cap / gold — connect risk to structure.
     cap_txt = (
