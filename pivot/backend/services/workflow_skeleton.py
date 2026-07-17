@@ -496,6 +496,20 @@ _SL_PCT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A profit-target / bracket exit — the skeleton has no leg for it, so its
+# presence means defer to the LLM (see try_workflow_skeleton). Matches "book
+# profit at 6%", "take profit 8%", "target 10%", "exit at +5%", "sell at +7%",
+# "6% gain", and the "X% or Y% loss" bracket phrasing.
+_TAKE_PROFIT_RE = re.compile(
+    r"\b(?:book|take)\s+profit\b"
+    r"|\bprofit\s+(?:target|booking)\b"
+    r"|\btarget\s+(?:of\s+)?\+?\d+(?:\.\d+)?\s*%"
+    r"|\b(?:exit|sell|book|square\s*off)\b[^.]{0,20}?\+\s*\d+(?:\.\d+)?\s*%"
+    r"|\b\d+(?:\.\d+)?\s*%\s*(?:gain|profit|up|target)\b"
+    r"|\+\s*\d+(?:\.\d+)?\s*%[^.]{0,20}?\b(?:gain|profit|target)\b",
+    re.IGNORECASE,
+)
+
 
 def _try_buy_with_pct_sl(message: str) -> Optional[dict[str, Any]]:
     """Buy + percentage stop-loss. Reuses indicator/price trigger
@@ -940,6 +954,16 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
     if not message or not _BUILD_VERB_RE.search(message):
         return None
     if _COMPLEXITY_RE.search(message):
+        return None
+    # A TAKE-PROFIT / bracket exit is a shape the skeleton cannot build: it has
+    # an entry and (via _try_buy_with_pct_sl) an optional STOP, but no
+    # profit-target leg at all. So "buy 25 SBIN when RSI<32, book profit at 6%
+    # or cut the loss at 3%" matched the entry-only indicator parser and shipped
+    # a card with NEITHER exit — a silent drop of the whole bracket, on the
+    # safety-critical leg (found 2026-07-17, eval C09). Bail to the LLM
+    # translator, which composes brackets correctly (eval C10). Same principle
+    # as the multi-trigger guard below: a partial trade is worse than a hop.
+    if _TAKE_PROFIT_RE.search(message):
         return None
 
     # Cross-symbol guard: the skeleton's single-symbol parsers grab the

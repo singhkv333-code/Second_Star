@@ -162,6 +162,32 @@ def test_skeleton_monthly_indicator_still_bails():
     ) is None
 
 
+@pytest.mark.parametrize("msg", [
+    # 2026-07-17 eval C09: this shipped a card with NEITHER exit leg because the
+    # skeleton has no take-profit leg and matched only the entry.
+    "buy 25 SBIN when RSI(14) drops under 32, then book profit at 6% or cut the loss at 3%",
+    "buy 10 INFY when RSI under 30, exit at 7% gain or 4% loss",
+    "buy 15 TCS when it dips 3%, target 10%",
+    "buy 5 RELIANCE when it crosses 3000, take profit at 8%",
+])
+def test_skeleton_bails_on_a_take_profit_bracket(msg):
+    """A profit target is a bracket the skeleton can't build — it must defer to
+    the LLM translator rather than ship a card that drops the exit."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is None
+
+
+@pytest.mark.parametrize("msg", [
+    "buy 20 RELIANCE when RSI below 35 with a 5% stop loss",  # SL-only still builds
+    "buy 10 SBIN when RSI(14) drops under 30",                # plain entry
+    "buy 5 TCS when it crosses above 4000",                   # price threshold
+])
+def test_skeleton_still_fast_paths_shapes_it_can_represent(msg):
+    """The bracket guard must not swallow the shapes the skeleton handles."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is not None
+
+
 def test_watcher_indicator_trigger_passes_timeframe(monkeypatch):
     """_evaluate_indicator_trigger must forward cfg['timeframe'] to the
     compute — the card field is real, not decorative."""
