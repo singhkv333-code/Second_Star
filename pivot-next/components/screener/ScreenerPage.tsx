@@ -401,7 +401,7 @@ function TitleRow({
 }: {
   screenId: ScreenId;
   onSwitchScreen: (id: ScreenId) => void;
-  subhead: React.ReactNode;
+  subhead?: React.ReactNode;
   activeFilterCount: number;
   mobileFiltersOpen: boolean;
   setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
@@ -430,9 +430,11 @@ function TitleRow({
         >
           Screener
         </h1>
-        <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-tertiary)" }}>
-          {subhead}
-        </div>
+        {subhead ? (
+          <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+            {subhead}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ flex: 1 }} />
@@ -750,26 +752,10 @@ function StocksScreen({
         mobileFiltersOpen={mobileFiltersOpen}
         setMobileFiltersOpen={setMobileFiltersOpen}
         subhead={
-          loading ? (
-            <span>Loading stocks…</span>
-          ) : error ? (
+          // Count line removed on purpose — only surface a load failure.
+          error ? (
             <span style={{ color: "var(--color-loss)" }}>Couldn&apos;t load stocks</span>
-          ) : (
-            <>
-              Showing{" "}
-              <span
-                style={{
-                  color: "var(--text-primary)",
-                  fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                }}
-              >
-                {rows.length}
-              </span>{" "}
-              of {total.toLocaleString("en-IN")} stock{total === 1 ? "" : "s"}
-              {activeFilterCount > 0 &&
-                ` · ${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
-            </>
-          )
+          ) : null
         }
       />
 
@@ -2458,21 +2444,6 @@ function MockScreenView({
         activeFilterCount={activeFilterCount}
         mobileFiltersOpen={mobileFiltersOpen}
         setMobileFiltersOpen={setMobileFiltersOpen}
-        subhead={
-          <>
-            <span
-              style={{
-                color: "var(--text-primary)",
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-              }}
-            >
-              {results.length}
-            </span>{" "}
-            of {screen.universe.length} {screen.label.toLowerCase()} match
-            {activeFilterCount > 0 &&
-              ` · ${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} active`}
-          </>
-        }
       />
 
       {/* Watchlist — same strip as Stocks, kept visible across every
