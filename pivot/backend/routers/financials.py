@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # version suffix when the payload shape changes.
 _RESP_SOFT_TTL = 1800        # 30 min — background-refresh threshold
 _RESP_HARD_TTL = 6 * 3600    # 6 h — absolute expiry
-_RESP_CACHE_PREFIX = "financials:resp:v2:"
+_RESP_CACHE_PREFIX = "financials:resp:v3:"  # v3: bank fields (NPA/NIM/CASA)
 
 # One in-flight background refresh per symbol.
 _refresh_inflight: set[str] = set()

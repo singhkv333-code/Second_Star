@@ -3574,7 +3574,7 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
 // Skipped entirely when the symbol has no MC entry — the page falls
 // back to its existing chart + placeholder tables.
 
-const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number }> = [
+const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number; skipZero?: boolean }> = [
   { key: "roe",            label: "ROE",            suffix: "%", decimals: 2 },
   { key: "roce",           label: "ROCE",           suffix: "%", decimals: 2 },
   { key: "roa",            label: "ROA",            suffix: "%", decimals: 2 },
@@ -3585,35 +3585,40 @@ const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decima
   { key: "net_profit_margin", label: "Net Margin",  suffix: "%", decimals: 2 },
 ];
 
-/** Honest provenance label for a set of financial values — yfinance-filled
- *  metrics must not read "Moneycontrol". */
-function sourceLabel(sources: (string | null | undefined)[]): string {
-  const set = new Set(sources.filter(Boolean));
-  const mc = set.has("moneycontrol");
-  const yf = set.has("yfinance");
-  if (mc && yf) return "Moneycontrol + yfinance";
-  if (yf) return "yfinance";
-  if (mc) return "Moneycontrol";
-  return "—";
-}
+// Banks report a different vocabulary — asset quality + loan-book margins.
+// A symbol is treated as a bank when any bank-only field resolves (NPA/NIM/
+// CASA exist only for banking companies in the Moneycontrol DB).
+// skipZero: MC stores a junk 0.00 CASA for some banks (e.g. ICICI) — render
+// "—" instead of a fake zero.
+const _BANK_METRIC_TILES: typeof _METRIC_TILES = [
+  { key: "roe",                 label: "ROE",        suffix: "%", decimals: 2 },
+  { key: "gross_npa_pct",       label: "Gross NPA",  suffix: "%", decimals: 2 },
+  { key: "net_npa_pct",         label: "Net NPA",    suffix: "%", decimals: 2 },
+  { key: "net_interest_margin", label: "NIM",        suffix: "%", decimals: 2 },
+  { key: "casa_pct",            label: "CASA",       suffix: "%", decimals: 2, skipZero: true },
+  { key: "price_to_book",       label: "P/B",        suffix: "x", decimals: 2 },
+  { key: "net_profit_margin",   label: "Net Margin", suffix: "%", decimals: 2 },
+];
+
+const _BANK_FIELD_KEYS = ["gross_npa_pct", "net_npa_pct", "net_interest_margin", "casa_pct"];
 
 function KeyMetricsStrip({
   financials,
 }: {
   financials: FinancialsResponse;
 }): React.ReactElement {
+  const isBank = _BANK_FIELD_KEYS.some(
+    (k) => financials.latest[k]?.value != null,
+  );
+  const tiles = isBank ? _BANK_METRIC_TILES : _METRIC_TILES;
   const period = (() => {
     // All tiles come from the same fiscal year — surface it once.
-    for (const t of _METRIC_TILES) {
+    for (const t of tiles) {
       const v = financials.latest[t.key];
       if (v) return v.period_label;
     }
     return null;
   })();
-  const metricSource = sourceLabel(
-    _METRIC_TILES.map((t) => financials.latest[t.key]?.source),
-  );
-
   return (
     // Horizontal padding matches the Financial Performance panel below so the
     // heading + tiles line up with it (instead of sitting flush-left).
@@ -3640,16 +3645,24 @@ function KeyMetricsStrip({
         </h2>
         {period && (
           <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            As of {period} · {metricSource}
+            As of {period}
           </span>
         )}
       </div>
       <div
-        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        className={
+          isBank
+            ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7"
+            : "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        }
         style={{ gap: 8 }}
       >
-        {_METRIC_TILES.map((t) => {
-          const v = financials.latest[t.key];
+        {tiles.map((t) => {
+          const raw = financials.latest[t.key];
+          const v =
+            raw && raw.value !== null && !(t.skipZero && raw.value === 0)
+              ? raw
+              : null;
           return (
             <div
               key={t.key}
