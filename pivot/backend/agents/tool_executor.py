@@ -1474,12 +1474,59 @@ def _slot_state_from_args(a: dict):
     """
     from backend.services.strategy_contracts import (
         AssetPrefs,
+        MetricFilter,
         SlotState,
         ViewSlot,
     )
 
     slots = SlotState()
     cleared: list[str] = []
+
+    # User-stated hard constraints. Each is parsed independently and a
+    # malformed one is skipped rather than failing the build — but a VALID one
+    # is never dropped: these are the user's own words, not our preferences.
+    filters_in = a.get("filters")
+    if isinstance(filters_in, (list, tuple)):
+        for f in filters_in:
+            if not isinstance(f, dict):
+                continue
+            try:
+                slots.filters.append(MetricFilter(
+                    field=str(f.get("field") or "").strip().lower(),
+                    op=str(f.get("op") or "").strip(),
+                    value=float(f.get("value")),
+                ))
+            except Exception:
+                continue
+
+    mn_in = a.get("max_names")
+    if mn_in is not None:
+        try:
+            slots.max_names = max(1, min(20, int(mn_in)))
+        except (TypeError, ValueError):
+            slots.max_names = None
+
+    band_in = a.get("mcap_band")
+    if isinstance(band_in, str) and band_in.strip().lower() in ("large", "mid", "small"):
+        slots.mcap_band = band_in.strip().lower()  # type: ignore[assignment]
+
+    wb_in = a.get("weight_by")
+    if isinstance(wb_in, str) and wb_in.strip():
+        try:
+            slots.weight_by = wb_in.strip().lower()  # type: ignore[assignment]
+            SlotState.model_validate(slots.model_dump())  # enum check
+        except Exception:
+            slots.weight_by = None
+
+    gp_in = a.get("gold_pct")
+    if gp_in is not None:
+        try:
+            slots.gold_pct = float(gp_in)
+            # A stated split is an explicit gold ask — the sleeve heuristic
+            # must not get a second vote on whether gold "earns its place".
+            slots.asset_prefs.gold_requested = True
+        except (TypeError, ValueError):
+            slots.gold_pct = None
 
     view_in = a.get("view")
     if isinstance(view_in, dict) and view_in:
@@ -1549,35 +1596,12 @@ def _slot_state_from_args(a: dict):
         if cleaned:
             slots.symbols = cleaned
 
-    # Deterministic thematic seed (backstop, not a prompt hope): when the
-    # model did NOT pin `symbols` but the request is one of the recognised
-    # macro scenarios (monsoon/war/rupee/crude/rate-cut/slowdown), seed the
-    # pin from the curated winners in `thematic_map`. Without this the
-    # builder falls back to its coarse theme universe and returns a generic
-    # quality basket that misses the thesis (observed live: a "good monsoon"
-    # ask building TCS/NESTLEIND instead of the irrigation/pump names).
-    # Applies on every entry path into build_strategy (chat, clarify-resume).
-    if not slots.symbols:
-        try:
-            from backend.services.thematic_map import (
-                basket_weights,
-                detect_thematic_scenario,
-            )
-            _scn = detect_thematic_scenario(
-                " ".join(
-                    str(a.get(k) or "") for k in ("request", "theme")
-                )
-            )
-            if _scn is not None:
-                slots.symbols = [tk for tk, _w in basket_weights(_scn)]
-                if not slots.theme:
-                    slots.theme = _scn.label
-                logger.info(
-                    "build_strategy thematic seed: scenario=%s symbols=%s",
-                    _scn.key, slots.symbols,
-                )
-        except Exception:  # never let the backstop break the build
-            pass
+    # (2026-07-17) The deterministic thematic seed — code pinning frozen
+    # thematic_map winners when the model left `symbols` empty — was
+    # REMOVED: the model now reasons out the beneficiaries itself and pins
+    # them via `symbols` + `symbol_reasons` (thematic.md carries the
+    # reasoning pattern with two worked examples). Exclusion re-application
+    # and the fundamentals vet still run on whatever the model pins.
 
     # Re-validate the whole thing once; on any enum slip fall back to a clean
     # default state so the builder always receives a valid SlotState.
@@ -1609,9 +1633,16 @@ async def _build_strategy(a, kt, db, uid):
     # can reuse an open session (it otherwise opens its own read-only ones).
     # `symbols` (the pinned allow-list) is also carried on slots.symbols; passing
     # it explicitly keeps the direct-call path (Wave C thematic flow) unambiguous.
-    # Carry the thematic WHY strings through so each constituent's weight gets a
-    # causal reason on the card (instead of being dropped at seed time).
-    reasons = _thematic_constituent_reasons(a, slots)
+    # Per-leg WHY strings are MODEL-authored (`symbol_reasons` arg) — the
+    # frozen thematic_map WHY injection went with the seed above. Sanitize
+    # to a plain upper-key str→str map; builder falls back to its quality/
+    # conviction templates for any leg without a reason.
+    reasons: dict[str, str] = {}
+    _sr = a.get("symbol_reasons")
+    if isinstance(_sr, dict):
+        for k, v in _sr.items():
+            if str(k).strip() and str(v).strip():
+                reasons[str(k).strip().upper()] = str(v).strip()[:220]
     wov = a.get("weight_overrides")
     if isinstance(wov, dict) and wov:
         try:
@@ -1624,29 +1655,10 @@ async def _build_strategy(a, kt, db, uid):
         request, slots, ctx=db, symbols=slots.symbols,
         constituent_reasons=reasons or None,
         weight_overrides=wov,
+        rationale_override=str(a.get("rationale") or "").strip()[:1200] or None,
     )
     payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
     return {"success": True, "data": payload, "logiccard": None}
-
-
-def _thematic_constituent_reasons(a: dict, slots) -> dict[str, str]:
-    """Map each pinned/seeded symbol to its thematic WHY string (the causal hook
-    from thematic_map) so the builder can attach a per-weight reason. Empty when
-    the request isn't a recognised macro scenario — the builder then generates
-    quality/conviction reasons itself."""
-    try:
-        from backend.services.thematic_map import detect_thematic_scenario
-        scn = detect_thematic_scenario(
-            " ".join(str(a.get(k) or "") for k in ("request", "theme"))
-        )
-        if scn is None:
-            return {}
-        out: dict[str, str] = {}
-        for tk, why in list(scn.winners) + list(scn.losers):
-            out[str(tk).upper()] = str(why)
-        return out
-    except Exception:  # never let reason-mapping break the build
-        return {}
 
 
 async def _ask_user_dynamic(a, kt, db, uid):

@@ -134,6 +134,23 @@ _MODULE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bwebhooks?\b|callback url|post to (a|an|my) (url|endpoint|webhook)|"
                 r"\b(slack|discord|telegram)\b|(notify|ping|send) .* (url|webhook|endpoint)"),
      "webhook"),
+    # Event asks — the pack that sorts "fire on a world-event" (not wired: say
+    # the boundary, offer a price level) from "position around an event" (build
+    # the basket now). It existed on disk since the split but had NO rule here,
+    # so it never loaded once and neither branch of that doctrine reached the
+    # model (found 2026-07-17). Covers macro outcomes, headlines, prediction
+    # markets, earnings prints, and the global_price lane.
+    (re.compile(r"\b(rbi|mpc|repo rate|fomc|\bfed\b|\bcpi\b|inflation print|"
+                r"polymarket|kalshi|prediction market|priced in|"
+                r"earnings (print|call|result|report)|beats? (eps|earnings|estimates?)|"
+                r"miss(es|ed)? (eps|earnings|estimates?)|"
+                r"headlines?|breaking news|announcement|\bsebi\b|"
+                r"exit ?poll|election result|ceasefire|"
+                r"\bbtc\b|bitcoin|\beth\b|ethereum|usdinr|eurusd|\bwti\b|brent|"
+                r"expiry day|ipo opens?)\b|"
+                r"\b(when|if|whenever)\b[^.]{0,40}\b(news|announce\w*|resolves?|"
+                r"cuts? rates?|hikes? rates?)\b"),
+     "events"),
 ]
 
 

@@ -14,11 +14,31 @@ from backend.services.strategy_contracts import SlotState
 from backend.services.weighting import compute_weights
 
 
+# The listed-symbol universe the builder resolves pins against. Real in prod
+# (~4,600 rows from mc.companies); a fixed handful here so the tests stay
+# offline and so "listed" vs "invented" is a property of the fixture, not of
+# whatever the DB happens to hold today. NOSUCHSYM is deliberately absent.
+_FAKE_UNIVERSE = {
+    s: {"symbol": s, "name": s, "sector": sec,
+        "sector_is_canonical": True, "mcap_cr": 50000.0}
+    for s, sec in [
+        ("RELIANCE", "energy"), ("TCS", "it"), ("INFY", "it"),
+        ("HDFCBANK", "private_bank"), ("HCLTECH", "it"), ("WIPRO", "it"),
+        ("LTIM", "it"), ("TECHM", "it"), ("ONGC", "energy"),
+        # A REAL listed name the fundamentals DB is silent on — the
+        # "(no data)" honesty case, which is NOT the same as an invented one.
+        ("QUIETCO", "infra"),
+    ]
+}
+
+
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     # No price history → covariance schemes fall back to equal-weight (honestly
     # disclosed); keeps the build deterministic + fully offline.
     monkeypatch.setattr(sb, "_fetch_price_history", lambda syms: {s: [] for s in syms})
+    # Pin resolution reads the real NSE universe (a cross-DB query in prod).
+    monkeypatch.setattr(sb, "nse_universe_map", lambda **_: dict(_FAKE_UNIVERSE))
 
     # Batch gate-input fetch: give two names real ratios, leave the rest silent
     # (so we can assert the "(no data)" honesty on the pinned names the DB lacks).
@@ -44,7 +64,7 @@ def _no_network(monkeypatch):
 
 
 def test_pins_exact_universe_in_order_none_dropped():
-    pinned = ["RELIANCE", "TCS", "ZZZUNKNOWN", "INFY", "HDFCBANK"]
+    pinned = ["RELIANCE", "TCS", "QUIETCO", "INFY", "HDFCBANK"]
     card = sb.build_strategy("basket of these", SlotState(), ctx=None, symbols=pinned)
     assert [c.symbol for c in card.constituents] == pinned
     total = sum(c.weight_pct for c in card.constituents)
@@ -52,11 +72,12 @@ def test_pins_exact_universe_in_order_none_dropped():
 
 
 def test_pinned_missing_data_kept_with_empty_metrics_and_honest_note():
-    pinned = ["RELIANCE", "TCS", "ZZZUNKNOWN"]
+    # QUIETCO is LISTED but the fundamentals DB has no ratios for it: a real
+    # data gap on a real company. Keep it, show no metrics, say so.
+    pinned = ["RELIANCE", "TCS", "QUIETCO"]
     card = sb.build_strategy("pin these", SlotState(), ctx=None, symbols=pinned)
     by_sym = {c.symbol: c for c in card.constituents}
-    # A name the DB is silent on is kept, but shown WITHOUT fabricated metrics.
-    assert by_sym["ZZZUNKNOWN"].gate_metrics == {}
+    assert by_sym["QUIETCO"].gate_metrics == {}
     assert by_sym["TCS"].gate_metrics  # has real ratios
     assert any(
         "no data" in a.lower() or "no db fundamentals" in a.lower()
@@ -64,6 +85,38 @@ def test_pinned_missing_data_kept_with_empty_metrics_and_honest_note():
     )
     # The pin disclosure is present.
     assert any("pinned universe" in a.lower() for a in card.assumptions)
+
+
+# ── Invented tickers must not take a ₹ slice (2026-07-17 eval, B02) ──────────
+#
+# A crude-crash basket pinned "BERGERPAINT" and "HPCL" — neither is a live NSE
+# symbol (BERGEPAINT and HINDPETRO are). Both shipped as legs with a real ₹
+# allocation because the pinned path treated "absent from our universe" as a
+# data gap and kept the name. Existence is not a data gap: a name we cannot
+# confirm trades gets rejected and named back, so the caller can correct it.
+
+
+def test_unresolvable_pin_is_rejected_not_allocated():
+    card = sb.build_strategy(
+        "basket of these", SlotState(capital_inr=100000.0), ctx=None,
+        symbols=["RELIANCE", "NOSUCHSYM", "TCS"],
+    )
+    syms = [c.symbol for c in card.constituents]
+    assert "NOSUCHSYM" not in syms
+    assert syms == ["RELIANCE", "TCS"]
+    # It is NAMED back with a reason — silence would be the same bug.
+    assert any(r.symbol == "NOSUCHSYM" for r in card.rejected)
+    # The survivors still absorb the whole capital.
+    assert abs(sum(c.allocation_inr or 0 for c in card.constituents) - 100000.0) < 1.0
+    assert abs(sum(c.weight_pct for c in card.constituents) - 100.0) < 1.0
+
+
+def test_all_pins_unresolvable_yields_no_fabricated_basket():
+    card = sb.build_strategy(
+        "basket of these", SlotState(), ctx=None, symbols=["NOSUCHSYM", "ALSOFAKE"],
+    )
+    assert card.constituents == []
+    assert {r.symbol for r in card.rejected} == {"NOSUCHSYM", "ALSOFAKE"}
 
 
 def test_pinned_sector_cap_is_advisory_not_enforced():
@@ -133,24 +186,16 @@ def test_factor_emphasis_tilts_weights_toward_momentum():
     assert w["UP"] > w["DOWN"]
 
 
-def test_thematic_seed_backstop_pins_scenario_winners():
-    """build_strategy args with NO symbols but a recognised scenario request
-    must get the curated winners seeded deterministically (executor backstop),
-    so the builder never falls back to a generic quality basket."""
+def test_thematic_ask_no_longer_auto_seeded():
+    """2026-07-17: the deterministic thematic seed was REMOVED — the model
+    reasons out and PINS the beneficiaries itself (symbols + symbol_reasons;
+    thematic.md carries the pattern). A bare scenario request must NOT get
+    code-injected symbols anymore."""
     from backend.agents.tool_executor import _slot_state_from_args
-    from backend.services.thematic_map import (
-        basket_weights,
-        detect_thematic_scenario,
-    )
 
     req = "Make me a basket of stocks that profit from a good monsoon."
-    scn = detect_thematic_scenario(req)
-    assert scn is not None, "sanity: the monsoon scenario must be detected"
-    expected = [tk for tk, _w in basket_weights(scn)]
-
     slots = _slot_state_from_args({"request": req})
-    assert slots.symbols == expected
-    assert slots.theme  # seeded from the scenario label when absent
+    assert not slots.symbols  # no code-side pin; model owns name selection
 
 
 def test_thematic_seed_backstop_respects_explicit_symbols():
@@ -291,3 +336,29 @@ def test_build_strategy_surfaces_unsupported_asset_note_in_assumptions(monkeypat
         ctx=None,
     )
     assert any("crypto" in a for a in card.assumptions)
+
+
+# ── Umbrella sectors must not resolve to an empty universe ───────────────────
+#
+# 2026-07-17: `banking` and `financial_services` are declared in SectorName but
+# no row carries them — every bank is tagged private_bank or psu_bank. A literal
+# match returned ZERO rows, so "build me a banking basket" fell through to a
+# broad cross-sector pool and disclosed the fallback in `assumptions` — honest-
+# looking, and not banks. Promotion fixes the resolution, not the disclosure.
+
+
+@pytest.mark.parametrize("word", ["banking", "banks", "financial services"])
+def test_umbrella_bank_sector_resolves_to_real_banks(word):
+    from backend.services.sector_universe import query_screener
+
+    rows = query_screener(sector=word, limit=30)
+    assert rows, f"{word!r} resolved to an EMPTY universe"
+    assert {"HDFCBANK", "SBIN"} <= {r["symbol"] for r in rows}
+
+
+def test_metals_still_promotes_steel_but_steel_stays_narrow():
+    from backend.services.sector_universe import query_screener
+
+    metals = {r["symbol"] for r in query_screener(sector="metals", limit=30)}
+    steel = {r["symbol"] for r in query_screener(sector="steel", limit=30)}
+    assert steel < metals  # steel is a proper subset — promotion is one-way

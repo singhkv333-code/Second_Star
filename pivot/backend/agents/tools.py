@@ -800,6 +800,21 @@ tool("screen_fundamentals",
      "high ROE names', 'market cap above ₹20,000 Cr with PE under 25', 'cheap "
      "banking stocks'. This is the MANY-company tool; for ONE company use "
      "fetch_fundamentals.\n\n"
+     "FIELD COVERAGE — pick the POPULATED field, not just the literal word:\n"
+     " • 'return on capital' / 'return on capital employed' → `roce` (well "
+     "populated). `roic` exists but is SPARSE — a roic screen usually comes "
+     "back empty; prefer roce and say you used it.\n"
+     " • dividend yield, promoter pledge, promoter holding, ESG and "
+     "shareholding are NOT screenable at all — don't map them onto a "
+     "look-alike field (payout ratio is NOT dividend yield). Name the gap and "
+     "offer the closest honest screen.\n"
+     " • An EMPTY result on a mainstream ask usually means the field is "
+     "sparse, not that no company qualifies — retry once with the populated "
+     "sibling rather than reporting 'nothing found'.\n"
+     " • No market-cap floor is applied unless you pass one. On GROWTH screens "
+     "add a `market_cap` filter (e.g. > 500) or expect base-effect microcaps "
+     "(a ₹7 Cr shell at +294% CAGR) to top the table — if you don't filter, "
+     "say the ranking is base-effect-driven.\n\n"
      "SCREENABLE FIELDS (any metric the DB carries — use the one the user "
      "actually names, do NOT substitute a different metric):\n"
      " • ratios: pe, peg (trailing P/E ÷ trailing YoY EPS growth — 'PEG "
@@ -1287,10 +1302,12 @@ tool("propose_workflow",
      "- action.place_order: quantity OR notional_inr; order_type∈{market,limit}.\n"
      "- action.set_stoploss: trigger_price OR trigger_offset_pct (2 = 2%).\n"
      "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp NOT wired).\n"
-     "- trigger.polymarket: mode='threshold' (default, YES prob crosses `threshold` "
-     "in `direction`) or 'resolution' (market RESOLVES; resolve_on∈{YES,NO,ANY}). "
-     "REQUIRED market_id+token_id+side come from calling `propose_polymarket_trigger` "
-     "FIRST. DO NOT invent them; resolver rejects drafts at matcher confidence<0.85.\n\n"
+     "- NOT AVAILABLE: prediction-market (Polymarket/Kalshi), macro-calendar "
+     "outcome and news/headline triggers. A view about the WORLD ('if the RBI "
+     "cuts', 'when there's news on X') is not a trigger we can fire on — say so "
+     "in one line and offer the nearest wired thing: a PRICE or INDICATOR level "
+     "on the instrument that view would move, or a SCHEDULE if the ask was "
+     "really about timing. Drafts naming one are rejected.\n\n"
      "HARD RULES:\n"
      "1. STAY LITERAL — only what the user asked for. No unprompted sell/SL/trim branches.\n"
      "2. Multi-condition buy/sell → STOP and call `propose_dsl_workflow` "
@@ -1306,10 +1323,7 @@ tool("propose_workflow",
      "   {step_type:'fetch.quote', config:{symbol:'RELIANCE'}},\n"
      "   {step_type:'fetch.relative_threshold', config:{symbol:'RELIANCE',reference:'day_open',offset_pct:-5}},\n"
      "   {step_type:'condition.numeric', config:{left:'{{context.1.ltp}}',operator:'<=',right:'{{context.2.value}}'}},\n"
-     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]\n\n"
-     "For Polymarket-driven workflows: call propose_polymarket_trigger FIRST "
-     "to resolve the contract; then emit with returned market_id/token_id/side "
-     "INLINE. Use mode='resolution' for 'sell when X actually resolves YES'.",
+     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]",
      {
          "name": {
              "type": "string",
@@ -1710,10 +1724,15 @@ tool("propose_dsl_workflow",
      "Multi-symbol intents need propose_workflow with one branch per "
      "(symbol × action) — routing multi-symbol here silently drops "
      "all-but-one ticker.\n\n"
-     "ALSO DO NOT pick when the prompt mentions news / SEBI / RBI / "
-     "earnings / event / announcement / report / confirms / breaks / "
-     "polymarket / prediction market. The DSL has no news leaf; route to "
-     "propose_workflow with trigger.event / fetch.news instead.\n\n"
+     "ALSO DO NOT pick for an EARNINGS-print trigger ('when INFY beats EPS') "
+     "— the DSL has no earnings leaf; that one is wired as "
+     "propose_workflow + trigger.earnings.\n\n"
+     "A trigger on NEWS, a HEADLINE, a MACRO OUTCOME (RBI/Fed/CPI), a SEBI "
+     "announcement or a PREDICTION MARKET is NOT AVAILABLE in any tool — do "
+     "not route it anywhere, and do not draft it. Those fire on a claim about "
+     "the world, which Pivot does not watch. Say so in one line and offer the "
+     "nearest wired trigger: a PRICE or INDICATOR level on the instrument the "
+     "event would move, or a SCHEDULE if the ask was really about timing.\n\n"
      "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit contains "
      "ANY of — pick this tool, NOT propose_workflow / propose_threshold_order:\n"
      "  • 2+ conditions joined by AND, OR, NOT\n"
@@ -1751,7 +1770,22 @@ tool("propose_dsl_workflow",
          },
          "name": {
              "type": "string",
-             "description": "Short human label, e.g. 'TCS RSI oversold buy'.",
+             "description": (
+                 "REQUIRED in practice — a short human title YOU author, "
+                 "3-6 words, like a nickname a trader would use: 'RELIANCE "
+                 "dip buyer', 'TCS momentum exit'. NEVER a condition dump "
+                 "('RSI(14) of X crosses…') — the card's subtitle already "
+                 "shows the exact conditions. Re-supply an updated name "
+                 "when an amendment changes the symbol or the meaning."
+             ),
+         },
+         "summary": {
+             "type": "string",
+             "description": (
+                 "1-2 plain-English sentences YOU author on how this agent "
+                 "behaves — what gets it in, what gets it out, how often it "
+                 "checks. Shown as the text above the card. No jargon dumps."
+             ),
          },
          "action_kind": {
              "type": "string",
@@ -2153,7 +2187,31 @@ tool("build_strategy",
      "multifactor) are INTERNAL levers YOU pick — NEVER ask the user to "
      "choose one and NEVER echo these enum names in a question. For an "
      "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call "
-     "ask_user_dynamic FIRST, not this tool directly.",
+     "ask_user_dynamic FIRST, not this tool directly.\n\n"
+     "PASS THE USER'S CONSTRAINTS — don't clarify them and don't drop them. "
+     "`filters` (ROE/ROCE/D-E/PE/earnings-yield/payout/market-cap thresholds), "
+     "`mcap_band` (large|mid|small), `weight_by` (weight ∝ a metric), "
+     "`gold_pct` (a stated equity/gold split) and `asset_prefs.exclusions` "
+     "(no-PSU, no-Tata, sectors, tickers) all reach the engine. A constraint "
+     "OUTSIDE that set (dividend yield, promoter pledge, ESG…) is NOT "
+     "screenable — say so plainly rather than pretending it applied.\n\n"
+     "THE RESULT IS SELF-SUFFICIENT — do NOT pre-call screen_fundamentals / "
+     "fetch_fundamentals / compare_performance / compute to build a basket. "
+     "This tool already returns, per leg: sector, `gate_metrics` (ROE, ROCE, "
+     "D/E, P/E, earnings yield), `weight_pct`, `allocation_inr` (the ₹ slice — "
+     "never recompute weight × capital yourself), and `weight_reason`. Plus "
+     "card-level `rejected` (names excluded + why), `constraints_not_applied` "
+     "(anything it could not honour — you MUST disclose these in your reply), "
+     "`assumptions`, `sleeves` and `alternatives`. Call it FIRST and quote it.\n\n"
+     "SYMBOLS ARE CHECKED, NOT TRUSTED. A pinned symbol that isn't in the NSE "
+     "universe is NOT allocated — it comes back in `rejected` as 'not found in "
+     "Pivot's NSE universe'. That means you named a ticker that doesn't trade "
+     "(a mis-remembered spelling, a delisted name, or an unlisted company). Do "
+     "NOT present the basket as if that leg exists and do NOT paper over it: "
+     "either RE-CALL with the correct ticker (you have the hops) or say plainly "
+     "that the name you wanted has no listed expression. A name that resolves "
+     "but has no fundamentals is different — that one is real, is kept, and "
+     "shows '(no data)'; report it as a data gap, not a bad ticker.",
      {
          "request": {
              "type": "string",
@@ -2174,6 +2232,71 @@ tool("build_strategy",
                  "conviction": {"type": "string",
                                 "enum": ["low", "medium", "high"]},
              },
+         },
+         "filters": {
+             "type": "array",
+             "description": (
+                 "The user's HARD fundamental constraints — pass EVERY one "
+                 "they stated ('ROE above 15, debt-to-equity under 1' → "
+                 "[{field:'roe',op:'>',value:15},{field:'de',op:'<',value:1}]). "
+                 "These EXCLUDE names (the internal gate only ranks), and a "
+                 "name that fails comes back in `rejected` with the reason. "
+                 "Fields outside the enum aren't screenable — don't invent one; "
+                 "state the gap in your reply instead."
+             ),
+             "items": {
+                 "type": "object",
+                 "properties": {
+                     "field": {"type": "string",
+                               "enum": ["roe", "roce", "de", "pe",
+                                        "earnings_yield", "payout",
+                                        "market_cap_cr"]},
+                     "op": {"type": "string", "enum": [">", ">=", "<", "<="]},
+                     "value": {"type": "number"},
+                 },
+                 "required": ["field", "op", "value"],
+             },
+         },
+         "max_names": {
+             "type": "integer",
+             "description": (
+                 "How many constituents the user asked for ('exactly 5 "
+                 "stocks', 'a 4-stock basket'). Overrides the engine's own "
+                 "size band — pass it whenever a count is stated, and never "
+                 "clarify a count the user already gave."
+             ),
+         },
+         "mcap_band": {
+             "type": "string",
+             "enum": ["large", "mid", "small"],
+             "description": (
+                 "Restrict discovery to a size band when the user names one "
+                 "('midcap manufacturing basket', 'quality smallcaps'). "
+                 "large ≥ ₹20,000 cr · mid ₹5,000-20,000 cr · small < ₹5,000 cr. "
+                 "Omit when no size was asked for."
+             ),
+         },
+         "weight_by": {
+             "type": "string",
+             "enum": ["roe", "roce", "de", "pe", "earnings_yield", "payout",
+                      "market_cap_cr"],
+             "description": (
+                 "Weight the legs IN PROPORTION to this metric when the user "
+                 "says so ('4 private banks weighted by ROE' → 'roe'). This is "
+                 "the answer to 'weighted by <metric>' — never clarify it and "
+                 "never fall back to asking. Lower-is-better metrics (de, pe) "
+                 "are inverted automatically. Omit to let the engine choose."
+             ),
+         },
+         "gold_pct": {
+             "type": "number",
+             "description": (
+                 "Gold sleeve as a % of the WHOLE portfolio when the user "
+                 "states a split ('70% equity 30% gold' → 30). Required for any "
+                 "stated split — without it the engine's own heuristic caps "
+                 "gold at ~15% and your split will NOT be honoured. Omit when "
+                 "the user didn't name a gold share."
+             ),
          },
          "risk": {
              "type": "string",
@@ -2211,22 +2334,61 @@ tool("build_strategy",
          },
          "theme": {
              "type": "string",
-             "description": "Optional thematic tilt ('quality compounders', "
-                            "'rate-cut beneficiaries') resolved against the "
-                            "thematic map.",
+             "description": (
+                 "Optional sector/tilt for DISCOVERY — used ONLY when you are "
+                 "not pinning `symbols`. Sectors with a real curated universe "
+                 "behind them: banking (spans private+psu), private bank, psu "
+                 "bank, it, auto, pharma, fmcg, energy, metals (includes "
+                 "steel), steel, cement, defence, telecom — plus tilts like "
+                 "'quality compounders' / 'momentum'. THAT IS THE WHOLE LIST. "
+                 "Anything else — chemicals, infra, realty, media, consumer "
+                 "durables, a macro view, 'PLI electronics', 'demographic "
+                 "dividend' — has NO universe behind it: the engine silently "
+                 "falls back to a broad cross-sector pool and notes it in "
+                 "`assumptions`, so the basket is NOT what the user asked for "
+                 "even though the card looks fine. For anything off that list, "
+                 "name the companies yourself and pin `symbols` + "
+                 "`symbol_reasons` — a pinned basket is checked against the "
+                 "full ~4,600-name NSE universe, a theme string is not."
+             ),
          },
          "symbols": {
              "type": "array",
              "items": {"type": "string"},
-             "description": "Optional explicit NSE constituents ALREADY vetted "
-                            "(e.g. winners from the DISCOVER→VET→JUDGE thematic "
-                            "flow). When present, builder PINS the universe to "
-                            "exactly these names — runs NO discovery, never "
-                            "drops a name for missing data (silent DB name → "
-                            "'(no data)', not removed), and sector cap becomes "
-                            "advisory. Weighting scheme + sizing still computed. "
-                            "OMIT for an open build where the backend discovers "
-                            "the universe from theme/sector/view.",
+             "description": "Explicit NSE constituents YOU chose. When present "
+                            "the builder PINS the universe to exactly these "
+                            "names — no discovery runs and the sector cap turns "
+                            "advisory. A name with no fundamentals is KEPT and "
+                            "shown as '(no data)'; a name that doesn't resolve "
+                            "to a listed NSE symbol is NOT allocated and comes "
+                            "back in `rejected`. Weighting + sizing still "
+                            "computed. This is the THEMATIC path: the builder "
+                            "has no thematic knowledge of its own, so reason out "
+                            "who actually benefits and pin them here rather than "
+                            "passing a `theme` string and hoping. OMIT only for "
+                            "an open build where the backend should discover the "
+                            "universe from sector/view.",
+         },
+         "rationale": {
+             "type": "string",
+             "description": (
+                 "The card's defence, authored by YOU — 3-5 sentences tying "
+                 "the thesis to THIS structure in the user's own terms: why "
+                 "these names, why these weights, what would confirm or "
+                 "invalidate it, and what it is NOT. Omit and the engine falls "
+                 "back to a generic template that cannot know your thesis — "
+                 "supply it for any view-driven or thematic build."
+             ),
+         },
+         "symbol_reasons": {
+             "type": "object",
+             "description": "Per-symbol one-line WHY, authored by YOU — the "
+                            "causal hook tying each pinned name to the thesis "
+                            "({\"ONGC\": \"upstream producer; realisations rise "
+                            "with crude\"}). Shown on the card as each leg's "
+                            "reason. Supply alongside `symbols` for any "
+                            "thematic/view-driven build; without it legs fall "
+                            "back to generic quality-metric text.",
          },
          "weight_overrides": {
              "type": "object",
@@ -2323,153 +2485,6 @@ tool("propose_holding_action",
          },
      },
      ["symbol", "action_kind", "trigger_kind"])
-
-
-# ── EVENT TRIGGERS: Polymarket prediction-market price-cross ───────────────
-#
-# The user types: "alert me if Trump wins 2028 probability goes above 70%".
-# We hand the description to an LLM matcher that hits Polymarket's
-# /public-search, picks the best contract + which side (YES/NO) is meant,
-# and returns either:
-#   - a HIGH-CONFIDENCE draft → chat card "I found X — confirm threshold?"
-#   - a LOW-CONFIDENCE picker → chat card with candidates to choose from
-# In both cases this tool is PURE: no DB write. Confirmation goes through
-# POST /api/news-events/specs/polymarket which persists the draft, then
-# POST /api/news-events/specs/{id}/activate which kicks off the WS
-# subscription (immediate reconcile, no 30s wait).
-
-tool("propose_polymarket_trigger",
-     "Build a Polymarket prediction-market trigger from a natural-language "
-     "event description. USE for asks like 'alert me if Trump wins 2028 "
-     "above 70%', 'tell me when Bitcoin $150k probability hits 30%', 'ping "
-     "me when the Fed cuts rates'. Does NOT execute or activate — emits a "
-     "draft card. NOT for Indian-stock indicator alerts (use "
-     "propose_threshold_order / propose_holding_action). NOT for news-"
-     "article-driven triggers (use the /api/news-events/ Tier-1/2/3 path).\n\n"
-     "The chat hop fills `event_description` from the user's wording verbatim "
-     "(the matcher needs the full ask for side disambiguation — 'wins' vs "
-     "'doesn't win'). `threshold` is the YES probability the user named "
-     "expressed 0..1 (70% → 0.70) — OMIT IT entirely if the user did not "
-     "name a number. The handler derives three sensible preset chips "
-     "(anchored to current YES price) for the draft card; the user picks one "
-     "or types a custom value. Asking the user to invent a number when they "
-     "didn't give one is friction we do not want. `direction='above'` is "
-     "the common case; use 'below' only when the user explicitly asked for "
-     "a drop ('alert me if Modi's chances drop below 40%').\n\n"
-     "COMPOUND-WORKFLOW USE: when the user asks for a workflow that includes "
-     "a Polymarket trigger ('buy RELIANCE, sell when crude > $100 on poly "
-     "fires'), CALL THIS TOOL FIRST to nail the contract + threshold; THEN "
-     "emit `propose_workflow` with the resolved `market_id` + `token_id` + "
-     "`side` inline on the trigger.polymarket step. Do NOT try to write the "
-     "workflow in one shot — the resolver inside propose_workflow only "
-     "accepts a single-shot escape hatch when matcher confidence is ≥0.85 "
-     "and will reject lower-confidence drafts back to you.\n\n"
-     "TWO TRIGGER MODES — `mode='threshold'` (default) fires when the YES "
-     "probability crosses a number ('alert me when X chance goes above "
-     "70%'). `mode='resolution'` fires WHEN THE MARKET ACTUALLY RESOLVES — "
-     "use it for 'execute when X actually happens', 'buy oil when Iran-"
-     "ceasefire-holds resolves YES', 'sell my hedge when Trump-wins-2028 "
-     "resolves NO', 'once the election is decided'. Resolution mode "
-     "ignores threshold/direction entirely; it just waits for Polymarket "
-     "to declare the winner. `resolve_on='YES' | 'NO' | 'ANY'` picks "
-     "which outcome fires (default YES).",
-     {
-         "event_description": {
-             "type": "string",
-             "description":
-                 "The user's full event wording verbatim, including any "
-                 "negation ('Trump does NOT win'). The matcher uses it to "
-                 "pick a Polymarket contract AND which side (YES/NO).",
-         },
-         "threshold": {
-             "type": "number",
-             "minimum": 0.0,
-             "maximum": 1.0,
-             "description":
-                 "YES probability at which to fire, 0..1. OMIT this field "
-                 "entirely if the user did not name a number — the handler "
-                 "will derive 3 preset chips from the current YES price. "
-                 "Ignored when mode='resolution'.",
-         },
-         "direction": {
-             "type": "string",
-             "enum": ["above", "below"],
-             "description":
-                 "'above' fires when probability rises through threshold; "
-                 "'below' fires when it falls through. Default 'above'. "
-                 "Ignored when mode='resolution'.",
-         },
-         "mode": {
-             "type": "string",
-             "enum": ["threshold", "resolution"],
-             "description":
-                 "'threshold' (default) = fire on probability cross. "
-                 "'resolution' = fire when the market officially resolves "
-                 "YES or NO. Pick 'resolution' for asks like 'when X "
-                 "actually happens', 'once X is decided', 'when X "
-                 "resolves', 'after the event completes'.",
-         },
-         "resolve_on": {
-             "type": "string",
-             "enum": ["YES", "NO", "ANY"],
-             "description":
-                 "Which resolved outcome fires the trigger. Default 'YES'. "
-                 "Use 'NO' when user explicitly wants to fire on negative "
-                 "resolution ('sell my hedge when Trump 2028 resolves NO'). "
-                 "'ANY' fires on either outcome. Only honored when "
-                 "mode='resolution'.",
-         },
-         "workflow_action_summary": {
-             "type": "string",
-             "description":
-                 "Optional one-line note on what should happen when the "
-                 "trigger fires ('sell my NIFTYBEES', 'send a push'). "
-                 "Surfaced on the confirm card so the user knows what "
-                 "they're activating. Workflow wiring is a follow-up.",
-         },
-     },
-     ["event_description"],
-     defaults={"direction": "above", "mode": "threshold", "resolve_on": "YES"})
-
-
-tool("browse_polymarket_markets",
-     "Browse open prediction-market contracts on Polymarket — discovery, "
-     "not subscription. USE when the user asks 'what's hot on Polymarket', "
-     "'show me open Bitcoin markets', 'what crypto / politics / sports "
-     "markets are trading', 'what can I bet on Trump 2028?'. The user "
-     "browses; they pick a contract; THEN they call "
-     "`propose_polymarket_trigger` to set up an alert on it.\n\n"
-     "`topic` is an optional keyword/category to filter on (Bitcoin, "
-     "Politics, NBA, Iran, Trump, election, etc.). Empty/omitted → "
-     "returns the top open events by 24h volume across all categories. "
-     "Returns events grouped (one event can hold many candidate "
-     "markets — e.g. '2028 Presidential' has 128 per-candidate markets). "
-     "Each event row carries title, 24h volume, primary tags, end date, "
-     "and the top markets within it (question + YES price + token ids "
-     "ready for `propose_polymarket_trigger`).\n\n"
-     "NOT for live price reads on a known market (use `propose_polymarket"
-     "_trigger` or the REST cross-check). NOT for Indian-stock listings.",
-     {
-         "topic": {
-             "type": "string",
-             "description":
-                 "Optional keyword / category filter. Examples: 'Bitcoin', "
-                 "'Trump 2028', 'NBA Finals', 'Iran', 'Fed rate'. "
-                 "Empty → top events overall.",
-         },
-         "limit": {
-             "type": "integer",
-             "minimum": 1,
-             "maximum": 20,
-             "default": 10,
-             "description":
-                 "How many events to return (default 10, max 20). Each "
-                 "event surfaces its top 3 markets — don't crank this "
-                 "high; chat UX gets cluttered above 10.",
-         },
-     },
-     [],
-     defaults={"limit": 10})
 
 
 # ── META: find_tool (lazy-loader escape hatch) ─────────────────────────────

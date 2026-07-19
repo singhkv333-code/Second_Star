@@ -151,14 +151,24 @@ _EXIT_PEAK_RE = re.compile(
     r"|\btrail[^.]{0,20}?(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE,
 )
+# NOTE the `%` inside every gap class. With a plain `[^.]` gap these spans
+# jump ACROSS the other leg of a bracket: on "exit at 7% gain or 4% loss" the
+# loss pattern matched "7% …loss" and bound 7, so the stop came out at -7%
+# instead of -4% (found 2026-07-17). A gap may never cross another percentage.
 _EXIT_PROFIT_RE = re.compile(
-    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:profit|gain|up)\b",
+    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:profit|gain|up)\b",
     re.IGNORECASE,
 )
 _EXIT_LOSS_RE = re.compile(
-    r"\b(?:down|loses?|lose|falls?|drops?|loss\s+of)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:loss|down|drop)\b",
+    r"\b(?:down|loses?|losses|lose|falls?|drops?|loss(?:es)?\s+(?:of|at)|"
+    r"stop(?:\s*-?\s*loss)?(?:\s+at)?|sl)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:loss(?:es)?|down|drop)\b",
+    re.IGNORECASE,
+)
+# Any mention of a downside leg at all — used to REFUSE, never to bind.
+_LOSS_WORD_RE = re.compile(
+    r"\b(?:loss(?:es)?|stop[\s-]?loss|\bsl\b|cut\s+loss(?:es)?|downside)\b",
     re.IGNORECASE,
 )
 _EXIT_BARS_RE = re.compile(
@@ -177,11 +187,24 @@ def _first_group(m: "re.Match") -> Optional[float]:
     return None
 
 
-def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[dict]:
-    """Build a position-leaf exit tree for the common phrasings without an
-    LLM hop. ``force=True`` is the failure-fallback: when the LLM translate
-    errored/timed out but the text clearly names a position exit, still
-    produce the right leaf rather than refusing a supported shape."""
+def _fallback_position_exit(text: str) -> Optional[dict]:
+    """Last-resort exit leaf for when the LLM translator is UNAVAILABLE
+    (errored, timed out, or returned a tree that failed validation).
+
+    This is NOT a fast path and must never be used as one. It used to run
+    ahead of the translator to save a hop, which meant a regex was deciding
+    which number was the profit target and which was the stop — something it
+    cannot do: "book profit at 12% or cut losses at 5%" binds the stop to 12,
+    and "exit at 7% gain or 4% loss" matched the profit branch and returned
+    early, dropping the stop entirely while the reply promised both (found
+    2026-07-17, twice, both on the safety-critical leg). The translator owns
+    interpretation now; this only exists so a provider outage degrades to a
+    correct-but-narrow answer instead of nothing.
+
+    So it is deliberately timid: it binds ONE unambiguous leg and refuses
+    anything two-legged. A bracket with no model to read it gets an honest
+    failure, not a card with a stop we guessed at.
+    """
     t = (text or "").strip().lower()
     if not t:
         return None
@@ -195,25 +218,27 @@ def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[
     m = _EXIT_PEAK_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("drawdown_from_peak_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_PROFIT_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_LOSS_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", "<=", round(-v / 100.0, 6))
+
+    _mp = _EXIT_PROFIT_RE.search(t)
+    _vp = _first_group(_mp) if _mp else None
+    _ml = _EXIT_LOSS_RE.search(t)
+    _vl = _first_group(_ml) if _ml else None
+
+    # TWO LEGS ⇒ REFUSE. Which number is the target and which is the stop is a
+    # reading-comprehension question, and getting it backwards arms a "stop" at
+    # +12%. With no translator to ask, the honest answer is no card.
+    if _vp is not None and (_vl is not None or _LOSS_WORD_RE.search(t)):
+        return None
+    if _vl is not None and (_vp is not None or _EXIT_PROFIT_RE.search(t)):
+        return None
+
+    if _vp is not None:
+        return _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6))
+    if _vl is not None:
+        return _cmp("unrealised_pct", "<=", round(-_vl / 100.0, 6))
     m = _EXIT_BARS_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("bars_held", ">=", int(v))
-    if force:
-        # Last resort: any % near a peak/profit/loss word.
-        mm = re.search(r"(\d+(?:\.\d+)?)\s*%", t)
-        if mm:
-            v = float(mm.group(1)) / 100.0
-            if "peak" in t or "high" in t or "trail" in t:
-                return _cmp("drawdown_from_peak_pct", ">=", round(v, 6))
-            if any(w in t for w in ("loss", "down", "drop", "fall", "stop")):
-                return _cmp("unrealised_pct", "<=", round(-v, 6))
-            return _cmp("unrealised_pct", ">=", round(v, 6))
     return None
 
 
@@ -403,9 +428,13 @@ def _patch_dsl_draft(prior: dict, fields: dict):
                 pass
         if fields.get("name"):
             draft["name"] = str(fields["name"])
-        else:
-            # GAN R2 R10: regenerate the title from the draft's readback so a
-            # stale/mis-rendered legacy name doesn't survive the mutation.
+        elif not (draft.get("name") or "").strip():
+            # No model name at all → regenerate from the readback (R10).
+            # A model-authored human title is otherwise KEPT across
+            # mutations: the description/readback subtitle is always
+            # re-derived from the tree, so the conditions can't go stale;
+            # the tool description asks the model to re-supply a name when
+            # a mutation changes the symbol or meaning.
             _rb = (draft.get("readback") or "").strip()
             _erb = (draft.get("exit_readback") or "").strip()
             if _rb:
@@ -1309,20 +1338,21 @@ async def propose_dsl_workflow(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
-    # Always-ask the timeframe: if the user didn't name one (the chat loop
-    # strips a guessed `interval` for this tool when the message has no
-    # timeframe) and the entry tree actually uses an indicator, raise so the
-    # LLM asks — never build an indicator trigger on a silent daily default.
-    raw_interval = (args.get("interval") or "").strip()
-    if not raw_interval and _tree_has_indicator(tree):
-        raise ValueError(
-            "propose_dsl_workflow: timeframe (bar interval) is required for an "
-            "indicator condition, or a price condition that looks back N bars "
-            "(e.g. 'lower than it was N minutes ago'). Call ASK_USER first: "
-            "ask 'Which timeframe — 1m / 5m / 15m / 30m / 1h / daily / weekly "
-            "/ monthly?'. Do NOT default to daily — the indicator period, or "
-            "the price lookback, counts BARS of the chosen interval."
-        )
+    # Indicator timeframe: DEFAULT to daily when the user didn't name one,
+    # rather than refusing to build — the same call `propose_workflow` already
+    # made. This lane used to raise so the LLM would ask, which meant the two
+    # agent lanes disagreed: "buy INFY when RSI(14)<30" BUILT via the simple
+    # lane on an implicit daily default, while the same rule with an exit
+    # routed here and came back as "daily or 15-min?". The 2026-07-17 eval's
+    # two richest agent builds (A22 entry+TP/SL, A24 MACD+RSI) produced no card
+    # at all for exactly this reason. The bar-interval is the LOWEST-priority
+    # clarify with a safe standard default (system_core clarify priority) and
+    # asking it buries the real gap (quantity/exit). Nothing fires silently:
+    # the card is register-not-execute and the reply states the daily
+    # assumption, so the user can amend the interval before activating.
+    _timeframe_assumed = (
+        not (args.get("interval") or "").strip() and _tree_has_indicator(tree)
+    )
 
     # Overlay the user-specified interval on every IndicatorNode in the
     # translated tree (the LLM grammar prompt doesn't know about it yet,
@@ -1350,35 +1380,33 @@ async def propose_dsl_workflow(args: dict) -> dict:
     exit_tx_meta = None
     exit_readback = None
     if exit_condition_text:
-        # Fast path: parse the common position-exit phrasings deterministically
-        # (no LLM hop). Falls through to the LLM translator only for shapes the
-        # parser doesn't recognise, and that call is TIME-CAPPED so a hung
-        # provider can't stall the turn ~2 minutes. On any failure we fall back
-        # to the deterministic leaf rather than refusing a supported exit shape.
-        exit_tree = _deterministic_position_exit(exit_condition_text)
-        if exit_tree is None:
-            try:
-                exit_tree, exit_tx_meta = await asyncio.wait_for(
-                    translate_condition_to_tree(
-                        exit_condition_text,
-                        allow_position=True,
-                        primary_symbol=primary,
-                        cache_key="dsl.chat.propose.exit.v1",
-                    ),
-                    timeout=25,
-                )
-            except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
-                exit_tree = _deterministic_position_exit(
-                    exit_condition_text, force=True,
-                )
-                if exit_tree is None:
-                    raise ValueError(
-                        f"could not translate exit_condition into a DSL tree: {exc}"
-                    ) from None
-                logger.info(
-                    "exit translate failed (%s); used deterministic leaf for %r",
-                    type(exc).__name__, exit_condition_text[:60],
-                )
+        # The TRANSLATOR owns exit interpretation — always. It is a small
+        # dedicated call (minimal effort, 1.2k out, its own prompt-cache key),
+        # not a main-loop hop, so there is nothing meaningful to save by
+        # regexing ahead of it, and what the regex fast path bought instead was
+        # two dropped stop-losses. It is TIME-CAPPED so a hung provider can't
+        # stall the turn; only on genuine failure do we fall back, and then
+        # only to an unambiguous single leg (see _fallback_position_exit).
+        try:
+            exit_tree, exit_tx_meta = await asyncio.wait_for(
+                translate_condition_to_tree(
+                    exit_condition_text,
+                    allow_position=True,
+                    primary_symbol=primary,
+                    cache_key="dsl.chat.propose.exit.v1",
+                ),
+                timeout=25,
+            )
+        except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+            exit_tree = _fallback_position_exit(exit_condition_text)
+            if exit_tree is None:
+                raise ValueError(
+                    f"could not translate exit_condition into a DSL tree: {exc}"
+                ) from None
+            logger.info(
+                "exit translate failed (%s); used fallback leaf for %r",
+                type(exc).__name__, exit_condition_text[:60],
+            )
         # Overlay user-specified interval on indicator leaves in the
         # exit tree too (same defence-in-depth as the entry tree above).
         _apply_interval_to_indicators(exit_tree, interval)
@@ -1386,8 +1414,8 @@ async def propose_dsl_workflow(args: dict) -> dict:
             parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
             semantic_validate(parsed_exit, allow_position=True)
         except (DSLValidationError, ValidationError) as exc:
-            # Last-ditch deterministic leaf before refusing.
-            fb = _deterministic_position_exit(exit_condition_text, force=True)
+            # Translator produced an unusable tree — last-ditch single leaf.
+            fb = _fallback_position_exit(exit_condition_text)
             if fb is not None and fb is not exit_tree:
                 try:
                     _apply_interval_to_indicators(fb, interval)
@@ -1528,25 +1556,35 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if exit_readback:
         description += f" · Exit: {exit_readback}"
 
-    # GAN R2 R10: regenerate the card title from the CURRENT DSL readback
-    # rather than trusting the LLM-supplied `name`. A stale/mis-rendered
-    # free-text name (the "4%" → "AXISBANK price below ₹4" freeze) was
-    # surviving DSL mutations because the title was never re-derived from
-    # the tree. The readback is the single source of truth for the title.
-    _readback_title = readback.strip()
-    if exit_readback:
-        _readback_title = f"{_readback_title} → {exit_readback.strip()}"
-    # Keep it a short label: prefix the symbol if not already present.
-    if primary and primary.upper() not in _readback_title.upper():
-        _readback_title = f"{primary}: {_readback_title}"
-    label = _word_cap(_readback_title, 90) or label
+    # Title: the MODEL-authored `name` wins (short human label — the card
+    # subtitle carries the exact regenerated readback, so a friendly name
+    # can't hide the conditions). The R10 readback title is the FALLBACK
+    # for calls that omitted a name — the "AXISBANK price below ₹4"
+    # stale-name freeze can't recur because description/readback below
+    # are always re-derived from the tree.
+    _model_name = str(args.get("name") or "").strip()
+    if _model_name:
+        label = _word_cap(_model_name, 60)
+    else:
+        _readback_title = readback.strip()
+        if exit_readback:
+            _readback_title = f"{_readback_title} → {exit_readback.strip()}"
+        # Keep it a short label: prefix the symbol if not already present.
+        if primary and primary.upper() not in _readback_title.upper():
+            _readback_title = f"{primary}: {_readback_title}"
+        label = _word_cap(_readback_title, 90) or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
+    _model_summary = str(args.get("summary") or "").strip()
     draft = {
         "_render_hint": "workflow_draft_card",
         "draft_id": str(uuid.uuid4()),
         "name": label,
         "description": description,
+        **({"summary": _model_summary[:400]} if _model_summary else {}),
+        # The reply must state a defaulted bar-interval (we build on daily
+        # rather than asking; the user amends before activating).
+        **({"timeframe_assumed": "daily"} if _timeframe_assumed else {}),
         "steps": steps,
         "readback": readback,
         "exit_readback": exit_readback,

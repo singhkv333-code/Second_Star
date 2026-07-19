@@ -194,10 +194,46 @@ def get_multiple_indicators(
         return _err("indicators list is empty", symbol=sym)
     results: dict[str, Any] = {"symbol": sym, "indicators": {}, "interval": interval}
     kw = {"period": int(period)} if period else {}
+    # A single scalar `period` can't size every indicator in a multi-
+    # indicator call: "RSI, 50-day SMA" arrives as period=50, meant for
+    # the SMA — it must NOT override RSI(14). So when >1 indicator is
+    # requested, RSI keeps its canonical default; a lone "RSI over 21
+    # days" (single indicator) still honours the period.
+    multi = len(indicators) > 1
     for ind in indicators:
+        ind_kw = {} if (multi and (ind or "").strip().lower() == "rsi") else kw
         results["indicators"][ind] = get_indicator(
-            sym, ind, history_period=history_period, interval=interval, **kw,
+            sym, ind, history_period=history_period, interval=interval, **ind_kw,
         )
+    # Price CONTEXT alongside the indicator values. "Is RELIANCE above its
+    # 200-DMA?" is one question, but without the last close (and the gap to
+    # each level) the caller had to fetch the quote and then run a compute hop
+    # just to subtract two numbers — 4 hops and ~20s for a yes/no read
+    # (2026-07-17 eval, R43). Levels the price can be compared against get a
+    # signed %-distance here; oscillators (RSI/MACD/…) are left alone.
+    _levels = {"sma", "ema", "wma", "vwap", "supertrend"}
+    _last = None
+    for v in results["indicators"].values():
+        if isinstance(v, dict) and v.get("last_close") is not None:
+            _last = float(v["last_close"])
+            break
+    if _last is None:
+        try:
+            _series = get_close_series(sym, period="1mo")
+            _last = float(_series.iloc[-1]) if len(_series) else None
+        except Exception:  # price context is a bonus — never fail the call
+            _last = None
+    if _last is not None:
+        results["last_close"] = round(_last, 2)
+        for name, v in results["indicators"].items():
+            if not isinstance(v, dict) or v.get("error"):
+                continue
+            val = v.get("current_value")
+            if name.split("_")[0].lower() in _levels and isinstance(val, (int, float)) and val:
+                v["last_close"] = round(_last, 2)
+                v["pct_vs_last_close"] = round((_last - float(val)) / float(val) * 100.0, 2)
+                v["price_is_above"] = _last > float(val)
+
     # Self-describing terminal state: name what failed and why, so the
     # caller reports it instead of retrying other routes.
     errs = [f"{k} unavailable ({v['error']})"

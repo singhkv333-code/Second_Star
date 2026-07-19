@@ -239,6 +239,26 @@ FIELD_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
         "ratios",
         ("Revenue from Operations/Share (Rs.)", "Operating Revenue Per Share"),
     ),
+    # --- Bank-only fields (drive the bank Key Metrics strip). MC files the
+    # NPA/CAR block on the STANDALONE balance sheet only — the per-field
+    # basis fallback in the fetchers resolves them from there.
+    "gross_npa_pct": (
+        "balance_sheet",
+        ("Gross NPA (%)",),
+    ),
+    "net_npa_pct": (
+        "balance_sheet",
+        ("Net NPA (%)",),
+    ),
+    "net_interest_margin": (
+        "ratios",
+        # "(X)" is MC's label; the stored value is a percent (e.g. 3.71).
+        ("Net Interest Margin (X)", "Net Interest Margin (%)"),
+    ),
+    "casa_pct": (
+        "ratios",
+        ("CASA (%)", "Casa (%)"),
+    ),
 }
 
 

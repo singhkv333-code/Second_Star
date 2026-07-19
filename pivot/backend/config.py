@@ -225,6 +225,16 @@ class Settings(BaseSettings):
     # still come from Kite tools, web search is for LATEST qualitative context.
     web_search_enabled: bool = False
 
+    # --- LLM-owned interpretation (A/B experiment, 2026-07-17) -----------------
+    # When True, chat_service skips the regex "interpretation" layers — intent-
+    # based tool-surface surgery, reply-class budget pinning, GAN guard
+    # scope-forcing, thematic scenario routing — and instead injects prose
+    # directions so the model interprets the ask itself. SAFETY and
+    # CORRECTNESS gates (alert boundary, no-trade markers, schema validation,
+    # post-LLM verification retries) are NOT affected by this flag.
+    # Default OFF: flipping it back restores the deterministic behavior.
+    llm_owned_interpretation: bool = False
+
     # --- Company logos (logo.dev) ---------------------------------------------
     # Publishable token (pk_…) for img.logo.dev — safe to expose in the
     # frontend, and the same token mc.companies.logo_url already embeds.

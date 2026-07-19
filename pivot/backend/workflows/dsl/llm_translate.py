@@ -193,6 +193,22 @@ EXIT GRAMMAR (only when the user is explicitly describing an exit condition):
         { "type":"comparison", "op":">",
           "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
           "right": { "type":"constant", "value":0.06 } } ] }
+
+  BRACKET EXIT — "exit at a 7% gain or a 4% loss" (take-profit OR stop-loss).
+  This is the MOST COMMON exit shape and it is ALWAYS a two-operand `or`.
+  A bracket collapsed into the take-profit alone ships a position with NO
+  stop — the losing side simply never fires. NEVER emit only the profit leg:
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">=",
+          "left":  { "type":"position", "field":"unrealised_pct", "basis":"high" },
+          "right": { "type":"constant", "value":0.07 } },
+        { "type":"comparison", "op":"<=",
+          "left":  { "type":"position", "field":"unrealised_pct", "basis":"low" },
+          "right": { "type":"constant", "value":-0.04 } } ] }
+  Percent fields are FRACTIONS and the STOP LEG IS NEGATIVE (-0.04, not 0.04)
+  with op `<=`. Any exit phrased with "or", "either", "whichever comes first",
+  "target ... stop", or naming both a gain and a loss is this shape.
 """
 
 

@@ -1,0 +1,11 @@
+[
+  {"category": "backtest", "prompt": "Backtest buying HCLTECH whenever the MACD histogram is positive and staying long for as long as it remains positive, over the last 3 years. Show me trade count, win rate and drawdown."},
+  {"category": "backtest", "prompt": "Test a UPL long: enter whenever price is above the 200-day SMA AND the 50-day SMA sits above the 200-day, exit when either condition fails. Run it from 2019 to today."},
+  {"category": "backtest", "prompt": "Backtest a short on ADANIENT whenever it closes 3% or more below its 20-day moving average, cover on any close back above the average. Assume 1 lakh capital, since Jan 2023."},
+  {"category": "backtest", "prompt": "If I had put 15000 rupees into MARUTI on the first trading day of every month starting April 2021, what's my XIRR today? Compare it against the same monthly contribution into NIFTYBEES."},
+  {"category": "backtest", "prompt": "Run a pairs backtest between AXISBANK and KOTAKBANK — go long the one that underperformed on a 20-day lookback and short the outperformer, rebalance weekly, past 4 years."},
+  {"category": "backtest", "prompt": "Backtest an equal-weight basket of TITAN, ASIANPAINT, NESTLEIND and PIDILITE rebalanced quarterly since Jan 2020. Show drawdowns and compare against NIFTY FMCG."},
+  {"category": "backtest", "prompt": "Backtest EICHERMOT: enter long when Bollinger %B drops below 0.2 AND RSI(14) is under 40, exit on %B above 0.8 or after 20 trading sessions, whichever first. Last 5 years."},
+  {"category": "backtest", "prompt": "With 2 lakh rupees capital, backtest buying JSWSTEEL only when it's above its 200-day MA and has fallen 5% in the past 3 sessions. Size each trade so I never risk more than 5% of capital. Since 2019."},
+  {"category": "backtest", "prompt": "Backtest holding exactly 50 shares of COALINDIA and adding another 50 shares every time its dividend yield stays above 7%, from 2020 to today. Track total cost, current value and yield-on-cost."}
+]

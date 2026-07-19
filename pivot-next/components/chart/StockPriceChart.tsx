@@ -29,6 +29,7 @@ import {
   LineSeries,
   LineStyle,
   type IChartApi,
+  type LogicalRange,
   type Time,
 } from "lightweight-charts";
 import { LightweightChart } from "@/components/chart/LightweightChart";
@@ -112,6 +113,7 @@ export function StockPriceChart({
   volume,
   height = 320,
   intraday = false,
+  refitKey,
   valueFormatter,
   normalize = true,
 }: {
@@ -122,6 +124,8 @@ export function StockPriceChart({
   height?: number | string;
   /** Intraday ranges (1D/1W) show clock times on the axis. */
   intraday?: boolean;
+  /** Change on any non-data container resize (e.g. fullscreen) to refit. */
+  refitKey?: string | number;
   /** Axis / last-value / crosshair label formatter. Defaults to ₹ (or "% vs
    *  window-start" in normalised compare mode). The metric charts (PE, market
    *  cap, sales) pass their own — e.g. "16.4x", "₹12.6 L Cr" — so they render
@@ -206,6 +210,46 @@ export function StockPriceChart({
         }
       }
       chart.timeScale().fitContent();
+
+      // ── Pan-bounds clamping ───────────────────────────────────────────────
+      // Prevent the user from dragging/panning past the first or last bar
+      // (into empty whitespace). Logical range: 0 = oldest bar, numBars−1 =
+      // newest. A re-entry guard (`clamping`) breaks the otherwise-infinite
+      // setVisibleLogicalRange → rangeChange → setVisibleLogicalRange loop.
+      const numBars = Math.max(
+        0,
+        ...seriesDefs.map((d) => toLineData(d.points).length),
+      );
+      let clamping = false;
+      const handleRangeChange = (range: LogicalRange | null): void => {
+        if (!range || clamping || numBars === 0) return;
+        const from = range.from as unknown as number;
+        const to = range.to as unknown as number;
+        const span = to - from;
+
+        let newFrom = from;
+        let newTo = to;
+
+        if (newFrom < 0) {
+          newFrom = 0;
+          newTo = Math.min(span, numBars - 1);
+        }
+        if (newTo > numBars - 1) {
+          newTo = numBars - 1;
+          newFrom = Math.max(0, newTo - span);
+        }
+
+        if (newFrom !== from || newTo !== to) {
+          clamping = true;
+          chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newTo });
+          clamping = false;
+        }
+      };
+      chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeChange);
+
+      return (): void => {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeChange);
+      };
     },
     // Rebuilt whenever the deps below change (the wrapper drives this).
     [seriesDefs, volume, compare, showVolume, normalized, t],
@@ -214,6 +258,7 @@ export function StockPriceChart({
   return (
     <LightweightChart
       height={height}
+      refitKey={refitKey}
       deps={[seriesDefs, volume, compare, showVolume, normalized, dark, intraday, valueFormatter]}
       options={{
         // NOTE: the wrapper merges these SHALLOWLY over its defaults, so any

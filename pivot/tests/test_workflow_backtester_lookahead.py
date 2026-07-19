@@ -84,10 +84,14 @@ def test_no_position_on_signal_bar_in_equity_curve(monkeypatch):
     ]
     res = wb.backtest_workflow(steps, period="1y", name="LookAhead")
     by_date = {p["t"]: p["v"] for p in res.equity_curve}
-    # Signal bar: still 100% cash, no position marked yet.
-    assert by_date["2024-01-04"] == pytest.approx(_STARTING_CAPITAL)
+    # Signal bar: still 100% cash, no position marked yet — equity equals
+    # the run's OWN starting capital (the curve is rebased to the
+    # strategy's peak deployed cost for fixed-qty drafts, so we assert
+    # against the reported basis, not the module's ₹10L pool constant).
+    start = res.metrics["starting_capital"]
+    assert by_date["2024-01-04"] == pytest.approx(start)
     # Fill bar: cash spent on 10 shares @ ~100 open, marked to 100 close.
-    assert by_date["2024-01-05"] != pytest.approx(_STARTING_CAPITAL)
+    assert by_date["2024-01-05"] != pytest.approx(start)
 
 
 def test_schedule_order_fills_same_bar_open(monkeypatch):
@@ -173,9 +177,14 @@ def test_return_on_deployed_pct_for_small_fixed_qty_signal_trade(monkeypatch):
     ]
     res = wb.backtest_workflow(steps, period="1y", name="SmallQtySignal")
 
-    # Whole-account return is diluted to near-zero by the idle ₹10L pool.
-    assert abs(res.metrics["total_return_pct"]) < 1.0
-    # But the trade itself bought ~100, sold ~145 — a real ~40%+ win.
+    # 2026-07-17: the HEADLINE itself now runs on deployed capital — a
+    # fixed-qty draft with no stated capital rebases the curve to its own
+    # peak concurrent cost, so the ~40% trade reads as ~40%, not the
+    # ₹10L-pool-diluted ~0% this test originally documented.
+    assert res.metrics["capital_basis"] == "deployed"
+    assert res.metrics["starting_capital"] < 1000.0  # ~5 shares @ ~105
+    assert res.metrics["total_return_pct"] > 30.0
+    # The dollar-weighted deployed return agrees.
     assert res.metrics["return_on_deployed_pct"] is not None
     assert res.metrics["return_on_deployed_pct"] > 30.0
     assert res.metrics["capital_utilization_pct"] is not None

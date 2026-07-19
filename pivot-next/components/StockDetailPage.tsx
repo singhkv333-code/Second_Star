@@ -61,6 +61,7 @@ import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { WatchlistBookmark } from "@/components/WatchlistBookmark";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { openOrderTicket } from "@/components/OrderTicket";
 import {
   StockPriceChart,
   type PriceSeriesDef,
@@ -454,14 +455,17 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             style={{ marginTop: 24, gap: 14 }}
           >
             {/* Left column — Overview + Statistics merged */}
-            <div className="flex min-h-0 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-col">
               {quoteState.kind === "ok" && (
                 <MergedOverviewCard quote={quoteState.quote} financials={financials} />
               )}
             </div>
 
-            {/* Right column — Comparison chart */}
-            <div className="flex min-h-0 flex-col">
+            {/* Right column — Comparison chart. min-w-0 is load-bearing: grid
+                items default to min-width:auto, so the chart canvas's stale
+                fullscreen width would otherwise prop this track open forever
+                after collapsing the overlay. */}
+            <div className="flex min-h-0 min-w-0 flex-col">
               <ChartCard
                 tickers={tickers}
                 peerQuotes={peerQuotes}
@@ -1839,6 +1843,9 @@ function ChartCard({
           height: expanded ? "auto" : chartHeight,
           flex: expanded ? 1 : undefined,
           minHeight: expanded ? 0 : undefined,
+          // Lets the box shrink back below the canvas's stale expanded width
+          // instead of the canvas dictating the column width on collapse.
+          minWidth: 0,
           padding: "0 18px",
         }}
       >
@@ -1873,6 +1880,7 @@ function ChartCard({
               volume={volumePoints}
               height="100%"
               intraday={range === "1D" || range === "1W"}
+              refitKey={expanded ? "expanded" : "collapsed"}
             />
           )
         ) : metricSeriesDefs.length === 0 ? (
@@ -2001,8 +2009,93 @@ function ChartCard({
           </div>
         </div>
       )}
+
+      {/* ── Buy / Sell — trade the primary ticker via the global order ticket ── */}
+      {tickers[0] && (
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            padding: "16px 22px 20px",
+            borderTop: "1px solid var(--glass-border)",
+          }}
+        >
+          <TradeCTA
+            side="BUY"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "BUY",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+          <TradeCTA
+            side="SELL"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "SELL",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+        </div>
+      )}
     </Card>
     </>
+  );
+}
+
+/** A big, symmetric Buy/Sell button — flat shadcn-style fill (no glow/shine),
+ *  green for BUY, red for SELL, with a subtle darken on hover/press. */
+function TradeCTA({
+  side,
+  onClick,
+}: {
+  side: "BUY" | "SELL";
+  onClick: () => void;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
+  const buy = side === "BUY";
+  const base = buy ? "var(--color-profit)" : "var(--color-loss)";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setActive(false);
+      }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      aria-label={buy ? "Buy" : "Sell"}
+      style={{
+        flex: 1,
+        height: 46,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        borderRadius: "var(--radius-md)",
+        border: "none",
+        background: base,
+        // Flat matte fill — a plain brightness nudge on hover/press, never a
+        // glow or gradient sheen.
+        filter: active ? "brightness(0.92)" : hover ? "brightness(1.06)" : "none",
+        color: "#fff",
+        fontFamily: "var(--font-ui)",
+        fontSize: 15,
+        fontWeight: 600,
+        letterSpacing: "0.01em",
+        cursor: "pointer",
+        transition: "filter 120ms ease",
+      }}
+    >
+      {buy ? "Buy" : "Sell"}
+    </button>
   );
 }
 
@@ -2423,7 +2516,7 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
 // Skipped entirely when the symbol has no MC entry — the page falls
 // back to its existing chart + placeholder tables.
 
-const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number }> = [
+const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number; skipZero?: boolean }> = [
   { key: "roe",            label: "ROE",            suffix: "%", decimals: 2 },
   { key: "roce",           label: "ROCE",           suffix: "%", decimals: 2 },
   { key: "roa",            label: "ROA",            suffix: "%", decimals: 2 },
@@ -2434,35 +2527,40 @@ const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decima
   { key: "net_profit_margin", label: "Net Margin",  suffix: "%", decimals: 2 },
 ];
 
-/** Honest provenance label for a set of financial values — yfinance-filled
- *  metrics must not read "Moneycontrol". */
-function sourceLabel(sources: (string | null | undefined)[]): string {
-  const set = new Set(sources.filter(Boolean));
-  const mc = set.has("moneycontrol");
-  const yf = set.has("yfinance");
-  if (mc && yf) return "Moneycontrol + yfinance";
-  if (yf) return "yfinance";
-  if (mc) return "Moneycontrol";
-  return "—";
-}
+// Banks report a different vocabulary — asset quality + loan-book margins.
+// A symbol is treated as a bank when any bank-only field resolves (NPA/NIM/
+// CASA exist only for banking companies in the Moneycontrol DB).
+// skipZero: MC stores a junk 0.00 CASA for some banks (e.g. ICICI) — render
+// "—" instead of a fake zero.
+const _BANK_METRIC_TILES: typeof _METRIC_TILES = [
+  { key: "roe",                 label: "ROE",        suffix: "%", decimals: 2 },
+  { key: "gross_npa_pct",       label: "Gross NPA",  suffix: "%", decimals: 2 },
+  { key: "net_npa_pct",         label: "Net NPA",    suffix: "%", decimals: 2 },
+  { key: "net_interest_margin", label: "NIM",        suffix: "%", decimals: 2 },
+  { key: "casa_pct",            label: "CASA",       suffix: "%", decimals: 2, skipZero: true },
+  { key: "price_to_book",       label: "P/B",        suffix: "x", decimals: 2 },
+  { key: "net_profit_margin",   label: "Net Margin", suffix: "%", decimals: 2 },
+];
+
+const _BANK_FIELD_KEYS = ["gross_npa_pct", "net_npa_pct", "net_interest_margin", "casa_pct"];
 
 function KeyMetricsStrip({
   financials,
 }: {
   financials: FinancialsResponse;
 }): React.ReactElement {
+  const isBank = _BANK_FIELD_KEYS.some(
+    (k) => financials.latest[k]?.value != null,
+  );
+  const tiles = isBank ? _BANK_METRIC_TILES : _METRIC_TILES;
   const period = (() => {
     // All tiles come from the same fiscal year — surface it once.
-    for (const t of _METRIC_TILES) {
+    for (const t of tiles) {
       const v = financials.latest[t.key];
       if (v) return v.period_label;
     }
     return null;
   })();
-  const metricSource = sourceLabel(
-    _METRIC_TILES.map((t) => financials.latest[t.key]?.source),
-  );
-
   return (
     // Horizontal padding matches the Financial Performance panel below so the
     // heading + tiles line up with it (instead of sitting flush-left).
@@ -2489,16 +2587,24 @@ function KeyMetricsStrip({
         </h2>
         {period && (
           <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            As of {period} · {metricSource}
+            As of {period}
           </span>
         )}
       </div>
       <div
-        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        className={
+          isBank
+            ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7"
+            : "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        }
         style={{ gap: 8 }}
       >
-        {_METRIC_TILES.map((t) => {
-          const v = financials.latest[t.key];
+        {tiles.map((t) => {
+          const raw = financials.latest[t.key];
+          const v =
+            raw && raw.value !== null && !(t.skipZero && raw.value === 0)
+              ? raw
+              : null;
           return (
             <div
               key={t.key}
