@@ -556,7 +556,10 @@ def _is_construction_intent(message: str) -> bool:
 # order tool. Applied IDENTICALLY in handle() and handle_stream() via
 # `_apply_construction_scope` (the known drift trap → one function).
 _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
-    "build_strategy", "ask_user_dynamic",
+    # ask_user_dynamic removed 2026-07-19: the scripted VOI questionnaire
+    # is retired — under-specified builds go through the model's own
+    # judgment (build with stated assumptions, or one ASK_USER question).
+    "build_strategy",
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
