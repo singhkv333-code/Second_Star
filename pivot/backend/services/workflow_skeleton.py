@@ -58,6 +58,12 @@ _SYMBOL_BLOCKLIST: frozenset[str] = frozenset({
     # references a non-existent symbol.
     "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
     "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
+    # Currency/amount words: "buy 5000 rupees of NIFTYBEES" must never
+    # parse as qty=5000 symbol=RUPEES (container eval 2026-07-19 #07 —
+    # the skeleton shipped a "Wednesday RUPEES buy" draft). Abstaining
+    # here hands the turn to the LLM, which reads the ₹-amount intent.
+    "RUPEES", "RUPEE", "RS", "INR", "LAKH", "LAKHS", "CRORE", "CRORES",
+    "WORTH",
     "MY", "THE", "THIS", "THAT", "IT", "THEM",
     "NOW", "TODAY", "YESTERDAY", "TOMORROW",
     # Indicator names that the macro doesn't whitelist — if one of
@@ -939,6 +945,18 @@ def _looks_like_multi_day(message: str) -> bool:
     return False
 
 
+# A conditional overlay on a schedule ("every Wednesday buy X, but only
+# when Nifty is below its 50-day SMA") is a shape the scheduled parser
+# cannot express — it emits cron+order only, silently dropping the
+# condition (container eval 2026-07-19 #07). Same abstain principle as
+# the take-profit guard: a partial automation is worse than an LLM hop.
+_SCHED_CONDITION_OVERLAY_RE = re.compile(
+    r"\b(?:only\s+(?:if|when)|but\s+only|unless|provided(?:\s+that)?|"
+    r"as\s+long\s+as|while)\b",
+    re.IGNORECASE,
+)
+
+
 def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
     """Try each canonical pattern in priority order. Return the first
     matching workflow draft dict, or None to fall through to the LLM.
@@ -998,6 +1016,11 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
         # build a multi-trigger workflow. Don't let scheduled silently
         # eat a single day and drop the rest.
         if looks_multi_day and parser is _try_scheduled:
+            continue
+        # Conditional overlay on a schedule → the LLM builds the
+        # condition step; the cron-only shape would silently drop it.
+        if (parser is _try_scheduled
+                and _SCHED_CONDITION_OVERLAY_RE.search(message)):
             continue
         result = parser(message)
         if result is not None:
