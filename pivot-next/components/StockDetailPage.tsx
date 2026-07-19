@@ -30,22 +30,10 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Area,
-  ComposedChart,
-  Line,
-  ReferenceArea,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Maximize2,
   Minimize2,
   Search,
@@ -253,137 +241,12 @@ function brandGlyphHue(sector: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// GrowwTooltip — Recharts custom tooltip matching the Groww look:
-// soft floating card with the ticker value(s) tabular-numed, a faint
-// hairline border, and the date as a sub-row.
+// Metric selector type
 // ---------------------------------------------------------------------------
 
-// Metric type is declared here (before GrowwTooltip) so the tooltip can
-// receive it as a prop. The METRIC_OPTIONS const in ChartCard references
-// this same type.
+// The chart's active series: price or a fundamental metric. The METRIC_OPTIONS
+// const in ChartCard references this same type.
 type Metric = "Price" | "PE Ratio" | "Sales and Margin" | "Market Cap";
-
-type TooltipEntry = {
-  dataKey?: string | number;
-  name?: string | number;
-  value?: number;
-  color?: string;
-  /** Full data row for the hovered point — needed to read __margin for Sales and Margin. */
-  payload?: Record<string, unknown>;
-};
-
-function GrowwTooltip({
-  active,
-  payload,
-  label,
-  metric,
-  rawPriceByDate,
-}: {
-  active?: boolean;
-  payload?: TooltipEntry[];
-  label?: string;
-  /** Active metric — drives value formatting (price/PE/market-cap/sales-margin). */
-  metric: Metric;
-  /** Raw (un-normalised) price lookup: symbol → date-string → real price.
-   *  Used in Price mode so the tooltip shows the actual ₹ value, not the
-   *  100-base-indexed chart value. */
-  rawPriceByDate?: Map<string, Map<string, number>>;
-}): React.ReactElement | null {
-  // Drop the synthetic "__selValue" series — it only exists to paint the
-  // drag-selection shaded Area and must not show as a tooltip row.
-  // Also drop the __margin shadow keys (written into metricChartData rows for
-  // Sales and Margin; they're read via entry.payload below, not as own series).
-  const rows = (payload ?? []).filter(
-    (e) => e.dataKey !== "__selValue" && !String(e.dataKey ?? "").endsWith("__margin"),
-  );
-  if (!active || rows.length === 0) return null;
-  let dateLabel = label ?? "";
-  try {
-    dateLabel = format(parseISO(label as string), "d MMM yyyy");
-  } catch {
-    // keep raw label
-  }
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        background: "var(--bg-primary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 8,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-        padding: "8px 10px",
-        fontFamily: "var(--font-ui)",
-        fontSize: 11,
-        minWidth: 100,
-      }}
-    >
-      <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginBottom: 4 }}>
-        {dateLabel}
-      </div>
-      {rows.map((entry, i) => {
-        const v = Number(entry.value);
-        let formatted: string;
-        if (Number.isNaN(v)) {
-          formatted = String(entry.value ?? "");
-        } else if (metric === "Price") {
-          // Look up the real (un-normalised) price — the plotted value is
-          // a 100-base index so showing it raw would be wrong.
-          const raw = rawPriceByDate?.get(String(entry.dataKey))?.get(String(label));
-          formatted = raw !== undefined ? `₹${raw.toFixed(2)}` : `₹${v.toFixed(1)}`;
-        } else if (metric === "PE Ratio") {
-          formatted = `${v.toFixed(2)}x`;
-        } else if (metric === "Market Cap") {
-          formatted = fmtCrAxis(v);
-        } else {
-          // "Sales and Margin"
-          const rev = fmtCrAxis(v);
-          const margin = (entry.payload as Record<string, unknown> | undefined)?.[
-            `${String(entry.dataKey)}__margin`
-          ];
-          formatted =
-            typeof margin === "number" && Number.isFinite(margin)
-              ? `${rev} · ${margin.toFixed(1)}% margin`
-              : rev;
-        }
-        return (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: entry.color ?? "var(--text-secondary)",
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>
-              {entry.name}
-            </span>
-            <span
-              style={{
-                marginLeft: "auto",
-                color: "var(--text-primary)",
-                fontWeight: 600,
-              }}
-            >
-              {formatted}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // StockDetailPage
@@ -646,6 +509,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
     </div>
   );
 }
+
+
 
 // ---------------------------------------------------------------------------
 // PhoneLayout — mobile reflow of the stock page.
@@ -1464,8 +1329,12 @@ function ChartCard({
 }): React.ReactElement {
   const [metric, setMetric] = useState<Metric>("Price");
   // Min/Max date filters (ISO yyyy-mm-dd from native <input type="date">).
-  const [minDate, setMinDate] = useState<string>("");
-  const [maxDate, setMaxDate] = useState<string>("");
+  // The Min/Max date pickers were removed from the chart controls — the range
+  // pills (1D…5Y) are the only windowing control now. These stay as empty
+  // constants so the date-slice memos below remain a harmless no-op rather than
+  // needing that filtering logic ripped out.
+  const minDate = "";
+  const maxDate = "";
   // Fullscreen overlay: the Maximize2 button lifts the entire card to a
   // fixed surface that covers most of the viewport; the chart's height
   // grows to fill the freed space. Esc dismisses.
@@ -1550,80 +1419,6 @@ function ChartCard({
     return () => { cancelled = true; };
   }, [singlePriceMode, primarySym, range]);
 
-  // ── Drag-to-select range state ────────────────────────────────────────
-  // Tracks a click-and-drag selection band on the chart. `startIdx` /
-  // `endIdx` are indices into `chartData.rows`; `startLabel` / `endLabel`
-  // are the corresponding `t` values used as Recharts ReferenceArea x1/x2.
-  type DragState = {
-    isDragging: boolean;
-    startLabel: string;
-    startIdx: number;
-    endLabel: string;
-    endIdx: number;
-  };
-  const [drag, setDrag] = useState<DragState | null>(null);
-
-  // Minimal type matching what Recharts passes to onMouseDown/Move/Up.
-  type ChartMouseState = {
-    activeLabel?: string;
-    activeTooltipIndex?: number;
-  };
-
-  const handleChartMouseDown = (state: ChartMouseState): void => {
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    if (label == null || idx == null) return;
-    setDrag({
-      isDragging: true,
-      startLabel: label,
-      startIdx: idx,
-      endLabel: label,
-      endIdx: idx,
-    });
-  };
-
-  const handleChartMouseMove = (state: ChartMouseState): void => {
-    if (!drag?.isDragging) return;
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    if (label == null || idx == null) return;
-    setDrag((prev) =>
-      prev ? { ...prev, endLabel: label, endIdx: idx } : prev,
-    );
-  };
-
-  const handleChartMouseUp = (state: ChartMouseState): void => {
-    if (!drag) return;
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    const endLabel = label ?? drag.endLabel;
-    const endIdx = idx ?? drag.endIdx;
-    // Plain click (no real drag): clear any existing selection.
-    if (Math.abs(endIdx - drag.startIdx) < 2) {
-      setDrag(null);
-      return;
-    }
-    setDrag((prev) =>
-      prev
-        ? { ...prev, isDragging: false, endLabel, endIdx }
-        : prev,
-    );
-  };
-
-  const handleChartMouseLeave = (): void => {
-    // Cancel an in-progress drag; preserve a finalised selection.
-    if (drag?.isDragging) setDrag(null);
-  };
-
-  // Escape clears a finalised selection.
-  useEffect(() => {
-    if (!drag) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setDrag(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drag]);
 
   // Merge all series into one Recharts dataset, normalised to 100 at the
   // first point of each ticker. This makes performance comparable across
@@ -1682,20 +1477,6 @@ function ChartCard({
     return { rows, baseline };
   }, [series, minDate, maxDate]);
 
-  // Raw (un-normalised) price lookup: symbol → date-string → real ₹ price.
-  // Used by GrowwTooltip in Price mode so the hover value reflects the actual
-  // price rather than the 100-base-indexed chart value.
-  const rawPriceByDate = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    series.forEach((s) => {
-      if (s.state.kind !== "ok") return;
-      const m = new Map<string, number>();
-      s.state.data.points.forEach((p) => m.set(p.t, p.v));
-      map.set(s.symbol, m);
-    });
-    return map;
-  }, [series]);
-
   // Metric-mode chart rows — absolute values, no normalisation. Master timeline = primary ticker.
   const metricChartData = useMemo(() => {
     if (!isMetricMode) return null;
@@ -1732,16 +1513,6 @@ function ChartCard({
     });
     return rows;
   }, [isMetricMode, metricSeries]);
-
-  // Tickers actually visible in the current mode:
-  // - Price: all tickers that have an ok sparkline series
-  // - Metric: only tickers that have ok metric data
-  const visibleTickers = useMemo(() => {
-    if (!isMetricMode) return tickers;
-    return metricSeries
-      .filter((e) => e.state.kind === "ok")
-      .map((e) => e.symbol);
-  }, [isMetricMode, metricSeries, tickers]);
 
   // Active chart rows — metric data in metric mode, price data otherwise.
   // Wrapped in useMemo so the reference is stable and doesn't bust downstream
@@ -1799,6 +1570,32 @@ function ChartCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMetricMode, series, tickers, ohlc, minDate, maxDate]);
 
+  // Metric-mode series in the SAME shape as priceSeriesDefs, so the metric
+  // charts (PE / market cap / sales) render through StockPriceChart — one
+  // rendering path (lightweight-charts) for every graph on the page.
+  const metricSeriesDefs = useMemo((): PriceSeriesDef[] => {
+    if (!isMetricMode) return [];
+    return metricSeries
+      .map((e) =>
+        e.state.kind === "ok"
+          ? {
+              symbol: e.symbol,
+              color: colorFor(e.symbol),
+              points: e.state.points.map((p) => ({ t: p.t, v: p.v })),
+            }
+          : null,
+      )
+      .filter((d): d is PriceSeriesDef => d != null && d.points.length > 0);
+    // colorFor is stable per tickers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMetricMode, metricSeries, tickers]);
+
+  // Axis / last-value formatter for metric mode — PE reads "16.4x", the ₹-crore
+  // metrics read "₹12.6 L Cr" (fmtCrAxis). Passed to StockPriceChart so its
+  // native axis + last-value box speak the metric's units, just like ₹ for price.
+  const metricValueFormatter = (v: number): string =>
+    metric === "PE Ratio" ? `${v.toFixed(Number.isInteger(v) ? 0 : 1)}x` : fmtCrAxis(v);
+
   const volumePoints = useMemo((): VolumePoint[] => {
     if (!singlePriceMode || !ohlc || ohlc.bars.length === 0) return [];
     const minTs = minDate ? new Date(minDate).getTime() : -Infinity;
@@ -1840,99 +1637,6 @@ function ChartCard({
   const earliestDate = activeBaseRows[0]?.t as string | undefined;
   const latestDate = activeBaseRows[activeBaseRows.length - 1]?.t as string | undefined;
 
-  // Last numeric value per ticker — used to render the price-tag labels
-  // pinned to the right edge of the chart (Fiscal.ai pattern).
-  // In metric mode, reads from metricSeries; in price mode, from series.
-  const endValues = useMemo(() => {
-    const map = new Map<string, number | null>();
-    if (isMetricMode) {
-      metricSeries.forEach((e) => {
-        if (e.state.kind !== "ok") {
-          map.set(e.symbol, null);
-          return;
-        }
-        const last = e.state.points[e.state.points.length - 1]?.v ?? null;
-        map.set(e.symbol, last);
-      });
-    } else {
-      series.forEach((s) => {
-        if (s.state.kind !== "ok") {
-          map.set(s.symbol, null);
-          return;
-        }
-        const last = s.state.data.points[s.state.data.points.length - 1]?.v ?? null;
-        map.set(s.symbol, last);
-      });
-    }
-    return map;
-  }, [isMetricMode, metricSeries, series]);
-
-  // ── Derived selection metrics ─────────────────────────────────────────
-  // Normalise indices so left-to-right and right-to-left drags both work.
-  // Uses the raw primary-series prices (not normalised-to-100 chart values)
-  // so the absolute delta is in real ₹.
-  // Disabled in metric mode (delta in PE units wouldn't render correctly
-  // with the existing ₹-formatted pill).
-  const selectionInfo = useMemo(() => {
-    if (isMetricMode) return null;
-    if (!drag || drag.startIdx === drag.endIdx) return null;
-    const lo = Math.min(drag.startIdx, drag.endIdx);
-    const hi = Math.max(drag.startIdx, drag.endIdx);
-    const loLabel = lo === drag.startIdx ? drag.startLabel : drag.endLabel;
-    const hiLabel = hi === drag.startIdx ? drag.startLabel : drag.endLabel;
-
-    // Raw prices from the primary series.
-    const primarySeries = series[0];
-    const rawPoints =
-      primarySeries?.state.kind === "ok"
-        ? primarySeries.state.data.points
-        : null;
-
-    let deltaAbs: number | null = null;
-    let deltaPct: number | null = null;
-
-    if (rawPoints && rawPoints.length > 0) {
-      // Find the raw point whose `t` matches the row label. The rows are
-      // filtered by date window so we match by label string, then fall
-      // back to index position if no exact match is found.
-      const startT = activeBaseRows[lo]?.t as string | undefined;
-      const endT = activeBaseRows[hi]?.t as string | undefined;
-      const startRaw = rawPoints.find((p) => p.t === startT) ?? rawPoints[lo];
-      const endRaw = rawPoints.find((p) => p.t === endT) ?? rawPoints[hi];
-      if (startRaw && endRaw && startRaw.v !== 0) {
-        deltaAbs = endRaw.v - startRaw.v;
-        deltaPct = (deltaAbs / startRaw.v) * 100;
-      }
-    }
-
-    return { lo, hi, loLabel, hiLabel, deltaAbs, deltaPct };
-  }, [isMetricMode, drag, series, activeBaseRows]);
-
-  // Pill position: horizontally centred on the selection midpoint,
-  // capped to keep the pill inside the chart wrapper (1–94%).
-  const pillLeftPct = useMemo(() => {
-    if (!selectionInfo || activeBaseRows.length === 0) return null;
-    const { lo, hi } = selectionInfo;
-    const midFrac = ((lo + hi) / 2) / (activeBaseRows.length - 1);
-    return Math.max(1, Math.min(94, midFrac * 100));
-  }, [selectionInfo, activeBaseRows.length]);
-
-  // Composed rows: activeBaseRows with __selValue merged in (price mode only).
-  // __selValue = primary ticker's value within [lo, hi], else null.
-  // Merging into the same array guarantees x-axis alignment with the Line series.
-  const composedRows = useMemo(() => {
-    const primaryKey = tickers[0];
-    if (!primaryKey || activeBaseRows.length === 0) return activeBaseRows;
-    const lo = selectionInfo?.lo ?? -1;
-    const hi = selectionInfo?.hi ?? -1;
-    return activeBaseRows.map((row, i) => ({
-      ...row,
-      __selValue:
-        selectionInfo && i >= lo && i <= hi
-          ? (row[primaryKey] as number | null) ?? null
-          : null,
-    }));
-  }, [activeBaseRows, selectionInfo, tickers]);
 
   // Range pills — rendered inline in the controls row on desktop, and moved
   // below the chart (full width, each pill flex-1) on phone, matching the
@@ -2077,7 +1781,9 @@ function ChartCard({
           aria-label={expanded ? "Collapse chart" : "Expand chart"}
           aria-pressed={expanded}
           data-testid="chart-expand-btn"
-          className="inline-flex shrink-0 items-center justify-center"
+          // Hidden on phones — the fullscreen chart overlay is a
+          // desktop/tablet affordance; there's no room for it on mobile.
+          className="inline-flex shrink-0 items-center justify-center max-sm:hidden"
           style={{
             width: 36,
             height: 36,
@@ -2106,9 +1812,9 @@ function ChartCard({
       </div>
 
       {/* ── Row 2: controls ───────────────────────────────────────────────
-          Desktop: Min Date | range pills | Max Date | Price selector (right).
-          Phone: Min/Max dates share one line, then the Price selector full
-          width below; the range pills move beneath the chart (see below). */}
+          Desktop: range pills (left) | Price selector (right).
+          Phone: just the Price selector full width; the range pills move
+          beneath the chart (see below). */}
       <div
         className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center"
         style={{
@@ -2116,27 +1822,9 @@ function ChartCard({
           padding: "0 18px 14px",
         }}
       >
-        {/* Dates wrapper: a full-width flex row on phone (Min + Max share the
-            line); dissolves into the parent row on desktop via `sm:contents`
-            so the original Min | pills | Max ordering is preserved. */}
-        <div className="flex w-full gap-2 sm:contents">
-          <DateField
-            value={minDate}
-            onChange={setMinDate}
-            placeholder="Min Date"
-            aria-label="Minimum date"
-            className="flex-1 sm:w-32 sm:flex-none"
-          />
-          {/* Range pills — desktop in-row slot only (hidden on phone). */}
-          <div className="hidden sm:contents">{rangePills}</div>
-          <DateField
-            value={maxDate}
-            onChange={setMaxDate}
-            placeholder="Max Date"
-            aria-label="Maximum date"
-            className="flex-1 sm:w-32 sm:flex-none"
-          />
-        </div>
+        {/* Range pills — desktop in-row slot only (hidden on phone, where they
+            render beneath the chart). */}
+        <div className="hidden sm:contents">{rangePills}</div>
         {/* Metric selector — full width on phone, pushed to the right edge on
             desktop (lines up with the expand button above). */}
         <div className="w-full sm:ml-auto sm:w-auto">
@@ -2195,255 +1883,20 @@ function ChartCard({
               refitKey={expanded ? "expanded" : "collapsed"}
             />
           )
+        ) : metricSeriesDefs.length === 0 ? (
+          <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={composedRows}
-              margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-              onMouseDown={handleChartMouseDown}
-              onMouseMove={handleChartMouseMove}
-              onMouseUp={handleChartMouseUp}
-              onMouseLeave={handleChartMouseLeave}
-              style={{ userSelect: "none" }}
-            >
-              <XAxis
-                dataKey="t"
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-                axisLine={{ stroke: "var(--glass-border)" }}
-                tickLine={false}
-                height={22}
-                minTickGap={40}
-                tickFormatter={(t: string): string => {
-                  try {
-                    return format(parseISO(t), "MMM ''yy");
-                  } catch {
-                    return t;
-                  }
-                }}
-              />
-              <YAxis
-                domain={["auto", "auto"]}
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-                axisLine={{ stroke: "var(--glass-border)" }}
-                tickLine={false}
-                width={54}
-                tickFormatter={(v: number): string => {
-                  if (isMetricMode) {
-                    if (metric === "PE Ratio") return `${v.toFixed(0)}x`;
-                    // Market Cap or Sales and Margin — values are already in ₹ Crore
-                    return fmtCrAxis(v);
-                  }
-                  // Price mode: convert normalized 100-base index back to real ₹
-                  if (tickers.length === 1) {
-                    const baseline = chartData.baseline[tickers[0]!];
-                    return baseline
-                      ? `₹${((v / 100) * baseline).toFixed(0)}`
-                      : v.toFixed(0);
-                  }
-                  // Comparison (2+ tickers): show % change from start of window
-                  const delta = v - 100;
-                  return `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`;
-                }}
-              />
-              <Tooltip
-                content={
-                  <GrowwTooltip metric={metric} rawPriceByDate={rawPriceByDate} />
-                }
-                cursor={{
-                  stroke: "var(--text-tertiary)",
-                  strokeWidth: 1,
-                  strokeDasharray: "3 3",
-                  opacity: 0.5,
-                }}
-              />
-              {/* Drag-selection shading (price mode only) — Area rendered
-                  BEFORE the Line series so the line draws on top. __selValue
-                  is merged into composedRows (null outside [lo, hi]) so the
-                  fill follows the primary curve and x-alignment is guaranteed. */}
-              {selectionInfo && (
-                <Area
-                  dataKey="__selValue"
-                  type="linear"
-                  fill={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  fillOpacity={0.18}
-                  stroke="none"
-                  connectNulls={false}
-                  isAnimationActive={false}
-                  dot={false}
-                  activeDot={false}
-                  legendType="none"
-                />
-              )}
-              {/* Thin dashed boundary lines at the selection edges */}
-              {selectionInfo && (
-                <ReferenceArea
-                  x1={selectionInfo.loLabel}
-                  x2={selectionInfo.loLabel}
-                  fill="none"
-                  stroke={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  strokeOpacity={0.4}
-                  strokeDasharray="3 3"
-                  ifOverflow="hidden"
-                />
-              )}
-              {selectionInfo && selectionInfo.loLabel !== selectionInfo.hiLabel && (
-                <ReferenceArea
-                  x1={selectionInfo.hiLabel}
-                  x2={selectionInfo.hiLabel}
-                  fill="none"
-                  stroke={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  strokeOpacity={0.4}
-                  strokeDasharray="3 3"
-                  ifOverflow="hidden"
-                />
-              )}
-              {visibleTickers.map((sym) => (
-                <Line
-                  key={sym}
-                  type="linear"
-                  dataKey={sym}
-                  name={sym}
-                  stroke={colorFor(sym)}
-                  strokeWidth={1.75}
-                  dot={false}
-                  activeDot={
-                    drag?.isDragging
-                      ? false
-                      : {
-                          r: 5,
-                          fill: colorFor(sym),
-                          stroke: "var(--bg-base)",
-                          strokeWidth: 2,
-                        }
-                  }
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
+          // Metric mode — the SAME lightweight-charts renderer as price, fed the
+          // metric series + a metric formatter, so PE / market cap / sales render
+          // identically to the price chart (native axis, last-value box, crosshair).
+          <StockPriceChart
+            seriesDefs={metricSeriesDefs}
+            height="100%"
+            valueFormatter={metricValueFormatter}
+            normalize={false}
+          />
         )}
 
-        {/* Range-selection floating pill — price mode only. Shows absolute
-            Δ + % for the dragged band. Hidden in metric mode since delta
-            units are non-₹. */}
-        {selectionInfo && pillLeftPct !== null && (
-          <div
-            aria-live="polite"
-            aria-label="Selected range return"
-            style={{
-              position: "absolute",
-              top: 6,
-              left: `${pillLeftPct}%`,
-              transform: "translateX(-50%)",
-              pointerEvents: "none",
-              zIndex: 10,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-            }}
-          >
-            {/* Main pill — Δ price + Δ % */}
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 10px",
-                borderRadius: "var(--radius-pill)",
-                background: "var(--bg-primary)",
-                border: "1px solid var(--glass-border)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-                color:
-                  selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                    ? "var(--color-profit)"
-                    : "var(--color-loss)",
-              }}
-            >
-              {selectionInfo.deltaAbs !== null && selectionInfo.deltaPct !== null
-                ? `${fmtDelta(selectionInfo.deltaAbs)} (${fmtPct(selectionInfo.deltaPct)})`
-                : "—"}
-            </div>
-            {/* Date range sub-label */}
-            <div
-              style={{
-                fontSize: 10,
-                fontFamily: "var(--font-ui)",
-                color: "var(--text-tertiary)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {fmtDateShort(selectionInfo.loLabel)} – {fmtDateShort(selectionInfo.hiLabel)}
-            </div>
-          </div>
-        )}
-
-        {/* End-label value tags — metric mode only. The lightweight-charts
-            price render carries native last-value labels on its axis, so the
-            overlay tags would double up there. */}
-        {isMetricMode && activeBaseRows.length > 0 && visibleTickers.length > 0 && (
-          <div
-            className="flex flex-col items-end"
-            style={{
-              position: "absolute",
-              top: 14,
-              right: 28,
-              gap: 4,
-              pointerEvents: "none",
-            }}
-          >
-            {visibleTickers.map((sym) => {
-              const v = endValues.get(sym);
-              if (v == null) return null;
-              const peerLtp = isMetricMode
-                ? null
-                : sym === primaryQuote?.symbol
-                  ? primaryQuote.ltp
-                  : peerQuotes[sym]?.ltp ?? null;
-              return (
-                <span
-                  key={sym}
-                  className="inline-flex items-center"
-                  style={{
-                    gap: 6,
-                    padding: "3px 8px",
-                    borderRadius: "var(--radius-xs)",
-                    background: colorFor(sym),
-                    color: "var(--bg-primary)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                  }}
-                  aria-label={`${sym} latest ${isMetricMode ? metric : "price"}`}
-                >
-                  {peerLtp !== null
-                    ? INR.format(peerLtp)
-                    : (metric === "Market Cap" || metric === "Sales and Margin")
-                      ? fmtCrAxis(v)
-                      : v.toFixed(2)}
-                </span>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* ── Range pills below the chart — phone only, full width (scrolls if
@@ -2647,517 +2100,6 @@ function TradeCTA({
 }
 
 // ── Small chrome bits used inside the chart card ──────────────────────
-
-// ── DatePicker (ported from frontend-quartr SipPreviewCard) ─────────────
-// Calendar popover: trigger button shows the formatted date or
-// placeholder; clicking opens a 7-column day grid with month nav,
-// today outline, and selected highlight. Uses our token palette.
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-const DOW_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function formatDateLabel(iso: string): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function DateField({
-  value,
-  onChange,
-  placeholder,
-  "aria-label": ariaLabel,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  "aria-label"?: string;
-  /** Width control from the caller (e.g. `flex-1 sm:w-32` so the field is
-   *  fluid on phone and a fixed 128px on desktop). The button fills it. */
-  className?: string;
-}): React.ReactElement {
-  const [open, setOpen] = useState(false);
-  // "days" = month grid (default), "years" = 12-cell year picker.
-  // Clicking the year label in the header swaps to "years"; picking
-  // a year drops back to "days" at the same month.
-  const [view, setView] = useState<"days" | "years">("days");
-  // Top of the year-grid window. Starts at cursor.year - 6 so the
-  // current year sits roughly in the middle.
-  const [yearGridStart, setYearGridStart] = useState<number>(0);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const initial = value ? new Date(value) : new Date();
-  const [cursor, setCursor] = useState({
-    year: initial.getFullYear(),
-    month: initial.getMonth(),
-  });
-
-  // Re-anchor month cursor on the chosen value when the popover opens.
-  useEffect(() => {
-    if (!open) return;
-    const d = value ? new Date(value) : new Date();
-    setCursor({ year: d.getFullYear(), month: d.getMonth() });
-    setView("days");
-  }, [open, value]);
-
-  // Whenever we enter the year view, recenter the 12-cell window
-  // around the current cursor year.
-  useEffect(() => {
-    if (view !== "years") return;
-    setYearGridStart(cursor.year - 6);
-  }, [view, cursor.year]);
-
-  // Click-outside to dismiss
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  const cells = useMemo(() => {
-    const first = new Date(cursor.year, cursor.month, 1);
-    const lead = first.getDay();
-    const start = new Date(cursor.year, cursor.month, 1 - lead);
-    const out: { date: Date; key: string; inMonth: boolean }[] = [];
-    for (let i = 0; i < 42; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      out.push({
-        date: d,
-        key: ymd(d),
-        inMonth: d.getMonth() === cursor.month,
-      });
-    }
-    return out;
-  }, [cursor]);
-
-  const goPrev = (): void =>
-    setCursor((c) => {
-      const m = c.month - 1;
-      return m < 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: m };
-    });
-  const goNext = (): void =>
-    setCursor((c) => {
-      const m = c.month + 1;
-      return m > 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: m };
-    });
-
-  const todayKey = ymd(new Date());
-  const hasValue = value.length > 0;
-  const label = hasValue ? formatDateLabel(value) : placeholder;
-
-  return (
-    <div ref={wrapperRef} className={className} style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        style={{
-          width: "100%",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          height: 38,
-          padding: "0 12px",
-          background: "var(--bg-base)",
-          border: `1px solid ${open ? "var(--glass-border-focus, var(--text-secondary))" : "var(--glass-border)"}`,
-          borderRadius: "var(--radius-sm)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 12,
-          color: hasValue ? "var(--text-primary)" : "var(--text-tertiary)",
-          cursor: "pointer",
-          outline: "none",
-          transition: "border-color 0.18s var(--ease-quartr)",
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {label}
-        </span>
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          style={{
-            color: "var(--text-tertiary)",
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.18s var(--ease-quartr)",
-            flexShrink: 0,
-          }}
-          aria-hidden="true"
-        />
-      </button>
-
-      {open && (
-        <div
-          role="dialog"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 20,
-            width: 244,
-            padding: 12,
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-            }}
-          >
-            <CalNavBtn
-              onClick={
-                view === "days"
-                  ? goPrev
-                  : () => setYearGridStart((s) => s - 12)
-              }
-              label={
-                view === "days" ? "Previous month" : "Previous 12 years"
-              }
-            >
-              <ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
-            </CalNavBtn>
-
-            {/* Header label: month + year in days view, or the year-range
-                in years view. Clicking the year (days view) opens the year
-                grid; clicking the range (years view) closes it. */}
-            {view === "days" ? (
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontFamily: "var(--font-ui)",
-                  fontWeight: 500,
-                  fontSize: 13,
-                  color: "var(--text-primary)",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                <span>{MONTH_NAMES[cursor.month]}</span>
-                <button
-                  type="button"
-                  onClick={() => setView("years")}
-                  aria-label="Pick year"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    padding: "2px 6px",
-                    borderRadius: "var(--radius-xs)",
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-ui)",
-                    fontWeight: 500,
-                    fontSize: 13,
-                    letterSpacing: "-0.01em",
-                    cursor: "pointer",
-                    transition: "background-color 0.15s var(--ease-quartr)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                  }}
-                >
-                  {cursor.year}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setView("days")}
-                aria-label="Back to month view"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: "2px 6px",
-                  borderRadius: "var(--radius-xs)",
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-ui)",
-                  fontWeight: 500,
-                  fontSize: 13,
-                  letterSpacing: "-0.01em",
-                  cursor: "pointer",
-                  transition: "background-color 0.15s var(--ease-quartr)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--surface-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                {yearGridStart} – {yearGridStart + 11}
-              </button>
-            )}
-
-            <CalNavBtn
-              onClick={
-                view === "days"
-                  ? goNext
-                  : () => setYearGridStart((s) => s + 12)
-              }
-              label={
-                view === "days" ? "Next month" : "Next 12 years"
-              }
-            >
-              <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
-            </CalNavBtn>
-          </div>
-
-          {view === "days" && (
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: 2,
-                  marginBottom: 4,
-                }}
-              >
-                {DOW_LABELS.map((d) => (
-                  <div
-                    key={d}
-                    style={{
-                      textAlign: "center",
-                      fontSize: 10,
-                      fontFamily: "var(--font-ui)",
-                      color: "var(--text-tertiary)",
-                      fontWeight: 500,
-                      padding: "4px 0",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {d}
-                  </div>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: 2,
-                }}
-              >
-                {cells.map((c) => {
-                  const selected = c.key === value;
-                  const today = c.key === todayKey;
-                  return (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={() => {
-                        onChange(c.key);
-                        setOpen(false);
-                      }}
-                      style={{
-                        height: 28,
-                        background: selected ? "var(--text-primary)" : "transparent",
-                        border:
-                          today && !selected
-                            ? "1px solid var(--glass-border-focus, var(--text-secondary))"
-                            : "1px solid transparent",
-                        borderRadius: "var(--radius-sm)",
-                        color: selected
-                          ? "var(--bg-primary)"
-                          : c.inMonth
-                            ? "var(--text-primary)"
-                            : "var(--text-tertiary)",
-                        fontFamily: "var(--font-ui)",
-                        fontSize: 12,
-                        fontWeight: selected ? 600 : 500,
-                        cursor: "pointer",
-                        transition:
-                          "background-color 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selected)
-                          e.currentTarget.style.background = "var(--surface-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selected)
-                          e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      {c.date.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {view === "years" && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 4,
-              }}
-            >
-              {Array.from({ length: 12 }).map((_, i) => {
-                const yr = yearGridStart + i;
-                const thisYear = new Date().getFullYear();
-                // Future years are not selectable — historical price
-                // data only exists up to today, so anything past the
-                // current year is rendered as a disabled placeholder.
-                const isFuture = yr > thisYear;
-                const selected = yr === cursor.year;
-                const isToday = yr === thisYear;
-                return (
-                  <button
-                    key={yr}
-                    type="button"
-                    disabled={isFuture}
-                    onClick={() => {
-                      if (isFuture) return;
-                      setCursor((c) => ({ ...c, year: yr }));
-                      setView("days");
-                    }}
-                    style={{
-                      height: 40,
-                      background: selected ? "var(--text-primary)" : "transparent",
-                      border:
-                        isToday && !selected
-                          ? "1px solid var(--glass-border-focus, var(--text-secondary))"
-                          : "1px solid transparent",
-                      borderRadius: "var(--radius-sm)",
-                      color: isFuture
-                        ? "var(--text-tertiary)"
-                        : selected
-                          ? "var(--bg-primary)"
-                          : "var(--text-primary)",
-                      fontFamily: "var(--font-ui)",
-                      fontSize: 12.5,
-                      fontWeight: selected ? 600 : 500,
-                      cursor: isFuture ? "not-allowed" : "pointer",
-                      opacity: isFuture ? 0.4 : 1,
-                      transition:
-                        "background-color 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selected && !isFuture)
-                        e.currentTarget.style.background = "var(--surface-hover)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!selected && !isFuture)
-                        e.currentTarget.style.background = "transparent";
-                    }}
-                  >
-                    {yr}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {hasValue && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                padding: "6px 10px",
-                background: "transparent",
-                border: "1px solid var(--glass-border)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 11.5,
-                cursor: "pointer",
-                transition:
-                  "color 0.18s var(--ease-quartr), border-color 0.18s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CalNavBtn({
-  children,
-  onClick,
-  label,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  label: string;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      style={{
-        width: 24,
-        height: 24,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "transparent",
-        border: "none",
-        borderRadius: "var(--radius-sm)",
-        color: "var(--text-secondary)",
-        cursor: "pointer",
-        transition:
-          "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.color = "var(--text-primary)";
-        e.currentTarget.style.background = "var(--surface-hover)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.color = "var(--text-secondary)";
-        e.currentTarget.style.background = "transparent";
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 function MetricSelector({
   value,
