@@ -44,13 +44,22 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
     const iconName = catalogEntry?.icon ?? "help-circle";
 
     const clickable = Boolean(onConfigure);
-    const hasDiagnostics = diagnostics && diagnostics.length > 0;
+    // "info" diagnostics are can't-verify notes (e.g. array refs the linter
+    // can't statically check — "could not verify the reference … informational
+    // only"). On an as-delivered chat draft they read as errors and are pure
+    // noise, so they are not rendered at all. Rearranging steps into a truly
+    // impossible order still produces error/warning chips, which DO render.
+    const visibleDiagnostics = (diagnostics ?? []).filter(
+      (d) => d.severity !== "info",
+    );
+    const hasDiagnostics = visibleDiagnostics.length > 0;
     // The card border shifts to red when any error-severity diagnostic is present.
-    const hasError = hasDiagnostics && diagnostics.some((d) => d.severity === "error");
+    const hasError =
+      hasDiagnostics && visibleDiagnostics.some((d) => d.severity === "error");
     const hasWarning =
       !hasError &&
       hasDiagnostics &&
-      diagnostics.some((d) => d.severity === "warning");
+      visibleDiagnostics.some((d) => d.severity === "warning");
 
     return (
       <div
@@ -154,7 +163,7 @@ export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(
 
         {/* Diagnostic chips — reuse CritiqueFlag icon+colour system */}
         {hasDiagnostics && (
-          <DiagnosticChips diagnostics={diagnostics} />
+          <DiagnosticChips diagnostics={visibleDiagnostics} />
         )}
       </div>
     );

@@ -108,12 +108,23 @@ def _replay_idea_fills(
                 else:
                     front.qty -= take
                 remaining -= take
-            # If `remaining > 0` here, the idea_id slice has more sells
-            # than buys (impossible if the resolver tagged consistently).
-            # Treat residual cost as 0 — realized is just the credit.
+            # If `remaining > 0`, the idea_id slice has more sells than
+            # buys (a tagging asymmetry — live repro 2026-07-19: two ideas
+            # shared identical daily legs but the day-1 BUY carried only
+            # ONE idea_id, so the twin's first SELL had no lot and its
+            # FULL ₹6,451 credit was booked as realized "profit", showing
+            # +₹6,316 on an agent whose true round trips netted ≈ −₹228).
+            # An unmatched portion has an UNKNOWN basis — booking its
+            # proceeds as profit is fabrication. Realize only the matched
+            # fraction of the credit against its consumed cost; the
+            # unmatched remainder contributes zero.
+            matched = Decimal(qty) - Decimal(remaining)
+            credit_matched = (
+                net_cashflow * matched / Decimal(qty) if qty else Decimal("0")
+            )
             realized_by_symbol[sym] = (
                 realized_by_symbol[sym]
-                + to_money(net_cashflow - to_money(cost_consumed))
+                + to_money(to_money(credit_matched) - to_money(cost_consumed))
             )
         # Any other side (shouldn't exist) is silently skipped.
 

@@ -242,12 +242,14 @@ def get_order_history(
     auth: tuple = Depends(get_current_user_token),
     db: Session = Depends(get_db),
     limit: int = 20,
+    offset: int = 0,
 ):
-    """Get recent order history for the current user."""
+    """Get recent order history for the current user (paged, newest first)."""
     user_id, _ = auth
     trades = (db.query(TradeLog)
               .filter(TradeLog.user_id == user_id)
               .order_by(TradeLog.placed_at.desc())
+              .offset(max(0, int(offset)))
               .limit(limit).all())
     return [{"id": t.id, "symbol": t.symbol, "action": t.transaction_type,
              "quantity": t.quantity, "status": t.status,

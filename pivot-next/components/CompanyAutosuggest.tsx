@@ -342,28 +342,6 @@ export function CompanyAutosuggest({
             />
           ))}
 
-          {/* logo.dev attribution — required wherever logos render */}
-          <li
-            role="presentation"
-            style={{
-              padding: "5px 14px 3px",
-              fontSize: 10,
-              color: "var(--text-tertiary)",
-              borderTop: "1px solid var(--glass-border)",
-              marginTop: 2,
-            }}
-          >
-            Logos provided by{" "}
-            <a
-              href="https://logo.dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "inherit", textDecoration: "underline" }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              Logo.dev
-            </a>
-          </li>
         </ul>
       )}
 

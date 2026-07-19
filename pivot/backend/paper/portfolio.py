@@ -330,8 +330,11 @@ def open_orders(db: Session, user_id: int) -> list[dict]:
     } for o in orders]
 
 
-def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
-    """The fills log, newest first, capped at ``limit``. JSON-ready dicts."""
+def fills_journal(
+    db: Session, user_id: int, limit: int = 50, offset: int = 0,
+) -> list[dict]:
+    """The fills log, newest first, one ``limit``-sized page starting at
+    ``offset`` (lazy-loaded pagination on the Portfolio trade history)."""
     account = _get_account(db, user_id)
     if account is None:
         return []
@@ -340,6 +343,7 @@ def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
         db.query(PaperFill)
         .filter(PaperFill.account_id == account.id)
         .order_by(PaperFill.filled_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )

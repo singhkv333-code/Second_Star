@@ -5100,6 +5100,15 @@ class ChatService:
                 new_symbol = (_draft_primary_symbol(draft) or "").upper()
                 if prior_symbol == new_symbol:
                     carried_wf_id = prior_wf_id
+        if carried_wf_id and isinstance(draft, dict):
+            # Surface the anchor ON the card payload too — `draft` here is
+            # the same dict raw_data serialises to the FE, whose Save &
+            # activate branches on draft.workflow_id → updateWorkflow
+            # (in-place) vs createWorkflow. Without this, a chat amendment
+            # of an EXISTING agent rendered a card whose Save created a
+            # DUPLICATE while the original stayed active (live repro
+            # 2026-07-19: "change the number of top gainers to 3").
+            draft.setdefault("workflow_id", carried_wf_id)
         evicted = self.store.set_active_draft(conv_id, ActiveDraft(
             tool_name=tool_name,
             draft=draft,

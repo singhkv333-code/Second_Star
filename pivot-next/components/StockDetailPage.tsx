@@ -624,26 +624,6 @@ function PhoneLayout({
         </>
       )}
 
-      {/* logo.dev attribution — required by their free tier wherever the
-          company logo is displayed. */}
-      <div
-        style={{
-          marginTop: 20,
-          fontSize: 10.5,
-          color: "var(--text-secondary)",
-          opacity: 0.7,
-        }}
-      >
-        Logos provided by{" "}
-        <a
-          href="https://logo.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: "inherit", textDecoration: "underline" }}
-        >
-          Logo.dev
-        </a>
-      </div>
     </div>
   );
 }
