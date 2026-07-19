@@ -304,6 +304,10 @@ export function StockPriceChart({
         localization: {
           priceFormatter: valueFormatter ?? (normalized ? fmtPctFrom100 : fmtINR),
         },
+        // Enable wheel / pinch zoom; pan remains drag-to-scroll. (The wrapper
+        // defaults both to false — this override keeps zooming alive, and the
+        // pan-bounds clamp in onReady stops zoom-out/pan drifting past data.)
+        handleScale: { mouseWheel: true, axisPressedMouseMove: true },
       }}
       onReady={onReady}
     />
