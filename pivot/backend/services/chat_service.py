@@ -346,8 +346,12 @@ _COMPACT_POST_MACRO_MAX_OUTPUT = 250
 # `web_search_preview` so the model actually browses (real headlines for
 # market/company news, not generic reasoning).
 from backend.config import settings as _settings
+# search_context_size="low": the provider fetches a smaller context per
+# search — measurably faster and cheaper; news/qualitative asks don't need
+# the deep-research context tiers.
 _HOSTED_TOOLS: "list[dict] | None" = (
-    [{"type": "web_search_preview"}] if _settings.web_search_enabled else None
+    [{"type": "web_search_preview", "search_context_size": "low"}]
+    if _settings.web_search_enabled else None
 )
 
 
@@ -3285,10 +3289,11 @@ def _prompt_module_block(message: str, history: list) -> str:
     """The per-turn intent-pack system-message content (empty when none
     applies). system_core.md is always loaded; these packs are additive."""
     names = select_prompt_modules(message, _history_tail_text(history))
-    # When the hosted web_search tool is offered this turn, load its usage
+    # When the hosted web_search tool is offered on THIS turn (scoped to
+    # news / qualitative-company / earnings-date asks), load its usage
     # contract so the model knows WHEN to reach for it and — critically —
     # that prices/fundamentals still come from Kite tools, not the web.
-    if _HOSTED_TOOLS:
+    if _HOSTED_TOOLS and _web_search_scope(message):
         names = [*names, "web_search"]
     return load_prompt_modules(names) if names else ""
 
@@ -3316,6 +3321,54 @@ _NEWS_BROWSE_RE = re.compile(
 
 def _is_news_browse_ask(message: str) -> bool:
     return bool(_NEWS_BROWSE_RE.search(message or ""))
+
+
+# ── Web-search SCOPE (2026-07-19) ────────────────────────────────────
+# The hosted web_search tool is attached per-turn ONLY for the three ask
+# shapes it exists for: news, qualitative company context (operations,
+# management, plans, deals …), and earnings/results dates. Everything
+# else (prices, technicals, fundamentals, screens, orders, backtests)
+# has a local tool and must never burn a browse hop. This is tool-SURFACE
+# narrowing — the same lane the tool_router already uses — not an
+# interpretation layer: the model still owns what to do with the turn;
+# out-of-scope turns simply don't carry the (slow) browse tool.
+_WEB_QUALITATIVE_RE = re.compile(
+    r"\b(?:management|promoters?|ceo|cfo|founder|chairman|board\b"
+    r"|operations?|business\s+model|segments?|subsidiar|products?\s+and\b"
+    r"|what\s+does\s+[\w.&'-]+\s+do\b|about\s+the\s+company"
+    r"|expansion|capex\s+plans?|acquisitions?|merger|demerger|deal\b"
+    r"|order\s+(?:win|book)|contract\s+(?:win|award)|partnership"
+    r"|guidance|outlook|commentary|concall|conference\s+call"
+    r"|analyst\s+(?:day|meet)|credit\s+rating|downgrade|upgrade\b"
+    r"|litigation|investigation|probe\b|resign|appoint)",
+    re.IGNORECASE,
+)
+_WEB_EARNINGS_DATE_RE = re.compile(
+    r"\b(?:earnings?|results?|q[1-4]\s*(?:fy)?\d*)\b"
+    r"[^.?!]{0,60}\b(?:date|when|calendar|schedule|announc|declar|report)"
+    r"|\b(?:when|what\s+date)\b[^.?!]{0,60}\b(?:earnings?|results?)\b"
+    r"|\bboard\s+meeting\b|\brecord\s+date\b|\bex[- ]date\b|\bagm\b"
+    r"|\bdividend\s+(?:date|announc)",
+    re.IGNORECASE,
+)
+
+
+def _web_search_scope(message: str) -> bool:
+    """True when this turn's ask is in the web-search lane (news /
+    qualitative company context / earnings-results dates)."""
+    msg = message or ""
+    return bool(
+        _NEWS_BROWSE_RE.search(msg)
+        or _WEB_QUALITATIVE_RE.search(msg)
+        or _WEB_EARNINGS_DATE_RE.search(msg)
+    )
+
+
+def _hosted_tools_for(message: str) -> "list[dict] | None":
+    """The per-turn hosted-tool surface: the browse tool only in scope."""
+    if _HOSTED_TOOLS is None:
+        return None
+    return _HOSTED_TOOLS if _web_search_scope(message) else None
 
 
 # ── LLM-owned interpretation (experiment): one static direction block ──
@@ -7667,7 +7720,7 @@ class ChatService:
                     reasoning_effort=hop_effort,
                     temperature=0.2,
                     prompt_cache_key=cache_key,
-                    hosted_tools=_HOSTED_TOOLS,
+                    hosted_tools=_hosted_tools_for(message),
                 )
             except Exception as e:
                 # GAN R4 F11: ONE short-backoff retry on a transient
@@ -9701,7 +9754,7 @@ class ChatService:
                 reasoning_effort=hop_effort,
                 temperature=0.2,
                 prompt_cache_key=cache_key,
-                hosted_tools=_HOSTED_TOOLS,
+                hosted_tools=_hosted_tools_for(message),
             ):
                 etype = ev.get("type")
                 # Verbose stream-debug: emit every event type the first time

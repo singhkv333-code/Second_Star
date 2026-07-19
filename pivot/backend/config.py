@@ -223,7 +223,11 @@ class Settings(BaseSettings):
     # variants 200 + real citations). Default OFF (feature-flag convention);
     # scoped/guided by system_core.md's web-search clause — prices/fundamentals
     # still come from Kite tools, web search is for LATEST qualitative context.
-    web_search_enabled: bool = False
+    # Reactivated 2026-07-19 with a SCOPED surface: the tool is attached
+    # per-turn only for news / qualitative-company / earnings-date asks
+    # (chat_service._web_search_scope) and runs with
+    # search_context_size="low" for latency.
+    web_search_enabled: bool = True
 
     # --- LLM-owned interpretation (A/B experiment, 2026-07-17) -----------------
     # When True, chat_service skips the regex "interpretation" layers — intent-
