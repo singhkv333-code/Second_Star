@@ -176,22 +176,9 @@ function IpoRow({
           </div>
         )}
 
-      {/* Actions */}
+      {/* Actions — INFO/ANALYSIS ONLY (2026-07-19): Apply and Remind
+          removed; IPO applications happen in the user's broker app. */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onSelectIpo(actionRef)}
-          disabled={!registerable}
-          aria-label={`Apply for ${ipo.name} IPO`}
-          title={registerable ? undefined : "Not on the NSE feed yet — registration unavailable"}
-          className={cn(
-            "inline-flex h-7 items-center rounded-full bg-primary px-3 text-[11.5px] font-medium text-primary-foreground",
-            "transition-all hover:bg-primary/90 active:scale-[0.97]",
-            !registerable && "cursor-not-allowed opacity-40 hover:bg-primary",
-          )}
-        >
-          Apply
-        </button>
         {onKnowMore && (
           <button
             type="button"
@@ -205,21 +192,6 @@ function IpoRow({
             Know more
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => onRemindIpo(actionRef)}
-          disabled={!registerable}
-          aria-label={`Set up reminders for ${ipo.name} IPO`}
-          title={registerable ? undefined : "Not on the NSE feed yet — automation unavailable"}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-full border border-border/60 px-2.5 text-[11px] font-medium text-foreground/75",
-            "transition-colors hover:bg-muted hover:text-foreground",
-            !registerable && "cursor-not-allowed opacity-40",
-          )}
-        >
-          <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
-          Remind
-        </button>
       </div>
     </div>
   );

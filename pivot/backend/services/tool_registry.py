@@ -119,11 +119,11 @@ _PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     # series/max/min/cagr/yoy aggregation — the "which year did X have
     # max profit" class. Registered via _ensure_v2_tools_registered.
     "query_financials",
-    "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
-    # IPO P2: open-day reminder workflow proposal. Same shape as
-    # propose_workflow's output (workflow_draft_card) — the FE renders
-    # the same card and the user activates via the existing CRUD path.
-    "propose_ipo_automation",
+    # IPO surface is INFO/ANALYSIS-ONLY (2026-07-19 product decision):
+    # propose_ipo_application + propose_ipo_automation removed from the
+    # surface — applications happen in the user's broker app; Pivot
+    # lists, details, and analyses IPOs only.
+    "list_upcoming_ipos", "get_ipo_details",
     # IPO P4: post-listing performance ("how did TIKONA list?" /
     # "TIKONA listing gain"). Reads NSE past-issues + live price; the
     # FE renders the ipo_listed_card. Honest-on-failure (null + note),

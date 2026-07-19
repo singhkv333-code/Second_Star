@@ -43,6 +43,7 @@ import {
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import { isError } from "@/lib/types";
+import { useTradingMode } from "@/lib/trading-mode";
 import { createEquityBasket, type EquityBasket } from "@/lib/agentsApi";
 import { BasketTradeModal } from "@/components/agent-panel/BasketTradeModal";
 import type {
@@ -535,6 +536,7 @@ export function StrategyBuilderCard({
   card,
   onBacktest,
 }: StrategyBuilderCardProps): React.ReactElement {
+  const tradingMode = useTradingMode();
   const [showWhy, setShowWhy] = useState(false);
   // The hovered/selected allocation slice key, shared by the donut and the
   // holdings/sleeve rows so the two stay in sync in both directions.
@@ -904,9 +906,16 @@ export function StrategyBuilderCard({
             </p>
           )}
 
+          {/* Mode-aware honesty line: in PAPER mode (the default) deploys
+              fill instantly in the simulated book — telling the user to
+              "confirm in your broker app" there was wrong. The broker line
+              applies only in live mode (register-not-execute). */}
           <p className="text-[10px] leading-snug text-muted-foreground/70">
-            Deploy registers BUY orders through your connected broker — nothing is
-            auto-executed; you confirm in your broker app.
+            {tradingMode === "paper"
+              ? "Deploy places these BUY orders in your simulated paper " +
+                "portfolio — fills are instant and no real money moves."
+              : "Deploy registers BUY orders through your connected broker — " +
+                "nothing is auto-executed; you confirm in your broker app."}
           </p>
         </div>
       )}
