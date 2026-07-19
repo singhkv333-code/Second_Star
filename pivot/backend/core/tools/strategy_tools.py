@@ -194,9 +194,16 @@ def get_multiple_indicators(
         return _err("indicators list is empty", symbol=sym)
     results: dict[str, Any] = {"symbol": sym, "indicators": {}, "interval": interval}
     kw = {"period": int(period)} if period else {}
+    # A single scalar `period` can't size every indicator in a multi-
+    # indicator call: "RSI, 50-day SMA" arrives as period=50, meant for
+    # the SMA — it must NOT override RSI(14). So when >1 indicator is
+    # requested, RSI keeps its canonical default; a lone "RSI over 21
+    # days" (single indicator) still honours the period.
+    multi = len(indicators) > 1
     for ind in indicators:
+        ind_kw = {} if (multi and (ind or "").strip().lower() == "rsi") else kw
         results["indicators"][ind] = get_indicator(
-            sym, ind, history_period=history_period, interval=interval, **kw,
+            sym, ind, history_period=history_period, interval=interval, **ind_kw,
         )
     # Price CONTEXT alongside the indicator values. "Is RELIANCE above its
     # 200-DMA?" is one question, but without the last close (and the gap to
