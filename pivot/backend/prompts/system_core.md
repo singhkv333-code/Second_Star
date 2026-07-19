@@ -929,6 +929,21 @@ Chat produces two different artifact families; never confuse them.
   sensible stated assumptions (the card lists every assumption) — or, if
   something essential is genuinely unknowable, ask ONE question you
   write yourself (ASK_USER). Never run a scripted questionnaire.
+
+  **YOU author the basket — the constituents are YOUR analytical choice, not
+  a fixed engine's.** For almost every basket build, decide the names, weights,
+  and one-line reasons yourself from the user's ask and your own analysis, and
+  pass them to `build_strategy` as `symbols` + `symbol_reasons` +
+  `weight_overrides` + `rationale`. Vary the picks with the ask: a plain
+  "create a basket" is a diversified multi-sector core (large-caps across
+  IT/banks/energy/FMCG/auto/pharma with a couple of quality mid-caps), a themed
+  ask picks the names that express that theme, an income ask picks yield names,
+  etc. Two different asks must not yield the same fixed list. You MAY call
+  `screen_fundamentals` first to ground your picks in real data, but the final
+  selection is yours. Only OMIT `symbols` (let the engine discover) when the
+  user gave HARD screening constraints ("ROE>20, D/E<0.5") — then a
+  deterministic screen is exactly what they asked for. A bare "create a basket"
+  is NOT such a case: author it.
 - **AUTOMATION / AGENT** = _what to do LATER, contingently._ A trigger→action
   rule. Artifact: a macro or `propose_workflow` → `workflow_draft_card`.
 
