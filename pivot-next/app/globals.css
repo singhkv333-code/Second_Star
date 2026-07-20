@@ -1034,7 +1034,8 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    width, dropped below the top header, with the scrim also starting below
    the header so the top bar stays bright and tappable. */
 @media (max-width: 1023.98px) {
-  .backtest-sheet-shell {
+  .backtest-sheet-shell,
+  .basket-sheet-shell {
     width: 100vw !important;
     max-width: 100vw !important;
     top: var(--header-h, 56px) !important;
@@ -1042,7 +1043,8 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     height: auto !important;
     border-left: none !important;
   }
-  .backtest-sheet-overlay {
+  .backtest-sheet-overlay,
+  .basket-sheet-overlay {
     top: var(--header-h, 56px) !important;
   }
 }
@@ -1052,7 +1054,8 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    the dimmed content stays partly visible. Phones (<768px) keep full width. */
 @media (min-width: 768px) and (max-width: 1023.98px) {
   .agent-panel-shell,
-  .backtest-sheet-shell {
+  .backtest-sheet-shell,
+  .basket-sheet-shell {
     width: 50vw !important;
     max-width: 50vw !important;
     border-left: 1px solid var(--glass-border) !important;
@@ -1124,6 +1127,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .screener-filter-rail {
     display: none !important;
     max-height: none;
+  }
+  /* The horizontal filter toolbar (sector · cap · P/E · ROE) is redundant on
+     phone — the title-row Filters toggle opens the bottom sheet with the same
+     controls, so hide the inline toolbar to avoid a duplicate filter surface. */
+  .screener-toolbar {
+    display: none !important;
   }
   /* The open filter sheet is portaled to <body> as a bottom sheet — see
      the .screener-sheet-* rules outside this media block. */
