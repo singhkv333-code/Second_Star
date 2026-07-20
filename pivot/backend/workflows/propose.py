@@ -177,6 +177,7 @@ Output ONLY valid JSON matching this schema (no prose, no markdown fences):
 Rules:
   - Indian stocks default to exchange "NSE", currency INR.
   - "every weekday" → cron with day_of_week 1-5.
+  - BOUNDED recurring window ("every 5 min FOR THE NEXT HOUR", "buy every 10 min for the next 30 minutes", "each hour for the next 2 hours") → keep the `cron` for the cadence AND set `duration_minutes` on the SAME trigger.schedule config to the window length (1 hour → 60, 30 minutes → 30, 2 hours → 120). The window is measured from activation and the agent auto-stops after it. Omit `duration_minutes` for an open-ended schedule with no stated end ("every weekday at 3:15 PM"). Never fold the window into the cron — a cron cannot express "stop after an hour", so dropping it makes the agent fire forever.
   - Times default to "Asia/Kolkata" unless the user specifies otherwise.
   - "if my buying power is over X" → fetch.portfolio THEN condition.numeric on context.<idx>.buying_power.
   - Order placement that mentions confirmation / approval / "ask me first" → action.place_order with requires_approval=true.

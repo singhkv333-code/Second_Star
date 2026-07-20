@@ -1095,6 +1095,23 @@ def _register_armed_idea(db: Session, user_id: int, wf) -> None:
     db.commit()
 
 
+def _schedule_window_minutes(wf: Workflow) -> Optional[int]:
+    """Shortest bounded window (``duration_minutes``) across the workflow's
+    ``trigger.schedule`` steps, or None if none of them bounds its window.
+
+    Backs "every 5 min FOR THE NEXT HOUR" agents: the trigger carries the
+    duration; activation turns the SHORTEST such window into a concrete
+    ``expires_at`` so the scheduler auto-pauses the agent once it elapses.
+    """
+    windows: list[int] = []
+    for s in wf.steps:
+        if s.step_type == "trigger.schedule":
+            d = (s.config or {}).get("duration_minutes")
+            if isinstance(d, int) and d > 0:
+                windows.append(d)
+    return min(windows) if windows else None
+
+
 @router.post(
     "/workflows/{workflow_id}/activate",
     response_model=WorkflowOut,
@@ -1130,6 +1147,19 @@ def activate_workflow(
 
     wf.status = WorkflowStatus.active
     wf.activated_at = datetime.now(timezone.utc)
+    # Bounded recurring schedules ("every 5 min for the next hour"): the
+    # trigger.schedule step carries `duration_minutes`; anchor the workflow's
+    # expires_at at activation + the SHORTEST such window. The scheduler
+    # already refuses to fire — and auto-pauses — any workflow past its
+    # expires_at (_poll_due_workflows R4b), so no scheduler change is needed;
+    # this is what makes "for the next hour" actually stop after an hour
+    # instead of firing forever. Only tighten (never loosen) a pre-existing
+    # expiry so an IPO/event window set elsewhere still wins if it's sooner.
+    _window_min = _schedule_window_minutes(wf)
+    if _window_min is not None:
+        _window_expiry = wf.activated_at + timedelta(minutes=_window_min)
+        if wf.expires_at is None or _window_expiry < wf.expires_at:
+            wf.expires_at = _window_expiry
     # Compute `next_run_at` for trigger.schedule workflows. Invalid
     # cron / timezone fails the activation 422 (closes reviewer
     # Day-2 edge case #1 — never silently arm a dead schedule).
