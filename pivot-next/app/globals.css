@@ -1128,6 +1128,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     display: none !important;
     max-height: none;
   }
+  /* The horizontal filter toolbar (sector · cap · P/E · ROE) is redundant on
+     phone — the title-row Filters toggle opens the bottom sheet with the same
+     controls, so hide the inline toolbar to avoid a duplicate filter surface. */
+  .screener-toolbar {
+    display: none !important;
+  }
   /* The open filter sheet is portaled to <body> as a bottom sheet — see
      the .screener-sheet-* rules outside this media block. */
   /* Slider-icon toggle in the title row — hidden on desktop, shown
