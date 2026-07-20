@@ -1790,6 +1790,12 @@ export type ViewSummary = {
    * deployable basket) off this same flag — the two surfaces never contradict.
    */
   is_developing: boolean;
+  /**
+   * Teaser state: the question is published but the basket behind it isn't
+   * ready. The gallery card renders inert — no hero number, no Yes/No, no
+   * click-through — because there is no detail record to open.
+   */
+  coming_soon?: boolean;
   // Layman content layer (the belief in plain English).
   plain_one_liner: string | null;
   plain_summary: string | null;

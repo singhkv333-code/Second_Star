@@ -39,6 +39,7 @@ import {
   Globe,
   Landmark,
   Flame,
+  CloudRain,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
@@ -65,14 +66,10 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   crude: Flame,
   oil: Flame,
   gold: Flame,
+  renewable: Zap,
+  nuclear: Zap,
+  monsoon: CloudRain,
 };
-
-/** Cheap deterministic string hash → stable per-card image lock. */
-function hashStr(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
-  return h;
-}
 
 function categoryLeadWord(category: string | null | undefined): string {
   return (
@@ -88,23 +85,30 @@ function categoryIcon(category: string | null | undefined): LucideIcon {
   return (lead ? CATEGORY_ICON[lead] : undefined) ?? TrendingUp;
 }
 
-// Keyword used to fetch a relevant preview image per category. PREVIEW ONLY —
-// keyed placeholder imagery so we can see the card with a real photo in the tile.
-const CATEGORY_KEYWORD: Record<string, string> = {
-  ai: "microchip",
-  energy: "oil-refinery",
-  autos: "car-factory",
-  auto: "car-factory",
-  geopolitics: "world-map",
-  macro: "central-bank",
-  index: "stock-market",
-  commodity: "commodities",
-  crude: "oil-barrel",
-  oil: "oil-barrel",
-  gold: "gold-bars",
-  monsoon: "monsoon-farm",
-  it: "software",
+// Themed artwork per opinion, served from /public/opinions. Keyed by view id
+// first (each opinion gets its own illustration), then by the category's lead
+// word so a future view in the same theme inherits one for free. No match →
+// the lucide glyph alone, which is why the tile always renders something.
+const VIEW_IMAGE: Record<string, string> = {
+  renewable: "/opinions/renewable.svg",
+  gold: "/opinions/gold.svg",
+  monsoon: "/opinions/monsoon.svg",
+  ev: "/opinions/ev.svg",
+  nuclear: "/opinions/nuclear.svg",
+  commodity: "/opinions/gold.svg",
+  autos: "/opinions/ev.svg",
+  auto: "/opinions/ev.svg",
+  energy: "/opinions/renewable.svg",
 };
+
+/** Illustration for a card: exact view id wins, else the category lead word. */
+function viewImage(
+  id: string,
+  category: string | null | undefined,
+): string | null {
+  const lead = categoryLeadWord(category);
+  return VIEW_IMAGE[id] ?? (lead ? VIEW_IMAGE[lead] : undefined) ?? null;
+}
 
 export function CategoryGlyph({
   category,
@@ -115,11 +119,7 @@ export function CategoryGlyph({
 }): React.ReactElement {
   const Icon = categoryIcon(category);
   const [imgOk, setImgOk] = React.useState(true);
-  const lead = categoryLeadWord(category);
-  const keyword = (lead && CATEGORY_KEYWORD[lead]) || "finance";
-  // lock varies per card so cards sharing a category still get distinct images.
-  const lock = Math.abs(hashStr(seed)) % 1000;
-  const src = `https://loremflickr.com/200/200/${keyword}?lock=${lock}`;
+  const src = viewImage(seed, category);
   return (
     <div
       aria-hidden
@@ -137,7 +137,7 @@ export function CategoryGlyph({
       }}
     >
       <Icon size={28} strokeWidth={1.75} color="var(--text-secondary)" />
-      {imgOk && (
+      {src && imgOk && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
@@ -397,7 +397,12 @@ export function ViewCard({
 }: ViewCardProps): React.ReactElement {
   const [hover, setHover] = React.useState(false);
 
+  // Teaser card: the question ships before its basket does. Inert by design —
+  // there is no detail record to open, so the whole card stops being a button.
+  const soon = view.coming_soon === true;
+
   const handleKey = (e: React.KeyboardEvent<HTMLElement>): void => {
+    if (soon) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onOpen(view.id);
@@ -436,19 +441,34 @@ export function ViewCard({
 
   return (
     <article
-      role="button"
-      tabIndex={0}
-      aria-label={`Open view: ${view.plain_one_liner ?? view.title}`}
-      onClick={() => onOpen(view.id)}
+      role={soon ? "group" : "button"}
+      tabIndex={soon ? -1 : 0}
+      aria-label={
+        soon
+          ? `Coming soon: ${view.plain_one_liner ?? view.title}`
+          : `Open view: ${view.plain_one_liner ?? view.title}`
+      }
+      onClick={soon ? undefined : () => onOpen(view.id)}
       onKeyDown={handleKey}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       data-testid={`view-card-${view.id}`}
-      className="view-card cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      data-coming-soon={soon ? "true" : undefined}
+      className={`view-card focus:outline-none ${
+        soon
+          ? ""
+          : "cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      }`}
       style={{
         display: "flex",
         flexDirection: "column",
         height: "100%",
+        // Every card the same height, across rows as well as within one.
+        // `items-stretch` only equalises siblings in the SAME grid row, and a
+        // teaser card (no hero figure, no stance column) is shorter than a live
+        // one — so the floor is set here. Home's teasers opt out: their sizing
+        // is vh-clamped by .home-views-grid to fit the dashboard cell.
+        minHeight: sans ? undefined : 212,
         background: sans ? "transparent" : "var(--bg-secondary)",
         border: sans
           ? `1px solid ${hover ? "var(--glass-border-hover)" : "var(--glass-border)"}`
@@ -483,7 +503,28 @@ export function ViewCard({
         </div>
       </div>
 
-      {/* ── (b) body — hero return (left) · Yes/No stance (right) ─────────── */}
+      {/* ── (b) body ─────────────────────────────────────────────────────────
+          Live: hero return (left) · Yes/No stance (right).
+          Coming soon: just the words, in the muted body style — no number to
+          quote and no stance to take. */}
+      {soon ? (
+        <div
+          className="view-card-body"
+          style={{ marginTop: "auto", paddingTop: 24 }}
+        >
+          <div
+            style={{
+              fontFamily: FONT,
+              fontSize: 13,
+              fontWeight: 500,
+              lineHeight: 1.45,
+              color: "var(--text-tertiary)",
+            }}
+          >
+            Coming soon
+          </div>
+        </div>
+      ) : (
       <div
         className="view-card-body flex items-center justify-between"
         style={{ gap: 24, marginTop: "auto", paddingTop: 24 }}
@@ -520,6 +561,7 @@ export function ViewCard({
           <StanceButton label="No" tone="no" onClick={stopAnd("no")} />
         </div>
       </div>
+      )}
     </article>
   );
 }
