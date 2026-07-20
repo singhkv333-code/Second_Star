@@ -837,6 +837,10 @@ export type PortfolioSummary = {
   total_pnl_pct: number;
   day_pnl: number;
   num_holdings: number;
+  /** Free cash (buying power). Present in paper mode; may be undefined for a
+   *  real/Kite summary that doesn't carry a margin figure — render only when
+   *  defined so we never show a fake ₹0 cash. */
+  cash_available?: number;
 };
 
 /** `GET /portfolio/summary` — backed by Kite (mock when KITE_API_KEY is empty).
@@ -881,6 +885,7 @@ function adaptPaperSummary(p: PaperSummary): PortfolioSummary {
       total_pnl_pct: 0,
       day_pnl: 0,
       num_holdings: 0,
+      cash_available: 0,
     };
   }
   return {
@@ -890,6 +895,7 @@ function adaptPaperSummary(p: PaperSummary): PortfolioSummary {
     total_pnl_pct: p.total_pnl_pct,
     day_pnl: p.day_pnl,
     num_holdings: p.num_positions,
+    cash_available: p.cash_available, // free buying power (₹ not deployed)
   };
 }
 
