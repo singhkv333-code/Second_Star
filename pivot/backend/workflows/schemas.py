@@ -188,6 +188,22 @@ class TriggerScheduleConfig(_Strict):
         default="Asia/Kolkata",
         description="IANA timezone, e.g. Asia/Kolkata",
     )
+    duration_minutes: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=365 * 24 * 60,
+        description=(
+            "BOUNDED recurring window. Set this when the user caps how long "
+            "a RECURRING schedule stays live — 'every 5 minutes FOR THE NEXT "
+            "HOUR' -> duration_minutes=60; 'buy every 10 min for the next 30 "
+            "minutes' -> 30; 'each hour for the next 2 hours' -> 120. The "
+            "window is measured FROM ACTIVATION (not from now), so a draft "
+            "that sits before you activate it still gets the full window. "
+            "After it elapses the agent auto-stops (pauses) and never fires "
+            "again. Only valid with `cron`; leave null for an open-ended "
+            "recurring schedule ('every weekday at 3:15 PM' with no end)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> "TriggerScheduleConfig":
@@ -206,6 +222,14 @@ class TriggerScheduleConfig(_Strict):
                 raise ValueError(
                     f"run_at must be ISO 8601 datetime, got {self.run_at!r}"
                 ) from e
+        # A bounded window only makes sense for a recurring cron — a one-time
+        # run_at already fires exactly once, so pairing it with a duration is
+        # contradictory (and would silently do nothing).
+        if self.duration_minutes is not None and not has_cron:
+            raise ValueError(
+                "trigger.schedule: duration_minutes is only valid with a "
+                "recurring `cron`, not a one-time `run_at`."
+            )
         return self
 
 

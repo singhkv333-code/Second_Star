@@ -1464,7 +1464,7 @@ class OptionStrategy(Base):
         ),
         CheckConstraint(
             "status IN ('registered', 'withdrawn', 'intent_armed', "
-            "'active', 'closed', 'rejected', 'blocked')",
+            "'active', 'closed', 'expired', 'rejected', 'blocked')",
             name="ck_option_strategies_status",
         ),
         Index("ix_option_strategies_user_status", "user_id", "status"),

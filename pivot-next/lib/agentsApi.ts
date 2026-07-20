@@ -214,6 +214,10 @@ export type EquityBasket = {
   members: EquityBasketMember[];
   capital_inr: number | null;
   status: string;
+  /** True when the basket has been TRADED and still holds an open position
+   *  (drives the card's Deploy ⇄ Square-off toggle). Absent on older payloads
+   *  → treat as not-deployed. */
+  deployed?: boolean;
   created_at: string | null;
   updated_at: string | null;
 };

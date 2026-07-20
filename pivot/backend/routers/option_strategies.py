@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
-from backend.models import OptionStrategy
+from backend.models import OptionStrategy, PaperOrder
 from backend.safety import run_option_pretrade_gate
 from backend.services.option_strategies import (
     StrategyResolutionError,
@@ -381,6 +381,39 @@ async def close_option_strategy(
     }
 
 
+def _reconcile_phantom_active(db: Session, rows: list[OptionStrategy]) -> None:
+    """Never present an option strategy as ACTIVE unless it was genuinely
+    activated (executed). A strategy only legitimately reaches 'active' via
+    submit_option_strategy, which fills every leg first — so an 'active' row
+    with ZERO filled orders was never really executed (a legacy status set
+    outside the fill path, or a paper-book reset that wiped its fills). Heal
+    those to 'withdrawn' so they stop showing active. Idempotent; a genuinely
+    filled strategy is untouched. Best-effort — never blocks the read."""
+    active_ids = [s.id for s in rows if s.status == "active"]
+    if not active_ids:
+        return
+    filled = {
+        r[0]
+        for r in db.query(PaperOrder.option_strategy_id)
+        .filter(
+            PaperOrder.option_strategy_id.in_(active_ids),
+            PaperOrder.status == "filled",
+        )
+        .distinct()
+        .all()
+    }
+    changed = False
+    for s in rows:
+        if s.status == "active" and s.id not in filled:
+            s.status = "withdrawn"
+            changed = True
+    if changed:
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 — reconciliation must never break the list
+            db.rollback()
+
+
 @router.get("/users/option-strategies")
 async def list_option_strategies(
     db: Session = Depends(get_db),
@@ -393,6 +426,7 @@ async def list_option_strategies(
         .limit(100)
         .all()
     )
+    _reconcile_phantom_active(db, rows)
     return {"strategies": [serialize_option_strategy(s) for s in rows]}
 
 

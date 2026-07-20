@@ -579,6 +579,15 @@ function PortfolioValueHead({
         <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
           {fmtRupee(summary.invested_value)}
         </span>
+        {summary.cash_available != null && (
+          <>
+            {"  ·  "}
+            Cash{" "}
+            <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+              {fmtRupee(summary.cash_available)}
+            </span>
+          </>
+        )}
         {"  ·  "}
         <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
           {summary.num_holdings}

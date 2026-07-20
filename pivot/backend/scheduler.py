@@ -192,6 +192,20 @@ def _register_jobs():
             name="Paper: force-cover intraday shorts at 15:32 IST",
             replace_existing=True,
         )
+        # F&O: cash-settle expired option strategies at intrinsic. 15:34 —
+        # after the 15:32 short squareoff, before the 15:37 NAV snapshot, so
+        # the day's NAV reflects the settled book + released short-leg margin.
+        # Module-level callable (jobstore serializes by textual ref).
+        scheduler.add_job(
+            settle_expired_options_eod,
+            trigger=CronTrigger(
+                hour=15, minute=34, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_option_expiry_settlement",
+            name="Paper: cash-settle expired option strategies at 15:34 IST",
+            replace_existing=True,
+        )
         scheduler.add_job(
             snapshot_paper_navs,
             trigger=CronTrigger(
@@ -380,6 +394,28 @@ async def squareoff_intraday_shorts_eod():
     except Exception:
         db.rollback()
         logger.exception("paper EOD short squareoff failed")
+    finally:
+        db.close()
+
+
+async def settle_expired_options_eod():
+    """Cash-settle every ACTIVE paper option strategy whose expiry has
+    arrived — each leg booked at intrinsic vs the underlying's live
+    settlement price, short-leg margin released, status flipped to
+    'expired'. Runs at 15:34 IST: after the 15:32 short squareoff and
+    BEFORE the 15:37 NAV snapshot, so the day's NAV already reflects the
+    settled (and freed-margin) book. Commits per-strategy internally."""
+    from backend.database import SessionLocal
+    from backend.paper.option_settlement import settle_expired_options
+
+    db = SessionLocal()
+    try:
+        summary = settle_expired_options(db)
+        if summary["candidates"]:
+            logger.info(f"[paper] EOD option expiry settlement: {summary}")
+    except Exception:
+        db.rollback()
+        logger.exception("paper EOD option expiry settlement failed")
     finally:
         db.close()
 

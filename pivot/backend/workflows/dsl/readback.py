@@ -113,11 +113,31 @@ def _render(node, *, depth: int) -> str:
         return f"if ({cond}) then {then} else {else_}"
     if isinstance(node, AggregateNode):
         op_phrase = _AGG_PHRASES.get(node.op, node.op)
-        src = _render(node.source, depth=depth + 1)
+        # Fold a 1-bar offset on the aggregate's SOURCE into the window
+        # phrase. "lowest(low of X (1 bar ago)) over last 2000 bars" reads
+        # as a confusing nested single-bar reference; it actually means "the
+        # lowest low over the 2000 bars ENDING one bar back" — the current
+        # bar is excluded, which is exactly the strict new-extreme test.
+        # Surface that as "the previous N bars" and drop the nested suffix.
+        src_node = node.source
+        window_word = "last"
+        if getattr(src_node, "offset", 0) == 1:
+            try:
+                src_node = src_node.model_copy(update={"offset": 0})
+                window_word = "previous"  # implies "up to, but not incl. now"
+            except Exception:
+                src_node = node.source
+        src = _render(src_node, depth=depth + 1)
+        window = f"over the {window_word} {node.bars} bars"
+        # "the lowest low of X over the previous 2000 bars" — a plain-English
+        # noun phrase, not a function call, so the card reads like a sentence.
         if node.second is not None:
+            # Two-source aggregate (correlation / valuewhen / barssince).
+            # op_phrase already carries any needed "of" ("correlation of"),
+            # so don't inject another one.
             second = _render(node.second, depth=depth + 1)
-            return f"{op_phrase}({src}, {second}) over last {node.bars} bars"
-        return f"{op_phrase}({src}) over last {node.bars} bars"
+            return f"the {op_phrase} {src} and {second} {window}"
+        return f"the {op_phrase} {src} {window}"
     if isinstance(node, ComparisonNode):
         left = _render(node.left, depth=depth + 1)
         right = _render(node.right, depth=depth + 1)
