@@ -264,9 +264,24 @@ def settle_expired_strategy(
         })
 
     # Release any short-leg margin reserved on entry (mirrors the square-off
-    # path; idempotent via the release-ledger existence check).
+    # path). Guard on the ACTUAL reserve ledger row, not on margin_estimate:
+    # a strategy can sit 'active' without ever having filled/reserved (a
+    # never-executed intent whose status was set without going through
+    # submit_option_strategy) — releasing an un-reserved margin would credit
+    # phantom cash and drive cash_reserved negative. Only release what was
+    # genuinely reserved, and only once (idempotent via the release row).
     margin = to_money(strategy.margin_estimate or 0)
     if margin > 0:
+        was_reserved = (
+            db.query(PaperLedgerEntry)
+            .filter(
+                PaperLedgerEntry.account_id == account.id,
+                PaperLedgerEntry.kind == "reserve",
+                PaperLedgerEntry.note == f"reserve margin optstrat:{strategy.id}",
+            )
+            .first()
+            is not None
+        )
         already_released = (
             db.query(PaperLedgerEntry)
             .filter(
@@ -277,7 +292,7 @@ def settle_expired_strategy(
             .first()
             is not None
         )
-        if not already_released:
+        if was_reserved and not already_released:
             account.cash_reserved = to_money(account.cash_reserved) - margin
             account.cash_available = to_money(account.cash_available) + margin
             db.add(PaperLedgerEntry(
