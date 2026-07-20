@@ -78,14 +78,6 @@ const STEPS: TourStep[] = [
   },
   {
     tab: "chat",
-    element: ".composer-modes",
-    side: "top",
-    title: "When you'd rather point than type",
-    description:
-      "These pin down the intent of your next message: an <strong>automation</strong> that watches the market for you, a standing <strong>agent</strong>, a <strong>backtest</strong> over years of history, or a live <strong>option chain</strong>.",
-  },
-  {
-    tab: "chat",
     element: '[data-tour="search"]',
     side: "bottom",
     align: "start",
@@ -100,16 +92,16 @@ const STEPS: TourStep[] = [
     align: "end",
     title: "Your money, always in sight",
     description:
-      "Portfolio value and P&amp;L ride along at the top of every screen. You start in <strong>paper trading</strong> — a simulated book filled at real market prices — so ideas prove themselves before a single rupee moves. The full breakdown lives in the Portfolio tab.",
+      "Portfolio value and P&amp;L are visible at the top of the screen. You start in <strong>paper trading</strong>. Find the full breakdown in the Portfolio tab.",
   },
   {
     tab: "chat",
     element: '[data-tour="nav"]',
     side: "right",
     align: "start",
-    title: "The rest of the house",
+    title: "Everything else",
     description:
-      "Chat is home; these are the other rooms. Calendar tracks market events, Portfolio holds your book. The three worth a proper look come next — starting with Opinion Markets.",
+      "<strong>Home</strong> gives you the market at a glance, <strong>Chat</strong> is where you ask questions, and <strong>Portfolio</strong> holds your positions. We'll walk through the next three — starting with Opinions.",
   },
   {
     tab: "views",
@@ -129,7 +121,7 @@ const STEPS: TourStep[] = [
     side: "top",
     title: "Your ideas, on duty",
     description:
-      "Everything you build in chat reports here — price rules, weekly plans, option strategies, stock baskets — each one an agent you can pause, edit, or judge by its backtested curve. They keep watch so you don't have to keep the terminal open.",
+      "Everything you build in chat shows up here — price alerts, option strategies, stock baskets. Each one is an agent that keeps watching the market for you, and you can pause or edit it anytime.",
   },
   {
     tab: "screener",
@@ -231,11 +223,12 @@ export function ProductTour({
       prevBtnText: "Back",
       doneBtnText: "Start asking",
       disableActiveInteraction: true,
-      // Prevent accidental mid-tour dismissal: overlay click and ESC key are
-      // both disabled. The ONLY escape hatch is the Skip button on step 0
-      // (the intro welcome card). Once the user advances past it the tour runs
-      // through to the end; they can click "Start asking" on the final step.
-      allowClose: false,
+      // Every step gets an explicit close (×) so the user is never trapped
+      // mid-walk. driver.js gates that button on `allowClose`, which also
+      // arms overlay-click and ESC as dismissals — so both are neutered
+      // individually below. Result: the × is the one deliberate way out.
+      allowClose: true,
+      overlayClickBehavior: () => {},
       allowKeyboardControl: false,
       onNextClick: () => goStep(1),
       onPrevClick: () => goStep(-1),
@@ -263,11 +256,10 @@ export function ProductTour({
           description: s.description,
           side: s.side,
           align: s.align ?? "center",
-          // Step 0 is the intro / welcome card — the ONLY place where the
-          // user can skip/dismiss the tour (via the "close" button). All
-          // subsequent steps show only Next / Back so there's no accidental
-          // escape once the tour has started.
-          showButtons: i === 0 ? ["next", "close"] : ["next", "previous"],
+          // Close on every step — leaving is always one deliberate click away.
+          // The welcome card has nothing to go back to, so it drops "previous".
+          showButtons:
+            i === 0 ? ["next", "close"] : ["next", "previous", "close"],
           ...(i === 0 ? { nextBtnText: "Show me around" } : null),
         },
       })),

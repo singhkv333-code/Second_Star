@@ -1,5239 +1,1842 @@
 [
- {
-  "id": "ai_jobs",
-  "view_type": "theme",
-  "title": "Will AI create more jobs than it destroys by 2027?",
-  "thesis": "As AI spreads, India's big IT & software companies get more work \u2014 and their shares tend to rise.",
-  "category": "AI \u00b7 Theme",
-  "time_horizon": "Over 6 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
+  {
+    "id": "renewable",
+    "view_type": "theme",
+    "title": "Will renewable energy grow over the years?",
+    "thesis": "India's solar, wind and grid build-out lifts the power producers and equipment makers behind it.",
+    "category": "Renewable · Theme",
+    "time_horizon": "Long term",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "renewable-conservative",
+      "tier": "conservative",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": "unproven",
+      "total_return_pct": 8.74,
+      "excess_return_pct": 3.39,
+      "plain_label": "Own a bundle of 9 renewable-energy firms",
+      "nifty_total_pct": 5.71,
+      "n_episodes": 32,
+      "pct_episodes_beat": 56,
+      "worst_drop_pct": -31.5,
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000,
+          "benchmark": 100000
+        },
+        {
+          "t": "1",
+          "strategy": 99681.02,
+          "benchmark": 100080.81
+        },
+        {
+          "t": "2",
+          "strategy": 99582.89,
+          "benchmark": 100163.78
+        },
+        {
+          "t": "3",
+          "strategy": 99895.26,
+          "benchmark": 100377.49
+        },
+        {
+          "t": "4",
+          "strategy": 99844.59,
+          "benchmark": 100495.68
+        },
+        {
+          "t": "5",
+          "strategy": 99732.78,
+          "benchmark": 100601.5
+        },
+        {
+          "t": "6",
+          "strategy": 99866.47,
+          "benchmark": 100577.89
+        },
+        {
+          "t": "7",
+          "strategy": 100100.87,
+          "benchmark": 100623.05
+        },
+        {
+          "t": "8",
+          "strategy": 100453.64,
+          "benchmark": 100778.46
+        },
+        {
+          "t": "9",
+          "strategy": 100270.55,
+          "benchmark": 100738.43
+        },
+        {
+          "t": "10",
+          "strategy": 99978.58,
+          "benchmark": 100447.11
+        },
+        {
+          "t": "11",
+          "strategy": 99729.03,
+          "benchmark": 100260.92
+        },
+        {
+          "t": "12",
+          "strategy": 99614.59,
+          "benchmark": 100333.27
+        },
+        {
+          "t": "13",
+          "strategy": 99726.52,
+          "benchmark": 100470.32
+        },
+        {
+          "t": "14",
+          "strategy": 99655.36,
+          "benchmark": 100393.33
+        },
+        {
+          "t": "15",
+          "strategy": 99797.75,
+          "benchmark": 100653.18
+        },
+        {
+          "t": "16",
+          "strategy": 100028.96,
+          "benchmark": 100789.9
+        },
+        {
+          "t": "17",
+          "strategy": 100249.29,
+          "benchmark": 100784.98
+        },
+        {
+          "t": "18",
+          "strategy": 100381.59,
+          "benchmark": 100957.93
+        },
+        {
+          "t": "19",
+          "strategy": 100840.75,
+          "benchmark": 101350.56
+        },
+        {
+          "t": "20",
+          "strategy": 100696.21,
+          "benchmark": 101262.85
+        },
+        {
+          "t": "21",
+          "strategy": 100612,
+          "benchmark": 101101.12
+        },
+        {
+          "t": "22",
+          "strategy": 100703.79,
+          "benchmark": 101301.71
+        },
+        {
+          "t": "23",
+          "strategy": 100777.88,
+          "benchmark": 101266
+        },
+        {
+          "t": "24",
+          "strategy": 100864.6,
+          "benchmark": 101384.82
+        },
+        {
+          "t": "25",
+          "strategy": 101208.37,
+          "benchmark": 101938.54
+        },
+        {
+          "t": "26",
+          "strategy": 101289.73,
+          "benchmark": 102042.43
+        },
+        {
+          "t": "27",
+          "strategy": 101329.53,
+          "benchmark": 101963.76
+        },
+        {
+          "t": "28",
+          "strategy": 101626.36,
+          "benchmark": 102305.14
+        },
+        {
+          "t": "29",
+          "strategy": 102158.55,
+          "benchmark": 102486.15
+        },
+        {
+          "t": "30",
+          "strategy": 102066.88,
+          "benchmark": 102443.34
+        },
+        {
+          "t": "31",
+          "strategy": 101987.81,
+          "benchmark": 102481.27
+        },
+        {
+          "t": "32",
+          "strategy": 102250.58,
+          "benchmark": 102531.83
+        },
+        {
+          "t": "33",
+          "strategy": 102651.37,
+          "benchmark": 102885.73
+        },
+        {
+          "t": "34",
+          "strategy": 102638.01,
+          "benchmark": 102694.61
+        },
+        {
+          "t": "35",
+          "strategy": 102734.65,
+          "benchmark": 102607.54
+        },
+        {
+          "t": "36",
+          "strategy": 102790.05,
+          "benchmark": 102629.77
+        },
+        {
+          "t": "37",
+          "strategy": 102634.89,
+          "benchmark": 102449.81
+        },
+        {
+          "t": "38",
+          "strategy": 102419.26,
+          "benchmark": 102227.62
+        },
+        {
+          "t": "39",
+          "strategy": 102364.2,
+          "benchmark": 102067.54
+        },
+        {
+          "t": "40",
+          "strategy": 102346.8,
+          "benchmark": 102053.38
+        },
+        {
+          "t": "41",
+          "strategy": 102131.44,
+          "benchmark": 101964.99
+        },
+        {
+          "t": "42",
+          "strategy": 102306.25,
+          "benchmark": 102061.84
+        },
+        {
+          "t": "43",
+          "strategy": 102244.06,
+          "benchmark": 101934.04
+        },
+        {
+          "t": "44",
+          "strategy": 102106.67,
+          "benchmark": 102018.81
+        },
+        {
+          "t": "45",
+          "strategy": 102229.28,
+          "benchmark": 102071.34
+        },
+        {
+          "t": "46",
+          "strategy": 102135.77,
+          "benchmark": 101886.62
+        },
+        {
+          "t": "47",
+          "strategy": 102341.5,
+          "benchmark": 101776.92
+        },
+        {
+          "t": "48",
+          "strategy": 102477.89,
+          "benchmark": 101900.83
+        },
+        {
+          "t": "49",
+          "strategy": 102617.51,
+          "benchmark": 101946.99
+        },
+        {
+          "t": "50",
+          "strategy": 103058.34,
+          "benchmark": 102240.9
+        },
+        {
+          "t": "51",
+          "strategy": 103362.61,
+          "benchmark": 102386.72
+        },
+        {
+          "t": "52",
+          "strategy": 103549.81,
+          "benchmark": 102457.55
+        },
+        {
+          "t": "53",
+          "strategy": 103273.08,
+          "benchmark": 102327.69
+        },
+        {
+          "t": "54",
+          "strategy": 103312.68,
+          "benchmark": 102421.72
+        },
+        {
+          "t": "55",
+          "strategy": 103441.45,
+          "benchmark": 102467.21
+        },
+        {
+          "t": "56",
+          "strategy": 103822.68,
+          "benchmark": 102542.82
+        },
+        {
+          "t": "57",
+          "strategy": 103740.13,
+          "benchmark": 102322.35
+        },
+        {
+          "t": "58",
+          "strategy": 103923.04,
+          "benchmark": 102496.16
+        },
+        {
+          "t": "59",
+          "strategy": 104115.43,
+          "benchmark": 102661.29
+        },
+        {
+          "t": "60",
+          "strategy": 104444.61,
+          "benchmark": 102887.73
+        },
+        {
+          "t": "61",
+          "strategy": 104670.62,
+          "benchmark": 102900.29
+        },
+        {
+          "t": "62",
+          "strategy": 104527.13,
+          "benchmark": 102725.87
+        },
+        {
+          "t": "63",
+          "strategy": 104409.87,
+          "benchmark": 102613.56
+        },
+        {
+          "t": "64",
+          "strategy": 104665.23,
+          "benchmark": 102857.29
+        },
+        {
+          "t": "65",
+          "strategy": 104882.2,
+          "benchmark": 103014.88
+        },
+        {
+          "t": "66",
+          "strategy": 104592.81,
+          "benchmark": 102860.72
+        },
+        {
+          "t": "67",
+          "strategy": 104601.03,
+          "benchmark": 102700.84
+        },
+        {
+          "t": "68",
+          "strategy": 104860.81,
+          "benchmark": 102886.85
+        },
+        {
+          "t": "69",
+          "strategy": 105215.95,
+          "benchmark": 103162.73
+        },
+        {
+          "t": "70",
+          "strategy": 105277.59,
+          "benchmark": 103251.62
+        },
+        {
+          "t": "71",
+          "strategy": 105554.3,
+          "benchmark": 103050.82
+        },
+        {
+          "t": "72",
+          "strategy": 105405.35,
+          "benchmark": 102883.99
+        },
+        {
+          "t": "73",
+          "strategy": 105313.47,
+          "benchmark": 102759.28
+        },
+        {
+          "t": "74",
+          "strategy": 105146.57,
+          "benchmark": 102873.14
+        },
+        {
+          "t": "75",
+          "strategy": 105421.15,
+          "benchmark": 103112.93
+        },
+        {
+          "t": "76",
+          "strategy": 105525.12,
+          "benchmark": 103262.87
+        },
+        {
+          "t": "77",
+          "strategy": 105907.44,
+          "benchmark": 103404.23
+        },
+        {
+          "t": "78",
+          "strategy": 105713.21,
+          "benchmark": 103227.01
+        },
+        {
+          "t": "79",
+          "strategy": 105577.55,
+          "benchmark": 103413.8
+        },
+        {
+          "t": "80",
+          "strategy": 105375.97,
+          "benchmark": 103247.57
+        },
+        {
+          "t": "81",
+          "strategy": 105449.05,
+          "benchmark": 103410.32
+        },
+        {
+          "t": "82",
+          "strategy": 105331.83,
+          "benchmark": 103356.34
+        },
+        {
+          "t": "83",
+          "strategy": 105404.57,
+          "benchmark": 103332.82
+        },
+        {
+          "t": "84",
+          "strategy": 105275.33,
+          "benchmark": 103191.09
+        },
+        {
+          "t": "85",
+          "strategy": 105184.88,
+          "benchmark": 102881.38
+        },
+        {
+          "t": "86",
+          "strategy": 104867.7,
+          "benchmark": 102715.42
+        },
+        {
+          "t": "87",
+          "strategy": 104937.6,
+          "benchmark": 102954.19
+        },
+        {
+          "t": "88",
+          "strategy": 105248.19,
+          "benchmark": 103262.63
+        },
+        {
+          "t": "89",
+          "strategy": 105389.85,
+          "benchmark": 103412.7
+        },
+        {
+          "t": "90",
+          "strategy": 105165.53,
+          "benchmark": 103000.21
+        },
+        {
+          "t": "91",
+          "strategy": 105013.91,
+          "benchmark": 103030.41
+        },
+        {
+          "t": "92",
+          "strategy": 104858.22,
+          "benchmark": 102922.07
+        },
+        {
+          "t": "93",
+          "strategy": 105146.17,
+          "benchmark": 103053.2
+        },
+        {
+          "t": "94",
+          "strategy": 104875.84,
+          "benchmark": 102990.78
+        },
+        {
+          "t": "95",
+          "strategy": 104763.06,
+          "benchmark": 103081.34
+        },
+        {
+          "t": "96",
+          "strategy": 105114.35,
+          "benchmark": 103315.93
+        },
+        {
+          "t": "97",
+          "strategy": 105491.45,
+          "benchmark": 103607.17
+        },
+        {
+          "t": "98",
+          "strategy": 105503.5,
+          "benchmark": 103618.77
+        },
+        {
+          "t": "99",
+          "strategy": 105345.39,
+          "benchmark": 103371.4
+        },
+        {
+          "t": "100",
+          "strategy": 105630.45,
+          "benchmark": 103363.04
+        },
+        {
+          "t": "101",
+          "strategy": 105751.15,
+          "benchmark": 103487.91
+        },
+        {
+          "t": "102",
+          "strategy": 105919.03,
+          "benchmark": 103358.94
+        },
+        {
+          "t": "103",
+          "strategy": 105703.28,
+          "benchmark": 103478.26
+        },
+        {
+          "t": "104",
+          "strategy": 105671.62,
+          "benchmark": 103430.1
+        },
+        {
+          "t": "105",
+          "strategy": 105775.95,
+          "benchmark": 102973.45
+        },
+        {
+          "t": "106",
+          "strategy": 106025.88,
+          "benchmark": 103147.16
+        },
+        {
+          "t": "107",
+          "strategy": 106178.06,
+          "benchmark": 103405.3
+        },
+        {
+          "t": "108",
+          "strategy": 106245.86,
+          "benchmark": 103566.14
+        },
+        {
+          "t": "109",
+          "strategy": 106139.22,
+          "benchmark": 103415.95
+        },
+        {
+          "t": "110",
+          "strategy": 106003.04,
+          "benchmark": 103218.35
+        },
+        {
+          "t": "111",
+          "strategy": 106058.53,
+          "benchmark": 103479.51
+        },
+        {
+          "t": "112",
+          "strategy": 106015.22,
+          "benchmark": 103558.32
+        },
+        {
+          "t": "113",
+          "strategy": 106359.87,
+          "benchmark": 103798.23
+        },
+        {
+          "t": "114",
+          "strategy": 106728.37,
+          "benchmark": 103766.01
+        },
+        {
+          "t": "115",
+          "strategy": 106232.04,
+          "benchmark": 103735.99
+        },
+        {
+          "t": "116",
+          "strategy": 106198.7,
+          "benchmark": 103915.36
+        },
+        {
+          "t": "117",
+          "strategy": 106483.97,
+          "benchmark": 104093.03
+        },
+        {
+          "t": "118",
+          "strategy": 106713.36,
+          "benchmark": 104251.41
+        },
+        {
+          "t": "119",
+          "strategy": 106896.87,
+          "benchmark": 104135.76
+        },
+        {
+          "t": "120",
+          "strategy": 107206,
+          "benchmark": 104060.33
+        },
+        {
+          "t": "121",
+          "strategy": 107484.83,
+          "benchmark": 104312.78
+        },
+        {
+          "t": "122",
+          "strategy": 107613.13,
+          "benchmark": 104564.54
+        },
+        {
+          "t": "123",
+          "strategy": 107897.59,
+          "benchmark": 104988.71
+        },
+        {
+          "t": "124",
+          "strategy": 107985.8,
+          "benchmark": 105164.29
+        },
+        {
+          "t": "125",
+          "strategy": 108247.17,
+          "benchmark": 105353.57
+        },
+        {
+          "t": "126",
+          "strategy": 108341.65,
+          "benchmark": 105431.74
+        }
+      ],
+      "pct_positive": 65.6,
+      "n_positive": 21
+    },
+    "expression_count": 3,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will renewable energy grow over the years?",
+    "plain_summary": "India's solar, wind and grid build-out lifts the power producers and equipment makers behind it.",
+    "short_title": "Will renewable energy grow over the years?",
+    "stance": {
+      "yes": {
+        "verdict": "Own the build-out",
+        "summary": "If capacity keeps being added year after year, the producers, grid firms and equipment makers behind it tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay broad",
+        "summary": "If the build-out slows, these names likely track the market — broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": 31.4,
+    "best_episode_label": "Window 12",
+    "coming_soon": false
   },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
+  {
+    "id": "gold",
+    "view_type": "event",
+    "title": "Will Gold prices rise?",
+    "thesis": "When gold keeps climbing, jewellers and gold-loan firms tend to do well.",
+    "category": "Commodity · Event",
+    "time_horizon": "Dynamic",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "gold-conservative",
+      "tier": "conservative",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": "promising",
+      "total_return_pct": 6.38,
+      "excess_return_pct": 6.81,
+      "plain_label": "Own a bundle of 4 gold-linked firms",
+      "nifty_total_pct": 1.24,
+      "n_episodes": 20,
+      "pct_episodes_beat": 84,
+      "worst_drop_pct": -20.1,
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000,
+          "benchmark": 100000
+        },
+        {
+          "t": "1",
+          "strategy": 99956.27,
+          "benchmark": 100382.09
+        },
+        {
+          "t": "2",
+          "strategy": 99971.69,
+          "benchmark": 100594.18
+        },
+        {
+          "t": "3",
+          "strategy": 100087.34,
+          "benchmark": 100466.18
+        },
+        {
+          "t": "4",
+          "strategy": 100365.03,
+          "benchmark": 100448.02
+        },
+        {
+          "t": "5",
+          "strategy": 101164.03,
+          "benchmark": 100887.2
+        },
+        {
+          "t": "6",
+          "strategy": 101622.25,
+          "benchmark": 100912.58
+        },
+        {
+          "t": "7",
+          "strategy": 102317.37,
+          "benchmark": 100973.57
+        },
+        {
+          "t": "8",
+          "strategy": 102534.47,
+          "benchmark": 100882.31
+        },
+        {
+          "t": "9",
+          "strategy": 102361.86,
+          "benchmark": 100783.62
+        },
+        {
+          "t": "10",
+          "strategy": 101901.8,
+          "benchmark": 100264.72
+        },
+        {
+          "t": "11",
+          "strategy": 101913.72,
+          "benchmark": 100481.92
+        },
+        {
+          "t": "12",
+          "strategy": 102009.89,
+          "benchmark": 100614.98
+        },
+        {
+          "t": "13",
+          "strategy": 102306.39,
+          "benchmark": 100653.14
+        },
+        {
+          "t": "14",
+          "strategy": 101849.26,
+          "benchmark": 100403.54
+        },
+        {
+          "t": "15",
+          "strategy": 101839.8,
+          "benchmark": 100436.69
+        },
+        {
+          "t": "16",
+          "strategy": 101990.7,
+          "benchmark": 100668.62
+        },
+        {
+          "t": "17",
+          "strategy": 102295.01,
+          "benchmark": 100834.26
+        },
+        {
+          "t": "18",
+          "strategy": 102132.05,
+          "benchmark": 100891.87
+        },
+        {
+          "t": "19",
+          "strategy": 102062.03,
+          "benchmark": 101028.95
+        },
+        {
+          "t": "20",
+          "strategy": 102097.12,
+          "benchmark": 101100.45
+        },
+        {
+          "t": "21",
+          "strategy": 101958.91,
+          "benchmark": 100911.81
+        },
+        {
+          "t": "22",
+          "strategy": 102484.35,
+          "benchmark": 101207.09
+        },
+        {
+          "t": "23",
+          "strategy": 102790.03,
+          "benchmark": 101403.06
+        },
+        {
+          "t": "24",
+          "strategy": 103076.21,
+          "benchmark": 101450.35
+        },
+        {
+          "t": "25",
+          "strategy": 103051.13,
+          "benchmark": 101469.25
+        },
+        {
+          "t": "26",
+          "strategy": 103081.34,
+          "benchmark": 101633.1
+        },
+        {
+          "t": "27",
+          "strategy": 103169.16,
+          "benchmark": 101475.82
+        },
+        {
+          "t": "28",
+          "strategy": 103198.43,
+          "benchmark": 101306.36
+        },
+        {
+          "t": "29",
+          "strategy": 103589.41,
+          "benchmark": 101421.98
+        },
+        {
+          "t": "30",
+          "strategy": 103874.16,
+          "benchmark": 101283.09
+        },
+        {
+          "t": "31",
+          "strategy": 104152.13,
+          "benchmark": 101407.1
+        },
+        {
+          "t": "32",
+          "strategy": 103950.72,
+          "benchmark": 101466.11
+        },
+        {
+          "t": "33",
+          "strategy": 103889.14,
+          "benchmark": 101844.01
+        },
+        {
+          "t": "34",
+          "strategy": 103571.63,
+          "benchmark": 101952.29
+        },
+        {
+          "t": "35",
+          "strategy": 103461.26,
+          "benchmark": 101999.3
+        },
+        {
+          "t": "36",
+          "strategy": 103401.33,
+          "benchmark": 101771.96
+        },
+        {
+          "t": "37",
+          "strategy": 103484.3,
+          "benchmark": 101674.42
+        },
+        {
+          "t": "38",
+          "strategy": 103401.84,
+          "benchmark": 101474.66
+        },
+        {
+          "t": "39",
+          "strategy": 103146.25,
+          "benchmark": 101477.42
+        },
+        {
+          "t": "40",
+          "strategy": 103734.51,
+          "benchmark": 101819.19
+        },
+        {
+          "t": "41",
+          "strategy": 103756.15,
+          "benchmark": 101646.14
+        },
+        {
+          "t": "42",
+          "strategy": 103603.41,
+          "benchmark": 101492
+        },
+        {
+          "t": "43",
+          "strategy": 104173.77,
+          "benchmark": 101749.89
+        },
+        {
+          "t": "44",
+          "strategy": 104326.51,
+          "benchmark": 101865.26
+        },
+        {
+          "t": "45",
+          "strategy": 104934.25,
+          "benchmark": 101888.04
+        },
+        {
+          "t": "46",
+          "strategy": 104742.18,
+          "benchmark": 101765.25
+        },
+        {
+          "t": "47",
+          "strategy": 104286.75,
+          "benchmark": 101791.81
+        },
+        {
+          "t": "48",
+          "strategy": 104366.42,
+          "benchmark": 101595.91
+        },
+        {
+          "t": "49",
+          "strategy": 104117.15,
+          "benchmark": 101565.09
+        },
+        {
+          "t": "50",
+          "strategy": 104609.65,
+          "benchmark": 101851.67
+        },
+        {
+          "t": "51",
+          "strategy": 104833.35,
+          "benchmark": 102201.56
+        },
+        {
+          "t": "52",
+          "strategy": 104668.61,
+          "benchmark": 102022.89
+        },
+        {
+          "t": "53",
+          "strategy": 104715.14,
+          "benchmark": 101849.4
+        },
+        {
+          "t": "54",
+          "strategy": 104902.33,
+          "benchmark": 102198.06
+        },
+        {
+          "t": "55",
+          "strategy": 105378.7,
+          "benchmark": 102344.6
+        },
+        {
+          "t": "56",
+          "strategy": 105533.07,
+          "benchmark": 102413.52
+        },
+        {
+          "t": "57",
+          "strategy": 105103.38,
+          "benchmark": 102156.62
+        },
+        {
+          "t": "58",
+          "strategy": 105329.76,
+          "benchmark": 102284.8
+        },
+        {
+          "t": "59",
+          "strategy": 105294.43,
+          "benchmark": 102375.97
+        },
+        {
+          "t": "60",
+          "strategy": 105537.38,
+          "benchmark": 102673.08
+        },
+        {
+          "t": "61",
+          "strategy": 105749.61,
+          "benchmark": 102520.26
+        },
+        {
+          "t": "62",
+          "strategy": 105549.66,
+          "benchmark": 102348.16
+        },
+        {
+          "t": "63",
+          "strategy": 105988.01,
+          "benchmark": 102396.07
+        }
+      ],
+      "pct_positive": 75,
+      "n_positive": 15
+    },
+    "expression_count": 2,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will Gold prices rise?",
+    "plain_summary": "When gold keeps climbing, jewellers and gold-loan firms tend to do well.",
+    "short_title": "Will Gold prices rise?",
+    "stance": {
+      "yes": {
+        "verdict": "Own the gold beneficiaries",
+        "summary": "If gold keeps climbing, jewellers, gold-loan financiers and gold itself tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay in equities",
+        "summary": "If gold stalls instead, gold-linked stocks likely just tread water — broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": 18.7,
+    "best_episode_label": "Window 9",
+    "coming_soon": false
   },
-  "best_expression": {
-   "id": "ai_jobs-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "unproven",
-   "total_return_pct": 9.78,
-   "excess_return_pct": 6.19,
-   "plain_label": "Own a bundle of 7 AI/IT companies",
-   "nifty_total_pct": 5.71,
-   "n_episodes": 31,
-   "pct_episodes_beat": 69,
-   "worst_drop_pct": -32.2,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 99759.47,
-     "benchmark": 100097.58
-    },
-    {
-     "t": "2",
-     "strategy": 99677.5,
-     "benchmark": 100173.94
-    },
-    {
-     "t": "3",
-     "strategy": 99770.52,
-     "benchmark": 100383.75
-    },
-    {
-     "t": "4",
-     "strategy": 99435.36,
-     "benchmark": 100503.48
-    },
-    {
-     "t": "5",
-     "strategy": 99473.94,
-     "benchmark": 100617.82
-    },
-    {
-     "t": "6",
-     "strategy": 99668.25,
-     "benchmark": 100549.88
-    },
-    {
-     "t": "7",
-     "strategy": 99740.52,
-     "benchmark": 100575.22
-    },
-    {
-     "t": "8",
-     "strategy": 99983.84,
-     "benchmark": 100726.83
-    },
-    {
-     "t": "9",
-     "strategy": 99851.37,
-     "benchmark": 100674.87
-    },
-    {
-     "t": "10",
-     "strategy": 99697.95,
-     "benchmark": 100410.42
-    },
-    {
-     "t": "11",
-     "strategy": 99274.99,
-     "benchmark": 100205.56
-    },
-    {
-     "t": "12",
-     "strategy": 99486.65,
-     "benchmark": 100258.15
-    },
-    {
-     "t": "13",
-     "strategy": 99820.89,
-     "benchmark": 100386.02
-    },
-    {
-     "t": "14",
-     "strategy": 99878.29,
-     "benchmark": 100293.42
-    },
-    {
-     "t": "15",
-     "strategy": 100377.35,
-     "benchmark": 100587.09
-    },
-    {
-     "t": "16",
-     "strategy": 100230.12,
-     "benchmark": 100736.62
-    },
-    {
-     "t": "17",
-     "strategy": 100207.23,
-     "benchmark": 100705.48
-    },
-    {
-     "t": "18",
-     "strategy": 100464.95,
-     "benchmark": 100834.97
-    },
-    {
-     "t": "19",
-     "strategy": 101032.21,
-     "benchmark": 101241.78
-    },
-    {
-     "t": "20",
-     "strategy": 100971.3,
-     "benchmark": 101145.8
-    },
-    {
-     "t": "21",
-     "strategy": 100620.55,
-     "benchmark": 101023.04
-    },
-    {
-     "t": "22",
-     "strategy": 100966.27,
-     "benchmark": 101194.02
-    },
-    {
-     "t": "23",
-     "strategy": 101119.5,
-     "benchmark": 101171.05
-    },
-    {
-     "t": "24",
-     "strategy": 101120.23,
-     "benchmark": 101304.24
-    },
-    {
-     "t": "25",
-     "strategy": 101742.63,
-     "benchmark": 101906.89
-    },
-    {
-     "t": "26",
-     "strategy": 101778.8,
-     "benchmark": 102021.06
-    },
-    {
-     "t": "27",
-     "strategy": 101541.87,
-     "benchmark": 101976.96
-    },
-    {
-     "t": "28",
-     "strategy": 101840.44,
-     "benchmark": 102312.7
-    },
-    {
-     "t": "29",
-     "strategy": 101878.34,
-     "benchmark": 102490.24
-    },
-    {
-     "t": "30",
-     "strategy": 101609.49,
-     "benchmark": 102430.66
-    },
-    {
-     "t": "31",
-     "strategy": 101695.08,
-     "benchmark": 102447.93
-    },
-    {
-     "t": "32",
-     "strategy": 101613.33,
-     "benchmark": 102488.56
-    },
-    {
-     "t": "33",
-     "strategy": 102153.31,
-     "benchmark": 102862.76
-    },
-    {
-     "t": "34",
-     "strategy": 102034.88,
-     "benchmark": 102723.96
-    },
-    {
-     "t": "35",
-     "strategy": 102335.91,
-     "benchmark": 102609.72
-    },
-    {
-     "t": "36",
-     "strategy": 102378.01,
-     "benchmark": 102617.65
-    },
-    {
-     "t": "37",
-     "strategy": 102334.08,
-     "benchmark": 102466.66
-    },
-    {
-     "t": "38",
-     "strategy": 102210.91,
-     "benchmark": 102284.05
-    },
-    {
-     "t": "39",
-     "strategy": 102201.44,
-     "benchmark": 102133.67
-    },
-    {
-     "t": "40",
-     "strategy": 102163.98,
-     "benchmark": 102140.48
-    },
-    {
-     "t": "41",
-     "strategy": 102178.17,
-     "benchmark": 102095.08
-    },
-    {
-     "t": "42",
-     "strategy": 102556.21,
-     "benchmark": 102084.53
-    },
-    {
-     "t": "43",
-     "strategy": 102598.11,
-     "benchmark": 101988.78
-    },
-    {
-     "t": "44",
-     "strategy": 102657.02,
-     "benchmark": 102063.38
-    },
-    {
-     "t": "45",
-     "strategy": 102809.49,
-     "benchmark": 102103.59
-    },
-    {
-     "t": "46",
-     "strategy": 102636.62,
-     "benchmark": 101966.68
-    },
-    {
-     "t": "47",
-     "strategy": 102405.62,
-     "benchmark": 101874.6
-    },
-    {
-     "t": "48",
-     "strategy": 102459.41,
-     "benchmark": 101998.53
-    },
-    {
-     "t": "49",
-     "strategy": 102607.91,
-     "benchmark": 102138.45
-    },
-    {
-     "t": "50",
-     "strategy": 102911.24,
-     "benchmark": 102424.23
-    },
-    {
-     "t": "51",
-     "strategy": 103040.7,
-     "benchmark": 102585.12
-    },
-    {
-     "t": "52",
-     "strategy": 103041.58,
-     "benchmark": 102650.18
-    },
-    {
-     "t": "53",
-     "strategy": 103390.3,
-     "benchmark": 102602.5
-    },
-    {
-     "t": "54",
-     "strategy": 103302.11,
-     "benchmark": 102629.9
-    },
-    {
-     "t": "55",
-     "strategy": 103159.45,
-     "benchmark": 102622.91
-    },
-    {
-     "t": "56",
-     "strategy": 103509.53,
-     "benchmark": 102661.02
-    },
-    {
-     "t": "57",
-     "strategy": 103499.34,
-     "benchmark": 102421.0
-    },
-    {
-     "t": "58",
-     "strategy": 103695.27,
-     "benchmark": 102673.5
-    },
-    {
-     "t": "59",
-     "strategy": 104094.76,
-     "benchmark": 102812.71
-    },
-    {
-     "t": "60",
-     "strategy": 104157.21,
-     "benchmark": 102989.38
-    },
-    {
-     "t": "61",
-     "strategy": 104466.79,
-     "benchmark": 102986.6
-    },
-    {
-     "t": "62",
-     "strategy": 104084.24,
-     "benchmark": 102870.46
-    },
-    {
-     "t": "63",
-     "strategy": 104112.92,
-     "benchmark": 102784.05
-    },
-    {
-     "t": "64",
-     "strategy": 104295.69,
-     "benchmark": 103027.33
-    },
-    {
-     "t": "65",
-     "strategy": 104430.82,
-     "benchmark": 103140.71
-    },
-    {
-     "t": "66",
-     "strategy": 104334.4,
-     "benchmark": 102955.93
-    },
-    {
-     "t": "67",
-     "strategy": 104585.32,
-     "benchmark": 102741.57
-    },
-    {
-     "t": "68",
-     "strategy": 104807.36,
-     "benchmark": 102918.06
-    },
-    {
-     "t": "69",
-     "strategy": 104788.41,
-     "benchmark": 103195.91
-    },
-    {
-     "t": "70",
-     "strategy": 104660.75,
-     "benchmark": 103261.54
-    },
-    {
-     "t": "71",
-     "strategy": 104557.37,
-     "benchmark": 103061.98
-    },
-    {
-     "t": "72",
-     "strategy": 104491.06,
-     "benchmark": 102832.67
-    },
-    {
-     "t": "73",
-     "strategy": 104789.32,
-     "benchmark": 102727.07
-    },
-    {
-     "t": "74",
-     "strategy": 105071.57,
-     "benchmark": 102840.44
-    },
-    {
-     "t": "75",
-     "strategy": 105330.65,
-     "benchmark": 103089.58
-    },
-    {
-     "t": "76",
-     "strategy": 105522.09,
-     "benchmark": 103276.81
-    },
-    {
-     "t": "77",
-     "strategy": 105549.71,
-     "benchmark": 103382.16
-    },
-    {
-     "t": "78",
-     "strategy": 105904.08,
-     "benchmark": 103247.91
-    },
-    {
-     "t": "79",
-     "strategy": 105894.72,
-     "benchmark": 103405.25
-    },
-    {
-     "t": "80",
-     "strategy": 105928.79,
-     "benchmark": 103272.13
-    },
-    {
-     "t": "81",
-     "strategy": 106185.36,
-     "benchmark": 103449.12
-    },
-    {
-     "t": "82",
-     "strategy": 106404.9,
-     "benchmark": 103394.16
-    },
-    {
-     "t": "83",
-     "strategy": 106136.28,
-     "benchmark": 103336.42
-    },
-    {
-     "t": "84",
-     "strategy": 106288.62,
-     "benchmark": 103220.31
-    },
-    {
-     "t": "85",
-     "strategy": 105906.31,
-     "benchmark": 102865.51
-    },
-    {
-     "t": "86",
-     "strategy": 105984.12,
-     "benchmark": 102659.19
-    },
-    {
-     "t": "87",
-     "strategy": 106091.89,
-     "benchmark": 102886.43
-    },
-    {
-     "t": "88",
-     "strategy": 106131.71,
-     "benchmark": 103193.72
-    },
-    {
-     "t": "89",
-     "strategy": 106231.87,
-     "benchmark": 103357.76
-    },
-    {
-     "t": "90",
-     "strategy": 106342.83,
-     "benchmark": 102936.62
-    },
-    {
-     "t": "91",
-     "strategy": 106208.06,
-     "benchmark": 102958.25
-    },
-    {
-     "t": "92",
-     "strategy": 106189.73,
-     "benchmark": 102851.11
-    },
-    {
-     "t": "93",
-     "strategy": 106193.82,
-     "benchmark": 102998.08
-    },
-    {
-     "t": "94",
-     "strategy": 106198.58,
-     "benchmark": 102913.91
-    },
-    {
-     "t": "95",
-     "strategy": 106481.72,
-     "benchmark": 102980.58
-    },
-    {
-     "t": "96",
-     "strategy": 106749.23,
-     "benchmark": 103218.23
-    },
-    {
-     "t": "97",
-     "strategy": 107058.26,
-     "benchmark": 103538.06
-    },
-    {
-     "t": "98",
-     "strategy": 107453.51,
-     "benchmark": 103542.48
-    },
-    {
-     "t": "99",
-     "strategy": 107250.25,
-     "benchmark": 103307.94
-    },
-    {
-     "t": "100",
-     "strategy": 107081.74,
-     "benchmark": 103292.17
-    },
-    {
-     "t": "101",
-     "strategy": 107067.53,
-     "benchmark": 103447.06
-    },
-    {
-     "t": "102",
-     "strategy": 106960.06,
-     "benchmark": 103273.62
-    },
-    {
-     "t": "103",
-     "strategy": 107362.96,
-     "benchmark": 103391.81
-    },
-    {
-     "t": "104",
-     "strategy": 107313.45,
-     "benchmark": 103324.28
-    },
-    {
-     "t": "105",
-     "strategy": 106874.55,
-     "benchmark": 102865.97
-    },
-    {
-     "t": "106",
-     "strategy": 106962.22,
-     "benchmark": 103050.22
-    },
-    {
-     "t": "107",
-     "strategy": 107068.72,
-     "benchmark": 103287.16
-    },
-    {
-     "t": "108",
-     "strategy": 107434.89,
-     "benchmark": 103469.21
-    },
-    {
-     "t": "109",
-     "strategy": 107405.12,
-     "benchmark": 103339.42
-    },
-    {
-     "t": "110",
-     "strategy": 107405.58,
-     "benchmark": 103138.05
-    },
-    {
-     "t": "111",
-     "strategy": 107858.15,
-     "benchmark": 103385.2
-    },
-    {
-     "t": "112",
-     "strategy": 108195.79,
-     "benchmark": 103487.83
-    },
-    {
-     "t": "113",
-     "strategy": 108367.95,
-     "benchmark": 103738.09
-    },
-    {
-     "t": "114",
-     "strategy": 108257.99,
-     "benchmark": 103663.91
-    },
-    {
-     "t": "115",
-     "strategy": 108173.4,
-     "benchmark": 103594.49
-    },
-    {
-     "t": "116",
-     "strategy": 108261.28,
-     "benchmark": 103785.66
-    },
-    {
-     "t": "117",
-     "strategy": 108540.52,
-     "benchmark": 103960.97
-    },
-    {
-     "t": "118",
-     "strategy": 108425.8,
-     "benchmark": 104148.63
-    },
-    {
-     "t": "119",
-     "strategy": 108349.89,
-     "benchmark": 104056.17
-    },
-    {
-     "t": "120",
-     "strategy": 108338.87,
-     "benchmark": 103968.51
-    },
-    {
-     "t": "121",
-     "strategy": 108602.17,
-     "benchmark": 104272.67
-    },
-    {
-     "t": "122",
-     "strategy": 109000.26,
-     "benchmark": 104528.3
-    },
-    {
-     "t": "123",
-     "strategy": 109456.84,
-     "benchmark": 104974.37
-    },
-    {
-     "t": "124",
-     "strategy": 109700.28,
-     "benchmark": 105111.9
-    },
-    {
-     "t": "125",
-     "strategy": 109384.59,
-     "benchmark": 105298.27
-    },
-    {
-     "t": "126",
-     "strategy": 109372.56,
-     "benchmark": 105383.21
-    }
-   ],
-   "pct_positive": 64.5,
-   "n_positive": 20
+  {
+    "id": "monsoon",
+    "view_type": "theme",
+    "title": "Will India have a good monsoon this season?",
+    "thesis": "A strong monsoon lifts rural demand — tractors, fertilisers, two-wheelers and FMCG.",
+    "category": "Monsoon · Event",
+    "time_horizon": "One season",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "monsoon-conservative",
+      "tier": "conservative",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": "unproven",
+      "total_return_pct": 9.78,
+      "excess_return_pct": 6.19,
+      "plain_label": "Own a bundle of 6 rural-demand firms",
+      "nifty_total_pct": 5.71,
+      "n_episodes": 31,
+      "pct_episodes_beat": 69,
+      "worst_drop_pct": -32.2,
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000,
+          "benchmark": 100000
+        },
+        {
+          "t": "1",
+          "strategy": 99759.47,
+          "benchmark": 100097.58
+        },
+        {
+          "t": "2",
+          "strategy": 99677.5,
+          "benchmark": 100173.94
+        },
+        {
+          "t": "3",
+          "strategy": 99770.52,
+          "benchmark": 100383.75
+        },
+        {
+          "t": "4",
+          "strategy": 99435.36,
+          "benchmark": 100503.48
+        },
+        {
+          "t": "5",
+          "strategy": 99473.94,
+          "benchmark": 100617.82
+        },
+        {
+          "t": "6",
+          "strategy": 99668.25,
+          "benchmark": 100549.88
+        },
+        {
+          "t": "7",
+          "strategy": 99740.52,
+          "benchmark": 100575.22
+        },
+        {
+          "t": "8",
+          "strategy": 99983.84,
+          "benchmark": 100726.83
+        },
+        {
+          "t": "9",
+          "strategy": 99851.37,
+          "benchmark": 100674.87
+        },
+        {
+          "t": "10",
+          "strategy": 99697.95,
+          "benchmark": 100410.42
+        },
+        {
+          "t": "11",
+          "strategy": 99274.99,
+          "benchmark": 100205.56
+        },
+        {
+          "t": "12",
+          "strategy": 99486.65,
+          "benchmark": 100258.15
+        },
+        {
+          "t": "13",
+          "strategy": 99820.89,
+          "benchmark": 100386.02
+        },
+        {
+          "t": "14",
+          "strategy": 99878.29,
+          "benchmark": 100293.42
+        },
+        {
+          "t": "15",
+          "strategy": 100377.35,
+          "benchmark": 100587.09
+        },
+        {
+          "t": "16",
+          "strategy": 100230.12,
+          "benchmark": 100736.62
+        },
+        {
+          "t": "17",
+          "strategy": 100207.23,
+          "benchmark": 100705.48
+        },
+        {
+          "t": "18",
+          "strategy": 100464.95,
+          "benchmark": 100834.97
+        },
+        {
+          "t": "19",
+          "strategy": 101032.21,
+          "benchmark": 101241.78
+        },
+        {
+          "t": "20",
+          "strategy": 100971.3,
+          "benchmark": 101145.8
+        },
+        {
+          "t": "21",
+          "strategy": 100620.55,
+          "benchmark": 101023.04
+        },
+        {
+          "t": "22",
+          "strategy": 100966.27,
+          "benchmark": 101194.02
+        },
+        {
+          "t": "23",
+          "strategy": 101119.5,
+          "benchmark": 101171.05
+        },
+        {
+          "t": "24",
+          "strategy": 101120.23,
+          "benchmark": 101304.24
+        },
+        {
+          "t": "25",
+          "strategy": 101742.63,
+          "benchmark": 101906.89
+        },
+        {
+          "t": "26",
+          "strategy": 101778.8,
+          "benchmark": 102021.06
+        },
+        {
+          "t": "27",
+          "strategy": 101541.87,
+          "benchmark": 101976.96
+        },
+        {
+          "t": "28",
+          "strategy": 101840.44,
+          "benchmark": 102312.7
+        },
+        {
+          "t": "29",
+          "strategy": 101878.34,
+          "benchmark": 102490.24
+        },
+        {
+          "t": "30",
+          "strategy": 101609.49,
+          "benchmark": 102430.66
+        },
+        {
+          "t": "31",
+          "strategy": 101695.08,
+          "benchmark": 102447.93
+        },
+        {
+          "t": "32",
+          "strategy": 101613.33,
+          "benchmark": 102488.56
+        },
+        {
+          "t": "33",
+          "strategy": 102153.31,
+          "benchmark": 102862.76
+        },
+        {
+          "t": "34",
+          "strategy": 102034.88,
+          "benchmark": 102723.96
+        },
+        {
+          "t": "35",
+          "strategy": 102335.91,
+          "benchmark": 102609.72
+        },
+        {
+          "t": "36",
+          "strategy": 102378.01,
+          "benchmark": 102617.65
+        },
+        {
+          "t": "37",
+          "strategy": 102334.08,
+          "benchmark": 102466.66
+        },
+        {
+          "t": "38",
+          "strategy": 102210.91,
+          "benchmark": 102284.05
+        },
+        {
+          "t": "39",
+          "strategy": 102201.44,
+          "benchmark": 102133.67
+        },
+        {
+          "t": "40",
+          "strategy": 102163.98,
+          "benchmark": 102140.48
+        },
+        {
+          "t": "41",
+          "strategy": 102178.17,
+          "benchmark": 102095.08
+        },
+        {
+          "t": "42",
+          "strategy": 102556.21,
+          "benchmark": 102084.53
+        },
+        {
+          "t": "43",
+          "strategy": 102598.11,
+          "benchmark": 101988.78
+        },
+        {
+          "t": "44",
+          "strategy": 102657.02,
+          "benchmark": 102063.38
+        },
+        {
+          "t": "45",
+          "strategy": 102809.49,
+          "benchmark": 102103.59
+        },
+        {
+          "t": "46",
+          "strategy": 102636.62,
+          "benchmark": 101966.68
+        },
+        {
+          "t": "47",
+          "strategy": 102405.62,
+          "benchmark": 101874.6
+        },
+        {
+          "t": "48",
+          "strategy": 102459.41,
+          "benchmark": 101998.53
+        },
+        {
+          "t": "49",
+          "strategy": 102607.91,
+          "benchmark": 102138.45
+        },
+        {
+          "t": "50",
+          "strategy": 102911.24,
+          "benchmark": 102424.23
+        },
+        {
+          "t": "51",
+          "strategy": 103040.7,
+          "benchmark": 102585.12
+        },
+        {
+          "t": "52",
+          "strategy": 103041.58,
+          "benchmark": 102650.18
+        },
+        {
+          "t": "53",
+          "strategy": 103390.3,
+          "benchmark": 102602.5
+        },
+        {
+          "t": "54",
+          "strategy": 103302.11,
+          "benchmark": 102629.9
+        },
+        {
+          "t": "55",
+          "strategy": 103159.45,
+          "benchmark": 102622.91
+        },
+        {
+          "t": "56",
+          "strategy": 103509.53,
+          "benchmark": 102661.02
+        },
+        {
+          "t": "57",
+          "strategy": 103499.34,
+          "benchmark": 102421
+        },
+        {
+          "t": "58",
+          "strategy": 103695.27,
+          "benchmark": 102673.5
+        },
+        {
+          "t": "59",
+          "strategy": 104094.76,
+          "benchmark": 102812.71
+        },
+        {
+          "t": "60",
+          "strategy": 104157.21,
+          "benchmark": 102989.38
+        },
+        {
+          "t": "61",
+          "strategy": 104466.79,
+          "benchmark": 102986.6
+        },
+        {
+          "t": "62",
+          "strategy": 104084.24,
+          "benchmark": 102870.46
+        },
+        {
+          "t": "63",
+          "strategy": 104112.92,
+          "benchmark": 102784.05
+        },
+        {
+          "t": "64",
+          "strategy": 104295.69,
+          "benchmark": 103027.33
+        },
+        {
+          "t": "65",
+          "strategy": 104430.82,
+          "benchmark": 103140.71
+        },
+        {
+          "t": "66",
+          "strategy": 104334.4,
+          "benchmark": 102955.93
+        },
+        {
+          "t": "67",
+          "strategy": 104585.32,
+          "benchmark": 102741.57
+        },
+        {
+          "t": "68",
+          "strategy": 104807.36,
+          "benchmark": 102918.06
+        },
+        {
+          "t": "69",
+          "strategy": 104788.41,
+          "benchmark": 103195.91
+        },
+        {
+          "t": "70",
+          "strategy": 104660.75,
+          "benchmark": 103261.54
+        },
+        {
+          "t": "71",
+          "strategy": 104557.37,
+          "benchmark": 103061.98
+        },
+        {
+          "t": "72",
+          "strategy": 104491.06,
+          "benchmark": 102832.67
+        },
+        {
+          "t": "73",
+          "strategy": 104789.32,
+          "benchmark": 102727.07
+        },
+        {
+          "t": "74",
+          "strategy": 105071.57,
+          "benchmark": 102840.44
+        },
+        {
+          "t": "75",
+          "strategy": 105330.65,
+          "benchmark": 103089.58
+        },
+        {
+          "t": "76",
+          "strategy": 105522.09,
+          "benchmark": 103276.81
+        },
+        {
+          "t": "77",
+          "strategy": 105549.71,
+          "benchmark": 103382.16
+        },
+        {
+          "t": "78",
+          "strategy": 105904.08,
+          "benchmark": 103247.91
+        },
+        {
+          "t": "79",
+          "strategy": 105894.72,
+          "benchmark": 103405.25
+        },
+        {
+          "t": "80",
+          "strategy": 105928.79,
+          "benchmark": 103272.13
+        },
+        {
+          "t": "81",
+          "strategy": 106185.36,
+          "benchmark": 103449.12
+        },
+        {
+          "t": "82",
+          "strategy": 106404.9,
+          "benchmark": 103394.16
+        },
+        {
+          "t": "83",
+          "strategy": 106136.28,
+          "benchmark": 103336.42
+        },
+        {
+          "t": "84",
+          "strategy": 106288.62,
+          "benchmark": 103220.31
+        },
+        {
+          "t": "85",
+          "strategy": 105906.31,
+          "benchmark": 102865.51
+        },
+        {
+          "t": "86",
+          "strategy": 105984.12,
+          "benchmark": 102659.19
+        },
+        {
+          "t": "87",
+          "strategy": 106091.89,
+          "benchmark": 102886.43
+        },
+        {
+          "t": "88",
+          "strategy": 106131.71,
+          "benchmark": 103193.72
+        },
+        {
+          "t": "89",
+          "strategy": 106231.87,
+          "benchmark": 103357.76
+        },
+        {
+          "t": "90",
+          "strategy": 106342.83,
+          "benchmark": 102936.62
+        },
+        {
+          "t": "91",
+          "strategy": 106208.06,
+          "benchmark": 102958.25
+        },
+        {
+          "t": "92",
+          "strategy": 106189.73,
+          "benchmark": 102851.11
+        },
+        {
+          "t": "93",
+          "strategy": 106193.82,
+          "benchmark": 102998.08
+        },
+        {
+          "t": "94",
+          "strategy": 106198.58,
+          "benchmark": 102913.91
+        },
+        {
+          "t": "95",
+          "strategy": 106481.72,
+          "benchmark": 102980.58
+        },
+        {
+          "t": "96",
+          "strategy": 106749.23,
+          "benchmark": 103218.23
+        },
+        {
+          "t": "97",
+          "strategy": 107058.26,
+          "benchmark": 103538.06
+        },
+        {
+          "t": "98",
+          "strategy": 107453.51,
+          "benchmark": 103542.48
+        },
+        {
+          "t": "99",
+          "strategy": 107250.25,
+          "benchmark": 103307.94
+        },
+        {
+          "t": "100",
+          "strategy": 107081.74,
+          "benchmark": 103292.17
+        },
+        {
+          "t": "101",
+          "strategy": 107067.53,
+          "benchmark": 103447.06
+        },
+        {
+          "t": "102",
+          "strategy": 106960.06,
+          "benchmark": 103273.62
+        },
+        {
+          "t": "103",
+          "strategy": 107362.96,
+          "benchmark": 103391.81
+        },
+        {
+          "t": "104",
+          "strategy": 107313.45,
+          "benchmark": 103324.28
+        },
+        {
+          "t": "105",
+          "strategy": 106874.55,
+          "benchmark": 102865.97
+        },
+        {
+          "t": "106",
+          "strategy": 106962.22,
+          "benchmark": 103050.22
+        },
+        {
+          "t": "107",
+          "strategy": 107068.72,
+          "benchmark": 103287.16
+        },
+        {
+          "t": "108",
+          "strategy": 107434.89,
+          "benchmark": 103469.21
+        },
+        {
+          "t": "109",
+          "strategy": 107405.12,
+          "benchmark": 103339.42
+        },
+        {
+          "t": "110",
+          "strategy": 107405.58,
+          "benchmark": 103138.05
+        },
+        {
+          "t": "111",
+          "strategy": 107858.15,
+          "benchmark": 103385.2
+        },
+        {
+          "t": "112",
+          "strategy": 108195.79,
+          "benchmark": 103487.83
+        },
+        {
+          "t": "113",
+          "strategy": 108367.95,
+          "benchmark": 103738.09
+        },
+        {
+          "t": "114",
+          "strategy": 108257.99,
+          "benchmark": 103663.91
+        },
+        {
+          "t": "115",
+          "strategy": 108173.4,
+          "benchmark": 103594.49
+        },
+        {
+          "t": "116",
+          "strategy": 108261.28,
+          "benchmark": 103785.66
+        },
+        {
+          "t": "117",
+          "strategy": 108540.52,
+          "benchmark": 103960.97
+        },
+        {
+          "t": "118",
+          "strategy": 108425.8,
+          "benchmark": 104148.63
+        },
+        {
+          "t": "119",
+          "strategy": 108349.89,
+          "benchmark": 104056.17
+        },
+        {
+          "t": "120",
+          "strategy": 108338.87,
+          "benchmark": 103968.51
+        },
+        {
+          "t": "121",
+          "strategy": 108602.17,
+          "benchmark": 104272.67
+        },
+        {
+          "t": "122",
+          "strategy": 109000.26,
+          "benchmark": 104528.3
+        },
+        {
+          "t": "123",
+          "strategy": 109456.84,
+          "benchmark": 104974.37
+        },
+        {
+          "t": "124",
+          "strategy": 109700.28,
+          "benchmark": 105111.9
+        },
+        {
+          "t": "125",
+          "strategy": 109384.59,
+          "benchmark": 105298.27
+        },
+        {
+          "t": "126",
+          "strategy": 109372.56,
+          "benchmark": 105383.21
+        }
+      ],
+      "pct_positive": 64.5,
+      "n_positive": 20
+    },
+    "expression_count": 3,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will India have a good monsoon this season?",
+    "plain_summary": "A strong monsoon lifts rural demand — tractors, fertilisers, two-wheelers and FMCG.",
+    "short_title": "Will India have a good monsoon this season?",
+    "stance": {
+      "yes": {
+        "verdict": "Own rural demand",
+        "summary": "A good monsoon means better farm income, and the tractor, fertiliser, two-wheeler and FMCG names that sell into it tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay broad",
+        "summary": "A weak monsoon squeezes rural spending — these names usually lag, so broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": 24.2,
+    "best_episode_label": "Window 7",
+    "coming_soon": false
   },
-  "expression_count": 3,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will AI create more jobs than it destroys by 2027?",
-  "plain_summary": "As AI spreads, India's big IT & software companies get more work \u2014 and their shares tend to rise.",
-  "short_title": "Will AI create more jobs than it destroys by 2027?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the AI/IT winners",
-    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stay in the index",
-    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
-   }
+  {
+    "id": "ev",
+    "view_type": "theme",
+    "title": "Will EVs outnumber non-electric cars?",
+    "thesis": "The basket behind this one — makers, batteries and parts — is still being built.",
+    "category": "Autos · Theme",
+    "time_horizon": "Over 1 year",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": null,
+    "expression_count": 0,
+    "transmission_count": 0,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": true,
+    "plain_one_liner": "Will EVs outnumber non-electric cars?",
+    "plain_summary": "The basket behind this one — makers, batteries and parts — is still being built.",
+    "short_title": "Will EVs outnumber non-electric cars?",
+    "stance": null,
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": true,
+    "forward_expected_net_pct": null,
+    "forward_band_pct": null
   },
-  "best_episode_pct": 64.8,
-  "best_episode_label": "Window 20"
- },
- {
-  "id": "ai_search",
-  "view_type": "relative",
-  "title": "Will AI replace traditional search engines?",
-  "thesis": "Newer, faster-moving Indian tech firms may do better than the giant established ones as AI reshapes the industry.",
-  "category": "AI \u00b7 Relative",
-  "time_horizon": "Over 6 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "ai_search-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "unproven",
-   "total_return_pct": 17.95,
-   "excess_return_pct": 12.41,
-   "plain_label": "Own the 2 nimble AI-adopter firms",
-   "nifty_total_pct": 5.71,
-   "n_episodes": 31,
-   "pct_episodes_beat": 66,
-   "worst_drop_pct": -43.6,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 99861.01,
-     "benchmark": 100097.58
-    },
-    {
-     "t": "2",
-     "strategy": 99839.83,
-     "benchmark": 100173.94
-    },
-    {
-     "t": "3",
-     "strategy": 99942.83,
-     "benchmark": 100383.75
-    },
-    {
-     "t": "4",
-     "strategy": 99669.04,
-     "benchmark": 100503.48
-    },
-    {
-     "t": "5",
-     "strategy": 100029.06,
-     "benchmark": 100617.82
-    },
-    {
-     "t": "6",
-     "strategy": 100149.98,
-     "benchmark": 100549.88
-    },
-    {
-     "t": "7",
-     "strategy": 100182.72,
-     "benchmark": 100575.22
-    },
-    {
-     "t": "8",
-     "strategy": 100331.74,
-     "benchmark": 100726.83
-    },
-    {
-     "t": "9",
-     "strategy": 100245.2,
-     "benchmark": 100674.87
-    },
-    {
-     "t": "10",
-     "strategy": 100157.72,
-     "benchmark": 100410.42
-    },
-    {
-     "t": "11",
-     "strategy": 99832.76,
-     "benchmark": 100205.56
-    },
-    {
-     "t": "12",
-     "strategy": 99768.36,
-     "benchmark": 100258.15
-    },
-    {
-     "t": "13",
-     "strategy": 100324.86,
-     "benchmark": 100386.02
-    },
-    {
-     "t": "14",
-     "strategy": 100285.39,
-     "benchmark": 100293.42
-    },
-    {
-     "t": "15",
-     "strategy": 100734.52,
-     "benchmark": 100587.09
-    },
-    {
-     "t": "16",
-     "strategy": 100806.15,
-     "benchmark": 100736.62
-    },
-    {
-     "t": "17",
-     "strategy": 100625.39,
-     "benchmark": 100705.48
-    },
-    {
-     "t": "18",
-     "strategy": 101128.65,
-     "benchmark": 100834.97
-    },
-    {
-     "t": "19",
-     "strategy": 101705.09,
-     "benchmark": 101241.78
-    },
-    {
-     "t": "20",
-     "strategy": 101324.03,
-     "benchmark": 101145.8
-    },
-    {
-     "t": "21",
-     "strategy": 101390.98,
-     "benchmark": 101023.04
-    },
-    {
-     "t": "22",
-     "strategy": 102261.77,
-     "benchmark": 101194.02
-    },
-    {
-     "t": "23",
-     "strategy": 102897.18,
-     "benchmark": 101171.05
-    },
-    {
-     "t": "24",
-     "strategy": 103072.68,
-     "benchmark": 101304.24
-    },
-    {
-     "t": "25",
-     "strategy": 103662.02,
-     "benchmark": 101906.89
-    },
-    {
-     "t": "26",
-     "strategy": 103812.42,
-     "benchmark": 102021.06
-    },
-    {
-     "t": "27",
-     "strategy": 103632.58,
-     "benchmark": 101976.96
-    },
-    {
-     "t": "28",
-     "strategy": 103931.91,
-     "benchmark": 102312.7
-    },
-    {
-     "t": "29",
-     "strategy": 104129.66,
-     "benchmark": 102490.24
-    },
-    {
-     "t": "30",
-     "strategy": 103847.38,
-     "benchmark": 102430.66
-    },
-    {
-     "t": "31",
-     "strategy": 104103.41,
-     "benchmark": 102447.93
-    },
-    {
-     "t": "32",
-     "strategy": 103891.13,
-     "benchmark": 102488.56
-    },
-    {
-     "t": "33",
-     "strategy": 104567.41,
-     "benchmark": 102862.76
-    },
-    {
-     "t": "34",
-     "strategy": 104692.94,
-     "benchmark": 102723.96
-    },
-    {
-     "t": "35",
-     "strategy": 105367.95,
-     "benchmark": 102609.72
-    },
-    {
-     "t": "36",
-     "strategy": 105509.96,
-     "benchmark": 102617.65
-    },
-    {
-     "t": "37",
-     "strategy": 105878.36,
-     "benchmark": 102466.66
-    },
-    {
-     "t": "38",
-     "strategy": 105619.14,
-     "benchmark": 102284.05
-    },
-    {
-     "t": "39",
-     "strategy": 105305.84,
-     "benchmark": 102133.67
-    },
-    {
-     "t": "40",
-     "strategy": 105395.22,
-     "benchmark": 102140.48
-    },
-    {
-     "t": "41",
-     "strategy": 105429.73,
-     "benchmark": 102095.08
-    },
-    {
-     "t": "42",
-     "strategy": 106207.9,
-     "benchmark": 102084.53
-    },
-    {
-     "t": "43",
-     "strategy": 106475.51,
-     "benchmark": 101988.78
-    },
-    {
-     "t": "44",
-     "strategy": 106937.18,
-     "benchmark": 102063.38
-    },
-    {
-     "t": "45",
-     "strategy": 106996.56,
-     "benchmark": 102103.59
-    },
-    {
-     "t": "46",
-     "strategy": 106818.92,
-     "benchmark": 101966.68
-    },
-    {
-     "t": "47",
-     "strategy": 106819.93,
-     "benchmark": 101874.6
-    },
-    {
-     "t": "48",
-     "strategy": 106900.29,
-     "benchmark": 101998.53
-    },
-    {
-     "t": "49",
-     "strategy": 106633.04,
-     "benchmark": 102138.45
-    },
-    {
-     "t": "50",
-     "strategy": 106905.88,
-     "benchmark": 102424.23
-    },
-    {
-     "t": "51",
-     "strategy": 107112.05,
-     "benchmark": 102585.12
-    },
-    {
-     "t": "52",
-     "strategy": 107068.53,
-     "benchmark": 102650.18
-    },
-    {
-     "t": "53",
-     "strategy": 107410.65,
-     "benchmark": 102602.5
-    },
-    {
-     "t": "54",
-     "strategy": 107237.57,
-     "benchmark": 102629.9
-    },
-    {
-     "t": "55",
-     "strategy": 107031.52,
-     "benchmark": 102622.91
-    },
-    {
-     "t": "56",
-     "strategy": 107237.97,
-     "benchmark": 102661.02
-    },
-    {
-     "t": "57",
-     "strategy": 107233.43,
-     "benchmark": 102421.0
-    },
-    {
-     "t": "58",
-     "strategy": 107388.14,
-     "benchmark": 102673.5
-    },
-    {
-     "t": "59",
-     "strategy": 108030.43,
-     "benchmark": 102812.71
-    },
-    {
-     "t": "60",
-     "strategy": 108399.16,
-     "benchmark": 102989.38
-    },
-    {
-     "t": "61",
-     "strategy": 109050.52,
-     "benchmark": 102986.6
-    },
-    {
-     "t": "62",
-     "strategy": 108578.0,
-     "benchmark": 102870.46
-    },
-    {
-     "t": "63",
-     "strategy": 108757.13,
-     "benchmark": 102784.05
-    },
-    {
-     "t": "64",
-     "strategy": 108499.14,
-     "benchmark": 103027.33
-    },
-    {
-     "t": "65",
-     "strategy": 108769.11,
-     "benchmark": 103140.71
-    },
-    {
-     "t": "66",
-     "strategy": 108527.0,
-     "benchmark": 102955.93
-    },
-    {
-     "t": "67",
-     "strategy": 108745.28,
-     "benchmark": 102741.57
-    },
-    {
-     "t": "68",
-     "strategy": 109302.94,
-     "benchmark": 102918.06
-    },
-    {
-     "t": "69",
-     "strategy": 109190.15,
-     "benchmark": 103195.91
-    },
-    {
-     "t": "70",
-     "strategy": 109049.17,
-     "benchmark": 103261.54
-    },
-    {
-     "t": "71",
-     "strategy": 109239.09,
-     "benchmark": 103061.98
-    },
-    {
-     "t": "72",
-     "strategy": 109288.78,
-     "benchmark": 102832.67
-    },
-    {
-     "t": "73",
-     "strategy": 109463.5,
-     "benchmark": 102727.07
-    },
-    {
-     "t": "74",
-     "strategy": 109705.48,
-     "benchmark": 102840.44
-    },
-    {
-     "t": "75",
-     "strategy": 109884.16,
-     "benchmark": 103089.58
-    },
-    {
-     "t": "76",
-     "strategy": 109913.54,
-     "benchmark": 103276.81
-    },
-    {
-     "t": "77",
-     "strategy": 110178.32,
-     "benchmark": 103382.16
-    },
-    {
-     "t": "78",
-     "strategy": 110660.26,
-     "benchmark": 103247.91
-    },
-    {
-     "t": "79",
-     "strategy": 110619.46,
-     "benchmark": 103405.25
-    },
-    {
-     "t": "80",
-     "strategy": 110815.36,
-     "benchmark": 103272.13
-    },
-    {
-     "t": "81",
-     "strategy": 111378.34,
-     "benchmark": 103449.12
-    },
-    {
-     "t": "82",
-     "strategy": 111459.28,
-     "benchmark": 103394.16
-    },
-    {
-     "t": "83",
-     "strategy": 111013.29,
-     "benchmark": 103336.42
-    },
-    {
-     "t": "84",
-     "strategy": 111020.0,
-     "benchmark": 103220.31
-    },
-    {
-     "t": "85",
-     "strategy": 110785.19,
-     "benchmark": 102865.51
-    },
-    {
-     "t": "86",
-     "strategy": 111482.16,
-     "benchmark": 102659.19
-    },
-    {
-     "t": "87",
-     "strategy": 112304.78,
-     "benchmark": 102886.43
-    },
-    {
-     "t": "88",
-     "strategy": 112903.81,
-     "benchmark": 103193.72
-    },
-    {
-     "t": "89",
-     "strategy": 112962.56,
-     "benchmark": 103357.76
-    },
-    {
-     "t": "90",
-     "strategy": 113097.51,
-     "benchmark": 102936.62
-    },
-    {
-     "t": "91",
-     "strategy": 112323.95,
-     "benchmark": 102958.25
-    },
-    {
-     "t": "92",
-     "strategy": 112197.68,
-     "benchmark": 102851.11
-    },
-    {
-     "t": "93",
-     "strategy": 111840.5,
-     "benchmark": 102998.08
-    },
-    {
-     "t": "94",
-     "strategy": 112082.07,
-     "benchmark": 102913.91
-    },
-    {
-     "t": "95",
-     "strategy": 112168.02,
-     "benchmark": 102980.58
-    },
-    {
-     "t": "96",
-     "strategy": 112248.5,
-     "benchmark": 103218.23
-    },
-    {
-     "t": "97",
-     "strategy": 113241.07,
-     "benchmark": 103538.06
-    },
-    {
-     "t": "98",
-     "strategy": 113971.92,
-     "benchmark": 103542.48
-    },
-    {
-     "t": "99",
-     "strategy": 113503.64,
-     "benchmark": 103307.94
-    },
-    {
-     "t": "100",
-     "strategy": 112725.37,
-     "benchmark": 103292.17
-    },
-    {
-     "t": "101",
-     "strategy": 112588.72,
-     "benchmark": 103447.06
-    },
-    {
-     "t": "102",
-     "strategy": 112533.67,
-     "benchmark": 103273.62
-    },
-    {
-     "t": "103",
-     "strategy": 112516.56,
-     "benchmark": 103391.81
-    },
-    {
-     "t": "104",
-     "strategy": 112834.47,
-     "benchmark": 103324.28
-    },
-    {
-     "t": "105",
-     "strategy": 112548.6,
-     "benchmark": 102865.97
-    },
-    {
-     "t": "106",
-     "strategy": 112655.25,
-     "benchmark": 103050.22
-    },
-    {
-     "t": "107",
-     "strategy": 112832.94,
-     "benchmark": 103287.16
-    },
-    {
-     "t": "108",
-     "strategy": 113334.75,
-     "benchmark": 103469.21
-    },
-    {
-     "t": "109",
-     "strategy": 113094.18,
-     "benchmark": 103339.42
-    },
-    {
-     "t": "110",
-     "strategy": 113245.21,
-     "benchmark": 103138.05
-    },
-    {
-     "t": "111",
-     "strategy": 113916.42,
-     "benchmark": 103385.2
-    },
-    {
-     "t": "112",
-     "strategy": 114261.63,
-     "benchmark": 103487.83
-    },
-    {
-     "t": "113",
-     "strategy": 114636.11,
-     "benchmark": 103738.09
-    },
-    {
-     "t": "114",
-     "strategy": 114489.48,
-     "benchmark": 103663.91
-    },
-    {
-     "t": "115",
-     "strategy": 114119.59,
-     "benchmark": 103594.49
-    },
-    {
-     "t": "116",
-     "strategy": 114227.53,
-     "benchmark": 103785.66
-    },
-    {
-     "t": "117",
-     "strategy": 115340.28,
-     "benchmark": 103960.97
-    },
-    {
-     "t": "118",
-     "strategy": 115439.56,
-     "benchmark": 104148.63
-    },
-    {
-     "t": "119",
-     "strategy": 115255.3,
-     "benchmark": 104056.17
-    },
-    {
-     "t": "120",
-     "strategy": 115675.29,
-     "benchmark": 103968.51
-    },
-    {
-     "t": "121",
-     "strategy": 115987.63,
-     "benchmark": 104272.67
-    },
-    {
-     "t": "122",
-     "strategy": 116479.11,
-     "benchmark": 104528.3
-    },
-    {
-     "t": "123",
-     "strategy": 117241.89,
-     "benchmark": 104974.37
-    },
-    {
-     "t": "124",
-     "strategy": 117592.53,
-     "benchmark": 105111.9
-    },
-    {
-     "t": "125",
-     "strategy": 117388.17,
-     "benchmark": 105298.27
-    },
-    {
-     "t": "126",
-     "strategy": 117517.84,
-     "benchmark": 105383.21
-    }
-   ],
-   "pct_positive": 67.7,
-   "n_positive": 21
-  },
-  "expression_count": 3,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will AI replace traditional search engines?",
-  "plain_summary": "Newer, faster-moving Indian tech firms may do better than the giant established ones as AI reshapes the industry.",
-  "short_title": "Will AI replace traditional search engines?",
-  "stance": {
-   "yes": {
-    "verdict": "Back the nimble adopters",
-    "summary": "If AI reshapes the industry quickly, the nimble product firms should pull ahead of the slower incumbents."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Back the incumbents",
-    "summary": "If disruption takes longer than expected, the large legacy IT firms keep their scale advantage \u2014 own them instead."
-   }
-  },
-  "best_episode_pct": 95.5,
-  "best_episode_label": "Window 20"
- },
- {
-  "id": "nuclear",
-  "view_type": "theme",
-  "title": "Will nuclear energy make a major comeback before 2027?",
-  "thesis": "India's power-building boom lifts big power and engineering firms (nuclear pure-plays aren't listed here).",
-  "category": "Energy \u00b7 Theme",
-  "time_horizon": "Over 6 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "nuclear-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "unproven",
-   "total_return_pct": 8.74,
-   "excess_return_pct": 3.39,
-   "plain_label": "Own a bundle of 9 power & engineering firms",
-   "nifty_total_pct": 5.71,
-   "n_episodes": 32,
-   "pct_episodes_beat": 56,
-   "worst_drop_pct": -31.5,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 99681.02,
-     "benchmark": 100080.81
-    },
-    {
-     "t": "2",
-     "strategy": 99582.89,
-     "benchmark": 100163.78
-    },
-    {
-     "t": "3",
-     "strategy": 99895.26,
-     "benchmark": 100377.49
-    },
-    {
-     "t": "4",
-     "strategy": 99844.59,
-     "benchmark": 100495.68
-    },
-    {
-     "t": "5",
-     "strategy": 99732.78,
-     "benchmark": 100601.5
-    },
-    {
-     "t": "6",
-     "strategy": 99866.47,
-     "benchmark": 100577.89
-    },
-    {
-     "t": "7",
-     "strategy": 100100.87,
-     "benchmark": 100623.05
-    },
-    {
-     "t": "8",
-     "strategy": 100453.64,
-     "benchmark": 100778.46
-    },
-    {
-     "t": "9",
-     "strategy": 100270.55,
-     "benchmark": 100738.43
-    },
-    {
-     "t": "10",
-     "strategy": 99978.58,
-     "benchmark": 100447.11
-    },
-    {
-     "t": "11",
-     "strategy": 99729.03,
-     "benchmark": 100260.92
-    },
-    {
-     "t": "12",
-     "strategy": 99614.59,
-     "benchmark": 100333.27
-    },
-    {
-     "t": "13",
-     "strategy": 99726.52,
-     "benchmark": 100470.32
-    },
-    {
-     "t": "14",
-     "strategy": 99655.36,
-     "benchmark": 100393.33
-    },
-    {
-     "t": "15",
-     "strategy": 99797.75,
-     "benchmark": 100653.18
-    },
-    {
-     "t": "16",
-     "strategy": 100028.96,
-     "benchmark": 100789.9
-    },
-    {
-     "t": "17",
-     "strategy": 100249.29,
-     "benchmark": 100784.98
-    },
-    {
-     "t": "18",
-     "strategy": 100381.59,
-     "benchmark": 100957.93
-    },
-    {
-     "t": "19",
-     "strategy": 100840.75,
-     "benchmark": 101350.56
-    },
-    {
-     "t": "20",
-     "strategy": 100696.21,
-     "benchmark": 101262.85
-    },
-    {
-     "t": "21",
-     "strategy": 100612.0,
-     "benchmark": 101101.12
-    },
-    {
-     "t": "22",
-     "strategy": 100703.79,
-     "benchmark": 101301.71
-    },
-    {
-     "t": "23",
-     "strategy": 100777.88,
-     "benchmark": 101266.0
-    },
-    {
-     "t": "24",
-     "strategy": 100864.6,
-     "benchmark": 101384.82
-    },
-    {
-     "t": "25",
-     "strategy": 101208.37,
-     "benchmark": 101938.54
-    },
-    {
-     "t": "26",
-     "strategy": 101289.73,
-     "benchmark": 102042.43
-    },
-    {
-     "t": "27",
-     "strategy": 101329.53,
-     "benchmark": 101963.76
-    },
-    {
-     "t": "28",
-     "strategy": 101626.36,
-     "benchmark": 102305.14
-    },
-    {
-     "t": "29",
-     "strategy": 102158.55,
-     "benchmark": 102486.15
-    },
-    {
-     "t": "30",
-     "strategy": 102066.88,
-     "benchmark": 102443.34
-    },
-    {
-     "t": "31",
-     "strategy": 101987.81,
-     "benchmark": 102481.27
-    },
-    {
-     "t": "32",
-     "strategy": 102250.58,
-     "benchmark": 102531.83
-    },
-    {
-     "t": "33",
-     "strategy": 102651.37,
-     "benchmark": 102885.73
-    },
-    {
-     "t": "34",
-     "strategy": 102638.01,
-     "benchmark": 102694.61
-    },
-    {
-     "t": "35",
-     "strategy": 102734.65,
-     "benchmark": 102607.54
-    },
-    {
-     "t": "36",
-     "strategy": 102790.05,
-     "benchmark": 102629.77
-    },
-    {
-     "t": "37",
-     "strategy": 102634.89,
-     "benchmark": 102449.81
-    },
-    {
-     "t": "38",
-     "strategy": 102419.26,
-     "benchmark": 102227.62
-    },
-    {
-     "t": "39",
-     "strategy": 102364.2,
-     "benchmark": 102067.54
-    },
-    {
-     "t": "40",
-     "strategy": 102346.8,
-     "benchmark": 102053.38
-    },
-    {
-     "t": "41",
-     "strategy": 102131.44,
-     "benchmark": 101964.99
-    },
-    {
-     "t": "42",
-     "strategy": 102306.25,
-     "benchmark": 102061.84
-    },
-    {
-     "t": "43",
-     "strategy": 102244.06,
-     "benchmark": 101934.04
-    },
-    {
-     "t": "44",
-     "strategy": 102106.67,
-     "benchmark": 102018.81
-    },
-    {
-     "t": "45",
-     "strategy": 102229.28,
-     "benchmark": 102071.34
-    },
-    {
-     "t": "46",
-     "strategy": 102135.77,
-     "benchmark": 101886.62
-    },
-    {
-     "t": "47",
-     "strategy": 102341.5,
-     "benchmark": 101776.92
-    },
-    {
-     "t": "48",
-     "strategy": 102477.89,
-     "benchmark": 101900.83
-    },
-    {
-     "t": "49",
-     "strategy": 102617.51,
-     "benchmark": 101946.99
-    },
-    {
-     "t": "50",
-     "strategy": 103058.34,
-     "benchmark": 102240.9
-    },
-    {
-     "t": "51",
-     "strategy": 103362.61,
-     "benchmark": 102386.72
-    },
-    {
-     "t": "52",
-     "strategy": 103549.81,
-     "benchmark": 102457.55
-    },
-    {
-     "t": "53",
-     "strategy": 103273.08,
-     "benchmark": 102327.69
-    },
-    {
-     "t": "54",
-     "strategy": 103312.68,
-     "benchmark": 102421.72
-    },
-    {
-     "t": "55",
-     "strategy": 103441.45,
-     "benchmark": 102467.21
-    },
-    {
-     "t": "56",
-     "strategy": 103822.68,
-     "benchmark": 102542.82
-    },
-    {
-     "t": "57",
-     "strategy": 103740.13,
-     "benchmark": 102322.35
-    },
-    {
-     "t": "58",
-     "strategy": 103923.04,
-     "benchmark": 102496.16
-    },
-    {
-     "t": "59",
-     "strategy": 104115.43,
-     "benchmark": 102661.29
-    },
-    {
-     "t": "60",
-     "strategy": 104444.61,
-     "benchmark": 102887.73
-    },
-    {
-     "t": "61",
-     "strategy": 104670.62,
-     "benchmark": 102900.29
-    },
-    {
-     "t": "62",
-     "strategy": 104527.13,
-     "benchmark": 102725.87
-    },
-    {
-     "t": "63",
-     "strategy": 104409.87,
-     "benchmark": 102613.56
-    },
-    {
-     "t": "64",
-     "strategy": 104665.23,
-     "benchmark": 102857.29
-    },
-    {
-     "t": "65",
-     "strategy": 104882.2,
-     "benchmark": 103014.88
-    },
-    {
-     "t": "66",
-     "strategy": 104592.81,
-     "benchmark": 102860.72
-    },
-    {
-     "t": "67",
-     "strategy": 104601.03,
-     "benchmark": 102700.84
-    },
-    {
-     "t": "68",
-     "strategy": 104860.81,
-     "benchmark": 102886.85
-    },
-    {
-     "t": "69",
-     "strategy": 105215.95,
-     "benchmark": 103162.73
-    },
-    {
-     "t": "70",
-     "strategy": 105277.59,
-     "benchmark": 103251.62
-    },
-    {
-     "t": "71",
-     "strategy": 105554.3,
-     "benchmark": 103050.82
-    },
-    {
-     "t": "72",
-     "strategy": 105405.35,
-     "benchmark": 102883.99
-    },
-    {
-     "t": "73",
-     "strategy": 105313.47,
-     "benchmark": 102759.28
-    },
-    {
-     "t": "74",
-     "strategy": 105146.57,
-     "benchmark": 102873.14
-    },
-    {
-     "t": "75",
-     "strategy": 105421.15,
-     "benchmark": 103112.93
-    },
-    {
-     "t": "76",
-     "strategy": 105525.12,
-     "benchmark": 103262.87
-    },
-    {
-     "t": "77",
-     "strategy": 105907.44,
-     "benchmark": 103404.23
-    },
-    {
-     "t": "78",
-     "strategy": 105713.21,
-     "benchmark": 103227.01
-    },
-    {
-     "t": "79",
-     "strategy": 105577.55,
-     "benchmark": 103413.8
-    },
-    {
-     "t": "80",
-     "strategy": 105375.97,
-     "benchmark": 103247.57
-    },
-    {
-     "t": "81",
-     "strategy": 105449.05,
-     "benchmark": 103410.32
-    },
-    {
-     "t": "82",
-     "strategy": 105331.83,
-     "benchmark": 103356.34
-    },
-    {
-     "t": "83",
-     "strategy": 105404.57,
-     "benchmark": 103332.82
-    },
-    {
-     "t": "84",
-     "strategy": 105275.33,
-     "benchmark": 103191.09
-    },
-    {
-     "t": "85",
-     "strategy": 105184.88,
-     "benchmark": 102881.38
-    },
-    {
-     "t": "86",
-     "strategy": 104867.7,
-     "benchmark": 102715.42
-    },
-    {
-     "t": "87",
-     "strategy": 104937.6,
-     "benchmark": 102954.19
-    },
-    {
-     "t": "88",
-     "strategy": 105248.19,
-     "benchmark": 103262.63
-    },
-    {
-     "t": "89",
-     "strategy": 105389.85,
-     "benchmark": 103412.7
-    },
-    {
-     "t": "90",
-     "strategy": 105165.53,
-     "benchmark": 103000.21
-    },
-    {
-     "t": "91",
-     "strategy": 105013.91,
-     "benchmark": 103030.41
-    },
-    {
-     "t": "92",
-     "strategy": 104858.22,
-     "benchmark": 102922.07
-    },
-    {
-     "t": "93",
-     "strategy": 105146.17,
-     "benchmark": 103053.2
-    },
-    {
-     "t": "94",
-     "strategy": 104875.84,
-     "benchmark": 102990.78
-    },
-    {
-     "t": "95",
-     "strategy": 104763.06,
-     "benchmark": 103081.34
-    },
-    {
-     "t": "96",
-     "strategy": 105114.35,
-     "benchmark": 103315.93
-    },
-    {
-     "t": "97",
-     "strategy": 105491.45,
-     "benchmark": 103607.17
-    },
-    {
-     "t": "98",
-     "strategy": 105503.5,
-     "benchmark": 103618.77
-    },
-    {
-     "t": "99",
-     "strategy": 105345.39,
-     "benchmark": 103371.4
-    },
-    {
-     "t": "100",
-     "strategy": 105630.45,
-     "benchmark": 103363.04
-    },
-    {
-     "t": "101",
-     "strategy": 105751.15,
-     "benchmark": 103487.91
-    },
-    {
-     "t": "102",
-     "strategy": 105919.03,
-     "benchmark": 103358.94
-    },
-    {
-     "t": "103",
-     "strategy": 105703.28,
-     "benchmark": 103478.26
-    },
-    {
-     "t": "104",
-     "strategy": 105671.62,
-     "benchmark": 103430.1
-    },
-    {
-     "t": "105",
-     "strategy": 105775.95,
-     "benchmark": 102973.45
-    },
-    {
-     "t": "106",
-     "strategy": 106025.88,
-     "benchmark": 103147.16
-    },
-    {
-     "t": "107",
-     "strategy": 106178.06,
-     "benchmark": 103405.3
-    },
-    {
-     "t": "108",
-     "strategy": 106245.86,
-     "benchmark": 103566.14
-    },
-    {
-     "t": "109",
-     "strategy": 106139.22,
-     "benchmark": 103415.95
-    },
-    {
-     "t": "110",
-     "strategy": 106003.04,
-     "benchmark": 103218.35
-    },
-    {
-     "t": "111",
-     "strategy": 106058.53,
-     "benchmark": 103479.51
-    },
-    {
-     "t": "112",
-     "strategy": 106015.22,
-     "benchmark": 103558.32
-    },
-    {
-     "t": "113",
-     "strategy": 106359.87,
-     "benchmark": 103798.23
-    },
-    {
-     "t": "114",
-     "strategy": 106728.37,
-     "benchmark": 103766.01
-    },
-    {
-     "t": "115",
-     "strategy": 106232.04,
-     "benchmark": 103735.99
-    },
-    {
-     "t": "116",
-     "strategy": 106198.7,
-     "benchmark": 103915.36
-    },
-    {
-     "t": "117",
-     "strategy": 106483.97,
-     "benchmark": 104093.03
-    },
-    {
-     "t": "118",
-     "strategy": 106713.36,
-     "benchmark": 104251.41
-    },
-    {
-     "t": "119",
-     "strategy": 106896.87,
-     "benchmark": 104135.76
-    },
-    {
-     "t": "120",
-     "strategy": 107206.0,
-     "benchmark": 104060.33
-    },
-    {
-     "t": "121",
-     "strategy": 107484.83,
-     "benchmark": 104312.78
-    },
-    {
-     "t": "122",
-     "strategy": 107613.13,
-     "benchmark": 104564.54
-    },
-    {
-     "t": "123",
-     "strategy": 107897.59,
-     "benchmark": 104988.71
-    },
-    {
-     "t": "124",
-     "strategy": 107985.8,
-     "benchmark": 105164.29
-    },
-    {
-     "t": "125",
-     "strategy": 108247.17,
-     "benchmark": 105353.57
-    },
-    {
-     "t": "126",
-     "strategy": 108341.65,
-     "benchmark": 105431.74
-    }
-   ],
-   "pct_positive": 65.6,
-   "n_positive": 21
-  },
-  "expression_count": 3,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will nuclear energy make a major comeback before 2027?",
-  "plain_summary": "India's power-building boom lifts big power and engineering firms (nuclear pure-plays aren't listed here).",
-  "short_title": "Will nuclear energy make a major comeback before 2027?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the power-capex basket",
-    "summary": "If India's power-building boom continues, the listed power and engineering firms benefit directly."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stay in the index",
-    "summary": "Nuclear itself isn't listed here, and the wider power theme doesn't clearly separate from the market \u2014 the index is the honest fallback."
-   }
-  },
-  "best_episode_pct": 54.0,
-  "best_episode_label": "Window 28"
- },
- {
-  "id": "ev",
-  "view_type": "theme",
-  "title": "Will EV sales increase more than expected this year?",
-  "thesis": "If electric-vehicle sales grow faster than expected, the whole EV supply chain benefits.",
-  "category": "Autos \u00b7 Theme",
-  "time_horizon": "Over 6 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "ev-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "promising",
-   "total_return_pct": 14.93,
-   "excess_return_pct": 9.06,
-   "plain_label": "Own a bundle of 7 EV-chain companies",
-   "nifty_total_pct": 5.71,
-   "n_episodes": 9,
-   "pct_episodes_beat": 75,
-   "worst_drop_pct": -21.0,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 99600.9,
-     "benchmark": 100162.78
-    },
-    {
-     "t": "2",
-     "strategy": 100149.89,
-     "benchmark": 100459.47
-    },
-    {
-     "t": "3",
-     "strategy": 100298.93,
-     "benchmark": 100591.35
-    },
-    {
-     "t": "4",
-     "strategy": 100096.55,
-     "benchmark": 100419.05
-    },
-    {
-     "t": "5",
-     "strategy": 100606.83,
-     "benchmark": 100693.9
-    },
-    {
-     "t": "6",
-     "strategy": 101013.65,
-     "benchmark": 100617.49
-    },
-    {
-     "t": "7",
-     "strategy": 101232.19,
-     "benchmark": 100509.57
-    },
-    {
-     "t": "8",
-     "strategy": 101654.34,
-     "benchmark": 100603.92
-    },
-    {
-     "t": "9",
-     "strategy": 101518.13,
-     "benchmark": 100374.15
-    },
-    {
-     "t": "10",
-     "strategy": 101150.46,
-     "benchmark": 99997.88
-    },
-    {
-     "t": "11",
-     "strategy": 100957.4,
-     "benchmark": 99913.2
-    },
-    {
-     "t": "12",
-     "strategy": 100311.4,
-     "benchmark": 99722.67
-    },
-    {
-     "t": "13",
-     "strategy": 100431.64,
-     "benchmark": 99699.95
-    },
-    {
-     "t": "14",
-     "strategy": 99450.66,
-     "benchmark": 99121.82
-    },
-    {
-     "t": "15",
-     "strategy": 100036.12,
-     "benchmark": 99346.66
-    },
-    {
-     "t": "16",
-     "strategy": 100697.16,
-     "benchmark": 99826.83
-    },
-    {
-     "t": "17",
-     "strategy": 100754.85,
-     "benchmark": 99897.55
-    },
-    {
-     "t": "18",
-     "strategy": 100915.35,
-     "benchmark": 99886.54
-    },
-    {
-     "t": "19",
-     "strategy": 101444.97,
-     "benchmark": 100012.07
-    },
-    {
-     "t": "20",
-     "strategy": 101097.89,
-     "benchmark": 99997.43
-    },
-    {
-     "t": "21",
-     "strategy": 101273.18,
-     "benchmark": 99839.73
-    },
-    {
-     "t": "22",
-     "strategy": 101414.07,
-     "benchmark": 99977.33
-    },
-    {
-     "t": "23",
-     "strategy": 101516.68,
-     "benchmark": 100060.39
-    },
-    {
-     "t": "24",
-     "strategy": 101642.17,
-     "benchmark": 100224.78
-    },
-    {
-     "t": "25",
-     "strategy": 101714.59,
-     "benchmark": 100420.82
-    },
-    {
-     "t": "26",
-     "strategy": 102166.48,
-     "benchmark": 100771.58
-    },
-    {
-     "t": "27",
-     "strategy": 102656.12,
-     "benchmark": 100786.15
-    },
-    {
-     "t": "28",
-     "strategy": 102532.97,
-     "benchmark": 100645.74
-    },
-    {
-     "t": "29",
-     "strategy": 102726.64,
-     "benchmark": 101108.69
-    },
-    {
-     "t": "30",
-     "strategy": 102215.99,
-     "benchmark": 100784.43
-    },
-    {
-     "t": "31",
-     "strategy": 102587.62,
-     "benchmark": 100885.6
-    },
-    {
-     "t": "32",
-     "strategy": 103024.65,
-     "benchmark": 101079.44
-    },
-    {
-     "t": "33",
-     "strategy": 103498.39,
-     "benchmark": 101410.43
-    },
-    {
-     "t": "34",
-     "strategy": 102926.1,
-     "benchmark": 101116.64
-    },
-    {
-     "t": "35",
-     "strategy": 103225.37,
-     "benchmark": 101420.31
-    },
-    {
-     "t": "36",
-     "strategy": 103414.41,
-     "benchmark": 101332.6
-    },
-    {
-     "t": "37",
-     "strategy": 103589.66,
-     "benchmark": 100996.27
-    },
-    {
-     "t": "38",
-     "strategy": 103080.4,
-     "benchmark": 100392.38
-    },
-    {
-     "t": "39",
-     "strategy": 102722.58,
-     "benchmark": 100280.32
-    },
-    {
-     "t": "40",
-     "strategy": 102696.84,
-     "benchmark": 100721.61
-    },
-    {
-     "t": "41",
-     "strategy": 102841.49,
-     "benchmark": 100553.48
-    },
-    {
-     "t": "42",
-     "strategy": 103584.75,
-     "benchmark": 100812.53
-    },
-    {
-     "t": "43",
-     "strategy": 104520.57,
-     "benchmark": 101111.87
-    },
-    {
-     "t": "44",
-     "strategy": 104761.4,
-     "benchmark": 100994.17
-    },
-    {
-     "t": "45",
-     "strategy": 104538.47,
-     "benchmark": 100965.0
-    },
-    {
-     "t": "46",
-     "strategy": 104463.5,
-     "benchmark": 100779.87
-    },
-    {
-     "t": "47",
-     "strategy": 104863.46,
-     "benchmark": 101022.54
-    },
-    {
-     "t": "48",
-     "strategy": 104349.5,
-     "benchmark": 100644.91
-    },
-    {
-     "t": "49",
-     "strategy": 104034.87,
-     "benchmark": 100435.13
-    },
-    {
-     "t": "50",
-     "strategy": 104803.96,
-     "benchmark": 100852.11
-    },
-    {
-     "t": "51",
-     "strategy": 105615.11,
-     "benchmark": 100863.6
-    },
-    {
-     "t": "52",
-     "strategy": 105321.55,
-     "benchmark": 100899.26
-    },
-    {
-     "t": "53",
-     "strategy": 104017.82,
-     "benchmark": 100249.62
-    },
-    {
-     "t": "54",
-     "strategy": 104105.86,
-     "benchmark": 100326.03
-    },
-    {
-     "t": "55",
-     "strategy": 104206.7,
-     "benchmark": 100447.45
-    },
-    {
-     "t": "56",
-     "strategy": 104478.75,
-     "benchmark": 100520.7
-    },
-    {
-     "t": "57",
-     "strategy": 104322.7,
-     "benchmark": 100144.72
-    },
-    {
-     "t": "58",
-     "strategy": 104354.07,
-     "benchmark": 100299.09
-    },
-    {
-     "t": "59",
-     "strategy": 104404.54,
-     "benchmark": 100145.3
-    },
-    {
-     "t": "60",
-     "strategy": 104517.21,
-     "benchmark": 100173.74
-    },
-    {
-     "t": "61",
-     "strategy": 104669.64,
-     "benchmark": 100219.23
-    },
-    {
-     "t": "62",
-     "strategy": 104269.68,
-     "benchmark": 100000.19
-    },
-    {
-     "t": "63",
-     "strategy": 104034.61,
-     "benchmark": 100232.24
-    },
-    {
-     "t": "64",
-     "strategy": 104727.98,
-     "benchmark": 100650.46
-    },
-    {
-     "t": "65",
-     "strategy": 104964.24,
-     "benchmark": 100706.07
-    },
-    {
-     "t": "66",
-     "strategy": 104407.44,
-     "benchmark": 100308.62
-    },
-    {
-     "t": "67",
-     "strategy": 103942.49,
-     "benchmark": 100262.78
-    },
-    {
-     "t": "68",
-     "strategy": 104929.4,
-     "benchmark": 100879.78
-    },
-    {
-     "t": "69",
-     "strategy": 105460.67,
-     "benchmark": 100944.68
-    },
-    {
-     "t": "70",
-     "strategy": 106155.16,
-     "benchmark": 101174.11
-    },
-    {
-     "t": "71",
-     "strategy": 105997.62,
-     "benchmark": 100965.44
-    },
-    {
-     "t": "72",
-     "strategy": 105339.04,
-     "benchmark": 100837.62
-    },
-    {
-     "t": "73",
-     "strategy": 104521.37,
-     "benchmark": 100018.63
-    },
-    {
-     "t": "74",
-     "strategy": 104856.17,
-     "benchmark": 100535.97
-    },
-    {
-     "t": "75",
-     "strategy": 105676.3,
-     "benchmark": 100897.52
-    },
-    {
-     "t": "76",
-     "strategy": 105833.2,
-     "benchmark": 100991.93
-    },
-    {
-     "t": "77",
-     "strategy": 106056.02,
-     "benchmark": 101105.36
-    },
-    {
-     "t": "78",
-     "strategy": 106131.04,
-     "benchmark": 101094.01
-    },
-    {
-     "t": "79",
-     "strategy": 105804.99,
-     "benchmark": 100983.0
-    },
-    {
-     "t": "80",
-     "strategy": 106258.92,
-     "benchmark": 101249.34
-    },
-    {
-     "t": "81",
-     "strategy": 106249.56,
-     "benchmark": 101250.54
-    },
-    {
-     "t": "82",
-     "strategy": 106073.08,
-     "benchmark": 101306.27
-    },
-    {
-     "t": "83",
-     "strategy": 106340.61,
-     "benchmark": 101439.28
-    },
-    {
-     "t": "84",
-     "strategy": 106035.51,
-     "benchmark": 101272.23
-    },
-    {
-     "t": "85",
-     "strategy": 106189.14,
-     "benchmark": 101862.28
-    },
-    {
-     "t": "86",
-     "strategy": 106807.48,
-     "benchmark": 102301.09
-    },
-    {
-     "t": "87",
-     "strategy": 107043.76,
-     "benchmark": 102303.41
-    },
-    {
-     "t": "88",
-     "strategy": 107103.07,
-     "benchmark": 102004.71
-    },
-    {
-     "t": "89",
-     "strategy": 107605.77,
-     "benchmark": 101870.04
-    },
-    {
-     "t": "90",
-     "strategy": 107665.67,
-     "benchmark": 101662.1
-    },
-    {
-     "t": "91",
-     "strategy": 107396.86,
-     "benchmark": 101316.15
-    },
-    {
-     "t": "92",
-     "strategy": 106917.74,
-     "benchmark": 101146.31
-    },
-    {
-     "t": "93",
-     "strategy": 106952.85,
-     "benchmark": 101137.82
-    },
-    {
-     "t": "94",
-     "strategy": 107312.89,
-     "benchmark": 101260.97
-    },
-    {
-     "t": "95",
-     "strategy": 107055.31,
-     "benchmark": 100998.97
-    },
-    {
-     "t": "96",
-     "strategy": 107434.68,
-     "benchmark": 101372.24
-    },
-    {
-     "t": "97",
-     "strategy": 107712.49,
-     "benchmark": 101747.15
-    },
-    {
-     "t": "98",
-     "strategy": 107875.18,
-     "benchmark": 101574.82
-    },
-    {
-     "t": "99",
-     "strategy": 107841.71,
-     "benchmark": 101373.35
-    },
-    {
-     "t": "100",
-     "strategy": 108044.51,
-     "benchmark": 101617.53
-    },
-    {
-     "t": "101",
-     "strategy": 108318.2,
-     "benchmark": 101680.85
-    },
-    {
-     "t": "102",
-     "strategy": 108787.6,
-     "benchmark": 101788.72
-    },
-    {
-     "t": "103",
-     "strategy": 109064.61,
-     "benchmark": 102035.29
-    },
-    {
-     "t": "104",
-     "strategy": 109508.05,
-     "benchmark": 101941.56
-    },
-    {
-     "t": "105",
-     "strategy": 109642.92,
-     "benchmark": 101607.9
-    },
-    {
-     "t": "106",
-     "strategy": 109714.32,
-     "benchmark": 101973.59
-    },
-    {
-     "t": "107",
-     "strategy": 110073.78,
-     "benchmark": 102219.02
-    },
-    {
-     "t": "108",
-     "strategy": 110621.86,
-     "benchmark": 102240.18
-    },
-    {
-     "t": "109",
-     "strategy": 110766.72,
-     "benchmark": 102024.73
-    },
-    {
-     "t": "110",
-     "strategy": 110430.52,
-     "benchmark": 101709.74
-    },
-    {
-     "t": "111",
-     "strategy": 110635.46,
-     "benchmark": 101520.97
-    },
-    {
-     "t": "112",
-     "strategy": 110699.84,
-     "benchmark": 101721.33
-    },
-    {
-     "t": "113",
-     "strategy": 110592.07,
-     "benchmark": 101952.09
-    },
-    {
-     "t": "114",
-     "strategy": 111753.39,
-     "benchmark": 102780.38
-    },
-    {
-     "t": "115",
-     "strategy": 111333.02,
-     "benchmark": 102145.78
-    },
-    {
-     "t": "116",
-     "strategy": 112015.78,
-     "benchmark": 102356.78
-    },
-    {
-     "t": "117",
-     "strategy": 112819.41,
-     "benchmark": 103007.51
-    },
-    {
-     "t": "118",
-     "strategy": 113049.1,
-     "benchmark": 103261.53
-    },
-    {
-     "t": "119",
-     "strategy": 113332.27,
-     "benchmark": 103415.3
-    },
-    {
-     "t": "120",
-     "strategy": 113427.68,
-     "benchmark": 103495.41
-    },
-    {
-     "t": "121",
-     "strategy": 113424.22,
-     "benchmark": 103690.56
-    },
-    {
-     "t": "122",
-     "strategy": 114229.3,
-     "benchmark": 104058.59
-    },
-    {
-     "t": "123",
-     "strategy": 115217.46,
-     "benchmark": 104502.64
-    },
-    {
-     "t": "124",
-     "strategy": 115419.79,
-     "benchmark": 104452.6
-    },
-    {
-     "t": "125",
-     "strategy": 115096.19,
-     "benchmark": 104259.68
-    },
-    {
-     "t": "126",
-     "strategy": 114500.79,
-     "benchmark": 104121.49
-    }
-   ],
-   "pct_positive": 88.9,
-   "n_positive": 8
-  },
-  "expression_count": 3,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will EV sales increase more than expected this year?",
-  "plain_summary": "If electric-vehicle sales grow faster than expected, the whole EV supply chain benefits.",
-  "short_title": "Will EV sales increase more than expected this year?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the EV supply chain",
-    "summary": "If EV adoption keeps accelerating, the makers, battery and parts firms in the chain benefit together."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stick with legacy auto",
-    "summary": "If EV adoption disappoints, the established petrol-engine makers and the broad index likely hold up better."
-   }
-  },
-  "best_episode_pct": 55.9,
-  "best_episode_label": "Window 5"
- },
- {
-  "id": "mideast",
-  "view_type": "event",
-  "title": "Will Middle-East tensions escalate further this quarter?",
-  "thesis": "When conflict flares, oil and gold tend to rise, helping oil producers and defence firms.",
-  "category": "Geopolitics \u00b7 Event",
-  "time_horizon": "Over 3 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "mideast-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "unproven",
-   "total_return_pct": 6.5,
-   "excess_return_pct": 2.86,
-   "plain_label": "Own a bundle of 6 oil & defence firms",
-   "nifty_total_pct": 2.13,
-   "n_episodes": 32,
-   "pct_episodes_beat": 58,
-   "worst_drop_pct": -35.4,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 100367.63,
-     "benchmark": 100399.97
-    },
-    {
-     "t": "2",
-     "strategy": 100927.78,
-     "benchmark": 100714.31
-    },
-    {
-     "t": "3",
-     "strategy": 101174.7,
-     "benchmark": 100772.38
-    },
-    {
-     "t": "4",
-     "strategy": 100967.1,
-     "benchmark": 100635.85
-    },
-    {
-     "t": "5",
-     "strategy": 101346.01,
-     "benchmark": 100861.99
-    },
-    {
-     "t": "6",
-     "strategy": 101899.09,
-     "benchmark": 100977.51
-    },
-    {
-     "t": "7",
-     "strategy": 102334.84,
-     "benchmark": 101133.31
-    },
-    {
-     "t": "8",
-     "strategy": 102478.62,
-     "benchmark": 101051.39
-    },
-    {
-     "t": "9",
-     "strategy": 102238.88,
-     "benchmark": 100886.63
-    },
-    {
-     "t": "10",
-     "strategy": 101892.58,
-     "benchmark": 100581.75
-    },
-    {
-     "t": "11",
-     "strategy": 102049.61,
-     "benchmark": 100677.77
-    },
-    {
-     "t": "12",
-     "strategy": 101674.23,
-     "benchmark": 100633.95
-    },
-    {
-     "t": "13",
-     "strategy": 101597.63,
-     "benchmark": 100615.4
-    },
-    {
-     "t": "14",
-     "strategy": 101317.79,
-     "benchmark": 100425.48
-    },
-    {
-     "t": "15",
-     "strategy": 101015.9,
-     "benchmark": 100233.26
-    },
-    {
-     "t": "16",
-     "strategy": 101416.05,
-     "benchmark": 100622.18
-    },
-    {
-     "t": "17",
-     "strategy": 101650.87,
-     "benchmark": 100736.09
-    },
-    {
-     "t": "18",
-     "strategy": 101861.44,
-     "benchmark": 100786.72
-    },
-    {
-     "t": "19",
-     "strategy": 102141.9,
-     "benchmark": 100831.14
-    },
-    {
-     "t": "20",
-     "strategy": 101366.7,
-     "benchmark": 100612.75
-    },
-    {
-     "t": "21",
-     "strategy": 101328.23,
-     "benchmark": 100426.22
-    },
-    {
-     "t": "22",
-     "strategy": 101401.19,
-     "benchmark": 100311.45
-    },
-    {
-     "t": "23",
-     "strategy": 101665.12,
-     "benchmark": 100360.15
-    },
-    {
-     "t": "24",
-     "strategy": 101786.8,
-     "benchmark": 100882.87
-    },
-    {
-     "t": "25",
-     "strategy": 102236.43,
-     "benchmark": 101257.94
-    },
-    {
-     "t": "26",
-     "strategy": 102823.32,
-     "benchmark": 101505.84
-    },
-    {
-     "t": "27",
-     "strategy": 103052.41,
-     "benchmark": 101217.49
-    },
-    {
-     "t": "28",
-     "strategy": 103421.45,
-     "benchmark": 101372.42
-    },
-    {
-     "t": "29",
-     "strategy": 103429.3,
-     "benchmark": 101478.19
-    },
-    {
-     "t": "30",
-     "strategy": 103544.55,
-     "benchmark": 101425.11
-    },
-    {
-     "t": "31",
-     "strategy": 103743.85,
-     "benchmark": 101592.3
-    },
-    {
-     "t": "32",
-     "strategy": 103514.69,
-     "benchmark": 101408.36
-    },
-    {
-     "t": "33",
-     "strategy": 104176.82,
-     "benchmark": 101777.27
-    },
-    {
-     "t": "34",
-     "strategy": 104207.18,
-     "benchmark": 101832.2
-    },
-    {
-     "t": "35",
-     "strategy": 104280.34,
-     "benchmark": 101971.95
-    },
-    {
-     "t": "36",
-     "strategy": 104202.7,
-     "benchmark": 101881.47
-    },
-    {
-     "t": "37",
-     "strategy": 104488.53,
-     "benchmark": 101789.02
-    },
-    {
-     "t": "38",
-     "strategy": 104239.78,
-     "benchmark": 101695.56
-    },
-    {
-     "t": "39",
-     "strategy": 104221.87,
-     "benchmark": 101611.35
-    },
-    {
-     "t": "40",
-     "strategy": 104179.46,
-     "benchmark": 101944.89
-    },
-    {
-     "t": "41",
-     "strategy": 104048.43,
-     "benchmark": 102030.78
-    },
-    {
-     "t": "42",
-     "strategy": 103975.6,
-     "benchmark": 101804.68
-    },
-    {
-     "t": "43",
-     "strategy": 104097.81,
-     "benchmark": 101873.82
-    },
-    {
-     "t": "44",
-     "strategy": 104227.31,
-     "benchmark": 101948.73
-    },
-    {
-     "t": "45",
-     "strategy": 104062.82,
-     "benchmark": 101915.25
-    },
-    {
-     "t": "46",
-     "strategy": 104045.32,
-     "benchmark": 101813.82
-    },
-    {
-     "t": "47",
-     "strategy": 103838.92,
-     "benchmark": 101519.03
-    },
-    {
-     "t": "48",
-     "strategy": 103816.04,
-     "benchmark": 101613.76
-    },
-    {
-     "t": "49",
-     "strategy": 103738.88,
-     "benchmark": 101822.91
-    },
-    {
-     "t": "50",
-     "strategy": 104187.21,
-     "benchmark": 102153.53
-    },
-    {
-     "t": "51",
-     "strategy": 104762.95,
-     "benchmark": 102383.45
-    },
-    {
-     "t": "52",
-     "strategy": 104387.03,
-     "benchmark": 102210.0
-    },
-    {
-     "t": "53",
-     "strategy": 104521.51,
-     "benchmark": 102217.08
-    },
-    {
-     "t": "54",
-     "strategy": 104755.47,
-     "benchmark": 102588.31
-    },
-    {
-     "t": "55",
-     "strategy": 104911.89,
-     "benchmark": 102701.03
-    },
-    {
-     "t": "56",
-     "strategy": 105327.19,
-     "benchmark": 102671.74
-    },
-    {
-     "t": "57",
-     "strategy": 105062.47,
-     "benchmark": 102221.79
-    },
-    {
-     "t": "58",
-     "strategy": 105160.15,
-     "benchmark": 102497.7
-    },
-    {
-     "t": "59",
-     "strategy": 105303.62,
-     "benchmark": 102629.96
-    },
-    {
-     "t": "60",
-     "strategy": 105752.79,
-     "benchmark": 103010.69
-    },
-    {
-     "t": "61",
-     "strategy": 105930.68,
-     "benchmark": 102895.49
-    },
-    {
-     "t": "62",
-     "strategy": 105837.71,
-     "benchmark": 102767.04
-    },
-    {
-     "t": "63",
-     "strategy": 106112.86,
-     "benchmark": 102896.2
-    }
-   ],
-   "pct_positive": 62.5,
-   "n_positive": 20
-  },
-  "expression_count": 2,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will Middle-East tensions escalate further this quarter?",
-  "plain_summary": "When conflict flares, oil and gold tend to rise, helping oil producers and defence firms.",
-  "short_title": "Will Middle-East tensions escalate further this quarter?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the oil & defence beneficiaries",
-    "summary": "If tensions escalate, oil, gold and defence names tend to rise together \u2014 the bundle captures that."
-   },
-   "no": {
-    "has_trade": false,
-    "verdict": "No clean trade",
-    "summary": "De-escalation doesn't reliably move oil, gold or defence stocks the other way, so there's no clean position to take if tensions cool."
-   }
-  },
-  "best_episode_pct": 45.3,
-  "best_episode_label": "Window 9"
- },
- {
-  "id": "nifty30k",
-  "view_type": "event",
-  "title": "Will Nifty touch 30,000 before year-end?",
-  "thesis": "The whole Indian market would need to climb about a quarter more to reach 30,000.",
-  "category": "Index \u00b7 Price target",
-  "time_horizon": "By year-end",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "nifty30k-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": null,
-   "total_return_pct": 5.74,
-   "excess_return_pct": 0.0,
-   "plain_label": "Own the whole market (index fund)",
-   "nifty_total_pct": 5.74,
-   "n_episodes": 32,
-   "pct_episodes_beat": 0,
-   "worst_drop_pct": -23.5,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 100001.91,
-     "benchmark": 100001.91
-    },
-    {
-     "t": "2",
-     "strategy": 99977.25,
-     "benchmark": 99977.25
-    },
-    {
-     "t": "3",
-     "strategy": 99530.51,
-     "benchmark": 99530.51
-    },
-    {
-     "t": "4",
-     "strategy": 99424.69,
-     "benchmark": 99424.69
-    },
-    {
-     "t": "5",
-     "strategy": 99678.59,
-     "benchmark": 99678.59
-    },
-    {
-     "t": "6",
-     "strategy": 100019.21,
-     "benchmark": 100019.21
-    },
-    {
-     "t": "7",
-     "strategy": 100140.49,
-     "benchmark": 100140.49
-    },
-    {
-     "t": "8",
-     "strategy": 99759.22,
-     "benchmark": 99759.22
-    },
-    {
-     "t": "9",
-     "strategy": 99877.5,
-     "benchmark": 99877.5
-    },
-    {
-     "t": "10",
-     "strategy": 99711.14,
-     "benchmark": 99711.14
-    },
-    {
-     "t": "11",
-     "strategy": 99787.17,
-     "benchmark": 99787.17
-    },
-    {
-     "t": "12",
-     "strategy": 99770.91,
-     "benchmark": 99770.91
-    },
-    {
-     "t": "13",
-     "strategy": 99878.8,
-     "benchmark": 99878.8
-    },
-    {
-     "t": "14",
-     "strategy": 100065.94,
-     "benchmark": 100065.94
-    },
-    {
-     "t": "15",
-     "strategy": 100304.8,
-     "benchmark": 100304.8
-    },
-    {
-     "t": "16",
-     "strategy": 100310.26,
-     "benchmark": 100310.26
-    },
-    {
-     "t": "17",
-     "strategy": 99990.73,
-     "benchmark": 99990.73
-    },
-    {
-     "t": "18",
-     "strategy": 100011.82,
-     "benchmark": 100011.82
-    },
-    {
-     "t": "19",
-     "strategy": 100152.03,
-     "benchmark": 100152.03
-    },
-    {
-     "t": "20",
-     "strategy": 100006.64,
-     "benchmark": 100006.64
-    },
-    {
-     "t": "21",
-     "strategy": 100098.48,
-     "benchmark": 100098.48
-    },
-    {
-     "t": "22",
-     "strategy": 100162.78,
-     "benchmark": 100162.78
-    },
-    {
-     "t": "23",
-     "strategy": 99688.16,
-     "benchmark": 99688.16
-    },
-    {
-     "t": "24",
-     "strategy": 99785.04,
-     "benchmark": 99785.04
-    },
-    {
-     "t": "25",
-     "strategy": 100069.61,
-     "benchmark": 100069.61
-    },
-    {
-     "t": "26",
-     "strategy": 100285.21,
-     "benchmark": 100285.21
-    },
-    {
-     "t": "27",
-     "strategy": 100214.6,
-     "benchmark": 100214.6
-    },
-    {
-     "t": "28",
-     "strategy": 99965.03,
-     "benchmark": 99965.03
-    },
-    {
-     "t": "29",
-     "strategy": 100217.12,
-     "benchmark": 100217.12
-    },
-    {
-     "t": "30",
-     "strategy": 100286.41,
-     "benchmark": 100286.41
-    },
-    {
-     "t": "31",
-     "strategy": 100546.01,
-     "benchmark": 100546.01
-    },
-    {
-     "t": "32",
-     "strategy": 100495.22,
-     "benchmark": 100495.22
-    },
-    {
-     "t": "33",
-     "strategy": 100407.38,
-     "benchmark": 100407.38
-    },
-    {
-     "t": "34",
-     "strategy": 100536.34,
-     "benchmark": 100536.34
-    },
-    {
-     "t": "35",
-     "strategy": 100714.39,
-     "benchmark": 100714.39
-    },
-    {
-     "t": "36",
-     "strategy": 100820.43,
-     "benchmark": 100820.43
-    },
-    {
-     "t": "37",
-     "strategy": 100713.07,
-     "benchmark": 100713.07
-    },
-    {
-     "t": "38",
-     "strategy": 100602.36,
-     "benchmark": 100602.36
-    },
-    {
-     "t": "39",
-     "strategy": 100909.45,
-     "benchmark": 100909.45
-    },
-    {
-     "t": "40",
-     "strategy": 101208.51,
-     "benchmark": 101208.51
-    },
-    {
-     "t": "41",
-     "strategy": 101669.01,
-     "benchmark": 101669.01
-    },
-    {
-     "t": "42",
-     "strategy": 101845.12,
-     "benchmark": 101845.12
-    },
-    {
-     "t": "43",
-     "strategy": 102057.83,
-     "benchmark": 102057.83
-    },
-    {
-     "t": "44",
-     "strategy": 102188.59,
-     "benchmark": 102188.59
-    },
-    {
-     "t": "45",
-     "strategy": 102285.47,
-     "benchmark": 102285.47
-    },
-    {
-     "t": "46",
-     "strategy": 102376.02,
-     "benchmark": 102376.02
-    },
-    {
-     "t": "47",
-     "strategy": 102608.66,
-     "benchmark": 102608.66
-    },
-    {
-     "t": "48",
-     "strategy": 102729.3,
-     "benchmark": 102729.3
-    },
-    {
-     "t": "49",
-     "strategy": 102832.53,
-     "benchmark": 102832.53
-    },
-    {
-     "t": "50",
-     "strategy": 102814.38,
-     "benchmark": 102814.38
-    },
-    {
-     "t": "51",
-     "strategy": 102857.96,
-     "benchmark": 102857.96
-    },
-    {
-     "t": "52",
-     "strategy": 103005.41,
-     "benchmark": 103005.41
-    },
-    {
-     "t": "53",
-     "strategy": 102959.67,
-     "benchmark": 102959.67
-    },
-    {
-     "t": "54",
-     "strategy": 102703.95,
-     "benchmark": 102703.95
-    },
-    {
-     "t": "55",
-     "strategy": 102510.83,
-     "benchmark": 102510.83
-    },
-    {
-     "t": "56",
-     "strategy": 102590.8,
-     "benchmark": 102590.8
-    },
-    {
-     "t": "57",
-     "strategy": 102716.08,
-     "benchmark": 102716.08
-    },
-    {
-     "t": "58",
-     "strategy": 102642.83,
-     "benchmark": 102642.83
-    },
-    {
-     "t": "59",
-     "strategy": 102907.67,
-     "benchmark": 102907.67
-    },
-    {
-     "t": "60",
-     "strategy": 103046.0,
-     "benchmark": 103046.0
-    },
-    {
-     "t": "61",
-     "strategy": 103048.98,
-     "benchmark": 103048.98
-    },
-    {
-     "t": "62",
-     "strategy": 103230.62,
-     "benchmark": 103230.62
-    },
-    {
-     "t": "63",
-     "strategy": 103632.78,
-     "benchmark": 103632.78
-    },
-    {
-     "t": "64",
-     "strategy": 103525.61,
-     "benchmark": 103525.61
-    },
-    {
-     "t": "65",
-     "strategy": 103361.8,
-     "benchmark": 103361.8
-    },
-    {
-     "t": "66",
-     "strategy": 103562.96,
-     "benchmark": 103562.96
-    },
-    {
-     "t": "67",
-     "strategy": 103530.29,
-     "benchmark": 103530.29
-    },
-    {
-     "t": "68",
-     "strategy": 103658.01,
-     "benchmark": 103658.01
-    },
-    {
-     "t": "69",
-     "strategy": 104217.41,
-     "benchmark": 104217.41
-    },
-    {
-     "t": "70",
-     "strategy": 104326.88,
-     "benchmark": 104326.88
-    },
-    {
-     "t": "71",
-     "strategy": 104257.0,
-     "benchmark": 104257.0
-    },
-    {
-     "t": "72",
-     "strategy": 104598.48,
-     "benchmark": 104598.48
-    },
-    {
-     "t": "73",
-     "strategy": 104782.06,
-     "benchmark": 104782.06
-    },
-    {
-     "t": "74",
-     "strategy": 104732.48,
-     "benchmark": 104732.48
-    },
-    {
-     "t": "75",
-     "strategy": 104764.36,
-     "benchmark": 104764.36
-    },
-    {
-     "t": "76",
-     "strategy": 104806.19,
-     "benchmark": 104806.19
-    },
-    {
-     "t": "77",
-     "strategy": 105179.72,
-     "benchmark": 105179.72
-    },
-    {
-     "t": "78",
-     "strategy": 104980.84,
-     "benchmark": 104980.84
-    },
-    {
-     "t": "79",
-     "strategy": 104905.04,
-     "benchmark": 104905.04
-    },
-    {
-     "t": "80",
-     "strategy": 104934.88,
-     "benchmark": 104934.88
-    },
-    {
-     "t": "81",
-     "strategy": 104754.99,
-     "benchmark": 104754.99
-    },
-    {
-     "t": "82",
-     "strategy": 104530.98,
-     "benchmark": 104530.98
-    },
-    {
-     "t": "83",
-     "strategy": 104384.17,
-     "benchmark": 104384.17
-    },
-    {
-     "t": "84",
-     "strategy": 104374.71,
-     "benchmark": 104374.71
-    },
-    {
-     "t": "85",
-     "strategy": 104290.06,
-     "benchmark": 104290.06
-    },
-    {
-     "t": "86",
-     "strategy": 104384.43,
-     "benchmark": 104384.43
-    },
-    {
-     "t": "87",
-     "strategy": 104250.39,
-     "benchmark": 104250.39
-    },
-    {
-     "t": "88",
-     "strategy": 104335.71,
-     "benchmark": 104335.71
-    },
-    {
-     "t": "89",
-     "strategy": 104388.42,
-     "benchmark": 104388.42
-    },
-    {
-     "t": "90",
-     "strategy": 104200.85,
-     "benchmark": 104200.85
-    },
-    {
-     "t": "91",
-     "strategy": 104096.48,
-     "benchmark": 104096.48
-    },
-    {
-     "t": "92",
-     "strategy": 104225.68,
-     "benchmark": 104225.68
-    },
-    {
-     "t": "93",
-     "strategy": 104314.94,
-     "benchmark": 104314.94
-    },
-    {
-     "t": "94",
-     "strategy": 104612.72,
-     "benchmark": 104612.72
-    },
-    {
-     "t": "95",
-     "strategy": 104777.17,
-     "benchmark": 104777.17
-    },
-    {
-     "t": "96",
-     "strategy": 104836.96,
-     "benchmark": 104836.96
-    },
-    {
-     "t": "97",
-     "strategy": 104724.52,
-     "benchmark": 104724.52
-    },
-    {
-     "t": "98",
-     "strategy": 104809.33,
-     "benchmark": 104809.33
-    },
-    {
-     "t": "99",
-     "strategy": 104847.48,
-     "benchmark": 104847.48
-    },
-    {
-     "t": "100",
-     "strategy": 104922.7,
-     "benchmark": 104922.7
-    },
-    {
-     "t": "101",
-     "strategy": 104703.74,
-     "benchmark": 104703.74
-    },
-    {
-     "t": "102",
-     "strategy": 104901.5,
-     "benchmark": 104901.5
-    },
-    {
-     "t": "103",
-     "strategy": 105088.94,
-     "benchmark": 105088.94
-    },
-    {
-     "t": "104",
-     "strategy": 105319.04,
-     "benchmark": 105319.04
-    },
-    {
-     "t": "105",
-     "strategy": 105335.15,
-     "benchmark": 105335.15
-    },
-    {
-     "t": "106",
-     "strategy": 105147.68,
-     "benchmark": 105147.68
-    },
-    {
-     "t": "107",
-     "strategy": 105044.56,
-     "benchmark": 105044.56
-    },
-    {
-     "t": "108",
-     "strategy": 105289.12,
-     "benchmark": 105289.12
-    },
-    {
-     "t": "109",
-     "strategy": 105480.44,
-     "benchmark": 105480.44
-    },
-    {
-     "t": "110",
-     "strategy": 105323.48,
-     "benchmark": 105323.48
-    },
-    {
-     "t": "111",
-     "strategy": 105155.71,
-     "benchmark": 105155.71
-    },
-    {
-     "t": "112",
-     "strategy": 105334.47,
-     "benchmark": 105334.47
-    },
-    {
-     "t": "113",
-     "strategy": 105619.25,
-     "benchmark": 105619.25
-    },
-    {
-     "t": "114",
-     "strategy": 105696.41,
-     "benchmark": 105696.41
-    },
-    {
-     "t": "115",
-     "strategy": 105496.35,
-     "benchmark": 105496.35
-    },
-    {
-     "t": "116",
-     "strategy": 105316.87,
-     "benchmark": 105316.87
-    },
-    {
-     "t": "117",
-     "strategy": 105190.76,
-     "benchmark": 105190.76
-    },
-    {
-     "t": "118",
-     "strategy": 105299.82,
-     "benchmark": 105299.82
-    },
-    {
-     "t": "119",
-     "strategy": 105550.94,
-     "benchmark": 105550.94
-    },
-    {
-     "t": "120",
-     "strategy": 105692.58,
-     "benchmark": 105692.58
-    },
-    {
-     "t": "121",
-     "strategy": 105813.82,
-     "benchmark": 105813.82
-    },
-    {
-     "t": "122",
-     "strategy": 105611.88,
-     "benchmark": 105611.88
-    },
-    {
-     "t": "123",
-     "strategy": 105806.79,
-     "benchmark": 105806.79
-    },
-    {
-     "t": "124",
-     "strategy": 105626.04,
-     "benchmark": 105626.04
-    },
-    {
-     "t": "125",
-     "strategy": 105795.44,
-     "benchmark": 105795.44
-    },
-    {
-     "t": "126",
-     "strategy": 105739.03,
-     "benchmark": 105739.03
-    }
-   ],
-   "pct_positive": 66,
-   "n_positive": 21
-  },
-  "expression_count": 2,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will Nifty touch 30,000 before year-end?",
-  "plain_summary": "The whole Indian market would need to climb about a quarter more to reach 30,000.",
-  "short_title": "Will Nifty touch 30,000 before year-end?",
-  "stance": {
-   "yes": {
-    "verdict": "Position for the run to 30,000",
-    "summary": "If the Nifty makes the roughly quarter-sized climb, owning the index or a defined-risk call spread captures the move."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stay in the index",
-    "summary": "A move this large is rare \u2014 if it doesn't happen, simply holding the index avoids paying for a bet that can expire worthless."
-   }
-  },
-  "best_episode_pct": 35.9,
-  "best_episode_label": "Mar 2020"
- },
- {
-  "id": "gold",
-  "view_type": "event",
-  "title": "Will Gold make a new all-time high this quarter?",
-  "thesis": "When gold keeps hitting new highs, jewellers and gold-loan firms tend to do well.",
-  "category": "Commodity \u00b7 Event",
-  "time_horizon": "Over 3 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "gold-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "promising",
-   "total_return_pct": 6.38,
-   "excess_return_pct": 6.81,
-   "plain_label": "Own a bundle of 4 gold-linked firms",
-   "nifty_total_pct": 1.24,
-   "n_episodes": 20,
-   "pct_episodes_beat": 84,
-   "worst_drop_pct": -20.1,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 99956.27,
-     "benchmark": 100382.09
-    },
-    {
-     "t": "2",
-     "strategy": 99971.69,
-     "benchmark": 100594.18
-    },
-    {
-     "t": "3",
-     "strategy": 100087.34,
-     "benchmark": 100466.18
-    },
-    {
-     "t": "4",
-     "strategy": 100365.03,
-     "benchmark": 100448.02
-    },
-    {
-     "t": "5",
-     "strategy": 101164.03,
-     "benchmark": 100887.2
-    },
-    {
-     "t": "6",
-     "strategy": 101622.25,
-     "benchmark": 100912.58
-    },
-    {
-     "t": "7",
-     "strategy": 102317.37,
-     "benchmark": 100973.57
-    },
-    {
-     "t": "8",
-     "strategy": 102534.47,
-     "benchmark": 100882.31
-    },
-    {
-     "t": "9",
-     "strategy": 102361.86,
-     "benchmark": 100783.62
-    },
-    {
-     "t": "10",
-     "strategy": 101901.8,
-     "benchmark": 100264.72
-    },
-    {
-     "t": "11",
-     "strategy": 101913.72,
-     "benchmark": 100481.92
-    },
-    {
-     "t": "12",
-     "strategy": 102009.89,
-     "benchmark": 100614.98
-    },
-    {
-     "t": "13",
-     "strategy": 102306.39,
-     "benchmark": 100653.14
-    },
-    {
-     "t": "14",
-     "strategy": 101849.26,
-     "benchmark": 100403.54
-    },
-    {
-     "t": "15",
-     "strategy": 101839.8,
-     "benchmark": 100436.69
-    },
-    {
-     "t": "16",
-     "strategy": 101990.7,
-     "benchmark": 100668.62
-    },
-    {
-     "t": "17",
-     "strategy": 102295.01,
-     "benchmark": 100834.26
-    },
-    {
-     "t": "18",
-     "strategy": 102132.05,
-     "benchmark": 100891.87
-    },
-    {
-     "t": "19",
-     "strategy": 102062.03,
-     "benchmark": 101028.95
-    },
-    {
-     "t": "20",
-     "strategy": 102097.12,
-     "benchmark": 101100.45
-    },
-    {
-     "t": "21",
-     "strategy": 101958.91,
-     "benchmark": 100911.81
-    },
-    {
-     "t": "22",
-     "strategy": 102484.35,
-     "benchmark": 101207.09
-    },
-    {
-     "t": "23",
-     "strategy": 102790.03,
-     "benchmark": 101403.06
-    },
-    {
-     "t": "24",
-     "strategy": 103076.21,
-     "benchmark": 101450.35
-    },
-    {
-     "t": "25",
-     "strategy": 103051.13,
-     "benchmark": 101469.25
-    },
-    {
-     "t": "26",
-     "strategy": 103081.34,
-     "benchmark": 101633.1
-    },
-    {
-     "t": "27",
-     "strategy": 103169.16,
-     "benchmark": 101475.82
-    },
-    {
-     "t": "28",
-     "strategy": 103198.43,
-     "benchmark": 101306.36
-    },
-    {
-     "t": "29",
-     "strategy": 103589.41,
-     "benchmark": 101421.98
-    },
-    {
-     "t": "30",
-     "strategy": 103874.16,
-     "benchmark": 101283.09
-    },
-    {
-     "t": "31",
-     "strategy": 104152.13,
-     "benchmark": 101407.1
-    },
-    {
-     "t": "32",
-     "strategy": 103950.72,
-     "benchmark": 101466.11
-    },
-    {
-     "t": "33",
-     "strategy": 103889.14,
-     "benchmark": 101844.01
-    },
-    {
-     "t": "34",
-     "strategy": 103571.63,
-     "benchmark": 101952.29
-    },
-    {
-     "t": "35",
-     "strategy": 103461.26,
-     "benchmark": 101999.3
-    },
-    {
-     "t": "36",
-     "strategy": 103401.33,
-     "benchmark": 101771.96
-    },
-    {
-     "t": "37",
-     "strategy": 103484.3,
-     "benchmark": 101674.42
-    },
-    {
-     "t": "38",
-     "strategy": 103401.84,
-     "benchmark": 101474.66
-    },
-    {
-     "t": "39",
-     "strategy": 103146.25,
-     "benchmark": 101477.42
-    },
-    {
-     "t": "40",
-     "strategy": 103734.51,
-     "benchmark": 101819.19
-    },
-    {
-     "t": "41",
-     "strategy": 103756.15,
-     "benchmark": 101646.14
-    },
-    {
-     "t": "42",
-     "strategy": 103603.41,
-     "benchmark": 101492.0
-    },
-    {
-     "t": "43",
-     "strategy": 104173.77,
-     "benchmark": 101749.89
-    },
-    {
-     "t": "44",
-     "strategy": 104326.51,
-     "benchmark": 101865.26
-    },
-    {
-     "t": "45",
-     "strategy": 104934.25,
-     "benchmark": 101888.04
-    },
-    {
-     "t": "46",
-     "strategy": 104742.18,
-     "benchmark": 101765.25
-    },
-    {
-     "t": "47",
-     "strategy": 104286.75,
-     "benchmark": 101791.81
-    },
-    {
-     "t": "48",
-     "strategy": 104366.42,
-     "benchmark": 101595.91
-    },
-    {
-     "t": "49",
-     "strategy": 104117.15,
-     "benchmark": 101565.09
-    },
-    {
-     "t": "50",
-     "strategy": 104609.65,
-     "benchmark": 101851.67
-    },
-    {
-     "t": "51",
-     "strategy": 104833.35,
-     "benchmark": 102201.56
-    },
-    {
-     "t": "52",
-     "strategy": 104668.61,
-     "benchmark": 102022.89
-    },
-    {
-     "t": "53",
-     "strategy": 104715.14,
-     "benchmark": 101849.4
-    },
-    {
-     "t": "54",
-     "strategy": 104902.33,
-     "benchmark": 102198.06
-    },
-    {
-     "t": "55",
-     "strategy": 105378.7,
-     "benchmark": 102344.6
-    },
-    {
-     "t": "56",
-     "strategy": 105533.07,
-     "benchmark": 102413.52
-    },
-    {
-     "t": "57",
-     "strategy": 105103.38,
-     "benchmark": 102156.62
-    },
-    {
-     "t": "58",
-     "strategy": 105329.76,
-     "benchmark": 102284.8
-    },
-    {
-     "t": "59",
-     "strategy": 105294.43,
-     "benchmark": 102375.97
-    },
-    {
-     "t": "60",
-     "strategy": 105537.38,
-     "benchmark": 102673.08
-    },
-    {
-     "t": "61",
-     "strategy": 105749.61,
-     "benchmark": 102520.26
-    },
-    {
-     "t": "62",
-     "strategy": 105549.66,
-     "benchmark": 102348.16
-    },
-    {
-     "t": "63",
-     "strategy": 105988.01,
-     "benchmark": 102396.07
-    }
-   ],
-   "pct_positive": 75.0,
-   "n_positive": 15
-  },
-  "expression_count": 2,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will Gold make a new all-time high this quarter?",
-  "plain_summary": "When gold keeps hitting new highs, jewellers and gold-loan firms tend to do well.",
-  "short_title": "Will Gold make a new all-time high this quarter?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the gold beneficiaries",
-    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stay in equities",
-    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
-   }
-  },
-  "best_episode_pct": 18.7,
-  "best_episode_label": "Window 9"
- },
- {
-  "id": "fintech",
-  "view_type": "theme",
-  "title": "Will digital-payments / fintech beat the market this year?",
-  "thesis": "India's digital-payment boom (UPI) may lift finance-tech companies above the market.",
-  "category": "Fintech \u00b7 Theme",
-  "time_horizon": "Over 6-12 months",
-  "status": "open",
-  "resolution_date": null,
-  "created_at": "2026-06-29T18:21:39.487863Z",
-  "published_at": "2026-06-29T18:21:39.965318Z",
-  "outcome_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "expression_confidence": {
-   "score": null,
-   "letter": null
-  },
-  "best_expression": {
-   "id": "fintech-conservative",
-   "tier": "conservative",
-   "expression_kind": "basket",
-   "grade": null,
-   "trust_verdict": "insufficient_data",
-   "total_return_pct": 30.21,
-   "excess_return_pct": 10.76,
-   "plain_label": "Own a bundle of 8 finance-tech firms",
-   "nifty_total_pct": 6.22,
-   "n_episodes": 4,
-   "pct_episodes_beat": 61,
-   "worst_drop_pct": -30.0,
-   "equity_curve": [
-    {
-     "t": "0",
-     "strategy": 100000.0,
-     "benchmark": 100000.0
-    },
-    {
-     "t": "1",
-     "strategy": 100204.75,
-     "benchmark": 99775.57
-    },
-    {
-     "t": "2",
-     "strategy": 99665.72,
-     "benchmark": 99600.25
-    },
-    {
-     "t": "3",
-     "strategy": 99125.46,
-     "benchmark": 99489.26
-    },
-    {
-     "t": "4",
-     "strategy": 99762.73,
-     "benchmark": 99610.27
-    },
-    {
-     "t": "5",
-     "strategy": 101512.49,
-     "benchmark": 99760.52
-    },
-    {
-     "t": "6",
-     "strategy": 102009.94,
-     "benchmark": 100098.97
-    },
-    {
-     "t": "7",
-     "strategy": 101800.42,
-     "benchmark": 100187.37
-    },
-    {
-     "t": "8",
-     "strategy": 102199.75,
-     "benchmark": 100906.84
-    },
-    {
-     "t": "9",
-     "strategy": 102554.43,
-     "benchmark": 100933.22
-    },
-    {
-     "t": "10",
-     "strategy": 102630.13,
-     "benchmark": 100694.25
-    },
-    {
-     "t": "11",
-     "strategy": 103227.11,
-     "benchmark": 100743.22
-    },
-    {
-     "t": "12",
-     "strategy": 103122.31,
-     "benchmark": 100678.69
-    },
-    {
-     "t": "13",
-     "strategy": 102537.43,
-     "benchmark": 100684.47
-    },
-    {
-     "t": "14",
-     "strategy": 101935.29,
-     "benchmark": 100967.9
-    },
-    {
-     "t": "15",
-     "strategy": 100897.82,
-     "benchmark": 101326.13
-    },
-    {
-     "t": "16",
-     "strategy": 100769.4,
-     "benchmark": 101698.41
-    },
-    {
-     "t": "17",
-     "strategy": 101540.08,
-     "benchmark": 102085.29
-    },
-    {
-     "t": "18",
-     "strategy": 101786.1,
-     "benchmark": 101963.33
-    },
-    {
-     "t": "19",
-     "strategy": 101407.18,
-     "benchmark": 101724.82
-    },
-    {
-     "t": "20",
-     "strategy": 101471.9,
-     "benchmark": 101416.12
-    },
-    {
-     "t": "21",
-     "strategy": 100801.96,
-     "benchmark": 101108.06
-    },
-    {
-     "t": "22",
-     "strategy": 100372.07,
-     "benchmark": 101499.45
-    },
-    {
-     "t": "23",
-     "strategy": 101174.61,
-     "benchmark": 101809.76
-    },
-    {
-     "t": "24",
-     "strategy": 101998.11,
-     "benchmark": 101589.36
-    },
-    {
-     "t": "25",
-     "strategy": 101205.23,
-     "benchmark": 101396.24
-    },
-    {
-     "t": "26",
-     "strategy": 100709.95,
-     "benchmark": 101959.9
-    },
-    {
-     "t": "27",
-     "strategy": 100947.11,
-     "benchmark": 101893.69
-    },
-    {
-     "t": "28",
-     "strategy": 100000.34,
-     "benchmark": 102262.31
-    },
-    {
-     "t": "29",
-     "strategy": 100821.31,
-     "benchmark": 102671.72
-    },
-    {
-     "t": "30",
-     "strategy": 100979.88,
-     "benchmark": 102460.56
-    },
-    {
-     "t": "31",
-     "strategy": 100219.64,
-     "benchmark": 102160.51
-    },
-    {
-     "t": "32",
-     "strategy": 100411.07,
-     "benchmark": 102715.44
-    },
-    {
-     "t": "33",
-     "strategy": 101035.74,
-     "benchmark": 102646.08
-    },
-    {
-     "t": "34",
-     "strategy": 100674.0,
-     "benchmark": 102419.54
-    },
-    {
-     "t": "35",
-     "strategy": 100604.13,
-     "benchmark": 102068.68
-    },
-    {
-     "t": "36",
-     "strategy": 100511.55,
-     "benchmark": 102031.33
-    },
-    {
-     "t": "37",
-     "strategy": 100262.54,
-     "benchmark": 101873.23
-    },
-    {
-     "t": "38",
-     "strategy": 100596.22,
-     "benchmark": 101835.02
-    },
-    {
-     "t": "39",
-     "strategy": 100462.03,
-     "benchmark": 101482.7
-    },
-    {
-     "t": "40",
-     "strategy": 100330.55,
-     "benchmark": 101677.11
-    },
-    {
-     "t": "41",
-     "strategy": 101199.24,
-     "benchmark": 101812.64
-    },
-    {
-     "t": "42",
-     "strategy": 101228.18,
-     "benchmark": 102152.94
-    },
-    {
-     "t": "43",
-     "strategy": 101816.6,
-     "benchmark": 102310.41
-    },
-    {
-     "t": "44",
-     "strategy": 101628.58,
-     "benchmark": 102574.39
-    },
-    {
-     "t": "45",
-     "strategy": 102304.83,
-     "benchmark": 102257.06
-    },
-    {
-     "t": "46",
-     "strategy": 102061.94,
-     "benchmark": 101837.32
-    },
-    {
-     "t": "47",
-     "strategy": 100672.62,
-     "benchmark": 101775.92
-    },
-    {
-     "t": "48",
-     "strategy": 100088.12,
-     "benchmark": 101480.01
-    },
-    {
-     "t": "49",
-     "strategy": 99378.27,
-     "benchmark": 100869.03
-    },
-    {
-     "t": "50",
-     "strategy": 99038.16,
-     "benchmark": 100797.34
-    },
-    {
-     "t": "51",
-     "strategy": 99954.66,
-     "benchmark": 101469.36
-    },
-    {
-     "t": "52",
-     "strategy": 98201.43,
-     "benchmark": 100164.47
-    },
-    {
-     "t": "53",
-     "strategy": 99600.31,
-     "benchmark": 101278.3
-    },
-    {
-     "t": "54",
-     "strategy": 100463.43,
-     "benchmark": 101499.39
-    },
-    {
-     "t": "55",
-     "strategy": 100792.02,
-     "benchmark": 101965.2
-    },
-    {
-     "t": "56",
-     "strategy": 100839.87,
-     "benchmark": 101852.4
-    },
-    {
-     "t": "57",
-     "strategy": 100940.64,
-     "benchmark": 101794.72
-    },
-    {
-     "t": "58",
-     "strategy": 101793.94,
-     "benchmark": 101653.98
-    },
-    {
-     "t": "59",
-     "strategy": 102460.44,
-     "benchmark": 102251.96
-    },
-    {
-     "t": "60",
-     "strategy": 102734.42,
-     "benchmark": 103003.27
-    },
-    {
-     "t": "61",
-     "strategy": 105051.28,
-     "benchmark": 103251.73
-    },
-    {
-     "t": "62",
-     "strategy": 105299.4,
-     "benchmark": 103517.96
-    },
-    {
-     "t": "63",
-     "strategy": 105484.51,
-     "benchmark": 103800.9
-    },
-    {
-     "t": "64",
-     "strategy": 106669.96,
-     "benchmark": 104077.56
-    },
-    {
-     "t": "65",
-     "strategy": 107142.58,
-     "benchmark": 104363.38
-    },
-    {
-     "t": "66",
-     "strategy": 106337.54,
-     "benchmark": 104563.87
-    },
-    {
-     "t": "67",
-     "strategy": 107181.96,
-     "benchmark": 104961.71
-    },
-    {
-     "t": "68",
-     "strategy": 106984.43,
-     "benchmark": 105309.09
-    },
-    {
-     "t": "69",
-     "strategy": 107654.01,
-     "benchmark": 104937.66
-    },
-    {
-     "t": "70",
-     "strategy": 108424.93,
-     "benchmark": 105111.91
-    },
-    {
-     "t": "71",
-     "strategy": 108163.64,
-     "benchmark": 104655.32
-    },
-    {
-     "t": "72",
-     "strategy": 106795.78,
-     "benchmark": 103995.89
-    },
-    {
-     "t": "73",
-     "strategy": 105079.65,
-     "benchmark": 102941.76
-    },
-    {
-     "t": "74",
-     "strategy": 104973.51,
-     "benchmark": 103470.02
-    },
-    {
-     "t": "75",
-     "strategy": 105407.2,
-     "benchmark": 103250.38
-    },
-    {
-     "t": "76",
-     "strategy": 107313.2,
-     "benchmark": 103835.53
-    },
-    {
-     "t": "77",
-     "strategy": 107944.19,
-     "benchmark": 103983.92
-    },
-    {
-     "t": "78",
-     "strategy": 109197.03,
-     "benchmark": 104272.11
-    },
-    {
-     "t": "79",
-     "strategy": 109288.62,
-     "benchmark": 104666.0
-    },
-    {
-     "t": "80",
-     "strategy": 108862.76,
-     "benchmark": 104575.25
-    },
-    {
-     "t": "81",
-     "strategy": 108807.32,
-     "benchmark": 104721.41
-    },
-    {
-     "t": "82",
-     "strategy": 109248.85,
-     "benchmark": 105381.5
-    },
-    {
-     "t": "83",
-     "strategy": 107354.63,
-     "benchmark": 104559.53
-    },
-    {
-     "t": "84",
-     "strategy": 106961.66,
-     "benchmark": 104679.92
-    },
-    {
-     "t": "85",
-     "strategy": 107967.26,
-     "benchmark": 105282.26
-    },
-    {
-     "t": "86",
-     "strategy": 108773.22,
-     "benchmark": 105268.86
-    },
-    {
-     "t": "87",
-     "strategy": 108443.65,
-     "benchmark": 105103.01
-    },
-    {
-     "t": "88",
-     "strategy": 108390.26,
-     "benchmark": 105342.63
-    },
-    {
-     "t": "89",
-     "strategy": 110117.97,
-     "benchmark": 106210.04
-    },
-    {
-     "t": "90",
-     "strategy": 109688.86,
-     "benchmark": 106007.52
-    },
-    {
-     "t": "91",
-     "strategy": 110711.81,
-     "benchmark": 105955.19
-    },
-    {
-     "t": "92",
-     "strategy": 109524.04,
-     "benchmark": 105814.33
-    },
-    {
-     "t": "93",
-     "strategy": 109077.6,
-     "benchmark": 105024.82
-    },
-    {
-     "t": "94",
-     "strategy": 108496.87,
-     "benchmark": 105102.59
-    },
-    {
-     "t": "95",
-     "strategy": 107720.82,
-     "benchmark": 104327.59
-    },
-    {
-     "t": "96",
-     "strategy": 109694.6,
-     "benchmark": 104874.27
-    },
-    {
-     "t": "97",
-     "strategy": 110128.49,
-     "benchmark": 104879.69
-    },
-    {
-     "t": "98",
-     "strategy": 112353.37,
-     "benchmark": 105246.56
-    },
-    {
-     "t": "99",
-     "strategy": 111346.02,
-     "benchmark": 105065.82
-    },
-    {
-     "t": "100",
-     "strategy": 111026.93,
-     "benchmark": 104840.87
-    },
-    {
-     "t": "101",
-     "strategy": 111717.3,
-     "benchmark": 104749.97
-    },
-    {
-     "t": "102",
-     "strategy": 113560.99,
-     "benchmark": 105342.28
-    },
-    {
-     "t": "103",
-     "strategy": 114703.2,
-     "benchmark": 105770.52
-    },
-    {
-     "t": "104",
-     "strategy": 114342.52,
-     "benchmark": 105831.52
-    },
-    {
-     "t": "105",
-     "strategy": 114821.08,
-     "benchmark": 105719.69
-    },
-    {
-     "t": "106",
-     "strategy": 114498.69,
-     "benchmark": 105742.48
-    },
-    {
-     "t": "107",
-     "strategy": 115733.51,
-     "benchmark": 105548.88
-    },
-    {
-     "t": "108",
-     "strategy": 116913.38,
-     "benchmark": 105671.49
-    },
-    {
-     "t": "109",
-     "strategy": 117543.8,
-     "benchmark": 105379.5
-    },
-    {
-     "t": "110",
-     "strategy": 117601.69,
-     "benchmark": 105473.98
-    },
-    {
-     "t": "111",
-     "strategy": 117661.04,
-     "benchmark": 105303.32
-    },
-    {
-     "t": "112",
-     "strategy": 118474.38,
-     "benchmark": 105235.11
-    },
-    {
-     "t": "113",
-     "strategy": 118877.69,
-     "benchmark": 105821.86
-    },
-    {
-     "t": "114",
-     "strategy": 119226.44,
-     "benchmark": 105522.24
-    },
-    {
-     "t": "115",
-     "strategy": 119594.96,
-     "benchmark": 105194.77
-    },
-    {
-     "t": "116",
-     "strategy": 119312.07,
-     "benchmark": 104814.15
-    },
-    {
-     "t": "117",
-     "strategy": 118407.78,
-     "benchmark": 104749.78
-    },
-    {
-     "t": "118",
-     "strategy": 118269.52,
-     "benchmark": 104886.13
-    },
-    {
-     "t": "119",
-     "strategy": 119938.85,
-     "benchmark": 105622.85
-    },
-    {
-     "t": "120",
-     "strategy": 119514.4,
-     "benchmark": 105173.82
-    },
-    {
-     "t": "121",
-     "strategy": 119113.88,
-     "benchmark": 105998.94
-    },
-    {
-     "t": "122",
-     "strategy": 118250.7,
-     "benchmark": 105452.77
-    },
-    {
-     "t": "123",
-     "strategy": 119710.22,
-     "benchmark": 106171.61
-    },
-    {
-     "t": "124",
-     "strategy": 120014.36,
-     "benchmark": 106546.7
-    },
-    {
-     "t": "125",
-     "strategy": 120851.9,
-     "benchmark": 106128.62
-    },
-    {
-     "t": "126",
-     "strategy": 119882.89,
-     "benchmark": 105775.42
-    },
-    {
-     "t": "127",
-     "strategy": 121239.75,
-     "benchmark": 106895.35
-    },
-    {
-     "t": "128",
-     "strategy": 122324.07,
-     "benchmark": 107534.19
-    },
-    {
-     "t": "129",
-     "strategy": 122027.74,
-     "benchmark": 108029.84
-    },
-    {
-     "t": "130",
-     "strategy": 121461.69,
-     "benchmark": 108232.1
-    },
-    {
-     "t": "131",
-     "strategy": 122098.37,
-     "benchmark": 109295.54
-    },
-    {
-     "t": "132",
-     "strategy": 120695.77,
-     "benchmark": 108574.5
-    },
-    {
-     "t": "133",
-     "strategy": 121024.14,
-     "benchmark": 108633.61
-    },
-    {
-     "t": "134",
-     "strategy": 122167.45,
-     "benchmark": 108537.29
-    },
-    {
-     "t": "135",
-     "strategy": 121881.13,
-     "benchmark": 108496.03
-    },
-    {
-     "t": "136",
-     "strategy": 121555.64,
-     "benchmark": 108432.83
-    },
-    {
-     "t": "137",
-     "strategy": 121051.22,
-     "benchmark": 108380.43
-    },
-    {
-     "t": "138",
-     "strategy": 122496.1,
-     "benchmark": 108355.96
-    },
-    {
-     "t": "139",
-     "strategy": 124034.92,
-     "benchmark": 108474.5
-    },
-    {
-     "t": "140",
-     "strategy": 124227.52,
-     "benchmark": 108313.28
-    },
-    {
-     "t": "141",
-     "strategy": 124503.63,
-     "benchmark": 107888.15
-    },
-    {
-     "t": "142",
-     "strategy": 125004.73,
-     "benchmark": 107881.34
-    },
-    {
-     "t": "143",
-     "strategy": 125562.95,
-     "benchmark": 107914.37
-    },
-    {
-     "t": "144",
-     "strategy": 125779.57,
-     "benchmark": 107584.71
-    },
-    {
-     "t": "145",
-     "strategy": 125468.68,
-     "benchmark": 107527.41
-    },
-    {
-     "t": "146",
-     "strategy": 124856.37,
-     "benchmark": 107732.94
-    },
-    {
-     "t": "147",
-     "strategy": 123899.32,
-     "benchmark": 107521.58
-    },
-    {
-     "t": "148",
-     "strategy": 121939.44,
-     "benchmark": 107387.51
-    },
-    {
-     "t": "149",
-     "strategy": 123449.01,
-     "benchmark": 107366.65
-    },
-    {
-     "t": "150",
-     "strategy": 124554.7,
-     "benchmark": 107684.56
-    },
-    {
-     "t": "151",
-     "strategy": 123936.81,
-     "benchmark": 106851.89
-    },
-    {
-     "t": "152",
-     "strategy": 123337.18,
-     "benchmark": 106641.42
-    },
-    {
-     "t": "153",
-     "strategy": 124642.8,
-     "benchmark": 106425.79
-    },
-    {
-     "t": "154",
-     "strategy": 122992.2,
-     "benchmark": 105500.44
-    },
-    {
-     "t": "155",
-     "strategy": 124167.95,
-     "benchmark": 105591.51
-    },
-    {
-     "t": "156",
-     "strategy": 123966.82,
-     "benchmark": 105763.8
-    },
-    {
-     "t": "157",
-     "strategy": 124137.38,
-     "benchmark": 105908.78
-    },
-    {
-     "t": "158",
-     "strategy": 124298.34,
-     "benchmark": 105625.34
-    },
-    {
-     "t": "159",
-     "strategy": 128118.12,
-     "benchmark": 106407.27
-    },
-    {
-     "t": "160",
-     "strategy": 127587.98,
-     "benchmark": 105985.4
-    },
-    {
-     "t": "161",
-     "strategy": 127099.64,
-     "benchmark": 106272.98
-    },
-    {
-     "t": "162",
-     "strategy": 125676.13,
-     "benchmark": 106232.16
-    },
-    {
-     "t": "163",
-     "strategy": 125327.05,
-     "benchmark": 106724.71
-    },
-    {
-     "t": "164",
-     "strategy": 124547.85,
-     "benchmark": 106352.17
-    },
-    {
-     "t": "165",
-     "strategy": 125741.49,
-     "benchmark": 106104.82
-    },
-    {
-     "t": "166",
-     "strategy": 124609.83,
-     "benchmark": 106137.54
-    },
-    {
-     "t": "167",
-     "strategy": 124692.14,
-     "benchmark": 105402.24
-    },
-    {
-     "t": "168",
-     "strategy": 123802.65,
-     "benchmark": 105321.29
-    },
-    {
-     "t": "169",
-     "strategy": 123765.09,
-     "benchmark": 105910.03
-    },
-    {
-     "t": "170",
-     "strategy": 124037.14,
-     "benchmark": 106058.5
-    },
-    {
-     "t": "171",
-     "strategy": 124622.16,
-     "benchmark": 106134.35
-    },
-    {
-     "t": "172",
-     "strategy": 126017.55,
-     "benchmark": 106494.85
-    },
-    {
-     "t": "173",
-     "strategy": 125907.46,
-     "benchmark": 105896.52
-    },
-    {
-     "t": "174",
-     "strategy": 126611.36,
-     "benchmark": 106213.44
-    },
-    {
-     "t": "175",
-     "strategy": 128310.97,
-     "benchmark": 106588.25
-    },
-    {
-     "t": "176",
-     "strategy": 129290.01,
-     "benchmark": 106740.18
-    },
-    {
-     "t": "177",
-     "strategy": 131285.99,
-     "benchmark": 107124.52
-    },
-    {
-     "t": "178",
-     "strategy": 133650.73,
-     "benchmark": 107830.52
-    },
-    {
-     "t": "179",
-     "strategy": 133878.96,
-     "benchmark": 107710.04
-    },
-    {
-     "t": "180",
-     "strategy": 134821.68,
-     "benchmark": 107816.8
-    },
-    {
-     "t": "181",
-     "strategy": 134586.5,
-     "benchmark": 108481.34
-    },
-    {
-     "t": "182",
-     "strategy": 134622.93,
-     "benchmark": 108404.84
-    },
-    {
-     "t": "183",
-     "strategy": 134201.88,
-     "benchmark": 108503.27
-    },
-    {
-     "t": "184",
-     "strategy": 133306.22,
-     "benchmark": 108727.58
-    },
-    {
-     "t": "185",
-     "strategy": 134241.64,
-     "benchmark": 108936.84
-    },
-    {
-     "t": "186",
-     "strategy": 133731.36,
-     "benchmark": 108277.86
-    },
-    {
-     "t": "187",
-     "strategy": 132964.83,
-     "benchmark": 107994.97
-    },
-    {
-     "t": "188",
-     "strategy": 130494.58,
-     "benchmark": 107118.2
-    },
-    {
-     "t": "189",
-     "strategy": 129733.63,
-     "benchmark": 106769.85
-    }
-   ],
-   "pct_positive": 50.0,
-   "n_positive": 2
-  },
-  "expression_count": 2,
-  "transmission_count": 2,
-  "follower_count": 0,
-  "is_following": false,
-  "is_developing": false,
-  "plain_one_liner": "Will digital-payments / fintech beat the market this year?",
-  "plain_summary": "India's digital-payment boom (UPI) may lift finance-tech companies above the market.",
-  "short_title": "Will digital-payments / fintech beat the market this year?",
-  "stance": {
-   "yes": {
-    "verdict": "Own the fintech bundle",
-    "summary": "If India's digital-payments boom keeps compounding, the listed fintech and market-infrastructure names benefit."
-   },
-   "no": {
-    "has_trade": true,
-    "verdict": "Stay in the index",
-    "summary": "These names are young and volatile with an inconsistent edge \u2014 the index is the steadier bet until the pattern proves out."
-   }
-  },
-  "best_episode_pct": 95.9,
-  "best_episode_label": "Window 2"
- }
+  {
+    "id": "nuclear",
+    "view_type": "theme",
+    "title": "Will nuclear power supply a tenth of India's electricity?",
+    "thesis": "The basket behind this one — reactor builders, heavy engineering and grid — is still being built.",
+    "category": "Nuclear · Theme",
+    "time_horizon": "Over 1 year",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": null,
+    "expression_count": 0,
+    "transmission_count": 0,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": true,
+    "plain_one_liner": "Will nuclear power supply a tenth of India's electricity?",
+    "plain_summary": "The basket behind this one — reactor builders, heavy engineering and grid — is still being built.",
+    "short_title": "Will nuclear power supply a tenth of India's electricity?",
+    "stance": null,
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": true,
+    "forward_expected_net_pct": null,
+    "forward_band_pct": null
+  }
 ]
