@@ -230,7 +230,6 @@ def seed_demo_data(db: Session, user_id: int) -> dict[str, int]:
 
 
 def _seed_workflows(db: Session, user_id: int) -> int:
-    now = now_ist()
     count = 0
     for recipe in _DEMO_WORKFLOWS:
         wf = Workflow(
@@ -238,8 +237,11 @@ def _seed_workflows(db: Session, user_id: int) -> int:
             user_id=user_id,
             name=recipe["name"],
             description=recipe["description"],
-            status=WorkflowStatus.active,
-            activated_at=now,
+            # Seeded starter agents land as drafts, never live. A brand-new
+            # account must not have agents running against the market before
+            # the user has looked at them, let alone activated them.
+            status=WorkflowStatus.draft,
+            activated_at=None,
             single_instance=True,
             version=1,
         )
