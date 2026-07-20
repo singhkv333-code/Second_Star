@@ -25,20 +25,17 @@ import { ViewDetailPage } from "./ViewDetailPage";
 import { categoryLead } from "./view-format";
 import packSummariesRaw from "./pack/viewpack01.summaries.json";
 import packDetailsRaw from "./pack/viewpack01.details.json";
-import pack2SummariesRaw from "./pack/viewpack02.summaries.json";
-import pack2DetailsRaw from "./pack/viewpack02.details.json";
 
-// View Pack 01 — 8 curated views shipped as static data (summaries for the grid,
-// details for the detail page via detailOverride). This tab renders the pack
-// directly, with no /api/views round-trip.
-const PACK_SUMMARIES = [
-  ...(packSummariesRaw as unknown as ViewSummary[]),
-  ...(pack2SummariesRaw as unknown as ViewSummary[]),
-];
-const PACK_DETAILS = {
-  ...(packDetailsRaw as unknown as Record<string, ViewDetail>),
-  ...(pack2DetailsRaw as unknown as Record<string, ViewDetail>),
-};
+// View Pack 01 — the curated opinions shipped as static data (summaries for the
+// grid, details for the detail page via detailOverride). This tab renders the
+// pack directly, with no /api/views round-trip. Summaries flagged `coming_soon`
+// have no details entry: they render as inert teaser cards.
+//
+// Pack 02 is deliberately NOT merged in here — the tab shows this curated set
+// only. Its files stay on disk (and still feed /view-pack) so restoring it is
+// a two-line change.
+const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
+const PACK_DETAILS = packDetailsRaw as unknown as Record<string, ViewDetail>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,6 +104,9 @@ export function ViewsTab({
 
   const openView = React.useCallback(
     (id: string, intent?: StanceIntent): void => {
+      // Coming-soon teasers have no detail record; ViewCard already renders
+      // them inert, this is the belt-and-braces guard against a blank page.
+      if (!PACK_DETAILS[id]) return;
       setSelectedStance(intent ?? null);
       setSelectedViewId(id);
     },
@@ -164,7 +164,7 @@ export function ViewsTab({
             color: "var(--text-primary)",
           }}
         >
-          Opinion Markets
+          Opinions
         </h1>
         <ShareButton ariaLabel="Share opinions" />
       </div>
