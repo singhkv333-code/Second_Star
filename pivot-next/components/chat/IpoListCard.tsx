@@ -13,7 +13,7 @@
  *  - populated: open → upcoming, closed filtered out.
  */
 
-import { BellRing, CalendarX, WifiOff } from "lucide-react";
+import { CalendarX, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { IpoListPayload, IpoListItem } from "@/lib/types";
 
@@ -23,10 +23,6 @@ import type { IpoListPayload, IpoListItem } from "@/lib/types";
 
 export type IpoListCardProps = {
   payload: IpoListPayload;
-  /** Triggers a new chat turn: "apply for the X IPO". */
-  onSelectIpo: (symbol: string) => void;
-  /** Triggers a new chat turn: "set up open-day reminders for the X IPO". */
-  onRemindIpo: (symbol: string) => void;
   /** Opens the read-only details sidebar for the X IPO ("Know more"). */
   onKnowMore?: (symbol: string) => void;
 };
@@ -79,14 +75,10 @@ function typeLabel(type: IpoListItem["type"]): string {
 
 function IpoRow({
   ipo,
-  onSelectIpo,
-  onRemindIpo,
   onKnowMore,
   index,
 }: {
   ipo: IpoListItem;
-  onSelectIpo: (symbol: string) => void;
-  onRemindIpo: (symbol: string) => void;
   onKnowMore?: (symbol: string) => void;
   index: number;
 }): React.ReactElement {
@@ -97,9 +89,8 @@ function IpoRow({
       ? `${openLabel} – ${closeLabel}`
       : openLabel ?? closeLabel ?? null;
 
-  // Trendlyne-only IPOs carry no NSE symbol → can't register/automate. Route
-  // chat actions by name so "Know more" still works; disable Apply/Remind.
-  const registerable = ipo.registerable !== false && !!ipo.symbol;
+  // Route "Know more" by symbol when present, else by name (Trendlyne-only
+  // IPOs carry no NSE symbol).
   const actionRef = ipo.symbol || ipo.name;
   const subTotal = ipo.subscription?.total;
 
@@ -176,22 +167,9 @@ function IpoRow({
           </div>
         )}
 
-      {/* Actions */}
+      {/* Actions — INFO/ANALYSIS ONLY (2026-07-19): Apply and Remind
+          removed; IPO applications happen in the user's broker app. */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onSelectIpo(actionRef)}
-          disabled={!registerable}
-          aria-label={`Apply for ${ipo.name} IPO`}
-          title={registerable ? undefined : "Not on the NSE feed yet — registration unavailable"}
-          className={cn(
-            "inline-flex h-7 items-center rounded-full bg-primary px-3 text-[11.5px] font-medium text-primary-foreground",
-            "transition-all hover:bg-primary/90 active:scale-[0.97]",
-            !registerable && "cursor-not-allowed opacity-40 hover:bg-primary",
-          )}
-        >
-          Apply
-        </button>
         {onKnowMore && (
           <button
             type="button"
@@ -205,21 +183,6 @@ function IpoRow({
             Know more
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => onRemindIpo(actionRef)}
-          disabled={!registerable}
-          aria-label={`Set up reminders for ${ipo.name} IPO`}
-          title={registerable ? undefined : "Not on the NSE feed yet — automation unavailable"}
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-full border border-border/60 px-2.5 text-[11px] font-medium text-foreground/75",
-            "transition-colors hover:bg-muted hover:text-foreground",
-            !registerable && "cursor-not-allowed opacity-40",
-          )}
-        >
-          <BellRing className="h-3 w-3 shrink-0" aria-hidden="true" />
-          Remind
-        </button>
       </div>
     </div>
   );
@@ -238,8 +201,6 @@ function sourceLabel(source: string): string | null {
 
 export function IpoListCard({
   payload,
-  onSelectIpo,
-  onRemindIpo,
   onKnowMore,
 }: IpoListCardProps): React.ReactElement {
   const isUnreachable = payload.source === "unreachable";
@@ -319,8 +280,6 @@ export function IpoListCard({
                 key={ipo.symbol || ipo.name || idx}
                 ipo={ipo}
                 index={idx}
-                onSelectIpo={onSelectIpo}
-                onRemindIpo={onRemindIpo}
                 onKnowMore={onKnowMore}
               />
             ))}

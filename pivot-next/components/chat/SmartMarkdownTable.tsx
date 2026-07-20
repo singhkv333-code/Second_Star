@@ -70,7 +70,11 @@ function extractTable(node: HastNode): { header: string[]; rows: string[][] } {
 
 // ── Column semantics ─────────────────────────────────────────────────────
 
-const NAME_HEADER_RE = /^(name|company|companies|stock|scrip)s?$/i;
+// A company/name column, by header word. Kept broad because the model
+// labels this column many ways ("Holding", "Instrument", "Constituent"…);
+// whatever it misses, the CONTENT-based fallback in `plan` still catches.
+const NAME_HEADER_RE =
+  /^(names?|company|companies|stocks?|scrips?|holdings?|instruments?|securit(y|ies)|assets?|constituents?|positions?|funds?|etfs?)$/i;
 const TICKER_HEADER_RE = /^(symbol|ticker)s?$/i;
 const RANK_HEADER_RE = /^(rank|#|sr\.?(\s*no\.?)?)$/i;
 const TICKER_RE = /^[A-Z0-9&.\-]{2,20}$/;
@@ -130,6 +134,30 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     const tickerCol = header.findIndex((h) => TICKER_HEADER_RE.test(h.trim()));
     // A ticker-only table: the symbol column IS the display column.
     if (nameCol === -1) nameCol = tickerCol;
+    // CONTENT-based fallback — the uniform funnel. When no header matched but
+    // a text column's cells are shaped "Name (TICKER)" (the ticker-in-parens
+    // form the model emits), that column IS the company column regardless of
+    // its header word. Picks the highest-signal such column; the paren form
+    // is unambiguous (sectors/metrics never carry a trailing "(TICKER)"), so
+    // this never misfires on a Sector/Weight column.
+    if (nameCol === -1) {
+      let best = -1;
+      let bestScore = 0.5; // require a majority to claim the column
+      header.forEach((_, i) => {
+        if (numeric[i]) return;
+        const cells = rows
+          .map((r) => (r[i] ?? "").trim())
+          .filter((v) => !isBlank(v));
+        if (cells.length === 0) return;
+        const score =
+          cells.filter((v) => PAREN_TICKER_RE.test(v)).length / cells.length;
+        if (score >= bestScore) {
+          best = i;
+          bestScore = score;
+        }
+      });
+      if (best !== -1) nameCol = best;
+    }
     const hidden = new Set<number>();
     header.forEach((_, i) => {
       // Drop columns with no data at all (the empty "Flag" column class).

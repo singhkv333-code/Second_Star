@@ -2837,58 +2837,87 @@ function TradeHistory(): React.ReactElement {
   const mode = useTradingMode();
   const [rows, setRows] = useState<TradeRow[] | null>(null);
   const [errored, setErrored] = useState(false);
+  // Lazy pagination: pages of PAGE fills, appended as the sentinel at the
+  // bottom of the table scrolls into view. hasMore stays true while the
+  // last page came back full.
+  const PAGE = 20;
+  const [hasMore, setHasMore] = useState(true);
+  const loadingRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const logos = useCompanyLogos((rows ?? []).map((t) => t.symbol));
+
+  const fetchPage = async (offset: number): Promise<TradeRow[] | null> => {
+    if (mode === "paper") {
+      const r = await getPaperFills(PAGE, offset);
+      if (isError(r)) return null;
+      return r.data.map((f) => ({
+        id: f.id,
+        symbol: f.symbol,
+        side: (f.side.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+        quantity: f.quantity,
+        price: f.fill_price,
+        amount: Math.abs(f.gross_value),
+        datetime: f.filled_at ?? "",
+        agent: "Paper",
+      }));
+    }
+    const r = await getOrderHistory(PAGE, offset);
+    if (isError(r)) return null;
+    return r.data.map((o) => ({
+      id: String(o.id),
+      symbol: o.symbol,
+      side: (o.action.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+      quantity: o.quantity,
+      price: 0,
+      amount: 0,
+      datetime: o.placed_at,
+      agent: o.status,
+    }));
+  };
 
   useEffect(() => {
     let alive = true;
     setRows(null);
     setErrored(false);
-    const load = async (): Promise<void> => {
-      if (mode === "paper") {
-        const r = await getPaperFills(20);
-        if (!alive) return;
-        if (isError(r)) {
-          setErrored(true);
-          return;
-        }
-        setRows(
-          r.data.map((f) => ({
-            id: f.id,
-            symbol: f.symbol,
-            side: (f.side.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
-            quantity: f.quantity,
-            price: f.fill_price,
-            amount: Math.abs(f.gross_value),
-            datetime: f.filled_at ?? "",
-            agent: "Paper",
-          })),
-        );
-        return;
-      }
-      const r = await getOrderHistory(20);
+    setHasMore(true);
+    void fetchPage(0).then((page) => {
       if (!alive) return;
-      if (isError(r)) {
+      if (page === null) {
         setErrored(true);
         return;
       }
-      setRows(
-        r.data.map((o) => ({
-          id: String(o.id),
-          symbol: o.symbol,
-          side: (o.action.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
-          quantity: o.quantity,
-          price: 0,
-          amount: 0,
-          datetime: o.placed_at,
-          agent: o.status,
-        })),
-      );
-    };
-    void load();
+      setRows(page);
+      setHasMore(page.length === PAGE);
+    });
     return () => {
       alive = false;
     };
+    // fetchPage closes over `mode`; re-running on mode is exactly the reset we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  // Auto-load the next page when the sentinel enters the viewport.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || rows === null) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      if (loadingRef.current) return;
+      loadingRef.current = true;
+      void fetchPage(rows.length).then((page) => {
+        loadingRef.current = false;
+        if (page === null) return; // transient error — sentinel retries on next scroll
+        setRows((prev) => {
+          const seen = new Set((prev ?? []).map((t) => t.id));
+          return [...(prev ?? []), ...page.filter((t) => !seen.has(t.id))];
+        });
+        setHasMore(page.length === PAGE);
+      });
+    }, { rootMargin: "200px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, hasMore, mode]);
 
   const fmt = (iso: string): { date: string; time: string } => {
     if (!iso) return { date: "—", time: "—" };
@@ -2995,10 +3024,12 @@ function TradeHistory(): React.ReactElement {
           </tbody>
         </table>
       </div>
+      {/* Lazy-load sentinel — observing it appends the next page. */}
+      <div ref={sentinelRef} style={{ height: 1 }} />
       <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center" }}>
-        {mode === "paper"
-          ? "Your last 20 simulated fills"
-          : "Your last 20 registered/executed orders"}
+        {hasMore
+          ? `${rows?.length ?? 0} ${mode === "paper" ? "simulated fills" : "orders"} — scroll for more`
+          : `All ${rows?.length ?? 0} ${mode === "paper" ? "simulated fills" : "orders"} loaded`}
       </p>
     </div>
   );

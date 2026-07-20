@@ -1116,14 +1116,15 @@ export type OrderHistoryRow = {
  *  mode this returns the paper fills journal adapted to the same row shape. */
 export function getOrderHistory(
   limit = 20,
+  offset = 0,
 ): Promise<ApiResult<OrderHistoryRow[]>> {
   if (getTradingMode() === "paper") {
-    return getPaperFills(limit).then((r) =>
+    return getPaperFills(limit, offset).then((r) =>
       isError(r) ? r : { data: r.data.map(adaptPaperFill) },
     );
   }
   return requestLegacy<OrderHistoryRow[]>("/orders/history", {
-    query: { limit },
+    query: { limit, offset },
   });
 }
 
@@ -2251,8 +2252,13 @@ export function getPaperOpenOrders(): Promise<ApiResult<PaperOpenOrder[]>> {
 }
 
 /** `GET /paper/fills` — the trade journal (newest first). */
-export function getPaperFills(limit = 50): Promise<ApiResult<PaperFillRow[]>> {
-  return requestLegacy<PaperFillRow[]>("/paper/fills", { query: { limit } });
+export function getPaperFills(
+  limit = 50,
+  offset = 0,
+): Promise<ApiResult<PaperFillRow[]>> {
+  return requestLegacy<PaperFillRow[]>("/paper/fills", {
+    query: { limit, offset },
+  });
 }
 
 /** `GET /paper/nav` — the equity curve (oldest first). */

@@ -188,13 +188,15 @@ def cancel_paper_order(
 @router.get("/fills")
 def paper_fills(
     limit: int = 50,
+    offset: int = 0,
     user_id: int = Depends(get_user_id),
     db: Session = Depends(get_db),
 ):
     # Clamp the page size: a negative LIMIT is "unbounded" in SQL (would
     # dump the whole journal) and a huge value is a payload footgun.
     limit = max(1, min(int(limit), 500))
-    return fills_journal(db, user_id, limit)
+    offset = max(0, int(offset))
+    return fills_journal(db, user_id, limit, offset=offset)
 
 
 @router.get("/nav")

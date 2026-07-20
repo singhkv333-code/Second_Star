@@ -346,8 +346,12 @@ _COMPACT_POST_MACRO_MAX_OUTPUT = 250
 # `web_search_preview` so the model actually browses (real headlines for
 # market/company news, not generic reasoning).
 from backend.config import settings as _settings
+# search_context_size="low": the provider fetches a smaller context per
+# search — measurably faster and cheaper; news/qualitative asks don't need
+# the deep-research context tiers.
 _HOSTED_TOOLS: "list[dict] | None" = (
-    [{"type": "web_search_preview"}] if _settings.web_search_enabled else None
+    [{"type": "web_search_preview", "search_context_size": "low"}]
+    if _settings.web_search_enabled else None
 )
 
 
@@ -552,7 +556,10 @@ def _is_construction_intent(message: str) -> bool:
 # order tool. Applied IDENTICALLY in handle() and handle_stream() via
 # `_apply_construction_scope` (the known drift trap → one function).
 _CONSTRUCTION_FORCE_IN: frozenset[str] = frozenset({
-    "build_strategy", "ask_user_dynamic",
+    # ask_user_dynamic removed 2026-07-19: the scripted VOI questionnaire
+    # is retired — under-specified builds go through the model's own
+    # judgment (build with stated assumptions, or one ASK_USER question).
+    "build_strategy",
     "screen_fundamentals", "fetch_fundamentals",
     "get_multiple_indicators", "get_performance_metrics",
     "compare_performance", "get_price_history", "get_live_price",
@@ -889,6 +896,61 @@ def _summary_bridge_block(conv_id: str, user_id: int,
         + "\n(The turns shown below are the most recent ones; when this "
         "summary conflicts with them, the visible turns win.)"
     )
+
+
+def _session_state_blocks(store, conv_id: str) -> list[str]:
+    """System blocks that make per-conversation state VISIBLE to the model
+    (container eval 2026-07-19). Pure context injection — no decisions:
+
+    1. Artifact ledger — every card/draft THIS conversation produced, one
+       line each, so a basket built 10 turns ago survives the history
+       window/clamp and "that basket" resolves without re-asking.
+    2. Pending clarify — when a clarify card is on screen, the model (not
+       a regex) decides whether the new message answers it or is a new
+       request. Free text falls through to the LLM with this block.
+    """
+    blocks: list[str] = []
+    try:
+        get_arts = getattr(store, "get_artifacts", None)
+        arts = get_arts(conv_id) if callable(get_arts) else []
+        if arts:
+            blocks.append(
+                "## Artifacts created in THIS conversation (most recent last)\n"
+                + "\n".join(f"- {a}" for a in arts[-12:])
+                + "\n(When the user says 'that basket/draft/backtest', it means "
+                "one of these — do NOT ask them to re-list its contents.)"
+            )
+    except Exception:  # visibility must never break a turn
+        pass
+    try:
+        get_clarify = getattr(store, "get_clarify", None)
+        state = get_clarify(conv_id) if callable(get_clarify) else None
+        if state is not None:
+            qs = [q for q in (state.questions or []) if isinstance(q, dict)]
+            idx = max(0, min(int(state.index or 0), max(len(qs) - 1, 0)))
+            current_q = (qs[idx].get("prompt") or qs[idx].get("question") or "?") if qs else "?"
+            slots_json = json.dumps(state.slot_state or {})[:600]
+            build_tool = getattr(state, "build_tool", None) or (
+                "propose_workflow" if getattr(state, "kind", "portfolio") == "agent"
+                else "build_strategy")
+            blocks.append(
+                "## A clarify question is pending on screen\n"
+                f"Original request: {str(getattr(state, 'request', ''))[:200]}\n"
+                f"Current question: {current_q}\n"
+                f"Slots so far: {slots_json}\n"
+                f"- If the user's message ANSWERS the question, continue that "
+                f"flow: call `{build_tool}` with the original request plus all "
+                "known slot values including this answer (or ask the next "
+                "genuinely-missing thing).\n"
+                "- If it is a NEW, unrelated request, handle it normally — the "
+                "clarify card stays available and must not swallow the new "
+                "intent.\n"
+                "- Never treat an order/automation/backtest instruction as a "
+                "slot answer."
+            )
+    except Exception:
+        pass
+    return blocks
 
 
 def _redirect_target_for_failure(
@@ -3230,10 +3292,11 @@ def _prompt_module_block(message: str, history: list) -> str:
     """The per-turn intent-pack system-message content (empty when none
     applies). system_core.md is always loaded; these packs are additive."""
     names = select_prompt_modules(message, _history_tail_text(history))
-    # When the hosted web_search tool is offered this turn, load its usage
+    # When the hosted web_search tool is offered on THIS turn (scoped to
+    # news / qualitative-company / earnings-date asks), load its usage
     # contract so the model knows WHEN to reach for it and — critically —
     # that prices/fundamentals still come from Kite tools, not the web.
-    if _HOSTED_TOOLS:
+    if _HOSTED_TOOLS and _web_search_scope(message):
         names = [*names, "web_search"]
     return load_prompt_modules(names) if names else ""
 
@@ -3261,6 +3324,54 @@ _NEWS_BROWSE_RE = re.compile(
 
 def _is_news_browse_ask(message: str) -> bool:
     return bool(_NEWS_BROWSE_RE.search(message or ""))
+
+
+# ── Web-search SCOPE (2026-07-19) ────────────────────────────────────
+# The hosted web_search tool is attached per-turn ONLY for the three ask
+# shapes it exists for: news, qualitative company context (operations,
+# management, plans, deals …), and earnings/results dates. Everything
+# else (prices, technicals, fundamentals, screens, orders, backtests)
+# has a local tool and must never burn a browse hop. This is tool-SURFACE
+# narrowing — the same lane the tool_router already uses — not an
+# interpretation layer: the model still owns what to do with the turn;
+# out-of-scope turns simply don't carry the (slow) browse tool.
+_WEB_QUALITATIVE_RE = re.compile(
+    r"\b(?:management|promoters?|ceo|cfo|founder|chairman|board\b"
+    r"|operations?|business\s+model|segments?|subsidiar|products?\s+and\b"
+    r"|what\s+does\s+[\w.&'-]+\s+do\b|about\s+the\s+company"
+    r"|expansion|capex\s+plans?|acquisitions?|merger|demerger|deal\b"
+    r"|order\s+(?:win|book)|contract\s+(?:win|award)|partnership"
+    r"|guidance|outlook|commentary|concall|conference\s+call"
+    r"|analyst\s+(?:day|meet)|credit\s+rating|downgrade|upgrade\b"
+    r"|litigation|investigation|probe\b|resign|appoint)",
+    re.IGNORECASE,
+)
+_WEB_EARNINGS_DATE_RE = re.compile(
+    r"\b(?:earnings?|results?|q[1-4]\s*(?:fy)?\d*)\b"
+    r"[^.?!]{0,60}\b(?:date|when|calendar|schedule|announc|declar|report)"
+    r"|\b(?:when|what\s+date)\b[^.?!]{0,60}\b(?:earnings?|results?)\b"
+    r"|\bboard\s+meeting\b|\brecord\s+date\b|\bex[- ]date\b|\bagm\b"
+    r"|\bdividend\s+(?:date|announc)",
+    re.IGNORECASE,
+)
+
+
+def _web_search_scope(message: str) -> bool:
+    """True when this turn's ask is in the web-search lane (news /
+    qualitative company context / earnings-results dates)."""
+    msg = message or ""
+    return bool(
+        _NEWS_BROWSE_RE.search(msg)
+        or _WEB_QUALITATIVE_RE.search(msg)
+        or _WEB_EARNINGS_DATE_RE.search(msg)
+    )
+
+
+def _hosted_tools_for(message: str) -> "list[dict] | None":
+    """The per-turn hosted-tool surface: the browse tool only in scope."""
+    if _HOSTED_TOOLS is None:
+        return None
+    return _HOSTED_TOOLS if _web_search_scope(message) else None
 
 
 # ── LLM-owned interpretation (experiment): one static direction block ──
@@ -4692,6 +4803,77 @@ def _drop_bulk_arrays(obj: Any, depth: int = 0) -> Any:
     }
 
 
+def _artifact_line(g: GuardedToolResult) -> Optional[str]:
+    """One compact identity line for the session artifact ledger, or None.
+
+    Bookkeeping only (container eval 2026-07-19): cards are the commit
+    surface, but history persists prose — clamped and windowed — so a
+    built basket/draft went invisible one turn later. This line is what
+    the model gets to SEE about the artifact on every later turn; it
+    decides nothing itself.
+    """
+    if not g.success:
+        return None
+    d = g.data or {}
+    a = g.args or {}
+    try:
+        if g.name in ("build_strategy", "propose_basket_allocation"):
+            # StrategyBuilderCard is spread TOP-LEVEL into data:
+            # {"_render_hint", "title", "constituents": [{symbol, weight_pct}]}.
+            rows = None
+            for k in ("constituents", "holdings", "allocations", "positions"):
+                v = d.get(k)
+                if isinstance(v, list) and v and isinstance(v[0], dict):
+                    rows = v
+                    break
+            name = d.get("title") or d.get("name")
+            if rows:
+                parts = []
+                for r_ in rows[:6]:
+                    sym = r_.get("symbol") or r_.get("ticker") or "?"
+                    w = r_.get("weight_pct") or r_.get("weight")
+                    parts.append(
+                        f"{sym} {round(float(w), 1)}%" if w is not None else str(sym))
+                return f"basket \"{name or 'untitled'}\": " + ", ".join(parts)
+            return f"basket/strategy card \"{name or 'untitled'}\" built"
+        if g.name in ("propose_workflow", "propose_dsl_workflow",
+                      "propose_threshold_order", "propose_scheduled_order",
+                      "propose_holding_action"):
+            # The workflow draft is model_dump()ed TOP-LEVEL into data
+            # ({"name", "description", "steps", "_render_hint"}).
+            name = d.get("name") or (d.get("draft") or {}).get("name") if isinstance(d.get("draft"), dict) else d.get("name")
+            desc = d.get("description") or ""
+            return f"agent draft \"{name or 'untitled'}\": {str(desc)[:140]}"
+        if g.name in ("backtest_dsl_tree", "backtest_workflow"):
+            sym = a.get("primary_symbol") or a.get("symbol") or d.get("symbol") or "?"
+            cond = str(a.get("condition") or "")[:90]
+            ret = d.get("strategy_return_pct") or (d.get("metrics") or {}).get("strategy_return_pct")
+            tail = f" → {ret}%" if ret is not None else ""
+            return f"backtest {sym}: {cond}{tail}"
+        if g.name in ("place_order", "place_basket_order", "create_gtt_order",
+                      "create_sip"):
+            sym = a.get("symbol") or ", ".join(
+                str(l.get("symbol")) for l in (a.get("legs") or a.get("orders") or [])
+                if isinstance(l, dict))
+            side = a.get("side") or a.get("transaction_type") or ""
+            qty = a.get("quantity") or ""
+            return f"registered {g.name.replace('_', ' ')}: {side} {qty} {sym}".strip()
+        if g.name in ("build_option_strategy", "suggest_option_strategy"):
+            und = a.get("underlying") or a.get("symbol") or d.get("underlying") or "?"
+            strat = d.get("strategy_name") or a.get("strategy") or "option strategy"
+            return f"option strategy on {und}: {strat}"
+        # Generic fallback: any other card-producing tool still leaves a
+        # trace line, so later turns know the artifact exists at all.
+        hint = d.get("_render_hint")
+        if hint and str(hint).endswith("_card"):
+            ident = d.get("title") or d.get("name") or a.get("symbol") or ""
+            return f"{str(hint).replace('_', ' ')} produced" + (
+                f": {ident}" if ident else "")
+    except Exception:  # ledger must never break a turn
+        return None
+    return None
+
+
 def _summarise_tool_result(g: GuardedToolResult) -> str:
     """Compact JSON the loop's next iteration consumes as the tool
     result. Errors get a structured prefix so the model treats them
@@ -4974,6 +5156,15 @@ class ChatService:
                 new_symbol = (_draft_primary_symbol(draft) or "").upper()
                 if prior_symbol == new_symbol:
                     carried_wf_id = prior_wf_id
+        if carried_wf_id and isinstance(draft, dict):
+            # Surface the anchor ON the card payload too — `draft` here is
+            # the same dict raw_data serialises to the FE, whose Save &
+            # activate branches on draft.workflow_id → updateWorkflow
+            # (in-place) vs createWorkflow. Without this, a chat amendment
+            # of an EXISTING agent rendered a card whose Save created a
+            # DUPLICATE while the original stayed active (live repro
+            # 2026-07-19: "change the number of top gainers to 3").
+            draft.setdefault("workflow_id", carried_wf_id)
         evicted = self.store.set_active_draft(conv_id, ActiveDraft(
             tool_name=tool_name,
             draft=draft,
@@ -5126,6 +5317,17 @@ class ChatService:
 
     # ── Strategy clarify flow (Workstream A — dynamic questions) ────────
 
+    def _note_artifact(self, conv_id: str, guarded: "GuardedToolResult") -> None:
+        """Record a card/draft identity line in the session artifact
+        ledger (bookkeeping only — see _artifact_line). Duck-typed:
+        stub/legacy stores without the ledger are a silent no-op."""
+        note = getattr(self.store, "note_artifact", None)
+        if not callable(note):
+            return
+        line = _artifact_line(guarded)
+        if line:
+            note(conv_id, line)
+
     def _maybe_set_clarify_state(
         self, conv_id: str, original_request: str, guarded: GuardedToolResult,
     ) -> None:
@@ -5248,7 +5450,13 @@ class ChatService:
         index = max(0, min(int(state.index or 0), len(questions)))
         current = questions[index] if index < len(questions) else None
 
-        build_now = bool(_CLARIFY_BUILD_NOW_RE.search(text))
+        # "build now" is a flow-control token only when the message IS
+        # flow control — a short imperative. Inside a longer sentence
+        # ("if it drops 3% do it with 10 shares") the phrase is part of a
+        # NEW instruction, and matching it here would hijack that turn.
+        # Length bound = abstain rule, not interpretation: long messages
+        # go to the model.
+        build_now = len(text) <= 48 and bool(_CLARIFY_BUILD_NOW_RE.search(text))
         is_skip = bool(_CLARIFY_SKIP_RE.match(text))
 
         # Batched local-paging answers: the FE pages all questions client-side
@@ -5294,6 +5502,24 @@ class ChatService:
                 # Every answer is folded — skip the single-answer path and build.
                 build_now = True
                 current = None
+
+        # Deterministic folding is for STRUCTURED answers only: a chip
+        # click (text == an option id/label of the current question) or
+        # the FE's batched JSON above. Any other free text is LANGUAGE —
+        # whether it answers the question or starts a new request is the
+        # model's call, not a regex's (container eval 2026-07-19: one
+        # pending basket clarify consumed three unrelated new intents at
+        # 0 LLM hops). Fall through — the LLM turn receives the pending
+        # clarify as context via _session_state_blocks and can continue
+        # the flow or handle the new intent. Capability is never reduced:
+        # this bound only ever hands MORE turns to the model.
+        if current is not None and not build_now and not is_skip:
+            _opts = {str(o.id).strip().lower() for o in (current.options or [])}
+            _opts |= {str(o.label).strip().lower() for o in (current.options or [])}
+            if text.lower() not in _opts:
+                trace.event("clarify.free_text_to_llm",
+                            chars=len(text))
+                return None
 
         if current is not None and not build_now and not is_skip:
             # Normalise the answer (option id/label or free text) into the slot.
@@ -5444,6 +5670,7 @@ class ChatService:
                         error=(guarded.error or "")[:120])
             if not guarded.success:
                 return None  # honest fallthrough to the LLM recovery path
+            self._note_artifact(conv_id, guarded)
             raw_data = {}
             if guarded.data:
                 raw_data[guarded.name] = guarded.data
@@ -5860,6 +6087,7 @@ class ChatService:
                     success=guarded.success,
                     needs_clarification=guarded.needs_clarification,
                     error=guarded.error)
+        self._note_artifact(conv_id, guarded)
 
         # Cascading clarification — set new pending and surface the
         # next question. Still 0 LLM calls on this turn.
@@ -7238,6 +7466,8 @@ class ChatService:
             )
         else:
             base_messages_summary = None
+        for _st_block in _session_state_blocks(self.store, conv_id):
+            base_messages.append(LLMMessage(role="system", content=_st_block))
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_messages.append(LLMMessage(role="system", content=_mod_block))
@@ -7493,7 +7723,7 @@ class ChatService:
                     reasoning_effort=hop_effort,
                     temperature=0.2,
                     prompt_cache_key=cache_key,
-                    hosted_tools=_HOSTED_TOOLS,
+                    hosted_tools=_hosted_tools_for(message),
                 )
             except Exception as e:
                 # GAN R4 F11: ONE short-backoff retry on a transient
@@ -7781,6 +8011,11 @@ class ChatService:
                             needs_clarification=guarded.needs_clarification,
                             error=guarded.error,
                             latency_ms=guarded.latency_ms)
+                # Session artifact ledger — hooked HERE (right after
+                # execution) so TERMINAL card tools are recorded too;
+                # the tool_msg path below only runs when the loop takes
+                # another LLM hop, which card turns never do.
+                self._note_artifact(conv_id, guarded)
 
                 # Completeness or ASK_USER → surface immediately.
                 # Persist the partial tool call so the user's next
@@ -9321,6 +9556,8 @@ class ChatService:
             )
         else:
             base_messages_summary = None
+        for _st_block in _session_state_blocks(self.store, conv_id):
+            base_msgs.append(LLMMessage(role="system", content=_st_block))
         _mod_block = _prompt_module_block(message, history)
         if _mod_block:
             base_msgs.append(LLMMessage(role="system", content=_mod_block))
@@ -9520,7 +9757,7 @@ class ChatService:
                 reasoning_effort=hop_effort,
                 temperature=0.2,
                 prompt_cache_key=cache_key,
-                hosted_tools=_HOSTED_TOOLS,
+                hosted_tools=_hosted_tools_for(message),
             ):
                 etype = ev.get("type")
                 # Verbose stream-debug: emit every event type the first time
@@ -9871,6 +10108,11 @@ class ChatService:
                             needs_clarification=guarded.needs_clarification,
                             error=guarded.error,
                             latency_ms=guarded.latency_ms)
+                # Session artifact ledger — hooked HERE (right after
+                # execution) so TERMINAL card tools are recorded too;
+                # the tool_msg path below only runs when the loop takes
+                # another LLM hop, which card turns never do.
+                self._note_artifact(conv_id, guarded)
                 yield {
                     "type": "tool_done",
                     "name": guarded.name,

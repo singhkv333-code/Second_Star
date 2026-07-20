@@ -330,7 +330,14 @@ def _format_user_context(ctx: UserContext) -> str:
     # ~every turn where the user references "that agent" / "pause it".
     if ctx.active_workflows:
         n = len(ctx.active_workflows)
-        bits.append(f"- Active automations ({n}):")
+        # Provenance label matters: without it the model conflated these
+        # ACCOUNT-level saves with drafts from the current conversation
+        # ("which automations did we draft today?" answered from here —
+        # container eval 2026-07-19 #29). This-conversation artifacts
+        # arrive separately via the session artifact ledger block.
+        bits.append(
+            f"- Active automations ({n}) — saved on the ACCOUNT from "
+            "earlier sessions, NOT drafted in this conversation:")
         for wf in ctx.active_workflows[:10]:
             name = wf.get("name") or "(unnamed)"
             wid = wf.get("id") or "?"
@@ -351,7 +358,8 @@ def _format_user_context(ctx: UserContext) -> str:
     # a discovery round-trip. Compact: name + constituent symbols.
     if ctx.saved_baskets:
         n = len(ctx.saved_baskets)
-        bits.append(f"- Saved baskets ({n}):")
+        bits.append(f"- Saved baskets ({n}) — saved earlier, not from "
+                    "this conversation:")
         for b in ctx.saved_baskets[:10]:
             name = b.get("name") or "(unnamed)"
             bid = b.get("id") or "?"

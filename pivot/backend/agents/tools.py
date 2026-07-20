@@ -2365,9 +2365,14 @@ tool("build_strategy",
                             "computed. This is the THEMATIC path: the builder "
                             "has no thematic knowledge of its own, so reason out "
                             "who actually benefits and pin them here rather than "
-                            "passing a `theme` string and hoping. OMIT only for "
-                            "an open build where the backend should discover the "
-                            "universe from sector/view.",
+                            "passing a `theme` string and hoping. THIS IS THE "
+                            "DEFAULT PATH — for almost every basket (including a "
+                            "plain 'create a basket') YOU choose the names and "
+                            "pin them, so the basket reflects the user's ask and "
+                            "your analysis, not a fixed engine selection. OMIT "
+                            "`symbols` ONLY when the user gave hard screening "
+                            "constraints (ROE>20, D/E<0.5) — then the engine's "
+                            "deterministic screen is what they asked for.",
          },
          "rationale": {
              "type": "string",

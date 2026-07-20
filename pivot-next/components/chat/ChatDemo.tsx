@@ -1781,15 +1781,6 @@ export function ChatDemo({
                   <div className="flex justify-start">
                     <IpoListCard
                       payload={msg.payload}
-                      onSelectIpo={(sym) =>
-                        void submit(`apply for the ${sym} IPO`)
-                      }
-                      onRemindIpo={(sym) =>
-                        void submit(
-                          `set up open-day reminders for the ${sym} IPO`,
-                          "agent",
-                        )
-                      }
                       onKnowMore={(sym) =>
                         void submit(`tell me about the ${sym} IPO`)
                       }

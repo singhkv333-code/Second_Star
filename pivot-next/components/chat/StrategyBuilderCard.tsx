@@ -44,6 +44,7 @@ import {
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import { isError } from "@/lib/types";
+import { useTradingMode } from "@/lib/trading-mode";
 import { createEquityBasket, type EquityBasket } from "@/lib/agentsApi";
 import { BasketTradeModal } from "@/components/agent-panel/BasketTradeModal";
 import { Button } from "@/components/ui/button";
@@ -430,11 +431,15 @@ function CompactHoldingRow({
   color,
   active,
   onActiveChange,
+  displayPct,
 }: {
   c: StrategyConstituent;
   color: string;
   active: boolean;
   onActiveChange: (active: boolean) => void;
+  /** Portfolio-% to show (equity weights are scaled down when a sleeve
+   *  exists). Defaults to the raw equity-sleeve weight_pct. */
+  displayPct?: number;
 }): React.ReactElement {
   return (
     <li
@@ -456,7 +461,47 @@ function CompactHoldingRow({
         {c.symbol}
       </span>
       <span className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground">
-        {fmtPct(c.weight_pct)}
+        {fmtPct(displayPct ?? c.weight_pct)}
+      </span>
+    </li>
+  );
+}
+
+// A gold/other sleeve rendered as a legend row alongside the equities, so
+// the basket visibly INCLUDES the sleeve (it used to be donut-only).
+function SleeveLegendRow({
+  sleeve,
+  color,
+  active,
+  onActiveChange,
+}: {
+  sleeve: Sleeve;
+  color: string;
+  active: boolean;
+  onActiveChange: (active: boolean) => void;
+}): React.ReactElement {
+  const label = `${sleeve.kind[0]!.toUpperCase()}${sleeve.kind.slice(1)}`;
+  return (
+    <li
+      onMouseEnter={() => onActiveChange(true)}
+      onMouseLeave={() => onActiveChange(false)}
+      title={sleeve.note ?? `${label} sleeve`}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-1.5 py-[3px] transition-colors",
+        active ? "bg-muted/60" : "hover:bg-muted/40",
+      )}
+      style={{ listStyle: "none" }}
+    >
+      <span
+        aria-hidden="true"
+        className="h-2 w-2 shrink-0 rounded-full transition-transform"
+        style={{ background: color, transform: active ? "scale(1.25)" : undefined }}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold tracking-tight text-foreground">
+        {label}
+      </span>
+      <span className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground">
+        {fmtPct(sleeve.pct)}
       </span>
     </li>
   );
@@ -607,6 +652,7 @@ export function StrategyBuilderCard({
   card,
   onBacktest,
 }: StrategyBuilderCardProps): React.ReactElement {
+  const tradingMode = useTradingMode();
   const [detailsOpen, setDetailsOpen] = useState(false);
   // The hovered/selected allocation slice key, shared by the donut and the
   // holdings/sleeve rows so the two stay in sync in both directions.
@@ -680,6 +726,16 @@ export function StrategyBuilderCard({
   const schemeLabel = SCHEME_LABEL[card.weighting_scheme] ?? card.weighting_scheme;
   const gateLabel = GATE_LABEL[card.selection_gate] ?? card.selection_gate;
 
+  // Constituent weight_pct is the share of the EQUITY sleeve (sums to ~100
+  // over the equities). When there's a gold/other sleeve, the equity slice
+  // is only (100 − Σsleeve)% of the whole basket — so scale every equity
+  // weight by that factor before rendering. Without this the donut summed
+  // equity(100) + gold(8) = "108% allocated" and gold never appeared as a
+  // legend row (live repro 2026-07-19).
+  const sleeveTotalPct = card.sleeves.reduce((s, x) => s + (x.pct || 0), 0);
+  const equityScale =
+    sleeveTotalPct > 0 ? Math.max(0, 100 - sleeveTotalPct) / 100 : 1;
+
   // Stable per-line colors + the flattened donut slices (equity then sleeves).
   const { slices, constituentColors, sleeveColors } = useMemo(() => {
     const cColors = card.constituents.map(
@@ -691,7 +747,7 @@ export function StrategyBuilderCard({
         key: `c:${c.symbol}`,
         label: c.symbol,
         sub: c.name,
-        pct: c.weight_pct,
+        pct: c.weight_pct * equityScale,
         color: cColors[i]!,
       })),
       ...card.sleeves.map((s, i) => ({
@@ -703,14 +759,16 @@ export function StrategyBuilderCard({
       })),
     ];
     return { slices: out, constituentColors: cColors, sleeveColors: sColors };
-  }, [card.constituents, card.sleeves]);
+  }, [card.constituents, card.sleeves, equityScale]);
 
   const holdings = card.constituents.length;
   const sectorCount = new Set(card.constituents.map((c) => c.sector)).size;
   const topWeight = card.constituents.reduce((m, c) => Math.max(m, c.weight_pct), 0);
   // Right-hand list wraps into a second column once it would outgrow the
-  // donut column (~7 compact rows) — per the compact-card design.
-  const holdingRows = Math.ceil(holdings / (holdings > 7 ? 2 : 1));
+  // donut column (~7 compact rows) — per the compact-card design. Sleeve
+  // (gold) rows count toward the list length so the grid sizes correctly.
+  const legendCount = holdings + card.sleeves.length;
+  const holdingRows = Math.ceil(legendCount / (legendCount > 7 ? 2 : 1));
 
   // Sector composition — aggregate constituent weights by sector, heaviest
   // first, for the "Composition" breakdown in the details panel.
@@ -760,11 +818,12 @@ export function StrategyBuilderCard({
               </div>
             )}
           </div>
-          {card.constituents.length > 0 && (
-            // Phone: full-width two-column list under the donut (a single
-            // column would run absurdly long, and the old flow-col layout ran
-            // off-screen). Desktop (sm+): the original flow-down-then-across
-            // list beside the donut, driven by --bs-rows.
+          {/* Phone: full-width two-column list under the donut (a single
+              column would run absurdly long, and the old flow-col layout ran
+              off-screen). Desktop (sm+): the original flow-down-then-across
+              list beside the donut, driven by --bs-rows. Guard on legendCount
+              (holdings + sleeves) so a gold-only sleeve still renders. */}
+          {legendCount > 0 && (
             <ol
               className={cn(
                 "m-0 grid w-full min-w-0 grid-cols-2 gap-x-3 self-center",
@@ -780,6 +839,19 @@ export function StrategyBuilderCard({
                     key={c.symbol}
                     c={c}
                     color={constituentColors[i]!}
+                    displayPct={c.weight_pct * equityScale}
+                    active={active === key}
+                    onActiveChange={(on) => setActive(on ? key : null)}
+                  />
+                );
+              })}
+              {card.sleeves.map((s, i) => {
+                const key = `s:${i}`;
+                return (
+                  <SleeveLegendRow
+                    key={key}
+                    sleeve={s}
+                    color={sleeveColors[i]!}
                     active={active === key}
                     onActiveChange={(on) => setActive(on ? key : null)}
                   />
@@ -1097,6 +1169,18 @@ export function StrategyBuilderCard({
               {saveError}
             </p>
           )}
+
+          {/* Mode-aware honesty line: in PAPER mode (the default) deploys
+              fill instantly in the simulated book — telling the user to
+              "confirm in your broker app" there was wrong. The broker line
+              applies only in live mode (register-not-execute). */}
+          <p className="text-[10px] leading-snug text-muted-foreground/70">
+            {tradingMode === "paper"
+              ? "Deploy places these BUY orders in your simulated paper " +
+                "portfolio — fills are instant and no real money moves."
+              : "Deploy registers BUY orders through your connected broker — " +
+                "nothing is auto-executed; you confirm in your broker app."}
+          </p>
         </div>
       )}
 
