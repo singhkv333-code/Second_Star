@@ -358,6 +358,65 @@ def _is_one_time_schedule(step: Any) -> bool:
     return bool(cfg.get("run_at")) and not cfg.get("cron")
 
 
+def _is_subdaily_cron(cron: str) -> bool:
+    """True when a 5-field cron fires MORE THAN ONCE per day — i.e. its
+    minute or hour field is a wildcard, step, list, or range that spans
+    many times of day (``*/5 * * * *`` every 5 min, ``0 * * * *`` hourly,
+    ``0 9-15 * * 1-5`` top-of-hour through the session).
+
+    A fixed single ``minute hour`` (``15 15 * * 1-5`` = 3:15 PM once a day,
+    a weekly/monthly SIP, or a resolved market-relative-time trigger) is
+    once-daily and returns False — it fires at its intended wall-clock time
+    and must never be second-guessed by a market-hours gate.
+    """
+    parts = str(cron or "").split()
+    if len(parts) != 5:
+        return False
+    minute, hour = parts[0], parts[1]
+    _multi = lambda f: f == "*" or f.startswith("*/") or "," in f or "-" in f
+    # Hour spans many values → fires across the day. Fixed hour but a
+    # multi-minute field → fires many times within that hour.
+    return _multi(hour) or _multi(minute)
+
+
+def _first_order_symbol(workflow: Workflow) -> Optional[str]:
+    """The symbol of the workflow's first ``action.place_order`` step (upper),
+    or None when the workflow places no order. Used to pick the right venue
+    calendar for the intraday market-hours gate."""
+    for s in sorted(workflow.steps, key=lambda s: int(s.step_index)):
+        if s.step_type == "action.place_order":
+            sym = (s.config or {}).get("symbol")
+            if sym:
+                return str(sym).upper()
+    return None
+
+
+def _intraday_schedule_gated(workflow: Workflow, step: Any) -> bool:
+    """True when a scheduled fire should be SKIPPED because it's an intraday
+    (sub-daily) TRADING schedule and the venue for the order's symbol is
+    currently closed.
+
+    Only sub-daily crons that place an order are gated — so "every 5 min"
+    on GOLDBEES pauses overnight/weekends instead of firing ~200 dead ticks
+    a day (each resting or rejecting), while a 3:15 PM weekday SIP is
+    untouched. Venue is per-symbol (NSE / US / crypto via
+    is_market_open_for_symbol), so a US or crypto agent isn't gated on the
+    NSE clock. Fail-open: any classification error → NOT gated (never
+    silently swallow a fire the user asked for).
+    """
+    try:
+        cfg = step.config or {}
+        if not _is_subdaily_cron(str(cfg.get("cron") or "")):
+            return False
+        symbol = _first_order_symbol(workflow)
+        if symbol is None:
+            return False
+        from backend.market.market_hours import is_market_open_for_symbol
+        return not is_market_open_for_symbol(symbol)
+    except Exception:  # noqa: BLE001 — defensive: never block a fire on error
+        return False
+
+
 def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
     """Recompute per-step ``next_run_at`` for every ``trigger.schedule``
     step, plus the workflow-level ``next_run_at`` summary.
@@ -544,6 +603,25 @@ async def _fire_one(
                 wf.next_run_at = None  # type: ignore[assignment]
                 for st in wf.steps:
                     st.next_run_at = None  # type: ignore[assignment]
+                db.commit()
+                return None
+            # Intraday market-hours gate: an every-N-minutes/hours TRADING
+            # schedule shouldn't fire when its venue is closed (the order
+            # would only rest or reject). Skip THIS tick but advance
+            # next_run_at to the next cron tick, so it keeps stepping forward
+            # and fires cleanly on the first tick after the market reopens.
+            # A once-daily fixed-time cron / SIP is never gated.
+            trig_step = next(
+                (s for s in wf.steps if int(s.step_index) == triggered_step_index),
+                None,
+            )
+            if trig_step is not None and _intraday_schedule_gated(wf, trig_step):
+                try:
+                    upsert_workflow_schedule(db, wf)
+                except InvalidCronError:
+                    wf.next_run_at = None  # type: ignore[assignment]
+                    for st in _trigger_schedule_steps(wf):
+                        st.next_run_at = None  # type: ignore[assignment]
                 db.commit()
                 return None
             run = WorkflowRun(
