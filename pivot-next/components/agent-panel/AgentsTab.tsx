@@ -444,8 +444,11 @@ export function AgentsTab({
     }
     if (surface === "baskets") {
       return {
-        pageTitle: "Active Baskets",
-        label: "Active baskets",
+        // These are SAVED basket definitions (deployed or not) — calling them
+        // "Active" implied a live position every one of them had, which isn't
+        // true. The card's Deploy ⇄ Square-off button now shows which are live.
+        pageTitle: "Saved Baskets",
+        label: "Saved baskets",
         count: baskets.length,
         rows: baskets.map((b) => ({
           workflow_id: String(b.id),

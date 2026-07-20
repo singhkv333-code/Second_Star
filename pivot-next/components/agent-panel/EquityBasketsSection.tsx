@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Layers, MessageSquarePlus, MoreVertical, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, Layers, MessageSquarePlus, MoreVertical, Pencil, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -44,6 +44,7 @@ import {
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { EquityBasketBuilder } from "./EquityBasketBuilder";
+import { BasketTradeModal } from "./BasketTradeModal";
 
 type State =
   | { kind: "loading" }
@@ -65,6 +66,7 @@ export function EquityBasketsSection({
   const [confirmDelete, setConfirmDelete] = useState<EquityBasket | null>(null);
   const [confirmClose, setConfirmClose] = useState<EquityBasket | null>(null);
   const [closeResult, setCloseResult] = useState<{ id: number; result: BasketCloseResult } | null>(null);
+  const [tradingBasket, setTradingBasket] = useState<EquityBasket | null>(null);
 
   const load = useCallback((): void => {
     setState({ kind: "loading" });
@@ -82,6 +84,16 @@ export function EquityBasketsSection({
           message: err instanceof Error ? err.message : "Network error",
         });
       });
+  }, []);
+
+  // Silent re-fetch (no loading skeleton) — used after a deploy so the card's
+  // Deploy ⇄ Square-off state catches up without flickering the whole grid.
+  const refresh = useCallback((): void => {
+    listEquityBaskets()
+      .then((res) => {
+        if (!isError(res)) setState({ kind: "ok", items: res.data.baskets });
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -134,6 +146,18 @@ export function EquityBasketsSection({
       .then((res) => {
         if (isError(res)) return;
         setCloseResult({ id: b.id, result: res.data });
+        // Squared off → no open position → back to deployable. Flip the
+        // card's button to Deploy immediately (no full reload).
+        setState((prev) =>
+          prev.kind === "ok"
+            ? {
+                kind: "ok",
+                items: prev.items.map((x) =>
+                  x.id === b.id ? { ...x, deployed: false } : x,
+                ),
+              }
+            : prev,
+        );
       })
       .catch(() => {})
       .finally(() => setClosingId((cur) => (cur === b.id ? null : cur)));
@@ -204,6 +228,7 @@ export function EquityBasketsSection({
                 onDelete={() => setConfirmDelete(b)}
                 onEditWithChat={() => editWithChat(b)}
                 onSquareOff={() => setConfirmClose(b)}
+                onDeploy={() => setTradingBasket(b)}
               />
             </div>
           ))}
@@ -216,6 +241,21 @@ export function EquityBasketsSection({
         basket={editing}
         onSaved={handleSaved}
       />
+
+      {tradingBasket && (
+        <BasketTradeModal
+          open={tradingBasket !== null}
+          onOpenChange={(o) => {
+            if (!o) {
+              setTradingBasket(null);
+              // A completed deploy now holds a position → the card should show
+              // Square off. Silently re-fetch to pick up the new deployed flag.
+              refresh();
+            }
+          }}
+          basket={tradingBasket}
+        />
+      )}
 
       <AlertDialog
         open={confirmDelete !== null}
@@ -294,6 +334,7 @@ function EquityBasketCard({
   onDelete,
   onEditWithChat,
   onSquareOff,
+  onDeploy,
 }: {
   basket: EquityBasket;
   isDeleting: boolean;
@@ -303,6 +344,7 @@ function EquityBasketCard({
   onDelete: () => void;
   onEditWithChat: () => void;
   onSquareOff: () => void;
+  onDeploy: () => void;
 }): React.ReactElement {
   const members = basket.members ?? [];
   const logos = useCompanyLogos(members.map((m) => m.symbol));
@@ -414,8 +456,10 @@ function EquityBasketCard({
         </p>
       )}
 
-      {/* Two stacked actions — editing goes through chat; squaring off sells
-          everything currently held without touching the saved basket. */}
+      {/* Two stacked actions — editing goes through chat. The second action
+          tracks the book: a saved-but-not-deployed basket offers DEPLOY (buy
+          the names); once deployed (holding a position) it offers SQUARE OFF
+          (sell everything held). Neither touches the saved definition. */}
       <div className="flex flex-col gap-2">
         <Button
           size="sm"
@@ -426,16 +470,29 @@ function EquityBasketCard({
           <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
           Edit with chat
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isClosing}
-          onClick={onSquareOff}
-          className="w-full"
-          data-testid={`basket-squareoff-${basket.id}`}
-        >
-          {isClosing ? "Squaring off…" : "Square off"}
-        </Button>
+        {basket.deployed ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isClosing}
+            onClick={onSquareOff}
+            className="w-full"
+            data-testid={`basket-squareoff-${basket.id}`}
+          >
+            {isClosing ? "Squaring off…" : "Square off"}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onDeploy}
+            className="w-full gap-1.5"
+            data-testid={`basket-deploy-${basket.id}`}
+          >
+            <Rocket className="h-3.5 w-3.5" aria-hidden="true" />
+            Deploy
+          </Button>
+        )}
       </div>
     </div>
   );

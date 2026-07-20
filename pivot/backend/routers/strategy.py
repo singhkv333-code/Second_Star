@@ -182,13 +182,47 @@ def _enrich_members_with_names(db: Session, members: list[dict]) -> list[dict]:
     ]
 
 
+def _basket_is_deployed(db: Session, user_id: int, basket_id: int) -> bool:
+    """True when a saved basket is currently DEPLOYED — i.e. it was traded
+    (``trade_basket`` → an origin_kind='strategy' ForwardIdea) AND still
+    holds an open position.
+
+    A never-traded basket has no idea → not deployed (show Deploy). After a
+    full square-off the idea's open positions drop to 0 → not deployed again
+    (re-deployable). This is what lets the card toggle Deploy ⇄ Square off in
+    step with the actual book. Cheap: baskets with no idea skip the replay,
+    and we pass a null price_fn (open-qty needs no live marks)."""
+    from backend.models import ForwardIdea
+
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "strategy",
+            ForwardIdea.strategy_id == basket_id,
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is None:
+        return False
+    try:
+        from backend.paper.idea_valuation import compute_idea_positions
+        res = compute_idea_positions(db, idea, price_fn=lambda _s: None)
+        return len(res.get("positions", []) or []) > 0
+    except Exception:  # noqa: BLE001 — traded before but couldn't compute →
+        # treat as deployed so we never offer Deploy on a live book (double-buy).
+        return True
+
+
 def _basket_out(s: Strategy, db: Optional[Session] = None) -> dict:
     """Serialise a Strategy row (equity_basket) into the FE basket shape.
 
     Pass ``db`` only for user-facing reads (list/create/update) so the
-    members carry a resolved `name` for the holdings list; internal callers
-    that only need symbol/weight (trade sizing, square-off) omit it to skip
-    the extra DB round-trip."""
+    members carry a resolved `name` for the holdings list AND the basket
+    reports whether it's currently ``deployed``; internal callers that only
+    need symbol/weight (trade sizing, square-off) omit it to skip the extra
+    DB round-trip."""
     try:
         cfg = json.loads(s.action_config) if s.action_config else {}
     except (ValueError, TypeError):
@@ -196,7 +230,7 @@ def _basket_out(s: Strategy, db: Optional[Session] = None) -> dict:
     members = cfg.get("members", [])
     if db is not None and members:
         members = _enrich_members_with_names(db, members)
-    return {
+    out = {
         "id": s.id,
         "name": s.name,
         "description": s.description,
@@ -207,6 +241,12 @@ def _basket_out(s: Strategy, db: Optional[Session] = None) -> dict:
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+    # `deployed` drives the card's Deploy ⇄ Square-off toggle. Only computed
+    # on user-facing reads (db present); internal sizing/square-off callers
+    # don't need it.
+    if db is not None:
+        out["deployed"] = _basket_is_deployed(db, s.user_id, s.id)
+    return out
 
 
 @router.post("/baskets", status_code=201)
