@@ -3,12 +3,12 @@
 Runs once on first registration (via `auth/router.py::register`). Drops
 3 ready-to-show workflows in `active` state (these are exactly the
 "Pre-Built strategies" tiles shown on the home screen — HomeTab.tsx
-matches them by name), ~6 historical `TradeLog` rows, a ₹5,00,000
-paper account, and a handful of prominent-stock holdings so a
-brand-new account doesn't land in an empty shell. Idempotent: if the
+matches them by name), ~6 historical `TradeLog` rows, and a ₹5,00,000
+paper account (cash only — no starter positions). Idempotent: if the
 user already has any workflows or trade logs, the whole thing is a
-no-op (the paper account/holdings step has its own independent
-idempotency check, since it runs after the commit below).
+no-op (the paper account step has its own independent idempotency
+check via `get_or_create_account`, since it runs after the commit
+below).
 
 What we seed (and why):
   - **RELIANCE 3:15 PM weekday buy** — the canonical demo workflow
@@ -23,10 +23,11 @@ What we seed (and why):
   - **6 TradeLog rows** — mix of BUY/SELL × MARKET/LIMIT/GTT,
     backdated 1-30 days, all `status="registered"` and
     `source="demo-seed"` so the order history tab isn't empty.
-  - **Paper account seeded at ₹5,00,000** + a handful of prominent-
-    stock holdings (same tickers as the frontend's default watchlist
-    seed) bought through the canonical fill engine, so Portfolio
-    isn't empty either.
+  - **Paper account seeded at ₹5,00,000** — cash only. A fresh signup
+    starts with the full ₹5L as free cash and an EMPTY Portfolio; we no
+    longer buy starter holdings, because a brand-new user shouldn't land
+    with positions they never opened. (The frontend's default watchlist
+    seed is separate — untouched here.)
 
 Logging only — failures here never block registration.
 """
@@ -41,16 +42,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.models import (
-    PaperOrder,
-    PaperPosition,
     TradeLog,
     Workflow,
     WorkflowStatus,
     WorkflowStep,
 )
 from backend.paper.accounts import get_or_create_account
-from backend.paper.fills import execute_market_fill
-from backend.paper.money import to_money
 from backend.utils.time_utils import now_ist
 
 logger = logging.getLogger(__name__)
@@ -60,22 +57,6 @@ logger = logging.getLogger(__name__)
 # used when a user reaches paper endpoints without ever registering,
 # e.g. pre-existing rows) — a fresh signup specifically gets ₹5L.
 NEW_USER_PAPER_CAPITAL = 500_000
-
-# Prominent-stock starter holdings: same tickers as the frontend's
-# default watchlist seed (pivot-next/lib/watchlists.ts SEED_TICKERS),
-# so a new user's Portfolio and Watchlist tell a consistent story.
-# Prices are representative marks (not live-fetched — registration
-# must not depend on a market-data round trip); qty×price leaves the
-# bulk of the ₹5L seed as free cash.
-_DEMO_HOLDINGS: list[dict[str, Any]] = [
-    {"symbol": "HDFCBANK", "quantity": 10, "price": 1500.00},
-    {"symbol": "TCS",      "quantity": 5,  "price": 4115.30},
-    {"symbol": "RELIANCE", "quantity": 10, "price": 2487.50},
-    {"symbol": "INFY",     "quantity": 10, "price": 1395.00},
-    {"symbol": "ITC",      "quantity": 25, "price": 442.10},
-    {"symbol": "SBIN",     "quantity": 15, "price": 820.00},
-]
-
 
 # Workflow recipes. Each step's `config` matches the Pydantic schema in
 # backend/workflows/schemas.py — validated when the engine loads the
@@ -294,49 +275,21 @@ def _seed_trade_logs(db: Session, user_id: int) -> int:
 
 
 def _seed_paper_account(db: Session, user_id: int) -> dict[str, Any]:
-    """Seed a ₹5,00,000 paper account + starter holdings for a new user.
+    """Seed a ₹5,00,000 paper account for a new user — cash only.
 
-    Idempotent: `get_or_create_account` no-ops (and ignores
-    `starting_capital`) if the user already has a paper account; the
-    holdings buy is separately gated on the account having zero
-    existing positions, so re-running this (e.g. a retried registration
-    request) never double-buys. Runs in its own commit so a failure
-    here can't roll back the workflows/trades already seeded.
+    A fresh signup starts with the full ₹5L as free cash and an EMPTY
+    Portfolio; we intentionally do NOT buy starter holdings (a new user
+    shouldn't land with positions they never opened). Idempotent:
+    `get_or_create_account` no-ops (and ignores `starting_capital`) if
+    the user already has a paper account. Runs in its own commit so a
+    failure here can't roll back the workflows/trades already seeded.
     """
     try:
-        account = get_or_create_account(
+        get_or_create_account(
             db, user_id, starting_capital=NEW_USER_PAPER_CAPITAL,
         )
-        existing_positions = (
-            db.query(PaperPosition)
-            .filter(PaperPosition.account_id == account.id)
-            .count()
-        )
-        holdings_created = 0
-        if not existing_positions:
-            for holding in _DEMO_HOLDINGS:
-                symbol = holding["symbol"]
-                order = PaperOrder(
-                    account_id=str(account.id),
-                    user_id=user_id,
-                    client_request_id=f"signup-seed-{user_id}-{symbol}",
-                    symbol=symbol,
-                    exchange="NSE",
-                    transaction_type="BUY",
-                    order_type="MARKET",
-                    product="CNC",
-                    variety="regular",
-                    quantity=holding["quantity"],
-                    status="pending",
-                    source="demo-seed",
-                )
-                db.add(order)
-                db.flush()
-                fill = execute_market_fill(db, order, to_money(holding["price"]))
-                if fill is not None:
-                    holdings_created += 1
         db.commit()
-        return {"paper_seeded": True, "holdings": holdings_created}
+        return {"paper_seeded": True, "holdings": 0}
     except Exception as e:
         db.rollback()
         logger.warning("Paper account seed failed for user %s: %s", user_id, e)
