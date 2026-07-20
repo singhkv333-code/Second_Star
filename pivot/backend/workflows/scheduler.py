@@ -373,7 +373,10 @@ def _is_subdaily_cron(cron: str) -> bool:
     if len(parts) != 5:
         return False
     minute, hour = parts[0], parts[1]
-    _multi = lambda f: f == "*" or f.startswith("*/") or "," in f or "-" in f
+
+    def _multi(f: str) -> bool:
+        return f == "*" or f.startswith("*/") or "," in f or "-" in f
+
     # Hour spans many values → fires across the day. Fixed hour but a
     # multi-minute field → fires many times within that hour.
     return _multi(hour) or _multi(minute)

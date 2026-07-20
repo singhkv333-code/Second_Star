@@ -45,7 +45,6 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.models import (
-    OptionLeg,
     OptionStrategy,
     PaperFill,
     PaperLedgerEntry,
