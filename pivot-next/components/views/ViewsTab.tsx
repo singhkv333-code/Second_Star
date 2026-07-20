@@ -17,7 +17,6 @@
 
 import * as React from "react";
 import type { ViewSummary, ViewDetail, StanceIntent } from "@/lib/types";
-import { ShareButton } from "./ShareButton";
 import { ViewCard } from "./ViewCard";
 import { DEFAULT_FILTERS, type FiltersState } from "./ViewFilters";
 import { ViewCategoryBar } from "./ViewCategoryBar";
@@ -166,7 +165,6 @@ export function ViewsTab({
         >
           Opinion Markets
         </h1>
-        <ShareButton ariaLabel="Share opinions" />
       </div>
 
       {/* Category ribbon (Polymarket-style) — buckets the views by theme. The
