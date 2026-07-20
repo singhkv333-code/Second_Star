@@ -2794,6 +2794,10 @@ function FinancialsPanel({
   onBsBasisChange: (basis: "consolidated" | "standalone") => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
+  // Full MC balance sheet lives behind a toggle inside the Balance Sheet tab.
+  const [showFullBS, setShowFullBS] = useState(false);
+  const fullBsReady =
+    balanceSheet !== null && balanceSheet.available && balanceSheet.rows.length > 0;
 
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
@@ -2816,8 +2820,8 @@ function FinancialsPanel({
     : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
 
   return (
-    <div style={{ marginTop: 28 }}>
-      <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden" }}>
+    <div style={{ marginTop: 28, minWidth: 0, maxWidth: "100%" }}>
+      <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden", minWidth: 0 }}>
 
         {/* Header: title row + tabs row */}
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
@@ -2914,23 +2918,59 @@ function FinancialsPanel({
           </div>
         </div>
 
-        {tab === "financials" && (
-          <FullBalanceSheetSection
-            balanceSheet={balanceSheet}
-            basis={bsBasis}
-            onBasisChange={onBsBasisChange}
-          />
+        {/* Full balance sheet — opens inline on the Balance Sheet tab only */}
+        {tab === "financials" && fullBsReady && (
+          <div
+            className="px-2 sm:px-5"
+            style={{ borderTop: "1px solid var(--glass-border)", paddingTop: 14, paddingBottom: 14 }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowFullBS((v) => !v)}
+              aria-expanded={showFullBS}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "7px 14px", border: "1px solid var(--glass-border)",
+                borderRadius: 99, background: "transparent", cursor: "pointer",
+                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                color: "var(--text-secondary)", transition: "background 120ms, color 120ms",
+              }}
+            >
+              {showFullBS ? "Hide full balance sheet" : "View full balance sheet"}
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                style={{ transform: showFullBS ? "rotate(180deg)" : "none", transition: "transform 160ms" }}
+              />
+            </button>
+            {showFullBS && (
+              <div style={{ marginTop: 14 }}>
+                <FullBalanceSheetSection
+                  balanceSheet={balanceSheet}
+                  basis={bsBasis}
+                  onBasisChange={onBsBasisChange}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+/** Fixed width for the pinned Line-Item column. Bounding it (rather than
+ *  letting `nowrap` size it to the longest label) is what keeps the value
+ *  columns reachable on a phone — names wrap inside this width instead. */
+const LINE_ITEM_COL_W = 168;
+
 /** Full Moneycontrol balance sheet: every line item, section headers, real
- *  fiscal-year columns (not the synthetic FY_YEARS used by the summary
- *  chart above). Sourced only from a real MC scrape (mc_html/mc_api) — never
- *  yfinance, never fabricated, so this renders nothing rather than guessing
- *  when a company has no scraped balance sheet. */
+ *  fiscal-year columns (not the synthetic FY_YEARS used by the summary panel
+ *  above). A self-contained card (positioned by its caller), horizontally
+ *  scrollable with a sticky Line-Item column so the wide multi-year grid reads
+ *  well on laptop and phone alike. Sourced only from a real MC scrape
+ *  (mc_html/mc_api) — never yfinance, never fabricated, so it renders nothing
+ *  rather than guessing when a company has no scraped balance sheet. */
 function FullBalanceSheetSection({
   balanceSheet,
   basis,
@@ -2940,27 +2980,38 @@ function FullBalanceSheetSection({
   basis: "consolidated" | "standalone";
   onBasisChange: (basis: "consolidated" | "standalone") => void;
 }): React.ReactElement | null {
-  if (balanceSheet === null) {
-    return (
-      <div style={{ padding: "20px 24px", fontSize: 12.5, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>
-        Loading full balance sheet…
-      </div>
-    );
-  }
-  if (!balanceSheet.available || balanceSheet.rows.length === 0) {
-    return (
-      <div style={{ padding: "20px 24px", fontSize: 12.5, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)" }}>
-        Full balance sheet not available for this company from Moneycontrol.
-      </div>
-    );
+  // Nothing to show while loading or when no real scrape exists.
+  if (balanceSheet === null || !balanceSheet.available || balanceSheet.rows.length === 0) {
+    return null;
   }
 
   const { periods, rows, unit } = balanceSheet;
+  const cardBg = "var(--bg-primary)";
 
   return (
-    <div style={{ borderTop: "1px solid var(--glass-border)" }}>
-      <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+    <div
+      style={{
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-lg, 16px)",
+        overflow: "hidden",
+        background: cardBg,
+        minWidth: 0,
+        maxWidth: "100%",
+      }}
+    >
+      {/* Header — title + basis toggle; wraps on narrow phones */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+          padding: "14px 16px",
+          borderBottom: "1px solid var(--glass-border)",
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
           Full Balance Sheet{unit ? ` (${unit})` : ""}
         </span>
         <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
@@ -2980,16 +3031,18 @@ function FullBalanceSheetSection({
           })}
         </div>
       </div>
-      <div style={{ overflowX: "auto", padding: "0 24px 20px" }}>
-        <table style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", minWidth: "100%" }}>
+
+      {/* Grid — horizontal scroll inside the card; Line-Item column sticks */}
+      <div style={{ overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
+        <table style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", width: "max-content", minWidth: "100%" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-              <th style={{ padding: "8px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap", position: "sticky", left: 0, background: "var(--bg-primary)" }}>
+              <th style={{ padding: "10px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap", position: "sticky", left: 0, zIndex: 2, background: cardBg, borderRight: "1px solid var(--glass-border)", width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W }}>
                 Line Item
               </th>
               {periods.map((p, i) => (
                 <th key={p} style={{
-                  padding: "8px 12px", fontSize: 10.5, fontWeight: 600,
+                  padding: "10px 12px", fontSize: 10.5, fontWeight: 600,
                   textTransform: "uppercase", letterSpacing: "0.06em",
                   textAlign: "right", whiteSpace: "nowrap",
                   color: i === 0 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
@@ -3006,30 +3059,40 @@ function FullBalanceSheetSection({
               return (
                 <Fragment key={r.line_item + idx}>
                   {showSectionHeader && (
-                    <tr key={`sec-${idx}`}>
+                    <tr key={`sec-${idx}`} style={{ background: "var(--bg-base, #f8fafc)" }}>
+                      {/* Full-width band; only the label is pinned so the
+                          heading stays readable while scrolling sideways. */}
                       <td colSpan={periods.length + 1} style={{
-                        padding: "10px 12px 4px", fontSize: 10.5, fontWeight: 700,
-                        textTransform: "uppercase", letterSpacing: "0.05em",
-                        color: "var(--text-tertiary)", position: "sticky", left: 0,
+                        padding: "9px 12px", fontSize: 10, fontWeight: 700,
+                        textTransform: "uppercase", letterSpacing: "0.06em",
+                        color: "var(--text-tertiary)", whiteSpace: "nowrap",
+                        background: "var(--bg-base, #f8fafc)",
                       }}>
-                        {r.section}
+                        <span style={{ position: "sticky", left: 12, display: "inline-block" }}>
+                          {r.section}
+                        </span>
                       </td>
                     </tr>
                   )}
-                  <tr key={r.line_item + idx}
-                    style={{ borderBottom: "1px solid var(--glass-border)" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <td style={{ padding: "8px 12px 8px 20px", fontSize: 12, color: "var(--text-primary)", whiteSpace: "nowrap", position: "sticky", left: 0, background: "inherit" }}>
+                  <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
+                    <td style={{
+                      padding: "9px 12px", fontSize: 12, color: "var(--text-primary)",
+                      // Bounded + wrapping so long names can't eat the whole
+                      // phone width and squeeze the value columns off-screen.
+                      whiteSpace: "normal", lineHeight: 1.35,
+                      width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W,
+                      position: "sticky", left: 0, zIndex: 1, background: cardBg,
+                      borderRight: "1px solid var(--glass-border)",
+                    }}>
                       {r.line_item}
                     </td>
                     {periods.map((p, i) => (
                       <td key={p} className="tabular-nums" style={{
-                        padding: "8px 12px", textAlign: "right",
+                        padding: "9px 12px", textAlign: "right",
                         fontSize: 11.5, fontFamily: "var(--font-mono)",
                         fontWeight: i === 0 ? 600 : 400,
                         color: i === 0 ? "var(--text-primary)" : "var(--text-secondary)",
+                        whiteSpace: "nowrap",
                       }}>
                         {r.value_texts[p] ?? "—"}
                       </td>

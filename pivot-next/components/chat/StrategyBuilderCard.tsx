@@ -27,18 +27,19 @@
 import { useMemo, useState } from "react";
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Coins,
   GitBranch,
+  History,
   Info,
   Layers,
-  LineChart,
   Loader2,
   Save,
   ShieldAlert,
   Sparkles,
+  X,
   Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,13 @@ import { isError } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
 import { createEquityBasket, type EquityBasket } from "@/lib/agentsApi";
 import { BasketTradeModal } from "@/components/agent-panel/BasketTradeModal";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type {
   GoldInstrument,
   SelectionGate,
@@ -92,23 +100,19 @@ const GATE_LABEL: Record<SelectionGate, string> = {
 };
 
 /**
- * Allocation palette — cohesive, high-contrast hues that read in both light and
- * dark. Equity constituents cycle through these in order; the gold sleeve is
- * pinned to amber so it always reads as "gold" regardless of position.
+ * Allocation palette — the Portfolio page's "Vibrant Pivot" palette so the
+ * basket reads consistently with the rest of the product: cobalt leads, then a
+ * warm/cool rotation of orange · cyan-teal · golden yellow · dark teal · red.
+ * Equity constituents cycle through these in order; the gold sleeve is pinned
+ * to amber so it always reads as "gold" regardless of position.
  */
 const SLICE_PALETTE = [
-  "#0ea5e9", // sky
-  "#6366f1", // indigo
-  "#10b981", // emerald
-  "#ec4899", // pink
-  "#8b5cf6", // violet
-  "#14b8a6", // teal
-  "#f97316", // orange
-  "#3b82f6", // blue
-  "#a855f7", // purple
-  "#22c55e", // green
-  "#06b6d4", // cyan
-  "#ef4444", // red
+  "#1b7cc7", // cobalt blue
+  "#fb8500", // vivid orange
+  "#219ebc", // cyan teal
+  "#ffb703", // golden yellow
+  "#2c666e", // dark teal
+  "#d00000", // red
 ];
 const GOLD_COLOR = "#d97706"; // amber-600 — sleeves
 
@@ -174,11 +178,57 @@ function QuickStat({
   value: string;
 }): React.ReactElement {
   return (
-    <div className="min-w-0 text-center">
-      <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground/70">{label}</p>
-      <p className="mt-0.5 truncate text-[13.5px] font-semibold tabular-nums text-foreground">
+    <div className="flex min-w-0 flex-col items-center gap-1">
+      <p className="truncate text-[19px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
         {value}
       </p>
+      <p className="text-[10.5px] font-normal leading-none text-muted-foreground/60">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Details-panel primitives — a numeric stat tile and a method key/value row,
+// both used inside the "Overview" card at the top of the details sidebar.
+// ---------------------------------------------------------------------------
+
+function PanelStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.ReactElement {
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 py-3">
+      <p className="text-[18px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+        {value}
+      </p>
+      <p className="text-[10px] leading-none text-muted-foreground/60">{label}</p>
+    </div>
+  );
+}
+
+function MethodRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon?: LucideIcon;
+  label: string;
+  value: string;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+      <span className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden="true" />}
+        {label}
+      </span>
+      <span className="min-w-0 truncate text-right text-[12px] font-semibold text-foreground">
+        {value}
+      </span>
     </div>
   );
 }
@@ -196,7 +246,6 @@ function AllocationDonut({
   active: string | null;
   onActiveChange: (key: string | null) => void;
 }): React.ReactElement {
-  const total = slices.reduce((s, x) => s + x.pct, 0);
   const activeSlice = active ? slices.find((s) => s.key === active) ?? null : null;
 
   return (
@@ -259,11 +308,8 @@ function AllocationDonut({
             <span className="text-[17px] font-semibold leading-none tabular-nums text-foreground">
               {slices.length}
             </span>
-            <span className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground/70">
-              {slices.length === 1 ? "position" : "positions"}
-            </span>
-            <span className="text-[9px] tabular-nums text-muted-foreground/60">
-              {fmtPct(total)} allocated
+            <span className="mt-0.5 text-[10px] text-muted-foreground/70">
+              {slices.length === 1 ? "Position" : "Positions"}
             </span>
           </>
         )}
@@ -280,66 +326,92 @@ function ConstituentRow({
   c,
   index,
   color,
+  maxWeight,
   active,
   onActiveChange,
 }: {
   c: StrategyConstituent;
   index: number;
   color: string;
+  /** Largest weight in the basket — the allocation bar scales relative to it
+   *  so the biggest holding fills the track and the rest read proportionally. */
+  maxWeight: number;
   active: boolean;
   onActiveChange: (active: boolean) => void;
 }): React.ReactElement {
   const metricEntries = Object.entries(c.gate_metrics ?? {});
+  const barPct = maxWeight > 0 ? Math.max(6, (c.weight_pct / maxWeight) * 100) : 0;
   return (
     <li
       onMouseEnter={() => onActiveChange(true)}
       onMouseLeave={() => onActiveChange(false)}
       className={cn(
-        "flex flex-col rounded-lg px-2 py-1.5 transition-colors",
-        active ? "bg-muted/60" : "hover:bg-muted/40",
+        "rounded-xl px-2.5 py-2 transition-colors",
+        active ? "bg-muted/50" : "hover:bg-muted/30",
       )}
       style={{
         animation: `stepIn-quartr 320ms cubic-bezier(0.22, 1, 0.36, 1) both`,
-        animationDelay: `${index * 40}ms`,
+        animationDelay: `${index * 35}ms`,
         listStyle: "none",
       }}
     >
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
           className="h-2.5 w-2.5 shrink-0 rounded-full transition-transform"
-          style={{ background: color, transform: active ? "scale(1.25)" : undefined }}
+          style={{ background: color, transform: active ? "scale(1.2)" : undefined }}
         />
-        <span className="shrink-0 text-[12.5px] font-semibold tracking-tight text-foreground">
-          {c.symbol}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground">
-          {c.name} · {c.sector}
-        </span>
-        <span className="shrink-0 text-[12px] font-semibold tabular-nums text-foreground">
-          {fmtPct(c.weight_pct)}
-        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+              {c.symbol}
+              <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-muted-foreground/70">
+                {c.sector}
+              </span>
+            </span>
+            <span className="shrink-0 text-[12.5px] font-semibold tabular-nums text-foreground">
+              {fmtPct(c.weight_pct)}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-[10.5px] leading-none text-muted-foreground/80">
+            {c.name}
+          </p>
+          {/* Weight reason — always visible when present; a one-line
+              rationale for why this name carries its allocated weight. */}
+          {c.weight_reason && (
+            <p className="mt-1 text-[10px] leading-snug text-muted-foreground/70">
+              {c.weight_reason}
+            </p>
+          )}
+          {/* Allocation bar — proportional, tinted to the slice color */}
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted/70">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${barPct}%`,
+                background: color,
+                opacity: active ? 1 : 0.75,
+              }}
+            />
+          </div>
+        </div>
       </div>
-      {/* Weight reason — always visible when present; a one-line rationale for
-          why this name carries its allocated weight. */}
-      {c.weight_reason && (
-        <p className="mt-0.5 pl-[22px] text-[10px] leading-snug text-muted-foreground/70">
-          {c.weight_reason}
-        </p>
-      )}
       {/* Gate metrics — revealed only for the active holding (the fundamentals
           that earned the slot), so the resting list stays clean */}
       {active && metricEntries.length > 0 && (
         <div
-          className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 pl-[22px]"
+          className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-[22px]"
           style={{
             animation: "draftCardIn-quartr 200ms cubic-bezier(0.22, 1, 0.36, 1) both",
           }}
         >
           {metricEntries.map(([k, v]) => (
-            <span key={k} className="text-[10px] tabular-nums text-muted-foreground">
-              <span className="text-muted-foreground/70">{humanizeMetricKey(k)}</span>{" "}
-              <span className="font-medium text-foreground/85">{fmtMetric(k, v)}</span>
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums"
+            >
+              <span className="text-muted-foreground/70">{humanizeMetricKey(k)}</span>
+              <span className="font-semibold text-foreground/90">{fmtMetric(k, v)}</span>
             </span>
           ))}
         </div>
@@ -581,7 +653,7 @@ export function StrategyBuilderCard({
   onBacktest,
 }: StrategyBuilderCardProps): React.ReactElement {
   const tradingMode = useTradingMode();
-  const [showWhy, setShowWhy] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // The hovered/selected allocation slice key, shared by the donut and the
   // holdings/sleeve rows so the two stay in sync in both directions.
   const [active, setActive] = useState<string | null>(null);
@@ -698,6 +770,20 @@ export function StrategyBuilderCard({
   const legendCount = holdings + card.sleeves.length;
   const holdingRows = Math.ceil(legendCount / (legendCount > 7 ? 2 : 1));
 
+  // Sector composition — aggregate constituent weights by sector, heaviest
+  // first, for the "Composition" breakdown in the details panel.
+  const sectorBreakdown = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const c of card.constituents) {
+      totals.set(c.sector, (totals.get(c.sector) ?? 0) + c.weight_pct);
+    }
+    return [...totals.entries()]
+      .map(([sector, pct]) => ({ sector, pct }))
+      .sort((a, b) => b.pct - a.pct)
+      .map((s, i) => ({ ...s, color: SLICE_PALETTE[i % SLICE_PALETTE.length]! }));
+  }, [card.constituents]);
+  const sectorTotal = sectorBreakdown.reduce((sum, s) => sum + s.pct, 0);
+
   return (
     <div
       data-testid="strategy-builder-card"
@@ -712,8 +798,8 @@ export function StrategyBuilderCard({
       }}
     >
       {/* HEADER — title only; everything else lives behind Details */}
-      <div className="px-5 pt-3.5 pb-2">
-        <h3 className="truncate text-[15px] leading-[1.25] font-semibold tracking-tight text-foreground">
+      <div className="px-5 pt-4 pb-2.5">
+        <h3 className="truncate text-[16px] leading-[1.2] font-semibold tracking-tight text-foreground">
           {card.title}
         </h3>
       </div>
@@ -721,23 +807,30 @@ export function StrategyBuilderCard({
       {/* ALLOCATION — donut + division stats on the LEFT, the holdings list
           vertically on the RIGHT (wrapping into a second column when long) */}
       {slices.length > 0 && (
-        <div className="flex items-start gap-4 border-t border-border/30 px-5 py-3">
-          <div className="w-[168px] shrink-0">
+        <div className="flex flex-col items-stretch gap-4 border-t border-border/30 px-5 py-3 sm:flex-row sm:items-start">
+          <div className="w-full shrink-0 sm:w-[168px]">
             <AllocationDonut slices={slices} active={active} onActiveChange={setActive} />
             {holdings > 0 && (
-              <div className="mt-2 grid grid-cols-3 gap-1.5">
+              <div className="mt-3.5 grid grid-cols-3 gap-2">
                 <QuickStat label="Holdings" value={String(holdings)} />
                 <QuickStat label="Sectors" value={String(sectorCount)} />
                 <QuickStat label="Largest" value={fmtPct(topWeight)} />
               </div>
             )}
           </div>
+          {/* Phone: full-width two-column list under the donut (a single
+              column would run absurdly long, and the old flow-col layout ran
+              off-screen). Desktop (sm+): the original flow-down-then-across
+              list beside the donut, driven by --bs-rows. Guard on legendCount
+              (holdings + sleeves) so a gold-only sleeve still renders. */}
           {legendCount > 0 && (
             <ol
-              className="m-0 grid min-w-0 flex-1 grid-flow-col gap-x-3 self-center"
-              style={{
-                gridTemplateRows: `repeat(${holdingRows}, minmax(0, auto))`,
-              }}
+              className={cn(
+                "m-0 grid w-full min-w-0 grid-cols-2 gap-x-3 self-center",
+                "sm:w-auto sm:flex-1 sm:grid-flow-col sm:grid-cols-none",
+                "sm:[grid-template-rows:repeat(var(--bs-rows),minmax(0,auto))]",
+              )}
+              style={{ ["--bs-rows" as string]: String(holdingRows) }}
             >
               {card.constituents.map((c, i) => {
                 const key = `c:${c.symbol}`;
@@ -769,196 +862,298 @@ export function StrategyBuilderCard({
         </div>
       )}
 
-      {/* DETAILS — scheme/gate/cap chips, reasoning, per-name fundamentals,
-          sleeves, assumptions and alternatives, collapsed by default so the
-          resting card stays compact */}
-      <div className="border-t border-border/30 px-5 py-2">
-        <button
-          type="button"
-          onClick={() => setShowWhy((v) => !v)}
-          className="inline-flex w-fit items-center gap-1 text-[11px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
-          aria-expanded={showWhy}
-          data-testid="strategy-why-toggle"
+      {/* DETAILS — opens a right-side panel (same slide-in sheet pattern as the
+          backtest / workflow-editor drawers) holding scheme/gate/cap, rationale,
+          per-name fundamentals, sleeves, assumptions and alternatives, so the
+          resting card stays compact and premium */}
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen} modal={false}>
+        <SheetContent
+          side="right"
+          aria-describedby={undefined}
+          // Matched to the backtest / agent-editor side panels: a border-l,
+          // shadow-xl right surface at a proportional width, non-modal so the
+          // chat stays visible; the sheet's default chrome is dropped for a
+          // slim custom header.
+          style={{ width: "clamp(340px, 25vw, 520px)", maxWidth: "100%" }}
+          overlayClassName="basket-sheet-overlay bg-transparent pointer-events-none"
+          onInteractOutside={(e) => e.preventDefault()}
+          className="basket-sheet-shell flex flex-col gap-0 border-l bg-background p-0 shadow-xl [&>button.opacity-70]:hidden"
         >
-          {showWhy ? (
-            <ChevronUp className="h-3 w-3 shrink-0" aria-hidden="true" />
-          ) : (
-            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-          )}
-          {showWhy ? "Hide details" : "Details"}
-        </button>
-      </div>
+          <SheetTitle className="sr-only">{card.title} — details</SheetTitle>
 
-      {showWhy && (
-        <div
-          style={{
-            animation: "draftCardIn-quartr 240ms cubic-bezier(0.22, 1, 0.36, 1) both",
-          }}
-        >
-          <div className="flex flex-col gap-2 px-5 pb-3">
-            <div className="flex flex-wrap gap-1.5">
-              <span
-                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
-                data-testid="strategy-scheme"
-              >
-                <Layers className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-                {schemeLabel}
-              </span>
-              <span
-                className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85"
-                data-testid="strategy-gate"
-              >
-                <Sparkles className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-                Gate: {gateLabel}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-0.5 text-[10.5px] font-medium text-foreground/85">
-                Sector cap {fmtPct(card.sector_cap)}
-              </span>
-            </div>
-            {card.rationale && (
-              <p
-                className="rounded-xl bg-muted/60 px-3 py-2 text-[11.5px] leading-relaxed text-muted-foreground"
-                data-testid="strategy-rationale"
-              >
-                {card.rationale}
+          {/* Header — sticky slim bar with title + ghost close */}
+          <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b border-border/40 bg-background/95 px-5 py-4 backdrop-blur">
+            <div className="min-w-0">
+              <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
+                Basket
               </p>
-            )}
-          </div>
-
-          {/* Full holdings detail — name/sector + the gate fundamentals */}
-          {card.constituents.length > 0 && (
-            <div className="border-t border-border/30 px-5 py-3">
-              <ol className="m-0 flex flex-col gap-0.5">
-                {card.constituents.map((c, i) => {
-                  const key = `c:${c.symbol}`;
-                  return (
-                    <ConstituentRow
-                      key={c.symbol}
-                      c={c}
-                      index={i}
-                      color={constituentColors[i]!}
-                      active={active === key}
-                      onActiveChange={(on) => setActive(on ? key : null)}
-                    />
-                  );
-                })}
-              </ol>
+              <h4 className="mt-0.5 truncate text-[16px] font-semibold tracking-tight text-foreground">
+                {card.title}
+              </h4>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* SLEEVES — gold this phase (Details-gated) */}
-      {showWhy && card.sleeves.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-border/30 px-5 py-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            Sleeves
-          </p>
-          <div className="flex flex-col gap-2">
-            {card.sleeves.map((s, i) => {
-              const key = `s:${i}`;
-              return (
-                <SleeveBlock
-                  key={`${s.kind}-${i}`}
-                  sleeve={s}
-                  color={sleeveColors[i]!}
-                  active={active === key}
-                  onActiveChange={(on) => setActive(on ? key : null)}
-                />
-              );
-            })}
+            <SheetClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close details"
+                className="-mr-1 shrink-0 rounded-full"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </SheetClose>
           </div>
-        </div>
-      )}
 
-      {/* ASSUMPTIONS — "(assumed …)" lines (Details-gated) */}
-      {showWhy && card.assumptions.length > 0 && (
-        <div className="border-t border-border/30 px-5 py-3">
-          <p className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            Assumptions
-          </p>
-          <ul className="m-0 flex flex-col gap-1" data-testid="strategy-assumptions">
-            {card.assumptions.map((a, i) => (
-              <li key={i} className="flex items-start gap-1.5" style={{ listStyle: "none" }}>
-                <Info
-                  className="mt-px h-3 w-3 shrink-0 text-muted-foreground/60"
-                  aria-hidden="true"
-                />
-                <span className="text-[11px] leading-snug text-muted-foreground">{a}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+          {/* Body — scrollable, evenly sectioned with a consistent rhythm */}
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            {/* Overview — numeric stat strip + how-it's-built key/values */}
+            <section className="flex flex-col gap-3 px-5 py-4">
+              {holdings > 0 && (
+                <div className="grid grid-cols-3 divide-x divide-border/30">
+                  <PanelStat label="Holdings" value={String(holdings)} />
+                  <PanelStat label="Sectors" value={String(sectorCount)} />
+                  <PanelStat label="Largest" value={fmtPct(topWeight)} />
+                </div>
+              )}
+              <div className="flex flex-col divide-y divide-border/30">
+                <div data-testid="strategy-scheme">
+                  <MethodRow icon={Layers} label="Weighting" value={schemeLabel} />
+                </div>
+                <div data-testid="strategy-gate">
+                  <MethodRow icon={Sparkles} label="Selection gate" value={gateLabel} />
+                </div>
+                <MethodRow icon={ShieldAlert} label="Sector cap" value={fmtPct(card.sector_cap)} />
+              </div>
+            </section>
 
-      {/* ALTERNATIVES — "you might prefer this instead" pivots (Details-gated) */}
-      {showWhy && card.alternatives.length > 0 && (
-        <AlternativesBlock alternatives={card.alternatives} />
-      )}
-
-      {/* EDIT HINT — register-not-execute, amend-via-chat language (Details-gated) */}
-      {showWhy && (
-        <div className="border-t border-border/30 px-5 py-2.5">
-          <p className="text-[10.5px] leading-snug text-muted-foreground">
-            This is a draft you can edit — reply to re-weight, swap a name, change
-            the scheme, or resize the gold sleeve. Pivot registers the idea; you
-            confirm and place orders in your own broker app.
-          </p>
-        </div>
-      )}
-
-      {/* ACTIONS — Save as basket → Deploy / Backtest (register-not-execute) */}
-      {canSave && (
-        <div className="flex flex-col gap-2 border-t border-border/30 px-5 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {saved ? (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11.5px] font-medium text-emerald-700 dark:text-emerald-300"
-                data-testid="strategy-saved-badge"
-              >
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                Saved — find it in Agents → Strategies
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                data-testid="strategy-save"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-[11.5px] font-semibold text-white transition-colors hover:bg-sky-500 disabled:opacity-60"
-              >
-                {saving ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                )}
-                Save as basket
-              </button>
+            {/* Rationale */}
+            {card.rationale && (
+              <section className="border-t border-border/30 px-5 py-4">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/55">
+                  Rationale
+                </p>
+                <p
+                  className="text-[12px] leading-relaxed text-muted-foreground"
+                  data-testid="strategy-rationale"
+                >
+                  {card.rationale}
+                </p>
+              </section>
             )}
 
+            {/* Composition — one segmented allocation bar by sector + legend */}
+            {sectorBreakdown.length > 1 && sectorTotal > 0 && (
+              <section className="border-t border-border/30 px-5 py-4">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/55">
+                  Composition
+                </p>
+                <div className="flex h-2.5 w-full overflow-hidden rounded-full">
+                  {sectorBreakdown.map((s) => (
+                    <div
+                      key={s.sector}
+                      className="h-full first:rounded-l-full last:rounded-r-full"
+                      style={{
+                        width: `${(s.pct / sectorTotal) * 100}%`,
+                        background: s.color,
+                      }}
+                      title={`${s.sector} · ${fmtPct(s.pct)}`}
+                    />
+                  ))}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2">
+                  {sectorBreakdown.map((s) => (
+                    <div key={s.sector} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        aria-hidden="true"
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ background: s.color }}
+                      />
+                      <span className="min-w-0 flex-1 truncate uppercase tracking-wide text-muted-foreground">
+                        {s.sector}
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                        {fmtPct(s.pct)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Holdings */}
+            {card.constituents.length > 0 && (
+              <section className="border-t border-border/30 px-5 py-4">
+                <div className="mb-2.5 flex items-baseline justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/55">
+                    Holdings
+                  </p>
+                  <span className="text-[10.5px] font-medium tabular-nums text-muted-foreground/60">
+                    {card.constituents.length}
+                  </span>
+                </div>
+                <ol className="m-0 flex flex-col gap-0.5">
+                  {card.constituents.map((c, i) => {
+                    const key = `c:${c.symbol}`;
+                    return (
+                      <ConstituentRow
+                        key={c.symbol}
+                        c={c}
+                        index={i}
+                        color={constituentColors[i]!}
+                        maxWeight={topWeight}
+                        active={active === key}
+                        onActiveChange={(on) => setActive(on ? key : null)}
+                      />
+                    );
+                  })}
+                </ol>
+              </section>
+            )}
+
+            {/* Sleeves */}
+            {card.sleeves.length > 0 && (
+              <section className="flex flex-col gap-2.5 border-t border-border/30 px-5 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/55">
+                  Sleeves
+                </p>
+                <div className="flex flex-col gap-2">
+                  {card.sleeves.map((s, i) => {
+                    const key = `s:${i}`;
+                    return (
+                      <SleeveBlock
+                        key={`${s.kind}-${i}`}
+                        sleeve={s}
+                        color={sleeveColors[i]!}
+                        active={active === key}
+                        onActiveChange={(on) => setActive(on ? key : null)}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Assumptions */}
+            {card.assumptions.length > 0 && (
+              <section className="border-t border-border/30 px-5 py-4">
+                <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/55">
+                  Assumptions
+                </p>
+                <ul className="m-0 flex flex-col gap-2" data-testid="strategy-assumptions">
+                  {card.assumptions.map((a, i) => (
+                    <li key={i} className="flex items-start gap-2" style={{ listStyle: "none" }}>
+                      <Info
+                        className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/50"
+                        aria-hidden="true"
+                      />
+                      <span className="block text-[11.5px] leading-snug text-muted-foreground first-letter:uppercase">
+                        {a}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Alternatives */}
+            {card.alternatives.length > 0 && (
+              <AlternativesBlock alternatives={card.alternatives} />
+            )}
+
+            {/* Edit hint */}
+            <div className="border-t border-border/30 bg-muted/20 px-5 py-4">
+              <p className="text-[11px] leading-snug text-muted-foreground/90">
+                This is a draft you can edit — reply to re-weight, swap a name, change
+                the scheme, or resize the gold sleeve. Pivot registers the idea; you
+                confirm and place orders in your own broker app.
+              </p>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ACTIONS — one primary pill (Save → Deploy) with secondary actions as
+          ghost links beneath, matching the other draft cards' CTA rail */}
+      {canSave && (
+        <div className="flex flex-col gap-2.5 border-t border-border/40 px-5 py-3.5">
+          {/* PRIMARY CTA — morphs from Save to Deploy once the basket is saved */}
+          {saved ? (
             <button
               type="button"
               onClick={() => setTradeOpen(true)}
-              disabled={!saved}
               data-testid="strategy-deploy"
-              title={saved ? "Deploy this basket" : "Save the basket first to deploy it"}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-muted/70 disabled:opacity-50"
+              title="Deploy this basket"
+              className={cn(
+                "inline-flex h-8 w-full items-center justify-center gap-2 rounded-full bg-primary text-[12px] font-medium tracking-tight text-primary-foreground transition-all",
+                "hover:bg-primary/90 active:scale-[0.98]",
+              )}
             >
-              <Zap className="h-3.5 w-3.5" aria-hidden="true" />
-              Deploy
+              <Zap className="h-4 w-4 shrink-0" aria-hidden="true" />
+              Deploy basket
             </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              data-testid="strategy-save"
+              className={cn(
+                "inline-flex h-8 w-full items-center justify-center gap-2 rounded-full bg-primary text-[12px] font-medium tracking-tight text-primary-foreground transition-all",
+                "hover:bg-primary/90 active:scale-[0.98]",
+                "disabled:cursor-not-allowed disabled:opacity-70",
+              )}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  Save as basket
+                </>
+              )}
+            </button>
+          )}
 
-            {onBacktest && (
-              <button
-                type="button"
-                onClick={() => onBacktest(backtestMessage)}
-                data-testid="strategy-backtest"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-muted/70"
-              >
-                <LineChart className="h-3.5 w-3.5" aria-hidden="true" />
-                Backtest
-              </button>
+          {/* SECONDARY — ghost links: saved state · backtest · details */}
+          <div className="flex items-center justify-center gap-1 text-[11.5px]">
+            {saved && (
+              <>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-emerald-600 dark:text-emerald-400"
+                  data-testid="strategy-saved-badge"
+                  title="Find it in Agents → Strategies"
+                >
+                  <Check className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  Saved
+                </span>
+                <span className="text-muted-foreground/40">·</span>
+              </>
             )}
+            {onBacktest && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onBacktest(backtestMessage)}
+                  data-testid="strategy-backtest"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  <History className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  Backtest
+                </button>
+                <span className="text-muted-foreground/40">·</span>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              data-testid="strategy-why-toggle"
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            >
+              Details
+              <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+            </button>
           </div>
 
           {omittedSleeveLegs.length > 0 && saved && (
