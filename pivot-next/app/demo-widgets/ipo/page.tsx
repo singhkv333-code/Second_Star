@@ -611,13 +611,6 @@ export default function IpoWidgetSandbox(): React.ReactElement {
         <Variant label="Populated — click Apply to slide in the application panel →">
           <IpoListCard
             payload={LIST_POPULATED}
-            onSelectIpo={(sym) => {
-              noop(`apply for the ${sym} IPO`);
-              setApplyEntrance("slide");
-              setApplySuppressBackdrop(false);
-              setAppliedSymbol(sym);
-            }}
-            onRemindIpo={(sym) => noop(`set up open-day reminders for the ${sym} IPO`)}
             onKnowMore={(sym) => {
               noop(`know more about the ${sym} IPO`);
               setDetailSymbol(sym);
@@ -690,10 +683,10 @@ export default function IpoWidgetSandbox(): React.ReactElement {
 
       <Section title="IpoListCard — other states">
         <Variant label="Empty (feed reachable, 0 issues)">
-          <IpoListCard payload={LIST_EMPTY} onSelectIpo={noop} onRemindIpo={noop} />
+          <IpoListCard payload={LIST_EMPTY} />
         </Variant>
         <Variant label="Unreachable feed">
-          <IpoListCard payload={LIST_UNREACHABLE} onSelectIpo={noop} onRemindIpo={noop} />
+          <IpoListCard payload={LIST_UNREACHABLE} />
         </Variant>
       </Section>
 
