@@ -19,657 +19,23 @@
       "letter": null
     },
     "best_expression": {
-      "id": "renewable-conservative",
-      "tier": "conservative",
+      "id": "renewable-leaders",
+      "tier": "balanced",
       "expression_kind": "basket",
       "grade": null,
       "trust_verdict": "unproven",
-      "total_return_pct": 8.74,
-      "excess_return_pct": 3.39,
-      "plain_label": "Own a bundle of 9 renewable-energy firms",
-      "nifty_total_pct": 5.71,
-      "n_episodes": 32,
-      "pct_episodes_beat": 56,
-      "worst_drop_pct": -31.5,
-      "equity_curve": [
-        {
-          "t": "0",
-          "strategy": 100000,
-          "benchmark": 100000
-        },
-        {
-          "t": "1",
-          "strategy": 99681.02,
-          "benchmark": 100080.81
-        },
-        {
-          "t": "2",
-          "strategy": 99582.89,
-          "benchmark": 100163.78
-        },
-        {
-          "t": "3",
-          "strategy": 99895.26,
-          "benchmark": 100377.49
-        },
-        {
-          "t": "4",
-          "strategy": 99844.59,
-          "benchmark": 100495.68
-        },
-        {
-          "t": "5",
-          "strategy": 99732.78,
-          "benchmark": 100601.5
-        },
-        {
-          "t": "6",
-          "strategy": 99866.47,
-          "benchmark": 100577.89
-        },
-        {
-          "t": "7",
-          "strategy": 100100.87,
-          "benchmark": 100623.05
-        },
-        {
-          "t": "8",
-          "strategy": 100453.64,
-          "benchmark": 100778.46
-        },
-        {
-          "t": "9",
-          "strategy": 100270.55,
-          "benchmark": 100738.43
-        },
-        {
-          "t": "10",
-          "strategy": 99978.58,
-          "benchmark": 100447.11
-        },
-        {
-          "t": "11",
-          "strategy": 99729.03,
-          "benchmark": 100260.92
-        },
-        {
-          "t": "12",
-          "strategy": 99614.59,
-          "benchmark": 100333.27
-        },
-        {
-          "t": "13",
-          "strategy": 99726.52,
-          "benchmark": 100470.32
-        },
-        {
-          "t": "14",
-          "strategy": 99655.36,
-          "benchmark": 100393.33
-        },
-        {
-          "t": "15",
-          "strategy": 99797.75,
-          "benchmark": 100653.18
-        },
-        {
-          "t": "16",
-          "strategy": 100028.96,
-          "benchmark": 100789.9
-        },
-        {
-          "t": "17",
-          "strategy": 100249.29,
-          "benchmark": 100784.98
-        },
-        {
-          "t": "18",
-          "strategy": 100381.59,
-          "benchmark": 100957.93
-        },
-        {
-          "t": "19",
-          "strategy": 100840.75,
-          "benchmark": 101350.56
-        },
-        {
-          "t": "20",
-          "strategy": 100696.21,
-          "benchmark": 101262.85
-        },
-        {
-          "t": "21",
-          "strategy": 100612,
-          "benchmark": 101101.12
-        },
-        {
-          "t": "22",
-          "strategy": 100703.79,
-          "benchmark": 101301.71
-        },
-        {
-          "t": "23",
-          "strategy": 100777.88,
-          "benchmark": 101266
-        },
-        {
-          "t": "24",
-          "strategy": 100864.6,
-          "benchmark": 101384.82
-        },
-        {
-          "t": "25",
-          "strategy": 101208.37,
-          "benchmark": 101938.54
-        },
-        {
-          "t": "26",
-          "strategy": 101289.73,
-          "benchmark": 102042.43
-        },
-        {
-          "t": "27",
-          "strategy": 101329.53,
-          "benchmark": 101963.76
-        },
-        {
-          "t": "28",
-          "strategy": 101626.36,
-          "benchmark": 102305.14
-        },
-        {
-          "t": "29",
-          "strategy": 102158.55,
-          "benchmark": 102486.15
-        },
-        {
-          "t": "30",
-          "strategy": 102066.88,
-          "benchmark": 102443.34
-        },
-        {
-          "t": "31",
-          "strategy": 101987.81,
-          "benchmark": 102481.27
-        },
-        {
-          "t": "32",
-          "strategy": 102250.58,
-          "benchmark": 102531.83
-        },
-        {
-          "t": "33",
-          "strategy": 102651.37,
-          "benchmark": 102885.73
-        },
-        {
-          "t": "34",
-          "strategy": 102638.01,
-          "benchmark": 102694.61
-        },
-        {
-          "t": "35",
-          "strategy": 102734.65,
-          "benchmark": 102607.54
-        },
-        {
-          "t": "36",
-          "strategy": 102790.05,
-          "benchmark": 102629.77
-        },
-        {
-          "t": "37",
-          "strategy": 102634.89,
-          "benchmark": 102449.81
-        },
-        {
-          "t": "38",
-          "strategy": 102419.26,
-          "benchmark": 102227.62
-        },
-        {
-          "t": "39",
-          "strategy": 102364.2,
-          "benchmark": 102067.54
-        },
-        {
-          "t": "40",
-          "strategy": 102346.8,
-          "benchmark": 102053.38
-        },
-        {
-          "t": "41",
-          "strategy": 102131.44,
-          "benchmark": 101964.99
-        },
-        {
-          "t": "42",
-          "strategy": 102306.25,
-          "benchmark": 102061.84
-        },
-        {
-          "t": "43",
-          "strategy": 102244.06,
-          "benchmark": 101934.04
-        },
-        {
-          "t": "44",
-          "strategy": 102106.67,
-          "benchmark": 102018.81
-        },
-        {
-          "t": "45",
-          "strategy": 102229.28,
-          "benchmark": 102071.34
-        },
-        {
-          "t": "46",
-          "strategy": 102135.77,
-          "benchmark": 101886.62
-        },
-        {
-          "t": "47",
-          "strategy": 102341.5,
-          "benchmark": 101776.92
-        },
-        {
-          "t": "48",
-          "strategy": 102477.89,
-          "benchmark": 101900.83
-        },
-        {
-          "t": "49",
-          "strategy": 102617.51,
-          "benchmark": 101946.99
-        },
-        {
-          "t": "50",
-          "strategy": 103058.34,
-          "benchmark": 102240.9
-        },
-        {
-          "t": "51",
-          "strategy": 103362.61,
-          "benchmark": 102386.72
-        },
-        {
-          "t": "52",
-          "strategy": 103549.81,
-          "benchmark": 102457.55
-        },
-        {
-          "t": "53",
-          "strategy": 103273.08,
-          "benchmark": 102327.69
-        },
-        {
-          "t": "54",
-          "strategy": 103312.68,
-          "benchmark": 102421.72
-        },
-        {
-          "t": "55",
-          "strategy": 103441.45,
-          "benchmark": 102467.21
-        },
-        {
-          "t": "56",
-          "strategy": 103822.68,
-          "benchmark": 102542.82
-        },
-        {
-          "t": "57",
-          "strategy": 103740.13,
-          "benchmark": 102322.35
-        },
-        {
-          "t": "58",
-          "strategy": 103923.04,
-          "benchmark": 102496.16
-        },
-        {
-          "t": "59",
-          "strategy": 104115.43,
-          "benchmark": 102661.29
-        },
-        {
-          "t": "60",
-          "strategy": 104444.61,
-          "benchmark": 102887.73
-        },
-        {
-          "t": "61",
-          "strategy": 104670.62,
-          "benchmark": 102900.29
-        },
-        {
-          "t": "62",
-          "strategy": 104527.13,
-          "benchmark": 102725.87
-        },
-        {
-          "t": "63",
-          "strategy": 104409.87,
-          "benchmark": 102613.56
-        },
-        {
-          "t": "64",
-          "strategy": 104665.23,
-          "benchmark": 102857.29
-        },
-        {
-          "t": "65",
-          "strategy": 104882.2,
-          "benchmark": 103014.88
-        },
-        {
-          "t": "66",
-          "strategy": 104592.81,
-          "benchmark": 102860.72
-        },
-        {
-          "t": "67",
-          "strategy": 104601.03,
-          "benchmark": 102700.84
-        },
-        {
-          "t": "68",
-          "strategy": 104860.81,
-          "benchmark": 102886.85
-        },
-        {
-          "t": "69",
-          "strategy": 105215.95,
-          "benchmark": 103162.73
-        },
-        {
-          "t": "70",
-          "strategy": 105277.59,
-          "benchmark": 103251.62
-        },
-        {
-          "t": "71",
-          "strategy": 105554.3,
-          "benchmark": 103050.82
-        },
-        {
-          "t": "72",
-          "strategy": 105405.35,
-          "benchmark": 102883.99
-        },
-        {
-          "t": "73",
-          "strategy": 105313.47,
-          "benchmark": 102759.28
-        },
-        {
-          "t": "74",
-          "strategy": 105146.57,
-          "benchmark": 102873.14
-        },
-        {
-          "t": "75",
-          "strategy": 105421.15,
-          "benchmark": 103112.93
-        },
-        {
-          "t": "76",
-          "strategy": 105525.12,
-          "benchmark": 103262.87
-        },
-        {
-          "t": "77",
-          "strategy": 105907.44,
-          "benchmark": 103404.23
-        },
-        {
-          "t": "78",
-          "strategy": 105713.21,
-          "benchmark": 103227.01
-        },
-        {
-          "t": "79",
-          "strategy": 105577.55,
-          "benchmark": 103413.8
-        },
-        {
-          "t": "80",
-          "strategy": 105375.97,
-          "benchmark": 103247.57
-        },
-        {
-          "t": "81",
-          "strategy": 105449.05,
-          "benchmark": 103410.32
-        },
-        {
-          "t": "82",
-          "strategy": 105331.83,
-          "benchmark": 103356.34
-        },
-        {
-          "t": "83",
-          "strategy": 105404.57,
-          "benchmark": 103332.82
-        },
-        {
-          "t": "84",
-          "strategy": 105275.33,
-          "benchmark": 103191.09
-        },
-        {
-          "t": "85",
-          "strategy": 105184.88,
-          "benchmark": 102881.38
-        },
-        {
-          "t": "86",
-          "strategy": 104867.7,
-          "benchmark": 102715.42
-        },
-        {
-          "t": "87",
-          "strategy": 104937.6,
-          "benchmark": 102954.19
-        },
-        {
-          "t": "88",
-          "strategy": 105248.19,
-          "benchmark": 103262.63
-        },
-        {
-          "t": "89",
-          "strategy": 105389.85,
-          "benchmark": 103412.7
-        },
-        {
-          "t": "90",
-          "strategy": 105165.53,
-          "benchmark": 103000.21
-        },
-        {
-          "t": "91",
-          "strategy": 105013.91,
-          "benchmark": 103030.41
-        },
-        {
-          "t": "92",
-          "strategy": 104858.22,
-          "benchmark": 102922.07
-        },
-        {
-          "t": "93",
-          "strategy": 105146.17,
-          "benchmark": 103053.2
-        },
-        {
-          "t": "94",
-          "strategy": 104875.84,
-          "benchmark": 102990.78
-        },
-        {
-          "t": "95",
-          "strategy": 104763.06,
-          "benchmark": 103081.34
-        },
-        {
-          "t": "96",
-          "strategy": 105114.35,
-          "benchmark": 103315.93
-        },
-        {
-          "t": "97",
-          "strategy": 105491.45,
-          "benchmark": 103607.17
-        },
-        {
-          "t": "98",
-          "strategy": 105503.5,
-          "benchmark": 103618.77
-        },
-        {
-          "t": "99",
-          "strategy": 105345.39,
-          "benchmark": 103371.4
-        },
-        {
-          "t": "100",
-          "strategy": 105630.45,
-          "benchmark": 103363.04
-        },
-        {
-          "t": "101",
-          "strategy": 105751.15,
-          "benchmark": 103487.91
-        },
-        {
-          "t": "102",
-          "strategy": 105919.03,
-          "benchmark": 103358.94
-        },
-        {
-          "t": "103",
-          "strategy": 105703.28,
-          "benchmark": 103478.26
-        },
-        {
-          "t": "104",
-          "strategy": 105671.62,
-          "benchmark": 103430.1
-        },
-        {
-          "t": "105",
-          "strategy": 105775.95,
-          "benchmark": 102973.45
-        },
-        {
-          "t": "106",
-          "strategy": 106025.88,
-          "benchmark": 103147.16
-        },
-        {
-          "t": "107",
-          "strategy": 106178.06,
-          "benchmark": 103405.3
-        },
-        {
-          "t": "108",
-          "strategy": 106245.86,
-          "benchmark": 103566.14
-        },
-        {
-          "t": "109",
-          "strategy": 106139.22,
-          "benchmark": 103415.95
-        },
-        {
-          "t": "110",
-          "strategy": 106003.04,
-          "benchmark": 103218.35
-        },
-        {
-          "t": "111",
-          "strategy": 106058.53,
-          "benchmark": 103479.51
-        },
-        {
-          "t": "112",
-          "strategy": 106015.22,
-          "benchmark": 103558.32
-        },
-        {
-          "t": "113",
-          "strategy": 106359.87,
-          "benchmark": 103798.23
-        },
-        {
-          "t": "114",
-          "strategy": 106728.37,
-          "benchmark": 103766.01
-        },
-        {
-          "t": "115",
-          "strategy": 106232.04,
-          "benchmark": 103735.99
-        },
-        {
-          "t": "116",
-          "strategy": 106198.7,
-          "benchmark": 103915.36
-        },
-        {
-          "t": "117",
-          "strategy": 106483.97,
-          "benchmark": 104093.03
-        },
-        {
-          "t": "118",
-          "strategy": 106713.36,
-          "benchmark": 104251.41
-        },
-        {
-          "t": "119",
-          "strategy": 106896.87,
-          "benchmark": 104135.76
-        },
-        {
-          "t": "120",
-          "strategy": 107206,
-          "benchmark": 104060.33
-        },
-        {
-          "t": "121",
-          "strategy": 107484.83,
-          "benchmark": 104312.78
-        },
-        {
-          "t": "122",
-          "strategy": 107613.13,
-          "benchmark": 104564.54
-        },
-        {
-          "t": "123",
-          "strategy": 107897.59,
-          "benchmark": 104988.71
-        },
-        {
-          "t": "124",
-          "strategy": 107985.8,
-          "benchmark": 105164.29
-        },
-        {
-          "t": "125",
-          "strategy": 108247.17,
-          "benchmark": 105353.57
-        },
-        {
-          "t": "126",
-          "strategy": 108341.65,
-          "benchmark": 105431.74
-        }
-      ],
-      "pct_positive": 65.6,
-      "n_positive": 21
+      "total_return_pct": 57.77,
+      "excess_return_pct": 34.66,
+      "plain_label": "Renewable Leaders",
+      "nifty_total_pct": 23.12,
+      "n_episodes": null,
+      "pct_episodes_beat": null,
+      "worst_drop_pct": null,
+      "equity_curve": null,
+      "pct_positive": null,
+      "n_positive": null,
+      "cagr_pct": 16.53,
+      "curve_years": 2.98
     },
     "expression_count": 3,
     "transmission_count": 2,
@@ -690,15 +56,15 @@
         "summary": "If the build-out slows, these names likely track the market — broad equity exposure is the steadier bet."
       }
     },
-    "best_episode_pct": 31.4,
-    "best_episode_label": "Window 12",
+    "best_episode_pct": null,
+    "best_episode_label": null,
     "coming_soon": false
   },
   {
     "id": "gold",
     "view_type": "event",
     "title": "Will Gold prices rise?",
-    "thesis": "When gold keeps climbing, jewellers and gold-loan firms tend to do well.",
+    "thesis": "Hold the metal itself, through ETFs, rather than the companies that trade in it.",
     "category": "Commodity · Event",
     "time_horizon": "Dynamic",
     "status": "open",
@@ -714,350 +80,31 @@
       "letter": null
     },
     "best_expression": {
-      "id": "gold-conservative",
+      "id": "gold-etf",
       "tier": "conservative",
       "expression_kind": "basket",
       "grade": null,
-      "trust_verdict": "promising",
-      "total_return_pct": 6.38,
-      "excess_return_pct": 6.81,
-      "plain_label": "Own a bundle of 4 gold-linked firms",
-      "nifty_total_pct": 1.24,
-      "n_episodes": 20,
-      "pct_episodes_beat": 84,
-      "worst_drop_pct": -20.1,
-      "equity_curve": [
-        {
-          "t": "0",
-          "strategy": 100000,
-          "benchmark": 100000
-        },
-        {
-          "t": "1",
-          "strategy": 99956.27,
-          "benchmark": 100382.09
-        },
-        {
-          "t": "2",
-          "strategy": 99971.69,
-          "benchmark": 100594.18
-        },
-        {
-          "t": "3",
-          "strategy": 100087.34,
-          "benchmark": 100466.18
-        },
-        {
-          "t": "4",
-          "strategy": 100365.03,
-          "benchmark": 100448.02
-        },
-        {
-          "t": "5",
-          "strategy": 101164.03,
-          "benchmark": 100887.2
-        },
-        {
-          "t": "6",
-          "strategy": 101622.25,
-          "benchmark": 100912.58
-        },
-        {
-          "t": "7",
-          "strategy": 102317.37,
-          "benchmark": 100973.57
-        },
-        {
-          "t": "8",
-          "strategy": 102534.47,
-          "benchmark": 100882.31
-        },
-        {
-          "t": "9",
-          "strategy": 102361.86,
-          "benchmark": 100783.62
-        },
-        {
-          "t": "10",
-          "strategy": 101901.8,
-          "benchmark": 100264.72
-        },
-        {
-          "t": "11",
-          "strategy": 101913.72,
-          "benchmark": 100481.92
-        },
-        {
-          "t": "12",
-          "strategy": 102009.89,
-          "benchmark": 100614.98
-        },
-        {
-          "t": "13",
-          "strategy": 102306.39,
-          "benchmark": 100653.14
-        },
-        {
-          "t": "14",
-          "strategy": 101849.26,
-          "benchmark": 100403.54
-        },
-        {
-          "t": "15",
-          "strategy": 101839.8,
-          "benchmark": 100436.69
-        },
-        {
-          "t": "16",
-          "strategy": 101990.7,
-          "benchmark": 100668.62
-        },
-        {
-          "t": "17",
-          "strategy": 102295.01,
-          "benchmark": 100834.26
-        },
-        {
-          "t": "18",
-          "strategy": 102132.05,
-          "benchmark": 100891.87
-        },
-        {
-          "t": "19",
-          "strategy": 102062.03,
-          "benchmark": 101028.95
-        },
-        {
-          "t": "20",
-          "strategy": 102097.12,
-          "benchmark": 101100.45
-        },
-        {
-          "t": "21",
-          "strategy": 101958.91,
-          "benchmark": 100911.81
-        },
-        {
-          "t": "22",
-          "strategy": 102484.35,
-          "benchmark": 101207.09
-        },
-        {
-          "t": "23",
-          "strategy": 102790.03,
-          "benchmark": 101403.06
-        },
-        {
-          "t": "24",
-          "strategy": 103076.21,
-          "benchmark": 101450.35
-        },
-        {
-          "t": "25",
-          "strategy": 103051.13,
-          "benchmark": 101469.25
-        },
-        {
-          "t": "26",
-          "strategy": 103081.34,
-          "benchmark": 101633.1
-        },
-        {
-          "t": "27",
-          "strategy": 103169.16,
-          "benchmark": 101475.82
-        },
-        {
-          "t": "28",
-          "strategy": 103198.43,
-          "benchmark": 101306.36
-        },
-        {
-          "t": "29",
-          "strategy": 103589.41,
-          "benchmark": 101421.98
-        },
-        {
-          "t": "30",
-          "strategy": 103874.16,
-          "benchmark": 101283.09
-        },
-        {
-          "t": "31",
-          "strategy": 104152.13,
-          "benchmark": 101407.1
-        },
-        {
-          "t": "32",
-          "strategy": 103950.72,
-          "benchmark": 101466.11
-        },
-        {
-          "t": "33",
-          "strategy": 103889.14,
-          "benchmark": 101844.01
-        },
-        {
-          "t": "34",
-          "strategy": 103571.63,
-          "benchmark": 101952.29
-        },
-        {
-          "t": "35",
-          "strategy": 103461.26,
-          "benchmark": 101999.3
-        },
-        {
-          "t": "36",
-          "strategy": 103401.33,
-          "benchmark": 101771.96
-        },
-        {
-          "t": "37",
-          "strategy": 103484.3,
-          "benchmark": 101674.42
-        },
-        {
-          "t": "38",
-          "strategy": 103401.84,
-          "benchmark": 101474.66
-        },
-        {
-          "t": "39",
-          "strategy": 103146.25,
-          "benchmark": 101477.42
-        },
-        {
-          "t": "40",
-          "strategy": 103734.51,
-          "benchmark": 101819.19
-        },
-        {
-          "t": "41",
-          "strategy": 103756.15,
-          "benchmark": 101646.14
-        },
-        {
-          "t": "42",
-          "strategy": 103603.41,
-          "benchmark": 101492
-        },
-        {
-          "t": "43",
-          "strategy": 104173.77,
-          "benchmark": 101749.89
-        },
-        {
-          "t": "44",
-          "strategy": 104326.51,
-          "benchmark": 101865.26
-        },
-        {
-          "t": "45",
-          "strategy": 104934.25,
-          "benchmark": 101888.04
-        },
-        {
-          "t": "46",
-          "strategy": 104742.18,
-          "benchmark": 101765.25
-        },
-        {
-          "t": "47",
-          "strategy": 104286.75,
-          "benchmark": 101791.81
-        },
-        {
-          "t": "48",
-          "strategy": 104366.42,
-          "benchmark": 101595.91
-        },
-        {
-          "t": "49",
-          "strategy": 104117.15,
-          "benchmark": 101565.09
-        },
-        {
-          "t": "50",
-          "strategy": 104609.65,
-          "benchmark": 101851.67
-        },
-        {
-          "t": "51",
-          "strategy": 104833.35,
-          "benchmark": 102201.56
-        },
-        {
-          "t": "52",
-          "strategy": 104668.61,
-          "benchmark": 102022.89
-        },
-        {
-          "t": "53",
-          "strategy": 104715.14,
-          "benchmark": 101849.4
-        },
-        {
-          "t": "54",
-          "strategy": 104902.33,
-          "benchmark": 102198.06
-        },
-        {
-          "t": "55",
-          "strategy": 105378.7,
-          "benchmark": 102344.6
-        },
-        {
-          "t": "56",
-          "strategy": 105533.07,
-          "benchmark": 102413.52
-        },
-        {
-          "t": "57",
-          "strategy": 105103.38,
-          "benchmark": 102156.62
-        },
-        {
-          "t": "58",
-          "strategy": 105329.76,
-          "benchmark": 102284.8
-        },
-        {
-          "t": "59",
-          "strategy": 105294.43,
-          "benchmark": 102375.97
-        },
-        {
-          "t": "60",
-          "strategy": 105537.38,
-          "benchmark": 102673.08
-        },
-        {
-          "t": "61",
-          "strategy": 105749.61,
-          "benchmark": 102520.26
-        },
-        {
-          "t": "62",
-          "strategy": 105549.66,
-          "benchmark": 102348.16
-        },
-        {
-          "t": "63",
-          "strategy": 105988.01,
-          "benchmark": 102396.07
-        }
-      ],
-      "pct_positive": 75,
-      "n_positive": 15
+      "trust_verdict": "unproven",
+      "total_return_pct": 134.57,
+      "excess_return_pct": 111.45,
+      "plain_label": "Gold ETF",
+      "nifty_total_pct": 23.12,
+      "n_episodes": null,
+      "pct_episodes_beat": null,
+      "worst_drop_pct": null,
+      "equity_curve": null,
+      "pct_positive": null,
+      "n_positive": null,
+      "cagr_pct": 33.1,
+      "curve_years": 2.98
     },
-    "expression_count": 2,
+    "expression_count": 3,
     "transmission_count": 2,
     "follower_count": 0,
     "is_following": false,
     "is_developing": false,
     "plain_one_liner": "Will Gold prices rise?",
-    "plain_summary": "When gold keeps climbing, jewellers and gold-loan firms tend to do well.",
+    "plain_summary": "Hold the metal itself, through ETFs, rather than the companies that trade in it.",
     "short_title": "Will Gold prices rise?",
     "stance": {
       "yes": {
@@ -1070,15 +117,15 @@
         "summary": "If gold stalls instead, gold-linked stocks likely just tread water — broad equity exposure is the steadier bet."
       }
     },
-    "best_episode_pct": 18.7,
-    "best_episode_label": "Window 9",
+    "best_episode_pct": null,
+    "best_episode_label": null,
     "coming_soon": false
   },
   {
     "id": "monsoon",
     "view_type": "theme",
     "title": "Will India have a good monsoon this season?",
-    "thesis": "A strong monsoon lifts rural demand — tractors, fertilisers, two-wheelers and FMCG.",
+    "thesis": "A strong monsoon lifts rural demand - tractors, fertilisers, two-wheelers and FMCG.",
     "category": "Monsoon · Event",
     "time_horizon": "One season",
     "status": "open",
@@ -1099,16 +146,16 @@
       "expression_kind": "basket",
       "grade": null,
       "trust_verdict": null,
-      "total_return_pct": null,
-      "excess_return_pct": null,
+      "total_return_pct": 33.37,
+      "excess_return_pct": 10.25,
       "plain_label": "Own 7 quality monsoon-beneficiary firms",
-      "nifty_total_pct": null,
+      "nifty_total_pct": 23.12,
       "n_episodes": null,
       "pct_episodes_beat": null,
       "worst_drop_pct": null,
       "equity_curve": [],
-      "pct_positive": 64.5,
-      "n_positive": 20
+      "cagr_pct": 10.14,
+      "curve_years": 2.98
     },
     "expression_count": 2,
     "transmission_count": 2,
@@ -1116,7 +163,7 @@
     "is_following": false,
     "is_developing": false,
     "plain_one_liner": "Will India have a good monsoon this season?",
-    "plain_summary": "A strong monsoon lifts rural demand — tractors, fertilisers, two-wheelers and FMCG.",
+    "plain_summary": "A strong monsoon lifts rural demand - tractors, fertilisers, two-wheelers and FMCG.",
     "short_title": "Will India have a good monsoon this season?",
     "stance": {
       "yes": {
@@ -1129,8 +176,8 @@
         "summary": "A weak monsoon squeezes rural spending — these names usually lag, so broad equity exposure is the steadier bet."
       }
     },
-    "best_episode_pct": 24.2,
-    "best_episode_label": "Window 7",
+    "best_episode_pct": null,
+    "best_episode_label": null,
     "coming_soon": false
   },
   {

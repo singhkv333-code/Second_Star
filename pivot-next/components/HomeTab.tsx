@@ -936,7 +936,13 @@ function PortfolioSummaryCard({
       ) : state.kind === "empty" ? (
         <EmptyHint
           icon={PieChart}
-          text="Connect a broker to see your holdings and P&L here."
+          // Paper trading never touches a broker, so prompting to connect one
+          // is asking for something the mode does not use.
+          text={
+            mode === "paper"
+              ? "No paper positions yet. Your simulated holdings and P&L will show here."
+              : "Connect a broker to see your holdings and P&L here."
+          }
           cta="Go to Portfolio"
           onClick={() => onGoTab("portfolio")}
         />

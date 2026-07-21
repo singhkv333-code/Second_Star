@@ -50,19 +50,31 @@ export function StrategiesEditorial({
 }): React.ReactElement | null {
   if (expressions.length === 0) return null;
 
+  // A basket card carries a holdings table, so it needs real width. Three fit
+  // across the 1360px content width only once the card padding and cell
+  // padding are tightened (see the three-up block below); beyond three the
+  // table would scroll sideways behind its hidden scrollbar, so the row wraps.
+  const columns = basketMode
+    ? Math.min(expressions.length, 3)
+    : expressions.length;
+  const threeUp = basketMode && columns === 3;
+  // Row-alignment via subgrid only holds for a single row of cards; once the
+  // grid wraps, the shared tracks no longer line anything up.
+  const wraps = expressions.length > columns;
+
   return (
     <div className="vwd-strats">
       <style>{`
         .vwd-strats {
           display: grid;
-          grid-template-columns: repeat(${expressions.length}, minmax(0, 1fr));
+          grid-template-columns: repeat(${columns}, minmax(0, 1fr));
           /* A lone card would otherwise stretch the full content width, leaving
              its holdings table stranded across a huge empty middle. */
           ${expressions.length === 1 ? "max-width: 640px;" : ""}
           /* Two shared row tracks: the top region (header + facts) sizes to the
              tallest card, so every outcome box below it starts at the same Y;
              the rest region (1fr) equalizes the card bodies. */
-          grid-template-rows: auto 1fr;
+          grid-template-rows: ${wraps ? "none" : "auto 1fr"};
           column-gap: 20px;
           row-gap: 16px;
           align-items: stretch;
@@ -70,9 +82,11 @@ export function StrategiesEditorial({
         /* Each card is a subgrid spanning both tracks, so its two regions line
            up with every sibling card's regions. */
         .vwd-strats > .vwd-card {
-          grid-row: 1 / -1;
-          display: grid;
-          grid-template-rows: subgrid;
+          ${
+            wraps
+              ? "display: flex; flex-direction: column;"
+              : "grid-row: 1 / -1; display: grid; grid-template-rows: subgrid;"
+          }
           row-gap: 20px;
         }
         .vwd-card-top,
@@ -84,6 +98,24 @@ export function StrategiesEditorial({
         }
         .vwd-card-top  { padding: 28px 28px 0; }
         .vwd-card-rest { padding: 0 28px 28px; }
+
+        ${
+          threeUp
+            ? `
+        /* Three baskets across: each card gets ~440px, so buy the holdings
+           table the room it needs back out of the padding rather than letting
+           it overflow. The company column absorbs the slack and ellipsizes. */
+        .vwd-strats { --vwd-table-min: 356px; --vwd-cell-px: 4px; }
+        .vwd-strats > .vwd-card > .vwd-card-top  { padding: 24px 20px 0; }
+        .vwd-strats > .vwd-card > .vwd-card-rest { padding: 0 20px 24px; }
+        @media (max-width: 1100px) {
+          /* Back to two across — the roomier defaults apply again. */
+          .vwd-strats { --vwd-table-min: 420px; --vwd-cell-px: 6px; }
+          .vwd-strats > .vwd-card > .vwd-card-top  { padding: 28px 28px 0; }
+          .vwd-strats > .vwd-card > .vwd-card-rest { padding: 0 28px 28px; }
+        }`
+            : ""
+        }
 
         /* When the grid wraps, drop the subgrid and fall back to plain stacked
            cards (row-alignment across columns no longer applies). */

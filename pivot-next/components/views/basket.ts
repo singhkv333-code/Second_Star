@@ -1,10 +1,16 @@
 /**
  * basket.ts — the model behind an *editable* basket.
  *
- * A curated basket ships with pre-decided weights (holdings[].weight_pct),
- * which seed a share count for the reader's ticket amount. From there SHARES
- * ARE THE TRUTH: the reader sets how many of each name they want, and weight is
- * a readout of what that holding costs as a share of the whole basket.
+ * A curated basket ships with pre-decided quantities: either an authored share
+ * count per name (holdings[].default_shares) or, failing that, a weight
+ * (holdings[].weight_pct) that seeds a share count from the ticket amount.
+ * From there SHARES ARE THE TRUTH: the reader sets how many of each name they
+ * want, and weight is a readout of what that holding costs as a share of the
+ * whole basket.
+ *
+ * An authored share count is absolute — the ticket amount does not size that
+ * name, because the curator already decided the quantity. A basket authored
+ * this way costs what those shares cost, whatever the reader types above.
  *
  * Consequences of shares-as-truth, all intentional:
  *   · Changing one name's quantity NEVER moves another name's quantity. Only
@@ -33,6 +39,8 @@ export type BasketLeg = {
   returnPct: number | null;
   /** The curated weight this basket was authored with, 0–100. */
   weightPct: number;
+  /** The curated share count, when the basket was authored with quantities. */
+  defaultShares: number | null;
 };
 
 /** A reader's changes to one basket: names dropped, quantities set. */
@@ -86,13 +94,25 @@ export function recommendedLegs(e: ExpressionDetail): BasketLeg[] {
         ? (h.return_pct as number)
         : null,
       weightPct: h.weight_pct as number,
+      defaultShares:
+        Number.isFinite(h.default_shares as number) &&
+        (h.default_shares as number) >= 0
+          ? Math.floor(h.default_shares as number)
+          : null,
     })),
   );
 }
 
-/** True when this expression is an editable basket of weighted names. */
+/**
+ * True when this expression is an editable basket of weighted names.
+ *
+ * One name is enough: a single-ETF option (own the gold ETF) is a legitimate
+ * basket of one, and gating at two would drop it from the page entirely. What
+ * this still excludes is the case that has nothing to weigh — an option
+ * structure or a bare hedge, which carry no weighted long legs at all.
+ */
 export function isEditableBasket(e: ExpressionDetail): boolean {
-  return recommendedLegs(e).length >= 2;
+  return recommendedLegs(e).length >= 1;
 }
 
 /** The names still in the basket, at their curated weights. */
@@ -143,11 +163,17 @@ export function resolveBasket(
     const set = edit?.shares[l.key];
     const explicit = Number.isFinite(set) && (set as number) >= 0;
     // Whole shares only — you cannot buy a fraction of an Indian equity.
+    // An authored quantity wins over the amount-derived seed: the curator
+    // picked that number, so it stands whatever the reader's ticket says (and
+    // it holds even with no quote, where the seed arithmetic has no price to
+    // divide by).
     const shares = explicit
       ? (set as number)
-      : price != null
-        ? Math.floor((seedAmount * l.weightPct) / 100 / price)
-        : null;
+      : l.defaultShares != null
+        ? l.defaultShares
+        : price != null
+          ? Math.floor((seedAmount * l.weightPct) / 100 / price)
+          : null;
     const cost = shares != null && price != null ? shares * price : null;
     return { ...l, price, shares, cost, livePct: l.weightPct, explicit };
   });

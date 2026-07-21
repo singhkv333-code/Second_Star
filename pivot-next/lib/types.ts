@@ -1456,6 +1456,12 @@ export type Holding = {
   position?: string | null;
   /** Weight of this name in the basket (e.g. 16.7 = 16.7%). Optional. */
   weight_pct?: number | null;
+  /**
+   * Authored share count. When present it seeds the basket directly and the
+   * ticket amount does not size this name — the curator, not the arithmetic,
+   * decided the quantity. Weight then reads out as cost share.
+   */
+  default_shares?: number | null;
   /** Logo URL from img.logo.dev or CoinCap — null for symbols with no logo. */
   logo_url?: string | null;
   /** Asset class from POST /api/views/security-meta.
@@ -1760,6 +1766,10 @@ export type BestExpression = {
   n_positive?: number | null;
   /** The four comparable outcome metrics of the best expression. */
   gain_loss?: GainLoss | null;
+  /** Annualised return of this expression over `curve_years`. */
+  cagr_pct?: number | null;
+  /** Length of the window `cagr_pct` was measured over, in years. */
+  curve_years?: number | null;
   // Real backend-computed curve for the gallery mini-line (null when no history).
   equity_curve: EquityPoint[] | null;
 };
@@ -2085,6 +2095,27 @@ export type ExpressionDetail = {
   gain_loss?: GainLoss | null;
   /** Top-level trust verdict hoisted from scores.backtest for quick rendering. */
   trust_verdict?: TrustVerdict | null;
+  /**
+   * Annualised return over `curve_years`, measured from the real price history
+   * behind `equity_curve`. Present only where a calendar track record exists —
+   * never on an expression whose curve is per-episode or absent.
+   */
+  cagr_pct?: number | null;
+  /** Length of the window `cagr_pct` was measured over, in years. */
+  curve_years?: number | null;
+  /** Calendar bounds of that window, ISO dates. */
+  curve_start?: string | null;
+  curve_end?: string | null;
+  /**
+   * Date from which every holding had listed. Before it, the curve is a
+   * chain-linked index over whichever names were trading — so it describes
+   * fewer companies than the basket holds today, and must say so.
+   */
+  curve_full_from?: string | null;
+  /** Fewest holdings live at any point in the window. */
+  curve_min_holdings?: number | null;
+  /** Holdings the basket carries today, to read `curve_min_holdings` against. */
+  curve_n_holdings?: number | null;
 };
 
 /** Full view detail returned by GET /api/views/{id}. */
