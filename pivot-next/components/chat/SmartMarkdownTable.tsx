@@ -81,6 +81,13 @@ const TICKER_RE = /^[A-Z0-9&.\-]{2,20}$/;
 // "Bank of Maharashtra (MAHABANK)" — the ticker the deterministic screen
 // render appends in parens, resolvable statically (no search round-trip).
 const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9.&-]{1,19})\)\s*$/;
+// "TVSMOTOR TVS Motor Company Limited" — some models PREPEND the ticker to the
+// full legal name instead of appending "(TICKER)". Captures the leading token
+// when it is followed by a mixed-case name (the trailing lowercase letter is
+// the tell that the rest is a real name, not an all-caps phrase like
+// "TATA MOTORS"). Strength is gated at the call site so short all-caps name
+// prefixes (HDFC Bank, TCS, ITC) aren't mistaken for a ticker.
+const LEAD_TICKER_RE = /^([A-Z][A-Z0-9&.-]{1,19})\s+.*[a-z]/;
 
 function isBlank(v: string): boolean {
   return v === "" || v === "—" || v === "-" || v === "–";
@@ -218,6 +225,15 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     const name = (row[plan.nameCol] ?? "").trim();
     const paren = PAREN_TICKER_RE.exec(name);
     if (paren?.[1]) return paren[1];
+    // Leading-ticker form: "TVSMOTOR TVS Motor Company Limited". Trust the lead
+    // token as the symbol only on a STRONG ticker signal — 5+ chars, or a
+    // digit/&/hyphen — so a short all-caps name prefix ("HDFC Bank", "ITC")
+    // isn't mislinked. Weaker cases fall through to hover resolution.
+    const lead = LEAD_TICKER_RE.exec(name);
+    if (lead?.[1]) {
+      const t = lead[1];
+      if ((t.length >= 5 || /[0-9&-]/.test(t)) && TICKER_RE.test(t)) return t;
+    }
     if (TICKER_RE.test(name) && name === name.toUpperCase()) return name;
     return null;
   };

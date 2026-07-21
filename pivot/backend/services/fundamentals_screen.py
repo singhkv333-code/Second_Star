@@ -112,18 +112,12 @@ _CAP_TIER_RANGES: dict[str, tuple[float | None, float | None]] = {
 # names don't dominate the ranking — the user means recognizable companies.
 _DEFAULT_SECTOR_FLOOR_CR = 3_000
 
-# Fixed metric priority for the default rank when the caller named no sort AND no
-# market_cap filter — so the chosen ranking never depends on the order the caller
-# listed the filters in. Growth and quality metrics lead (they read as the user's
-# likely intent); valuation ratios rank last (a screen rarely means "rank by the
-# cheapest" unless it said so).
-_DEFAULT_SORT_PRIORITY: tuple[str, ...] = (
-    "revenue_growth", "net_profit_growth", "eps_growth",
-    "roe", "roce", "roic", "roa",
-    "net_profit_margin", "operating_margin", "ebitda_margin", "gross_margin",
-    "payout", "interest_coverage", "current_ratio", "quick_ratio",
-    "pe", "peg", "price_to_book", "ev_to_ebitda", "de",
-)
+# No hardcoded metric-priority default. Choosing WHICH metric a "best/strongest"
+# screen ranks by is a judgment the MODEL must own: it sees the ask and the
+# field guide (the screen_fundamentals tool description) and passes an explicit
+# `sort_by`. The tool never invents an opinionated metric ranking behind the
+# model's back — the only default it applies when no sort is given is a NEUTRAL
+# market-cap size ordering (see below), which bakes in no investment view.
 
 
 def _load_market_caps() -> dict[str, float]:
@@ -1078,24 +1072,17 @@ def screen_by_fundamentals(
         elif sf:
             notes.append(f"cannot sort by {sf!r}")
     if sort_field is None and valid_filters:
-        # DETERMINISTIC default rank, INDEPENDENT of the order the caller listed
-        # the filters in. Previously this took `valid_filters[0]` — so the SAME
-        # three-filter screen ranked differently depending only on the order the
-        # LLM happened to emit the filters, which is a chunk of the "same prompt,
-        # three different answers" the user reported. Rule: rank by market cap
-        # when it's one of the filters (a neutral size ordering), else by a fixed
-        # metric priority, else alphabetically — never by emission order.
-        ff = {f["field"] for f in valid_filters}
-        if "market_cap" in ff:
-            sort_field = "market_cap"
-        else:
-            sort_field = next(
-                (m for m in _DEFAULT_SORT_PRIORITY if m in ff), sorted(ff)[0]
-            )
+        # No ordering from the caller. We deliberately do NOT invent an
+        # opinionated metric ranking — which metric a "best/strongest" screen
+        # ranks by is the model's judgment to make via an explicit sort_by, not
+        # the tool's to bake in. The only default is a NEUTRAL size ordering by
+        # market cap (non-judgmental, disclosed in the note). A "best" ask
+        # should reach here already carrying sort_by from the model.
+        sort_field = "market_cap"
         sort_dir = "desc"
         notes.append(
-            f"no sort given — ranked by {_METRIC_LABELS.get(sort_field, sort_field)} "
-            "(largest/highest first)"
+            "no sort given — ordered by market cap (neutral size ranking); "
+            "pass sort_by with a metric for a ranked view"
         )
     if sort_field is None and sector:
         # A bare sector ask with no metric/sort named ("best bank

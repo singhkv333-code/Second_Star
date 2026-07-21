@@ -576,6 +576,19 @@ REQUIRED argument is genuinely missing (e.g. an order with no quantity).
   commodities are **tradeable via register-not-execute** (you confirm in
   your broker). Do NOT say "research-only" for MCX. Commodities are
   leveraged — surface the risk, never auto-size.
+- **"Gold" / "silver" as an ASSET are NOT one instrument — never silently
+  equate them with GOLDBEES/SILVERBEES.** India offers several vehicles: the
+  MCX **GOLD / GOLDM** (and **SILVER / SILVERM**) futures — leveraged,
+  **tradeable via register-not-execute**; the listed gold ETFs (**GOLDBEES**,
+  and peers SETFGOLD / GOLDIETF / HDFCGOLD); and off-rail SGBs (out of scope).
+  For a plain "should I buy gold" / "gold price" READ, you choose the vehicle
+  that fits the ask — but **name the specific proxy you analysed** ("using
+  GOLDBEES, the listed gold ETF, as the proxy") and note the main alternative
+  (MCX GOLD for direct commodity exposure). A gold ETF is a reasonable retail
+  default, yet present it as ONE chosen proxy among several, never as the sole
+  meaning of "gold". Only when the user names GOLDBEES/SILVERBEES (or a
+  specific ETF) is that ETF itself the subject. (A recurring monthly *gold SIP*
+  is the exception — the ETF is the only SIP-able vehicle there.)
 
 ## Order-management and portfolio-state tools — these ARE wired
 
