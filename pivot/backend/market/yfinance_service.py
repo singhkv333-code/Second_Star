@@ -41,6 +41,13 @@ INDEX_TICKERS: dict[str, str] = {
     "BANK NIFTY": "^NSEBANK",
     "NIFTY BANK": "^NSEBANK",
     "NIFTYBANK": "^NSEBANK",
+    # Midcap-100 is a dashboard benchmark (markets._INDICES) whose public
+    # symbol is now the Kite name, so the yfinance FALLBACK needs it mapped —
+    # otherwise a no-Kite-session request resolves to a dead
+    # "NIFTY MIDCAP 100.NS". ^NSEMDCP50 is Midcap-50, the closest yfinance
+    # proxy (Kite serves the true Midcap-100 on the primary path).
+    "NIFTY MIDCAP 100": "^NSEMDCP50",
+    "NIFTYMIDCAP100": "^NSEMDCP50",
     "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
     "NIFTYIT": "^CNXIT",
     # GAN R4 F9/C5: India VIX — the volatility index. Wired so VIX-gated

@@ -179,7 +179,10 @@ type ConvEntry = { id: string; preview: string };
 
 async function fetchConversations(): Promise<ConvEntry[]> {
   try {
-    const result = await listConversations({ limit: 10 });
+    // Show the user's full history in the sidebar, not just the last 10.
+    // 200 is the backend's per-request max; conversations are already
+    // Postgres-persisted, so this surfaces everything a real user accrues.
+    const result = await listConversations({ limit: 200 });
     if (isError(result)) return [];
     return result.data.items.map((c) => ({
       id: c.id,

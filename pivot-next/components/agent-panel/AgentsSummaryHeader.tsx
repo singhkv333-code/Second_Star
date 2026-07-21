@@ -184,6 +184,7 @@ export function AgentsSummaryHeader({
         cells={cells}
         totalPnl={totalPnl}
         hasData={hasDailyData}
+        hasSummary={summary != null}
         isLoading={isLoading}
       />
     </div>
@@ -598,14 +599,21 @@ function PnlHeatmap({
   cells,
   totalPnl,
   hasData,
+  hasSummary,
   isLoading,
 }: {
   cells: DayCell[];
   totalPnl: number;
   hasData: boolean;
+  hasSummary: boolean;
   isLoading: boolean;
 }): React.ReactElement {
-  const totalTone: Tone = !hasData ? "neutral" : totalPnl >= 0 ? "profit" : "loss";
+  // The chip is the canonical lifetime Total P&L (nav − starting_capital) — the
+  // SAME figure the header / Portfolio tab show, so the two never disagree. It
+  // shows whenever the account summary loaded, independent of whether the
+  // 6-month daily grid (texture below) has snapshots.
+  const showTotal = hasSummary;
+  const totalTone: Tone = !showTotal ? "neutral" : totalPnl >= 0 ? "profit" : "loss";
 
   const monthLabels = useMemo(() => {
     const labels: { col: number; text: string }[] = [];
@@ -657,9 +665,12 @@ function PnlHeatmap({
             letterSpacing: "-0.01em",
           }}
         >
-          Daily P&L · last 6 months
+          Total P&L · daily last 6 months
         </span>
-        <ValueChip text={isLoading || !hasData ? "—" : formatInr(totalPnl, true)} tone={totalTone} />
+        <ValueChip
+          text={isLoading || !showTotal ? "—" : formatInr(totalPnl, true)}
+          tone={totalTone}
+        />
       </div>
 
       {isLoading ? (

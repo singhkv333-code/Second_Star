@@ -950,7 +950,10 @@ function PerformanceAreaChart({
       if (d.value < lo) lo = d.value;
       if (d.value > hi) hi = d.value;
     }
-    const pad = Math.max(1, (hi - lo) * 0.06);
+    // 10% pad keeps the curve clear of the top/bottom edges. Combined with a
+    // monotone (non-overshooting) interpolation below, the line can never bulge
+    // past yMin/yMax, so it never crosses the chart's upper or lower bound.
+    const pad = Math.max(1, (hi - lo) * 0.1);
     return [lo - pad, hi + pad];
   }, [data]);
 
@@ -997,7 +1000,7 @@ function PerformanceAreaChart({
       style={{ height: CHART_H }}
       data-testid="portfolio-perf-area"
     >
-      <AreaChart data={data} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+      <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 2, left: 4 }}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="var(--color-value)" stopOpacity={0.55} />
@@ -1049,7 +1052,7 @@ function PerformanceAreaChart({
         />
         <Area
           dataKey="value"
-          type="natural"
+          type="monotone"
           fill={`url(#${gradientId})`}
           stroke="var(--color-value)"
           strokeWidth={1.5}

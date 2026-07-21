@@ -759,7 +759,11 @@ class _WorkflowsSummaryResponse(BaseModel):
     trades_6mo: _TradeScorecard = Field(default_factory=_TradeScorecard)
     daily_pnl: list[_DailyPnlPoint] = Field(default_factory=list)
     strategy_returns: list[_StrategyReturn] = Field(default_factory=list)
+    # Lifetime Total P&L (nav − starting_capital) — the SAME canonical figure
+    # the header / Portfolio tab show. The daily_pnl grid below stays a trailing
+    # 6-month texture, but this headline must agree across surfaces.
     total_pnl: float = 0.0
+    total_pnl_pct: float = 0.0
     has_data: bool = False
 
 
@@ -856,9 +860,8 @@ def workflows_summary(
             ),
         )
 
-    # ── Daily P&L from NAV day-over-day deltas ───────────────────────
+    # ── Daily P&L grid: trailing-6mo NAV day-over-day deltas (texture only) ──
     daily_pnl: list[_DailyPnlPoint] = []
-    total_pnl = 0.0
     if account is not None:
         snaps = (
             db.query(PaperNavSnapshot)
@@ -873,16 +876,45 @@ def workflows_summary(
         for snap in snaps:
             nav = float(snap.nav)
             if prev_nav is not None:
-                pnl = round(nav - prev_nav, 2)
                 daily_pnl.append(
                     _DailyPnlPoint(
                         date=snap.as_of_date.isoformat(),
-                        pnl=pnl,
+                        pnl=round(nav - prev_nav, 2),
                     )
                 )
-                total_pnl += pnl
             prev_nav = nav
-        total_pnl = round(total_pnl, 2)
+
+    # ── Headline Total P&L: the ONE canonical figure. Reuse the shared
+    # account_summary (nav − starting_capital, marked live) so the agents chip
+    # can never disagree with the header / Portfolio tab. NOT the 6-month
+    # snapshot telescoping sum, whose baseline floats as old snaps age out.
+    total_pnl = 0.0
+    total_pnl_pct = 0.0
+    day_pnl_live: Optional[float] = None
+    if account is not None:
+        try:
+            from backend.paper.portfolio import account_summary
+
+            acct = account_summary(db, user_id)
+            if acct.get("exists"):
+                total_pnl = float(acct.get("total_pnl") or 0.0)
+                total_pnl_pct = float(acct.get("total_pnl_pct") or 0.0)
+                day_pnl_live = float(acct.get("day_pnl") or 0.0)
+        except Exception:  # noqa: BLE001 — headline must not break the summary
+            logger.debug("account_summary total_pnl failed", exc_info=True)
+
+    # TODAY's heatmap cell must equal the header's Day P&L (live intraday mark),
+    # not a partial NAV-snapshot delta — so hovering today agrees with the
+    # header. Overwrite (or append) today's point with the live figure.
+    if day_pnl_live is not None:
+        today_iso = now.date().isoformat()
+        today_val = round(day_pnl_live, 2)
+        for i, p in enumerate(daily_pnl):
+            if p.date == today_iso:
+                daily_pnl[i] = _DailyPnlPoint(date=today_iso, pnl=today_val)
+                break
+        else:
+            daily_pnl.append(_DailyPnlPoint(date=today_iso, pnl=today_val))
 
     # ── Per-agent sparkline + returns + run stats, batched for EVERY
     # workflow ── The Agents tab used to fire one GET
@@ -992,6 +1024,7 @@ def workflows_summary(
         daily_pnl=daily_pnl,
         strategy_returns=strategy_returns,
         total_pnl=total_pnl,
+        total_pnl_pct=total_pnl_pct,
         has_data=has_data,
     )
 

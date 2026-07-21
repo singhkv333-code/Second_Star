@@ -1313,6 +1313,13 @@ export type StockQuote = {
   live?: boolean;
   /** Phase 2: which data source produced this quote. */
   source?: "kite_ws" | "kite_rest" | "yfinance";
+  /**
+   * True for a benchmark index (NIFTY 50, SENSEX, BANKNIFTY, INDIAVIX, …).
+   * Indices are not tradeable as cash equity — there is no order path — so the
+   * detail page renders price + chart only and hides every trade affordance.
+   * Absent on older payloads → treat as not-an-index.
+   */
+  is_index?: boolean;
 };
 
 export type SparklinePoint = { t: string; v: number };

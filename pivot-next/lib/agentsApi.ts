@@ -53,6 +53,7 @@ export type WorkflowsSummary = {
   daily_pnl: DailyPnlPoint[];
   strategy_returns: StrategyReturn[];
   total_pnl: number;
+  total_pnl_pct: number;
   has_data: boolean;
 };
 
