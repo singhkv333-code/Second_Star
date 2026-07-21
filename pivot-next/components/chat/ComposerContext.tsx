@@ -7,7 +7,7 @@
  * Quartr-Pro "@"-mention patterns, adapted to securities):
  *
  *   1. The "+" button (left edge of the composer pill) opens a menu:
- *      Tag a security / Select an agent / Select a position, plus two
+ *      Select an agent / Select a basket / Select a position, plus two
  *      intentionally-disabled entries (Deep research, Web browsing) that
  *      mark the roadmap without pretending to work.
  *   2. Typing "@" in the composer opens a typeahead over the company
@@ -29,6 +29,7 @@ import {
   ChevronLeft,
   Globe,
   Loader2,
+  PieChart,
   Plus,
   Telescope,
   Workflow as WorkflowIcon,
@@ -43,6 +44,7 @@ import {
   type CompanySearchResult,
   type Holding,
 } from "@/lib/api";
+import { listEquityBaskets, type EquityBasket } from "@/lib/agentsApi";
 import { isError, type Workflow, type WorkflowSummary } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 
@@ -73,16 +75,38 @@ export type ChatAttachment =
       name: string;
       description: string;
       status: string;
+    }
+  | {
+      kind: "basket";
+      basket_id: number;
+      name: string;
+      /** The saved constituents — carried so the model can amend the exact
+       *  legs/weights without a lookup round-trip. */
+      members: Array<{ symbol: string; weight: number }>;
     };
 
 /** Stable identity for dedupe — one chip per unique subject. */
 export function attachmentKey(a: ChatAttachment): string {
   if (a.kind === "agent") return `agent:${a.workflow_id}`;
+  if (a.kind === "basket") return `basket:${a.basket_id}`;
   return `${a.kind}:${a.symbol.toUpperCase()}`;
 }
 
-/** Strip UI-only fields down to the wire shape the backend formats. */
-export function toWireAttachment(a: ChatAttachment): Record<string, unknown> {
+/**
+ * Strip UI-only fields down to the wire shape the backend formats.
+ *
+ * `basketLegs: false` sends a basket chip as identity only (id + name), with
+ * no holdings. Chips ride EVERY turn while docked, and a basket is a MUTABLE
+ * subject: once the conversation has amended it ("drop GAIL"), re-asserting
+ * the saved legs each turn makes the stale copy win — a later "add NTPC and
+ * rebalance" then silently rebuilds from the original and resurrects the
+ * dropped name. So the legs are asserted once, on first send; after that the
+ * chip only says WHICH basket, and the conversation carries its current state.
+ */
+export function toWireAttachment(
+  a: ChatAttachment,
+  opts?: { basketLegs?: boolean },
+): Record<string, unknown> {
   if (a.kind === "security") {
     return { kind: "security", symbol: a.symbol, name: a.name };
   }
@@ -95,6 +119,16 @@ export function toWireAttachment(a: ChatAttachment): Record<string, unknown> {
       last_price: a.last_price,
       pnl: a.pnl,
       book: a.book,
+    };
+  }
+  if (a.kind === "basket") {
+    return {
+      kind: "basket",
+      basket_id: a.basket_id,
+      name: a.name,
+      ...(opts?.basketLegs === false
+        ? {}
+        : { members: a.members.map((m) => ({ symbol: m.symbol, weight: m.weight })) }),
     };
   }
   return {
@@ -182,7 +216,7 @@ function chipIcon(a: ChatAttachment): React.ReactNode {
       />
     );
   }
-  const Icon = a.kind === "agent" ? Bot : Briefcase;
+  const Icon = a.kind === "agent" ? Bot : a.kind === "basket" ? PieChart : Briefcase;
   return (
     <span
       aria-hidden={true}
@@ -202,12 +236,16 @@ function chipIcon(a: ChatAttachment): React.ReactNode {
 }
 
 function chipPrimary(a: ChatAttachment): string {
-  if (a.kind === "agent") return a.name;
+  if (a.kind === "agent" || a.kind === "basket") return a.name;
   return a.symbol.toUpperCase();
 }
 
 function chipSecondary(a: ChatAttachment): string {
   if (a.kind === "security") return a.name || "Security";
+  if (a.kind === "basket") {
+    const n = a.members.length;
+    return `Basket · ${n} holding${n === 1 ? "" : "s"}`;
+  }
   if (a.kind === "agent") {
     const st = a.status ? a.status.charAt(0).toUpperCase() + a.status.slice(1) : "";
     return st ? `Agent · ${st}` : "Agent";
@@ -315,7 +353,7 @@ export function AttachmentChips({
 // anchored above the + button (the composer is docked at the bottom).
 // ---------------------------------------------------------------------------
 
-type MenuPage = "root" | "agent" | "position";
+type MenuPage = "root" | "agent" | "basket" | "position";
 
 export function ComposerPlusMenu({
   onAttach,
@@ -405,6 +443,14 @@ export function ComposerPlusMenu({
                 close();
               }}
             />
+          ) : page === "basket" ? (
+            <BasketPicker
+              onBack={() => setPage("root")}
+              onPick={(a) => {
+                onAttach(a);
+                close();
+              }}
+            />
           ) : (
             <PositionPicker
               onBack={() => setPage("root")}
@@ -433,6 +479,7 @@ function RootMenu({ onPick }: { onPick: (p: MenuPage) => void }): React.ReactEle
     disabled?: boolean;
   }> = [
     { page: "agent", label: "Select an agent", hint: "edit or build on one of yours", icon: WorkflowIcon },
+    { page: "basket", label: "Select a basket", hint: "edit one of your saved baskets", icon: PieChart },
     { page: "position", label: "Select a position", hint: "talk about a holding", icon: Briefcase },
   ];
   return (
@@ -714,6 +761,128 @@ function AgentPicker({
               )}
             </button>
           ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Basket picker ────────────────────────────────────────────────────────
+
+/** Attachment shape for a saved equity basket — shared by the picker and by
+ *  "Edit with chat" on the Strategies grid, so both tag the same subject. */
+export function basketAttachment(b: EquityBasket): ChatAttachment {
+  return {
+    kind: "basket",
+    basket_id: b.id,
+    name: b.name,
+    members: b.members.map((m) => ({ symbol: m.symbol, weight: m.weight })),
+  };
+}
+
+function BasketPicker({
+  onBack,
+  onPick,
+}: {
+  onBack: () => void;
+  onPick: (a: ChatAttachment) => void;
+}): React.ReactElement {
+  const [state, setState] = useState<
+    | { kind: "loading" }
+    | { kind: "error" }
+    | { kind: "ok"; items: EquityBasket[] }
+  >({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    void listEquityBaskets().then((res) => {
+      if (cancelled) return;
+      if (isError(res)) setState({ kind: "error" });
+      else setState({ kind: "ok", items: res.data.baskets });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div>
+      <PageHeader title="Select a basket" onBack={onBack} />
+      <div style={{ maxHeight: 280, overflowY: "auto", padding: 5 }}>
+        {state.kind === "loading" ? (
+          <LoadingRow />
+        ) : state.kind === "error" ? (
+          <EmptyRow text="Couldn't load your baskets." />
+        ) : state.items.length === 0 ? (
+          <EmptyRow text="No saved baskets yet — build one in chat and save it." />
+        ) : (
+          state.items.map((b) => {
+            // Lead with the heaviest legs — the fastest way to recognise a
+            // basket when two share a similar name.
+            const top = [...b.members]
+              .sort((x, y) => y.weight - x.weight)
+              .slice(0, 3)
+              .map((m) => m.symbol)
+              .join(" · ");
+            return (
+              <button
+                key={b.id}
+                type="button"
+                data-testid={`plus-basket-${b.id}`}
+                style={{ ...rowBase, borderRadius: 9 }}
+                onClick={() => onPick(basketAttachment(b))}
+                onMouseEnter={(e) => hoverable(e, true)}
+                onMouseLeave={(e) => hoverable(e, false)}
+              >
+                <PieChart size={15} strokeWidth={2} aria-hidden={true} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span
+                    style={{
+                      display: "block",
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {b.name}
+                  </span>
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 11,
+                      color: "var(--text-tertiary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {b.members.length} holding{b.members.length === 1 ? "" : "s"}
+                    {top ? ` · ${top}` : ""}
+                    {b.members.length > 3 ? " …" : ""}
+                  </span>
+                </span>
+                {b.deployed && (
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      flexShrink: 0,
+                      padding: "2px 6px",
+                      borderRadius: "var(--radius-pill)",
+                      background: "var(--surface-active)",
+                      color: "var(--text-tertiary)",
+                    }}
+                  >
+                    Live
+                  </span>
+                )}
+              </button>
+            );
+          })
         )}
       </div>
     </div>

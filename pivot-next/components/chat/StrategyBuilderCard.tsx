@@ -24,7 +24,7 @@
  * chat amendment (the user types "make it equal-weight", "drop ITC", etc.).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -45,7 +45,12 @@ import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import { isError } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
-import { createEquityBasket, type EquityBasket } from "@/lib/agentsApi";
+import {
+  createEquityBasket,
+  listEquityBasketsCached,
+  type EquityBasket,
+  type EquityBasketMember,
+} from "@/lib/agentsApi";
 import { BasketTradeModal } from "@/components/agent-panel/BasketTradeModal";
 import { Button } from "@/components/ui/button";
 import {
@@ -644,6 +649,38 @@ function AlternativesBlock({
   );
 }
 
+/**
+ * Fingerprint a member list the way the server stores it: dedup by symbol
+ * (last write wins) and renormalise the weights to sum 100 — see
+ * `_normalise_members` in routers/strategy.py. Weights are compared at 0.1pp
+ * so float noise doesn't split an identical basket.
+ */
+function holdingsKey(members: Array<{ symbol: string; weight: number }>): string {
+  const dedup = new Map<string, number>();
+  for (const m of members) {
+    dedup.set(m.symbol.toUpperCase(), Math.max(0, m.weight));
+  }
+  const total = [...dedup.values()].reduce((s, w) => s + w, 0);
+  if (total <= 0) return "";
+  return [...dedup.entries()]
+    .map(([sym, w]) => `${sym}@${((w * 100) / total).toFixed(1)}`)
+    .sort()
+    .join(",");
+}
+
+/**
+ * True when a saved basket holds exactly the legs this card would save. Used
+ * to tell "this card is already saved" apart from "a re-weighted rebuild that
+ * happens to share the title" — the latter must still offer Save.
+ */
+function sameHoldings(
+  saved: EquityBasketMember[],
+  pending: Array<{ symbol: string; weight: number }>,
+): boolean {
+  const a = holdingsKey(saved);
+  return a !== "" && a === holdingsKey(pending);
+}
+
 // ---------------------------------------------------------------------------
 // StrategyBuilderCard
 // ---------------------------------------------------------------------------
@@ -688,16 +725,45 @@ export function StrategyBuilderCard({
 
   const canSave = card.constituents.length > 0;
 
+  // The exact payload a save would create — also the fingerprint used to
+  // recognise an already-saved basket below.
+  const saveName = card.title.slice(0, 120) || "Strategy basket";
+  const saveMembers = useMemo(
+    () => [
+      ...card.constituents.map((c) => ({ symbol: c.symbol, weight: c.weight_pct })),
+      ...goldEtfMembers,
+    ],
+    [card.constituents, goldEtfMembers],
+  );
+
+  // Saved state lives on the server, not in this component. Replaying an old
+  // conversation re-mounts the card with `saved = null`, so without this the
+  // button offered "Save as basket" again on a basket that was already saved —
+  // and a second click created a duplicate row. Resolve it from the user's
+  // saved baskets: same name AND same holdings. Name alone would be wrong,
+  // since an amended card in the same conversation usually keeps the title.
+  useEffect(() => {
+    if (!canSave || saved || saving) return;
+    let cancelled = false;
+    void listEquityBasketsCached().then((res) => {
+      if (cancelled || isError(res)) return;
+      const match = res.data.baskets.find(
+        (b) => b.name === saveName && sameHoldings(b.members, saveMembers),
+      );
+      if (match) setSaved(match);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canSave, saved, saving, saveName, saveMembers]);
+
   async function handleSave(): Promise<void> {
     if (saving || saved || !canSave) return;
     setSaving(true);
     setSaveError(null);
-    const members = [
-      ...card.constituents.map((c) => ({ symbol: c.symbol, weight: c.weight_pct })),
-      ...goldEtfMembers,
-    ];
+    const members = saveMembers;
     const res = await createEquityBasket({
-      name: card.title.slice(0, 120) || "Strategy basket",
+      name: saveName,
       members,
       weighting: "custom",
       capital_inr: card.capital_inr ?? undefined,

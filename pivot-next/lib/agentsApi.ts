@@ -237,36 +237,64 @@ export function listEquityBaskets(): Promise<
   return requestLegacy<{ baskets: EquityBasket[] }>("/strategies/baskets");
 }
 
+// Every basket card in a replayed conversation resolves its own saved state on
+// mount; without a shared read they'd each fire a request for the same list.
+// Short TTL + explicit invalidation on every mutation keeps it honest.
+let _basketsCache: { at: number; inflight: Promise<ApiResult<{ baskets: EquityBasket[] }>> } | null =
+  null;
+const _BASKETS_TTL_MS = 30_000;
+
+/** De-duplicated `GET /strategies/baskets` for read-only lookups. Surfaces
+ *  that render the basket grid should keep using `listEquityBaskets`. */
+export function listEquityBasketsCached(): Promise<ApiResult<{ baskets: EquityBasket[] }>> {
+  const now = Date.now();
+  if (!_basketsCache || now - _basketsCache.at > _BASKETS_TTL_MS) {
+    _basketsCache = { at: now, inflight: listEquityBaskets() };
+  }
+  return _basketsCache.inflight;
+}
+
+/** Drop the cached list — called after any basket mutation. */
+export function invalidateEquityBasketsCache(): void {
+  _basketsCache = null;
+}
+
 /** `POST /strategies/baskets` — create an equity basket. */
-export function createEquityBasket(
+export async function createEquityBasket(
   body: EquityBasketInput,
 ): Promise<ApiResult<EquityBasket>> {
-  return requestLegacy<EquityBasket>("/strategies/baskets", {
+  const res = await requestLegacy<EquityBasket>("/strategies/baskets", {
     method: "POST",
     body,
   });
+  invalidateEquityBasketsCache();
+  return res;
 }
 
 /** `PATCH /strategies/baskets/{id}` — edit a basket (partial). */
-export function updateEquityBasket(
+export async function updateEquityBasket(
   id: number,
   body: Partial<EquityBasketInput>,
 ): Promise<ApiResult<EquityBasket>> {
-  return requestLegacy<EquityBasket>(`/strategies/baskets/${id}`, {
+  const res = await requestLegacy<EquityBasket>(`/strategies/baskets/${id}`, {
     method: "PATCH",
     body,
   });
+  invalidateEquityBasketsCache();
+  return res;
 }
 
 /** `DELETE /strategies/baskets/{id}` — square off every held member, then
  *  delete the basket for good. */
-export function deleteEquityBasket(
+export async function deleteEquityBasket(
   id: number,
 ): Promise<ApiResult<{ id: number; status: string; squareoff: BasketCloseResult }>> {
-  return requestLegacy<{ id: number; status: string; squareoff: BasketCloseResult }>(
+  const res = await requestLegacy<{ id: number; status: string; squareoff: BasketCloseResult }>(
     `/strategies/baskets/${id}`,
     { method: "DELETE" },
   );
+  invalidateEquityBasketsCache();
+  return res;
 }
 
 export type BasketCloseResult = {
