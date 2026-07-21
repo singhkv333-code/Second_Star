@@ -19,7 +19,7 @@
  */
 
 import * as React from "react";
-import { ArrowRight, Info, Loader2 } from "lucide-react";
+import { ArrowRight, Bookmark, Info, Loader2 } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -32,6 +32,13 @@ import {
 import type { ExpressionDetail } from "@/lib/types";
 import { useTokenColors } from "@/components/views/use-token-color";
 import { tierLabel } from "@/components/views/view-format";
+import {
+  editedTotalPct,
+  isEditableBasket,
+  resolveBasket,
+  type BasketEdit,
+  type PriceMap,
+} from "@/components/views/basket";
 
 const FONT = "var(--font-display)";
 
@@ -434,6 +441,9 @@ export function ExpressionTicket({
   onDeploy,
   deployingId,
   deployError,
+  basketMode = false,
+  edits,
+  prices,
 }: {
   expressions: ExpressionDetail[];
   selectedId: string | null;
@@ -443,6 +453,12 @@ export function ExpressionTicket({
   onDeploy: (expr: ExpressionDetail) => void;
   deployingId: string | null;
   deployError: string | null;
+  /** Baskets mode: talk about baskets, and price the reader's own weighting. */
+  basketMode?: boolean;
+  /** Reader edits keyed by expression id, so the projection tracks their tilt. */
+  edits?: Record<string, BasketEdit>;
+  /** Live prices keyed by expression id, so the projection uses real cost. */
+  prices?: Record<string, PriceMap>;
 }): React.ReactElement | null {
   const c = useTokenColors({
     loss: "--color-loss",
@@ -459,8 +475,21 @@ export function ExpressionTicket({
 
   const selected =
     expressions.find((e) => e.id === selectedId) ?? expressions[0]!;
-  const selPct = selected.strategy_total_pct;
-  const selProjected = selPct != null ? amount * (1 + selPct / 100) : null;
+  // In baskets mode the projection prices the reader's OWN basket — anchored to
+  // the backtested figure and moved only by what their weighting changes, and
+  // applied to what the basket ACTUALLY costs (quantities are the truth; the
+  // amount above only seeded them).
+  const selIsBasket = basketMode && isEditableBasket(selected);
+  const selEditedPct = selIsBasket
+    ? editedTotalPct(selected, edits?.[selected.id], prices?.[selected.id], amount)
+    : null;
+  const selCost = selIsBasket
+    ? resolveBasket(selected, edits?.[selected.id], prices?.[selected.id], amount)
+        .totalCost
+    : null;
+  const selBasis = selCost != null && selCost > 0 ? selCost : amount;
+  const selPct = selEditedPct ?? selected.strategy_total_pct;
+  const selProjected = selPct != null ? selBasis * (1 + selPct / 100) : null;
   const busy = deployingId === selected.id;
   const deployable = selected.is_deployable || selected.workflow_id != null;
 
@@ -494,6 +523,9 @@ export function ExpressionTicket({
         .vwd-deploy { transition: opacity 160ms var(--ease-quartr), transform 160ms var(--ease-quartr); }
         .vwd-deploy:hover { opacity: 0.9; }
         .vwd-deploy:active { transform: translateY(1px); }
+        .vwd-save { transition: background-color 160ms var(--ease-quartr), border-color 160ms var(--ease-quartr); }
+        .vwd-save:hover { background: var(--glass-bg-hover) !important; border-color: var(--glass-border-hover) !important; }
+        .vwd-save:active { transform: translateY(1px); }
       `}</style>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -506,7 +538,7 @@ export function ExpressionTicket({
             color: "var(--text-primary)",
           }}
         >
-          Strategy calculator
+          {basketMode ? "Basket calculator" : "Strategy calculator"}
         </span>
         <span
           style={{
@@ -516,8 +548,9 @@ export function ExpressionTicket({
             lineHeight: 1.45,
           }}
         >
-          Enter an amount to see what each strategy averaged in past
-          occurrences.
+          {basketMode
+            ? "Enter an amount to see what each basket averaged in past occurrences. Edit a basket below and this follows your weights."
+            : "Enter an amount to see what each strategy averaged in past occurrences."}
         </span>
       </div>
 
@@ -616,19 +649,23 @@ export function ExpressionTicket({
                 </span>
               </span>
 
-              {/* right rail: minimum ticket */}
-              <span
-                style={{
-                  fontFamily: FONT,
-                  fontVariantNumeric: "tabular-nums",
-                  fontSize: 12,
-                  color: "var(--text-tertiary)",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                min {inrCompact(exprMinAmount(e))}
-              </span>
+              {/* right rail: minimum ticket. A basket has no meaningful floor —
+                  it costs whatever the quantities cost — so it is only shown
+                  for strategies where the minimum is structural (option lots). */}
+              {!basketMode && (
+                <span
+                  style={{
+                    fontFamily: FONT,
+                    fontVariantNumeric: "tabular-nums",
+                    fontSize: 12,
+                    color: "var(--text-tertiary)",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  min {inrCompact(exprMinAmount(e))}
+                </span>
+              )}
             </button>
           );
         })}
@@ -812,6 +849,37 @@ export function ExpressionTicket({
           </span>
         )}
 
+        <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+        {/* Save — the reader's edited basket, kept for later. Not wired to a
+            backend yet; it is deliberately inert rather than faking a success
+            state. Hook it to createEquityBasket (lib/agentsApi) when ready. */}
+        {basketMode && (
+          <button
+            type="button"
+            aria-label="Save this basket"
+            className="vwd-save"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 7,
+              flexShrink: 0,
+              fontFamily: FONT,
+              fontSize: 15,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              background: "transparent",
+              border: `1px solid ${c.border}`,
+              borderRadius: "var(--radius-md)",
+              padding: "8px 16px",
+              cursor: "pointer",
+            }}
+          >
+            <Bookmark size={15} strokeWidth={2} aria-hidden />
+            Save
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => onDeploy(selected)}
@@ -843,11 +911,12 @@ export function ExpressionTicket({
             </>
           ) : (
             <>
-              Deploy this strategy
+              {basketMode ? "Deploy this basket" : "Deploy this strategy"}
               <ArrowRight size={16} strokeWidth={2} aria-hidden />
             </>
           )}
         </button>
+        </div>
         {deployError && (
           <span
             role="alert"

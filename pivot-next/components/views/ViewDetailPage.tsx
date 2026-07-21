@@ -46,6 +46,11 @@ import {
   exprName,
 } from "@/components/views/ExpressionHero";
 import { StrategiesEditorial } from "@/components/views/StrategiesEditorial";
+import {
+  isEditableBasket,
+  type BasketEdit,
+  type PriceMap,
+} from "@/components/views/basket";
 import { StrategyDeepDive } from "@/components/views/StrategyDeepDive";
 import { SimilarViews } from "@/components/views/SimilarViews";
 
@@ -116,12 +121,22 @@ const META_MONTHS = [
 ];
 
 /** "The three strategies" section heading, honest about the actual count. */
-function countWord(n: number): string {
+function countWord(n: number, baskets = false): string {
   const words = ["", "one", "two", "three", "four", "five", "six"];
   const w = words[n];
-  if (n === 1) return "The strategy";
-  return w ? `The ${w} strategies` : `The ${n} strategies`;
+  const many = baskets ? "baskets" : "strategies";
+  if (n === 1) return baskets ? "The basket" : "The strategy";
+  return w ? `The ${w} ${many}` : `The ${n} ${many}`;
 }
+
+/**
+ * Views served as *editable baskets*: the holdings ship with pre-decided
+ * weights, and the reader sets their own quantities. The section reads
+ * "baskets" throughout and non-basket tiers (options structures) are dropped.
+ * Rolling out per view — add ids here as each view's constituent data is
+ * confirmed.
+ */
+const BASKET_VIEW_IDS = new Set<string>(["monsoon", "renewable", "gold"]);
 
 /** Title-case a lowercase token as an honest fallback for unmapped values. */
 function titleCase(s: string): string {
@@ -429,9 +444,39 @@ export function ViewDetailPage({
       window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const exprs = view?.expressions ?? [];
+  // Baskets mode + the reader's per-basket edits. Held here (not in the card)
+  // because the calculator in the hero prices whatever basket they land on.
+  const basketMode = view != null && BASKET_VIEW_IDS.has(view.id);
+
+  // In baskets mode the section is baskets and nothing else: tiers with no
+  // weighted constituents (an options structure has none) are dropped, so the
+  // chart, the calculator, the cards and the heading count all agree.
+  const allExprs = view?.expressions ?? [];
+  const exprs = basketMode ? allExprs.filter(isEditableBasket) : allExprs;
   const selectedExpr =
     exprs.find((e) => e.id === selectedId) ?? exprs[0] ?? null;
+
+  const [basketEdits, setBasketEdits] = React.useState<Record<string, BasketEdit>>({});
+  // Live prices, reported up by the holding rows. Held here so the cards and
+  // the calculator price the same basket the same way.
+  const [basketPrices, setBasketPrices] = React.useState<Record<string, PriceMap>>({});
+  // Edits belong to the view being read — drop them when the reader moves on.
+  React.useEffect(() => {
+    setBasketEdits({});
+    setBasketPrices({});
+  }, [view?.id]);
+
+  // Bails out when the price hasn't moved: rows report on every quote tick, and
+  // returning the same state object stops React re-rendering over a no-op.
+  const handlePrice = React.useCallback(
+    (exprId: string, key: string, price: number) => {
+      setBasketPrices((prev) => {
+        if (prev[exprId]?.[key] === price) return prev;
+        return { ...prev, [exprId]: { ...(prev[exprId] ?? {}), [key]: price } };
+      });
+    },
+    [],
+  );
 
   // Deploy = execute now (paper). Opens the confirm modal, which previews the
   // exact whole-share/unit basket and — on confirm — places it into the paper
@@ -677,6 +722,9 @@ export function ViewDetailPage({
                   onDeploy={handleDeploy}
                   deployingId={deployingId}
                   deployError={deployError}
+                  basketMode={basketMode}
+                  edits={basketEdits}
+                  prices={basketPrices}
                 />
               </div>
             )}
@@ -705,7 +753,7 @@ export function ViewDetailPage({
                     margin: 0,
                   }}
                 >
-                  {countWord(exprs.length)}
+                  {countWord(exprs.length, basketMode)}
                 </h2>
               </div>
               {/* No follow-through: our curated views author only the YES-side
@@ -758,6 +806,13 @@ export function ViewDetailPage({
                     setDeepDiveOpen(true);
                   }
                 }}
+                basketMode={basketMode}
+                edits={basketEdits}
+                onEdit={(id, next) =>
+                  setBasketEdits((prev) => ({ ...prev, [id]: next }))
+                }
+                prices={basketPrices}
+                onPrice={handlePrice}
               />
 
               {/* Inline accordion: the full analysis expands directly below the
