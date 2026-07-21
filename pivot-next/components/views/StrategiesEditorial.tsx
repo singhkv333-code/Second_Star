@@ -14,12 +14,23 @@
 import * as React from "react";
 import type { ExpressionDetail } from "@/lib/types";
 import { StrategyCleanCard } from "@/components/views/StrategyCleanCard";
+import { BasketCard } from "@/components/views/BasketCard";
+import {
+  isEditableBasket,
+  type BasketEdit,
+  type PriceMap,
+} from "@/components/views/basket";
 
 export function StrategiesEditorial({
   expressions,
   amount,
   openAnalysisId = null,
   onToggleAnalysis,
+  basketMode = false,
+  edits,
+  onEdit,
+  prices,
+  onPrice,
 }: {
   expressions: ExpressionDetail[];
   /** The shared ticket ₹ amount, so each card's "If you put in ₹X" tracks it. */
@@ -28,6 +39,14 @@ export function StrategiesEditorial({
   openAnalysisId?: string | null;
   /** Toggle the full-analysis accordion for a given strategy. */
   onToggleAnalysis?: (id: string) => void;
+  /** Baskets mode: each card's holdings become an editable positions table. */
+  basketMode?: boolean;
+  /** Reader edits, keyed by expression id. */
+  edits?: Record<string, BasketEdit>;
+  onEdit?: (exprId: string, next: BasketEdit) => void;
+  /** Live prices per expression, and the channel rows report new ones through. */
+  prices?: Record<string, PriceMap>;
+  onPrice?: (exprId: string, key: string, price: number) => void;
 }): React.ReactElement | null {
   if (expressions.length === 0) return null;
 
@@ -37,6 +56,9 @@ export function StrategiesEditorial({
         .vwd-strats {
           display: grid;
           grid-template-columns: repeat(${expressions.length}, minmax(0, 1fr));
+          /* A lone card would otherwise stretch the full content width, leaving
+             its holdings table stranded across a huge empty middle. */
+          ${expressions.length === 1 ? "max-width: 640px;" : ""}
           /* Two shared row tracks: the top region (header + facts) sizes to the
              tallest card, so every outcome box below it starts at the same Y;
              the rest region (1fr) equalizes the card bodies. */
@@ -72,15 +94,27 @@ export function StrategiesEditorial({
         @media (max-width: 720px) { .vwd-strats { grid-template-columns: 1fr; } }
       `}</style>
 
-      {expressions.map((e) => (
-        <StrategyCleanCard
-          key={e.id}
-          expression={e}
-          amount={amount}
-          onSeeAnalysis={onToggleAnalysis ? () => onToggleAnalysis(e.id) : undefined}
-          analysisOpen={openAnalysisId === e.id}
-        />
-      ))}
+      {expressions.map((e) =>
+        basketMode && isEditableBasket(e) && onEdit && onPrice ? (
+          <BasketCard
+            key={e.id}
+            expression={e}
+            amount={amount}
+            edit={edits?.[e.id]}
+            onEdit={(next) => onEdit(e.id, next)}
+            prices={prices?.[e.id]}
+            onPrice={(key, price) => onPrice(e.id, key, price)}
+          />
+        ) : (
+          <StrategyCleanCard
+            key={e.id}
+            expression={e}
+            amount={amount}
+            onSeeAnalysis={onToggleAnalysis ? () => onToggleAnalysis(e.id) : undefined}
+            analysisOpen={openAnalysisId === e.id}
+          />
+        ),
+      )}
     </div>
   );
 }

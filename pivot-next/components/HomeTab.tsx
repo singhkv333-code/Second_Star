@@ -76,6 +76,16 @@ const PACK_SUMMARIES = [
   ...(pack2SummariesRaw as unknown as ViewSummary[]),
 ];
 
+/**
+ * Only live opinions belong on Home. `coming_soon` teasers (and anything still
+ * developing) have no detail record behind them, so opening one from Home would
+ * dead-end. `status` can't tell them apart — every packed view carries "open" —
+ * so the lifecycle flags are the discriminator.
+ */
+const ACTIVE_SUMMARIES = PACK_SUMMARIES.filter(
+  (v) => v.coming_soon !== true && !v.is_developing,
+);
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -1744,10 +1754,10 @@ function ViewsCard({
   // Pick 2 opinions at random each visit so the block isn't always the same.
   // Seed with a stable slice for SSR, then shuffle on mount (client-only) to
   // avoid a hydration mismatch from Math.random during render.
-  const [picks, setPicks] = useState(() => PACK_SUMMARIES.slice(0, 2));
+  const [picks, setPicks] = useState(() => ACTIVE_SUMMARIES.slice(0, 2));
   useEffect(() => {
     setPicks(
-      [...PACK_SUMMARIES].sort(() => Math.random() - 0.5).slice(0, 2),
+      [...ACTIVE_SUMMARIES].sort(() => Math.random() - 0.5).slice(0, 2),
     );
   }, []);
   return (
