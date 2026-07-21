@@ -344,7 +344,7 @@ export function ViewDetailPage({
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   // ₹ amount typed into the trade ticket — shared with the chart so both
   // rescale together (the /view-detail single-source-of-truth pattern).
-  const [amount, setAmount] = React.useState<number>(100_000);
+  const [amount, setAmount] = React.useState<number>(35_000);
   const [deployingId, setDeployingId] = React.useState<string | null>(null);
   const [deployError, setDeployError] = React.useState<string | null>(null);
   const [deepDiveOpen, setDeepDiveOpen] = React.useState(false);
@@ -455,6 +455,13 @@ export function ViewDetailPage({
   const exprs = basketMode ? allExprs.filter(isEditableBasket) : allExprs;
   const selectedExpr =
     exprs.find((e) => e.id === selectedId) ?? exprs[0] ?? null;
+
+  // A curve measured over calendar time (a real held stretch) rather than
+  // stitched per-episode windows. It is indexed to ₹1,00,000 and reads in
+  // those terms, so the chart and its caption must not describe it as an
+  // average across occurrences.
+  const calendarCurve =
+    selectedExpr?.cagr_pct != null && selectedExpr?.curve_start != null;
 
   const [basketEdits, setBasketEdits] = React.useState<Record<string, BasketEdit>>({});
   // Live prices, reported up by the holding rows. Held here so the cards and
@@ -685,10 +692,40 @@ export function ViewDetailPage({
               <ExpressionReturnsChart
               expressions={exprs}
               selectedId={selectedExpr?.id ?? null}
-              amount={amount}
+              amount={calendarCurve ? 100_000 : amount}
               benchmarkLabel={view.benchmark_label}
               caption={
                 (selectedExpr?.equity_curve?.length ?? 0) >= 2 ? (
+                  calendarCurve ? (
+                    // A calendar track record is one continuous holding period,
+                    // not an average across repeated episodes — the occurrence
+                    // wording below would misdescribe it.
+                    <>
+                      One continuous stretch —{" "}
+                      {selectedExpr?.curve_start} to {selectedExpr?.curve_end},
+                      held throughout.{" "}
+                      {selectedExpr ? exprName(selectedExpr) : "Strategy"},
+                      ₹1,00,000 invested at the start.{" "}
+                      {/* A basket cannot be measured before its holdings
+                          listed. Where the early stretch covers fewer names
+                          than the basket holds now, say so on the chart
+                          itself rather than only in the detail copy. */}
+                      {selectedExpr?.curve_full_from != null &&
+                        selectedExpr?.curve_min_holdings != null && (
+                          <>
+                            Before {selectedExpr.curve_full_from} the line
+                            tracks only the holdings that had listed —{" "}
+                            {selectedExpr.curve_min_holdings} of{" "}
+                            {selectedExpr.curve_n_holdings} at the start — each
+                            name joining on its listing date, so the early part
+                            describes fewer companies than the basket holds
+                            today.{" "}
+                          </>
+                        )}
+                      Past performance, not a forecast — this is analysis, not
+                      financial advice.
+                    </>
+                  ) : (
                   <>
                     The average single occurrence, across{" "}
                     {selectedExpr?.curve_n_episodes ??
@@ -701,6 +738,7 @@ export function ViewDetailPage({
                     {selectedExpr?.trust_badge ?? "Unproven"} — this is
                     analysis, not financial advice.
                   </>
+                  )
                 ) : (
                   <>
                     This view is still developing — no deployable basket yet,

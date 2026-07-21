@@ -93,6 +93,8 @@ function holdingsSubtitle(scheme: string | null | undefined): string {
       return "Bigger companies get a bigger share, matching their market size. (This is called market-cap weighting.)";
     case "factor":
       return "More money goes into the names with the strongest recent momentum. (This is called momentum weighting.)";
+    case "curated":
+      return "Each name is given a set share, chosen by hand to reflect the role it plays in the basket.";
     default:
       return "Equal money in each name — the simple, even split, with how each did on average per occurrence.";
   }

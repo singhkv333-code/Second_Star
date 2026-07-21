@@ -27,7 +27,6 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { exprName } from "@/components/views/ExpressionHero";
 import {
-  editedTotalPct,
   isEdited,
   recommendedLegs,
   removeLeg,
@@ -67,8 +66,10 @@ function riskLevel(tier: ExpressionDetail["tier"]): { label: string; color: stri
 }
 
 // Screener table language, tightened for a card-width table.
+// Cell padding and the table's floor are variables so a tighter layout (three
+// baskets across) can compress them without every card paying the cost.
 const TH: React.CSSProperties = {
-  padding: "9px 6px",
+  padding: "9px var(--vwd-cell-px, 6px)",
   fontSize: 10,
   letterSpacing: "0.09em",
   textTransform: "uppercase",
@@ -80,7 +81,7 @@ const TH: React.CSSProperties = {
 };
 
 const TD: React.CSSProperties = {
-  padding: "9px 6px",
+  padding: "9px var(--vwd-cell-px, 6px)",
   fontSize: 12.5,
   borderBottom: "1px solid var(--glass-border)",
   whiteSpace: "nowrap",
@@ -137,13 +138,6 @@ export function BasketCard({
     if (raw.trim() !== "" && Number.isFinite(n)) onEdit(setLegShares(edit, key, n));
     setDraft(null);
   };
-
-  // Outcome scales to what the basket ACTUALLY costs — quantities are the
-  // truth, and the ticket amount above only seeded them.
-  const basis = totalCost != null && totalCost > 0 ? totalCost : ticket;
-  const medianPct = editedTotalPct(e, edit, prices, ticket);
-  const worstPct = e.monte_carlo?.p05 ?? e.worst_drop_pct ?? null;
-  const bestPct = e.monte_carlo?.p95 ?? null;
 
   return (
     <div
@@ -272,7 +266,7 @@ export function BasketCard({
                 width: "100%",
                 borderCollapse: "collapse",
                 fontFamily: FONT,
-                minWidth: 420,
+                minWidth: "var(--vwd-table-min, 420px)",
               }}
             >
               <thead>
@@ -371,76 +365,6 @@ export function BasketCard({
           )}
         </div>
 
-        {/* ── what it did: one hero outcome, then the honest range ── */}
-        {medianPct != null && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
-              paddingTop: 16,
-              borderTop: "1px solid var(--glass-border)",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={{ fontFamily: FONT, fontSize: 12.5, color: "var(--text-tertiary)" }}>
-                Typical outcome on {inr(basis)}
-              </span>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 9, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    fontFamily: "var(--font-serif)",
-                    fontVariantNumeric: "tabular-nums",
-                    fontSize: 34,
-                    fontWeight: 600,
-                    letterSpacing: "-0.02em",
-                    lineHeight: 1,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {medianPct >= 0 ? "+" : "−"}
-                  {inr(Math.abs((basis * medianPct) / 100)).replace("−", "")}
-                </span>
-                <span
-                  style={{
-                    fontFamily: FONT,
-                    fontVariantNumeric: "tabular-nums",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: medianPct >= 0 ? "var(--color-profit)" : "var(--color-loss)",
-                  }}
-                >
-                  {medianPct >= 0 ? "+" : ""}
-                  {medianPct.toFixed(1)}%
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 28px" }}>
-              {worstPct != null && (
-                <Stat label="Worst seen" value={inr((basis * worstPct) / 100)} tone="loss" />
-              )}
-              {bestPct != null && (
-                <Stat label="Best seen" value={inr((basis * bestPct) / 100)} tone="profit" />
-              )}
-            </div>
-
-            {edited && (
-              <span
-                style={{
-                  fontFamily: FONT,
-                  fontSize: 11.5,
-                  lineHeight: 1.5,
-                  color: "var(--text-tertiary)",
-                }}
-              >
-                Worst and best are the recommended basket&apos;s own history. Your version
-                isn&apos;t backtested — the figure above is your weights applied to each
-                name&apos;s real return.
-              </span>
-            )}
-          </div>
-        )}
 
         {/* ── footer: the disclaimer ── */}
         <div
@@ -455,40 +379,6 @@ export function BasketCard({
           </span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "profit" | "loss" | "neutral";
-}): React.ReactElement {
-  const color =
-    tone === "profit"
-      ? "var(--color-profit)"
-      : tone === "loss"
-        ? "var(--color-loss)"
-        : "var(--text-primary)";
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <span style={{ fontFamily: FONT, fontSize: 11.5, color: "var(--text-tertiary)" }}>{label}</span>
-      <span
-        style={{
-          fontFamily: FONT,
-          fontVariantNumeric: "tabular-nums",
-          fontSize: 14.5,
-          fontWeight: 600,
-          letterSpacing: "-0.01em",
-          color,
-        }}
-      >
-        {value}
-      </span>
     </div>
   );
 }
@@ -532,7 +422,13 @@ function HoldingRow({
 
   return (
     <tr className="vwd-brow">
-      <td style={{ ...TD, textAlign: "left", width: "100%" }}>
+      {/* max-width:0 with width:100% is what lets this cell absorb the slack
+          without being floored by its own text. In auto table layout a nowrap
+          cell's minimum IS its full text width, so a long name ("ICICI
+          Prudential Gold ETF") widens the table until it overflows the card —
+          the inner ellipsis never gets a chance. Zeroing the max lets the cell
+          collapse and the name truncate instead. */}
+      <td style={{ ...TD, textAlign: "left", width: "100%", maxWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <CompanyLogo
             logoUrl={logoUrl}
@@ -541,11 +437,17 @@ function HoldingRow({
             size={24}
           />
           <span
+            title={leg.name}
             style={{
               fontWeight: 500,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              // A flex item defaults to min-width:auto, which floors it at the
+              // full width of its own nowrap text — so the ellipsis never
+              // engages and a long name ("ICICI Prudential Gold ETF") widens
+              // the table until it overflows the card. Let it shrink.
+              minWidth: 0,
             }}
           >
             {leg.name}

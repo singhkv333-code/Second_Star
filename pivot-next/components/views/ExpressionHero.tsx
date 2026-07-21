@@ -35,6 +35,7 @@ import { tierLabel } from "@/components/views/view-format";
 import {
   editedTotalPct,
   isEditableBasket,
+  recommendedLegs,
   resolveBasket,
   type BasketEdit,
   type PriceMap,
@@ -219,6 +220,17 @@ export function ExpressionReturnsChart({
   const endRow = rows[rows.length - 1];
   const benchEnd = (endRow?.[BENCH_KEY] as number | undefined) ?? null;
 
+  // Length of the window in calendar years, when the drawn curves are calendar
+  // tracks rather than stitched episode windows — drives the x-axis units.
+  const selectedForAxis =
+    drawable.find((e) => e.id === selectedId) ?? drawable[0] ?? null;
+  const calendarYears =
+    typeof selectedForAxis?.curve_years === "number" &&
+    Number.isFinite(selectedForAxis.curve_years)
+      ? selectedForAxis.curve_years
+      : null;
+  const lastDay = (endRow?.day as number | undefined) ?? 0;
+
   // Honest empty state — a developing view has no return path to draw.
   if (drawable.length === 0) {
     return (
@@ -296,18 +308,25 @@ export function ExpressionReturnsChart({
               dataKey="day"
               type="number"
               domain={[0, "dataMax"]}
-              tick={{ fontSize: 12, fill: c.tertiary, fontFamily: FONT }}
+              tick={{ fontSize: 13, fill: c.tertiary, fontFamily: FONT }}
               tickLine={false}
-              axisLine={false}
+              axisLine={{ stroke: c.border }}
               tickCount={5}
-              tickFormatter={(v: number) => `${Math.round(v)}d`}
+              // The index is only a trading-day count for episode-gated curves.
+              // A calendar curve's points are weeks, so labelling them "d"
+              // would read 156 days for what is really three years.
+              tickFormatter={(v: number) =>
+                calendarYears != null && lastDay > 0
+                  ? `${((v / lastDay) * calendarYears).toFixed(1)}y`
+                  : `${Math.round(v)}d`
+              }
             />
             <YAxis
               orientation="left"
-              tick={{ fontSize: 12, fill: c.tertiary, fontFamily: FONT }}
+              tick={{ fontSize: 13, fill: c.tertiary, fontFamily: FONT }}
               tickFormatter={fmtYTick}
               tickLine={false}
-              axisLine={false}
+              axisLine={{ stroke: c.border }}
               width={56}
               domain={["auto", "auto"]}
             />
@@ -322,7 +341,13 @@ export function ExpressionReturnsChart({
                 fontVariantNumeric: "tabular-nums",
                 color: c.ink,
               }}
-              labelFormatter={(v) => `Day ${v} in market`}
+              // Must agree with the x-axis: a calendar curve's points are
+              // weeks of elapsed time, not days in market.
+              labelFormatter={(v) =>
+                calendarYears != null && lastDay > 0
+                  ? `${(((v as number) / lastDay) * calendarYears).toFixed(1)} years in`
+                  : `Day ${v} in market`
+              }
               formatter={(value: number, name: string) => [
                 inr(value),
                 labelByKey.get(name) ?? name,
@@ -427,7 +452,7 @@ function LegendItem({
 
 // ── the ticket ───────────────────────────────────────────────────────────────
 
-const DEFAULT_AMT = 100_000;
+const DEFAULT_AMT = 35_000;
 const MIN_AMT = 100;
 const MAX_AMT = 5_000_000;
 const QUICK_ADDS = [10_000, 25_000, 50_000] as const;
@@ -473,6 +498,16 @@ export function ExpressionTicket({
 
   if (expressions.length === 0) return null;
 
+  // True when every basket here was authored with explicit share counts. The
+  // amount then seeds nothing, so the input below is hidden rather than left
+  // as a control that moves no number on the page.
+  const quantitiesAreAuthored =
+    basketMode &&
+    expressions.every((e) => {
+      const legs = recommendedLegs(e);
+      return legs.length > 0 && legs.every((l) => l.defaultShares != null);
+    });
+
   const selected =
     expressions.find((e) => e.id === selectedId) ?? expressions[0]!;
   // In baskets mode the projection prices the reader's OWN basket — anchored to
@@ -489,7 +524,21 @@ export function ExpressionTicket({
     : null;
   const selBasis = selCost != null && selCost > 0 ? selCost : amount;
   const selPct = selEditedPct ?? selected.strategy_total_pct;
-  const selProjected = selPct != null ? selBasis * (1 + selPct / 100) : null;
+  // Where the expression carries a real annualised rate, project a fixed
+  // ₹1,00,000 forward one year at it, rather than scaling the basket's own
+  // cost by a multi-year total — the two answer different questions and the
+  // second reads as a forecast of the actual holding.
+  const selCagr =
+    typeof selected.cagr_pct === "number" && Number.isFinite(selected.cagr_pct)
+      ? selected.cagr_pct
+      : null;
+  const cagrBasis = 100_000;
+  const selProjected =
+    selCagr != null
+      ? cagrBasis * (1 + selCagr / 100)
+      : selPct != null
+        ? selBasis * (1 + selPct / 100)
+        : null;
   const busy = deployingId === selected.id;
   const deployable = selected.is_deployable || selected.workflow_id != null;
 
@@ -549,7 +598,9 @@ export function ExpressionTicket({
           }}
         >
           {basketMode
-            ? "Enter an amount to see what each basket averaged in past occurrences. Edit a basket below and this follows your weights."
+            ? quantitiesAreAuthored
+              ? "Each basket holds a set number of shares. Pick one to see what it did, and edit the quantities on the card below."
+              : "Enter an amount to see what each basket averaged in past occurrences. Edit a basket below and this follows your weights."
             : "Enter an amount to see what each strategy averaged in past occurrences."}
         </span>
       </div>
@@ -671,7 +722,11 @@ export function ExpressionTicket({
         })}
       </div>
 
-      {/* amount input — below the strategy selection */}
+      {/* amount input — below the strategy selection. Suppressed when every
+          basket on the page carries authored quantities, because then the
+          amount sizes nothing and the control would be a dial wired to
+          nothing. */}
+      {!quantitiesAreAuthored && (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <label
           style={{
@@ -778,6 +833,7 @@ export function ExpressionTicket({
           </button>
         </div>
       </div>
+      )}
 
       {/* trade ticket footer: selected summary + REAL deploy */}
       <div
@@ -817,7 +873,14 @@ export function ExpressionTicket({
                   color: "var(--text-tertiary)",
                 }}
               >
-                on {inr(amount)}
+                {selCagr != null ? (
+                  <>
+                    on {inr(cagrBasis)} after 1 year, at {selCagr.toFixed(1)}% a
+                    year
+                  </>
+                ) : (
+                  <>on {inr(amount)}</>
+                )}
               </span>
             </div>
             <span
@@ -933,9 +996,23 @@ export function ExpressionTicket({
       </div>
 
       <DisclosureNote>
-        Projections are the average past occurrence with an honest worst→best
-        range — not a promise. Pivot arms the trigger; you place every order in
-        your broker. This is analysis, not financial advice.
+        {selCagr != null ? (
+          <>
+            Projection only. It compounds the last{" "}
+            {selected.curve_years != null
+              ? `${selected.curve_years.toFixed(1)} years`
+              : "three years"}{" "}
+            of realised return forward at the same rate — these holdings do not
+            move at a steady rate, and actual returns will differ, including
+            losses. Not a forecast.
+          </>
+        ) : (
+          <>
+            Projections are the average past occurrence with an honest worst→best
+            range — not a promise. Pivot arms the trigger; you place every order
+            in your broker. This is analysis, not financial advice.
+          </>
+        )}
       </DisclosureNote>
     </div>
   );

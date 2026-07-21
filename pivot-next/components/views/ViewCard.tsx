@@ -428,7 +428,14 @@ export function ViewCard({
       : null;
   const bestRun =
     typeof view.best_episode_pct === "number" ? view.best_episode_pct : null;
-  const heroPct = avgGain ?? be?.total_return_pct ?? bestRun ?? null;
+  // Prefer the annualised rate where a real calendar track record exists: a
+  // multi-year total is not comparable across cards whose windows differ,
+  // whereas a per-year rate is.
+  const heroCagr =
+    typeof be?.cagr_pct === "number" && Number.isFinite(be.cagr_pct)
+      ? be.cagr_pct
+      : null;
+  const heroPct = heroCagr ?? avgGain ?? be?.total_return_pct ?? bestRun ?? null;
   const heroColor = "var(--text-primary)";
   // Honest context for the average-gain headline: how often it actually won.
   const hitPct =
@@ -542,11 +549,20 @@ export function ViewCard({
               lineHeight: 1.4,
             }}
           >
-            Average gain
+            {heroCagr != null ? "Expected annual return" : "Average gain"}
             <span style={{ display: "block", color: "var(--text-disabled)" }}>
-              {hitPct != null
-                ? `per winning turn · ${hitPct}% of turns won`
-                : "best strategy if yes is true"}
+              {heroCagr != null ? (
+                <>
+                  best basket, annualised over
+                  {be?.curve_years != null
+                    ? ` ${be.curve_years.toFixed(1)} years`
+                    : " its measured window"}
+                </>
+              ) : hitPct != null ? (
+                `per winning turn · ${hitPct}% of turns won`
+              ) : (
+                "best strategy if yes is true"
+              )}
             </span>
           </div>
         </div>
