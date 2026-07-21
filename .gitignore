@@ -69,3 +69,6 @@ Thumbs.db
 pivot/scripts/strategy_research/**/_cache/
 pivot/scripts/strategy_research/**/*.parquet
 pivot/scripts/strategy_research/**/*.pkl
+
+# Operational DB-backfill artifacts (not source)
+pivot/backups/
