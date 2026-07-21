@@ -402,6 +402,11 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
     setTickers((prev) => prev.filter((t) => t !== s));
   };
 
+  // An index (NIFTY 50, SENSEX, BANKNIFTY, …) is not a company and not a
+  // tradeable instrument: it gets price + chart only — no company profile, no
+  // financial statements, no order path.
+  const isIndexQuote = quoteState.kind === "ok" && !!quoteState.quote.is_index;
+
   return (
     <div className="flex flex-col">
       {quoteState.kind === "loading" && <HeaderSkeleton />}
@@ -451,15 +456,24 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
               stretches (more comparison tickers, longer summary block),
               the overview just scrolls instead of pushing the row taller. */}
           <div
-            className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
+            className={
+              isIndexQuote
+                ? "grid grid-cols-1 items-stretch"
+                : "grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
+            }
             style={{ marginTop: 24, gap: 14 }}
           >
-            {/* Left column — Overview + Statistics merged */}
-            <div className="flex min-h-0 min-w-0 flex-col">
-              {quoteState.kind === "ok" && (
-                <MergedOverviewCard quote={quoteState.quote} financials={financials} />
-              )}
-            </div>
+            {/* Left column — Overview + Statistics merged. An index has no
+                company behind it: the profile block would assert "…is publicly
+                listed on NSE" with empty CEO / Website / Year Founded / P-E
+                rows. Drop it and let the chart span the row. */}
+            {!isIndexQuote && (
+              <div className="flex min-h-0 min-w-0 flex-col">
+                {quoteState.kind === "ok" && (
+                  <MergedOverviewCard quote={quoteState.quote} financials={financials} />
+                )}
+              </div>
+            )}
 
             {/* Right column — Comparison chart. min-w-0 is load-bearing: grid
                 items default to min-width:auto, so the chart canvas's stale
@@ -494,8 +508,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <KeyMetricsStrip financials={financials} />
           )}
 
-          {/* Unified Financials panel */}
-          {quoteState.kind === "ok" && (
+          {/* Unified Financials panel — company statements; an index has none. */}
+          {quoteState.kind === "ok" && !isIndexQuote && (
             <FinancialsPanel
               quote={quoteState.quote}
               financials={financials}
@@ -573,7 +587,9 @@ function PhoneLayout({
       <PerformanceRanges quote={quote} />
 
       {/* Overview / Financials switch — underline tab strip matching the
-          option-strategy Payoff/P&L/Greeks tabs. */}
+          option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
+          COMPANY, so an index stops here: chart + performance only. */}
+      {!quote.is_index && (
       <div
         className="flex shrink-0 gap-6 border-b border-border/40"
         role="tablist"
@@ -604,24 +620,27 @@ function PhoneLayout({
           );
         })}
       </div>
+      )}
 
-      {tab === "overview" ? (
-        <div style={{ marginTop: 18 }}>
-          <MergedOverviewCard quote={quote} financials={financials} />
-        </div>
-      ) : (
-        <>
-          {financials && financials.available && (
-            <KeyMetricsStrip financials={financials} />
-          )}
-          <FinancialsPanel
-            quote={quote}
-            financials={financials}
-            balanceSheet={balanceSheet}
-            bsBasis={bsBasis}
-            onBsBasisChange={onBsBasisChange}
-          />
-        </>
+      {!quote.is_index && (
+        tab === "overview" ? (
+          <div style={{ marginTop: 18 }}>
+            <MergedOverviewCard quote={quote} financials={financials} />
+          </div>
+        ) : (
+          <>
+            {financials && financials.available && (
+              <KeyMetricsStrip financials={financials} />
+            )}
+            <FinancialsPanel
+              quote={quote}
+              financials={financials}
+              balanceSheet={balanceSheet}
+              bsBasis={bsBasis}
+              onBsBasisChange={onBsBasisChange}
+            />
+          </>
+        )
       )}
 
     </div>
@@ -1990,8 +2009,29 @@ function ChartCard({
         </div>
       )}
 
-      {/* ── Buy / Sell — trade the primary ticker via the global order ticket ── */}
-      {tickers[0] && (
+      {/* ── Buy / Sell — trade the primary ticker via the global order ticket.
+             Suppressed for an index: NIFTY 50 / SENSEX / BANKNIFTY are not
+             instruments you can hold, so an order path here would be offering
+             something that doesn't exist. Indices get price + chart only. ── */}
+      {tickers[0] && primaryQuote?.is_index && (
+        <div
+          style={{
+            padding: "14px 22px 18px",
+            borderTop: "1px solid var(--glass-border)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "var(--text-tertiary)",
+          }}
+          data-testid="index-not-tradeable"
+        >
+          {primaryQuote.name || tickers[0]} is an index, not a tradeable
+          instrument — this page is price and chart only.
+        </div>
+      )}
+      {/* `primaryQuote &&` is load-bearing: while the quote is in flight it is
+          null, and gating on `!primaryQuote?.is_index` alone rendered Buy/Sell
+          for a beat on an index page before the payload landed. */}
+      {tickers[0] && primaryQuote && !primaryQuote.is_index && (
         <div
           style={{
             display: "flex",

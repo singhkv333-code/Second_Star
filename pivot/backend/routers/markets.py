@@ -7,8 +7,11 @@ Three endpoints:
   - GET /api/markets/sparkline/{symbol}    → historical close series for the price chart
 
 All three prefer Kite (when a session + instrument mapping exist) and fall
-back to yfinance otherwise — always for indices (`^`-prefixed symbols), which
-skip Kite entirely. yfinance is keyless and works for NSE symbols via the
+back to yfinance otherwise. Indices are Kite-primary too: they are identified
+by their Kite instrument name (see `_INDICES`) and normalised onto it, so the
+Kite tier is reachable; a legacy `^`-prefixed symbol still resolves, and only
+the yfinance FALLBACK uses the `^` ticker. yfinance is keyless and works for
+NSE symbols via the
 `.NS` suffix. Every yfinance fallback path is Redis-cached (short TTLs — see
 `_INDEX_LEVEL_TTL_S`, `_QUOTE_CACHE_TTL_SECONDS`, `_YF_SERIES_TTL_S`) so a
 burst of repeat requests doesn't pay a live `.history()`/`.info` round-trip
@@ -51,7 +54,7 @@ logger = logging.getLogger(__name__)
 # 10 s read is harmless. Keep it short enough that the dashboard
 # never feels stuck.
 _INDEX_LEVEL_TTL_S = 10
-_INDEX_LEVEL_PREFIX = "index:level:"
+_INDEX_LEVEL_PREFIX = "index:level:v2:"
 
 
 # ── Response models ──────────────────────────────────────────────────
@@ -59,7 +62,7 @@ _INDEX_LEVEL_PREFIX = "index:level:"
 
 class IndexQuote(BaseModel):
     name: str               # "NIFTY 50"
-    symbol: str             # "^NSEI"
+    symbol: str             # "NIFTY 50" — the Kite instrument name (see _INDICES)
     value: float            # last close
     change: float           # absolute (signed)
     change_pct: float       # percent (signed)
@@ -98,6 +101,11 @@ class StockQuote(BaseModel):
     # existing behaviour).
     live: bool = False
     source: Literal["kite_ws", "kite_rest", "yfinance"] = "yfinance"
+    # True for a benchmark index (NIFTY 50, SENSEX, …). Indices are not
+    # tradeable instruments — they have no cash-equity order path — so the FE
+    # renders price + chart only and suppresses every order affordance.
+    # Defaults false, so every existing equity caller is unaffected.
+    is_index: bool = False
 
 
 class SparklinePoint(BaseModel):
@@ -147,19 +155,65 @@ class MetricSeriesResponse(BaseModel):
 # ── Indices endpoint (dashboard) ─────────────────────────────────────
 
 
-# Map display name → (yfinance ticker, Kite index key). Kite is PRIMARY —
-# `kite.quote()` serves the index instruments directly, so the strip works on a
-# cloud IP where yfinance is throttled. yfinance is the fallback (NSEMDCP100
-# isn't always exposed via yfinance's `^` shortcut). If neither works at request
-# time we surface NotYetAvailable for that single index without failing the list.
+# Canonical index registry, keyed by the PUBLIC symbol.
+#
+# Kite is PRIMARY for indices — `kite.quote()` serves the index instruments
+# directly, so the strip works on a cloud IP where yfinance is throttled — and
+# the public symbol is therefore the KITE instrument name. The yfinance ticker
+# is an implementation detail of the fallback path only.
+#
+# It used to be the public identity, and that leaked: a Kite-sourced quote was
+# still labelled "^NSEI", the FE built /stock/^NSEI from it, and the caret
+# percent-encoded into a URL the stock page then failed to decode
+# ("no quote available for %5ENSEI.NSE"). Keeping the Yahoo ticker private
+# fixes the label and the URL at once.
+#
+# `exchange` matters: SENSEX is a BSE instrument, so a request defaulting to
+# NSE would miss Kite and silently fall back to yfinance. The quote/sparkline/
+# ohlc handlers read it from here so the Kite tier is actually reachable.
+#
 # NOTE: Kite's "NIFTY MIDCAP 100" is the true Midcap-100; the yfinance fallback
 # ticker ^NSEMDCP50 is only Midcap-50 (a legacy approximation).
-_INDEX_TICKERS: list[tuple[str, str, str]] = [
-    ("NIFTY 50", "^NSEI", "NSE:NIFTY 50"),
-    ("SENSEX", "^BSESN", "BSE:SENSEX"),
-    ("BANK NIFTY", "^NSEBANK", "NSE:NIFTY BANK"),
-    ("NIFTY MIDCAP 100", "^NSEMDCP50", "NSE:NIFTY MIDCAP 100"),
-]
+_INDICES: dict[str, dict[str, str]] = {
+    "NIFTY 50":         {"display": "NIFTY 50",         "exchange": "NSE", "yf": "^NSEI"},
+    "SENSEX":           {"display": "SENSEX",           "exchange": "BSE", "yf": "^BSESN"},
+    "NIFTY BANK":       {"display": "BANK NIFTY",       "exchange": "NSE", "yf": "^NSEBANK"},
+    "NIFTY MIDCAP 100": {"display": "NIFTY MIDCAP 100", "exchange": "NSE", "yf": "^NSEMDCP50"},
+}
+
+
+def index_meta(symbol: str) -> dict[str, str] | None:
+    """Registry entry for `symbol`, or None when it isn't a tracked index.
+
+    Accepts the public (Kite) name and the legacy yfinance `^` ticker, so old
+    links and cached payloads keep resolving.
+    """
+    sym = (symbol or "").upper().strip()
+    if sym in _INDICES:
+        return _INDICES[sym]
+    for meta in _INDICES.values():
+        if meta["yf"].upper() == sym:
+            return meta
+    return None
+
+
+def is_index_symbol(symbol: str) -> bool:
+    """True for ANY index, not just the four dashboard benchmarks.
+
+    `_INDICES` only covers the benchmarks we can normalise onto a Kite
+    instrument. But an index reaches the stock page under many spellings
+    ("NIFTY", "BANKNIFTY", "FINNIFTY", "INDIAVIX", "^CNXIT"), and every one of
+    them is untradeable as cash equity. Gating the FE's order path on the
+    narrow registry would leave those aliases showing Buy/Sell, so the flag
+    consults the broad alias table too.
+    """
+    sym = (symbol or "").upper().strip()
+    if index_meta(sym) is not None:
+        return True
+    from backend.market.yfinance_service import INDEX_TICKERS
+    return sym in INDEX_TICKERS or sym in {
+        t.upper() for t in INDEX_TICKERS.values()
+    }
 
 
 def _cache_index_quote(cache_key: str, quote: IndexQuote) -> None:
@@ -181,8 +235,11 @@ def _cache_index_quote(cache_key: str, quote: IndexQuote) -> None:
         logger.debug("[markets] cache write failed for %s: %s", cache_key, e)
 
 
-def _fetch_index(name: str, ticker_symbol: str, kite_key: str = "") -> IndexQuote | None:
+def _fetch_index(public_symbol: str) -> IndexQuote | None:
     """Kite-primary index quote with a 10s Redis cache, yfinance fallback.
+
+    `public_symbol` is the Kite instrument name and the identity we emit; the
+    yfinance ticker is read from the registry for the fallback path only.
 
     Returns None on any failure so the caller can omit the failed index without
     500'ing the whole list.
@@ -191,7 +248,11 @@ def _fetch_index(name: str, ticker_symbol: str, kite_key: str = "") -> IndexQuot
     ask for these four indices repeatedly within seconds. The Redis hit
     collapses the burst so we don't pay a round-trip per query.
     """
-    cache_key = f"{_INDEX_LEVEL_PREFIX}{ticker_symbol}"
+    meta = _INDICES[public_symbol]
+    name = meta["display"]
+    ticker_symbol = meta["yf"]
+    kite_key = f"{meta['exchange']}:{public_symbol}"
+    cache_key = f"{_INDEX_LEVEL_PREFIX}{public_symbol}"
     try:
         raw = redis_client.get(cache_key)
         if raw:
@@ -219,7 +280,7 @@ def _fetch_index(name: str, ticker_symbol: str, kite_key: str = "") -> IndexQuot
                 change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
                 quote = IndexQuote(
                     name=name,
-                    symbol=ticker_symbol,
+                    symbol=public_symbol,
                     value=round(value, 2),
                     change=round(change, 2),
                     change_pct=round(change_pct, 2),
@@ -242,7 +303,7 @@ def _fetch_index(name: str, ticker_symbol: str, kite_key: str = "") -> IndexQuot
         change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
         quote = IndexQuote(
             name=name,
-            symbol=ticker_symbol,
+            symbol=public_symbol,
             value=round(latest_close, 2),
             change=round(change, 2),
             change_pct=round(change_pct, 2),
@@ -265,8 +326,8 @@ def get_indices(
     _user_id: int = Depends(require_user),
 ) -> IndicesResponse:
     items: list[IndexQuote] = []
-    for name, sym, kite_key in _INDEX_TICKERS:
-        q = _fetch_index(name, sym, kite_key)
+    for public_symbol in _INDICES:
+        q = _fetch_index(public_symbol)
         if q is not None:
             items.append(q)
     if not items:
@@ -347,12 +408,31 @@ def get_quote(
     if not sym:
         raise http_error(400, "validation_error", "symbol is required")
 
+    # Indices: normalise a legacy "^NSEI"-style link onto the Kite instrument
+    # name and pin the instrument's own exchange, so the Kite tier below is
+    # actually reachable (SENSEX is BSE; defaulting to NSE would miss it and
+    # fall through to yfinance).
+    _idx = index_meta(sym)
+    if _idx is not None:
+        sym = next(k for k, v in _INDICES.items() if v is _idx)
+        exchange = _idx["exchange"]
+    _is_index = is_index_symbol(sym)
+
     # ─ Phase 2: prefer the Kite tick cache if the entry is fresh
     # (within 5 s). When the ticker isn't running or this symbol isn't
     # in its universe, fall through to the existing yfinance path.
     cached = _read_cached_kite_tick(sym)
-    if cached is not None:
-        return cached
+    # A tick with no prev_close yields change/open/high/low = 0.0 — the WS feed
+    # carries only last_price for index instruments. Returning that renders as
+    # "Open ₹0.00 · Prev Close ₹0.00 · +0.00%", which reads as real data rather
+    # than missing data. Fall through to the REST tier, which fetches genuine
+    # OHLC, instead of publishing zeros.
+    if cached is not None and cached.prev_close > 0:
+        # The tick cache builds its own StockQuote and knows nothing about the
+        # index registry, so stamp the flag here — otherwise a live-ticking
+        # index (NIFTY 50, BANK NIFTY) returns is_index=False and the FE shows
+        # it an order path.
+        return cached.model_copy(update={"is_index": _is_index})
 
     # Kite tick miss → the yfinance path below makes a slow `.info` call (~1-2s).
     # Cache the resulting (already delayed, live=False) snapshot briefly so repeat
@@ -362,7 +442,11 @@ def get_quote(
     try:
         _raw = redis_client.get(_q_key)
         if _raw:
-            return StockQuote.model_validate_json(_raw)
+            # Entries cached before is_index existed decode to the False
+            # default; re-stamp rather than serve a stale flag.
+            return StockQuote.model_validate_json(_raw).model_copy(
+                update={"is_index": _is_index}
+            )
     except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
         pass
 
@@ -402,6 +486,7 @@ def get_quote(
             logo_url=_lookup_logo(sym),
             live=True,
             source="kite_rest",
+            is_index=_is_index,
         )
         try:
             redis_client.setex(_q_key, _QUOTE_CACHE_TTL_SECONDS, quote.model_dump_json())
@@ -484,6 +569,7 @@ def get_quote(
         logo_url=_lookup_logo(sym),
         live=False,
         source="yfinance",
+        is_index=_is_index,
     )
     try:
         redis_client.setex(_q_key, _QUOTE_CACHE_TTL_SECONDS, quote.model_dump_json())
@@ -660,6 +746,13 @@ def get_sparkline(
     _user_id: int = Depends(require_user),
 ) -> SparklineResponse:
     sym = symbol.upper().strip()
+    # Indices: normalise legacy "^"-style links onto the Kite instrument name
+    # and pin the instrument's exchange, so the Kite tier below is reachable
+    # instead of being skipped straight to yfinance.
+    _idx = index_meta(sym)
+    if _idx is not None:
+        sym = next(k for k, v in _INDICES.items() if v is _idx)
+        exchange = _idx["exchange"]
     period, interval = _RANGE_MAP[range]
 
     # Prefer Kite historical when an authenticated session exists and
@@ -771,6 +864,13 @@ def get_ohlc(
     yfinance fallback otherwise — mirrors get_sparkline's source order
     so the candlestick chart never goes blank when Kite is unavailable."""
     sym = symbol.upper().strip()
+    # Indices: normalise legacy "^"-style links onto the Kite instrument name
+    # and pin the instrument's exchange, so the Kite tier below is reachable
+    # instead of being skipped straight to yfinance.
+    _idx = index_meta(sym)
+    if _idx is not None:
+        sym = next(k for k, v in _INDICES.items() if v is _idx)
+        exchange = _idx["exchange"]
     period, interval = _RANGE_MAP[range]
 
     # Kite-primary: full OHLCV when a live session knows this instrument.
