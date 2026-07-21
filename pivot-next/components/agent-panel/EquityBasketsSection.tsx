@@ -53,10 +53,13 @@ type State =
 
 export function EquityBasketsSection({
   onSendPrompt,
+  onEditWithChat,
 }: {
   /** Seed a prompt into the chat composer and jump there — used by "New
-   *  basket" and the per-card "Edit with chat" action. */
+   *  basket". */
   onSendPrompt?: (prompt: string) => void;
+  /** Jump to chat with this basket SELECTED as a context chip. */
+  onEditWithChat?: (basket: EquityBasket) => void;
 }): React.ReactElement {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -107,8 +110,12 @@ export function EquityBasketsSection({
     setEditing(b);
     setBuilderOpen(true);
   };
+  /** Hand the basket to chat as a SELECTED context chip rather than a canned
+   *  sentence — same pattern as the Agents grid's "Edit with chat". Falls back
+   *  to the old prompt seed when the parent didn't wire the handoff. */
   const editWithChat = (b: EquityBasket): void => {
-    onSendPrompt?.(`Edit my "${b.name}" basket`);
+    if (onEditWithChat) onEditWithChat(b);
+    else onSendPrompt?.(`Edit my "${b.name}" basket`);
   };
 
   const handleSaved = (saved: EquityBasket): void => {

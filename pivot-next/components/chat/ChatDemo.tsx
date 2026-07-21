@@ -855,6 +855,14 @@ export function ChatDemo({
    */
   const seededEditDraftRef = useRef<WorkflowDraft | null>(null);
   /**
+   * Basket ids whose HOLDINGS have already been sent this session. A basket
+   * chip stays docked across turns, but its legs are a snapshot of the SAVED
+   * basket — re-asserting them every turn makes the stale copy beat an
+   * amendment made in chat. Sent once, then identity-only. Reset on remount
+   * (the chat surface is keyed by AppShell's chatResetKey).
+   */
+  const sentBasketLegsRef = useRef<Set<number>>(new Set());
+  /**
    * Index of the active clarify message in `messages`. Used to UPDATE the
    * same message in-place when a clarify answer returns another clarify card
    * (deduplication — the user sees a single card that paged locally, not a
@@ -1352,6 +1360,21 @@ export function ChatDemo({
       // Consume the one-shot seed so it never leaks into a later, unrelated turn.
       seededEditDraftRef.current = null;
 
+      // Context attachments ride every turn while their chips are active —
+      // the backend grounds the LLM on them. A basket's HOLDINGS go once (see
+      // toWireAttachment): after the first turn the chip is identity-only, so
+      // a chat amendment isn't overridden by the saved copy next turn.
+      const wireAttachments = attachments.map((a) =>
+        a.kind === "basket"
+          ? toWireAttachment(a, {
+              basketLegs: !sentBasketLegsRef.current.has(a.basket_id),
+            })
+          : toWireAttachment(a),
+      );
+      for (const a of attachments) {
+        if (a.kind === "basket") sentBasketLegsRef.current.add(a.basket_id);
+      }
+
       const gen = streamChat(
         trimmed,
         historyRef.current,
@@ -1364,9 +1387,7 @@ export function ChatDemo({
         modeOverride ?? mode,
         quote,
         editorDraft,
-        // Context attachments ride every turn while their chips are
-        // active — the backend grounds the LLM on them.
-        attachments.map(toWireAttachment),
+        wireAttachments,
       );
 
       for await (const event of gen) {

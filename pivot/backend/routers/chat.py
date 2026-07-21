@@ -65,6 +65,8 @@ class ChatRequest(BaseModel):
     #    "book": "portfolio"|"paper"}
     #   {"kind": "agent", "workflow_id": "…", "name": "…",
     #    "description": "…", "status": "active"}
+    #   {"kind": "basket", "basket_id": 12, "name": "Renewables",
+    #    "members": [{"symbol": "SUZLON", "weight": 27.0}, …]}
     # They are woven into the prompt as a labelled context block (same
     # mechanism as quoted_text) so the LLM treats them as the subject of
     # the message. None / absent = no attachments, prompt unchanged.
@@ -142,6 +144,30 @@ def _fmt_attachment(att: dict) -> Optional[str]:
         if book:
             bits.append(f"[{book} book]")
         return " · ".join([bits[0]] + bits[1:]) if len(bits) > 1 else bits[0]
+    if kind == "basket":
+        name = _s("name")
+        if not name:
+            return None
+        line = f"- Saved basket: “{name}”"
+        bid = _s("basket_id")
+        if bid:
+            line += f" [basket_id={bid}]"
+        # Carry the exact legs so an edit ("drop SUZLON", "make it equal
+        # weight") amends THIS basket's holdings rather than a guess.
+        legs = []
+        for m in (att.get("members") or [])[:40]:
+            if not isinstance(m, dict):
+                continue
+            sym = str(m.get("symbol") or "").strip().upper()[:20]
+            if not sym:
+                continue
+            try:
+                legs.append(f"{sym} {float(m.get('weight')):g}%")
+            except (TypeError, ValueError):
+                legs.append(sym)
+        if legs:
+            line += " — holdings: " + ", ".join(legs)
+        return line
     if kind == "agent":
         name = _s("name")
         if not name:

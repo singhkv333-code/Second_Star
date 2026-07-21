@@ -98,6 +98,9 @@ export type AgentsTabProps = {
    * baskets "New basket" card, which opens a chat rather than a form.
    */
   onSendPrompt?: (prompt: string) => void;
+  /** Jump to chat with a saved basket selected as a context chip — the
+   *  basket equivalent of `onEditWithChat` for agents. */
+  onEditBasketWithChat?: (basket: EquityBasket) => void;
 };
 
 type Surface = "equity" | "options" | "baskets";
@@ -202,6 +205,7 @@ export function AgentsTab({
   onEditWithChat,
   surfaceRequest,
   onSendPrompt,
+  onEditBasketWithChat,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
   // Apply an external surface request (Home F&O tile → "options"), once per
@@ -599,7 +603,10 @@ export function AgentsTab({
         />
       ) : (
         // Baskets = the equity/ETF baskets the user builds here.
-        <EquityBasketsSection onSendPrompt={onSendPrompt} />
+        <EquityBasketsSection
+          onSendPrompt={onSendPrompt}
+          onEditWithChat={onEditBasketWithChat}
+        />
       )}
     </div>
   );
