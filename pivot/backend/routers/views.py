@@ -1964,14 +1964,14 @@ def _not_placeable_reason(
     blocker (e.g. 'US market is closed on weekends')."""
     closed = [s for s in skipped if s.status == "market_closed"]
     if closed:
+        # Only reached for a LIVE/broker account now — paper deploys skip the
+        # hours gate (see _compute_basket_fills). Keep it to one tight line and
+        # name only the market(s) actually closed, no unrelated-venue boilerplate.
         markets = sorted({_market_label(s.asset_class) for s in closed})
-        syms = ", ".join(dict.fromkeys(s.symbol for s in closed))
         verb = "is" if len(markets) == 1 else "are"
         return (
-            f"The {' and '.join(markets)} {verb} closed right now, so {syms} "
-            "can't be placed. US stocks trade 9:30 AM–4:00 PM ET (Mon–Fri) and "
-            "Indian stocks ~9:15 AM–3:30 PM IST (Mon–Fri). Try again when the "
-            "market is open — crypto views deploy 24/7."
+            f"The {' and '.join(markets)} {verb} closed right now, so these "
+            "orders can't reach your broker yet. Try again during market hours."
         )
     if cash is not None and any(
         s.status == "insufficient_buying_power" for s in skipped
@@ -2026,6 +2026,7 @@ def _compute_basket_fills(
     legs_cfg: list[dict[str, Any]],
     total_inr: float,
     available_inr: Optional[float] = None,
+    paper: bool = False,
 ) -> tuple[list[BasketFillLeg], list[BasketFillLeg]]:
     """Size each leg at ``total_inr * normalised_weight`` using the multi-asset
     INR mark (NSE / US via Alpaca-yf×fx / crypto via Kraken-CoinGecko×fx) and
@@ -2076,11 +2077,13 @@ def _compute_basket_fills(
             # Live shorts aren't brokered in v1 (the executor rejects them too).
             skipped.append(_mk("short_unsupported", 0.0, None))
             continue
-        # Market-hours gate FIRST (cheap, no network): a closed venue can't fill
-        # NOW (a paper MARKET order would only REST until the open), so report it
-        # as market_closed without paying for a live-quote fetch. Crypto is 24/7;
-        # US equities Mon–Fri 9:30–16:00 ET; Indian during NSE hours.
-        if not is_market_open_for_symbol(sym):
+        # Market-hours gate — LIVE/BROKER accounts only. A paper deploy fills the
+        # SIMULATED book at the live mark (register-not-execute); it is never
+        # routed to a real venue, so gating it on NSE/US hours is wrong — the
+        # chat "Deploy basket" path (strategy.trade_basket) never gates paper,
+        # and this path must match it. For a live/broker account the gate stays:
+        # a real MARKET order to a closed venue only rests until the open.
+        if not paper and not is_market_open_for_symbol(sym):
             skipped.append(_mk("market_closed", 0.0, None))
             continue
         mark = get_mark_price(sym, None)
@@ -2141,8 +2144,8 @@ def place_basket_preview(
     total = float((body and body.capital_inr) or _DEFAULT_PLACE_INR)
     legs_cfg = _basket_place_legs(expression)  # 422 with a plain reason if not
     cash = _paper_cash_available(db, user_id)
-    ok, skipped = _compute_basket_fills(legs_cfg, total, cash)
     paper = should_use_paper(db, user_id)
+    ok, skipped = _compute_basket_fills(legs_cfg, total, cash, paper=paper)
     reason = None if ok else _not_placeable_reason(skipped, total, cash)
     return BasketPreviewResponse(
         placeable=bool(ok),
@@ -2174,11 +2177,11 @@ def place_basket(
 
     legs_cfg = _basket_place_legs(expression)  # 422 with a plain reason if not
     cash = _paper_cash_available(db, user_id)
-    ok, skipped = _compute_basket_fills(legs_cfg, total, cash)
+    paper = should_use_paper(db, user_id)
+    ok, skipped = _compute_basket_fills(legs_cfg, total, cash, paper=paper)
     if not ok:
         raise validation_error(_not_placeable_reason(skipped, total, cash))
 
-    paper = should_use_paper(db, user_id)
     if not paper and get_active_broker_session(db, user_id) is None:
         raise state_conflict(
             "No broker connected — connect your broker (e.g. Zerodha Kite) in "

@@ -540,7 +540,13 @@ export function ExpressionTicket({
         ? selBasis * (1 + selPct / 100)
         : null;
   const busy = deployingId === selected.id;
-  const deployable = selected.is_deployable || selected.workflow_id != null;
+  // An editable basket in basket-mode is deployable by construction: the
+  // place-basket endpoint sizes it straight from its legs, so it never needs
+  // the backend `is_deployable` flag (which can be stale/absent on some served
+  // expressions — that was greying otherwise-deployable baskets like the
+  // renewable growth one). Fall back to the flag / workflow for non-basket tiers.
+  const deployable =
+    selIsBasket || selected.is_deployable || selected.workflow_id != null;
 
   // Snug width for the amount input: tabular digits are 1ch each; commas are
   // narrower, so trim ~0.5ch per comma to keep ₹ + number tight (no gap).
