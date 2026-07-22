@@ -28,6 +28,7 @@ import {
   FUND_CATEGORIES,
 } from "./screenerData";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   useWatchlists,
@@ -843,13 +844,10 @@ function WatchlistStrip(): React.ReactElement {
 
   const active = watchlists.find((w) => w.id === activeId) || watchlists[0]!;
 
-  const items = useMemo(
-    () =>
-      (active?.tickers || [])
-        .map((t) => STOCKS.find((s) => s.ticker === t))
-        .filter((s): s is WatchStock => Boolean(s)),
-    [active],
-  );
+  // Tickers straight from the store — pricing is LIVE (useLiveQuote → Kite WS
+  // with REST fallback), so the card no longer depends on the static STOCKS
+  // seed and any added symbol renders, not just the demo universe.
+  const items = active?.tickers || [];
 
   return (
     <div
@@ -930,11 +928,11 @@ function WatchlistStrip(): React.ReactElement {
         className="screener-watchlist-cards"
         style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch" }}
       >
-        {items.map((s) => (
+        {items.map((t) => (
           <WatchCard
-            key={s.ticker}
-            s={s}
-            onRemove={() => removeFromWatchlist(s.ticker, activeId)}
+            key={t}
+            ticker={t}
+            onRemove={() => removeFromWatchlist(t, activeId)}
           />
         ))}
 
@@ -947,21 +945,23 @@ function WatchlistStrip(): React.ReactElement {
   );
 }
 
-// A single watchlist stock card: ticker, full last price (₹), and day Δ
-// coloured profit/loss. Subtle hover lift; a remove (×) appears on hover so
-// the card stays clean at rest.
+// A single watchlist stock card: ticker, LIVE last price (₹), and day Δ
+// coloured profit/loss. Prices come from useLiveQuote (shared Kite WS +
+// REST fallback) — never the static screener seed; until the first quote
+// lands we render an honest em-dash, not a stale number.
 function WatchCard({
-  s,
+  ticker,
   onRemove,
 }: {
-  s: WatchStock;
+  ticker: string;
   onRemove: () => void;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
-  const pos = s.day_change_pct >= 0;
+  const { ltp, changePct } = useLiveQuote(ticker);
+  const pos = (changePct ?? 0) >= 0;
   return (
     <Link
-      href={`/stock/${encodeURIComponent(s.ticker)}`}
+      href={`/stock/${encodeURIComponent(ticker)}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -981,7 +981,7 @@ function WatchCard({
     >
       <button
         type="button"
-        aria-label={`Remove ${s.ticker} from watchlist`}
+        aria-label={`Remove ${ticker} from watchlist`}
         title="Remove"
         onClick={(e) => {
           e.preventDefault();
@@ -1025,7 +1025,7 @@ function WatchCard({
           paddingRight: 16,
         }}
       >
-        {s.ticker}
+        {ticker}
       </div>
       <div
         style={{
@@ -1045,7 +1045,7 @@ function WatchCard({
             letterSpacing: "-0.01em",
           }}
         >
-          {fmtINR(s.last)}
+          {ltp != null ? fmtINR(ltp) : "—"}
         </span>
         <span
           style={{
@@ -1056,8 +1056,7 @@ function WatchCard({
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          {pos ? "+" : ""}
-          {s.day_change_pct.toFixed(2)}%
+          {changePct != null ? `${pos ? "+" : ""}${changePct.toFixed(2)}%` : ""}
         </span>
       </div>
     </Link>
