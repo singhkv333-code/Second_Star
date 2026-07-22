@@ -36,9 +36,11 @@ from backend.models import InstrumentMaster, OptionUniverse
 
 logger = logging.getLogger(__name__)
 
-# Derivative segments we master. Equity cash rows are NOT mirrored here —
-# the equity path already has its own instrument handling (kite/ticker.py).
-_SEGMENTS = ("NFO", "BFO", "MCX")
+# Segments we master. NSE/BSE cash (EQ) rows are included so
+# kite/historical.py can resolve instrument_tokens from the DB on cloud IPs
+# where the live kite.instruments() dump is throttled/empty (the container
+# symptom: "instrument_token unknown … not in ticker map or instruments dump").
+_SEGMENTS = ("NFO", "BFO", "MCX", "NSE", "BSE")
 _OPT_SEGMENTS = ("NFO-OPT", "BFO-OPT", "MCX-OPT")
 
 # Liquidity-selection knobs (percentile-based, self-adjusting — see plan).
@@ -227,12 +229,16 @@ def refresh_instrument_master(db: Session, *, today: Optional[date] = None) -> d
     inserted = updated = 0
     for row in raw_rows:
         itype = row.get("instrument_type")
-        if itype not in ("CE", "PE", "FUT"):
-            continue  # derivatives only; equity cash stays in ticker.py
+        if itype not in ("CE", "PE", "FUT", "EQ"):
+            continue  # options/futures + cash equities (EQ feeds token lookup)
         token = int(row.get("instrument_token") or 0)
         if not token:
             continue
         underlying = (row.get("name") or "").strip().upper()
+        if itype == "EQ" and not underlying:
+            # Cash rows sometimes ship a blank name (ETFs/SMEs) — the
+            # tradingsymbol is the identity we resolve tokens by, so use it.
+            underlying = (str(row.get("tradingsymbol") or "")).strip().upper()
         if not underlying:
             # Rare junk rows in the dump — skip, never guess.
             continue

@@ -123,7 +123,33 @@ def _resolve_instrument_token(
         if hit:
             return hit
     if access_token:
-        return _direct_instrument_map(exchange, access_token).get(norm)
+        hit = _direct_instrument_map(exchange, access_token).get(norm)
+        if hit:
+            return hit
+    # Last resort: the instrument_master table (refresh_instrument_master now
+    # mirrors NSE/BSE cash rows). On cloud IPs Zerodha throttles the large
+    # kite.instruments() dump — quotes work, the dump comes back empty — so
+    # the direct map above never builds. The DB row survives that.
+    try:
+        from backend.models import InstrumentMaster
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(InstrumentMaster.instrument_token)
+                .filter(
+                    InstrumentMaster.tradingsymbol == norm,
+                    InstrumentMaster.exchange == exchange,
+                )
+                .order_by(InstrumentMaster.last_seen.desc())
+                .first()
+            )
+        finally:
+            db.close()
+        if row:
+            return int(row[0])
+    except Exception as exc:  # noqa: BLE001 — resolver must never raise
+        logger.debug("kite_historical: DB token lookup failed for %s: %s",
+                     norm, str(exc)[:120])
     return None
 
 
@@ -152,6 +178,13 @@ def get_kite_historical(
     """
     if KITE_MOCK_MODE:
         return None
+
+    # Tolerate yfinance-form symbols ("HINDUNILVR.NS") from callers that skip
+    # the _try_kite_history normalisation — Kite tradingsymbols never carry a
+    # suffix, so without this the token lookup can only miss.
+    s = (symbol or "").strip().upper()
+    if s.endswith(".NS") or s.endswith(".BO"):
+        symbol = s[:-3]
 
     # Resolve the lookback span. Accept the legacy _PERIOD_MAP keys plus the
     # bare 'Nd' day-spans that default_period_for() emits for intraday
