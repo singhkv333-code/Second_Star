@@ -44,7 +44,7 @@ export function ContentOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={label}
-      style={{ top: "calc(var(--header-h, 56px) + var(--paper-banner-h, 0px))", right: 0, bottom: 0 }}
+      style={{ top: "calc(var(--safe-top, 0px) + var(--header-h, 56px) + var(--paper-banner-h, 0px))", right: 0, bottom: 0 }}
       className={cn(
         "content-overlay fixed z-40 flex flex-col overflow-hidden bg-background",
         "animate-in fade-in-0 slide-in-from-bottom-2 duration-200",

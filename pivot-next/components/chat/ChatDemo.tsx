@@ -2057,7 +2057,7 @@ export function ChatDemo({
           behind the pill (ChatGPT-style) instead of hard-stopping against
           a flat white band. Tighter bottom padding on phones so the pill
           doesn't dominate the landing surface. */}
-      <div className="relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pb-3 pt-6 sm:pb-5 sm:pt-7">
+      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pt-6 sm:pt-7">
         <ChatComposer
           textareaRef={textareaRef}
           value={intent}
