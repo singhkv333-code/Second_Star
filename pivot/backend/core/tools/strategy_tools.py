@@ -354,8 +354,14 @@ def compare_performance(
     per-symbol row in one call, so nothing gets silently dropped.
     """
     syms = [_normalise_symbol(s) for s in symbols if s]
-    if len(syms) < 2:
-        return _err("need at least 2 symbols", symbols=syms)
+    if not syms:
+        return _err("need at least 1 symbol", symbols=syms)
+    if len(syms) == 1:
+        # "reliance performance" routinely lands here with a single symbol.
+        # The pipeline is single-shot (no tool retry), so an arg-shape error
+        # surfaces as a bogus "data unavailable" apology. Serve the
+        # single-symbol answer instead of refusing.
+        return get_performance_metrics(syms[0], period=period)
     try:
         price_dict = get_close_dict(syms, period=period)
     except Exception as e:
