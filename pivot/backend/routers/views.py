@@ -2190,15 +2190,27 @@ def place_basket(
 
     from backend.paper.routing import submit_order_for_user
 
-    # Statuses that mean the book did NOT take the leg — a rejected buy deploys
-    # no capital, so it's reported as skipped, never counted as placed (honest
-    # count; mirrors the allocate_basket executor's fill test).
+    # Statuses that mean the book genuinely REJECTED the leg — no capital was
+    # deployed, so it's reported as skipped, never counted as placed.
     _NOT_FILLED = {"REJECTED", "REJECT", "CANCELLED", "FAILED", "ERROR"}
-    # A MARKET order placed while the venue is CLOSED doesn't fill — it RESTS
-    # ("queued for open"). The market-hours gate above should have skipped it,
-    # but if a leg rests anyway (race at the open/close boundary) never count it
-    # as placed — report it as market_closed.
+    # A MARKET order placed while the venue is CLOSED does not fill immediately —
+    # the paper book RESTS it ("queued for open") and the market-hours evaluator
+    # fills it at the opening tick. That is a SUCCESSFUL register-not-execute
+    # placement, not a rejection: the chat deploy path (orders._persist_leg)
+    # treats the same resting status as a registered order, and this path must
+    # match it — otherwise a paper deploy outside NSE hours 422s with "nothing
+    # placed" even though every leg was accepted. So RESTING → placed (with the
+    # resting status carried through so the FE can say "fills at open").
     _RESTING = {"RESTING", "QUEUED", "PENDING", "OPEN"}
+
+    # Reuse the marks _compute_basket_fills just paid for: without this each
+    # paper submit re-fetched a live quote per leg (and the resting stamp a
+    # second time), turning a 7-leg place into ~40s of redundant round-trips —
+    # the FE modal has no timeout, so it read as a hang.
+    _sized_marks = {leg.symbol.upper(): leg.mark_inr for leg in ok}
+
+    def _leg_price(sym: str):
+        return _sized_marks.get(str(sym).upper())
 
     placed: list[BasketPlacedLeg] = []
     rejected: list[BasketFillLeg] = []
@@ -2216,16 +2228,15 @@ def place_basket(
             conversation_id=req.conversation_id,
             client_request_id=f"viewplace:{expression.id}:{i}:{leg.symbol}",
             label=leg.symbol,
+            price_fn=_leg_price,
         )
         status = str(r.get("status", ""))
         su = status.upper()
-        if su in _NOT_FILLED or su in _RESTING:
-            # Carry the book's real reason (e.g. insufficient_buying_power) so
-            # the FE explains WHY a leg didn't fill, never a vague "rejected".
-            reason = (
-                "market_closed" if su in _RESTING
-                else (str(r.get("reject_reason") or "").strip() or "rejected")
-            )
+        if su in _NOT_FILLED:
+            # A genuine reject — carry the book's real reason (e.g.
+            # insufficient_buying_power) so the FE explains WHY, never a vague
+            # "rejected". No capital was deployed.
+            reason = str(r.get("reject_reason") or "").strip() or "rejected"
             rejected.append(BasketFillLeg(
                 symbol=leg.symbol, name=leg.name, logo_url=leg.logo_url,
                 asset_class=leg.asset_class, exchange=leg.exchange,
@@ -2233,6 +2244,7 @@ def place_basket(
                 mark_inr=leg.mark_inr, quantity=leg.quantity, status=reason,
             ))
             continue
+        # Filled OR resting (queued for open) — both are a successful placement.
         placed.append(BasketPlacedLeg(
             symbol=leg.symbol,
             exchange=leg.exchange,
@@ -2245,13 +2257,14 @@ def place_basket(
             order_id=str(r["order_id"]) if r.get("order_id") is not None else None,
         ))
 
-    # Nothing filled → don't leave rejected order rows or a phantom ledger row.
+    # Nothing accepted (every leg genuinely rejected, e.g. no live price or no
+    # buying power) → don't leave rejected order rows or a phantom ledger row.
     if not placed:
         db.rollback()
+        first = rejected[0].status if rejected else "no live price"
         raise validation_error(
-            "The book rejected every leg of this basket — nothing was placed. "
-            "This usually means no live price was available; try again during "
-            "market hours."
+            "This basket couldn't be placed — the book rejected every leg "
+            f"({first}). Check your paper cash, or try again during market hours."
         )
 
     # Record the placed strategy on the My Views ledger (best-effort, same txn).

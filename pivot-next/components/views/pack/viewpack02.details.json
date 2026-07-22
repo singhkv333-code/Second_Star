@@ -179,7 +179,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "7a1129f5-49a6-5328-9983-4a2ae428f774",
+    "id": "2d652ac3-fabd-54dc-a7d3-843e254d289c",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Own the two majors \u2014 BTC + ETH",
@@ -1001,10 +1001,11 @@
      "n_gain": 24,
      "n_loss": 6,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "ff24a58c-29c2-52de-aaf3-fb7d25fa61cf"
    },
    {
-    "id": "d924bace-760f-560d-bbc8-5d423c04a249",
+    "id": "545fb767-84d4-5a4a-8673-940a849de8ed",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Rotate into ETH + Solana",
@@ -1826,10 +1827,11 @@
      "n_gain": 25,
      "n_loss": 5,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "8d36435f-9c49-5772-8601-22fc64c83e6f"
    },
    {
-    "id": "02e9d39f-4dd5-5a22-9cfc-4bf603ded732",
+    "id": "385e58e6-1922-5f74-930e-716ebcaa384c",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 ETH + SOL + a Bitcoin miner",
@@ -2908,7 +2910,8 @@
      "n_loss": 5,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "d5bf2ed2-4b78-5a7d-9433-2d7cc058d1c0"
    }
   ],
   "plain_thesis": "After each of 30 fresh BTC all-time highs since 2013, Ethereum rose +26.6% on average over the next month (77% of the time).",
@@ -3117,7 +3120,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "381cd0cf-73e2-50de-82f4-1b1ae47c6e4f",
+    "id": "d403d672-8a71-561e-8a39-d3aa806ca65b",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 DOGE + Solana",
@@ -3747,10 +3750,11 @@
      "n_gain": 5,
      "n_loss": 1,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "05980cd0-0d47-5b1e-86af-0ab15e7d22d7"
    },
    {
-    "id": "ec5c82db-f6e7-5428-8135-0a40246eeac9",
+    "id": "02c299ea-ab7c-57fb-a021-043e30032fe5",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Solana + a miner",
@@ -4380,10 +4384,11 @@
      "n_gain": 3,
      "n_loss": 3,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "73f4ec8f-ea6c-59de-9801-8585f7e3ea83"
    },
    {
-    "id": "872ef7b9-1077-5492-b18c-892dca36378f",
+    "id": "35975fb8-67e3-569c-b70b-532779c40671",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Two miners + Solana",
@@ -5270,7 +5275,8 @@
      "n_loss": 3,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "7b10689e-9ad3-5d2d-8056-8124f4f80174"
    }
   ],
   "plain_thesis": "After six Musk crypto posts (2020-2024), Solana +58.6% and miner RIOT +49.8% one month later \u2014 DOGE itself round-tripped.",
@@ -5479,7 +5485,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "ad94b4d0-6bd7-528b-bdf9-0f2bd6e7c037",
+    "id": "d7d2444e-270d-5254-a5ea-d5e4371a1af6",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 MSTR + a miner",
@@ -6101,10 +6107,11 @@
      "n_gain": 2,
      "n_loss": 3,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "315983d7-6294-51c7-8dbb-61c280a46835"
    },
    {
-    "id": "818a49d3-8021-5c72-aad1-dc9e7d3b8ba4",
+    "id": "cfd7b179-90f1-5305-ae9d-2baeb69aea46",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Two miners + MSTR",
@@ -6983,7 +6990,8 @@
      "n_loss": 3,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "2a5a8d6f-f5ec-56df-848a-81d5c3c4f42b"
    }
   ],
   "plain_thesis": "After five MicroStrategy Bitcoin-purchase announcements, MSTR rose +12.4% on average a month later (60% hit).",
@@ -7192,7 +7200,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "88ad4eec-9590-5fa8-8fa3-a975986071fa",
+    "id": "4e10f5a2-5769-587e-be33-6915b6c2be73",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Snap + Meta",
@@ -7798,10 +7806,11 @@
      "n_gain": 3,
      "n_loss": 0,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "1e861f43-777f-5ef0-a9ff-e65391aab849"
    },
    {
-    "id": "1d8512ab-8f11-5ac5-80e4-4c8041b19661",
+    "id": "89a6673d-498f-5a57-bb87-55112d2635bd",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Snap + Meta + Pinterest",
@@ -8416,10 +8425,11 @@
      "n_gain": 3,
      "n_loss": 0,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "0a977c48-9d4f-5c41-b13e-338186650d8e"
    },
    {
-    "id": "e8b2f2d4-460d-5a3b-9ed6-947aea91a546",
+    "id": "d3ee939d-035b-5922-9d7d-56e96c0e01b6",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Snap + Pinterest",
@@ -9273,7 +9283,8 @@
      "n_loss": 0,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "7d6e1b3c-0dbc-5107-8d85-b4552c11d499"
    }
   ],
   "plain_thesis": "Across three TikTok-ban milestones, Snap rose +13.8% a month later (67% hit); Meta +5.3%.",
@@ -9482,7 +9493,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "f71779c3-d5e0-5567-96cf-a5b745bbe20c",
+    "id": "64540295-3ffd-54d0-b7c5-5769d80783c7",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Three insurers",
@@ -10097,10 +10108,11 @@
      "n_gain": 3,
      "n_loss": 0,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "892c307a-e2ac-5ce4-b588-3e220dc5c40c"
    },
    {
-    "id": "c6c6004b-b19d-55e2-8dcb-95ae0d6584b4",
+    "id": "51de2be9-04d9-506f-95b3-b0d1d9eb624a",
     "tier": "balanced",
     "expression_kind": "basket",
     "label": "Balanced \u2014 Travelers + Allstate",
@@ -10706,10 +10718,11 @@
      "n_gain": 2,
      "n_loss": 1,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "3a2903ca-41a6-533b-94c2-36d56d46ab35"
    },
    {
-    "id": "ecbb7de0-29d0-5c1c-8122-b57f83fa4e0c",
+    "id": "0b7872fb-9e5d-5347-b064-5326569a2593",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Travelers + Progressive",
@@ -11563,7 +11576,8 @@
      "n_loss": 0,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "d58c0e19-f5dc-5aee-a47a-6768fefecc9e"
    }
   ],
   "plain_thesis": "After Michael, Ian and Milton, Travelers rose +9.1% a month later (3/3); homebuilders LEN/DHI fell.",
@@ -11772,7 +11786,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "972c0cf2-5705-55c0-8a78-dea28313814d",
+    "id": "3b2016e0-1e19-561b-8d44-ce95afa536c0",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Alphabet + Meta",
@@ -12378,10 +12392,11 @@
      "n_gain": 3,
      "n_loss": 0,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "d0d636af-308c-5a3e-b1f5-3660dbeabc17"
    },
    {
-    "id": "7eadfa6d-6c33-59d1-aae9-6071f1699ac4",
+    "id": "fee86224-51cf-5a0a-87e7-99f5c6f06d9d",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Alphabet, concentrated",
@@ -13235,7 +13250,8 @@
      "n_loss": 0,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "ea45ab28-2c80-5f5e-bd56-f9d809cd7e6f"
    }
   ],
   "plain_thesis": "After three adverse Google rulings, GOOGL was +8.1% a month later \u2014 the relief-rally when a break-up was avoided.",
@@ -13444,7 +13460,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "bdcfe692-de66-58f1-a358-fef5bbf59412",
+    "id": "02cbc738-8acf-5706-bf1f-48f84c400d62",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Four defence primes",
@@ -14060,10 +14076,11 @@
      "n_gain": 2,
      "n_loss": 0,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "a9576c8f-61c1-55f8-b45c-9bbc2c1c8bfc"
    },
    {
-    "id": "d05587f9-c6d3-5ae4-a94e-36461e4bb332",
+    "id": "91d85f48-56e0-59dc-ac25-cc286dcfc46c",
     "tier": "aggressive",
     "expression_kind": "basket",
     "label": "Aggressive \u2014 Raytheon + General Dynamics",
@@ -14909,7 +14926,8 @@
      "n_loss": 0,
      "basis": "episodes"
     },
-    "trust_verdict": "promising"
+    "trust_verdict": "promising",
+    "seed_slug": "0597094d-b6f8-513c-8359-153dfc9f4801"
    }
   ],
   "plain_thesis": "After the Oct-2023 war and the 2017 North Korea test, the defence basket rose (RTX +13.3% in 2023); n=2, an edge not a law.",
@@ -15118,7 +15136,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "914b322c-c04f-5a94-bfc7-22b77eea44e5",
+    "id": "c60c5de5-1f5f-5382-b117-625ec5fced73",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 Adani Ports + Adani Power",
@@ -15724,7 +15742,8 @@
      "n_gain": 1,
      "n_loss": 2,
      "basis": "episodes"
-    }
+    },
+    "seed_slug": "c0fc11d0-d26c-56eb-b494-ad5909c6f3cd"
    }
   ],
   "plain_thesis": "After three overseas Adani project announcements, Adani Ports rose +7.1% a month later (2/3).",
@@ -15933,7 +15952,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "3ff00e5a-6994-5210-b3e1-7e52edd9a28b",
+    "id": "46bcf3f2-c494-5d67-8a76-e5588f83adc8",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The surviving exchange",
@@ -16502,7 +16521,8 @@
      "n_gain": 1,
      "n_loss": 0,
      "basis": "single_occurrence"
-    }
+    },
+    "seed_slug": "5fa487f2-82f8-5f8c-8ff0-82ce8b52437c"
    }
   ],
   "plain_thesis": "After the Nov-2023 Binance/CZ settlement, Coinbase rose +59% over the next month (single occurrence \u2014 a lead, not an edge).",
@@ -16711,7 +16731,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "2a614be2-b22e-5f5d-b1d1-5d25efd06526",
+    "id": "4d80a2f6-baf9-59e1-a7c6-8828527931d6",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The Chinese AI leader",
@@ -17280,7 +17300,8 @@
      "n_gain": 1,
      "n_loss": 0,
      "basis": "single_occurrence"
-    }
+    },
+    "seed_slug": "c3faa964-38e7-5976-ae93-0f03e89873fd"
    }
   ],
   "plain_thesis": "After the Jan-2025 DeepSeek shock, Alibaba rose +54.6% over the next month (single occurrence).",
@@ -17489,7 +17510,7 @@
   "expectations": [],
   "expressions": [
    {
-    "id": "d9aa1b3d-fb0e-5fe0-b410-76cfe54c38b6",
+    "id": "6b5c0126-ce02-519d-8c86-ff613c80b396",
     "tier": "conservative",
     "expression_kind": "basket",
     "label": "Conservative \u2014 The surviving bank",
@@ -18058,7 +18079,8 @@
      "n_gain": 1,
      "n_loss": 0,
      "basis": "single_occurrence"
-    }
+    },
+    "seed_slug": "37b8b5a0-12da-5650-a171-7a1207fc1b79"
    }
   ],
   "plain_thesis": "After UBS agreed to rescue Credit Suisse (Mar-2023), UBS rose +13.7% over the next month (single occurrence).",

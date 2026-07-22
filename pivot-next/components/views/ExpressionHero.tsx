@@ -19,7 +19,7 @@
  */
 
 import * as React from "react";
-import { ArrowRight, Bookmark, Info, Loader2 } from "lucide-react";
+import { ArrowRight, Bookmark, Check, Info, Loader2 } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -29,10 +29,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { ExpressionDetail } from "@/lib/types";
+import { isError, type ExpressionDetail } from "@/lib/types";
 import { useTokenColors } from "@/components/views/use-token-color";
 import { tierLabel } from "@/components/views/view-format";
 import {
+  activeLegs,
   editedTotalPct,
   isEditableBasket,
   recommendedLegs,
@@ -40,6 +41,7 @@ import {
   type BasketEdit,
   type PriceMap,
 } from "@/components/views/basket";
+import { createEquityBasket } from "@/lib/agentsApi";
 
 const FONT = "var(--font-display)";
 
@@ -496,6 +498,47 @@ export function ExpressionTicket({
   const clamp = (v: number): number =>
     Math.max(MIN_AMT, Math.min(MAX_AMT, Math.round(v)));
 
+  // Save — persists the reader's (possibly edited) basket to the same
+  // /strategies/baskets store the chat "Save as basket" uses, so it shows up
+  // under Agents → Strategies. Per-expression so switching baskets doesn't
+  // carry a stale "Saved" state across.
+  const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [savedIds, setSavedIds] = React.useState<Record<string, boolean>>({});
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+
+  async function handleSave(e: ExpressionDetail): Promise<void> {
+    if (savingId !== null || savedIds[e.id]) return;
+    const legs = activeLegs(e, edits?.[e.id]).filter((l) => l.symbol);
+    if (legs.length === 0) {
+      setSaveError("This basket has no holdings to save.");
+      return;
+    }
+    setSavingId(e.id);
+    setSaveError(null);
+    try {
+      const res = await createEquityBasket({
+        name: exprName(e).slice(0, 120),
+        members: legs.map((l) => ({
+          // The pack carries yfinance-style symbols (KSCL.NS); the server
+          // normalises (strips .NS, uppercases) so send them as-is.
+          symbol: l.symbol as string,
+          weight: l.weightPct,
+        })),
+        weighting: "custom",
+        capital_inr: amount,
+      });
+      if (isError(res)) {
+        setSaveError(res.error.message);
+        return;
+      }
+      setSavedIds((prev) => ({ ...prev, [e.id]: true }));
+    } catch {
+      setSaveError("Couldn't save this basket — please try again.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   if (expressions.length === 0) return null;
 
   // True when every basket here was authored with explicit share counts. The
@@ -919,13 +962,16 @@ export function ExpressionTicket({
         )}
 
         <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
-        {/* Save — the reader's edited basket, kept for later. Not wired to a
-            backend yet; it is deliberately inert rather than faking a success
-            state. Hook it to createEquityBasket (lib/agentsApi) when ready. */}
+        {/* Save — persists the reader's edited basket via createEquityBasket
+            (same store as chat's "Save as basket"; lands in Agents →
+            Strategies). Shows Saved once done; per-expression state. */}
         {basketMode && (
           <button
             type="button"
+            onClick={() => void handleSave(selected)}
+            disabled={savingId !== null || !!savedIds[selected.id]}
             aria-label="Save this basket"
+            data-testid="views-basket-save"
             className="vwd-save"
             style={{
               display: "inline-flex",
@@ -941,11 +987,29 @@ export function ExpressionTicket({
               border: `1px solid ${c.border}`,
               borderRadius: "var(--radius-md)",
               padding: "8px 16px",
-              cursor: "pointer",
+              cursor:
+                savingId !== null || savedIds[selected.id]
+                  ? "default"
+                  : "pointer",
+              opacity: savedIds[selected.id] ? 0.75 : 1,
             }}
           >
-            <Bookmark size={15} strokeWidth={2} aria-hidden />
-            Save
+            {savingId === selected.id ? (
+              <>
+                <Loader2 size={15} className="animate-spin" aria-hidden />
+                Saving…
+              </>
+            ) : savedIds[selected.id] ? (
+              <>
+                <Check size={15} strokeWidth={2} aria-hidden />
+                Saved
+              </>
+            ) : (
+              <>
+                <Bookmark size={15} strokeWidth={2} aria-hidden />
+                Save
+              </>
+            )}
           </button>
         )}
 
@@ -997,6 +1061,19 @@ export function ExpressionTicket({
             }}
           >
             {deployError}
+          </span>
+        )}
+        {saveError && (
+          <span
+            role="alert"
+            style={{
+              fontFamily: FONT,
+              fontSize: 13,
+              color: c.loss,
+              lineHeight: 1.45,
+            }}
+          >
+            {saveError}
           </span>
         )}
       </div>

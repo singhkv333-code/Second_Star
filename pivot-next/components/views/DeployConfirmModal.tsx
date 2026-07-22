@@ -120,14 +120,23 @@ export function DeployConfirmModal({
     if (expr === null || placing) return;
     setPlacing(true);
     setReason(null);
-    const res = await placeBasket(expr.id, amount);
-    setPlacing(false);
-    if (isError(res)) {
-      setReason(res.error.message);
-      return;
+    // try/finally so the "Placing…" spinner can NEVER stick: any throw or
+    // rejection still clears it and surfaces a message instead of a
+    // frozen-looking modal (`request` normally returns an ApiResult, but a
+    // network-layer throw would previously leave `placing` true forever).
+    try {
+      const res = await placeBasket(expr.id, amount);
+      if (isError(res)) {
+        setReason(res.error.message);
+        return;
+      }
+      onPlaced(res.data);
+      onClose();
+    } catch {
+      setReason("Something went wrong placing this basket — please try again.");
+    } finally {
+      setPlacing(false);
     }
-    onPlaced(res.data);
-    onClose();
   }
 
   const canPlace = preview !== null && preview.placeable && !placing;

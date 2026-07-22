@@ -89,9 +89,31 @@ def _expr_config(e: dict) -> dict:
     """Reconstruct the ViewExpression.config JSON from the flattened pack
     expression (the pack IS the API's ExpressionDetail shape — structure/scores/
     label/… are top-level there; deploy + detail read them from ``config``)."""
+    # Basket expressions authored FE-first carry their book only as display
+    # ``holdings`` (name/symbol/weight_pct) with an EMPTY ``structure`` — the
+    # deploy machinery then finds "no tradeable equity legs" and the basket
+    # seeds as non-deployable (the renewable/gold packs). Derive the deploy
+    # contract (structure.weights fractions + members_long) from holdings so
+    # the seeded row arms exactly the basket the page displays.
+    structure = dict(e.get("structure") or {})
+    if not structure.get("weights") and not structure.get("members_long"):
+        holds = [
+            h for h in (e.get("holdings") or [])
+            if isinstance(h, dict) and h.get("symbol")
+            and isinstance(h.get("weight_pct"), (int, float))
+            and h.get("weight_pct") > 0 and h.get("position") != "short"
+        ]
+        total = sum(float(h["weight_pct"]) for h in holds)
+        if holds and total > 0:
+            structure["weights"] = {
+                str(h["symbol"]): round(float(h["weight_pct"]) / total, 6)
+                for h in holds
+            }
+            structure["members_long"] = [str(h["symbol"]) for h in holds]
+            structure.setdefault("scheme", "custom_weight")
     cfg: dict[str, Any] = {
         "label": e.get("label"),
-        "structure": e.get("structure") or {},
+        "structure": structure,
         "instruments": e.get("instruments") or [],
         "warnings": e.get("warnings") or [],
         "disclaimer": e.get("disclaimer"),
@@ -124,8 +146,17 @@ def _upsert_view(db, slug: str, v: dict) -> str:
     return vid
 
 
+def _expr_slug(e: dict) -> str:
+    """The STABLE identity for uuid5 minting. First run: the pack's authored
+    slug id (``renewable-growth``). The JSON patch rewrites ``id`` to the
+    minted uuid, so subsequent runs must key off the preserved ``seed_slug`` —
+    minting from the current (uuid) id would derive uuid5(uuid) ≠ uuid, drift
+    every expression's id each run, and orphan the previously seeded rows."""
+    return str(e.get("seed_slug") or e["id"])
+
+
 def _upsert_expression(db, view_id: str, e: dict) -> str:
-    eid = _expr_uuid(e["id"])
+    eid = _expr_uuid(_expr_slug(e))
     row = db.get(ViewExpression, eid)
     if row is None:
         row = ViewExpression(id=eid)
@@ -174,7 +205,7 @@ def main() -> None:
                 for e in v.get("expressions") or []:
                     eid = _upsert_expression(db, view_id, e)
                     seeded_exprs += 1
-                    patch[e["id"]] = (eid, False)
+                    patch[_expr_slug(e)] = (eid, False)
         db.flush()
         # Probe every seeded expression for real deployability.
         for slug, (eid, _) in list(patch.items()):
@@ -191,7 +222,9 @@ def main() -> None:
             for pack, details in loaded.items():
                 for slug, v in details.items():
                     for e in v.get("expressions") or []:
-                        eid, ok = patch[e["id"]]
+                        slug = _expr_slug(e)
+                        eid, ok = patch[slug]
+                        e["seed_slug"] = slug   # preserve the stable identity
                         e["id"] = eid
                         e["is_deployable"] = ok
                 out = os.path.join(_PACK_DIR, pack)
