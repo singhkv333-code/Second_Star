@@ -70,9 +70,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { ViewSummary } from "@/lib/types";
 import packSummariesRaw from "@/components/views/pack/viewpack01.summaries.json";
 
-// Pack 01 ONLY — the same curated set the Opinions tab renders (ViewsTab
-// deliberately excludes pack 02). Home previously merged pack 02 in, so its
-// teaser could surface opinions that don't exist in the tab the CTA opens.
+// Home's opinion teasers draw from the SAME pack the Opinions (Views) tab
+// renders — pack 01 — so a teaser always resolves to a real opinion when the
+// user clicks through to "Browse opinions". Pack 02 was being merged in here
+// too, surfacing opinions that don't exist on the Views tab (dead-end teasers);
+// dropped so Home only shows the currently-active pack-01 opinions.
 const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
 
 /**

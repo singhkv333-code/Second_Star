@@ -817,6 +817,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 
 :root {
   --header-h: 56px;
+  /* iOS safe-area insets — non-zero only on notched / Dynamic-Island phones
+     when the page opts into `viewport-fit=cover` (see app/layout.tsx). Exposed
+     as tokens so the shell, its fixed overlays, and the composer can all offset
+     by the SAME value and stay aligned. 0px everywhere else. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (min-width: 1024px) {
@@ -848,6 +854,9 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     left: 0;
     z-index: 50;
     width: min(82vw, 320px) !important;
+    /* Full-height overlay drawer — pad its top past the camera cutout so the
+       brand + close button aren't hidden under the notch. */
+    padding-top: var(--safe-top);
     transform: translateX(-100%);
     transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
@@ -908,6 +917,38 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    (they simply ignore this declaration). */
 .app-shell-root {
   height: 100dvh;
+  /* Push the whole shell (header included) below the status bar / camera
+     cutout. box-sizing is border-box (Tailwind preflight), so the inner
+     content still totals 100dvh — no overflow, no clipped composer. On
+     non-notched devices --safe-top is 0px and this is a no-op. */
+  padding-top: var(--safe-top);
+}
+
+/* Lock the document to the visible viewport whenever the app shell is
+   mounted. The shared <body> carries Tailwind's `min-h-screen` (min-height:
+   100vh) for the marketing/auth pages, but 100vh resolves to the LARGE mobile
+   viewport (toolbar retracted). That made the body taller than the shell's
+   100dvh, so when the mobile browser toolbar collapsed a blank band of body
+   background appeared below the composer. Pinning body/html to 100dvh with no
+   document scroll (each shell pane already scrolls internally) removes it. */
+html:has(.app-shell-root),
+body:has(.app-shell-root) {
+  min-height: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Pinned chat composer — keep its existing 12/20px bottom padding and add the
+   home-indicator inset on top so the pill isn't tucked under it (standalone /
+   home-screen installs). --safe-bottom is 0px in a normal browser tab where a
+   toolbar already occupies the bottom, so this is a no-op there. */
+.composer-dock {
+  padding-bottom: calc(0.75rem + var(--safe-bottom));
+}
+@media (min-width: 640px) {
+  .composer-dock {
+    padding-bottom: calc(1.25rem + var(--safe-bottom));
+  }
 }
 
 /* Topbar brand — on phone the hamburger + account avatar live at the
@@ -1021,12 +1062,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     min-width: 0 !important;
     max-width: 100vw !important;
     border-left: none !important;
-    top: var(--header-h, 56px) !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
   }
   /* The backdrop is transparent (pointer-events-none) on desktop; on
      mobile we still drop it below the header for consistency. */
   .agent-panel-backdrop {
-    top: var(--header-h, 56px) !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
   }
 }
 
@@ -1038,14 +1079,14 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .basket-sheet-shell {
     width: 100vw !important;
     max-width: 100vw !important;
-    top: var(--header-h, 56px) !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
     bottom: 0 !important;
     height: auto !important;
     border-left: none !important;
   }
   .backtest-sheet-overlay,
   .basket-sheet-overlay {
-    top: var(--header-h, 56px) !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
   }
 }
 
