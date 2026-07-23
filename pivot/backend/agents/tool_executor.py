@@ -1224,12 +1224,20 @@ async def _get_index_level(a, kt, db, uid):
     idx = a.get("index", "NIFTY50")
 
     # Fast path: Kite tick cache (unchanged when the ticker is running).
+    # Only when the cache carries a real day-change — defaulting a missing
+    # change to 0 printed "NIFTY unchanged, 0.00%" on a -0.4% day
+    # (2026-07-23); fall through to the REST tier instead, which computes
+    # it from prev_close.
     key = idx.replace("50", " 50") if "NIFTY50" in idx else idx
     d = _cached_price(key)
-    if d and d.get("ltp"):
+    # prev_close is required too: the WS tick writer stores change_pct=0.0
+    # with prev_close=null before the first snapshot, and that fake zero
+    # printed "NIFTY unchanged" on a -0.4% day (2026-07-23).
+    if d and d.get("ltp") and d.get("prev_close") \
+            and d.get("change_pct") is not None:
         return {"success": True,
                 "data": {"index": idx, "level": d.get("ltp"),
-                         "change_pct": d.get("change_pct", 0),
+                         "change_pct": d.get("change_pct"),
                          "source": "kite"},
                 "logiccard": None}
 
@@ -1251,11 +1259,16 @@ async def _get_index_level(a, kt, db, uid):
             kq = get_kite_quotes([kkey]).get(kkey)
             if kq and kq.get("last_price"):
                 level = float(kq["last_price"])
-                prev = kq.get("prev_close") or level
-                change_pct = ((level - prev) / prev * 100) if prev else 0.0
+                prev = kq.get("prev_close")
+                # No prev_close → change is UNKNOWN, not zero. None lets
+                # the reply say "change unavailable" instead of lying flat.
+                change_pct = (
+                    round((level - float(prev)) / float(prev) * 100, 2)
+                    if prev else None
+                )
                 return {"success": True,
                         "data": {"index": idx, "level": round(level, 2),
-                                 "change_pct": round(change_pct, 2),
+                                 "change_pct": change_pct,
                                  "source": "kite"},
                         "logiccard": None}
         except Exception:  # noqa: BLE001 — fall through to yfinance
@@ -1273,12 +1286,14 @@ async def _get_index_level(a, kt, db, uid):
             last_close = records[-1].get("close")
             prev_close = records[-2].get("close") if len(records) >= 2 else None
             if last_close is not None:
-                change_pct = (((last_close - prev_close) / prev_close) * 100
-                              if prev_close else 0.0)
+                change_pct = (
+                    round(((last_close - prev_close) / prev_close) * 100, 2)
+                    if prev_close else None
+                )
                 return {"success": True,
                         "data": {"index": idx,
                                  "level": round(float(last_close), 2),
-                                 "change_pct": round(change_pct, 2),
+                                 "change_pct": change_pct,
                                  "source": "yfinance"},
                         "logiccard": None}
     except Exception as e:
@@ -3115,21 +3130,44 @@ async def _get_top_movers(a, kt, db, uid):
     # awaits us, the network round-trip is the bottleneck. The Redis
     # cache absorbs subsequent calls within 60s.
     from backend.services.top_movers import get_top_movers
-    rows = get_top_movers(
-        direction=a.get("direction", "gainers"),
-        limit=int(a.get("limit", 5)),
+    direction = a.get("direction", "gainers")
+    limit = int(a.get("limit", 5))
+    # Serve BOTH directions from one call. The raw-row cache in the service
+    # makes the second direction free, and it removes a whole failure class:
+    # on "gainers and losers" turns the model reliably called only ONE
+    # direction, then either fabricated "no data" or abandoned the reply
+    # mid-table when the other half was missing (2026-07-23).
+    gainers = get_top_movers(direction="gainers", limit=limit)
+    losers = get_top_movers(direction="losers", limit=limit)
+    requested = gainers if direction == "gainers" else losers
+    seeded = bool(
+        (gainers and gainers[0].get("seed"))
+        or (losers and losers[0].get("seed"))
     )
-    seeded = bool(rows and rows[0].get("seed"))
     return {
         "success": True,
         "data": {
-            "direction": a.get("direction", "gainers"),
-            "rows": rows,
-            "n": len(rows),
+            "direction": direction,
+            "rows": requested,
+            "n": len(requested),
+            "gainers": gainers,
+            "n_gainers": len(gainers),
+            "losers": losers,
+            "n_losers": len(losers),
             "seeded": seeded,
             "note": (
-                "Note: yfinance unavailable — these are seeded values."
+                "Note: live sources unavailable — these are seeded values."
                 if seeded else None
+            ),
+            # Spelled out for low/zero-reasoning reply hops: a minimal-effort
+            # turn narrated "no mover rows returned" over 5 real rows
+            # (2026-07-23). State the row counts in prose the model can't miss.
+            "_guidance": (
+                f"Payload carries BOTH directions: {len(gainers)} gainers "
+                f"rows and {len(losers)} losers rows ARE present in the "
+                "`gainers` / `losers` lists — render every row for whichever "
+                "direction(s) the user asked; never claim movers data is "
+                "missing while these lists are non-empty."
             ),
         },
         "logiccard": None,

@@ -229,7 +229,11 @@ def get_top_movers(
         return list(seed[:limit])
 
     symbols = _UNIVERSES[universe]
-    rows = _fetch_live_movers(symbols)
+    # Raw-row layer: one live fetch serves BOTH directions within the TTL —
+    # a market-pulse turn asks for gainers and losers back-to-back, and
+    # without this the second direction re-paid the full universe fetch.
+    raw_key = f"{_CACHE_PREFIX}{universe}:raw"
+    rows = _cache_get(raw_key) or _fetch_live_movers(symbols)
 
     if not rows:
         _last_empty_at = _time.monotonic()
@@ -239,6 +243,7 @@ def get_top_movers(
         # bounds the retry rate; a fresh attempt resumes in <=45s.
         return result
 
+    _cache_set(raw_key, rows)
     rows.sort(
         key=lambda r: r["change_pct"],
         reverse=(direction == "gainers"),

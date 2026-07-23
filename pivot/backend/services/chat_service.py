@@ -2135,9 +2135,12 @@ def _option_draft_spec(data: dict) -> dict:
 # with NO visible values. Letting the model write 200-300 tokens
 # of prose lets it quote the actual numbers (RSI 59.28, Sharpe
 # −3.44, etc.) so the user sees the answer.
-_COMPACT_PROSE_TOOLS: frozenset[str] = frozenset({
-    "get_top_movers",  # already has rich prose patterns from earlier
-})
+# Empty on purpose (was {"get_top_movers"}): the compact squeeze assumes
+# the FE renders a card below the prose, but movers render NO card — the
+# 250-token cap it imposed truncated every list_read / market_pulse table
+# mid-row and starved the reply into "no data" one-liners (2026-07-23).
+# The reply-class directives (list_read / market_pulse) now own the shape.
+_COMPACT_PROSE_TOOLS: frozenset[str] = frozenset()
 
 
 def _classify_intent(message: str) -> str:
@@ -2493,6 +2496,29 @@ _LIST_READ_RE = re.compile(
     re.IGNORECASE,
 )
 
+# MARKET-PULSE reads — a whole-market overview (indices + movers in one ask):
+# "market pulse", "how's the market today", the Dashboard "Market Today" chip.
+# Checked BEFORE list_read: these asks contain "gainers and losers" too, but a
+# bare movers table drops the index half of the question. Gets its own budget
+# with an indices-plus-movers-plus-read structure script.
+_MARKET_PULSE_RE = re.compile(
+    r"\bmarket\s+(?:pulse|overview|summary|snapshot|wrap|mood|check)\b"
+    r"|\bhow(?:'s| is| are)\s+the\s+markets?\s+(?:doing|looking|today)\b"
+    r"|\bhow\s+(?:is|are)\s+(?:nifty|sensex)\b[^.?!]{0,40}\b(?:gainers?|losers?|movers?)\b",
+    re.IGNORECASE,
+)
+
+# WATCH-IDEAS asks — "stocks worth watching", "watchlist ideas", the Dashboard
+# "Watchlist Ideas" chip. Without this they fall to analytical_short (≤120w
+# plain prose) and come back as a thin unsourced name-list with no live data.
+_WATCH_IDEAS_RE = re.compile(
+    r"\bworth\s+watching\b"
+    r"|\bstocks?\s+to\s+watch\b"
+    r"|\bwatch\s*list\s+ideas?\b"
+    r"|\bideas?\s+for\s+(?:my\s+)?watch\s*list\b",
+    re.IGNORECASE,
+)
+
 
 def _classify_reply_class(message: str, intent_kind: str) -> str:
     """Return one of {'draft', 'automation', 'backtest', 'explainer',
@@ -2536,10 +2562,16 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     # (apply-the-data-and-reason), not an explain-concept ask.
     if _ANALYSIS_INTENT_RE.search(msg):
         return "analysis"
+    # Market-overview reads (indices + movers together) outrank the bare
+    # movers table — check BEFORE list_read, which their text also matches.
+    if _MARKET_PULSE_RE.search(msg):
+        return "market_pulse"
     # Ranked-list reads (movers / gainers-losers / most-active) need a table,
     # not the ≤120-word prose cap — check BEFORE the analytical_short fallback.
     if _LIST_READ_RE.search(msg):
         return "list_read"
+    if _WATCH_IDEAS_RE.search(msg):
+        return "watch_ideas"
     if _EXPLAINER_INTENT_RE.search(msg):
         return "explainer"
     return "analytical_short"
@@ -2636,6 +2668,41 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "Include EVERY row the tool returned and FINISH every row — never stop "
         "a table mid-line. Add at most one short sentence of read (what's "
         "leading). Do NOT append prices for unrelated names."
+    )),
+    # MARKET-PULSE — indices + movers in one structured read (Dashboard
+    # "Market Today" chip). Distinct from list_read: that class renders ONE
+    # movers table; this one owns the whole tape — indices table, both mover
+    # tables, and a short breadth read.
+    "market_pulse": (3500, (
+        "REPLY-CLASS: MARKET PULSE. A market-overview read. Structure "
+        "EXACTLY: (1) ONE lead sentence — both index moves + the day's tone "
+        "(risk-on / drifting / selling off). (2) `## Indices` — table "
+        "`Index | Level | Day` for every index fetched, signed percentages. "
+        "(3) `## Top gainers` then `## Top losers` — one table each, "
+        "`Symbol | LTP | Change%`, signed. The movers payload carries "
+        "BOTH lists (`gainers` and `losers`) in a single result — render "
+        "EVERY row of each; say 'unavailable' ONLY if a list is actually "
+        "empty. (4) `## Read` — 2-3 sentences max: breadth (how lopsided "
+        "gainers vs losers are), which sector/theme dominates each side, "
+        "one thing to watch. If an index payload has a null change, "
+        "write 'change unavailable' — NEVER print 0.00% for missing data."
+    )),
+    # WATCH-IDEAS — N grounded stock ideas (Dashboard "Watchlist Ideas"
+    # chip). analytical_short's ≤120w prose cap produced unsourced
+    # name-lists; this class forces live-data grounding + a table.
+    "watch_ideas": (3000, (
+        "REPLY-CLASS: WATCH IDEAS. The user wants a few stock ideas to "
+        "watch (default 3, honour any count they gave). Ground every pick "
+        "in LIVE tool data — fetch quotes (and fundamentals when offered) "
+        "for the names you pick; NEVER quote a price, P/E or return from "
+        "memory. Structure: one sentence on the tilt you chose and why it "
+        "suits the current tape; then a table `Stock | LTP | Day | Why "
+        "now` where each WHY is one concrete, current reason (valuation "
+        "vs history, momentum, a dated catalyst) — not a generic company "
+        "descriptor; then ONE line on what would invalidate these ideas. "
+        "If live quotes are unavailable, give the reasons WITHOUT price "
+        "claims and say quotes are unavailable. End with the not-advice "
+        "line."
     )),
     # STRATEGY — the text that accompanies a build_strategy /
     # propose_basket_allocation card. The previous 3800-token cap still
@@ -3287,6 +3354,29 @@ def _analysis_subhint(message: str) -> str:
     reply-class hint based on the SHAPE of the analytical ask (screen /
     rank vs index-trend vs single-name). Returns "" when no extra
     shaping is needed (plain single-name analysis already covered)."""
+    # PORTFOLIO HEALTH review (Dashboard "Portfolio Health" chip): the
+    # stock-analysis Snapshot/Technicals/... skeleton is the wrong shape
+    # for a holdings review — pin the portfolio one. Checked first: these
+    # asks also contain "analyse" but never the screen/trend keywords.
+    if re.search(r"\bportfolio\b[^.?!]{0,60}\b(?:health|concentration|"
+                 r"rebalanc\w*|review|risk)\b"
+                 r"|\b(?:health|review)\s+of\s+my\s+portfolio\b"
+                 r"|\brebalanc\w*\b[^.?!]{0,40}\bportfolio\b",
+                 message, re.IGNORECASE):
+        return (
+            " THIS IS a PORTFOLIO HEALTH review — the stock-analysis "
+            "section skeleton does NOT apply. Structure: `## Snapshot` — "
+            "total value, day P&L and overall P&L (signed, from the "
+            "holdings payload); `## Allocation` — table `Holding | Value | "
+            "Weight % | P&L %` covering every holding (compute weights "
+            "from values); `## Concentration` — the top position's weight, "
+            "flag any single name >25% or top-3 >60%, one line on sector "
+            "skew; `## Movers` — today's biggest up and down holdings with "
+            "signed %; `## Suggestions` — 2-3 concrete, sized rebalancing "
+            "directions phrased as options ('trimming X toward ~20% would "
+            "…'), never instructions. Quote only payload numbers. End "
+            "with the not-advice line."
+        )
     if _SCREEN_INTENT_RE.search(message):
         return (
             " THIS IS A SCREEN / RANK ask — output is INVALID without a "
@@ -7216,6 +7306,11 @@ class ChatService:
         # reasoning here just eats the budget and truncates the table.
         if reply_class == "list_read":
             effort = "minimal"
+        elif reply_class == "market_pulse":
+            # Pulse turns must actually READ the four-tool payload — a
+            # minimal-effort run narrated "no mover rows" over 5 real rows
+            # (2026-07-23). 'low' keeps tables cheap without the misread.
+            effort = "low"
         # Same starvation on the LIGHT reply classes: a short factual /
         # capability / small-talk answer needs little planning, but on
         # gpt-5.4-mini 'medium' effort burns the whole output budget on
@@ -9436,6 +9531,11 @@ class ChatService:
         # (mirror of the non-streaming path).
         if reply_class == "list_read":
             effort = "minimal"
+        elif reply_class == "market_pulse":
+            # Pulse turns must actually READ the four-tool payload — a
+            # minimal-effort run narrated "no mover rows" over 5 real rows
+            # (2026-07-23). 'low' keeps tables cheap without the misread.
+            effort = "low"
         # Light classes starve on 'medium' too — drop to 'low' so the
         # visible answer gets the budget (mirror of the non-streaming path;
         # see the hop-probe note there).
