@@ -54,6 +54,13 @@ _UNIVERSES: dict[str, tuple[str, ...]] = {
 _CACHE_PREFIX = "top_movers:"
 _CACHE_TTL_S = 60
 
+# After BOTH live sources (Kite batch + yfinance) come back empty, skip
+# re-trying them for this long and serve the seed immediately. Without
+# it, every movers call inside the cool-down re-paid the full dual-source
+# stall (~11s measured) just to fail identically.
+_EMPTY_COOLDOWN_S = 45.0
+_last_empty_at: float = 0.0
+
 
 # Seed fallback. Marked with `seed=True` so the UI / model can disclose.
 # Values are illustrative — refresh occasionally.
@@ -154,6 +161,10 @@ def _fetch_live_movers(symbols: tuple[str, ...]) -> list[dict[str, Any]]:
             group_by="ticker",
             auto_adjust=False,
             threads=True,
+            # Bound the per-request wait — the unbounded default let a
+            # rate-limited batch stall the chat tool for ~11s before
+            # returning nothing (measured live, eval20 2026-07-22).
+            timeout=8,
         )
     except Exception as e:
         logger.warning("yfinance.download failed for top_movers: %s", e)
@@ -209,13 +220,23 @@ def get_top_movers(
     if cached:
         return cached
 
+    global _last_empty_at
+    import time as _time
+    if _time.monotonic() - _last_empty_at < _EMPTY_COOLDOWN_S:
+        # Both live sources just failed — serve the seed instantly
+        # instead of re-paying the dual-source stall.
+        seed = _SEED_GAINERS if direction == "gainers" else _SEED_LOSERS
+        return list(seed[:limit])
+
     symbols = _UNIVERSES[universe]
     rows = _fetch_live_movers(symbols)
 
     if not rows:
+        _last_empty_at = _time.monotonic()
         seed = _SEED_GAINERS if direction == "gainers" else _SEED_LOSERS
         result = list(seed[:limit])
-        # Don't cache seed — we want to retry yfinance on the next call.
+        # Don't cache seed in Redis — the cool-down above already
+        # bounds the retry rate; a fresh attempt resumes in <=45s.
         return result
 
     rows.sort(

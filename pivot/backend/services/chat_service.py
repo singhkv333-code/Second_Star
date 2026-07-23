@@ -290,6 +290,107 @@ def _strip_empty_news_section(text: str) -> str:
 # row but not run away.
 _MAX_TOOL_CALLS = 8
 
+# One LLM hop may be retried this many times across the turn when the
+# provider returns an error/stall (transport timeouts surface as
+# finish_reason=="error", they do NOT raise). Measured live (eval20,
+# 2026-07-22): 3/20 turns died on a single ~120s Azure stall with no
+# second attempt — the old path retried hop 1 only, and only on raised
+# exceptions, so an error-finish on hop 2+ went straight to the
+# "backend hiccuped" fallback.
+_MAX_HOP_ERROR_RETRIES = 2
+
+# Read-only tools that are safe to execute CONCURRENTLY when the model
+# batches several calls into one hop. Includes both the consolidated
+# view-enum tools and the narrow legacy names they superseded (hidden
+# from the schema but still routable). Order/draft/register tools stay
+# serial — side-effect ordering matters there.
+_PARALLEL_READ_TOOLS: frozenset = frozenset({
+    # consolidated read tools
+    "get_market_data", "get_portfolio", "get_indicators", "get_ipo",
+    "calculate",
+    # market / analysis reads
+    "get_index_level", "get_market_status", "get_top_movers",
+    "get_option_chain", "fetch_fundamentals", "get_symbol_news",
+    "screen_fundamentals", "query_financials", "compare_performance",
+    "get_performance_metrics", "get_correlation_matrix", "get_returns",
+    "compare_yields", "get_yield_recommendation", "get_portfolio_greeks",
+    "get_product_spec", "get_ipo_details", "list_upcoming_ipos",
+    "get_ipo_listing", "test_cointegration",
+    "get_indicator", "get_multiple_indicators",
+    # narrow legacy market/portfolio reads
+    "get_live_price", "get_ohlc", "get_price_history", "get_52wk_range",
+    "get_portfolio_summary", "get_holdings", "get_sector_breakdown",
+    "get_holding_detail", "get_tax_summary",
+    # account/state lists
+    "list_pending_orders", "list_gtt_orders", "list_sips",
+    "list_strategies", "get_workflow_status", "get_scheduler_status",
+    "list_upcoming_jobs",
+    # pure sandboxed math
+    "compute",
+})
+
+
+async def _pre_execute_parallel_reads(
+    tool_calls: list,
+    *,
+    llm_client: Any,
+    user_message: str,
+    kite_token: str,
+    user_id: int,
+    qty_context: str,
+) -> "dict[int, GuardedToolResult]":
+    """Execute a hop's independent READ tools concurrently.
+
+    Returns {index-in-tool_calls: result} for the parallel-safe calls; the
+    caller's per-call loop consumes these instead of re-executing, so all
+    post-processing (draft stashing, screen handling, message append order)
+    is unchanged. Fires only when the hop carries >=2 parallel-safe reads.
+
+    Each task runs in its own thread + event loop with its OWN DB session:
+    the read handlers are sync-network (kite / yfinance / psycopg2) inside
+    async defs, so gathering them on the main loop would still serialize —
+    a thread per read gives real wall-clock overlap (a 3-fundamentals hop
+    goes ~3x2.5s -> ~2.5s). No handler module holds a loop-bound async
+    HTTP client, so running under a per-thread loop is safe.
+    """
+    idxs = [
+        i for i, tc in enumerate(tool_calls)
+        if (tc.get("name") or "") in _PARALLEL_READ_TOOLS
+    ]
+    if len(idxs) < 2:
+        return {}
+
+    def _run_one(tc: dict) -> GuardedToolResult:
+        from backend.database import SessionLocal
+        _db = SessionLocal()
+        try:
+            return asyncio.run(execute_with_completeness(
+                tc["name"],
+                tc.get("arguments") or {},
+                llm_client=llm_client,
+                user_message=user_message,
+                kite_token=kite_token,
+                db=_db,
+                user_id=user_id,
+                qty_context=qty_context,
+            ))
+        finally:
+            _db.close()
+
+    results = await asyncio.gather(
+        *[asyncio.to_thread(_run_one, tool_calls[i]) for i in idxs],
+        return_exceptions=True,
+    )
+    out: "dict[int, GuardedToolResult]" = {}
+    for i, res in zip(idxs, results):
+        if isinstance(res, BaseException):
+            # Fall through — the caller re-executes this one serially.
+            logger.warning("parallel read %s failed (%s); will retry serially",
+                           tool_calls[i].get("name"), type(res).__name__)
+            continue
+        out[i] = res
+    return out
+
 
 def _release_db_conn(db: Any) -> None:
     """Hand the pooled DB connection back to the pool for the duration of
@@ -3368,10 +3469,19 @@ def _web_search_scope(message: str) -> bool:
 
 
 def _hosted_tools_for(message: str) -> "list[dict] | None":
-    """The per-turn hosted-tool surface: the browse tool only in scope."""
-    if _HOSTED_TOOLS is None:
-        return None
-    return _HOSTED_TOOLS if _web_search_scope(message) else None
+    """The hosted-tool surface — constant every turn.
+
+    Was per-turn scoped (browse tool only on news/qualitative asks), but
+    toggling the tools array between two variants split the prompt-cache
+    prefix in two: measured live (eval20, 2026-07-22), 8 of 33 hops paid
+    a full ~59k-token uncached prefill purely from variant flips (66%
+    cache rate). The tools array is serialized ahead of the messages, so
+    ONE byte of difference invalidates the whole cached prefix including
+    the ~40k-token core. Offering the browse tool unconditionally makes
+    the prefix byte-stable; WHEN to browse is governed by the prompt
+    contract (system_core + the web_search pack), which scopes it to
+    news / current-affairs / qualitative asks."""
+    return _HOSTED_TOOLS
 
 
 # ── LLM-owned interpretation (experiment): one static direction block ──
@@ -7628,6 +7738,10 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Provider-error retries used so far this turn (see
+        # _MAX_HOP_ERROR_RETRIES) — a retried hop does not consume a
+        # hop-budget slot.
+        hop_error_retries = 0
         # Turn-level screen-call counter: the deterministic table reply is
         # only valid when ONE screen was the whole ask — multiple screens
         # mean the model is gathering inputs for a synthesis it must write.
@@ -7726,45 +7840,33 @@ class ChatService:
                     hosted_tools=_hosted_tools_for(message),
                 )
             except Exception as e:
-                # GAN R4 F11: ONE short-backoff retry on a transient
-                # first-hop failure before degrading — a single 50s
-                # timeout was wiping context turns. Only retry the FIRST
-                # hop (later hops carry tool state that's costly to redo).
-                if hop_index == 1:
+                # Short-backoff retry on a transient failure at ANY hop
+                # before degrading (was hop-1 only — an error at hop 2+
+                # wiped the whole turn including completed tool work).
+                # Loop-continue reuses the primary call path, so the
+                # retry carries the exact same args (incl. hosted_tools,
+                # which the old inline retry silently dropped).
+                if hop_error_retries < _MAX_HOP_ERROR_RETRIES:
+                    hop_error_retries += 1
                     logger.warning(
-                        "%s call failed at hop %d (%s); retrying once",
+                        "%s call failed at hop %d (%s); retrying (%d/%d)",
                         client.provider_name, hop_index, type(e).__name__,
+                        hop_error_retries, _MAX_HOP_ERROR_RETRIES,
                     )
                     trace.event("llm.retry", hop=hop_index,
                                 type=type(e).__name__)
-                    try:
-                        await asyncio.sleep(0.5)
-                        _release_db_conn(ctx.db)
-                        response = await client.complete(
-                            messages=messages,
-                            tools=tooldefs,
-                            tool_choice=hop_tool_choice,
-                            max_output_tokens=hop_max_output,
-                            reasoning_effort=effort,
-                            temperature=0.2,
-                            prompt_cache_key=cache_key,
-                        )
-                    except Exception as e2:  # noqa: BLE001
-                        logger.warning(
-                            "%s retry failed at hop %d (%s); falling back",
-                            client.provider_name, hop_index, type(e2).__name__,
-                        )
-                        trace.event("llm.exception", hop=hop_index,
-                                    type=type(e2).__name__)
-                        break
-                else:
-                    logger.warning(
-                        "%s call failed at hop %d (%s); falling back",
-                        client.provider_name, hop_index, type(e).__name__,
-                    )
-                    trace.event("llm.exception", hop=hop_index,
-                                type=type(e).__name__)
-                    break
+                    _force_no_tools = (hop_tool_choice == "none")
+                    _force_construction_tools = (hop_tool_choice == "required")
+                    hop_index -= 1
+                    await asyncio.sleep(1.5)
+                    continue
+                logger.warning(
+                    "%s call failed at hop %d (%s); falling back",
+                    client.provider_name, hop_index, type(e).__name__,
+                )
+                trace.event("llm.exception", hop=hop_index,
+                            type=type(e).__name__)
+                break
             breakdown[f"llm_hop_{hop_index}"] = response.latency_ms
             # Stash cache-hit token count alongside the hop latency so
             # _log_timing surfaces it without changing the log shape.
@@ -7779,6 +7881,25 @@ class ChatService:
                         cached_tokens=response.cached_tokens)
 
             if response.finish_reason == "error":
+                # Transport timeouts / 429s surface HERE (the client
+                # catches httpx errors and returns finish_reason="error"
+                # instead of raising) — so this branch, not the except
+                # above, is where Azure stalls land. Retry the hop.
+                if hop_error_retries < _MAX_HOP_ERROR_RETRIES:
+                    hop_error_retries += 1
+                    logger.warning(
+                        "LLM error finish at hop %d (%s); retrying (%d/%d)",
+                        hop_index, (response.content or "")[:200],
+                        hop_error_retries, _MAX_HOP_ERROR_RETRIES)
+                    trace.event("llm.error_retry", hop=hop_index,
+                                attempt=hop_error_retries)
+                    # Re-arm the force flags this hop consumed so the
+                    # retry runs with the same tool_choice.
+                    _force_no_tools = (hop_tool_choice == "none")
+                    _force_construction_tools = (hop_tool_choice == "required")
+                    hop_index -= 1
+                    await asyncio.sleep(1.5)
+                    continue
                 logger.warning("LLM error finish at hop %d: %s",
                                hop_index, response.content)
                 trace.event("turn.end", reason="llm_error")
@@ -7953,7 +8074,20 @@ class ChatService:
             # narration hop (measured ~7s warm / the whole cold-cache tail).
             hop_screen_data: Optional[dict] = None
 
-            for tc in response.tool_calls or []:
+            # Execute this hop's independent READ calls concurrently
+            # before the serial loop; writes/drafts stay in-order below.
+            _parallel_results = await _pre_execute_parallel_reads(
+                response.tool_calls or [],
+                llm_client=client,
+                user_message=message,
+                kite_token=ctx.kite_token,
+                user_id=ctx.user_id,
+                qty_context=_recent_user_text(history),
+            )
+            if _parallel_results:
+                trace.event("tools.parallel", n=len(_parallel_results))
+
+            for _tc_i, tc in enumerate(response.tool_calls or []):
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
                 if tc.get("name") == "screen_fundamentals":
@@ -7984,25 +8118,29 @@ class ChatService:
                     trace.event("tool.rejected_duplicate",
                                 tool="build_option_strategy")
                     continue
-                guarded = await execute_with_completeness(
-                    tc["name"],
-                    tc.get("arguments") or {},
-                    llm_client=client,
-                    user_message=message,
-                    kite_token=ctx.kite_token,
-                    db=ctx.db,
-                    user_id=ctx.user_id,
-                    # [C1/C2] earlier user turns count toward "user named
-                    # a qty" so the M2 guard doesn't re-ask on amendments.
-                    qty_context=_recent_user_text(history),
-                    # P1: pass the prior DSL draft so a non-structural
-                    # amendment patches it in place (no notify-only collapse).
-                    prior_dsl_draft=(
-                        active.draft if (active is not None
-                                         and active.tool_name == "propose_dsl_workflow")
-                        else None
-                    ),
-                )
+                # Concurrent-read hops resolved this call already — see
+                # _pre_execute_parallel_reads above the loop.
+                guarded = _parallel_results.get(_tc_i)
+                if guarded is None:
+                    guarded = await execute_with_completeness(
+                        tc["name"],
+                        tc.get("arguments") or {},
+                        llm_client=client,
+                        user_message=message,
+                        kite_token=ctx.kite_token,
+                        db=ctx.db,
+                        user_id=ctx.user_id,
+                        # [C1/C2] earlier user turns count toward "user named
+                        # a qty" so the M2 guard doesn't re-ask on amendments.
+                        qty_context=_recent_user_text(history),
+                        # P1: pass the prior DSL draft so a non-structural
+                        # amendment patches it in place (no notify-only collapse).
+                        prior_dsl_draft=(
+                            active.draft if (active is not None
+                                             and active.tool_name == "propose_dsl_workflow")
+                            else None
+                        ),
+                    )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms
                 )
@@ -9654,6 +9792,10 @@ class ChatService:
         logiccard: Optional[dict] = None
         raw_data: dict = {}
         hop_index = 0
+        # Provider-error retries used so far this turn (see
+        # _MAX_HOP_ERROR_RETRIES) — a retried hop does not consume a
+        # hop-budget slot.
+        hop_error_retries = 0
         # Turn-level screen-call counter: the deterministic table reply is
         # only valid when ONE screen was the whole ask — multiple screens
         # mean the model is gathering inputs for a synthesis it must write.
@@ -9846,6 +9988,23 @@ class ChatService:
                 breakdown[f"llm_hop_{hop_index}_cached"] = cached_tokens
 
             if stream_error:
+                # Retry a provider stall/error when nothing user-visible
+                # has streamed yet (text already on screen can't be
+                # cleanly retried — fall through to the degraded path).
+                if (hop_error_retries < _MAX_HOP_ERROR_RETRIES
+                        and not text_parts and not tc_acc):
+                    hop_error_retries += 1
+                    logger.warning(
+                        "stream error at hop %d (%s); retrying (%d/%d)",
+                        hop_index, stream_error[:200],
+                        hop_error_retries, _MAX_HOP_ERROR_RETRIES)
+                    trace.event("llm.error_retry", hop=hop_index,
+                                attempt=hop_error_retries)
+                    _force_no_tools = (hop_tool_choice == "none")
+                    _force_construction_tools = (hop_tool_choice == "required")
+                    hop_index -= 1
+                    await asyncio.sleep(1.5)
+                    continue
                 logger.warning("stream error at hop %d: %s", hop_index, stream_error)
                 trace.event("turn.end", reason="llm_error")
                 trace.end()
@@ -10051,8 +10210,25 @@ class ChatService:
             # narration hop) — see handle() for the rationale.
             hop_screen_data: Optional[dict] = None
 
+            # Surface every tool chip up-front — execution below may be
+            # concurrent, and the user should see all of them start.
             for tc in tool_calls:
                 yield {"type": "tool_start", "name": tc.get("name", "")}
+
+            # Execute this hop's independent READ calls concurrently
+            # before the serial loop; writes/drafts stay in-order below.
+            _parallel_results = await _pre_execute_parallel_reads(
+                tool_calls,
+                llm_client=client,
+                user_message=message,
+                kite_token=ctx.kite_token,
+                user_id=ctx.user_id,
+                qty_context=_recent_user_text(history),
+            )
+            if _parallel_results:
+                trace.event("tools.parallel", n=len(_parallel_results))
+
+            for _tc_i, tc in enumerate(tool_calls):
                 trace.event("tool.invoke", tool=tc.get("name"),
                             args=tc.get("arguments"))
                 if tc.get("name") == "screen_fundamentals":
@@ -10081,25 +10257,29 @@ class ChatService:
                     trace.event("tool.rejected_duplicate",
                                 tool="build_option_strategy")
                     continue
-                guarded = await execute_with_completeness(
-                    tc["name"],
-                    tc.get("arguments") or {},
-                    llm_client=client,
-                    user_message=message,
-                    kite_token=ctx.kite_token,
-                    db=ctx.db,
-                    user_id=ctx.user_id,
-                    # [C1/C2] earlier user turns count toward "user named
-                    # a qty" so the M2 guard doesn't re-ask on amendments.
-                    qty_context=_recent_user_text(history),
-                    # P1: pass the prior DSL draft so a non-structural
-                    # amendment patches it in place (no notify-only collapse).
-                    prior_dsl_draft=(
-                        active.draft if (active is not None
-                                         and active.tool_name == "propose_dsl_workflow")
-                        else None
-                    ),
-                )
+                # Concurrent-read hops resolved this call already — see
+                # _pre_execute_parallel_reads above the loop.
+                guarded = _parallel_results.get(_tc_i)
+                if guarded is None:
+                    guarded = await execute_with_completeness(
+                        tc["name"],
+                        tc.get("arguments") or {},
+                        llm_client=client,
+                        user_message=message,
+                        kite_token=ctx.kite_token,
+                        db=ctx.db,
+                        user_id=ctx.user_id,
+                        # [C1/C2] earlier user turns count toward "user named
+                        # a qty" so the M2 guard doesn't re-ask on amendments.
+                        qty_context=_recent_user_text(history),
+                        # P1: pass the prior DSL draft so a non-structural
+                        # amendment patches it in place (no notify-only collapse).
+                        prior_dsl_draft=(
+                            active.draft if (active is not None
+                                             and active.tool_name == "propose_dsl_workflow")
+                            else None
+                        ),
+                    )
                 breakdown[f"tool_{guarded.name}"] = (
                     breakdown.get(f"tool_{guarded.name}", 0) + guarded.latency_ms
                 )
