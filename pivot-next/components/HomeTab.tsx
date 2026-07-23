@@ -69,12 +69,11 @@ import { ViewCard } from "@/components/views/ViewCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ViewSummary } from "@/lib/types";
 import packSummariesRaw from "@/components/views/pack/viewpack01.summaries.json";
-import pack2SummariesRaw from "@/components/views/pack/viewpack02.summaries.json";
 
-const PACK_SUMMARIES = [
-  ...(packSummariesRaw as unknown as ViewSummary[]),
-  ...(pack2SummariesRaw as unknown as ViewSummary[]),
-];
+// Pack 01 ONLY — the same curated set the Opinions tab renders (ViewsTab
+// deliberately excludes pack 02). Home previously merged pack 02 in, so its
+// teaser could surface opinions that don't exist in the tab the CTA opens.
+const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
 
 /**
  * Only live opinions belong on Home. `coming_soon` teasers (and anything still
