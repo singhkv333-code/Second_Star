@@ -7329,6 +7329,14 @@ class ChatService:
         # on a single retry. All other tools stay single-shot.
         propose_workflow_attempts = 0
         _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
+        # One generic self-repair hop per turn for EVERY other tool's
+        # error (2026-07-23): a query_financials arg-cap error used to be
+        # terminal — the clarify path paraphrased the internal limit to
+        # the user ("the data feed limits a single request to eight
+        # metrics") instead of letting the model trim its args and
+        # re-call. Handlers already write errors FOR the model to
+        # self-repair; this gives them the hop that doctrine assumed.
+        generic_error_retries = 0
         trace.event(
             "tool_router.select",
             n_selected=len(tooldefs),
@@ -8538,6 +8546,36 @@ class ChatService:
                             latency_breakdown=breakdown,
                         )
 
+                # Generic ONE-shot self-repair (2026-07-23): every tool
+                # other than propose/backtest_workflow (which have their
+                # own scoped retry above) gets its error fed back ONCE
+                # per turn so the model can trim/fix args and re-call —
+                # arg-cap and validation errors are written FOR the
+                # model. Terminal clarify below stays the fallback.
+                if (
+                    guarded.name not in {"propose_workflow", "backtest_workflow"}
+                    and generic_error_retries < 1
+                ):
+                    generic_error_retries += 1
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=(
+                            f"ERROR from {guarded.name}: "
+                            f"{guarded.error or ''}\n\n"
+                            "Fix the arguments and call a tool again to "
+                            "ANSWER the user: adjust to any stated "
+                            "limit/vocabulary, drop what doesn't fit, or "
+                            "pick a better-suited tool. NEVER mention "
+                            "this internal error, its limits, or the "
+                            "retry to the user — they only see your "
+                            "final answer."
+                        ),
+                    ))
+                    trace.event(f"{guarded.name}.generic_error_retry",
+                                error=(guarded.error or "")[:140])
+                    continue
                 # Build the user-facing question. For propose_workflow
                 # we pass the user's original ask alongside the error
                 # so the question can name the specific phrase that
@@ -9544,6 +9582,14 @@ class ChatService:
         # Same scoped retry budget as the non-streaming path.
         propose_workflow_attempts = 0
         _PROPOSE_WORKFLOW_MAX_ATTEMPTS = 2
+        # One generic self-repair hop per turn for EVERY other tool's
+        # error (2026-07-23): a query_financials arg-cap error used to be
+        # terminal — the clarify path paraphrased the internal limit to
+        # the user ("the data feed limits a single request to eight
+        # metrics") instead of letting the model trim its args and
+        # re-call. Handlers already write errors FOR the model to
+        # self-repair; this gives them the hop that doctrine assumed.
+        generic_error_retries = 0
         trace.event(
             "tool_router.select",
             n_selected=len(tooldefs),
@@ -10637,6 +10683,34 @@ class ChatService:
                         )
                         trace.end()
                         return
+
+                # Stream mirror of the generic ONE-shot self-repair —
+                # see handle(): tool errors are written FOR the model;
+                # feed the error back once and let it re-call.
+                if (
+                    guarded.name not in {"propose_workflow", "backtest_workflow"}
+                    and generic_error_retries < 1
+                ):
+                    generic_error_retries += 1
+                    messages.append(LLMMessage(
+                        role="tool",
+                        tool_call_id=tc.get("id", f"call_{hop_index}"),
+                        name=guarded.name,
+                        content=(
+                            f"ERROR from {guarded.name}: "
+                            f"{guarded.error or ''}\n\n"
+                            "Fix the arguments and call a tool again to "
+                            "ANSWER the user: adjust to any stated "
+                            "limit/vocabulary, drop what doesn't fit, or "
+                            "pick a better-suited tool. NEVER mention "
+                            "this internal error, its limits, or the "
+                            "retry to the user — they only see your "
+                            "final answer."
+                        ),
+                    ))
+                    trace.event(f"{guarded.name}.generic_error_retry",
+                                error=(guarded.error or "")[:140])
+                    continue
 
                 question = _format_recoverable_failure_question(
                     tool_name=guarded.name,
