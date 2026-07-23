@@ -1222,6 +1222,27 @@ def screen_by_fundamentals(
         cte_name = f"m_{mf}"
 
         if kind == "growth":
+            # Materialized fast path: mc.growth_metrics_mat carries the
+            # SAME numbers (built nightly by growth_materialize.py from
+            # this CTE's exact shape), served as an indexed read instead
+            # of a 20-55s live pairing. Falls open to the live CTE when
+            # the shard is missing/stale — semantics identical either way.
+            from backend.services.growth_materialize import mat_shard_fresh
+            if mat_shard_fresh(mf, gy):
+                gmetric_key = f"gmetric_{i}"
+                params[gmetric_key] = mf
+                cte_sqls.append(
+                    f"""{cte_name} AS (
+                        SELECT sc_id, g AS v
+                        FROM mc.growth_metrics_mat
+                        WHERE metric = :{gmetric_key} AND gy = {gy}
+                          AND (:floor IS NULL OR latest_end >= :floor)
+                    )"""
+                )
+                join_sqls.append(f"JOIN {cte_name} ON {cte_name}.sc_id = c.sc_id")
+                select_cols.append(f"{cte_name}.v AS val_{mf}")
+                val_expr[mf] = f"{cte_name}.v"
+                continue
             # YoY over the two latest ANNUAL periods of the SAME basis
             # (consolidated preferred). The recency floor gates the LATEST
             # period only (the prior year is allowed to precede it).

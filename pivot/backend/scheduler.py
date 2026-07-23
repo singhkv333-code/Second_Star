@@ -129,6 +129,20 @@ def _register_jobs():
         replace_existing=True,
     )
 
+    # Screener growth-metrics materialization. 02:10 IST daily — well off
+    # market hours and clear of the other overnight jobs; growth numbers
+    # move only when new filings land, so nightly freshness is ample.
+    scheduler.add_job(
+        rebuild_growth_metrics,
+        trigger=CronTrigger(
+            hour=2, minute=10, second=0,
+            timezone=IST,
+        ),
+        id="rebuild_growth_metrics",
+        name="Rebuild screener growth metrics at 02:10 IST",
+        replace_existing=True,
+    )
+
     # F&O P0: instrument-master refresh + dynamic universe selection.
     # 08:35 IST — after Kite regenerates the daily instruments dump
     # (~08:30) and before market open, so lot-size revisions and new
@@ -298,6 +312,26 @@ async def refresh_fno_instruments():
     from backend.market.instrument_master import refresh_instrument_master_job
 
     await refresh_instrument_master_job()
+
+
+async def rebuild_growth_metrics():
+    """Nightly rebuild of mc.growth_metrics_mat — the screener's growth
+    fast path (each live growth CTE costs 20-55s; the mat read is <1s).
+    Runs off-hours; each shard has its own transaction, one failure never
+    kills the rest, and the screener fails open to the live CTE anyway."""
+    import asyncio
+
+    def _run() -> None:
+        from backend.services.growth_materialize import build_growth_metrics
+        stats = build_growth_metrics()
+        errs = {k: v for k, v in stats.items() if "error" in v}
+        logger.info("[growth-mat] rebuilt %d shards (%d errors)%s",
+                    len(stats), len(errs), f": {errs}" if errs else "")
+
+    try:
+        await asyncio.to_thread(_run)
+    except Exception:
+        logger.exception("[growth-mat] nightly rebuild failed")
 
 
 async def snapshot_paper_greeks_eod():
