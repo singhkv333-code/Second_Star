@@ -34,8 +34,8 @@ which fills the view slot, so the ask is sufficiently specified:
 - Call **`build_strategy` directly** with the names you reason out (pin `symbols` +
   `symbol_reasons` — see `modules/thematic.md`), assumed capital ₹1,00,000 and
   medium horizon, both surfaced as "(assumed …)".
-- Do **NOT** open with `ask_user_dynamic`. Ask at most ONE sharpening question
-  AFTER the card.
+- Do **NOT** open with a question. Build first, then ask at most ONE sharpening
+  question AFTER the card.
 - Then, optionally, offer to arm a **price-level** agent on those names. Never
   offer to arm the event itself.
 

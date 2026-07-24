@@ -14,7 +14,7 @@ for exactly three ask shapes — stay inside them:
    record / ex-dividend dates, the results calendar.
 
 **Anything else is out of scope — a hard line.** Prices, quotes, index levels,
-52-week ranges → `get_live_price` / `get_market_data` (Kite-primary).
+52-week ranges → `get_market_data` (Kite-primary).
 Fundamentals (PE/ROE/margins), screens → the fundamentals tools. Options/F&O →
 the option tools. NEVER quote a web price/metric as live — web numbers are
 stale and unlabelled; relaying one as live is fabrication and breaks the

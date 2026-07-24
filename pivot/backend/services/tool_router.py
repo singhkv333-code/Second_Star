@@ -151,6 +151,43 @@ _MODULE_RULES: list[tuple[re.Pattern, str]] = [
                 r"\b(when|if|whenever)\b[^.]{0,40}\b(news|announce\w*|resolves?|"
                 r"cuts? rates?|hikes? rates?)\b"),
      "events"),
+    # ── Relocated recipe packs (the per-ask detail that used to live in
+    #    system_core; core keeps the one-line pointer, the pack carries the
+    #    tool chain). Overlap with the packs above is fine and de-duped.
+    (re.compile(r"\bmarket (overview|update|wrap|recap|today|news)\b|"
+                r"how'?s the market\b|markets? today\b|what'?s the market\b|"
+                r"\bwhy is (nifty|sensex|banknifty|the market)\b|"
+                r"\blatest news\b|\bnews (on|around|in|about)\b|"
+                r"\btell me about\b|\bwhat does .{0,30}\bdo\b|"
+                r"\bsector (outlook|view|doing)\b|how is .{0,20}(sector|doing)\b|"
+                r"\b(is |the )?(nifty|sensex|banknifty)\b.{0,25}"
+                r"\b(uptrend|downtrend|trend|sideways|topping|structure|level|at)\b"),
+     "market_reads"),
+    (re.compile(r"\bipos?\b|initial public offering|grey market|\bgmp\b|"
+                r"listing (gain|day|price|pop)\b"), "ipo"),
+    (re.compile(r"\bsips?\b|systematic investment|recurring (buy|invest\w*)|"
+                r"\bevery\b.{0,20}\b(month|week|monday|tuesday|wednesday|thursday|"
+                r"friday)\b|(invest|buy|put)\b.{0,30}\bevery\b"), "sips"),
+    (re.compile(r"dip[- ]?buy\w*|\bon a .{0,10}dip\b|buy .{0,20}\bdip\b|"
+                r"book[- ]?profits?\b|sell at \d+ ?%|\d+ ?% (dip|profit)|"
+                r"worth of \w+|\bka\b\s+\w+"), "order_sizing"),
+    (re.compile(r"\b(tata|adani|bajaj|birla|jindal|m&m|mahindra)\b"),
+     "disambiguation"),
+    (re.compile(r"\b(nvidia|apple|microsoft|tesla|amazon|google|meta|netflix|"
+                r"us (stock|tech|equit\w+)|s\s*&\s*p ?500|nasdaq|\bbtc\b|bitcoin|"
+                r"\beth\b|ethereum|crypto|forex|fixed deposit|\bfds?\b|"
+                r"mutual funds?|flexi[- ]?cap|direct[- ]?(plan|growth))\b"),
+     "proxy_suggestions"),
+    (re.compile(r"\bcompose_multistep\b|winning logic|"
+                r"\b(compare|backtest|research)\b[^.]{0,70}"
+                r"\b(then|winner|winning|and (build|create|set ?up|turn))\b"),
+     "orchestration"),
+    (re.compile(r"\b(build|create|set ?up|make|draft|design)\b[^.]{0,30}"
+                r"\b(agent|automat\w+|workflow)\b|"
+                r"\bwhen\b[^.]{0,45}\b(rsi|macd|\bsma\b|\bema\b|crosses?|"
+                r"drops? \d|falls? \d|rises? \d|above|below)\b|"
+                r"\bgtt\b|% from (the )?(previous|prior|day'?s) (close|high|open)|"
+                r"percent from"), "workflows"),
 ]
 
 

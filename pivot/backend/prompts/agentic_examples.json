@@ -4,12 +4,11 @@
     {
       "id": "single_action_market_order",
       "prompt": "buy 10 RELIANCE at market",
-      "tool": "place_market_order",
+      "tool": "place_order",
       "args": {
         "symbol": "RELIANCE",
-        "transaction_type": "BUY",
-        "quantity": 10,
-        "order_type": "MARKET"
+        "side": "buy",
+        "quantity": 10
       },
       "confidence": 0.97,
       "note": "Single deterministic action, all required fields present. NEVER use propose_workflow for one-shot orders."
@@ -122,9 +121,10 @@
     {
       "id": "snapshot_query",
       "prompt": "what's the price of reliance",
-      "tool": "get_live_price",
+      "tool": "get_market_data",
       "args": {
-        "symbol": "RELIANCE"
+        "symbol": "RELIANCE",
+        "view": "quote"
       },
       "confidence": 0.95,
       "note": "Single-symbol price lookup. NEVER use propose_workflow for a quote."
@@ -132,8 +132,10 @@
     {
       "id": "portfolio_query",
       "prompt": "show me my holdings",
-      "tool": "get_holdings",
-      "args": {},
+      "tool": "get_portfolio",
+      "args": {
+        "view": "holdings"
+      },
       "confidence": 0.95,
       "note": "Read-only portfolio query. No agent."
     },
@@ -165,17 +167,7 @@
         "_steps_summary": "Re-run backtest_workflow with SMA periods updated to 20/50 (was 10/20). Carry over symbol, period (e.g. 3y), entry/exit shape. Emit the full steps[] with the new periods."
       },
       "confidence": 0.9,
-      "note": "Backtest parameter tweaks ('try with 20/50', 'use 14-period RSI instead', 'over 5 years instead'): re-emit backtest_workflow with the changed numbers. NEVER switch to get_multiple_indicators or get_indicator. The prior backtest draft is in scope \u2014 change only what the user named."
-    },
-    {
-      "id": "cancel_after_draft",
-      "prompt": "cancel that",
-      "tool": "ASK_USER",
-      "args": {
-        "question": "Cancelling the pending draft. Confirm \u2014 say 'yes' and I'll discard it."
-      },
-      "confidence": 0.9,
-      "note": "When the IMMEDIATELY-PRECEDING assistant turn proposed a draft (order, workflow, basket, SIP) and the user replies 'cancel', 'cancel that', 'never mind', 'drop it', or 'no don't' \u2014 DO NOT create a new order or call any propose_* tool. The runtime cancels the active draft. If unsure, route to ASK_USER asking for confirmation. NEVER interpret 'cancel that' as a fresh order."
+      "note": "Backtest parameter tweaks ('try with 20/50', 'use 14-period RSI instead', 'over 5 years instead'): re-emit backtest_workflow with the changed numbers. NEVER switch to get_indicators. The prior backtest draft is in scope \u2014 change only what the user named."
     },
     {
       "id": "extend_existing_draft",
@@ -185,7 +177,7 @@
         "_steps_summary": "Edit the active draft in-place: change indicator periods to 50/100, append a sell trigger when unrealized P&L >= 8%. Emit the FULL updated draft, not just the diff."
       },
       "confidence": 0.9,
-      "note": "Workflow modifications (changing thresholds, adding profit targets / stop-losses, swapping indicator periods, adding notify steps) STAY in propose_workflow. NEVER route to create_sip, place_market_order, or another macro when extending an existing draft. Emit the full updated steps[]."
+      "note": "Workflow modifications (changing thresholds, adding profit targets / stop-losses, swapping indicator periods, adding notify steps) STAY in propose_workflow. NEVER route to create_sip, place_order, or another macro when extending an existing draft. Emit the full updated steps[]."
     },
     {
       "id": "backtest_simple",
@@ -269,55 +261,6 @@
       },
       "confidence": 0.94,
       "note": "Fundamentals-gated backtest. The user explicitly said 'Backtest:' AND named a fundamental gate \u2192 ALWAYS route to backtest_workflow (run it) and ALWAYS emit fetch.fundamental + condition.numeric. NEVER drop the fundamental gate. Named metrics include: roe, roce, roa, debt_to_equity, current_ratio, quick_ratio, eps_basic, revenue, net_profit, net_profit_margin, ebitda_margin, price_to_book, ev_to_ebitda, earnings_yield, interest_coverage, book_value_per_share, asset_turnover. Legacy short codes pe/roe/de/mcap still accepted."
-    },
-    {
-      "id": "backtest_fundamental_roce",
-      "prompt": "Backtest the last 3 years: every Monday buy 1 RELIANCE if its ROCE is above 10 percent.",
-      "tool": "backtest_workflow",
-      "args": {
-        "name": "Mon RELIANCE if ROCE>10",
-        "period": "3y",
-        "steps": [
-          {
-            "step_index": 0,
-            "step_type": "trigger.schedule",
-            "config": {
-              "cron": "0 10 * * 1",
-              "timezone": "Asia/Kolkata"
-            }
-          },
-          {
-            "step_index": 1,
-            "step_type": "fetch.fundamental",
-            "config": {
-              "symbol": "RELIANCE",
-              "metric": "roce"
-            }
-          },
-          {
-            "step_index": 2,
-            "step_type": "condition.numeric",
-            "config": {
-              "left": "{{context.1.value}}",
-              "operator": ">",
-              "right": 10
-            }
-          },
-          {
-            "step_index": 3,
-            "step_type": "action.place_order",
-            "config": {
-              "symbol": "RELIANCE",
-              "side": "buy",
-              "quantity": 1,
-              "order_type": "market",
-              "product": "CNC"
-            }
-          }
-        ]
-      },
-      "confidence": 0.94,
-      "note": "ROCE, current_ratio, ebitda_margin, eps_basic, and every other named field in financials_db.FIELD_MAP work the same way \u2014 emit metric: '<name>' literally. Do NOT default to legacy short codes pe/roe/de when a longer named field fits better."
     },
     {
       "id": "backtest_fundamental_formula",
