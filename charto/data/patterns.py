@@ -31,18 +31,26 @@ _WICK_RATIO = 2.00      # hammer's lower wick >= 2x its body
 _TREND_BARS = 10        # bars of context that name a hammer vs a hanging man
 
 CANDLE_KINDS = (
-    "doji", "hammer", "inverted_hammer", "hanging_man", "shooting_star",
-    "marubozu", "spinning_top", "bullish_engulfing", "bearish_engulfing",
+    "doji", "dragonfly_doji", "gravestone_doji", "long_legged_doji",
+    "hammer", "inverted_hammer", "hanging_man", "shooting_star",
+    "marubozu", "spinning_top", "bullish_belt_hold", "bearish_belt_hold",
+    "bullish_engulfing", "bearish_engulfing",
     "bullish_harami", "bearish_harami", "piercing_line", "dark_cloud_cover",
-    "tweezer_top", "tweezer_bottom", "morning_star", "evening_star",
+    "tweezer_top", "tweezer_bottom", "bullish_kicker", "bearish_kicker",
+    "morning_star", "evening_star",
     "three_white_soldiers", "three_black_crows", "bullish_abandoned_baby",
-    "bearish_abandoned_baby",
+    "bearish_abandoned_baby", "three_inside_up", "three_inside_down",
+    "three_outside_up", "three_outside_down",
+    "rising_three_methods", "falling_three_methods",
 )
 CHART_KINDS = (
-    "double_top", "double_bottom", "head_and_shoulders",
-    "inverse_head_and_shoulders", "ascending_triangle", "descending_triangle",
+    "double_top", "double_bottom", "triple_top", "triple_bottom",
+    "head_and_shoulders", "inverse_head_and_shoulders",
+    "ascending_triangle", "descending_triangle",
     "symmetrical_triangle", "rising_wedge", "falling_wedge",
-    "bull_flag", "bear_flag",
+    "rectangle", "channel_up", "channel_down", "broadening",
+    "bull_flag", "bear_flag", "bull_pennant", "bear_pennant",
+    "cup_and_handle", "rounding_bottom", "rounding_top",
 )
 STRUCTURE_KINDS = ("market_structure",)
 ALL_KINDS = CANDLE_KINDS + CHART_KINDS + STRUCTURE_KINDS
@@ -115,6 +123,18 @@ def candlesticks(rows: list[tuple], atr_series: list, ist,
         # ── single bar ────────────────────────────────────
         if a["body_pct"] <= _DOJI_BODY:
             add(i, "doji", "neutral", 1, body_pct_of_range=a["body_pct"] * 100)
+            # the wick distribution names the doji; the varieties are
+            # mutually exclusive so one bar never carries two of them
+            if a["lower"] >= 0.6 * a["rng"] and a["upper"] <= 0.1 * a["rng"]:
+                add(i, "dragonfly_doji", "bullish", 1,
+                    lower_wick_pct_of_range=a["lower"] / a["rng"] * 100)
+            elif a["upper"] >= 0.6 * a["rng"] and a["lower"] <= 0.1 * a["rng"]:
+                add(i, "gravestone_doji", "bearish", 1,
+                    upper_wick_pct_of_range=a["upper"] / a["rng"] * 100)
+            elif a["upper"] >= 0.3 * a["rng"] and a["lower"] >= 0.3 * a["rng"]:
+                add(i, "long_legged_doji", "neutral", 1,
+                    upper_wick_pct_of_range=a["upper"] / a["rng"] * 100,
+                    lower_wick_pct_of_range=a["lower"] / a["rng"] * 100)
         if (a["body"] and a["lower"] >= _WICK_RATIO * a["body"]
                 and a["upper"] <= a["body"] and a["body_pct"] < 0.5):
             trend = _trend_before(rows, i, atr=atr_series[i] if i < len(atr_series) and atr_series[i] else 0.0)
@@ -133,6 +153,18 @@ def candlesticks(rows: list[tuple], atr_series: list, ist,
         if a["body_pct"] >= 0.95:
             add(i, "marubozu", "bullish" if a["up"] else "bearish", 1,
                 body_pct_of_range=a["body_pct"] * 100)
+        # belt hold: a long bar that opens AT its extreme against the prior
+        # run — the open is the low (bullish) or the high (bearish)
+        if avg and a["body"] > _LONG_BODY * avg and a["body_pct"] < 0.95:
+            trend = _trend_before(rows, i, atr=atr_series[i] if i < len(atr_series) and atr_series[i] else 0.0)
+            if a["up"] and a["lower"] <= 0.05 * a["rng"] and trend == "down":
+                add(i, "bullish_belt_hold", "bullish", 1,
+                    open_off_low_pct_of_range=a["lower"] / a["rng"] * 100,
+                    body_vs_avg=a["body"] / avg)
+            if not a["up"] and a["upper"] <= 0.05 * a["rng"] and trend == "up":
+                add(i, "bearish_belt_hold", "bearish", 1,
+                    open_off_high_pct_of_range=a["upper"] / a["rng"] * 100,
+                    body_vs_avg=a["body"] / avg)
         if (_DOJI_BODY < a["body_pct"] <= 0.35 and a["upper"] > a["body"]
                 and a["lower"] > a["body"]):
             add(i, "spinning_top", "neutral", 1, body_pct_of_range=a["body_pct"] * 100)
@@ -169,6 +201,18 @@ def candlesticks(rows: list[tuple], atr_series: list, ist,
                     add(i, "tweezer_top", "bearish", 2, high_gap=abs(a["h"] - p["h"]))
                 if abs(a["l"] - p["l"]) <= tol and not p["up"] and a["up"]:
                     add(i, "tweezer_bottom", "bullish", 2, high_gap=abs(a["l"] - p["l"]))
+                # kicker: the market re-opens on the FAR side of the prior
+                # open and runs — bodies cannot overlap, which also makes it
+                # disjoint from an engulfing by construction
+                if avg and p["body"] > avg and a["body"] > avg:
+                    if not p["up"] and a["up"] and a["o"] >= p["o"]:
+                        add(i, "bullish_kicker", "bullish", 2,
+                            gap_over_prior_open=a["o"] - p["o"],
+                            body_vs_avg=a["body"] / avg)
+                    if p["up"] and not a["up"] and a["o"] <= p["o"]:
+                        add(i, "bearish_kicker", "bearish", 2,
+                            gap_under_prior_open=p["o"] - a["o"],
+                            body_vs_avg=a["body"] / avg)
 
         # ── three bars ────────────────────────────────────
         if i >= 2:
@@ -192,6 +236,26 @@ def candlesticks(rows: list[tuple], atr_series: list, ist,
                         and y["body_pct"] <= _DOJI_BODY):
                     add(i, "bearish_abandoned_baby", "bearish", 3,
                         gap_up=y["l"] - x["h"], gap_down=y["l"] - z["h"])
+            # three inside / three outside: the two-bar signal plus the bar
+            # that PROVES it — the third close beyond the setup's extreme
+            inside_prev = (y["top"] <= x["top"] and y["bot"] >= x["bot"]
+                           and x["body"] and y["body"])
+            if avg and x["body"] > _LONG_BODY * avg and inside_prev:
+                if not x["up"] and y["up"] and z["up"] and z["c"] > x["o"]:
+                    add(i, "three_inside_up", "bullish", 3,
+                        close_beyond_first_open=z["c"] - x["o"])
+                if x["up"] and not y["up"] and not z["up"] and z["c"] < x["o"]:
+                    add(i, "three_inside_down", "bearish", 3,
+                        close_beyond_first_open=x["o"] - z["c"])
+            engulf_prev = (y["top"] >= x["top"] and y["bot"] <= x["bot"]
+                           and x["body"] and y["body"])
+            if engulf_prev:
+                if not x["up"] and y["up"] and z["up"] and z["c"] > y["c"]:
+                    add(i, "three_outside_up", "bullish", 3,
+                        close_beyond_second=z["c"] - y["c"])
+                if x["up"] and not y["up"] and not z["up"] and z["c"] < y["c"]:
+                    add(i, "three_outside_down", "bearish", 3,
+                        close_beyond_second=y["c"] - z["c"])
             three_up = all(q["up"] for q in (x, y, z))
             three_dn = all(not q["up"] for q in (x, y, z))
             rising = z["c"] > y["c"] > x["c"]
@@ -207,6 +271,30 @@ def candlesticks(rows: list[tuple], atr_series: list, ist,
             if three_dn and falling and bodies_ok and step_up:
                 add(i, "three_black_crows", "bearish", 3,
                     net_move_pct=(z["c"] - x["o"]) / x["o"] * 100)
+
+        # ── five bars: three methods ──────────────────────
+        # a long bar, three small counter-drift bars held INSIDE its range,
+        # then a long bar closing beyond the first — continuation proven
+        if i >= 4 and avg:
+            f = _anatomy(rows[i - 4])
+            mids = [_anatomy(rows[i - 3]), _anatomy(rows[i - 2]),
+                    _anatomy(rows[i - 1])]
+            long_ends = (f["body"] > _LONG_BODY * avg
+                         and a["body"] > _LONG_BODY * avg)
+            held_inside = all(q["h"] <= f["h"] and q["l"] >= f["l"]
+                              for q in mids)
+            small_mids = all(q["body"] < _SMALL_BODY * avg for q in mids)
+            if long_ends and held_inside and small_mids:
+                if (f["up"] and a["up"] and mids[2]["c"] < mids[0]["c"]
+                        and a["c"] > f["c"]):
+                    add(i, "rising_three_methods", "bullish", 5,
+                        close_beyond_first=a["c"] - f["c"],
+                        drift=mids[2]["c"] - mids[0]["c"])
+                if (not f["up"] and not a["up"] and mids[2]["c"] > mids[0]["c"]
+                        and a["c"] < f["c"]):
+                    add(i, "falling_three_methods", "bearish", 5,
+                        close_beyond_first=f["c"] - a["c"],
+                        drift=mids[2]["c"] - mids[0]["c"])
 
     out.sort(key=lambda p: p["bars_ago"])
     return out[:limit]
@@ -227,6 +315,38 @@ def _fit(points: list[tuple]) -> tuple | None:
         return None
     slope = (n * sxy - sx * sy) / den
     return slope, (sy - slope * sx) / n
+
+
+def _quadfit(vals: list[float]) -> tuple | None:
+    """Least-squares parabola v = a2*x² + a1*x + a0 against BAR INDEX,
+    plus R². Cramer's rule on the normal equations — stdlib only, so the
+    curvature claim ("rounded") is a number, not an eyeball call."""
+    n = len(vals)
+    if n < 8:
+        return None
+    s0 = float(n)
+    s1 = sum(range(n)); s2 = float(sum(i * i for i in range(n)))
+    s3 = float(sum(i ** 3 for i in range(n)))
+    s4 = float(sum(i ** 4 for i in range(n)))
+    sy = sum(vals)
+    sxy = sum(i * v for i, v in enumerate(vals))
+    sx2y = sum(i * i * v for i, v in enumerate(vals))
+    det = (s4 * (s2 * s0 - s1 * s1) - s3 * (s3 * s0 - s1 * s2)
+           + s2 * (s3 * s1 - s2 * s2))
+    if abs(det) < 1e-9:
+        return None
+    a2 = (sx2y * (s2 * s0 - s1 * s1) - s3 * (sxy * s0 - s1 * sy)
+          + s2 * (sxy * s1 - s2 * sy)) / det
+    a1 = (s4 * (sxy * s0 - sy * s1) - sx2y * (s3 * s0 - s1 * s2)
+          + s2 * (s3 * sy - sxy * s2)) / det
+    a0 = (s4 * (s2 * sy - sxy * s1) - s3 * (s3 * sy - sxy * s2)
+          + sx2y * (s3 * s1 - s2 * s2)) / det
+    mean = sy / n
+    ss_tot = sum((v - mean) ** 2 for v in vals)
+    ss_res = sum((v - (a2 * i * i + a1 * i + a0)) ** 2
+                 for i, v in enumerate(vals))
+    r2 = 1 - ss_res / ss_tot if ss_tot else 0.0
+    return a2, a1, a0, r2
 
 
 def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
@@ -316,10 +436,30 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
         kinds_seq = "".join(x[2] for x in w)
         if kinds_seq == "HLHLH":
             s1, l1, hd, l2, s2 = w
-            if (hd[1] > s1[1] and hd[1] > s2[1]
-                    and abs(s1[1] - s2[1]) <= tol * 2
+            # a triple top is the SAME window with three ~equal highs; the
+            # head-above-shoulders requirement keeps the two exclusive
+            hs_shape = (hd[1] > s1[1] and hd[1] > s2[1]
+                        and hd[1] - max(s1[1], s2[1]) >= tol)
+            peaks = (s1[1], hd[1], s2[1])
+            if (not hs_shape
+                    and max(peaks) - min(peaks) <= tol * 1.5
                     and abs(l1[1] - l2[1]) <= tol * 2
-                    and hd[1] - max(s1[1], s2[1]) >= tol):
+                    and min(peaks) - max(l1[1], l2[1]) >= tol * 2):
+                neck = min(l1[1], l2[1])
+                add("triple_top", "bearish", s1[0], s2[0],
+                    {"peak_1": round(s1[1], 2), "peak_2": round(hd[1], 2),
+                     "peak_3": round(s2[1], 2)},
+                    neckline=round(neck, 2),
+                    measured_move=round(neck - (max(peaks) - neck), 2),
+                    peak_spread=round(max(peaks) - min(peaks), 2),
+                    _geometry=dict(
+                        outline=[[T(x[0]), round(x[1], 2)]
+                                 for x in (s1, l1, hd, l2, s2)],
+                        base=dict(v=round(neck, 2), t1=T(s1[0]),
+                                  t2=T(_base_end(s2[0], neck, True)))),
+                    **confirmed(s2[0], neck, below=True))
+            if (hs_shape and abs(s1[1] - s2[1]) <= tol * 2
+                    and abs(l1[1] - l2[1]) <= tol * 2):
                 neck = (l1[1] + l2[1]) / 2
                 add("head_and_shoulders", "bearish", s1[0], s2[0],
                     {"left_shoulder": round(s1[1], 2), "head": round(hd[1], 2),
@@ -335,10 +475,28 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                     **confirmed(s2[0], neck, below=True))
         if kinds_seq == "LHLHL":
             s1, h1, hd, h2, s2 = w
-            if (hd[1] < s1[1] and hd[1] < s2[1]
-                    and abs(s1[1] - s2[1]) <= tol * 2
+            ihs_shape = (hd[1] < s1[1] and hd[1] < s2[1]
+                         and min(s1[1], s2[1]) - hd[1] >= tol)
+            lows3 = (s1[1], hd[1], s2[1])
+            if (not ihs_shape
+                    and max(lows3) - min(lows3) <= tol * 1.5
                     and abs(h1[1] - h2[1]) <= tol * 2
-                    and min(s1[1], s2[1]) - hd[1] >= tol):
+                    and min(h1[1], h2[1]) - max(lows3) >= tol * 2):
+                neck = max(h1[1], h2[1])
+                add("triple_bottom", "bullish", s1[0], s2[0],
+                    {"trough_1": round(s1[1], 2), "trough_2": round(hd[1], 2),
+                     "trough_3": round(s2[1], 2)},
+                    neckline=round(neck, 2),
+                    measured_move=round(neck + (neck - min(lows3)), 2),
+                    trough_spread=round(max(lows3) - min(lows3), 2),
+                    _geometry=dict(
+                        outline=[[T(x[0]), round(x[1], 2)]
+                                 for x in (s1, h1, hd, h2, s2)],
+                        base=dict(v=round(neck, 2), t1=T(s1[0]),
+                                  t2=T(_base_end(s2[0], neck, False)))),
+                    **confirmed(s2[0], neck, below=False))
+            if (ihs_shape and abs(s1[1] - s2[1]) <= tol * 2
+                    and abs(h1[1] - h2[1]) <= tol * 2):
                 neck = (h1[1] + h2[1]) / 2
                 add("inverse_head_and_shoulders", "bullish", s1[0], s2[0],
                     {"left_shoulder": round(s1[1], 2), "head": round(hd[1], 2),
@@ -373,7 +531,12 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
         top_then, bot_then = fh[0] * i0 + fh[1], fl[0] * i0 + fl[1]
         if top_now <= bot_now:
             continue                       # lines already crossed; not a shape
-        converging = (top_now - bot_now) < (top_then - bot_then) * 0.85
+        # one width ratio decides the family: <0.85 converging, >1.15
+        # widening, in between the boundaries are holding parallel
+        ratio = (top_now - bot_now) / max(1e-9, top_then - bot_then)
+        converging = ratio < 0.85
+        widening = ratio > 1.15
+        parallel = 0.85 <= ratio <= 1.15
         pts = {"upper_now": round(top_now, 2), "lower_now": round(bot_now, 2),
                "upper_slope_per_bar": round(sh, 4),
                "lower_slope_per_bar": round(sl, 4)}
@@ -410,6 +573,17 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
             add("rising_wedge", "bearish", i0, n - 1, pts, **common, **na)
         elif converging and sh < -flat and sl < -flat:
             add("falling_wedge", "bullish", i0, n - 1, pts, **common, **na)
+        # parallel boundaries: a rectangle holds level, a channel holds a
+        # trend, a broadening formation swings wider — same fit, same rail:
+        # either edge can end it, so none of them gets a confirmation level
+        elif parallel and abs(sh) <= flat and abs(sl) <= flat:
+            add("rectangle", "neutral", i0, n - 1, pts, **common, **na)
+        elif parallel and sh > flat and sl > flat:
+            add("channel_up", "bullish", i0, n - 1, pts, **common, **na)
+        elif parallel and sh < -flat and sl < -flat:
+            add("channel_down", "bearish", i0, n - 1, pts, **common, **na)
+        elif widening and sh > flat and sl < -flat:
+            add("broadening", "neutral", i0, n - 1, pts, **common, **na)
         if out and out[-1].get("span_bars") == n - 1 - i0:
             break                          # one window is enough per shape
 
@@ -431,29 +605,152 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                 continue                   # consolidation too wide to be a flag
             drift = rest[-1][4] - rest[0][4]
             end_i = min(n, i + 20) - 1
+            m = len(rest)
+            # a pennant is the same impulse whose consolidation CONVERGES:
+            # fitted highs falling, fitted lows rising, width down >=30%
+            cfh = _fit([(j, rest[j][2]) for j in range(m)])
+            cfl = _fit([(j, rest[j][3]) for j in range(m)])
+            pennant = bool(
+                cfh and cfl and cfh[0] < 0 < cfl[0]
+                and ((cfh[1] + cfh[0] * (m - 1)) - (cfl[1] + cfl[0] * (m - 1))
+                     < (cfh[1] - cfl[1]) * 0.7))
             flag_geo = dict(
                 pole=[[T(i - imp), round(closes[i - imp], 2)],
-                      [T(i), round(closes[i], 2)]],
-                box=[[T(i), round(r_hi, 2)], [T(end_i), round(r_lo, 2)]])
-            if move > 0 and drift <= 0:
-                add("bull_flag", "bullish", i - imp, end_i,
-                    {"pole_from": round(closes[i - imp], 2),
+                      [T(i), round(closes[i], 2)]])
+            if pennant:
+                flag_geo["edges"] = dict(
+                    upper=[[T(i), round(cfh[1], 2)],
+                           [T(end_i), round(cfh[1] + cfh[0] * (m - 1), 2)]],
+                    lower=[[T(i), round(cfl[1], 2)],
+                           [T(end_i), round(cfl[1] + cfl[0] * (m - 1), 2)]])
+            else:
+                flag_geo["box"] = [[T(i), round(r_hi, 2)],
+                                   [T(end_i), round(r_lo, 2)]]
+            facts = {"pole_from": round(closes[i - imp], 2),
                      "pole_to": round(closes[i], 2),
-                     "flag_high": round(r_hi, 2), "flag_low": round(r_lo, 2)},
-                    pole=round(move, 2), flag_bars=len(rest),
+                     "flag_high": round(r_hi, 2), "flag_low": round(r_lo, 2)}
+            extra = dict(pole=round(move, 2), flag_bars=m,
+                         _geometry=flag_geo)
+            if pennant:
+                extra.update(upper_slope_per_bar=round(cfh[0], 4),
+                             lower_slope_per_bar=round(cfl[0], 4))
+            if move > 0 and (pennant or drift <= 0):
+                add("bull_pennant" if pennant else "bull_flag", "bullish",
+                    i - imp, end_i, facts, **extra,
                     measured_move=round(r_lo + move, 2),
-                    _geometry=flag_geo,
                     **confirmed(end_i, r_hi, below=False))
-            elif move < 0 and drift >= 0:
-                add("bear_flag", "bearish", i - imp, end_i,
-                    {"pole_from": round(closes[i - imp], 2),
-                     "pole_to": round(closes[i], 2),
-                     "flag_high": round(r_hi, 2), "flag_low": round(r_lo, 2)},
-                    pole=round(move, 2), flag_bars=len(rest),
+            elif move < 0 and (pennant or drift >= 0):
+                add("bear_pennant" if pennant else "bear_flag", "bearish",
+                    i - imp, end_i, facts, **extra,
                     measured_move=round(r_hi + move, 2),
-                    _geometry=flag_geo,
                     **confirmed(end_i, r_lo, below=True))
             break
+
+    # ── rounded turns: cup & handle, rounding bottom / top ─
+    # The parabola IS the claim: curvature sign says which way it turns,
+    # R² (reported) says how well "rounded" actually fits, and the vertex
+    # must sit in the middle half so a plain trend can't pass as a cup.
+    def _parabola(e: int, span: int):
+        """Fit closes[i0..e]; None unless it reads as a rounded turn."""
+        i0 = e - span + 1
+        if i0 < 5:
+            return None
+        vals = closes[i0:e + 1]
+        q = _quadfit(vals)
+        if not q:
+            return None
+        a2, a1, a0, r2 = q
+        if r2 < 0.75 or a2 == 0:
+            return None
+        m = len(vals)
+        vx = -a1 / (2 * a2)
+        if not (0.25 * (m - 1) <= vx <= 0.75 * (m - 1)):
+            return None
+        fit = lambda x: a2 * x * x + a1 * x + a0  # noqa: E731
+        arc = [[T(i0 + j), round(fit(j), 2)]
+               for j in sorted({round(k * (m - 1) / 12) for k in range(13)})]
+        return dict(i0=i0, a2=a2, r2=r2, rim_l=fit(0), rim_r=fit(m - 1),
+                    turn=fit(vx), arc=arc)
+
+    # cups get FIRST CLAIM over every span — a rounding bottom found at a
+    # narrower span must not preempt the cup whose handle it is part of
+    found_cup = False
+    for span in (40, 60, 90, 120):
+        for handle in (8, 12):
+            e = n - 1 - handle
+            pb = _parabola(e, span)
+            if not pb or pb["a2"] <= 0:
+                continue
+            depth = min(pb["rim_l"], pb["rim_r"]) - pb["turn"]
+            # rim symmetry is judged against the cup's own depth — an
+            # absolute tolerance rejects deep cups for shallow reasons
+            if (depth < tol * 3
+                    or abs(pb["rim_l"] - pb["rim_r"])
+                    > max(tol * 2.5, 0.15 * depth)):
+                continue
+            hs = rows[e + 1:n]
+            if not (all(r[4] < pb["rim_r"] + tol for r in hs[:-1])
+                    and min(r[3] for r in hs) >= pb["rim_r"] - 0.5 * depth):
+                continue
+            found_cup = True
+            add("cup_and_handle", "bullish", pb["i0"], n - 1,
+                {"left_rim": round(pb["rim_l"], 2),
+                 "right_rim": round(pb["rim_r"], 2),
+                 "low": round(pb["turn"], 2), "r2": round(pb["r2"], 3)},
+                depth=round(depth, 2), handle_bars=handle,
+                handle_low=round(min(r[3] for r in hs), 2),
+                measured_move=round(pb["rim_r"] + depth, 2),
+                _geometry=dict(
+                    outline=pb["arc"],
+                    base=dict(v=round(pb["rim_r"], 2), t1=T(pb["i0"]),
+                              t2=T(_base_end(e, pb["rim_r"], False)))),
+                **confirmed(e, pb["rim_r"], below=False))
+            break
+        if found_cup:
+            break
+    for span in (40, 60, 90, 120):
+        if found_cup:
+            break                          # the cup already owns this base
+        pb = _parabola(n - 1, span)
+        if not pb:
+            continue
+        if pb["a2"] > 0:
+            depth = min(pb["rim_l"], pb["rim_r"]) - pb["turn"]
+            if depth < tol * 3:
+                continue
+            add("rounding_bottom", "bullish", pb["i0"], n - 1,
+                {"left_rim": round(pb["rim_l"], 2),
+                 "right_rim": round(pb["rim_r"], 2),
+                 "low": round(pb["turn"], 2), "r2": round(pb["r2"], 3)},
+                depth=round(depth, 2),
+                measured_move=round(min(pb["rim_l"], pb["rim_r"]) + depth, 2),
+                _geometry=dict(
+                    outline=pb["arc"],
+                    base=dict(v=round(pb["rim_r"], 2), t1=T(pb["i0"]),
+                              t2=T(n - 1))),
+                status="forming",
+                status_note=("the base ends at the latest bar, so there is "
+                             "nothing to confirm yet — say it is still "
+                             "forming, not that it failed"))
+            break
+        height = pb["turn"] - max(pb["rim_l"], pb["rim_r"])
+        if height < tol * 3:
+            continue
+        add("rounding_top", "bearish", pb["i0"], n - 1,
+            {"left_rim": round(pb["rim_l"], 2),
+             "right_rim": round(pb["rim_r"], 2),
+             "high": round(pb["turn"], 2), "r2": round(pb["r2"], 3)},
+            height=round(height, 2),
+            measured_move=round(max(pb["rim_l"], pb["rim_r"]) - height, 2),
+            _geometry=dict(
+                outline=pb["arc"],
+                base=dict(v=round(pb["rim_r"], 2), t1=T(pb["i0"]),
+                          t2=T(n - 1))),
+            status="forming",
+            status_note=("the base ends at the latest bar, so there is "
+                         "nothing to confirm yet — say it is still "
+                         "forming, not that it failed"))
+        break
 
     # de-duplicate near-identical instances of the same shape
     seen: set = set()

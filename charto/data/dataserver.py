@@ -2046,14 +2046,17 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                             "label": f"{name} · neckline {base['v']:,.2f}"
                                      + (f" · {status}" if status else ""),
                             "source": src})
-        elif g.get("edges"):
+        # the remaining pieces COMPOSE — a pennant is pole + edges, a cup is
+        # arc outline + rim — so these are independent ifs, not a chain
+        if g.get("edges"):
             e = g["edges"]
             lab = {"not_assessed": "unresolved"}.get(status, status)
             _scene_add({"kind": "segment", "id": link + "-u", "link": link,
                         "pane": "price", "role": role,
                         "p1": pt(*e["upper"][0]), "p2": pt(*e["upper"][1]),
-                        "label": f"{name} · width {p.get('width_now', 0):,.2f}"
-                                 + (f" · {lab}" if lab else ""),
+                        **({} if g.get("pole") else {"label":
+                            f"{name} · width {p.get('width_now', 0):,.2f}"
+                            + (f" · {lab}" if lab else "")}),
                         "source": src})
             _scene_add({"kind": "segment", "id": link + "-l", "link": link,
                         "pane": "price", "role": role,
@@ -2065,13 +2068,14 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                                 pt(*e["lower"][1]), pt(*e["lower"][0])],
                         "closed": True, "fill": True, "stroke": False,
                         "source": src})
-        elif g.get("pole"):
+        if g.get("pole"):
             _scene_add({"kind": "segment", "id": link + "-p", "link": link,
                         "pane": "price", "role": role,
                         "p1": pt(*g["pole"][0]), "p2": pt(*g["pole"][1]),
                         "label": f"{name} · pole {p.get('pole', 0):,.2f}"
                                  + (f" · {status}" if status else ""),
                         "source": src})
+        if g.get("box"):
             _scene_add({"kind": "box", "id": link + "-b", "link": link,
                         "pane": "price", "role": role,
                         "a": pt(*g["box"][0]), "b": pt(*g["box"][1]),
@@ -2416,7 +2420,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 21 candlestick patterns (engulfing, hammer, doji, morning/evening star, three soldiers/crows, harami, piercing, tweezers, abandoned baby…), 11 chart patterns (head and shoulders and its inverse, double top/bottom, ascending/descending/symmetrical triangles, rising/falling wedges, bull/bear flags) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
