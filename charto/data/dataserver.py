@@ -189,6 +189,28 @@ _EVIDENCE_HORIZON = 20  # bars allowed to judge a touch — scale-free by design
                         # 20 bars is "the short run" on 5m and on 1d alike.
 
 
+def _not_found_note(missing: list[str], kind: str, interval: str,
+                    lookback_bars: int, available: list[str]) -> dict:
+    """A draw_ids reference that matched nothing must SAY so.
+
+    An unmatched id draws nothing and, without this, the tool result is
+    silent about it — so the model goes on to describe a {kind} it believes
+    is on the chart. get_levels had this guard from the start; the same
+    selection code was copied into three other detectors without it, so it
+    lives here now and every caller uses the one implementation.
+    """
+    if not missing:
+        return {}
+    return {"not_found": missing,
+            "_not_found_note": (
+                f"These {kind} ids do not exist at interval={interval}, "
+                f"lookback_bars={lookback_bars}: {', '.join(missing)}. They "
+                f"were NOT drawn — do not describe them as marked. Ids are "
+                f"content-addressed, so re-read the candidate list rather "
+                f"than guessing."),
+            "available_ids": available[:12]}
+
+
 def _median(xs: list[float]) -> float | None:
     if not xs:
         return None
@@ -718,9 +740,11 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
     side_empty = want_side in ("resistance", "support") and not pool
 
     picked: list[dict] = []
+    missing: list[str] = []
     if draw_ids:
         wanted = {str(i).upper() for i in draw_ids}
         picked = [x for x in tl if x["id"].upper() in wanted]
+        missing = sorted(wanted - {x["id"].upper() for x in picked})
     elif draw and pool:
         picked = sorted(pool, key=lambda c: (-c["touches"], -c["span_bars"])
                         )[:max(1, min(int(max_draw or 2), 4))]
@@ -740,7 +764,8 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
                        "first_touch": x["from"], "last_touch": x["to"]},
         })
     clean = [{k: v for k, v in x.items() if not k.startswith("_")} for x in pool]
-    res: dict = {}
+    res: dict = _not_found_note(missing, "trendline", interval, lookback_bars,
+                                [x["id"] for x in tl])
     if picked:
         ids = [x["id"] for x in picked]
         res["drawn_trendlines"] = [c for c in clean if c["id"] in ids]
@@ -804,9 +829,11 @@ def tool_get_divergences(indicator: str = "rsi", interval: str = "5m",
                                "bars_scanned": len(rows)}}
 
     picked: list[dict] = []
+    missing: list[str] = []
     if draw_ids:
         wanted = {str(i).upper() for i in draw_ids}
         picked = [x for x in found if x["id"].upper() in wanted]
+        missing = sorted(wanted - {x["id"].upper() for x in picked})
     elif draw:
         picked = found[:max(1, min(int(max_draw or 1), 3))]
     if picked and mode == "replace":
@@ -836,6 +863,8 @@ def tool_get_divergences(indicator: str = "rsi", interval: str = "5m",
                     "label": name.upper(), "source": src})
     clean = [{k: v for k, v in x.items() if not k.startswith("_")} for x in found]
     return {
+        **_not_found_note(missing, "divergence", interval, lookback_bars,
+                          [x["id"] for x in found]),
         "divergences": clean[:12],
         "track_record": track,
         "drawn": [x["id"] for x in picked] or None,
@@ -1148,9 +1177,11 @@ def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
                 "provenance": {"interval": interval, "bars_scanned": len(rows)}}
 
     picked: list[dict] = []
+    missing: list[str] = []
     if draw_ids:
         wanted = {str(i).upper() for i in draw_ids}
         picked = [g for g in found if g["id"].upper() in wanted]
+        missing = sorted(wanted - {g["id"].upper() for g in picked})
     elif draw:
         picked = found[:max(1, min(int(max_draw or 3), 6))]
     if picked and mode == "replace":
@@ -1177,6 +1208,8 @@ def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
         })
     clean = [{k: v for k, v in g.items() if not k.startswith("_")} for g in found[:14]]
     return {
+        **_not_found_note(missing, "gap", interval, lookback_bars,
+                          [g["id"] for g in found]),
         "gaps": clean,
         "record": d["record"],
         "drawn": [g["id"] for g in picked] or None,
@@ -1192,6 +1225,62 @@ def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
             "yet; that is a fact about the past, not a prediction that it will."),
         "ledger": _drawn_ledger(),
     }
+
+
+def _rate(key: str, good: int, bad: int, unit: str, floor: int = 5) -> dict:
+    """A percentage, or an explicit refusal to give one.
+
+    The refusal is a FIELD, never an absent key: a missing key reads as
+    silence and silence gets filled in with a computed percentage.
+    """
+    graded = good + bad
+    if graded >= floor:
+        return {key: round(good / graded * 100)}
+    plural = unit if graded == 1 else (
+        unit + "es" if unit.endswith(("s", "x", "ch", "sh")) else unit + "s")
+    return {key: None,
+            key + "_withheld": (
+                f"{graded} {plural} is too few for a percentage — say "
+                f"'{good} of {graded}' instead, even if one number is demanded")}
+
+
+def _score_line(rows: list[tuple], t1: int, v1: float, t2: int, v2: float,
+                tol: float, window: int, wt: bool) -> dict:
+    """Score one sloped line against real pivots.
+
+    Extracted so a channel scores its two edges with the SAME code that scores
+    a single trendline — two implementations would eventually disagree about
+    what a touch is, and the whole point is that they cannot.
+    """
+    slope = (v2 - v1) / (t2 - t1)
+    at = lambda ts_: v1 + slope * (ts_ - t1)  # noqa: E731
+    n = len(rows)
+    closes = [r[4] for r in rows]
+    touches: list[dict] = []
+    held = broke = pending = 0
+    for i, price, role in _pivots(rows, window):
+        line = at(rows[i][0])
+        if abs(price - line) > tol:
+            continue
+        touches.append({"t": _ist(rows[i][0], wt), "side": role,
+                        "price": round(price, 2), "line": round(line, 2)})
+        start = i + window + 1
+        if start + _EVIDENCE_HORIZON > n:
+            pending += 1
+            continue
+        up = role == "resistance"
+        crossed = any(
+            (closes[j] > at(rows[j][0]) + tol) if up else (closes[j] < at(rows[j][0]) - tol)
+            for j in range(start, start + _EVIDENCE_HORIZON))
+        if crossed:
+            broke += 1
+        else:
+            held += 1
+    return {"touches": len(touches), "touch_list": touches, "held": held,
+            "broke": broke, "pending": pending, "at": at, "now": at(rows[-1][0]),
+            "method": (f"pivots within ±{round(tol, 2)} of the line; each touch "
+                       f"judged over {_EVIDENCE_HORIZON} bars starting after its "
+                       f"own ±{window}-bar pivot window")}
 
 
 def tool_evaluate_line(p1_time: str, p1_value: float, p2_time: str,
@@ -1215,61 +1304,23 @@ def tool_evaluate_line(p1_time: str, p1_value: float, p2_time: str,
     wt = interval not in ("1d", "1w", "1mo")
     tol = _tolerance(rows)
     window = 5
-
-    # the line in DATA space: value per second, so it is zoom-independent
-    slope = (p2_value - p1_value) / (t2 - t1)
-    at = lambda ts_: p1_value + slope * (ts_ - t1)  # noqa: E731
-
-    piv = _pivots(rows, window)
-    n = len(rows)
-    closes = [r[4] for r in rows]
-    touches, held, broke, pending = [], 0, 0, 0
-    for i, price, role in piv:
-        line = at(rows[i][0])
-        if abs(price - line) > tol:
-            continue
-        touches.append({"t": _ist(rows[i][0], wt), "side": role,
-                        "price": round(price, 2), "line": round(line, 2)})
-        start = i + window + 1
-        if start + _EVIDENCE_HORIZON > n:
-            pending += 1
-            continue
-        up = role == "resistance"
-        crossed = any(
-            (closes[j] > at(rows[j][0]) + tol) if up else (closes[j] < at(rows[j][0]) - tol)
-            for j in range(start, start + _EVIDENCE_HORIZON))
-        if crossed:
-            broke += 1
-        else:
-            held += 1
-
-    now = at(rows[-1][0])
-    last = closes[-1]
-    graded = held + broke
+    sc = _score_line(rows, t1, p1_value, t2, p2_value, tol, window, wt)
+    last = rows[-1][4]
     res: dict = {
-        "touches": len(touches),
-        "held": held, "broke": broke,
-        "projects_to": round(now, 2),
-        "distance_pct": round((now - last) / last * 100, 2),
-        "side_now": "above price" if now > last else "below price",
-        "touch_list": touches[-8:],
+        "touches": sc["touches"],
+        "held": sc["held"], "broke": sc["broke"],
+        "projects_to": round(sc["now"], 2),
+        "distance_pct": round((sc["now"] - last) / last * 100, 2),
+        "side_now": "above price" if sc["now"] > last else "below price",
+        "touch_list": sc["touch_list"][-8:],
         "provenance": {
-            "interval": interval, "bars_scanned": n,
-            "tolerance": round(tol, 2),
-            "method": (f"pivots within ±{round(tol, 2)} of the line; each touch "
-                       f"judged over {_EVIDENCE_HORIZON} bars starting after its "
-                       f"own ±{window}-bar pivot window"),
+            "interval": interval, "bars_scanned": len(rows),
+            "tolerance": round(tol, 2), "method": sc["method"],
         },
     }
-    if graded >= 5:
-        res["hold_rate"] = round(held / graded * 100)
-    else:
-        res["hold_rate"] = None
-        res["hold_rate_withheld"] = (
-            f"{graded} graded touch{'es' if graded != 1 else ''} is too few for a "
-            f"percentage — say 'held {held} of {graded}' instead")
-    if pending:
-        res["pending"] = pending
+    res.update(_rate("hold_rate", sc["held"], sc["broke"], "graded touch"))
+    if sc["pending"]:
+        res["pending"] = sc["pending"]
     res["_note"] = (
         "This scores the user's OWN line, so say so: it is their geometry, "
         "measured. If touches is 0 or 1 the line has no record — tell them "
@@ -1532,6 +1583,338 @@ def tool_evaluate_fib(p1_time: str, p1_value: float, p2_time: str,
     return res
 
 
+# ── scoring the rest of the user's drawings ───────────────────────
+# A drawing tool without evidence attached is the commodity part of a
+# charting product. These close the loop for the shapes people actually use:
+# a band, a channel, a planned trade.
+
+
+def _zone_record(rows: list[tuple], lo: float, hi: float, tol: float,
+                 window: int, wt: bool) -> dict:
+    """What happened the times price came to a user-drawn BAND.
+
+    Unlike a detected level there is no defining pivot to exclude — the user
+    drew this, so nothing here was selected for looking good. That makes it
+    cleaner evidence than a detector's own level, and worth saying.
+
+    Each touch is still judged only after its own ±window, because a pivot is
+    a local extremum by construction.
+    """
+    n = len(rows)
+    highs = [r[2] for r in rows]
+    lows = [r[3] for r in rows]
+    closes = [r[4] for r in rows]
+    touches: list[dict] = []
+    held = broke = pending = 0
+    for i, price, role in _pivots(rows, window):
+        if not (lo - tol <= price <= hi + tol):
+            continue
+        touches.append({"t": _ist(rows[i][0], wt), "side": role,
+                        "price": round(price, 2)})
+        start = i + window + 1
+        if start + _EVIDENCE_HORIZON > n:
+            pending += 1
+            continue
+        # judged as the pivot it WAS: a swing high tested the band from below
+        # and fails by closing above it; a swing low fails by closing under
+        up = role == "resistance"
+        gone = any((closes[j] > hi + tol) if up else (closes[j] < lo - tol)
+                   for j in range(start, start + _EVIDENCE_HORIZON))
+        broke, held = (broke + 1, held) if gone else (broke, held + 1)
+
+    # A band price sits inside most of the time is not a zone, it is the
+    # range. This is the honest rebuttal to a box drawn too wide, and no
+    # touch count exposes it.
+    inside = sum(1 for c in closes if lo <= c <= hi)
+    overlap = sum(1 for k in range(n) if highs[k] >= lo and lows[k] <= hi)
+    return {"touches": len(touches), "touch_list": touches[-8:],
+            "held": held, "broke": broke, "pending": pending,
+            "closes_inside_pct": round(inside / n * 100),
+            "bars_overlapping_pct": round(overlap / n * 100)}
+
+
+_ZONE_CONTROL_SLOTS = 12   # fixed, not sampled — the answer must be repeatable
+
+
+def _zone_control(rows: list[tuple], lo: float, hi: float, tol: float,
+                  window: int, wt: bool) -> dict:
+    """The same band width, placed elsewhere, scored the same way.
+
+    Without this a band's hold rate says more about its width than about the
+    band: the wider it is, the further price must travel to close outside it.
+    Placements are evenly spaced across the scanned range and fixed in number,
+    so re-running returns the same answer.
+    """
+    width = hi - lo
+    top = max(r[2] for r in rows)
+    bot = min(r[3] for r in rows)
+    if top - bot <= width:
+        return {"placements_graded": 0,
+                "median_hold_rate": None,
+                "note": "the band is as tall as the whole scanned range — "
+                        "there is nowhere else to put it, so it cannot be "
+                        "compared. Report that instead of a comparison."}
+    step = (top - bot - width) / (_ZONE_CONTROL_SLOTS - 1)
+    rates: list[float] = []
+    for s in range(_ZONE_CONTROL_SLOTS):
+        c_lo = bot + step * s
+        c_hi = c_lo + width
+        # skip anything overlapping the user's own band — that is the thing
+        # being tested, not a control for it
+        if c_hi > lo and c_lo < hi:
+            continue
+        z = _zone_record(rows, c_lo, c_hi, tol, window, wt)
+        if z["held"] + z["broke"] >= 5:
+            rates.append(z["held"] / (z["held"] + z["broke"]) * 100)
+    return {"placements_graded": len(rates),
+            "median_hold_rate": round(_median(rates)) if len(rates) >= 3 else None,
+            **({} if len(rates) >= 3 else {
+                "note": (f"only {len(rates)} same-width placements had enough "
+                         f"touches to grade — too few to compare against. Say "
+                         f"the comparison is unavailable rather than implying "
+                         f"the band's own rate stands on its own.")}),
+            "method": (f"{_ZONE_CONTROL_SLOTS} evenly spaced placements of the "
+                       f"same width across the scanned range, overlapping ones "
+                       f"skipped, each scored by the identical rule")}
+
+
+def _position_record(rows: list[tuple], entry: float, target: float,
+                     stop: float, tol: float) -> dict:
+    """From entries near this price, did target or stop come first?
+
+    Overlapping setups are collapsed: while a trial is open, a new one cannot
+    start. Without that, price resting at the entry for twenty bars would
+    register twenty near-identical trials and inflate the sample enormously.
+    """
+    n = len(rows)
+    highs = [r[2] for r in rows]
+    lows = [r[3] for r in rows]
+    long_ = target > entry
+    horizon = _EVIDENCE_HORIZON * 3     # a trade needs room to resolve
+    wins = losses = open_ = 0
+    k = 0
+    while k < n:
+        if not (lows[k] - tol <= entry <= highs[k] + tol):
+            k += 1
+            continue
+        end = min(n, k + 1 + horizon)
+        outcome = None
+        for j in range(k + 1, end):
+            hit_t = highs[j] >= target if long_ else lows[j] <= target
+            hit_s = lows[j] <= stop if long_ else highs[j] >= stop
+            # both in one bar is unresolvable from OHLC alone — count it a
+            # loss rather than guessing the intrabar path in our own favour
+            if hit_t and hit_s:
+                outcome = "loss"
+            elif hit_t:
+                outcome = "win"
+            elif hit_s:
+                outcome = "loss"
+            if outcome:
+                k = j
+                break
+        if outcome == "win":
+            wins += 1
+        elif outcome == "loss":
+            losses += 1
+        else:
+            open_ += 1
+            k = end
+        k += 1
+    return {"wins": wins, "losses": losses, "unresolved": open_,
+            "horizon_bars": horizon}
+
+
+def tool_evaluate_drawing(kind: str, points: list, interval: str = "1d",
+                          lookback_bars: int = 600) -> dict:
+    """Score a zone, a channel or a planned position the USER drew.
+
+    Coordinates are the user's own geometry echoed back from the chart, for
+    the same reason evaluate_line accepts them: they were not invented here.
+    """
+    kind = (kind or "").lower().strip()
+    if kind not in ("zone", "channel", "position"):
+        return {"error": f"unknown kind '{kind}'",
+                "available": ["zone", "channel", "position"]}
+    pts = []
+    for p in points or []:
+        t = _parse_ist(p.get("t")) if p.get("t") else None
+        v = p.get("v", p.get("p"))
+        if v is None:
+            return {"error": "every point needs a value ('v')"}
+        pts.append({"t": t, "v": float(v)})
+    need = {"zone": 2, "channel": 3, "position": 3}[kind]
+    if len(pts) < need:
+        return {"error": f"{kind} needs {need} points, got {len(pts)}",
+                "hint": {"zone": "the two edges of the band",
+                         "channel": "two points on one edge, then a point on the other",
+                         "position": "entry, then target, then stop"}[kind]}
+
+    rows = _rows(interval, max(120, min(int(lookback_bars or 600), 1500)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    wt = interval not in ("1d", "1w", "1mo")
+    tol, window, n = _tolerance(rows), 5, len(rows)
+    last = rows[-1][4]
+    prov = {"interval": interval, "bars_scanned": n, "tolerance": round(tol, 2),
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST"}
+
+    if kind == "zone":
+        lo, hi = sorted((pts[0]["v"], pts[1]["v"]))
+        if hi - lo < tol / 2:
+            return {"error": "that band is thinner than one tolerance",
+                    "hint": (f"tolerance here is {round(tol, 2)}; a band narrower "
+                             f"than that is a line — use evaluate_line instead")}
+        z = _zone_record(rows, lo, hi, tol, window, wt)
+        res = {"zone": {"lo": round(lo, 2), "hi": round(hi, 2),
+                        "width": round(hi - lo, 2),
+                        "width_pct": round((hi - lo) / last * 100, 2),
+                        "price_inside": lo <= last <= hi},
+               **z}
+        res.update(_rate("hold_rate", z["held"], z["broke"], "graded touch"))
+        # A wide band is flattered by construction: price must travel further
+        # to close outside it, so the rate climbs with the width rather than
+        # with the band being real. Same rail as the fib control — score
+        # same-width bands placed elsewhere and report the comparison.
+        res["control"] = _zone_control(rows, lo, hi, tol, window, wt)
+        cr = res["control"].get("median_hold_rate")
+        if cr is not None and res.get("hold_rate") is not None:
+            gap = res["hold_rate"] - cr
+            res["verdict"] = (
+                f"The band held {res['hold_rate']}% of its graded touches; bands "
+                f"of the same width placed elsewhere in this range held {cr}% "
+                + ("— so the number is a property of how WIDE the band is, not "
+                   "evidence that this particular band matters. Say so."
+                   if abs(gap) <= 8 else
+                   f"— {abs(gap)} points {'better' if gap > 0 else 'WORSE'} "
+                   f"than an arbitrary band of the same width."))
+        prov["method"] = (
+            f"swing pivots inside the band ±{round(tol, 2)}; each judged over "
+            f"{_EVIDENCE_HORIZON} bars starting after its own ±{window}-bar "
+            f"pivot window — 'broke' if a close left the band by more than the "
+            f"tolerance on the side it was testing")
+        res["provenance"] = prov
+        res["_note"] = (
+            "This is the user's own band, measured — say so. Lead with the "
+            "verdict when there is one: a band's hold rate rises with its WIDTH, "
+            "so the control comparison is the number that means something and "
+            "the raw rate on its own will mislead. Then closes_inside_pct — a "
+            "band price closes inside 40% of the time is not a zone, it is the "
+            "range, and no touch count reveals that. Quote 'held X of Y'; obey "
+            "hold_rate_withheld. If touches is 0 or 1 the band has no record — "
+            "say that plainly rather than implying it is valid.")
+        return res
+
+    if kind == "channel":
+        if any(p["t"] is None for p in pts[:3]):
+            return {"error": "a channel needs a time on each of its three points"}
+        a, b, c = pts[0], pts[1], pts[2]
+        if a["t"] == b["t"]:
+            return {"error": "the first two points share a timestamp"}
+        # the second edge is the same slope through the third point, exactly
+        # as the drawing tool builds it — parallel in DATA space
+        off = c["v"] - (a["v"] + (b["v"] - a["v"]) / (b["t"] - a["t"]) * (c["t"] - a["t"]))
+        e1 = _score_line(rows, a["t"], a["v"], b["t"], b["v"], tol, window, wt)
+        e2 = _score_line(rows, a["t"], a["v"] + off, b["t"], b["v"] + off,
+                         tol, window, wt)
+        upper, lower = (e1, e2) if off < 0 else (e2, e1)
+        # containment: how much of the time price actually stayed inside
+        closes = [r[4] for r in rows]
+        inside = 0
+        for k in range(n):
+            hi_, lo_ = upper["at"](rows[k][0]), lower["at"](rows[k][0])
+            if lo_ - tol <= closes[k] <= hi_ + tol:
+                inside += 1
+        res = {
+            "upper_edge": {"touches": upper["touches"], "held": upper["held"],
+                           "broke": upper["broke"],
+                           "projects_to": round(upper["now"], 2)},
+            "lower_edge": {"touches": lower["touches"], "held": lower["held"],
+                           "broke": lower["broke"],
+                           "projects_to": round(lower["now"], 2)},
+            "width_now": round(upper["now"] - lower["now"], 2),
+            "closes_inside_pct": round(inside / n * 100),
+            "price_position": ("above the channel" if last > upper["now"]
+                               else "below the channel" if last < lower["now"]
+                               else "inside the channel"),
+        }
+        res["upper_edge"].update(_rate("hold_rate", upper["held"], upper["broke"],
+                                       "graded touch"))
+        res["lower_edge"].update(_rate("hold_rate", lower["held"], lower["broke"],
+                                       "graded touch"))
+        prov["method"] = (upper["method"] + "; both edges share one slope in "
+                          "data space, and containment counts closes between "
+                          "them over the whole scan")
+        res["provenance"] = prov
+        res["_note"] = (
+            "Score the two edges separately — a channel whose lower edge holds "
+            "and whose upper edge does not is a real and useful finding, and "
+            "averaging them hides it. closes_inside_pct is the honest headline: "
+            "a channel drawn wide enough contains everything, so a high number "
+            "is only meaningful alongside the edge touch counts. Never present "
+            "projects_to as a target; it is an extrapolation of their drawing.")
+        return res
+
+    # position
+    entry, target, stop = pts[0]["v"], pts[1]["v"], pts[2]["v"]
+    long_ = target > entry
+    if (stop >= entry) if long_ else (stop <= entry):
+        return {"error": "the stop is on the same side as the target",
+                "given": {"entry": entry, "target": target, "stop": stop},
+                "hint": ("for a long the stop sits BELOW entry, for a short "
+                         "above it — check the point order (entry, target, stop)")}
+    reward, risk = abs(target - entry), abs(entry - stop)
+    rr = reward / risk if risk else None
+    p = _position_record(rows, entry, target, stop, tol)
+    graded = p["wins"] + p["losses"]
+    res = {
+        "setup": {"side": "long" if long_ else "short", "entry": round(entry, 2),
+                  "target": round(target, 2), "stop": round(stop, 2),
+                  "reward": round(reward, 2), "risk": round(risk, 2),
+                  "risk_reward": round(rr, 2) if rr else None},
+        **{k: v for k, v in p.items() if k != "horizon_bars"},
+    }
+    res.update(_rate("hit_rate", p["wins"], p["losses"], "resolved trial"))
+    # The control, in the same spirit as the fib one: a hit rate means nothing
+    # until you know what this R:R needs to break even.
+    if rr:
+        be = round(1 / (1 + rr) * 100)
+        res["breakeven_hit_rate"] = be
+        if res.get("hit_rate") is not None:
+            edge = res["hit_rate"] - be
+            res["verdict"] = (
+                f"At {round(rr, 2)}:1 this setup needs {be}% to break even before "
+                f"costs; historically it resolved in favour {res['hit_rate']}% of "
+                f"{graded} trials"
+                + (". That is within noise of break-even — say so rather than "
+                   "presenting it as an edge." if abs(edge) <= 8 else
+                   f", {abs(edge)} points {'above' if edge > 0 else 'BELOW'} "
+                   f"break-even."))
+        else:
+            res["verdict"] = None
+            res["verdict_withheld"] = (
+                f"{graded} resolved trials is too thin to compare against the "
+                f"{be}% break-even rate. Give the counts and say the record is "
+                f"too thin to judge.")
+    prov["method"] = (
+        f"every bar whose range contained the entry ±{round(tol, 2)} starts a "
+        f"trial; the trial resolves on whichever of target or stop is touched "
+        f"first within {p['horizon_bars']} bars. Overlapping trials are "
+        f"collapsed so one long stay at the entry counts once. A bar touching "
+        f"both is counted a LOSS, because OHLC cannot say which came first and "
+        f"guessing in our own favour would inflate the rate.")
+    res["provenance"] = prov
+    res["_note"] = (
+        "This measures the user's own levels against history; it is not a "
+        "recommendation and must not be phrased as one — no 'take this trade', "
+        "no sizing, no expectancy in rupees. Lead with the break-even "
+        "comparison: a hit rate alone always reads as an edge, and against the "
+        "R:R it usually is not. Obey hit_rate_withheld. 'unresolved' trials hit "
+        "neither level inside the horizon — never fold them into wins. Close by "
+        "saying this is historical analysis, not advice.")
+    return res
+
+
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
                   to: str | None = None, limit: int = 40) -> dict:
     limit = max(1, min(int(limit or 40), 80))
@@ -1707,6 +2090,18 @@ TOOLS = [
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
+    {"type": "function", "name": "evaluate_drawing",
+     "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
+     "parameters": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["zone", "channel", "position"]},
+         "points": {"type": "array",
+                    "description": "zone: the band's two edges (value only, time optional). channel: two points on one edge then one on the other, all with times. position: entry, then target, then stop (value only). Copy them from the chart context's drawings list.",
+                    "items": {"type": "object", "properties": {
+                        "t": {"type": "string", "description": "IST time as the chart shows it, e.g. '08 Jul 2026 15:25' — required for channel"},
+                        "v": {"type": "number", "description": "price"}}}},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "default 600"}},
+         "required": ["kind", "points", "interval"]}},
     {"type": "function", "name": "get_bars",
      "description": "Actual OHLCV bars for a window. Use for any specific bar, date, or price the chart summary doesn't contain.",
      "parameters": {"type": "object", "properties": {
@@ -1733,7 +2128,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_gaps": tool_get_gaps,
              "draw_shape": tool_draw_shape,
              "evaluate_line": tool_evaluate_line,
-             "evaluate_fib": tool_evaluate_fib}
+             "evaluate_fib": tool_evaluate_fib,
+             "evaluate_drawing": tool_evaluate_drawing}
 
 
 def run_tool(name: str, args: dict) -> dict:

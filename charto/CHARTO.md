@@ -276,7 +276,21 @@ folklore metric ships with a control:
 
 The same shape applies to every remaining folklore item in the hierarchy above
 (patterns, candlesticks, order blocks): measure it, measure a control, report
-the gap.
+the gap. Two more are already built, and each needed its own control because
+each had its own way of flattering itself:
+
+- **A user-drawn zone** is flattered by its WIDTH — the wider the band, the
+  further price must travel to close outside it, so the hold rate climbs with
+  size rather than with the band being real. Control: the same width placed at
+  twelve fixed positions across the range, overlapping ones skipped. The
+  browser-drawn box scored 86% against an 82% control, i.e. nothing.
+- **A planned position** is flattered by its RISK:REWARD — a 3:1 setup can
+  look terrible at 30% and still be sound. Control: the break-even hit rate the
+  ratio itself implies (`1/(1+R)`). Reporting 12% is noise; reporting "12%
+  against the 25% it needs" is a finding.
+
+The pattern generalises: find what the metric is structurally guaranteed to
+reward, then measure that thing on its own and subtract it.
 
 ---
 
