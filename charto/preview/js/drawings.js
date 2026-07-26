@@ -1,0 +1,430 @@
+/* Charto preview — the drawing runtime.
+ *
+ * Tools are declarations (js/tools.js); geometry is shared (js/geometry.js).
+ * This file owns only the things a tool must never re-implement:
+ *   · one renderer, one hit-tester, one drag handler, over every tool
+ *   · multi-pane routing by stable pane KEY ("price" / "rsi"), so a drawing
+ *     survives an indicator reshuffle
+ *   · the placement state machine (drag-draw and click-click both work)
+ *   · magnet snap, persistence, and the tool-usage ledger
+ *   · the consumedDown handshake that stops a drawing gesture also pinning
+ *     the candle underneath it
+ */
+"use strict";
+
+const Drawings = (() => {
+  const STORE_KEY = "charto_drawings_v2_RELIANCE";
+  const USAGE_KEY = "charto_tool_usage_v1";
+  const HIT = 7;
+  const G = Geo;
+
+  function create(chart, candle, env) {
+    // env: { getBars, getIntervalSec, container, stage, panes, setStatus, onToolDone }
+    const state = {
+      tool: "cursor",
+      magnet: false,
+      drawings: load(),
+      selId: null,
+      draft: null,
+      drag: null,
+      mouse: null,
+      consumedDown: false,
+    };
+    const rus = new Map();
+    const _ru = () => { for (const f of rus.values()) f(); };
+    const attached = new Map();
+    const el = env.container;
+
+    // ── persistence + telemetry ─────────────────────────
+    function load() {
+      try {
+        return (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
+          .filter((d) => Tools.SPECS[d.type])
+          .map((d) => ({ ...d, pane: d.pane || "price" }));
+      } catch { return []; }
+    }
+    const save = () => {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+    };
+    function logUse(tool) {
+      let u = {};
+      try { u = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
+      u[tool] = (u[tool] || 0) + 1;
+      localStorage.setItem(USAGE_KEY, JSON.stringify(u));
+      console.log("[charto:tool-usage]", JSON.stringify(u));
+    }
+
+    // ── panes ───────────────────────────────────────────
+    const paneFor = (key) => env.panes().find((p) => p.key === (key || "price"));
+    function paneAtClient(clientY) {
+      const live = env.panes();
+      for (const p of live) {
+        const e = p.pane.getHTMLElement && p.pane.getHTMLElement();
+        if (!e) continue;
+        const r = e.getBoundingClientRect();
+        if (clientY >= r.top && clientY <= r.bottom) return p;
+      }
+      return live[0];
+    }
+    function yInPane(clientY, key) {
+      const p = paneFor(key);
+      const e = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+      return e ? clientY - e.getBoundingClientRect().top : clientY;
+    }
+    function paneHeight(key) {
+      const p = paneFor(key);
+      const e = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+      return e ? e.clientHeight : el.clientHeight;
+    }
+
+    // ── coordinates ─────────────────────────────────────
+    const ts = () => chart.timeScale();
+    function tToX(t) {
+      const x = ts().timeToCoordinate(t);
+      if (x !== null) return x;
+      const bars = env.getBars(); if (!bars.length) return null;
+      const iv = env.getIntervalSec(), last = bars.length - 1;
+      if (t > bars[last].time) return ts().logicalToCoordinate(last + (t - bars[last].time) / iv);
+      if (t < bars[0].time) return ts().logicalToCoordinate((t - bars[0].time) / iv);
+      // In range but not ON a bar: sessions are not uniformly spaced, so the
+      // midpoint of two anchors usually falls in a weekend or an overnight
+      // gap. Interpolate a fractional index — without this, every label
+      // placed at a midpoint silently fails to render.
+      let lo = 0, hi = last;
+      while (hi - lo > 1) {
+        const m = (lo + hi) >> 1;
+        if (bars[m].time <= t) lo = m; else hi = m;
+      }
+      const span = bars[hi].time - bars[lo].time || 1;
+      return ts().logicalToCoordinate(lo + (t - bars[lo].time) / span);
+    }
+    function xToTime(x) {
+      const bars = env.getBars(); if (!bars.length) return null;
+      const iv = env.getIntervalSec();
+      const logical = ts().coordinateToLogical(x);
+      if (logical === null) return null;
+      const last = bars.length - 1, li = Math.round(logical);
+      if (li >= 0 && li <= last) return bars[li].time + Math.round((logical - li) * iv);
+      if (li > last) return bars[last].time + Math.round((logical - last) * iv);
+      return bars[0].time + Math.round(logical * iv);
+    }
+    const vToY = (v, key) => { const p = paneFor(key); return p ? p.series.priceToCoordinate(v) : null; };
+    const yToV = (y, key) => { const p = paneFor(key); return p ? p.series.coordinateToPrice(y) : null; };
+    const envFor = (key, w, h) => ({ tToX, vToY: (v) => vToY(v, key), w, h });
+
+    // ── tool build context ──────────────────────────────
+    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const buildCtx = {
+      fmt,
+      fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,
+      barsBetween(t0, t1) {
+        return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
+      },
+      valuesBetween(t0, t1) {
+        const bars = env.getBars();
+        const lo = Math.min(t0, t1), hi = Math.max(t0, t1);
+        return bars.filter((b) => b.time >= lo && b.time <= hi).map((b) => b.close);
+      },
+    };
+
+    /** A drawing → its primitives. The single place a tool becomes geometry. */
+    function primsOf(d) {
+      const spec = Tools.SPECS[d.type];
+      if (!spec) return [];
+      try { return spec.build(d.pts, buildCtx, d) || []; } catch { return []; }
+    }
+
+    // ── rendering ───────────────────────────────────────
+    function styleOf(d, prim, selected, isDraft) {
+      const base = d.color || Theme.c("accent");
+      return {
+        color: prim.color || base,
+        width: prim.width || (selected ? 2 : 1.5),
+        dash: isDraft ? [4, 4] : (prim.dash || d.dash || []),
+        fillAlpha: prim.fillAlpha,
+      };
+    }
+
+    function render(ctx, w, h, key) {
+      const e = envFor(key, w, h);
+      const paint = (d, selected, isDraft) => {
+        if ((d.pane || "price") !== key) return;
+        for (const prim of primsOf(d)) {
+          const px = G.project(prim, e);
+          if (px) G.paint(ctx, prim, px, styleOf(d, prim, selected, isDraft), e);
+        }
+        if (selected) handles(ctx, d, e);
+      };
+      for (const d of state.drawings) paint(d, d.id === state.selId, false);
+      if (state.draft) paint(state.draft, false, true);
+    }
+
+    function handles(ctx, d, e) {
+      ctx.save();
+      ctx.fillStyle = Theme.c("handleFill");
+      ctx.strokeStyle = Theme.c("accent");
+      ctx.lineWidth = 1.5;
+      for (const a of d.pts) {
+        const x = tToX(a.t), y = e.vToY(a.v);
+        if (x === null || y === null) continue;
+        ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function makePrimitive(key) {
+      return {
+        attached(p) { rus.set(key, p.requestUpdate); },
+        detached() { rus.delete(key); },
+        updateAllViews() {},
+        paneViews() {
+          return [{
+            zOrder: () => "top",
+            renderer: () => ({
+              draw(target) {
+                target.useMediaCoordinateSpace(({ context, mediaSize }) =>
+                  render(context, mediaSize.width, mediaSize.height, key));
+              },
+            }),
+          }];
+        },
+      };
+    }
+    function syncPanes() {
+      const live = env.panes();
+      const keys = new Set(live.map((p) => p.key));
+      for (const [key, rec] of [...attached]) {
+        if (keys.has(key)) continue;
+        try { rec.pane.detachPrimitive(rec.prim); } catch {}
+        attached.delete(key); rus.delete(key);
+      }
+      for (const p of live) {
+        if (attached.has(p.key)) continue;
+        const prim = makePrimitive(p.key);
+        p.pane.attachPrimitive(prim);
+        attached.set(p.key, { pane: p.pane, prim });
+      }
+      _ru();
+    }
+    syncPanes();
+
+    // ── hit-testing ─────────────────────────────────────
+    function hitTest(mx, my, key) {
+      const e = envFor(key, el.clientWidth, paneHeight(key));
+      for (let i = state.drawings.length - 1; i >= 0; i--) {
+        const d = state.drawings[i];
+        if ((d.pane || "price") !== key) continue;
+        // An anchor is always grabbable, even when the shape does not pass
+        // through it. A regression channel is a FIT — it deliberately misses
+        // the points you clicked — and you would still expect to grab the
+        // thing where you put it.
+        if (handleAt(d, mx, my, key) >= 0) return d.id;
+        for (const prim of primsOf(d)) {
+          const px = G.project(prim, e);
+          if (px && G.hit(prim, px, mx, my, HIT, e)) return d.id;
+        }
+      }
+      return null;
+    }
+    function handleAt(d, mx, my, key) {
+      const e = envFor(key, el.clientWidth, paneHeight(key));
+      for (let i = 0; i < d.pts.length; i++) {
+        const x = tToX(d.pts[i].t), y = e.vToY(d.pts[i].v);
+        if (x !== null && y !== null && Math.hypot(mx - x, my - y) < 9) return i;
+      }
+      return -1;
+    }
+
+    // ── snapping ────────────────────────────────────────
+    function snap(t, v, key) {
+      if (!state.magnet || key !== "price") return { t, v };
+      const bars = env.getBars(); if (!bars.length) return { t, v };
+      let lo = 0, hi = bars.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (bars[m].time <= t) lo = m; else hi = m; }
+      const b = Math.abs(bars[lo].time - t) <= Math.abs(bars[hi].time - t) ? bars[lo] : bars[hi];
+      let best = v, bestD = Infinity;
+      for (const q of [b.open, b.high, b.low, b.close]) {
+        const dd = Math.abs(q - v);
+        if (dd < bestD) { bestD = dd; best = q; }
+      }
+      const y0 = vToY(v, key), y1 = vToY(best, key);
+      return (y0 !== null && y1 !== null && Math.abs(y0 - y1) < 12) ? { t: b.time, v: best } : { t, v };
+    }
+
+    /** Screen event → an anchor in the units of the pane it landed in. */
+    function anchorAt(e2, forceKey) {
+      const key = forceKey || (paneAtClient(e2.clientY) || {}).key || "price";
+      const r = el.getBoundingClientRect();
+      const t = xToTime(e2.clientX - r.left);
+      const v = yToV(yInPane(e2.clientY, key), key);
+      if (t === null || v === null) return null;
+      return { ...snap(t, v, key), key };
+    }
+
+    // ── interaction ─────────────────────────────────────
+    const setScroll = (on) => chart.applyOptions({ handleScroll: on, handleScale: on });
+    const newId = () => "d" + Date.now().toString(36) + Math.floor(Math.random() * 999);
+
+    el.addEventListener("mousedown", (e2) => {
+      if (e2.button !== 0) return;
+      state.consumedDown = false;
+      const a = anchorAt(e2);
+      if (!a) return;
+      const r = el.getBoundingClientRect();
+      const mx = e2.clientX - r.left, my = yInPane(e2.clientY, a.key);
+
+      if (state.tool === "cursor") {
+        if (state.selId) {
+          const d = state.drawings.find((q) => q.id === state.selId);
+          if (d && (d.pane || "price") === a.key) {
+            const hi = handleAt(d, mx, my, a.key);
+            if (hi >= 0) {
+              state.drag = { id: d.id, handle: hi, pane: a.key, start: a,
+                             orig: JSON.parse(JSON.stringify(d.pts)) };
+              state.consumedDown = true; setScroll(false); e2.preventDefault(); return;
+            }
+          }
+        }
+        const hit = hitTest(mx, my, a.key);
+        if (hit) {
+          const d = state.drawings.find((q) => q.id === hit);
+          state.selId = hit;
+          state.drag = { id: hit, handle: -1, pane: a.key, start: a,
+                         orig: JSON.parse(JSON.stringify(d.pts)) };
+          state.consumedDown = true; setScroll(false); e2.preventDefault();
+        } else {
+          state.consumedDown = !!state.selId;   // the click spent itself deselecting
+          state.selId = null;
+        }
+        _ru(); return;
+      }
+
+      // placing
+      const spec = Tools.SPECS[state.tool];
+      if (!spec) return;
+      state.consumedDown = true;
+      e2.preventDefault();
+      const pt = { t: a.t, v: a.v };
+      if (!state.draft) {
+        state.draft = { id: "draft", type: state.tool, pane: a.key, pts: [pt] };
+        if (spec.anchors === 1) return commit();
+        state.draft.pts.push({ ...pt });          // the moving anchor
+      } else if (a.key === state.draft.pane) {
+        state.draft.pts[state.draft.pts.length - 1] = pt;
+        if (state.draft.pts.length >= spec.anchors) return commit();
+        state.draft.pts.push({ ...pt });
+      }
+      _ru();
+    });
+
+    el.addEventListener("mousemove", (e2) => {
+      const forced = state.draft ? state.draft.pane : (state.drag ? state.drag.pane : null);
+      const a = anchorAt(e2, forced);
+      if (!a) return;
+      const r = el.getBoundingClientRect();
+      state.mouse = [e2.clientX - r.left, yInPane(e2.clientY, a.key)];
+
+      if (env.stage && state.tool === "cursor" && !state.drag && !state.draft) {
+        env.stage.classList.toggle("overdraw",
+          hitTest(state.mouse[0], state.mouse[1], a.key) !== null);
+      }
+
+      if (state.drag) {
+        const d = state.drawings.find((q) => q.id === state.drag.id);
+        if (d) {
+          if (state.drag.handle >= 0) {
+            d.pts[state.drag.handle] = { t: a.t, v: a.v };
+          } else {
+            const dt = a.t - state.drag.start.t, dv = a.v - state.drag.start.v;
+            d.pts = state.drag.orig.map((q) => ({ t: q.t + dt, v: q.v + dv }));
+          }
+          _ru();
+        }
+        return;
+      }
+      if (state.draft && a.key === state.draft.pane) {
+        const spec = Tools.SPECS[state.draft.type];
+        if (spec.anchors === "free") state.draft.pts.push({ t: a.t, v: a.v });
+        else state.draft.pts[state.draft.pts.length - 1] = { t: a.t, v: a.v };
+        _ru();
+      }
+    });
+
+    el.addEventListener("mouseup", () => {
+      if (state.drag) { state.drag = null; setScroll(true); save(); _ru(); return; }
+      if (!state.draft) return;
+      const spec = Tools.SPECS[state.draft.type];
+      if (spec.anchors === "free") { state.draft.pts.length > 2 ? commit() : cancel(); return; }
+      // drag-draw: if the pointer travelled, the gesture already placed the
+      // last anchor, so finish. Otherwise stay in click-click mode.
+      if (spec.anchors === 2 && state.draft.pts.length === 2) {
+        const p0 = state.draft.pts[0], p1 = state.draft.pts[1];
+        const moved = Math.hypot((tToX(p1.t) ?? 0) - (tToX(p0.t) ?? 0),
+                                 (vToY(p1.v, state.draft.pane) ?? 0)
+                                 - (vToY(p0.v, state.draft.pane) ?? 0));
+        if (moved > 6) commit();
+      }
+    });
+
+    function commit() {
+      const d = state.draft;
+      state.draft = null;
+      if (!d) return;
+      const spec = Tools.SPECS[d.type];
+      if (spec.text) {
+        const txt = window.prompt("Text");
+        if (!txt) { _ru(); env.onToolDone(); return; }
+        d.text = txt;
+      }
+      d.id = newId();
+      state.drawings.push(d);
+      state.selId = d.id;
+      save(); logUse(d.type);
+      env.setStatus(`${spec.label.toLowerCase()} added (${state.drawings.length})`);
+      _ru();
+      env.onToolDone();
+    }
+    function cancel() { state.draft = null; _ru(); }
+
+    window.addEventListener("keydown", (e2) => {
+      if (/^(INPUT|TEXTAREA)$/.test(e2.target.tagName)) return;
+      if ((e2.key === "Delete" || e2.key === "Backspace") && state.selId) {
+        state.drawings = state.drawings.filter((d) => d.id !== state.selId);
+        state.selId = null; save(); _ru();
+        env.setStatus("drawing deleted");
+      }
+      if (e2.key === "Escape") { state.draft = null; state.selId = null; _ru(); env.onToolDone(); }
+    });
+
+    return {
+      state,
+      SPECS: Tools.SPECS,
+      GROUPS: Tools.GROUPS,
+      setTool(tool) {
+        state.tool = tool;
+        state.draft = null;
+        setScroll(tool === "cursor");
+        el.classList.toggle("drawing", tool !== "cursor");
+        _ru();
+      },
+      toggleMagnet() { state.magnet = !state.magnet; return state.magnet; },
+      clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); },
+      count: () => state.drawings.length,
+      syncPanes,
+      /** Geometry of one drawing, for the backend to score. */
+      geometryOf(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        return d ? { id: d.id, type: d.type, pane: d.pane, pts: d.pts } : null;
+      },
+      exportJSON() {
+        let usage = {};
+        try { usage = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
+        return JSON.stringify({ symbol: "RELIANCE", drawings: state.drawings,
+                                tool_usage: usage }, null, 2);
+      },
+      requestUpdate: () => _ru(),
+    };
+  }
+
+  return { create };
+})();

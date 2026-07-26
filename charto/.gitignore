@@ -1,0 +1,5 @@
+# the 1-minute bar store is 112 MB and rebuildable with backfill_1min.py
+data/charto_bars.db
+data/charto_bars.db-journal
+__pycache__/
+*.pyc

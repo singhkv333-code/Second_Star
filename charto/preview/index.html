@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Charto — preview</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     Design tokens — shadcn/ui naming, two themes.
+     Everything below styles against these; nothing hardcodes a colour.
+     The canvas side reads the same values from js/theme.js.
+     ══════════════════════════════════════════════════════════════════ */
+  :root {
+    --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter",
+            "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --radius: 8px;
+    --radius-sm: 6px;
+    --radius-lg: 12px;
+    --up: #089981;
+    --down: #f23645;
+    --ann-res: #f5a524;
+    --ann-sup: #22d3ee;
+    --primary: #2962ff;
+    --primary-foreground: #ffffff;
+  }
+
+  :root[data-theme="dark"] {
+    --background: #0d0e12;
+    --foreground: #e6e8eb;
+    --card: #111318;
+    --popover: #15171e;
+    --muted: #171a21;
+    --muted-foreground: #8b8f9a;
+    --faint: #5d616b;
+    --accent: #1c1f27;
+    --border: #23262e;
+    --border-soft: #1a1d24;
+    --input: #1a1d24;
+    --ring: rgba(41, 98, 255, .5);
+    --primary-soft: rgba(41, 98, 255, .16);
+    --chart-bg: #0d0e12;
+    --up-soft: rgba(8, 153, 129, .16);
+    --down-soft: rgba(242, 54, 69, .16);
+    --shadow: 0 12px 32px -12px rgba(0, 0, 0, .75), 0 2px 8px rgba(0, 0, 0, .45);
+    --scroll-thumb: #2a2e37;
+  }
+
+  :root[data-theme="light"] {
+    --ann-res: #b45309;
+    --ann-sup: #0e7490;
+    --background: #ffffff;
+    --foreground: #101418;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f5f7;
+    --muted-foreground: #656d78;
+    --faint: #949ba5;
+    --accent: #f1f3f5;
+    --border: #e4e7eb;
+    --border-soft: #eef0f3;
+    --input: #f7f8fa;
+    --ring: rgba(41, 98, 255, .35);
+    --primary-soft: rgba(41, 98, 255, .10);
+    --chart-bg: #ffffff;
+    --up-soft: rgba(8, 153, 129, .12);
+    --down-soft: rgba(242, 54, 69, .12);
+    --shadow: 0 12px 28px -14px rgba(16, 24, 40, .22), 0 2px 6px rgba(16, 24, 40, .06);
+    --scroll-thumb: #d3d7dd;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--background); color: var(--foreground); font-family: var(--font);
+    font-size: 13px; display: flex; flex-direction: column; height: 100vh;
+    overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased;
+    transition: background .16s ease, color .16s ease;
+  }
+  button, textarea, input { font-family: inherit; }
+  svg.icon {
+    width: 18px; height: 18px; stroke: currentColor; fill: none;
+    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;
+  }
+  svg.icon.sm { width: 15px; height: 15px; stroke-width: 1.9; }
+  svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
+  .spacer { flex: 1; }
+
+  /* ── header ───────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 8px; height: 48px;
+    padding: 0 10px 0 12px; border-bottom: 1px solid var(--border);
+    background: var(--background); z-index: 20; flex: none;
+  }
+  .brand {
+    font-weight: 650; font-size: 14.5px; letter-spacing: -.02em;
+    white-space: nowrap; margin-right: 2px;
+  }
+  .brand .dot { color: var(--primary); }
+  .vsep { width: 1px; height: 20px; background: var(--border); flex: none; margin: 0 2px; }
+
+  /* symbol pill — TradingView's ticker chip, shadcn secondary button */
+  .symbol {
+    display: inline-flex; align-items: center; gap: 7px; height: 30px;
+    padding: 0 12px; border-radius: 999px; background: var(--muted);
+    font-size: 13px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
+  }
+  .symbol .ex {
+    font-size: 11px; font-weight: 500; color: var(--muted-foreground);
+    letter-spacing: 0;
+  }
+
+  /* segmented control (intervals) */
+  .seg { display: inline-flex; align-items: center; gap: 2px; }
+  .seg button {
+    background: transparent; color: var(--muted-foreground); border: 0; cursor: pointer;
+    font-size: 12px; font-weight: 600; padding: 0 9px; height: 28px;
+    border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
+    transition: background .12s ease, color .12s ease;
+  }
+  .seg button:hover { background: var(--accent); color: var(--foreground); }
+  .seg button.active { color: var(--primary); background: var(--primary-soft); }
+
+  /* shadcn button — ghost / outline / icon variants */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; height: 30px;
+    padding: 0 11px; border-radius: var(--radius); cursor: pointer;
+    background: transparent; border: 1px solid transparent; color: var(--foreground);
+    font-size: 12.5px; font-weight: 500; white-space: nowrap;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+  }
+  .btn:hover { background: var(--accent); }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .btn.outline { border-color: var(--border); }
+  .btn.outline:hover { border-color: var(--border); background: var(--accent); }
+  .btn.icon { width: 30px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+  .btn.icon:hover { color: var(--foreground); }
+  .btn.on { color: var(--primary); background: var(--primary-soft); }
+  .btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
+
+  /* shadcn dropdown-menu */
+  .menu-wrap { position: relative; }
+  .dropdown {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+    background: var(--popover); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); min-width: 224px; padding: 5px;
+    display: none; box-shadow: var(--shadow);
+  }
+  .dropdown.right { left: auto; right: 0; }
+  .dropdown.up { top: auto; bottom: calc(100% + 8px); }
+  .dropdown.open { display: block; animation: pop .12s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-3px) scale(.985); } }
+  .dropdown .item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer;
+    font-size: 12.5px; color: var(--foreground);
+  }
+  .dropdown .item:hover { background: var(--accent); }
+  .dropdown .item.on { color: var(--primary); }
+  .dropdown .item .lead { display: flex; align-items: center; gap: 9px; }
+  .dropdown .item .lead svg { color: var(--muted-foreground); }
+  .dropdown .item.on .lead svg { color: var(--primary); }
+  .dropdown .item.danger:hover { color: var(--down); }
+  .dropdown .item.danger:hover svg { color: var(--down); }
+  .dropdown .sep { height: 1px; background: var(--border); margin: 5px 4px; }
+  .dropdown .head {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); padding: 6px 9px 4px; font-weight: 600;
+  }
+
+  /* shadcn badge — indicator chips */
+  .chips { display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; overflow: hidden; }
+  .chip {
+    display: inline-flex; gap: 5px; align-items: center; height: 24px;
+    font-size: 11.5px; font-weight: 500; color: var(--foreground);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0 5px 0 10px;
+    background: var(--card); white-space: nowrap;
+  }
+  .chip .x {
+    cursor: pointer; color: var(--faint); display: inline-flex;
+    width: 16px; height: 16px; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .chip .x:hover { color: var(--down); background: var(--down-soft); }
+  .badge {
+    font-size: 11px; font-weight: 500; border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px; color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .badge.accent { color: var(--primary); border-color: var(--primary-soft); background: var(--primary-soft); }
+
+  /* ── body: rail + chart + chat ─────────────────────────── */
+  .main { display: flex; flex: 1; min-height: 0; }
+
+  .rail {
+    width: 46px; background: var(--background); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 7px 0; gap: 1px; z-index: 10; flex: none;
+  }
+  .tool {
+    width: 32px; height: 32px; border-radius: var(--radius); border: 0; cursor: pointer;
+    background: transparent; color: var(--muted-foreground);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    transition: background .12s ease, color .12s ease;
+  }
+  .tool:hover { background: var(--accent); color: var(--foreground); }
+  .tool.active { background: var(--primary-soft); color: var(--primary); }
+  .tool.toggled { color: var(--primary); }
+  .tool .tip {
+    position: absolute; left: 42px; top: 50%; transform: translateY(-50%);
+    background: var(--popover); color: var(--foreground); font-size: 11.5px;
+    padding: 5px 9px; border-radius: var(--radius-sm); white-space: nowrap;
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none; z-index: 70; transition: opacity .1s ease .25s;
+    font-weight: 500;
+  }
+  .tool:hover .tip { opacity: 1; }
+  .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
+  .rail-spacer { flex: 1; }
+  /* a rail button that owns a group opens its flyout to the right */
+  .tool-wrap { position: relative; display: flex; }
+  .tool-wrap > .dropdown.side {
+    left: calc(100% + 8px); top: -6px; right: auto; min-width: 178px;
+  }
+  .tool.has-group::after {
+    content: ""; position: absolute; right: 3px; bottom: 3px;
+    border-left: 4px solid transparent; border-bottom: 4px solid currentColor;
+    opacity: .45;
+  }
+  .tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
+
+  /* ── chart stage ───────────────────────────────────────── */
+  .stage { position: relative; flex: 1; min-height: 0; background: var(--chart-bg); }
+  #chart { position: absolute; inset: 0; cursor: crosshair; }
+  /* TradingView cursors: crosshair to place, grabbing hand while panning */
+  .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
+  .stage.overdraw #chart { cursor: move; }
+
+  .readout {
+    position: absolute; top: 10px; left: 12px; z-index: 5;
+    font-size: 12px; color: var(--muted-foreground);
+    pointer-events: none; line-height: 1.55;
+  }
+  .readout .title { color: var(--foreground); font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
+  .readout .row span { margin-right: 9px; }
+  .readout b { font-weight: 600; }
+  .readout b.up { color: var(--up); }
+  .readout b.down { color: var(--down); }
+
+  /* TradingView's "auto" affordance — appears once you've moved the price
+     scale by hand, clicking it re-fits to the visible bars. */
+  .auto-pill {
+    position: absolute; right: 8px; bottom: 36px; z-index: 6; display: none;
+    background: var(--popover); border: 1px solid var(--border); color: var(--muted-foreground);
+    font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; cursor: pointer; box-shadow: var(--shadow);
+  }
+  .auto-pill.show { display: block; }
+  .auto-pill:hover { color: var(--primary); border-color: var(--primary); }
+
+  .overlay-msg {
+    position: absolute; inset: 0; z-index: 8; display: none;
+    align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--chart-bg) 78%, transparent);
+    color: var(--muted-foreground); font-size: 13px;
+  }
+  .overlay-msg.show { display: flex; }
+  .overlay-msg .err { color: var(--down); }
+
+  footer {
+    height: 26px; padding: 0 12px; border-top: 1px solid var(--border);
+    background: var(--background); font-size: 11px; color: var(--faint);
+    display: flex; gap: 14px; align-items: center; flex: none;
+  }
+  footer .dotsep { color: var(--border); }
+
+  /* ── split divider ─────────────────────────────────────── */
+  .splitter {
+    width: 1px; flex: none; cursor: col-resize; background: var(--border);
+    position: relative; transition: background .12s ease;
+  }
+  .splitter::after { content: ""; position: absolute; inset: 0 -5px; }
+  .splitter:hover, .splitter.dragging { background: var(--primary); }
+  .splitter.hidden { display: none; }
+
+  /* ══════════════════════════════════════════════════════════════════
+     Chat — a document-style LLM conversation, not a messenger.
+     No header chrome; every control lives in the composer.
+     ══════════════════════════════════════════════════════════════════ */
+  .chatpanel {
+    width: 46%; min-width: 320px; flex: none; background: var(--background);
+    display: flex; flex-direction: column; min-height: 0; position: relative;
+  }
+  .chatpanel.hidden { display: none; }
+
+  .thread {
+    flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
+    padding: 26px 0 8px; scroll-behavior: smooth;
+  }
+  .thread-inner {
+    max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
+    display: flex; flex-direction: column; gap: 26px;
+  }
+
+  /* user turn — a quiet rounded block, right-weighted (Claude-style) */
+  .turn.user { display: flex; justify-content: flex-end; }
+  .turn.user .bubble {
+    background: var(--muted); border-radius: 16px; padding: 11px 16px;
+    max-width: 88%; font-size: 14px; line-height: 1.55; color: var(--foreground);
+    white-space: pre-wrap; word-break: break-word; user-select: text;
+  }
+
+  /* assistant turn — bare prose, full measure, no container */
+  .turn.assistant { display: block; }
+  .prose {
+    font-size: 14.5px; line-height: 1.72; color: var(--foreground);
+    user-select: text; word-break: break-word;
+  }
+  .prose > *:first-child { margin-top: 0; }
+  .prose > *:last-child { margin-bottom: 0; }
+  .prose p { margin: 0 0 14px; }
+  .prose h1, .prose h2, .prose h3 {
+    margin: 22px 0 10px; font-weight: 650; letter-spacing: -.015em; line-height: 1.35;
+  }
+  .prose h1 { font-size: 19px; }
+  .prose h2 { font-size: 16.5px; }
+  .prose h3 { font-size: 15px; }
+  .prose ul, .prose ol { margin: 0 0 14px; padding-left: 22px; }
+  .prose li { margin: 0 0 7px; }
+  .prose li > ul, .prose li > ol { margin: 7px 0 0; }
+  .prose li::marker { color: var(--faint); }
+  .prose strong { font-weight: 650; }
+  .prose em { font-style: italic; }
+  .prose code {
+    font-family: var(--mono); font-size: 12.5px; background: var(--muted);
+    border-radius: 5px; padding: 1.5px 5px;
+  }
+  .prose pre {
+    background: var(--muted); border: 1px solid var(--border-soft);
+    border-radius: var(--radius); padding: 11px 13px; overflow-x: auto;
+    margin: 0 0 14px; font-size: 12.5px; line-height: 1.6;
+  }
+  .prose pre code { background: none; padding: 0; }
+  .prose hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+  /* tables: the pane is narrow, so a wide table scrolls inside its own box
+     rather than stretching the thread */
+  .tablewrap { overflow-x: auto; margin: 0 0 16px; }
+  .prose table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .prose th, .prose td {
+    padding: 7px 10px; white-space: nowrap;
+    border-bottom: 1px solid var(--border-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .prose thead th {
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted-foreground); white-space: nowrap;
+    border-bottom: 1px solid var(--border); padding-bottom: 5px;
+  }
+  .prose tbody tr:last-child td { border-bottom: 0; }
+  .prose tbody tr:hover td { background: var(--muted); }
+  .prose td:first-child, .prose th:first-child { padding-left: 0; }
+  .prose td:last-child, .prose th:last-child { padding-right: 0; }
+  /* prices and counts must not jitter as they change */
+  .prose strong, .prose code, .readout, .turn-meta { font-variant-numeric: tabular-nums; }
+
+  /* per-turn footnotes: provenance + timing, quiet until hovered */
+  .turn-meta {
+    margin-top: 10px; font-size: 11px; color: var(--faint);
+    display: flex; align-items: center; gap: 8px; opacity: .65;
+    transition: opacity .12s ease; user-select: text;
+  }
+  .turn.assistant:hover .turn-meta { opacity: 1; }
+  .turn-meta .copy {
+    background: none; border: 0; color: var(--faint); cursor: pointer;
+    display: inline-flex; padding: 3px; border-radius: 5px;
+  }
+  .turn-meta .copy:hover { color: var(--foreground); background: var(--accent); }
+
+  .thinking { color: var(--muted-foreground); font-size: 14px; display: flex; align-items: center; gap: 9px; }
+  .thinking .pulse {
+    width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+    animation: breathe 1.1s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+  .turn.error .prose { color: var(--down); }
+
+  .chat-empty {
+    color: var(--faint); font-size: 13.5px; text-align: center;
+    margin-top: 22vh; line-height: 1.7;
+  }
+  .chat-empty b { color: var(--muted-foreground); font-weight: 550; }
+
+  /* scroll-to-latest, Claude's floating pill */
+  .to-bottom {
+    position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%);
+    width: 30px; height: 30px; border-radius: 50%; background: var(--popover);
+    border: 1px solid var(--border); color: var(--muted-foreground);
+    display: none; align-items: center; justify-content: center; cursor: pointer;
+    box-shadow: var(--shadow); z-index: 12;
+  }
+  .to-bottom.show { display: flex; }
+  .to-bottom:hover { color: var(--foreground); }
+
+  /* ── composer ──────────────────────────────────────────── */
+  .composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
+  .composer-inner { max-width: 720px; margin: 0 auto; }
+  .composer {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 10px 10px 8px 14px;
+    box-shadow: var(--shadow); transition: border-color .14s ease;
+  }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+  .composer textarea {
+    width: 100%; resize: none; background: transparent; color: var(--foreground);
+    border: 0; outline: none; font-size: 14px; line-height: 1.55;
+    max-height: 190px; min-height: 24px; padding: 2px 4px 4px 0; display: block;
+  }
+  .composer textarea::placeholder { color: var(--faint); }
+  .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .cbtn {
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
+    background: transparent; color: var(--muted-foreground); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex: none;
+    transition: background .12s ease, color .12s ease;
+  }
+  .cbtn:hover { background: var(--accent); color: var(--foreground); }
+  .ctx-flag {
+    font-size: 11px; color: var(--muted-foreground); border: 0; border-radius: 999px;
+    padding: 4px 10px; background: var(--muted); white-space: nowrap; cursor: pointer;
+    line-height: 1;
+  }
+  .ctx-flag:hover { color: var(--foreground); }
+  .ctx-flag.off { color: var(--faint); }
+  .ctx-flag .dot {
+    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--up); margin-right: 5px; vertical-align: middle;
+  }
+  .ctx-flag.off .dot { background: var(--faint); }
+  .model-label {
+    font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap;
+    margin-right: 2px; font-weight: 500;
+  }
+  .model-label .lvl { color: var(--faint); font-weight: 400; }
+  .send {
+    width: 30px; height: 30px; border-radius: 50%; border: 0; flex: none;
+    background: var(--primary); color: var(--primary-foreground); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .12s ease, transform .1s ease;
+  }
+  .send:hover { transform: scale(1.05); }
+  .send:disabled { opacity: .3; cursor: default; transform: none; }
+  .composer-hint {
+    text-align: center; font-size: 10.5px; color: var(--faint);
+    margin-top: 8px; letter-spacing: .01em;
+  }
+
+  /* context inspector — slide-over inside the chat pane */
+  /* provenance card — why a drawn level is on the chart */
+  .prov {
+    position: absolute; right: 78px; z-index: 40; width: 268px;
+    background: var(--popover); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow);
+    display: none; overflow: hidden;
+  }
+  .prov.open { display: block; animation: pop .12s ease-out; }
+  .prov header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 8px 10px 12px; border-bottom: 1px solid var(--border-soft);
+  }
+  .prov .role {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  /* annotation colours, never the candle red/green */
+  .prov .role.resistance { color: var(--ann-res); }
+  .prov .role.support { color: var(--ann-sup); }
+  .prov .price {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    margin-left: auto; margin-right: 2px;
+  }
+  .prov dl {
+    margin: 0; padding: 10px 12px; display: grid;
+    grid-template-columns: 66px 1fr; gap: 6px 10px; font-size: 11.5px;
+  }
+  .prov dt { color: var(--faint); }
+  .prov dd { margin: 0; color: var(--foreground); }
+  .prov footer {
+    display: flex; gap: 6px; padding: 8px 10px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .prov footer .btn { flex: 1; height: 28px; font-size: 11.5px; justify-content: center; gap: 5px; }
+
+  /* pinned bars — clicked candles, shown above the composer */
+  .pins { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 2px 7px; }
+  .pins:empty { display: none; }
+  .pin {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px;
+    padding: 0 5px 0 9px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card);
+    font-size: 11.5px; color: var(--foreground); white-space: nowrap;
+  }
+  .pin .t { color: var(--muted-foreground); }
+  .pin .x {
+    cursor: pointer; color: var(--faint); display: inline-flex;
+    width: 16px; height: 16px; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .pin .x:hover { color: var(--down); background: var(--down-soft); }
+
+  .ctx-peek {
+    display: none; position: absolute; inset: 0; z-index: 30;
+    background: var(--background); flex-direction: column;
+  }
+  .ctx-peek.open { display: flex; animation: fade .14s ease-out; }
+  @keyframes fade { from { opacity: 0; } }
+  .ctx-peek-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--muted-foreground); font-weight: 550;
+  }
+  .ctx-peek pre {
+    margin: 0; padding: 16px; overflow: auto; flex: 1;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    color: var(--muted-foreground); white-space: pre-wrap; word-break: break-word;
+    user-select: text;
+  }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; border: 2px solid transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">Charto<span class="dot">.</span></div>
+    <div class="symbol">RELIANCE <span class="ex">NSE</span></div>
+    <div class="vsep"></div>
+
+    <div class="seg" id="intervalSeg">
+      <button data-iv="1m">1m</button>
+      <button data-iv="5m" class="active">5m</button>
+      <button data-iv="15m">15m</button>
+      <button data-iv="30m">30m</button>
+      <button data-iv="1h">1h</button>
+      <button data-iv="1d">D</button>
+      <button data-iv="1w">W</button>
+      <button data-iv="1mo">M</button>
+    </div>
+
+    <div class="vsep"></div>
+    <div class="menu-wrap">
+      <button class="btn" id="indBtn"></button>
+      <div class="dropdown" id="indMenu"></div>
+    </div>
+    <div class="chips" id="indChips"></div>
+
+    <div class="spacer"></div>
+
+    <span class="badge accent" id="sceneCount" style="display:none"></span>
+    <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
+    <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
+    <button class="btn outline" id="chatToggle"></button>
+  </header>
+
+  <div class="main">
+    <div class="rail" id="rail"></div>
+
+    <div class="stage" id="stage">
+      <div id="chart"></div>
+      <div class="readout">
+        <div class="title" id="roTitle">RELIANCE</div>
+        <div class="row" id="roOhlc"></div>
+      </div>
+      <div class="prov" id="provCard"></div>
+      <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
+    </div>
+
+    <div class="splitter" id="splitter" title="Drag to resize · double-click to reset"></div>
+
+    <aside class="chatpanel" id="chatPanel">
+      <div class="thread" id="thread">
+        <div class="thread-inner" id="chatMsgs">
+          <div class="chat-empty">Ask about what you're looking at.<br/><b>The model sees the visible chart.</b></div>
+        </div>
+      </div>
+
+      <button class="to-bottom" id="toBottom" title="Jump to latest"></button>
+
+      <div class="composer-wrap">
+        <div class="composer-inner">
+          <div class="pins" id="pinRow"></div>
+          <form class="composer" id="chatForm">
+            <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
+            <div class="composer-row">
+              <div class="menu-wrap">
+                <button type="button" class="cbtn" id="plusBtn" title="Conversation options"></button>
+                <div class="dropdown up" id="plusMenu"></div>
+              </div>
+              <button type="button" class="ctx-flag" id="ctxFlag" title="Toggle whether the model sees the chart"></button>
+              <div class="spacer"></div>
+              <span class="model-label">gpt-5.6-luna <span class="lvl">medium</span></span>
+              <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
+            </div>
+          </form>
+          <div class="composer-hint">Enter to send · Shift+Enter for a new line</div>
+        </div>
+      </div>
+
+      <div class="ctx-peek" id="ctxPeek">
+        <div class="ctx-peek-head">
+          Context sent with your last message
+          <button class="btn icon" id="ctxPeekClose" title="Close"></button>
+        </div>
+        <pre id="ctxPeekBody"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <footer>
+    <span id="statusLine">ready</span>
+    <span class="spacer"></span>
+    <span id="drawStatus"></span>
+    <span id="srcLine">local store · kite 1-min</span>
+    <span class="dotsep">·</span>
+    <span id="barsLine">—</span>
+  </footer>
+
+  <script src="./vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="./js/store.js?v=4"></script>
+  <script src="./js/theme.js?v=4"></script>
+  <script src="./js/icons.js?v=5"></script>
+  <script src="./js/indicators.js?v=4"></script>
+  <script src="./js/geometry.js?v=5"></script>
+  <script src="./js/tools.js?v=5"></script>
+  <script src="./js/drawings.js?v=5"></script>
+  <script src="./js/scene.js?v=4"></script>
+  <script src="./js/main.js?v=5"></script>
+  <script src="./js/chat.js?v=4"></script>
+</body>
+</html>
