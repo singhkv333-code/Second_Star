@@ -752,15 +752,24 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                          "forming, not that it failed"))
         break
 
-    # de-duplicate near-identical instances of the same shape
-    seen: set = set()
+    # de-duplicate: two same-name instances whose windows overlap by 60%+
+    # are one formation seen twice. The old bucketed key (span//5, ago//5)
+    # let two near-identical pennants through when they straddled a bucket
+    # edge, and the model then had to explain the duplicate away.
     uniq: list[dict] = []
     for p in sorted(out, key=lambda x: x["bars_ago"]):
-        key = (p["pattern"], p["span_bars"] // 5, p["bars_ago"] // 5)
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(p)
+        s1, e1 = p["bars_ago"], p["bars_ago"] + p["span_bars"]
+        dup = False
+        for q in uniq:
+            if q["pattern"] != p["pattern"]:
+                continue
+            s2, e2 = q["bars_ago"], q["bars_ago"] + q["span_bars"]
+            inter = max(0, min(e1, e2) - max(s1, s2))
+            if inter >= 0.6 * max(1, min(e1 - s1, e2 - s2)):
+                dup = True
+                break
+        if not dup:
+            uniq.append(p)
     for p in uniq:
         base = p["pattern"][:2].upper() + p["from"].replace(" ", "")[:7]
         p["id"] = base.upper()

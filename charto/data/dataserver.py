@@ -2143,6 +2143,146 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     return res
 
 
+# These shapes are fitted at the LIVE EDGE of the series only, so there is
+# no honest way to mine historical instances of them yet — the detector
+# would have to be re-run at every past bar, which is a different (and
+# heavier) machine. Saying so beats a fabricated history.
+_EDGE_ONLY = {"ascending_triangle", "descending_triangle",
+              "symmetrical_triangle", "rising_wedge", "falling_wedge",
+              "rectangle", "channel_up", "channel_down", "broadening",
+              "cup_and_handle", "rounding_bottom", "rounding_top"}
+
+
+def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
+                          lookback_bars: int = 1000,
+                          horizon_bars: int = 10) -> dict:
+    """Has this pattern type actually been reliable ON THIS CHART?
+
+    Every past instance of `kind`, the forward move `horizon_bars` later,
+    the rate of moving in the pattern's textbook direction — and the
+    unconditional base rate as CONTROL, because a rate without a control
+    is decoration. Nothing here gates detection; it is evidence the model
+    quotes when the user asks whether the shape has meant anything.
+    """
+    k = str(kind or "").lower().strip()
+    if k not in patterns.ALL_KINDS or k in patterns.STRUCTURE_KINDS:
+        return {"error": f"unknown pattern: {k or '(empty)'}",
+                "available": {"candlestick": list(patterns.CANDLE_KINDS),
+                              "chart": list(patterns.CHART_KINDS)},
+                "_note": "Nothing was evaluated. Re-call with one exact id."}
+    if k in _EDGE_ONLY:
+        return {"unsupported": k, "_note": (
+            f"{k.replace('_', ' ')} is fitted at the live edge of the chart "
+            "only — there is no historical instance record to score, so no "
+            "reliability rate exists. Say that plainly. Candlestick kinds "
+            "and swing shapes (double/triple top/bottom, head and "
+            "shoulders, flags, pennants) can be evaluated.")}
+    h = max(2, min(int(horizon_bars or 10), 60))
+    rows = _rows(interval, max(300, min(int(lookback_bars or 1000), 2000)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    n = len(rows)
+    closes = [r[4] for r in rows]
+    wt = interval not in ("1d", "1w", "1mo")
+    ist = lambda ts: _ist(ts, wt)  # noqa: E731
+
+    skipped_unconfirmed = 0
+    if k in patterns.CANDLE_KINDS:
+        found = patterns.candlesticks(rows, _atr(rows, 14), ist, {k}, limit=500)
+        inst = [{"i": n - 1 - f["bars_ago"], "d": f["direction"]} for f in found]
+    else:
+        found = patterns.chart_patterns(rows, _pivots(rows, 5), _tolerance(rows),
+                                        ist, {k}, limit=60)
+        inst = []
+        for f in found:
+            # the measurable event is the CONFIRMING break — an unconfirmed
+            # shape has no completion bar to measure forward from
+            if f.get("status") != "confirmed":
+                skipped_unconfirmed += 1
+                continue
+            end_i = n - 1 - f["bars_ago"]
+            inst.append({"i": min(n - 1, end_i + int(f.get("bars_to_break", 0))),
+                         "d": f["direction"]})
+    raw = len(inst)
+
+    # instances closer together than the horizon share their forward window —
+    # that is one piece of evidence, not several. Keep the first of a cluster.
+    inst.sort(key=lambda x: x["i"])
+    kept, last = [], -10**9
+    for x in inst:
+        if x["i"] - last >= h:
+            kept.append(x)
+            last = x["i"]
+
+    evals, too_recent = [], 0
+    for x in kept:
+        if x["i"] + h >= n:
+            too_recent += 1
+            continue
+        evals.append({"i": x["i"], "d": x["d"],
+                      "fwd": (closes[x["i"] + h] - closes[x["i"]])
+                      / closes[x["i"]] * 100})
+
+    res: dict = {"pattern": k, "interval": interval, "horizon_bars": h,
+                 "instances_found": raw, "evaluated": len(evals),
+                 "declustered_out": raw - len(kept), "too_recent": too_recent}
+    if skipped_unconfirmed:
+        res["skipped_unconfirmed"] = skipped_unconfirmed
+    base = [(closes[j + h] - closes[j]) / closes[j] * 100 for j in range(n - h)]
+    kdir = evals[0]["d"] if evals else (found[0]["direction"] if found else "neutral")
+    if evals:
+        moves = sorted(e["fwd"] for e in evals)
+        res["avg_move_pct"] = round(sum(moves) / len(moves), 2)
+        res["median_move_pct"] = round(moves[len(moves) // 2], 2)
+        res["recent"] = [{"t": ist(rows[e["i"]][0]), "fwd_pct": round(e["fwd"], 2)}
+                         for e in evals[-4:]][::-1]
+    if kdir in ("bullish", "bearish"):
+        good = sum(1 for e in evals if (e["fwd"] > 0) == (kdir == "bullish"))
+        res.update(_rate("with_direction_rate_pct", good, len(evals) - good,
+                         "instance"))
+        # "found but too recent" is NOT "never happened" — the generic
+        # zero-sample text would claim the pattern has no record when it has
+        # one whose forward window simply hasn't completed yet
+        if not evals and raw:
+            res["with_direction_rate_pct_withheld"] = (
+                f"{raw} instance{'s' if raw > 1 else ''} found, but "
+                f"{'all' if raw > 1 else 'it is'} too recent to grade — the "
+                f"{h}-bar forward window has not completed yet. Say that, "
+                "not that the pattern has never appeared.")
+        bgood = sum(1 for m in base if (m > 0) == (kdir == "bullish"))
+        res["control"] = {
+            "base_rate_pct": round(bgood / len(base) * 100) if base else None,
+            "avg_move_pct": round(sum(base) / len(base), 2) if base else None,
+            "what": f"every unconditional {h}-bar move in the same window"}
+        if res.get("with_direction_rate_pct") is not None and base:
+            res["edge_pp"] = (res["with_direction_rate_pct"]
+                              - res["control"]["base_rate_pct"])
+    else:
+        res["direction_note"] = (
+            "neutral shape — it has no textbook direction to score, so only "
+            "the move distribution is shown; do not invent a success rate")
+        if base:
+            res["control"] = {
+                "avg_abs_move_pct": round(sum(abs(m) for m in base)
+                                          / len(base), 2),
+                "what": f"every unconditional {h}-bar move in the same window"}
+            if evals:
+                res["avg_abs_move_pct"] = round(
+                    sum(abs(e["fwd"]) for e in evals) / len(evals), 2)
+    res["provenance"] = {
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "bars_scanned": n,
+        "method": "forward close-to-close move measured from each instance's "
+                  "completion bar (candles: the pattern bar; chart shapes: "
+                  "the confirming break bar)"}
+    res["_note"] = (
+        "Quote the pattern rate NEXT TO the base rate — the edge is the "
+        "difference, and a rate alone is decoration. This is one symbol's "
+        "history at one horizon, not a forecast; past instances of a shape "
+        "do not obligate the next one.")
+    return res
+
+
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
                   to: str | None = None, limit: int = 40) -> dict:
     limit = max(1, min(int(limit or 40), 80))
@@ -2420,7 +2560,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -2434,6 +2574,14 @@ TOOLS = [
                       "description": "ids from the chart_patterns list, to mark exactly those"},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
+    {"type": "function", "name": "evaluate_pattern",
+     "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate as control — the edge is pattern rate minus base rate. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",
+     "parameters": {"type": "object", "properties": {
+         "kind": {"type": "string", "description": "one exact snake_case pattern id, e.g. bullish_engulfing, triple_top, bull_flag"},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
+         "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
+         "required": ["kind", "interval"]}},
     {"type": "function", "name": "evaluate_drawing",
      "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
      "parameters": {"type": "object", "properties": {
@@ -2492,7 +2640,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
-             "get_patterns": tool_get_patterns}
+             "get_patterns": tool_get_patterns,
+             "evaluate_pattern": tool_evaluate_pattern}
 
 
 def run_tool(name: str, args: dict) -> dict:
