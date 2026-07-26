@@ -2578,14 +2578,55 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     )
     # macOS system python ships no CA bundle — use certifi's when available
     # (present in the pivot venv; run the server with .venv/bin/python).
+    with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
+        return json.loads(resp.read())
+
+
+def _ssl_ctx():
     import ssl
     try:
         import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
+        return ssl.create_default_context(cafile=certifi.where())
     except ImportError:
-        ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
-        return json.loads(resp.read())
+        return ssl.create_default_context()
+
+
+def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
+    """Same call, server-sent events. Yields parsed Responses-API events.
+
+    Only the TEXT is worth streaming: tool calls arrive as complete items and
+    mean nothing half-built. So the loop below streams every round, but only
+    a round that produces prose shows anything — which is exactly the last
+    one. The user sees the answer as it is written instead of after the whole
+    tool chain has finished.
+    """
+    payload = {
+        "model": LLM_DEPLOYMENT,
+        "input": wire,
+        "tools": TOOLS,
+        "tool_choice": "auto" if allow_tools else "none",
+        "max_output_tokens": 2000,
+        "reasoning": {"effort": LLM_EFFORT},
+        "stream": True,
+    }
+    req = urllib.request.Request(
+        f"{AZURE_ENDPOINT}/responses",
+        data=json.dumps(payload).encode(),
+        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=180, context=_ssl_ctx()) as resp:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[5:].strip()
+            if not body or body == "[DONE]":
+                continue
+            try:
+                yield json.loads(body)
+            except json.JSONDecodeError:
+                continue
 
 
 _MAX_TOOL_ROUNDS = 3  # bounds latency; 1 round answers almost everything
@@ -2662,6 +2703,101 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     return {"text": "I couldn't finish that lookup — try narrowing the question.",
             "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
             "context_preview": block, "tools_used": tool_trace}
+def llm_chat_stream(messages: list[dict], context: dict | None = None):
+    """The same tool loop, yielding events instead of returning a result.
+
+    Shares every rule with llm_chat — the rebuilt-not-accumulated envelope, the
+    round budget, and withdrawing the tools on the final round so running out
+    of rounds cannot surface a dead-end apology on top of good tool results.
+
+    Yielded events:
+      {"type":"tool",  name, ok}    a tool finished — progress while the user waits
+      {"type":"delta", text}        a piece of the answer
+      {"type":"done",  ...}         the same payload llm_chat returns
+    """
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        yield {"type": "done", "error": "Azure creds not found in pivot/.env"}
+        return
+    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES) if x)
+    wire: list[dict] = []
+    if block:
+        wire.append({"role": "system", "content": block})
+    wire += [{"role": m.get("role", "user"), "content": str(m.get("content", ""))}
+             for m in messages]
+
+    _scene_reset()
+    tool_trace: list[dict] = []
+    scene_patch: list[dict] = []
+    tok_in = tok_out = 0
+
+    for _round in range(_MAX_TOOL_ROUNDS):
+        calls: list[dict] = []
+        text_parts: list[str] = []
+        by_id: dict = {}
+        try:
+            for ev in _post_responses_stream(wire, allow_tools=_round < _MAX_TOOL_ROUNDS - 1):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    d = ev.get("delta") or ""
+                    if d:
+                        text_parts.append(d)
+                        yield {"type": "delta", "text": d}
+                elif t == "response.output_item.done":
+                    item = ev.get("item") or {}
+                    if item.get("type") == "function_call":
+                        by_id[item.get("id") or len(by_id)] = item
+                elif t in ("response.completed", "response.incomplete"):
+                    r = ev.get("response") or {}
+                    u = r.get("usage") or {}
+                    tok_in += u.get("input_tokens") or 0
+                    tok_out += u.get("output_tokens") or 0
+                    # authoritative item list — the deltas above are only text
+                    for item in r.get("output", []):
+                        if item.get("type") == "function_call":
+                            by_id[item.get("id") or len(by_id)] = item
+                elif t == "error":
+                    yield {"type": "done", "error": str(ev.get("message") or "stream error")}
+                    return
+        except Exception as exc:  # noqa: BLE001 — a broken stream must not hang the client
+            logging.warning("charto stream failed: %s", exc)
+            yield {"type": "done", "error": f"stream failed: {exc}"}
+            return
+
+        calls = list(by_id.values())
+        if not calls:
+            yield {"type": "done",
+                   "text": "".join(text_parts) or "(empty reply)",
+                   "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                   "context_preview": block,
+                   "tools_used": tool_trace,
+                   "scene_patch": scene_patch}
+            return
+
+        for call in calls:
+            try:
+                args = call.get("arguments") or "{}"
+                args = json.loads(args) if isinstance(args, str) else args
+            except json.JSONDecodeError:
+                args = {}
+            result = run_tool(call.get("name", ""), args)
+            scene_patch.extend(_scene_take())
+            ok = "error" not in result
+            tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
+            # tell the client immediately: a tool landing is the only progress
+            # signal there is during a multi-round turn
+            yield {"type": "tool", "name": call.get("name"), "ok": ok}
+            wire.append({"type": "function_call", "call_id": call.get("call_id"),
+                         "name": call.get("name"), "arguments": call.get("arguments")})
+            wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
+                         "output": json.dumps(result, default=str)})
+
+    yield {"type": "done",
+           "text": "I couldn't finish that lookup — try narrowing the question.",
+           "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+           "context_preview": block, "tools_used": tool_trace,
+           "scene_patch": scene_patch}
+
+
 IST_OFF = 19800  # +05:30
 SESSION_OPEN_MIN = 9 * 60 + 15  # 09:15 IST, minutes past midnight
 
@@ -2796,6 +2932,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_stream(self, messages: list, context: dict | None) -> None:
+        """SSE. No Content-Length and no buffering — the whole point is that
+        the first token reaches the screen before the turn is finished."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")   # in case a proxy is ever added
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            for ev in llm_chat_stream(messages, context):
+                self.wfile.write(f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                       # user navigated away mid-answer
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto sse failed: %s", exc)
+            try:
+                self.wfile.write(
+                    f"data: {json.dumps({'type': 'done', 'error': str(exc)})}\n\n".encode())
+                self.wfile.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -2871,6 +3032,8 @@ class Handler(BaseHTTPRequestHandler):
             messages = body.get("messages") or []
             if not isinstance(messages, list) or not messages:
                 return self._send(400, {"error": "messages[] required"})
+            if body.get("stream"):
+                return self._send_stream(messages, body.get("context"))
             return self._send(200, llm_chat(messages, body.get("context")))
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})

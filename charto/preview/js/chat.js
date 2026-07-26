@@ -175,6 +175,78 @@
     return turn;
   }
 
+  /** Consume the SSE turn, painting the answer as it arrives.
+   *
+   *  Markdown is re-rendered on every flush rather than appended as text: a
+   *  half-written table or list is still valid markdown, and re-rendering the
+   *  whole buffer is cheap next to the model's own pace. Flushing is rAF-gated
+   *  so a fast stream cannot re-parse the buffer hundreds of times a second.
+   */
+  async function readStream(res, turn) {
+    const prose = turn.querySelector(".prose");
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";        // raw SSE bytes not yet split into events
+    let text = "";       // the answer so far
+    let done = null;
+    const tools = [];
+    let raf = 0;
+
+    // A trailing `**` or `` ` `` is an emphasis marker whose partner has not
+    // arrived yet. Rendering it raw makes every bolded number flash its
+    // asterisks mid-stream, so the dangling opener is held back for the one
+    // frame it takes to complete. Only ever applied to the live buffer — the
+    // finished text is rendered untouched.
+    const tidy = (s) => {
+      if ((s.match(/\*\*/g) || []).length % 2) s = s.replace(/\*\*(?![\s\S]*\*\*)/, "");
+      if ((s.match(/`/g) || []).length % 2) s = s.replace(/`(?![\s\S]*`)/, "");
+      return s.replace(/(^|\s)\*(\S*)$/, "$1$2");
+    };
+
+    const flush = () => {
+      raf = 0;
+      if (!text) return;
+      const wasAtBottom = atBottom();
+      prose.innerHTML = md(tidy(text)) + '<span class="caret"></span>';
+      if (wasAtBottom) toBottom();
+    };
+    const paint = () => {
+      if (!raf) raf = requestAnimationFrame(flush);
+    };
+
+    for (;;) {
+      const { value, done: fin } = await reader.read();
+      if (fin) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() || "";                 // keep the trailing partial event
+      for (const p of parts) {
+        const line = p.split("\n").find((x) => x.startsWith("data:"));
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(5)); } catch { continue; }
+        if (ev.type === "delta") { text += ev.text; paint(); }
+        else if (ev.type === "tool") {
+          tools.push(ev.name);
+          // before the first token there is nothing else to show — say what
+          // is actually happening rather than an indefinite "Thinking…"
+          if (!text) {
+            const t = turn.querySelector(".thinking");
+            if (t) t.innerHTML = `<span class="pulse"></span>${[...new Set(tools)].join(" · ")}`;
+          }
+        } else if (ev.type === "done") { done = ev; }
+      }
+    }
+    // Cancel any queued repaint. Without this the last frame lands AFTER
+    // finishTurn has written the final markdown and puts the caret back on a
+    // reply that is already complete.
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (!done) throw new Error("stream ended without a result");
+    // the streamed text is the source of truth; `done.text` is the same string
+    done.text = done.text || text;
+    return done;
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
   function finishTurn(turn, text, bits) {
     turn.querySelector(".prose").innerHTML = md(text);
@@ -265,10 +337,11 @@
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: wireHistory(), context }),
+        body: JSON.stringify({ messages: wireHistory(), context, stream: true }),
       });
-      const d = await res.json();
-      if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await readStream(res, turn);
+      if (d.error) throw new Error(d.error);
       lastBlock = d.context_preview || "(no chart context sent)";
 
       // apply anything the model chose to draw
