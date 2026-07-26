@@ -1041,7 +1041,7 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
 
 
 _SHAPES = {"segment": 2, "ray": 2, "box": 2, "band": 2, "hline": 1,
-           "vline": 1, "polyline": 3, "point": 1}
+           "vline": 1, "polyline": 3, "point": 1, "fib": 2}
 
 
 def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
@@ -1101,13 +1101,30 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
         ann.update(kind="point", a={"t": pts[0]["t"], "v": pts[0]["v"]})
     elif shape == "polyline":
         ann.update(kind="poly", pts=[{"t": p["t"], "v": p["v"]} for p in pts])
+    elif shape == "fib":
+        # anchor order IS the convention: the first is the leg's start (100%),
+        # the second its end (0%) — the same orientation as the FE's fib tool
+        ann.update(kind="fib", p1={"t": pts[0]["t"], "v": pts[0]["v"]},
+                   p2={"t": pts[1]["t"], "v": pts[1]["v"]},
+                   label=label or "fib retracement")
     _scene_add(ann)
-    return {"drawn": ann["id"], "shape": shape, "from_anchors": ids,
-            "points": [{"t": a["t"], "value": a["value"], "kind": a["kind"]} for a in picked],
-            "_note": ("Drawn. Describe it using the anchor kinds above — this is "
-                      "a shape the user asked for, not a detected structure, so "
-                      "do not attach a hit rate or a hold record to it."),
-            "ledger": _drawn_ledger()}
+    out = {"drawn": ann["id"], "shape": shape, "from_anchors": ids,
+           "points": [{"t": a["t"], "value": a["value"], "kind": a["kind"]} for a in picked],
+           "_note": ("Drawn. Describe it using the anchor kinds above — this is "
+                     "a shape the user asked for, not a detected structure, so "
+                     "do not attach a hit rate or a hold record to it."),
+           "ledger": _drawn_ledger()}
+    if shape == "fib":
+        out["levels"] = [{"ratio": r, "price": round(
+            _fib_level(pts[0]["v"], pts[1]["v"], r), 2)} for r in _FIB_RATIOS]
+        out["_note"] = (
+            "The ladder is on the chart. Quote these prices — they are the same "
+            "ratios the chart just drew, so do not recompute them. This only "
+            "PLACES the fib; it says nothing about whether the ratios work here. "
+            "Call evaluate_fib with the same two points for that, and do it "
+            "whenever the user's question was about validity rather than "
+            "placement.")
+    return out
 
 
 def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
@@ -1658,9 +1675,10 @@ TOOLS = [
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a line from one moment to another.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another.",
      "parameters": {"type": "object", "properties": {
-         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline"]},
+         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib"],
+                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%)"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},

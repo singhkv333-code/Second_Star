@@ -70,12 +70,25 @@ const Scene = (() => {
     /* Annotation kinds that are plain geometry — composed by draw_shape from
      * resolved anchors rather than produced by a detector. They render and
      * hit-test through the same algebra as the user's own drawings, so the
-     * two layers can never disagree about what a box is. */
+     * two layers can never disagree about what a box is.
+     *
+     * Each entry returns an ARRAY of primitives: a fib is seven lines, and a
+     * shape that needed more than one used to be undrawable from chat. */
     const SHAPES = {
-      box: (a) => Geo.box(a.a, a.b, { fill: true }),
-      vline: (a) => Geo.vline(a.t),
-      point: (a) => Geo.point(a.a),
-      poly: (a) => Geo.poly(a.pts, { closed: !!a.closed }),
+      box: (a) => [Geo.box(a.a, a.b, { fill: true })],
+      vline: (a) => [Geo.vline(a.t)],
+      point: (a) => [Geo.point(a.a)],
+      poly: (a) => [Geo.poly(a.pts, { closed: !!a.closed })],
+      // ratios and colours come from Tools, the same source the user's own fib
+      // tool draws from — one ladder, so the two layers cannot drift apart
+      fib: (a) => {
+        const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];
+        Geo.ladder(a.p1.v, a.p2.v, Tools.FIB).forEach((lv, i) => {
+          out.push(Geo.segment({ t: a.p1.t, v: lv.v }, { t: a.p2.t, v: lv.v },
+                               { color: Tools.FIB_COLORS[i] }));
+        });
+        return out;
+      },
     };
     const geoEnv = (key) => ({
       tToX, vToY: (v) => vToY(v, key),
@@ -110,10 +123,11 @@ const Scene = (() => {
               && distSeg(x, y, x1, y1, x2, y2) < HIT) return a;
         } else if (SHAPES[a.kind] && x != null) {
           // shapes composed via draw_shape share the drawing layer's algebra
-          const prim = SHAPES[a.kind](a);
           const e = geoEnv(a.pane);
-          const px = Geo.project(prim, e);
-          if (px && Geo.hit(prim, px, x, y, HIT, e)) return a;
+          for (const prim of SHAPES[a.kind](a)) {
+            const px = Geo.project(prim, e);
+            if (px && Geo.hit(prim, px, x, y, HIT, e)) return a;
+          }
         }
       }
       return null;
@@ -203,17 +217,22 @@ const Scene = (() => {
             chip(a.label, mx, Math.min(y1, y2) - 4, col);
           }
         } else if (SHAPES[a.kind]) {
-          const prim = SHAPES[a.kind](a);
           const e = { tToX, vToY: (v) => vToY(v, a.pane), w, h };
-          const px = Geo.project(prim, e);
-          if (px) {
+          let anchor = null;
+          for (const prim of SHAPES[a.kind](a)) {
+            const px = Geo.project(prim, e);
+            if (!px) continue;
+            // a primitive's own colour wins — the fib ladder is colour-coded
+            // by ratio, and repainting it all one role colour loses that
             Geo.paint(ctx, prim, px,
-                      { color: col, width: hot ? 2 : 1.5, dash: [7, 4], fillAlpha: 0.12 }, e);
-            if (a.label) {
-              const ax = px.x ?? (px.p && px.p[0]) ?? 8;
-              const ay = px.y ?? (px.p && px.p[1]) ?? 20;
-              chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);
-            }
+                      { color: prim.color || col, width: hot ? 2 : 1.5,
+                        dash: prim.dash || [7, 4], fillAlpha: 0.12 }, e);
+            if (!anchor) anchor = px;
+          }
+          if (a.label && anchor) {
+            const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
+            const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
+            chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);
           }
         }
       }
@@ -292,7 +311,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib"]);
 
     return {
       state,
