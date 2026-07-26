@@ -72,11 +72,10 @@ def _scene_reset() -> None:
 
 
 def _scene_add(annotation: dict) -> None:
-    # Stamp WHICH tool put this on the chart. Pattern necklines are drawn as
-    # kind="level", so a later get_levels(draw_mode="replace") used to wipe
-    # them: the clear matched on kind and reached across tools. Clears now
-    # scope by owner, so narrowing your levels cannot silently erase a marked
-    # head and shoulders.
+    # Stamp WHICH tool put this on the chart. A clear used to match on kind
+    # alone and reach across tools — get_levels(draw_mode="replace") silently
+    # wiped a marked head and shoulders. Clears now scope by owner, so
+    # narrowing your levels cannot erase another tool's geometry.
     if "owner" not in annotation and annotation.get("kind") not in ("clear", "clear_levels"):
         src = annotation.get("source") or {}
         annotation["owner"] = src.get("tool", "scene")
@@ -1998,36 +1997,88 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     elif draw:
         picked = charts[:3]
     if picked and mode == "replace":
-        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_patterns"})
+        _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
     for p in picked:
-        if p.get("neckline") is not None:
-            _scene_add({
-                "kind": "level", "id": p["id"], "price": p["neckline"],
-                "lo": p["neckline"] - tol / 2, "hi": p["neckline"] + tol / 2,
-                "pane": "price",
-                "role": "support" if p["direction"] == "bearish" else "resistance",
-                "strength": p.get("status", "unconfirmed"),
-                "label": f"{p['pattern'].replace('_', ' ')} · neckline "
-                         f"{p['neckline']:,.2f} · {p.get('status', '')}",
-                "source": {"tool": "get_patterns",
-                           "method": "swing-sequence template on shared ±5-bar pivots",
-                           "interval": interval, "bars_scanned": len(rows),
-                           "strength": p.get("status", "unconfirmed"),
-                           "first_touch": p["from"], "last_touch": p["to"]},
-            })
-        elif p.get("points", {}).get("upper_now") is not None:
-            _scene_add({
-                "kind": "zone", "id": p["id"],
-                "lo": p["points"]["lower_now"], "hi": p["points"]["upper_now"],
-                "price": (p["points"]["lower_now"] + p["points"]["upper_now"]) / 2,
-                "pane": "price", "role": "neutral", "strength": "user-directed",
-                "label": f"{p['pattern'].replace('_', ' ')} · width "
-                         f"{p.get('width_now', 0):,.2f}",
-                "source": {"tool": "get_patterns", "method": "fitted swing boundaries",
-                           "interval": interval, "bars_scanned": len(rows),
-                           "first_touch": p["from"], "last_touch": p["to"]},
-            })
+        # Draw the pattern's ACTUAL geometry — the polyline through its
+        # defining swings, its neckline as a bounded segment ending at the
+        # break bar, fitted edges anchored at their exact endpoint bars —
+        # never a full-width level or zone standing in for a shape. Every
+        # anchor is an exact (bar-epoch, pivot-price) pair from the detector.
+        g = p.get("_geometry") or {}
+        name = p["pattern"].replace("_", " ")
+        status = p.get("status", "")
+        role = {"bullish": "support", "bearish": "resistance"}.get(
+            p["direction"], "neutral")
+        link = p["id"]
+        src = {"tool": "get_patterns",
+               "method": "swing-sequence template on shared ±5-bar pivots"
+                         if g.get("outline") else "fitted swing boundaries",
+               "interval": interval, "bars_scanned": len(rows),
+               "strength": status or "unconfirmed",
+               "first_touch": p["from"], "last_touch": p["to"]}
+        pt = lambda t, v: {"t": t, "v": v}  # noqa: E731
+        if g.get("outline"):
+            o = [pt(t, v) for t, v in g["outline"]]
+            base = g.get("base")
+            # solid stroke along the swing path only; the fill closes down
+            # to the neckline as a separate stroke-less polygon so the base
+            # edge never double-draws over the dashed neckline
+            _scene_add({"kind": "poly", "id": link + "-o", "link": link,
+                        "pane": "price", "role": role, "pts": o,
+                        "solid": True, "source": src})
+            if "head_and_shoulders" in p["pattern"] and len(o) == 5:
+                for idx, tag in ((0, "left shoulder"), (2, "head"),
+                                 (4, "right shoulder")):
+                    _scene_add({"kind": "point", "id": f"{link}-t{idx}",
+                                "link": link, "pane": "price", "role": role,
+                                "a": o[idx], "label": tag, "source": src})
+            if base:
+                _scene_add({"kind": "poly", "id": link + "-f", "link": link,
+                            "pane": "price", "role": role,
+                            "pts": [pt(o[0]["t"], base["v"])] + o
+                                   + [pt(o[-1]["t"], base["v"])],
+                            "closed": True, "fill": True, "stroke": False,
+                            "source": src})
+                _scene_add({"kind": "segment", "id": link + "-n", "link": link,
+                            "pane": "price", "role": role, "dashed": True,
+                            "p1": pt(base["t1"], base["v"]),
+                            "p2": pt(base["t2"], base["v"]),
+                            "label": f"{name} · neckline {base['v']:,.2f}"
+                                     + (f" · {status}" if status else ""),
+                            "source": src})
+        elif g.get("edges"):
+            e = g["edges"]
+            lab = {"not_assessed": "unresolved"}.get(status, status)
+            _scene_add({"kind": "segment", "id": link + "-u", "link": link,
+                        "pane": "price", "role": role,
+                        "p1": pt(*e["upper"][0]), "p2": pt(*e["upper"][1]),
+                        "label": f"{name} · width {p.get('width_now', 0):,.2f}"
+                                 + (f" · {lab}" if lab else ""),
+                        "source": src})
+            _scene_add({"kind": "segment", "id": link + "-l", "link": link,
+                        "pane": "price", "role": role,
+                        "p1": pt(*e["lower"][0]), "p2": pt(*e["lower"][1]),
+                        "source": src})
+            _scene_add({"kind": "poly", "id": link + "-f", "link": link,
+                        "pane": "price", "role": role,
+                        "pts": [pt(*e["upper"][0]), pt(*e["upper"][1]),
+                                pt(*e["lower"][1]), pt(*e["lower"][0])],
+                        "closed": True, "fill": True, "stroke": False,
+                        "source": src})
+        elif g.get("pole"):
+            _scene_add({"kind": "segment", "id": link + "-p", "link": link,
+                        "pane": "price", "role": role,
+                        "p1": pt(*g["pole"][0]), "p2": pt(*g["pole"][1]),
+                        "label": f"{name} · pole {p.get('pole', 0):,.2f}"
+                                 + (f" · {status}" if status else ""),
+                        "source": src})
+            _scene_add({"kind": "box", "id": link + "-b", "link": link,
+                        "pane": "price", "role": role,
+                        "a": pt(*g["box"][0]), "b": pt(*g["box"][1]),
+                        "source": src})
 
+    for c in charts:                       # geometry is for the chart, not
+        c.pop("_geometry", None)           # the model — keep the payload lean
     res: dict = _not_found_note(missing, "pattern", interval, lookback_bars,
                                 list(by_id))
     if want_c:
@@ -2365,7 +2416,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 21 candlestick patterns (engulfing, hammer, doji, morning/evening star, three soldiers/crows, harami, piercing, tweezers, abandoned baby…), 11 chart patterns (head and shoulders and its inverse, double top/bottom, ascending/descending/symmetrical triangles, rising/falling wedges, bull/bear flags) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to mark chart patterns (necklines and boundaries).",
+     "description": "Detect named formations on the chart: 21 candlestick patterns (engulfing, hammer, doji, morning/evening star, three soldiers/crows, harami, piercing, tweezers, abandoned baby…), 11 chart patterns (head and shoulders and its inverse, double top/bottom, ascending/descending/symmetrical triangles, rising/falling wedges, bull/bear flags) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},

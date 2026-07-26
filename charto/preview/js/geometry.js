@@ -271,7 +271,9 @@ const Geo = (() => {
         if (prim.fill) {
           ctx.globalAlpha = s.fillAlpha ?? 0.1; ctx.fill(); ctx.globalAlpha = 1;
         }
-        ctx.stroke();
+        // a fill-only polygon (stroke:false) tints the pattern's interior
+        // while its edges are drawn once, by their own primitives
+        if (prim.stroke !== false) ctx.stroke();
         break;
       }
       case "point":

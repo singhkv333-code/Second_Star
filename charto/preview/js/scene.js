@@ -78,7 +78,14 @@ const Scene = (() => {
       box: (a) => [Geo.box(a.a, a.b, { fill: true })],
       vline: (a) => [Geo.vline(a.t)],
       point: (a) => [Geo.point(a.a)],
-      poly: (a) => [Geo.poly(a.pts, { closed: !!a.closed })],
+      // fill/solid/stroke let a detector compose TradingView-style pattern
+      // geometry: a solid outline through the defining swings plus a
+      // stroke-less fill polygon, without double-drawing any edge
+      poly: (a) => [Geo.poly(a.pts, {
+        closed: !!a.closed, fill: !!a.fill,
+        ...(a.stroke === false ? { stroke: false } : {}),
+        ...(a.solid ? { dash: [] } : {}),
+      })],
       // ratios and colours come from Tools, the same source the user's own fib
       // tool draws from — one ladder, so the two layers cannot drift apart
       fib: (a) => {
@@ -213,7 +220,10 @@ const Scene = (() => {
             ctx.beginPath(); ctx.arc(px, py, hot ? 3.5 : 2.5, 0, Math.PI * 2); ctx.fill();
           }
           if (a.label) {
-            const mx = Math.min(Math.max((x1 + x2) / 2, 8), w - 140);
+            // clamp by the MEASURED label width — a fixed margin let long
+            // pattern labels run under the price axis
+            const lw = ctx.measureText(a.label).width + 12;
+            const mx = Math.min(Math.max((x1 + x2) / 2, 8), w - lw - 4);
             chip(a.label, mx, Math.min(y1, y2) - 4, col);
           }
         } else if (SHAPES[a.kind]) {
@@ -224,9 +234,11 @@ const Scene = (() => {
             if (!px) continue;
             // a primitive's own colour wins — the fib ladder is colour-coded
             // by ratio, and repainting it all one role colour loses that
+            // ?? not ||: an explicit empty dash means SOLID — a pattern
+            // outline through real swings is an assertion, not a suggestion
             Geo.paint(ctx, prim, px,
                       { color: prim.color || col, width: hot ? 2 : 1.5,
-                        dash: prim.dash || [7, 4], fillAlpha: 0.12 }, e);
+                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12 }, e);
             if (!anchor) anchor = px;
           }
           if (a.label && anchor) {
@@ -342,9 +354,9 @@ const Scene = (() => {
         for (const a of patch || []) {
           if (a.kind === "clear" || a.kind === "clear_levels") {
             const scope = a.kind === "clear_levels" ? "level" : (a.scope || "all");
-            // A clear may only remove what ITS OWN tool drew. Pattern
-            // necklines are kind="level", so a kind-only match let
-            // get_levels(replace) silently erase a marked head and shoulders.
+            // A clear may only remove what ITS OWN tool drew. A kind-only
+            // match once let get_levels(replace) silently erase a marked
+            // head and shoulders drawn by get_patterns.
             // Untagged items (older scenes restored from storage) still match
             // so a clear never becomes a no-op.
             const owned = (x) => !a.owner || !x.owner || x.owner === a.owner;

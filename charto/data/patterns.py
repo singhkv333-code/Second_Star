@@ -245,13 +245,27 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
     lows = [(i, p) for i, p, k in pivots if k == "support"]
     seq = sorted([(i, p, "H") for i, p in highs] + [(i, p, "L") for i, p in lows])
 
-    def confirmed(after: int, level: float, below: bool) -> dict:
-        """Did a close actually break the line, and when?"""
+    T = lambda i: rows[i][0]               # noqa: E731 — exact bar epoch
+
+    def _break_idx(after: int, level: float, below: bool) -> int | None:
         for j in range(after + 1, n):
             if (closes[j] < level) if below else (closes[j] > level):
-                return {"status": "confirmed", "broke_at": ist(rows[j][0]),
-                        "bars_to_break": j - after}
+                return j
+        return None
+
+    def confirmed(after: int, level: float, below: bool) -> dict:
+        """Did a close actually break the line, and when?"""
+        j = _break_idx(after, level, below)
+        if j is not None:
+            return {"status": "confirmed", "broke_at": ist(rows[j][0]),
+                    "bars_to_break": j - after}
         return {"status": "unconfirmed"}
+
+    def _base_end(after: int, level: float, below: bool) -> int:
+        """Where the drawn neckline should stop: the actual break bar if one
+        exists, else the latest bar. The line ends where its story ends."""
+        j = _break_idx(after, level, below)
+        return j if j is not None else n - 1
 
     def add(name, direction, i1, i2, points, **extra):
         if name not in want:
@@ -268,6 +282,15 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
             same = abs(p[1] - r[1]) <= tol * 1.5
             depth = abs(q[1] - (p[1] + r[1]) / 2)
             if same and depth >= tol * 2:
+                # geometry: the three defining pivots at their EXACT bar
+                # times and pivot prices, plus the neckline drawn from the
+                # first pivot to the break bar (or the latest bar if unbroken)
+                geo = lambda below: dict(  # noqa: E731
+                    outline=[[T(p[0]), round(p[1], 2)],
+                             [T(q[0]), round(q[1], 2)],
+                             [T(r[0]), round(r[1], 2)]],
+                    base=dict(v=round(q[1], 2), t1=T(p[0]),
+                              t2=T(_base_end(r[0], q[1], below))))
                 if p[2] == "H":
                     add("double_top", "bearish", p[0], r[0],
                         {"peak_1": round(p[1], 2), "trough": round(q[1], 2),
@@ -275,6 +298,7 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                         neckline=round(q[1], 2),
                         measured_move=round(q[1] - depth, 2),
                         peak_gap=round(abs(p[1] - r[1]), 2),
+                        _geometry=geo(True),
                         **confirmed(r[0], q[1], below=True))
                 else:
                     add("double_bottom", "bullish", p[0], r[0],
@@ -283,6 +307,7 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                         neckline=round(q[1], 2),
                         measured_move=round(q[1] + depth, 2),
                         trough_gap=round(abs(p[1] - r[1]), 2),
+                        _geometry=geo(False),
                         **confirmed(r[0], q[1], below=False))
 
     # ── head & shoulders (and inverse) ────────────────────
@@ -302,6 +327,11 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                     neckline=round(neck, 2),
                     measured_move=round(neck - (hd[1] - neck), 2),
                     shoulder_gap=round(abs(s1[1] - s2[1]), 2),
+                    _geometry=dict(
+                        outline=[[T(x[0]), round(x[1], 2)]
+                                 for x in (s1, l1, hd, l2, s2)],
+                        base=dict(v=round(neck, 2), t1=T(s1[0]),
+                                  t2=T(_base_end(s2[0], neck, True)))),
                     **confirmed(s2[0], neck, below=True))
         if kinds_seq == "LHLHL":
             s1, h1, hd, h2, s2 = w
@@ -316,6 +346,11 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                     neckline=round(neck, 2),
                     measured_move=round(neck + (neck - hd[1]), 2),
                     shoulder_gap=round(abs(s1[1] - s2[1]), 2),
+                    _geometry=dict(
+                        outline=[[T(x[0]), round(x[1], 2)]
+                                 for x in (s1, h1, hd, h2, s2)],
+                        base=dict(v=round(neck, 2), t1=T(s1[0]),
+                                  t2=T(_base_end(s2[0], neck, False)))),
                     **confirmed(s2[0], neck, below=False))
 
     # ── triangles and wedges: two fitted boundaries ───────
@@ -342,10 +377,19 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
         pts = {"upper_now": round(top_now, 2), "lower_now": round(bot_now, 2),
                "upper_slope_per_bar": round(sh, 4),
                "lower_slope_per_bar": round(sl, 4)}
+        # The fit lives in bar-index space and the chart's x-axis is
+        # index-spaced, so a segment anchored at the two endpoint bars
+        # renders the fitted line EXACTLY — no intermediate points needed.
+        # Endpoint values are the same numbers reported in `points`.
         common = dict(highs_used=len(hp), lows_used=len(lp),
                       width_now=round(top_now - bot_now, 2),
                       apex_bars=(round((top_now - bot_now) / (sl - sh))
-                                 if sl > sh else None))
+                                 if sl > sh else None),
+                      _geometry=dict(edges=dict(
+                          upper=[[T(i0), round(top_then, 2)],
+                                 [T(n - 1), round(top_now, 2)]],
+                          lower=[[T(i0), round(bot_then, 2)],
+                                 [T(n - 1), round(bot_now, 2)]])))
         if converging and abs(sh) <= flat and sl > flat:
             add("ascending_triangle", "bullish", i0, n - 1, pts, **common,
                 **confirmed(n - 1, top_now, below=False))
@@ -386,22 +430,29 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
             if (r_hi - r_lo) > abs(move) * 0.5:
                 continue                   # consolidation too wide to be a flag
             drift = rest[-1][4] - rest[0][4]
+            end_i = min(n, i + 20) - 1
+            flag_geo = dict(
+                pole=[[T(i - imp), round(closes[i - imp], 2)],
+                      [T(i), round(closes[i], 2)]],
+                box=[[T(i), round(r_hi, 2)], [T(end_i), round(r_lo, 2)]])
             if move > 0 and drift <= 0:
-                add("bull_flag", "bullish", i - imp, min(n, i + 20) - 1,
+                add("bull_flag", "bullish", i - imp, end_i,
                     {"pole_from": round(closes[i - imp], 2),
                      "pole_to": round(closes[i], 2),
                      "flag_high": round(r_hi, 2), "flag_low": round(r_lo, 2)},
                     pole=round(move, 2), flag_bars=len(rest),
                     measured_move=round(r_lo + move, 2),
-                    **confirmed(min(n, i + 20) - 1, r_hi, below=False))
+                    _geometry=flag_geo,
+                    **confirmed(end_i, r_hi, below=False))
             elif move < 0 and drift >= 0:
-                add("bear_flag", "bearish", i - imp, min(n, i + 20) - 1,
+                add("bear_flag", "bearish", i - imp, end_i,
                     {"pole_from": round(closes[i - imp], 2),
                      "pole_to": round(closes[i], 2),
                      "flag_high": round(r_hi, 2), "flag_low": round(r_lo, 2)},
                     pole=round(move, 2), flag_bars=len(rest),
                     measured_move=round(r_hi + move, 2),
-                    **confirmed(min(n, i + 20) - 1, r_lo, below=True))
+                    _geometry=flag_geo,
+                    **confirmed(end_i, r_lo, below=True))
             break
 
     # de-duplicate near-identical instances of the same shape
