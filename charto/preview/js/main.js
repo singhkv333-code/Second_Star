@@ -85,7 +85,7 @@
     volume.setData(state.bars.map(({ time, volume: v, open, close }) => ({
       time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
     })));
-    ind.recomputeAll(state.bars);
+    ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length });
   }
 
   async function loadInterval(interval) {
@@ -210,7 +210,9 @@
       status("VWAP is session-anchored — switch to an intraday interval");
       return;
     }
-    ind.toggle(id, state.bars);
+    Promise.resolve(ind.toggle(id, state.bars))
+      .then(() => { renderIndMenu(); renderChips(); })
+      .catch((err) => status(`could not add ${def.label}: ${err.message}`));
     renderIndMenu(); renderChips();
   });
   el("indChips").addEventListener("click", (e) => {
@@ -663,7 +665,7 @@
         : a.name === "sma" && a.period === 200 ? "sma200"
         : a.name === "sma" ? "sma20" : a.name === "ema" ? "ema21" : a.name;
       if (ind.CATALOG.some((c) => c.id === id) && !ind.isActive(id)) {
-        ind.toggle(id, state.bars);
+        Promise.resolve(ind.toggle(id, state.bars)).then(() => renderChips()).catch(() => {});
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
       }
     },
@@ -820,6 +822,9 @@
   // the view back at the live edge) and put back everything the user built.
   // Drawings restore themselves — drawings.js reads its own store at create().
   (async function boot() {
+    await Indicators.loadCatalogue(API);
+    ind.setContext({ interval: Store.get("interval", "5m") });
+    renderIndMenu();
     const saved = Store.get("interval", "5m");
     const iv = IV_SEC[saved] ? saved : "5m";
     selectInterval(iv);
@@ -831,7 +836,10 @@
       // daily+, rather than restoring an indicator that can't mean anything
       if (!def || ind.isActive(id)) continue;
       if (def.intradayOnly && DAILY.has(state.interval)) continue;
-      ind.toggle(id, state.bars);
+      // never swallow: a restore that fails silently leaves a chip on
+      // screen with no series under it, which looks like a render bug
+      await Promise.resolve(ind.toggle(id, state.bars))
+        .catch((err) => { console.error("[charto] indicator restore failed", id, err); });
     }
     renderChips();
 

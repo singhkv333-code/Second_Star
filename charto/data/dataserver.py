@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import indicators   # sibling module: the indicator registry
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
@@ -2116,43 +2117,144 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
     }
 
 
-_IND_PERIODS = {"sma": 20, "ema": 21, "rsi": 14, "atr": 14}
+# What the FE chart can actually draw. Kept honest deliberately: the model
+# used to be told the chart "does not support Bollinger Bands" while the FE
+# had them one click away, and the opposite failure — claiming to have drawn
+# something invisible — is worse. This list is the contract between the two.
+# Line names per indicator, and the ROLE each line plays. The role decides
+# how the chart styles it, so presentation stays in the FE while structure
+# stays here — the same split geometry.js and tools.js already use.
+_INDICATOR_LINES = {
+    "sma": ["sma"], "ema": ["ema"], "wma": ["wma"], "hma": ["hma"], "dema": ["dema"],
+    "bbands": ["middle", "upper", "lower"], "keltner": ["middle", "upper", "lower"],
+    "donchian": ["middle", "upper", "lower"],
+    "vwap": ["vwap"], "anchored_vwap": ["anchored_vwap"],
+    "supertrend": ["supertrend_up", "supertrend_down"], "psar": ["psar"],
+    "rsi": ["rsi"], "macd": ["histogram", "macd", "signal"],
+    "stoch": ["k", "d"], "stochrsi": ["k", "d"],
+    "adx": ["adx", "plus_di", "minus_di"], "cci": ["cci"],
+    "williams_r": ["williams_r"], "roc": ["roc"], "atr": ["atr"],
+    "obv": ["obv"], "ad": ["ad"], "cmf": ["cmf"], "mfi": ["mfi"],
+    "aroon": ["aroon_up", "aroon_down"],
+}
+
+# Must mirror preview/js/indicators.js CATALOG exactly. If it drifts, the
+# model either refuses to draw something the chart can show, or claims to have
+# drawn something invisible.
+_FE_RENDERABLE = {"sma", "ema", "bbands", "keltner", "donchian", "supertrend",
+                  "psar", "vwap", "rsi", "macd", "stoch", "stochrsi", "adx",
+                  "atr", "cci", "williams_r", "mfi", "obv", "cmf", "aroon"}
 
 
 def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
-                       lookback_bars: int = 400, draw: bool = False) -> dict:
+                       lookback_bars: int = 400, draw: bool = False,
+                       source: str = "close", mult: float = 0,
+                       fast: int = 0, slow: int = 0, signal: int = 0,
+                       series_points: int = 0, anchor_time: str = "") -> dict:
+    """One tool over the whole indicator registry.
+
+    The model chooses the indicator, the period, the price column and the
+    interval rather than picking from a handful of frozen presets — the point
+    is flexibility, since which indicator answers a question is exactly the
+    kind of judgement it is better placed to make than a lookup table here.
+    Every result carries the formula that produced it, so the reply can state
+    what was computed instead of asserting a number.
+    """
     name = (name or "").lower().strip()
-    if name not in _IND_PERIODS and name != "macd":
+    if name not in indicators.SPECS:
+        by_group: dict = {}
+        for k, v in indicators.SPECS.items():
+            by_group.setdefault(v["group"], []).append(k)
         return {"error": f"unknown indicator '{name}'",
-                "available": list(_IND_PERIODS) + ["macd"]}
-    period = int(period or _IND_PERIODS.get(name, 14))
+                "available": by_group,
+                "_note": ("Nothing was computed. Pick a name from this list — "
+                          "and if the user asked for something genuinely absent "
+                          "here, say it is not available rather than "
+                          "substituting a different indicator for it.")}
+    if source not in indicators.SOURCES:
+        return {"error": f"unknown source '{source}'",
+                "available": list(indicators.SOURCES)}
     rows = _rows(interval, max(200, min(int(lookback_bars or 400), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
-    closes = [r[4] for r in rows]
 
+    extra: dict = {}
+    if mult:
+        extra["mult"] = float(mult)
     if name == "macd":
-        f, s = _ema(closes, 12), _ema(closes, 26)
-        line = [(a - b) if a is not None and b is not None else None for a, b in zip(f, s)]
-        sig = _ema([x for x in line if x is not None], 9)
-        val = {"macd": round(line[-1], 3) if line[-1] is not None else None,
-               "signal": round(sig[-1], 3) if sig and sig[-1] is not None else None}
-    elif name == "atr":
-        series = _atr(rows, period); val = round(series[-1], 2) if series[-1] else None
-    else:
-        series = {"sma": _sma, "ema": _ema, "rsi": _rsi}[name](closes, period)
-        val = round(series[-1], 2) if series[-1] is not None else None
-    if draw:
-        # The chart already owns identical formulas, so an indicator is drawn
-        # by naming it, not by shipping a series — one line of scene patch.
-        _scene_add({"kind": "indicator", "name": name, "period": period,
-                    "source": {"tool": "get_indicator", "interval": interval}})
-    return {
-        "indicator": name, "period": period, "interval": interval, "value": val,
-        "as_of": _ist(rows[-1][0]), "drawn": bool(draw),
-        "provenance": {"method": f"{name}({period}) over {len(rows)} {interval} bars",
-                       "matches_chart_formula": True},
+        extra.update({k: int(v) for k, v in
+                      (("fast", fast), ("slow", slow), ("signal", signal)) if v})
+    if name == "anchored_vwap":
+        # anchoring is the whole point of this one: resolve the user's moment
+        # to a bar index rather than silently anchoring at the window start
+        t = _parse_ist(anchor_time) if anchor_time else None
+        if anchor_time and t is None:
+            return {"error": "could not read anchor_time",
+                    "hint": "use the chart's format, e.g. '11 Jun 2026' or "
+                            "'08 Jul 2026 15:25'"}
+        if t is not None:
+            idx = next((i for i, r in enumerate(rows) if r[0] >= t), None)
+            if idx is None:
+                return {"error": "anchor_time is after the last scanned bar",
+                        "scanned": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} IST"}
+            extra["anchor_index"] = idx
+
+    try:
+        res = indicators.compute(name, rows, period, source, **extra)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    wt = interval not in ("1d", "1w", "1mo")
+    out: dict = {
+        "indicator": name,
+        "value": res["last"],
+        "as_of": _ist(rows[-1][0], wt),
+        "last_price": rows[-1][4],
+        "spec": res["spec"],
     }
+    # A tail of the series, when asked for — enough to see a cross or a turn
+    # without shipping hundreds of numbers nobody reads.
+    k = max(0, min(int(series_points or 0), 60))
+    if k:
+        idx = list(range(max(0, len(rows) - k), len(rows)))
+        out["series"] = {
+            "t": [_ist(rows[i][0], wt) for i in idx],
+            **{ln: [None if v[i] is None else round(v[i], 4) for i in idx]
+               for ln, v in res["lines"].items()},
+        }
+    if draw:
+        # The chart owns the same formulas, so drawing is naming — but only
+        # for what the FE can actually render. Claiming to have drawn
+        # something it cannot show is worse than saying it is unavailable.
+        if name in _FE_RENDERABLE:
+            _scene_add({"kind": "indicator", "name": name, "period": res["spec"]["period"],
+                        "source": {"tool": "get_indicator", "interval": interval}})
+            out["drawn"] = True
+        else:
+            out["drawn"] = False
+            out["draw_unavailable"] = (
+                f"The chart cannot render {name} yet, so nothing was added to "
+                f"it. The values above are still real — report them as computed "
+                f"numbers and say plainly that it could not be plotted. Do not "
+                f"claim it was drawn. Renderable today: "
+                f"{', '.join(sorted(_FE_RENDERABLE))}.")
+    if any(v is None for v in res["last"].values()):
+        out["_null_note"] = (
+            "A null line is not an error: it means that line has no value at "
+            "the latest bar. Supertrend, for instance, shows only the band on "
+            "the active side. Say which side is active rather than reporting "
+            "both, and never fill a null with the last value it held.")
+    out["_note"] = (
+        "Quote spec.formula when the user asks what an indicator means or how "
+        "it was computed — it is the exact definition used, including the "
+        "smoothing, and conventions differ between platforms. Wilder smoothing "
+        "(RSI, ATR, ADX) is k = 1/n and is NOT an EMA. Bollinger uses "
+        "population standard deviation. Bounded oscillators carry spec.bounds; "
+        "reading an RSI of 40 as 'oversold' when the conventional line is 30 is "
+        "the kind of thing the bounds are there to prevent. These are "
+        "descriptive measurements — never present a level crossing as a signal "
+        "to act on.")
+    return out
 
 
 TOOLS = [
@@ -2287,11 +2389,29 @@ TOOLS = [
          "limit": {"type": "integer", "description": "max 80, default 40"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_indicator",
-     "description": "Compute an indicator not shown on the chart (sma, ema, rsi, atr, macd) at any period/interval. Set draw=true to add it to the chart.",
+     "description": (
+         "Compute any indicator at any period, interval and price source, and optionally add it to the chart. "
+         "Trend: sma, ema, wma, hma, dema, supertrend, psar, adx (with +DI/-DI), aroon. "
+         "Momentum: rsi, macd, stoch, stochrsi, cci, williams_r, roc. "
+         "Volatility: bbands (with percent_b and bandwidth), keltner, donchian, atr. "
+         "Volume: vwap, anchored_vwap, obv, ad, cmf, mfi. "
+         "Use this rather than pulling bars and doing the arithmetic yourself — the result carries the exact "
+         "formula and smoothing used, which differ between platforms. Reach for adx when the question is whether "
+         "price is TRENDING or just ranging, bbands bandwidth for volatility compression, and the volume family "
+         "when asked whether volume confirms a move."),
      "parameters": {"type": "object", "properties": {
-         "name": {"type": "string", "enum": ["sma", "ema", "rsi", "atr", "macd"]},
+         "name": {"type": "string",
+                  "enum": ["sma", "ema", "wma", "hma", "dema", "bbands", "keltner", "donchian",
+                           "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
+                           "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
+                           "obv", "ad", "cmf", "mfi", "aroon"]},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
-         "period": {"type": "integer"},
+         "period": {"type": "integer", "description": "omit for the indicator's conventional default"},
+         "source": {"type": "string", "enum": ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"],
+                    "description": "price column, default close"},
+         "mult": {"type": "number", "description": "band width multiplier for bbands / keltner / supertrend"},
+         "anchor_time": {"type": "string", "description": "for anchored_vwap: the bar to anchor at, in the chart's format e.g. '11 Jun 2026'"},
+         "series_points": {"type": "integer", "description": "return the last N points of the series too (max 60) — use it to see a cross or a turn, not just the current value"},
          "draw": {"type": "boolean", "description": "add it to the user's chart"}},
          "required": ["name", "interval"]}},
 ]
@@ -2688,6 +2808,42 @@ class Handler(BaseHTTPRequestHandler):
                 to = int(q["to"]) if q.get("to") else None
                 limit = min(int(q.get("limit", 3000)), 20000)
                 return self._send(200, get_bars(symbol, interval, to, limit))
+            if u.path == "/indicators":
+                # the catalogue the chart builds its menu from — one list, so
+                # the menu and the model can never disagree about what exists
+                return self._send(200, {"indicators": [
+                    {"name": k, "period": v["period"], "pane": v["pane"],
+                     "group": v["group"], "formula": v["formula"],
+                     "lines": _INDICATOR_LINES.get(k, ["value"]),
+                     **({"bounds": list(v["bounds"])} if "bounds" in v else {})}
+                    for k, v in sorted(indicators.SPECS.items())]})
+            if u.path == "/indicator":
+                name = q.get("name", "")
+                if name not in indicators.SPECS:
+                    return self._send(400, {"error": f"unknown indicator {name}"})
+                interval = q.get("interval", "1d")
+                limit = min(int(q.get("limit", 3000)), 20000)
+                rows = _rows(interval, limit)
+                if not rows:
+                    return self._send(400, {"error": "no bars"})
+                extra = {}
+                if q.get("mult"):
+                    extra["mult"] = float(q["mult"])
+                if q.get("anchor_index"):
+                    extra["anchor_index"] = int(q["anchor_index"])
+                try:
+                    res = indicators.compute(name, rows, int(q.get("period", 0)),
+                                             q.get("source", "close"), **extra)
+                except ValueError as exc:
+                    return self._send(400, {"error": str(exc)})
+                # emitted as {time, value} pairs, nulls dropped — the chart
+                # series API wants gaps absent rather than null-valued
+                return self._send(200, {
+                    "name": name, "spec": res["spec"],
+                    "lines": {ln: [{"time": rows[i][0], "value": round(v, 6)}
+                                   for i, v in enumerate(series) if v is not None]
+                              for ln, series in res["lines"].items()},
+                })
             if u.path == "/meta":
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",
