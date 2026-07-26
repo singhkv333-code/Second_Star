@@ -46,7 +46,28 @@ const Scene = (() => {
     }
     /** Detector times are raw unix; the chart runs on IST-shifted times, and
      *  a level found on the daily won't land on a 5m bar boundary — so fall
-     *  back to interpolating a logical index. */
+     *  back to interpolating a logical index.
+     *
+     *  A time OUTSIDE the loaded bars extrapolates by the edge bar's own
+     *  spacing instead of clamping to the edge — clamping collapsed every
+     *  cross-interval drawing into a vertical smear at logical 0. The
+     *  extrapolation ignores closed-market gaps (it cannot know sessions it
+     *  has no bars for), so it places the shape approximately until
+     *  main.js's coverage loader brings in the real bars and it snaps. */
+    /** logicalToCoordinate for a FRACTIONAL logical. LWC v5 silently
+     *  returns 0 for any non-integer logical, which collapsed every
+     *  interpolated anchor — i.e. every cross-interval drawing — onto the
+     *  left edge. Project the two neighbouring integer logicals and
+     *  interpolate between them ourselves. */
+    function logicalToX(l) {
+      const ts = chart.timeScale();
+      const i = Math.floor(l), f = l - i;
+      const x0 = ts.logicalToCoordinate(i);
+      if (x0 === null) return null;
+      if (!f) return x0;
+      const x1 = ts.logicalToCoordinate(i + 1);
+      return x1 === null ? x0 : x0 + (x1 - x0) * f;
+    }
     function tToX(t) {
       const ts = chart.timeScale();
       const ct = env.toChartTime ? env.toChartTime(t) : t;
@@ -55,14 +76,24 @@ const Scene = (() => {
       const bars = env.getBars();
       if (!bars.length) return null;
       let lo = 0, hi = bars.length - 1;
-      if (ct <= bars[0].time) return ts.logicalToCoordinate(0);
-      if (ct >= bars[hi].time) return ts.logicalToCoordinate(hi);
+      if (ct <= bars[0].time) {
+        const span = bars.length > 1
+          ? Math.max(1, bars[1].time - bars[0].time)
+          : (env.getIntervalSec ? env.getIntervalSec() : 60);
+        return logicalToX(Math.max(-1e5, (ct - bars[0].time) / span));
+      }
+      if (ct >= bars[hi].time) {
+        const span = hi > 0
+          ? Math.max(1, bars[hi].time - bars[hi - 1].time)
+          : (env.getIntervalSec ? env.getIntervalSec() : 60);
+        return logicalToX(Math.min(hi + 1e5, hi + (ct - bars[hi].time) / span));
+      }
       while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
         if (bars[mid].time <= ct) lo = mid; else hi = mid;
       }
       const span = bars[hi].time - bars[lo].time || 1;
-      return ts.logicalToCoordinate(lo + (ct - bars[lo].time) / span);
+      return logicalToX(lo + (ct - bars[lo].time) / span);
     }
 
     const mine = (a, key) => (a.pane || "price") === (key || "price");

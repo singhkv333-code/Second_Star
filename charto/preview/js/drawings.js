@@ -79,13 +79,26 @@ const Drawings = (() => {
 
     // ── coordinates ─────────────────────────────────────
     const ts = () => chart.timeScale();
+    /** LWC v5's logicalToCoordinate silently returns 0 for any FRACTIONAL
+     *  logical — which is what every one of the calls below passes — so
+     *  project the neighbouring integers and interpolate ourselves. Same
+     *  fix as Scene.logicalToX; a drawing and a detector mark must not
+     *  disagree about where a time lands. */
+    function logicalToX(l) {
+      const i = Math.floor(l), f = l - i;
+      const x0 = ts().logicalToCoordinate(i);
+      if (x0 === null) return null;
+      if (!f) return x0;
+      const x1 = ts().logicalToCoordinate(i + 1);
+      return x1 === null ? x0 : x0 + (x1 - x0) * f;
+    }
     function tToX(t) {
       const x = ts().timeToCoordinate(t);
       if (x !== null) return x;
       const bars = env.getBars(); if (!bars.length) return null;
       const iv = env.getIntervalSec(), last = bars.length - 1;
-      if (t > bars[last].time) return ts().logicalToCoordinate(last + (t - bars[last].time) / iv);
-      if (t < bars[0].time) return ts().logicalToCoordinate((t - bars[0].time) / iv);
+      if (t > bars[last].time) return logicalToX(last + (t - bars[last].time) / iv);
+      if (t < bars[0].time) return logicalToX((t - bars[0].time) / iv);
       // In range but not ON a bar: sessions are not uniformly spaced, so the
       // midpoint of two anchors usually falls in a weekend or an overnight
       // gap. Interpolate a fractional index — without this, every label
@@ -96,7 +109,7 @@ const Drawings = (() => {
         if (bars[m].time <= t) lo = m; else hi = m;
       }
       const span = bars[hi].time - bars[lo].time || 1;
-      return ts().logicalToCoordinate(lo + (t - bars[lo].time) / span);
+      return logicalToX(lo + (t - bars[lo].time) / span);
     }
     function xToTime(x) {
       const bars = env.getBars(); if (!bars.length) return null;

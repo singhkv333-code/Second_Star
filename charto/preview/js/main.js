@@ -106,37 +106,75 @@
       el("barsLine").textContent = `${bars.length.toLocaleString()} × ${interval}`;
       status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ₹${lastBar.close}`);
       setOverlay(false);
+      // drawings live in time, not in any one interval — make sure the new
+      // interval's data actually reaches back to what is on the chart
+      coverScene();
     } catch (e) {
       setOverlay(true, String(e.message || e), true);
     }
+  }
+
+  /** Prepend one older page; returns how many bars arrived. Shared by the
+   *  scroll handler and the scene coverage loader so the two can never
+   *  disagree about paging state. */
+  async function loadOlderPage() {
+    if (state.loadingOlder || !state.hasMore || !state.bars.length) return 0;
+    state.loadingOlder = true;
+    try {
+      const earliestRaw = state.bars[0].time - IST;
+      const { bars: older, hasMore } = await fetchBars(state.interval, earliestRaw, PAGE[state.interval]);
+      if (!older.length) { state.hasMore = false; return 0; }
+      const keep = chart.timeScale().getVisibleLogicalRange();
+      state.bars = older.concat(state.bars);
+      state.hasMore = hasMore;
+      paint();
+      if (keep) chart.timeScale().setVisibleLogicalRange({
+        from: keep.from + older.length, to: keep.to + older.length,
+      });
+      el("barsLine").textContent = `${state.bars.length.toLocaleString()} × ${state.interval}`;
+      return older.length;
+    } catch (e) {
+      status(`older-page error: ${e.message}`);
+      return 0;
+    } finally {
+      state.loadingOlder = false;
+    }
+  }
+
+  /** The earliest raw time any chat drawing is anchored to — Infinity when
+   *  nothing on the scene is time-anchored (levels and zones are not). */
+  function sceneEarliest() {
+    let t = Infinity;
+    for (const a of scene.state.items) {
+      const anchors = [].concat(a.pts || [], [a.p1, a.p2, a.a, a.b].filter(Boolean));
+      for (const p of anchors) if (p && p.t) t = Math.min(t, p.t);
+      if (a.t) t = Math.min(t, a.t);
+    }
+    return t;
+  }
+
+  /** After an interval switch the loaded window may not reach back to what
+   *  the chat drew — a daily pattern from April is outside 5m's first page —
+   *  and shapes projected outside the data are only approximately placed.
+   *  Page in real bars until the drawings are covered (bounded, so a
+   *  years-old anchor cannot trigger a fetch storm). */
+  async function coverScene() {
+    const need = sceneEarliest();
+    if (!isFinite(need)) return;
+    let guard = 0;
+    while (state.hasMore && state.bars.length
+           && state.bars[0].time - IST > need && guard++ < 6) {
+      if (!await loadOlderPage()) break;
+    }
+    scene.requestUpdate();
   }
 
   // infinite history: prepend an older page when the left edge approaches
   chart.timeScale().subscribeVisibleLogicalRangeChange(async (r) => {
     if (!r || state.loadingOlder || !state.hasMore || !state.bars.length) return;
     if (r.from > 80) return;
-    state.loadingOlder = true;
-    try {
-      const earliestRaw = state.bars[0].time - IST;
-      const { bars: older, hasMore } = await fetchBars(state.interval, earliestRaw, PAGE[state.interval]);
-      if (older.length) {
-        const keep = chart.timeScale().getVisibleLogicalRange();
-        state.bars = older.concat(state.bars);
-        state.hasMore = hasMore;
-        paint();
-        if (keep) chart.timeScale().setVisibleLogicalRange({
-          from: keep.from + older.length, to: keep.to + older.length,
-        });
-        el("barsLine").textContent = `${state.bars.length.toLocaleString()} × ${state.interval}`;
-        status(`loaded ${older.length} older bars (total ${state.bars.length})`);
-      } else {
-        state.hasMore = false;
-      }
-    } catch (e) {
-      status(`older-page error: ${e.message}`);
-    } finally {
-      state.loadingOlder = false;
-    }
+    const got = await loadOlderPage();
+    if (got) status(`loaded ${got} older bars (total ${state.bars.length})`);
   });
 
   // ── readout ───────────────────────────────────────────
@@ -644,6 +682,7 @@
     panes: panesList,
     paneAt: paneAtClient,
     yIn: yInPane,
+    getIntervalSec: () => IV_SEC[state.interval],
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     onChange: (n) => {
@@ -844,7 +883,12 @@
     renderChips();
 
     const levels = Store.get("scene", []);
-    if (levels.length) scene.apply(levels);
+    if (levels.length) {
+      scene.apply(levels);
+      // boot-time loadInterval ran before the scene was restored, so its
+      // coverage check saw an empty scene — run it again now
+      coverScene();
+    }
   })();
 
   // expose for debugging + the chat pane
