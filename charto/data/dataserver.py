@@ -161,7 +161,14 @@ def _rsi(v: list[float], n: int = 14) -> list[float | None]:
             ag += g / n; al += l / n
         else:
             ag = (ag * (n - 1) + g) / n; al = (al * (n - 1) + l) / n
-        out.append(100.0 if al == 0 else 100 - 100 / (1 + ag / al) if i >= n else None)
+        # the warmup guard has to come FIRST. Written as
+        #   100.0 if al == 0 else <value> if i >= n else None
+        # the all-zero-losses branch skipped the guard entirely, so an
+        # unbroken rise from the start of the window emitted RSI 100 for
+        # bars 1..n-1 — values the chart does not plot and nothing has yet
+        # earned. `_divergences` reads this series, so a phantom leg could
+        # be seeded from bars that are not really there.
+        out.append(None if i < n else (100.0 if al == 0 else 100 - 100 / (1 + ag / al)))
     return out
 
 
