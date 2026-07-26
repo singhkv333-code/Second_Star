@@ -72,6 +72,14 @@ def _scene_reset() -> None:
 
 
 def _scene_add(annotation: dict) -> None:
+    # Stamp WHICH tool put this on the chart. Pattern necklines are drawn as
+    # kind="level", so a later get_levels(draw_mode="replace") used to wipe
+    # them: the clear matched on kind and reached across tools. Clears now
+    # scope by owner, so narrowing your levels cannot silently erase a marked
+    # head and shoulders.
+    if "owner" not in annotation and annotation.get("kind") not in ("clear", "clear_levels"):
+        src = annotation.get("source") or {}
+        annotation["owner"] = src.get("tool", "scene")
     if not hasattr(_scene, "items"):
         _scene.items = []
     if not hasattr(_scene, "drawn"):
@@ -289,15 +297,7 @@ def _evidence(rows: list[tuple], hits: list[tuple], price: float,
     # Counts disclose their own sample size; a rate does not. State the
     # withholding as a FIELD rather than leaving the key absent: a missing
     # key is silence, and silence gets filled in with a computed percentage.
-    graded = held + broke
-    if graded >= 5:
-        ev["hold_rate"] = round(held / graded * 100)
-    else:
-        ev["hold_rate"] = None
-        ev["hold_rate_withheld"] = (
-            f"{graded} graded re-test{'s' if graded != 1 else ''} is too few "
-            f"for a percentage — say 'held {held} of {graded}' instead, even "
-            f"if asked for one number")
+    ev.update(_rate("hold_rate", held, broke, "graded re-test"))
     if react:
         ev["react_pct"] = round(_median(react), 2)
         ev["react_bars"] = int(_median(bars))
@@ -581,7 +581,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
     # to call this with draw=false, gets an empty patch, and cheerfully
     # narrates a wipe that never happened. No scan needed to erase.
     if mode == "clear":
-        _scene_add({"kind": "clear_levels"})
+        _scene_add({"kind": "clear_levels", "owner": "get_levels"})
         return {"cleared": True,
                 "_note": "Every drawn level has been removed from the user's "
                          "chart. Confirm in one line; do not list levels."}
@@ -616,7 +616,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
     # "replace" lets the conversation REDUCE the scene ("just keep the strong
     # one", "drop the far level") — without it the chart could only ever grow.
     if picked and mode == "replace":
-        _scene_add({"kind": "clear_levels"})
+        _scene_add({"kind": "clear_levels", "owner": "get_levels"})
     for x in picked:
         ev = x["evidence"]
         graded = ev["held"] + ev["broke"]
@@ -722,7 +722,7 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
                         side: str = "both") -> dict:
     mode = str(draw_mode or "add").lower()
     if mode == "clear":
-        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trendlines"})
         return {"cleared": True, "_note": "Trendlines removed from the chart."}
     lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
     rows = _rows(interval, lookback_bars)
@@ -759,7 +759,7 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
         picked = sorted(pool, key=lambda c: (-c["touches"], -c["span_bars"])
                         )[:max(1, min(int(max_draw or 2), 4))]
     if picked and mode == "replace":
-        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trendlines"})
     for x in picked:
         _scene_add({
             "kind": "segment", "id": x["id"], "pane": "price", "role": x["role"],
@@ -817,7 +817,7 @@ def tool_get_divergences(indicator: str = "rsi", interval: str = "5m",
         return {"error": f"divergence supports rsi and macd, not '{name}'"}
     mode = str(draw_mode or "add").lower()
     if mode == "clear":
-        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_divergences"})
         return {"cleared": True, "_note": "Divergence markings removed."}
     rows = _rows(interval, max(120, min(int(lookback_bars or 400), 1500)))
     if not rows:
@@ -847,7 +847,7 @@ def tool_get_divergences(indicator: str = "rsi", interval: str = "5m",
     elif draw:
         picked = found[:max(1, min(int(max_draw or 1), 3))]
     if picked and mode == "replace":
-        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_divergences"})
     for x in picked:
         rec = track.get(x["type"], {})
         note = (f"resolved {rec.get('resolved')}/{rec.get('instances')}"
@@ -1172,7 +1172,7 @@ def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
                   only_open: bool = False) -> dict:
     mode = str(draw_mode or "add").lower()
     if mode == "clear":
-        _scene_add({"kind": "clear", "scope": "zone"})
+        _scene_add({"kind": "clear", "scope": "zone", "owner": "get_gaps"})
         return {"cleared": True, "_note": "Gap zones removed from the chart."}
     rows = _rows(interval, max(120, min(int(lookback_bars or 400), 1500)))
     if not rows:
@@ -1195,7 +1195,7 @@ def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
     elif draw:
         picked = found[:max(1, min(int(max_draw or 3), 6))]
     if picked and mode == "replace":
-        _scene_add({"kind": "clear", "scope": "zone"})
+        _scene_add({"kind": "clear", "scope": "zone", "owner": "get_gaps"})
     for g in picked:
         # a gap IS a band — the same primitive a level-zone uses
         _scene_add({
@@ -1248,6 +1248,18 @@ def _rate(key: str, good: int, bad: int, unit: str, floor: int = 5) -> dict:
         return {key: round(good / graded * 100)}
     plural = unit if graded == 1 else (
         unit + "es" if unit.endswith(("s", "x", "ch", "sh")) else unit + "s")
+    # Zero is not a small sample, it is NO sample, and the two must not be
+    # phrased alike. Telling the model to say "held 0 of 0" produced replies
+    # reading as though the level had failed every test, when the truth is
+    # that nothing has ever tested it.
+    if graded == 0:
+        return {key: None,
+                key + "_withheld": (
+                    f"No {plural} at all — this has never been tested, so it has "
+                    f"no record either way. Say exactly that: 'never re-tested' "
+                    f"or 'no record yet'. Do NOT say '0 of 0', which reads as a "
+                    f"failure, and do not call it weak on this basis — untested "
+                    f"is not the same as unreliable.")}
     return {key: None,
             key + "_withheld": (
                 f"{graded} {plural} is too few for a percentage — say "
@@ -1939,8 +1951,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     """
     mode = str(draw_mode or "add").lower()
     if mode == "clear":
-        _scene_add({"kind": "clear", "scope": "segment"})
-        _scene_add({"kind": "clear_levels"})
+        _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
         return {"cleared": True, "_note": "Pattern marks removed from the chart."}
     rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
     if not rows:
@@ -1987,7 +1998,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     elif draw:
         picked = charts[:3]
     if picked and mode == "replace":
-        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_patterns"})
     for p in picked:
         if p.get("neckline") is not None:
             _scene_add({

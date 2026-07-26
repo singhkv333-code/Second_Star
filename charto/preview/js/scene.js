@@ -342,10 +342,18 @@ const Scene = (() => {
         for (const a of patch || []) {
           if (a.kind === "clear" || a.kind === "clear_levels") {
             const scope = a.kind === "clear_levels" ? "level" : (a.scope || "all");
-            state.items = state.items.filter((x) =>
-              scope === "all" ? false
+            // A clear may only remove what ITS OWN tool drew. Pattern
+            // necklines are kind="level", so a kind-only match let
+            // get_levels(replace) silently erase a marked head and shoulders.
+            // Untagged items (older scenes restored from storage) still match
+            // so a clear never becomes a no-op.
+            const owned = (x) => !a.owner || !x.owner || x.owner === a.owner;
+            state.items = state.items.filter((x) => {
+              if (!owned(x)) return true;
+              return scope === "all" ? false
                 : scope === "level" ? !(x.kind === "level" || x.kind === "zone")
-                  : x.kind !== scope);
+                  : x.kind !== scope;
+            });
             drew++; continue;
           }
           if (a.kind === "indicator") { env.onIndicator(a); drew++; continue; }
