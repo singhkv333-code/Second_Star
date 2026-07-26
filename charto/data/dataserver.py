@@ -27,6 +27,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import patterns   # sibling module: candlestick / chart-pattern / structure detectors
+
 DB_PATH = Path(__file__).parent / "charto_bars.db"
 PORT = 5174
 
@@ -1922,6 +1924,158 @@ def tool_evaluate_drawing(kind: str, points: list, interval: str = "1d",
     return res
 
 
+def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
+                      kinds: list | None = None, families: list | None = None,
+                      limit: int = 20, draw: bool = False,
+                      draw_ids: list | None = None, draw_mode: str = "add") -> dict:
+    """Named formations: candlesticks, chart patterns, market structure.
+
+    Two questions share one tool because they are the same scan: "what's on
+    this chart" is `kinds` omitted, "is there a head and shoulders" is `kinds`
+    set. The second case is why an empty result has to be LOUD — a specific
+    pattern that was looked for and not found is an answer, and returning a
+    bare empty list invites hedging instead of a plain no.
+    """
+    mode = str(draw_mode or "add").lower()
+    if mode == "clear":
+        _scene_add({"kind": "clear", "scope": "segment"})
+        _scene_add({"kind": "clear_levels"})
+        return {"cleared": True, "_note": "Pattern marks removed from the chart."}
+    rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    wt = interval not in ("1d", "1w", "1mo")
+    ist = lambda ts: _ist(ts, wt)  # noqa: E731
+
+    asked = {str(k).lower().strip() for k in (kinds or [])}
+    unknown = sorted(asked - set(patterns.ALL_KINDS))
+    if unknown:
+        return {"error": f"unknown pattern(s): {', '.join(unknown)}",
+                "available": {"candlestick": list(patterns.CANDLE_KINDS),
+                              "chart": list(patterns.CHART_KINDS),
+                              "structure": list(patterns.STRUCTURE_KINDS)},
+                "_note": "Nothing was scanned. Re-call with names from this list."}
+    fams = {str(f).lower() for f in (families or [])}
+    want_c = (not asked or asked & set(patterns.CANDLE_KINDS)) and \
+             (not fams or "candlestick" in fams)
+    want_p = (not asked or asked & set(patterns.CHART_KINDS)) and \
+             (not fams or "chart" in fams)
+    want_s = (not asked or asked & set(patterns.STRUCTURE_KINDS)) and \
+             (not fams or "structure" in fams)
+
+    tol = _tolerance(rows)
+    piv = _pivots(rows, 5)
+    atr_series = _atr(rows, 14)
+
+    cands = patterns.candlesticks(
+        rows, atr_series, ist, asked & set(patterns.CANDLE_KINDS) or None,
+        limit=max(10, limit)) if want_c else []
+    charts = patterns.chart_patterns(
+        rows, piv, tol, ist, asked & set(patterns.CHART_KINDS) or None,
+        limit=max(6, limit)) if want_p else []
+    struct = patterns.market_structure(rows, piv, ist) if want_s else None
+
+    # ── drawing: chart patterns have geometry worth marking
+    picked: list[dict] = []
+    missing: list[str] = []
+    by_id = {p["id"].upper(): p for p in charts}
+    if draw_ids:
+        wanted = {str(i).upper() for i in draw_ids}
+        picked = [by_id[i] for i in wanted if i in by_id]
+        missing = sorted(wanted - set(by_id))
+    elif draw:
+        picked = charts[:3]
+    if picked and mode == "replace":
+        _scene_add({"kind": "clear", "scope": "segment"})
+    for p in picked:
+        if p.get("neckline") is not None:
+            _scene_add({
+                "kind": "level", "id": p["id"], "price": p["neckline"],
+                "lo": p["neckline"] - tol / 2, "hi": p["neckline"] + tol / 2,
+                "pane": "price",
+                "role": "support" if p["direction"] == "bearish" else "resistance",
+                "strength": p.get("status", "unconfirmed"),
+                "label": f"{p['pattern'].replace('_', ' ')} · neckline "
+                         f"{p['neckline']:,.2f} · {p.get('status', '')}",
+                "source": {"tool": "get_patterns",
+                           "method": "swing-sequence template on shared ±5-bar pivots",
+                           "interval": interval, "bars_scanned": len(rows),
+                           "strength": p.get("status", "unconfirmed"),
+                           "first_touch": p["from"], "last_touch": p["to"]},
+            })
+        elif p.get("points", {}).get("upper_now") is not None:
+            _scene_add({
+                "kind": "zone", "id": p["id"],
+                "lo": p["points"]["lower_now"], "hi": p["points"]["upper_now"],
+                "price": (p["points"]["lower_now"] + p["points"]["upper_now"]) / 2,
+                "pane": "price", "role": "neutral", "strength": "user-directed",
+                "label": f"{p['pattern'].replace('_', ' ')} · width "
+                         f"{p.get('width_now', 0):,.2f}",
+                "source": {"tool": "get_patterns", "method": "fitted swing boundaries",
+                           "interval": interval, "bars_scanned": len(rows),
+                           "first_touch": p["from"], "last_touch": p["to"]},
+            })
+
+    res: dict = _not_found_note(missing, "pattern", interval, lookback_bars,
+                                list(by_id))
+    if want_c:
+        res["candlesticks"] = cands
+    if want_p:
+        res["chart_patterns"] = charts
+    if want_s and struct:
+        res["market_structure"] = struct
+    if picked:
+        res["drawn"] = [p["id"] for p in picked]
+        res["_drawn_note"] = _drawn_ledger()
+
+    # A specific ask that found nothing must come back as a plain NO.
+    if asked:
+        found = {c["pattern"] for c in cands} | {c["pattern"] for c in charts}
+        absent = sorted(asked - found - set(patterns.STRUCTURE_KINDS))
+        if absent:
+            res["not_present"] = absent
+            res["_not_present_note"] = (
+                f"Scanned {len(rows)} {interval} bars "
+                f"({ist(rows[0][0])} → {ist(rows[-1][0])}) and found no "
+                f"{', '.join(x.replace('_', ' ') for x in absent)}. Say that "
+                f"plainly — 'there isn't one here' is the answer, not a reason "
+                f"to hedge or to offer a loosely similar shape as if it "
+                f"qualified. Name the window you scanned.")
+
+    res["provenance"] = {
+        "interval": interval, "bars_scanned": len(rows),
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "tolerance": round(tol, 2),
+        "candlestick_thresholds": {
+            "doji_body_max_pct_of_range": patterns._DOJI_BODY * 100,
+            "long_body_x_rolling_avg": patterns._LONG_BODY,
+            "small_body_x_rolling_avg": patterns._SMALL_BODY,
+            "hammer_wick_over_body": patterns._WICK_RATIO,
+            "rolling_avg_bars": 14,
+            "trend_context_bars": patterns._TREND_BARS,
+        },
+        "method": ("candlesticks from bar anatomy with the disclosed thresholds "
+                   "above; chart patterns from the same ±5-bar swing pivots every "
+                   "other detector uses, with an ATR-derived tolerance; structure "
+                   "labels from those swings directly"),
+    }
+    res["_note"] = (
+        "These are measurements, not signals. A detected pattern is a shape "
+        "that IS on the chart — say it is there and where — but nothing here "
+        "says it will work, and the reply must not imply a direction is likely. "
+        "'direction' is the textbook bias of the shape, not a forecast. "
+        "'measured' carries the numbers that qualified each candle: quote them "
+        "when the user asks why something counted. For chart patterns, "
+        "'status' matters more than the name — an unconfirmed head and "
+        "shoulders is a shape whose neckline has not broken, so do not "
+        "describe it as playing out. 'measured_move' is the textbook "
+        "projection of the pattern's own height; it is geometry, never a "
+        "target or a prediction, and must be labelled as such. Candlestick "
+        "patterns in particular fire often: prefer the recent ones, say how "
+        "many you found, and do not list twenty.")
+    return res
+
+
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
                   to: str | None = None, limit: int = 40) -> dict:
     limit = max(1, min(int(limit or 40), 80))
@@ -2097,6 +2251,21 @@ TOOLS = [
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
+    {"type": "function", "name": "get_patterns",
+     "description": "Detect named formations on the chart: 21 candlestick patterns (engulfing, hammer, doji, morning/evening star, three soldiers/crows, harami, piercing, tweezers, abandoned baby…), 11 chart patterns (head and shoulders and its inverse, double top/bottom, ascending/descending/symmetrical triangles, rising/falling wedges, bull/bear flags) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to mark chart patterns (necklines and boundaries).",
+     "parameters": {"type": "object", "properties": {
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
+         "kinds": {"type": "array", "items": {"type": "string"},
+                   "description": "specific pattern names to look for, e.g. ['head_and_shoulders'] or ['bullish_engulfing','hammer']. Omit for a full sweep. An unknown name comes back with the full list rather than scanning."},
+         "families": {"type": "array", "items": {"type": "string", "enum": ["candlestick", "chart", "structure"]},
+                      "description": "restrict to whole families instead of naming patterns"},
+         "limit": {"type": "integer", "description": "max instances per family, default 20"},
+         "draw": {"type": "boolean", "description": "mark the top chart patterns"},
+         "draw_ids": {"type": "array", "items": {"type": "string"},
+                      "description": "ids from the chart_patterns list, to mark exactly those"},
+         "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "evaluate_drawing",
      "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
      "parameters": {"type": "object", "properties": {
@@ -2136,7 +2305,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "draw_shape": tool_draw_shape,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
-             "evaluate_drawing": tool_evaluate_drawing}
+             "evaluate_drawing": tool_evaluate_drawing,
+             "get_patterns": tool_get_patterns}
 
 
 def run_tool(name: str, args: dict) -> dict:
