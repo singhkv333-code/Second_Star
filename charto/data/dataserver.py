@@ -2777,6 +2777,88 @@ def _session_anatomy(prev_close: float, mins: list[tuple]) -> dict:
     return out
 
 
+# ── flows: who acted — delivery %, futures OI, bulk/block deals ────────────
+# Price alone cannot say whether a fall was real owners exiting or intraday
+# churn, fresh bearish bets or longs surrendering. These tables (synced by
+# sync_flows.py from exchange-published data) carry exactly that, and the
+# quadrant names below are the market's standard vocabulary for a piece of
+# sign arithmetic — a classification, never a forecast.
+
+_QUADRANT = {(1, 1): "long buildup", (-1, 1): "short buildup",
+             (-1, -1): "long unwinding", (1, -1): "short covering"}
+
+
+def _flows_have() -> bool:
+    try:
+        return bool(_con.execute(
+            "SELECT 1 FROM delivery WHERE symbol='RELIANCE' LIMIT 1").fetchone())
+    except sqlite3.Error:
+        return False
+
+
+def _deliv_history(before_iso: str, n: int = 500) -> list[float]:
+    try:
+        return [r[0] for r in _con.execute(
+            "SELECT deliv_per FROM delivery WHERE symbol='RELIANCE' AND d<? "
+            "AND deliv_per IS NOT NULL ORDER BY d DESC LIMIT ?",
+            (before_iso, n))]
+    except sqlite3.Error:
+        return []
+
+
+def _flows_sessions(d0_iso: str, d1_iso: str, closes_by_day: dict) -> list[dict]:
+    """Per-session flows facts for a window: delivery (with the percentile
+    against this stock's own trailing history) and the OI quadrant."""
+    out: dict[str, dict] = {}
+    try:
+        for d, per, dq, q in _con.execute(
+                "SELECT d, deliv_per, deliv_qty, qty FROM delivery "
+                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
+                (d0_iso, d1_iso)):
+            s = out.setdefault(d, {"date": d})
+            if per is not None:
+                s["delivery_pct"] = round(per, 2)
+                hist = _deliv_history(d)
+                if len(hist) >= 100:
+                    s["delivery_pctile_own_history"] = round(
+                        sum(1 for x in hist if x <= per) / len(hist) * 100)
+                else:
+                    s["delivery_pctile_withheld"] = (
+                        f"only {len(hist)} prior sessions — too few to rank")
+        for d, oi, chg in _con.execute(
+                "SELECT d, SUM(oi), SUM(oi_chg) FROM fut_oi "
+                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? GROUP BY d "
+                "ORDER BY d", (d0_iso, d1_iso)):
+            s = out.setdefault(d, {"date": d})
+            s["futures_oi"] = oi
+            s["oi_change"] = chg
+            pc = closes_by_day.get(d)
+            if pc is not None and chg:
+                s["oi_quadrant"] = _QUADRANT.get(
+                    (1 if pc >= 0 else -1, 1 if chg > 0 else -1))
+    except sqlite3.Error:
+        return []
+    return [out[k] for k in sorted(out)]
+
+
+def _flows_deals(d0_iso: str, d1_iso: str) -> list[dict]:
+    try:
+        return [{"date": d, "type": k, "client": c, "side": s,
+                 "qty": q, "price": p}
+                for d, k, c, s, q, p in _con.execute(
+                    "SELECT d, kind, client, side, qty, price FROM deals "
+                    "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
+                    (d0_iso, d1_iso))]
+    except sqlite3.Error:
+        return []
+
+
+def _day_change_signs(rows: list[tuple], i0: int, i1: int) -> dict:
+    """ISO day -> that session's close-on-close change sign source."""
+    return {_iso_day(rows[i][0]): (rows[i][4] / rows[i - 1][4] - 1)
+            for i in range(max(1, i0), i1 + 1)}
+
+
 def tool_explain_move(frm: str = "", to: str = "") -> dict:
     """Everything local that bears on "why did it move" over a date window.
 
@@ -2951,6 +3033,28 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
         "nearest_above": nearest.get("above"),
     }
 
+    # ── flows: who acted — delivery, OI positioning, deals ──
+    if _flows_have():
+        signs = _day_change_signs(rows, i0, i1)
+        fl: dict = {}
+        sess_flows = _flows_sessions(_iso_day(rows[i0][0]),
+                                     _iso_day(rows[i1][0]), signs)
+        if sess_flows:
+            fl["sessions"] = sess_flows[:10]
+        deals = _flows_deals(_iso_day(rows[i0][0]), _iso_day(rows[i1][0]))
+        fl["deals_in_window"] = deals[:6] if deals else (
+            "none — no bulk or block deal was printed in this window")
+        fl["_read"] = (
+            "Delivery % is the share of traded quantity that changed OWNERSHIP "
+            "(vs intraday churn); its percentile is against this stock's own "
+            "trailing sessions. The OI quadrant is sign arithmetic on price "
+            "and futures open interest — standard names, not forecasts.")
+        out["flows"] = fl
+    else:
+        out["flows"] = {"withheld": "flows tables not synced — delivery, OI "
+                        "and deals unavailable; do not infer who was buying "
+                        "or selling"}
+
     # ── patterns whose story ends in (or right at) the window ──
     thru = rows[max(0, i1 - 300):i1 + 1]
     pats = []
@@ -3020,6 +3124,66 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
           "once for dated events; behavioural readings (who was likely "
           "buying/selling) must name the observed fact they rest on and be "
           "stated as inference, not fact.")
+    return out
+
+
+def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> dict:
+    """Ownership and positioning series on their own — delivery %, futures
+    OI with quadrant, bulk/block deals — for direct questions that are not
+    about explaining one move ("how has delivery trended", "any block deals
+    this month", "are shorts building up")."""
+    if not _flows_have():
+        return {"error": "flows tables not synced",
+                "_note": "Say delivery/OI/deal data is unavailable — do not "
+                         "infer ownership or positioning from price."}
+    rows = _rows("1d", 5000)
+    if not rows:
+        return {"error": "no daily bars"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else None
+    if (frm and t0 is None) or (to and t1 is None):
+        return {"error": "could not read the date(s)",
+                "hint": "chart format, e.g. '01 Jul 2026'"}
+    if t0 is None:
+        n = max(2, min(int(lookback_sessions or 10), 60))
+        i0, i1 = max(1, len(rows) - n), len(rows) - 1
+    else:
+        if t1 is None:
+            t1 = t0
+        if t1 < t0:
+            t0, t1 = t1, t0
+        i0 = next((i for i, r in enumerate(rows) if r[0] >= t0), None)
+        i1 = next((i for i in range(len(rows) - 1, -1, -1)
+                   if rows[i][0] < t1 + 86400), None)
+        if i0 is None or i1 is None or i0 > i1:
+            return {"error": "no sessions inside that window"}
+        i0 = max(1, i0)
+        if i1 - i0 > 60:
+            i0 = i1 - 60   # cap the listed span at 60 sessions, newest kept
+    d0, d1 = _iso_day(rows[i0][0]), _iso_day(rows[i1][0])
+    signs = _day_change_signs(rows, i0, i1)
+    sess = _flows_sessions(d0, d1, signs)
+    deals = _flows_deals(d0, d1)
+    out = {"window": {"from": _ist(rows[i0][0], False),
+                      "to": _ist(rows[i1][0], False),
+                      "sessions": i1 - i0 + 1},
+           "sessions": sess[-30:],
+           "deals": deals[:12] or "none printed in this window"}
+    if len(sess) > 30:
+        out["sessions_omitted"] = f"{len(sess) - 30} earlier sessions omitted"
+    pers = [s["delivery_pct"] for s in sess if "delivery_pct" in s]
+    if pers:
+        out["window_delivery"] = {"avg_pct": round(sum(pers) / len(pers), 2),
+                                  "max_pct": max(pers), "min_pct": min(pers)}
+    ois = [s for s in sess if s.get("oi_change") is not None]
+    if ois:
+        out["window_oi_change"] = sum(s["oi_change"] for s in ois)
+    out["_note"] = (
+        "Delivery % = share of traded quantity that changed ownership; its "
+        "percentile is against this stock's own history. OI quadrant names "
+        "are sign arithmetic on price and open interest — classifications, "
+        "never forecasts, and none of this is a buy/sell signal. Quote "
+        "quantities only from here.")
     return out
 
 
@@ -3529,10 +3693,17 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
 
 TOOLS = [
     {"type": "function", "name": "explain_move",
-     "description": "The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
+     "description": "The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), WHO ACTED (delivery % with own-history percentile, futures OI quadrant, bulk/block deals in the window), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
      "parameters": {"type": "object", "properties": {
          "frm": {"type": "string", "description": "first session of the move, chart format e.g. '21 Jul 2026'; omit both dates for the latest session"},
          "to": {"type": "string", "description": "last session of the move; omit for a single day"}},
+      "required": []}},
+    {"type": "function", "name": "get_flows",
+     "description": "Ownership and positioning series on their own: daily delivery % (share of traded quantity that actually changed hands, with its percentile vs this stock's own history), futures open interest with the standard quadrant read (long/short buildup, unwinding, covering), and bulk/block deals with client names. Use for direct questions like 'is the selling delivery-backed', 'are shorts building up', 'any big deals lately', 'how has delivery trended' — for explaining one specific move, explain_move already includes this.",
+     "parameters": {"type": "object", "properties": {
+         "frm": {"type": "string", "description": "window start, chart format e.g. '01 Jul 2026'"},
+         "to": {"type": "string", "description": "window end; omit for one day"},
+         "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "search_news",
      "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search per turn. Returns events with dates and sources, never numbers.",
@@ -3753,7 +3924,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_results": tool_get_results,
              "evaluate_results": tool_evaluate_results,
              "explain_move": tool_explain_move,
-             "search_news": tool_search_news}
+             "search_news": tool_search_news,
+             "get_flows": tool_get_flows}
 
 
 def run_tool(name: str, args: dict) -> dict:
