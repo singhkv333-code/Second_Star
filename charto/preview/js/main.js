@@ -871,9 +871,63 @@
     prov.classList.add("open");
   }
 
+  /** The card for one of the USER's own drawings. Selecting a shape opens
+   *  it; only its "Ask in chat" button attaches the drawing to the message,
+   *  so selecting to drag or edit never silently tags anything. */
+  let provDraw = null;
+  function showDrawingCard(d, y) {
+    provDraw = d;
+    provFor = d.id;
+    const T = (t) => fmtIST(t + IST, !DAILY.has(state.interval));
+    const num = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+    const g = draw.geometryOf(d.id) || { pts: [] };
+    const unit = d.pane && d.pane !== "price"
+      ? ((ind.CATALOG.find((c) => c.id === d.pane) || {}).label || d.pane) : "";
+    const rows = g.pts.slice(0, 3).map((p, i) =>
+      `<dt>${["From", "To", "Third"][i] || "Point"}</dt>` +
+      `<dd>${T(p.t)} @ ${num(p.v)}</dd>`).join("");
+    prov.innerHTML = `
+      <header>
+        <span class="role draw-ref">${d.ref}</span>
+        <span class="price">${d.label}</span>
+        <button class="btn icon" data-act="close" title="Close">${Icons.svg("x", "xs")}</button>
+      </header>
+      <dl>
+        ${unit ? `<dt>Pane</dt><dd>${unit} — values are that indicator's units</dd>` : ""}
+        ${rows}
+        ${g.pts.length > 3 ? `<dt>Points</dt><dd>${g.pts.length} anchors</dd>` : ""}
+      </dl>
+      <footer>
+        <button class="btn outline" data-act="ask-draw">${Icons.svg("chat", "xs")}Ask in chat</button>
+        <button class="btn" data-act="del-draw">${Icons.svg("eraser", "xs")}Remove</button>
+      </footer>`;
+    const top = Math.max(8, Math.min((y ?? 120) - 20, stageEl.clientHeight - 320));
+    prov.style.top = `${top}px`;
+    prov.classList.add("open");
+  }
+  document.addEventListener("charto:draw-select", (e) => {
+    if (!e.detail) return hideProvenance();
+    // finishing a drawing selects it, but popping its card mid-flow
+    // interrupts someone laying out several shapes in a row
+    if (e.detail.via === "create") return;
+    showDrawingCard(e.detail, lastUpAt[1] - stageEl.getBoundingClientRect().top);
+  });
+
   prov.addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (!act) return;
+    if (act === "ask-draw" && provDraw) {
+      // THIS is the moment the drawing joins the conversation — an explicit
+      // ask, not a side effect of having clicked the shape
+      document.dispatchEvent(new CustomEvent("charto:draw-tag", { detail: provDraw }));
+      provDraw = null;
+      return hideProvenance();
+    }
+    if (act === "del-draw" && provDraw) {
+      draw.remove(provDraw.id);
+      provDraw = null;
+      return hideProvenance();
+    }
     const a = scene.state.items.find((x) => x.id === provFor);
     if (act === "ask" && a) {
       const t = (a.source || {}).tool;

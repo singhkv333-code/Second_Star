@@ -63,11 +63,11 @@ const Drawings = (() => {
     /** Announce which drawing is selected. The chat listens and offers to
      *  tag it, so "is this any good?" carries a ref instead of leaving the
      *  model to guess which shape "this" meant. */
-    function emitSelect() {
+    function emitSelect(via) {
       const d = state.drawings.find((q) => q.id === state.selId) || null;
       document.dispatchEvent(new CustomEvent("charto:draw-select", {
         detail: d && {
-          id: d.id, ref: d.ref, type: d.type, pane: d.pane,
+          id: d.id, ref: d.ref, type: d.type, pane: d.pane, via: via || "click",
           label: Tools.SPECS[d.type] ? Tools.SPECS[d.type].label : d.type,
         },
       }));
@@ -425,7 +425,7 @@ const Drawings = (() => {
       state.drawings.push(d);
       state.selId = d.id;
       save(); logUse(d.type);
-      emitSelect();
+      emitSelect("create");
       env.setStatus(`${spec.label.toLowerCase()} added (${state.drawings.length})`);
       _ru();
       env.onToolDone();
@@ -454,6 +454,17 @@ const Drawings = (() => {
         _ru();
       },
       toggleMagnet() { state.magnet = !state.magnet; return state.magnet; },
+      /** Delete one drawing by id — the same path the Delete key takes, so
+       *  the card's Remove button cannot drift from the keyboard's. */
+      remove(id) {
+        const before = state.drawings.length;
+        state.drawings = state.drawings.filter((d) => d.id !== id);
+        if (state.drawings.length === before) return false;
+        if (state.selId === id) state.selId = null;
+        save(); _ru(); emitSelect();
+        env.setStatus("drawing deleted");
+        return true;
+      },
       clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
       count: () => state.drawings.length,
       syncPanes,

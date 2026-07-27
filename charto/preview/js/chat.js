@@ -59,7 +59,12 @@
       + `<span class="x" data-untag="1" title="Don't ask about this">`
       + `${Icons.svg("x", "xs")}</span></span>`;
   }
-  document.addEventListener("charto:draw-select", (e) => setDrawTag(e.detail));
+  // Only an explicit "Ask in chat" on the drawing's card tags it — selecting
+  // a shape to drag or edit must never attach it to the conversation.
+  document.addEventListener("charto:draw-tag", (e) => {
+    setDrawTag(e.detail);
+    input.focus();
+  });
   el("drawTagRow").addEventListener("click", (e) => {
     if (e.target.closest("[data-untag]")) setDrawTag(null);
   });
