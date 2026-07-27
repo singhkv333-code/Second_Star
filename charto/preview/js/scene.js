@@ -18,6 +18,9 @@
 "use strict";
 
 const Scene = (() => {
+  // per-module alias, like every other module here — a file that uses the
+  // library without re-declaring this throws "LWC is not defined"
+  const LWC = window.LightweightCharts;
   // Never the candle colours: red and green already mean "closed down / up"
   // on every bar, so a red resistance line reads as a price move rather than
   // as structure. Amber above, cyan below, violet for anything else.
@@ -34,6 +37,33 @@ const Scene = (() => {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
     //        onChange, onHover, onSelect, onIndicator, isCursorMode }
     const state = { items: [], hover: null };
+    // Event icons (results, and anything else that happens ON a bar) use the
+    // library's own marker layer rather than our canvas: markers belong to
+    // the series, so they track the bar through zoom, pan and interval
+    // changes without any projection of ours.
+    let markerApi = null;
+    function syncMarkers() {
+      const evs = [];
+      for (const a of state.items) {
+        if (a.kind !== "markers") continue;
+        for (const m of a.marks || []) {
+          evs.push({
+            time: env.toChartTime ? env.toChartTime(m.t) : m.t,
+            position: m.position || "aboveBar",
+            shape: m.shape || "circle",
+            color: m.color || COL(a.role),
+            text: m.text || "",
+          });
+        }
+      }
+      evs.sort((x, y) => x.time - y.time);   // the API requires ascending time
+      if (!markerApi) {
+        if (!evs.length) return;             // don't create the layer for nothing
+        markerApi = LWC.createSeriesMarkers(candle, evs);
+      } else {
+        markerApi.setMarkers(evs);
+      }
+    }
     const rus = new Map();                 // paneKey -> requestUpdate
     const _ru = () => { for (const f of rus.values()) f(); };
     const attached = new Map();            // paneKey -> {pane, prim}
@@ -369,7 +399,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers"]);
 
     return {
       state,
@@ -410,7 +440,8 @@ const Scene = (() => {
               if (!owned(x)) return true;
               return scope === "all" ? false
                 : scope === "level" ? !(x.kind === "level" || x.kind === "zone")
-                  : x.kind !== scope;
+                  : scope === "markers" ? x.kind !== "markers"
+                    : x.kind !== scope;
             });
             drew++; continue;
           }
@@ -420,10 +451,10 @@ const Scene = (() => {
           if (i >= 0) state.items[i] = a; else state.items.push(a);
           drew++;
         }
-        if (drew) { _ru(); env.onChange(count()); }
+        if (drew) { syncMarkers(); _ru(); env.onChange(count()); }
         return drew;
       },
-      clear() { state.items = []; _ru(); env.onChange(0); },
+      clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },
       count,
       requestUpdate: () => _ru(),
     };

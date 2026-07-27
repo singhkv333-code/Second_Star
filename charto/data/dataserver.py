@@ -2409,6 +2409,231 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
     return res
 
 
+# ── quarterly results ─────────────────────────────────────────────
+# One event per quarter, synced from the filings table by sync_results.py.
+# `trade_date` is the first session that could react: it already rolls
+# forward for after-market filings, so nothing here re-derives it.
+def _results(limit: int = 200) -> list[dict]:
+    # single-symbol sandbox, same constant _rows uses; the table is keyed by
+    # symbol so this widens without a schema change
+    try:
+        rows = _con.execute(
+            "SELECT quarter, period_end, trade_date, broadcast_at, "
+            "after_market, filings FROM results WHERE symbol=? "
+            "ORDER BY trade_date DESC LIMIT ?", ("RELIANCE", limit)).fetchall()
+    except sqlite3.Error:
+        return []
+    return [{"quarter": q, "period_end": pe, "trade_date": td,
+             "broadcast_at": ba, "after_market": bool(am), "filings": f}
+            for q, pe, td, ba, am, f in rows]
+
+
+_RESULT_SNAP_DAYS = 7      # weekend + a holiday cluster, never more
+
+
+def _result_bar_index(rows: list[tuple], iso_date: str) -> int | None:
+    """Index of the first bar ON OR AFTER that date — a result landing on a
+    holiday reacts at the next session, not at the previous one.
+
+    The roll-forward is BOUNDED. Without a bound, a date before the loaded
+    window matched bar 0, which silently stamped the window's first bar as
+    that quarter's results day: an event placed on a bar that has nothing to
+    do with it, reported as if it were located. A date that cannot be placed
+    must come back as None so the caller can say so.
+    """
+    t = _parse_ist(iso_date)
+    if t is None or not rows or t < rows[0][0]:
+        return None
+    for i, r in enumerate(rows):
+        if r[0] >= t:
+            return i if r[0] - t <= _RESULT_SNAP_DAYS * 86400 else None
+    return None
+
+
+def tool_get_results(limit: int = 8, interval: str = "1d",
+                     draw: bool = False, draw_mode: str = "add") -> dict:
+    """Quarterly result dates, and optionally mark them on the chart.
+
+    Answers "when were the last results", "when did Q1 report", "mark
+    earnings on the chart". The date is the session the market could first
+    react to the filing, which for an after-market announcement is the
+    NEXT day — that distinction is the whole point of the field.
+    """
+    mode = str(draw_mode or "add").lower()
+    if mode == "clear":
+        _scene_add({"kind": "clear", "scope": "markers", "owner": "get_results"})
+        return {"cleared": True, "_note": "Result markers removed."}
+    ev = _results()
+    if not ev:
+        return {"error": "no result dates stored",
+                "_note": ("The results table is empty — say the data is not "
+                          "loaded rather than estimating dates from memory.")}
+    n = max(1, min(int(limit or 8), 40))
+    recent = ev[:n]
+    rows = _rows(interval, 2000)
+    first_bar = _ist(rows[0][0], False) if rows else None
+
+    out: dict = {
+        "results": [{"quarter": e["quarter"], "reported_for_period_ending": e["period_end"],
+                     "market_reacted": e["trade_date"],
+                     "after_market_announcement": e["after_market"]}
+                    for e in recent],
+        "stored": {"events": len(ev), "from": ev[-1]["trade_date"],
+                   "to": ev[0]["trade_date"]},
+    }
+    # how long after a quarter ends results typically land — a measured
+    # spacing, offered instead of a guessed future date
+    lags = []
+    for e in ev:
+        a, b = _parse_ist(e["period_end"]), _parse_ist(e["trade_date"])
+        if a and b:
+            lags.append(round((b - a) / 86400))
+    if lags:
+        lags.sort()
+        out["typical_lag_days"] = {
+            "median": lags[len(lags) // 2], "min": lags[0], "max": lags[-1],
+            "what": "days from quarter end to the reacting session"}
+    out["_no_future_note"] = (
+        "These are announcements that have already happened; there is no "
+        "scheduled future date here. If asked when the next results are, say "
+        "that plainly and offer the typical lag from quarter end — never "
+        "state a future date as if it were confirmed.")
+
+    if draw:
+        if mode == "replace":
+            _scene_add({"kind": "clear", "scope": "markers", "owner": "get_results"})
+        marks, skipped = [], []
+        for e in recent:
+            i = _result_bar_index(rows, e["trade_date"]) if rows else None
+            if i is None:
+                skipped.append(e["quarter"])
+                continue
+            marks.append({"t": rows[i][0], "text": e["quarter"],
+                          "up": rows[i][4] >= rows[i][1]})
+        if marks:
+            _scene_add({"kind": "markers", "id": "RESULTS", "pane": "price",
+                        "role": "neutral", "marks": marks,
+                        "source": {"tool": "get_results",
+                                   "method": "first session able to react to the filing",
+                                   "interval": interval, "bars_scanned": len(rows),
+                                   "strength": "reported", "first_touch": marks[-1]["text"],
+                                   "last_touch": marks[0]["text"]}})
+            out["marked"] = len(marks)
+        if skipped:
+            out["not_marked"] = skipped
+            out["_not_marked_note"] = (
+                f"These quarters predate the loaded {interval} bars"
+                + (f" (which start {first_bar})" if first_bar else "")
+                + " and were NOT marked — name them rather than implying "
+                  "everything was placed.")
+    return out
+
+
+def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
+                          lookback_bars: int = 3000) -> dict:
+    """What price actually does around this company's results.
+
+    Reaction size, direction, run-up and drift — each against the
+    unconditional base rate over the same window, because a number like
+    "results move it 2%" means nothing until you know an ordinary day
+    moves it 1.4%. Absolute moves lead: results cause volatility far more
+    reliably than they cause a direction.
+    """
+    h = max(1, min(int(horizon_bars or 5), 30))
+    rows = _rows(interval, max(300, min(int(lookback_bars or 3000), 4000)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    ev = _results()
+    if not ev:
+        return {"error": "no result dates stored"}
+    n = len(rows)
+    closes = [r[4] for r in rows]
+    opens = [r[1] for r in rows]
+
+    studied, too_early, too_recent = [], 0, 0
+    for e in ev:
+        i = _result_bar_index(rows, e["trade_date"])
+        if i is None or i == 0:
+            too_early += 1
+            continue
+        if i + h >= n:
+            too_recent += 1
+            continue
+        prev_c = closes[i - 1]
+        studied.append({
+            "quarter": e["quarter"], "date": e["trade_date"],
+            "gap": (opens[i] - prev_c) / prev_c * 100,
+            "day": (closes[i] - prev_c) / prev_c * 100,
+            "intraday": (closes[i] - opens[i]) / opens[i] * 100,
+            "after": (closes[i + h] - closes[i]) / closes[i] * 100,
+            "runup": ((closes[i - 1] - closes[i - h - 1]) / closes[i - h - 1] * 100
+                      if i - h - 1 >= 0 else None),
+        })
+    res: dict = {"events_evaluated": len(studied),
+                 "outside_scanned_window": too_early, "too_recent": too_recent,
+                 "events_stored": len(ev),
+                 "horizon_bars": h, "interval": interval}
+    if not studied:
+        res["_note"] = ("No result date falls inside the loaded bars. Say the "
+                        "window does not cover any results rather than "
+                        "describing moves that were not measured.")
+        return res
+
+    # control: every ordinary session in the same window
+    base_day = [(closes[j] - closes[j - 1]) / closes[j - 1] * 100
+                for j in range(1, n)]
+    base_gap = [(opens[j] - closes[j - 1]) / closes[j - 1] * 100
+                for j in range(1, n)]
+    base_after = [(closes[j + h] - closes[j]) / closes[j] * 100
+                  for j in range(n - h)]
+    avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else None   # noqa: E731
+    aavg = lambda xs: round(sum(abs(x) for x in xs) / len(xs), 2) if xs else None  # noqa: E731
+
+    day = [s["day"] for s in studied]
+    gap = [s["gap"] for s in studied]
+    aft = [s["after"] for s in studied]
+    run = [s["runup"] for s in studied if s["runup"] is not None]
+    up = sum(1 for d in day if d > 0)
+
+    res["reaction_day"] = {
+        "avg_abs_move_pct": aavg(day), "avg_move_pct": avg(day),
+        "avg_abs_gap_pct": aavg(gap),
+        "biggest": max(studied, key=lambda s: abs(s["day"]))["quarter"],
+        "biggest_move_pct": round(max(day, key=abs), 2)}
+    res["control"] = {
+        "avg_abs_move_pct": aavg(base_day), "avg_move_pct": avg(base_day),
+        "avg_abs_gap_pct": aavg(base_gap),
+        "avg_move_pct_over_horizon": avg(base_after),
+        "what": f"every one of the {len(base_day)} ordinary sessions in the same window"}
+    if res["reaction_day"]["avg_abs_move_pct"] and res["control"]["avg_abs_move_pct"]:
+        res["reaction_day"]["times_a_normal_day"] = round(
+            res["reaction_day"]["avg_abs_move_pct"] / res["control"]["avg_abs_move_pct"], 2)
+    res.update(_rate("up_rate_pct", up, len(day) - up, "result"))
+    res["after_results"] = {
+        "avg_move_pct": avg(aft), "avg_abs_move_pct": aavg(aft),
+        "what": f"close on the reaction day → close {h} bars later"}
+    if run:
+        res["run_up_before"] = {"avg_move_pct": avg(run),
+                                "what": f"the {h} sessions into the announcement"}
+    res["recent"] = [{"quarter": s["quarter"], "date": s["date"],
+                      "gap_pct": round(s["gap"], 2), "day_pct": round(s["day"], 2),
+                      f"next_{h}_bars_pct": round(s["after"], 2)}
+                     for s in studied[:6]]
+    res["provenance"] = {
+        "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} IST",
+        "bars_scanned": n,
+        "method": ("each event is the first session able to react to the "
+                   "filing (after-market announcements roll to the next day); "
+                   "one event per quarter, first filing wins")}
+    res["_note"] = (
+        "Lead with the reaction size AGAINST the control — 'results days move "
+        "X% versus Y% on an ordinary day' — because the absolute move is the "
+        "reliable finding and the direction usually is not. Never present the "
+        "up-rate as a way to predict the next one, and obey the withheld "
+        "message when the rate is null.")
+    return res
+
+
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
                   to: str | None = None, limit: int = 40) -> dict:
     limit = max(1, min(int(limit or 40), 80))
@@ -2871,6 +3096,21 @@ TOOLS = [
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "default 600"}},
          "required": ["interval"]}},
+    {"type": "function", "name": "get_results",
+     "description": "Quarterly result (earnings) dates for this company, newest first, and optionally mark them on the chart with event icons. Use for 'when were the last results', 'when did Q1 report', 'mark earnings on the chart', or to locate a quarter before asking what price did around it. The date returned is the session the market could FIRST react to: an after-market announcement reacts the next day, and the field already accounts for that. These are past announcements only — there is no scheduled future date here, so never state one.",
+     "parameters": {"type": "object", "properties": {
+         "limit": {"type": "integer", "description": "how many recent quarters, default 8, max 40"},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "draw": {"type": "boolean", "description": "mark them on the chart as event icons"},
+         "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
+         "required": ["interval"]}},
+    {"type": "function", "name": "evaluate_results",
+     "description": "What price actually does around this company's results: the reaction day's gap and move, the run-up before, and the drift after — each against the unconditional base rate over the same window, so 'results move it 2%' can be read against what an ordinary day does. Use for 'how does it usually react to results', 'is there a run-up into earnings', 'what happens after results'. Absolute move is the reliable finding; direction usually is not.",
+     "parameters": {"type": "object", "properties": {
+         "horizon_bars": {"type": "integer", "description": "bars after the reaction day to measure drift, default 5, max 30"},
+         "interval": {"type": "string", "enum": ["1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "history to scan, default 3000 (covers every stored event that has price data)"}},
+         "required": ["interval"]}},
     {"type": "function", "name": "get_bars",
      "description": "Actual OHLCV bars for a window. Use for any specific bar, date, or price the chart summary doesn't contain.",
      "parameters": {"type": "object", "properties": {
@@ -2925,7 +3165,9 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
              "get_patterns": tool_get_patterns,
-             "evaluate_pattern": tool_evaluate_pattern}
+             "evaluate_pattern": tool_evaluate_pattern,
+             "get_results": tool_get_results,
+             "evaluate_results": tool_evaluate_results}
 
 
 def run_tool(name: str, args: dict) -> dict:
