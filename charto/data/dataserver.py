@@ -38,6 +38,9 @@ PORT = 5174
 _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 LLM_DEPLOYMENT = "gpt-5.6-luna"
 LLM_EFFORT = "medium"
+# Azure priority processing — premium-billed, lower/steadier latency. The
+# response echoes the tier actually served; verify there, not here.
+LLM_SERVICE_TIER = "priority"
 
 
 def _load_azure_creds() -> tuple[str, str]:
@@ -3371,6 +3374,7 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
                    "search_context_size": "low"}],
         "max_output_tokens": 600,
         "reasoning": {"effort": "low"},
+        "service_tier": LLM_SERVICE_TIER,
     }
     req = urllib.request.Request(
         f"{AZURE_ENDPOINT}/responses",
@@ -4203,6 +4207,7 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
+        "service_tier": LLM_SERVICE_TIER,
     }
     req = urllib.request.Request(
         f"{AZURE_ENDPOINT}/responses",
@@ -4241,6 +4246,7 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
+        "service_tier": LLM_SERVICE_TIER,
         "stream": True,
     }
     req = urllib.request.Request(
