@@ -308,6 +308,9 @@
     if (!x) return;
     ind.remove(x.dataset.rm);
     renderChips();
+    // the shared signal every other removal path sends — without it the
+    // orphan purge and pane sync never hear about the chip's ×
+    document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
   });
 
   /** Close every open dropdown except `keep`. Shared by header + composer. */
@@ -807,7 +810,24 @@
   });
   el("sceneClear").innerHTML = Icons.svg("eraser", "sm");
   el("sceneClear").addEventListener("click", () => scene.clear());
-  document.addEventListener("charto:indicators-changed", () => scene.syncPanes());
+  document.addEventListener("charto:indicators-changed", () => {
+    // marks on a pane whose indicator is gone are orphans: invisible, yet
+    // still counted by the badge and revived if the pane ever returns —
+    // they die with their pane, whichever path removed it (chat, chip x,
+    // clear-all)
+    const alive = new Set();
+    for (const id of ind.active.keys()) {
+      const d = ind.CATALOG.find((c) => c.id === id);
+      if (d) alive.add(`${d.name}@${d.period}`);
+    }
+    const dead = [...new Set(scene.state.items
+      .map((a) => a.pane)
+      .filter((p) => p && p !== "price" && !alive.has(p)))];
+    if (dead.length) {
+      scene.apply(dead.map((p) => ({ kind: "clear", scope: "pane", pane: p })));
+    }
+    scene.syncPanes();
+  });
 
   // marked levels/points on an indicator pane feed its autoscale, so a
   // "70" line on the RSI is actually on screen instead of off-scale
@@ -1157,6 +1177,10 @@
       // boot-time loadInterval ran before the scene was restored, so its
       // coverage check saw an empty scene — run it again now
       coverScene();
+
+      // the indicators-changed dispatch above ran BEFORE this restore,
+      // so the orphan purge saw an empty scene — signal once more now
+      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
     }
   })();
 

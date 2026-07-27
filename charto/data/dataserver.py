@@ -69,6 +69,19 @@ _scene = threading.local()
 def _scene_reset() -> None:
     _scene.items = []
     _scene.drawn = []
+    # anchors minted by ADDRESS (a named date, a scoped range) live for the
+    # turn so draw_shape can re-resolve them without knowing the address
+    _scene.minted_anchors = {}
+
+
+def _mint_anchor(aid: str, entry: dict) -> None:
+    if not hasattr(_scene, "minted_anchors"):
+        _scene.minted_anchors = {}
+    _scene.minted_anchors[aid.upper()] = entry
+
+
+def _minted_anchors() -> dict:
+    return getattr(_scene, "minted_anchors", {}) or {}
 
 
 def _scene_add(annotation: dict) -> None:
@@ -1056,6 +1069,7 @@ _ANCHOR_KINDS = ("swing_high", "swing_low", "session_open", "session_close",
 
 def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
                      kinds: list | None = None, limit: int = 12,
+                     at_times: list | None = None, frm: str = "", to: str = "",
                      _raw: bool = False) -> dict:
     """Referenceable points, each with the bars around it.
 
@@ -1064,6 +1078,16 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
     Each anchor ships its NEIGHBOURHOOD — the bars either side — because a
     point without its surroundings can be selected but not interpreted, and
     interpretation is the model's actual job.
+
+    Two ways to ADDRESS a point directly (both still resolve to a real bar,
+    so nothing here accepts a free coordinate):
+      at_times — mint bar_high/bar_low anchors AT named dates/times. This is
+        how a moment the conversation has already located (the day of the
+        biggest fall, a specific high) becomes drawable even when no
+        detector produced a pivot there.
+      frm/to  — compute window_high/window_low inside that range instead of
+        the whole window (corners for boxing a named period).
+    Addressed anchors stay resolvable by id for the rest of the turn.
     """
     rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
     if not rows:
@@ -1072,19 +1096,58 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
     want = set(kinds or _ANCHOR_KINDS)
     n = len(rows)
     found: list[dict] = []
+    not_placed: list[str] = []
+
+    # ── addressed: anchors AT named moments ──
+    for k, s in enumerate((at_times or [])[:4]):
+        t = _parse_ist(str(s))
+        if t is None:
+            not_placed.append(f"'{s}' (unreadable — use the chart's format)")
+            continue
+        # the bar at or immediately before the named moment; a time before
+        # the loaded window is refused, never silently snapped to bar 0
+        i = next((j for j in range(n - 1, -1, -1) if rows[j][0] <= t), None)
+        if i is None:
+            not_placed.append(f"'{s}' (before the loaded window — raise "
+                              "lookback_bars)")
+            continue
+        for suffix, col in (("H", 2), ("L", 3)):
+            # the DATE is the id, not the position in the request — two
+            # vlines minted as "T1H" in different turns silently replaced
+            # each other on the scene, which keys shapes by id
+            day = datetime.fromtimestamp(rows[i][0] + IST_OFF,
+                                         tz=timezone.utc)
+            aid = f"T{day.strftime('%d%m%y')}{suffix}"
+            found.append({"kind": f"bar_{'high' if col == 2 else 'low'}",
+                          "i": i, "value": rows[i][col], "_fixed_id": aid})
+
+    # ── range scoping: extremes of a NAMED period, not the whole window ──
+    r0, r1 = 0, n - 1
+    t_frm = _parse_ist(frm) if frm else None
+    t_to = _parse_ist(to) if to else None
+    if (frm and t_frm is None) or (to and t_to is None):
+        return {"error": "could not read frm/to",
+                "hint": "chart format, e.g. '15 Jun 2026'"}
+    if t_frm is not None:
+        r0 = next((j for j in range(n) if rows[j][0] >= t_frm), n - 1)
+    if t_to is not None:
+        r1 = next((j for j in range(n - 1, -1, -1) if rows[j][0] < t_to + 86400), r0)
+    ranged = t_frm is not None or t_to is not None
 
     if {"swing_high", "swing_low"} & want:
         for i, price, role in _pivots(rows, 5):
             kind = "swing_high" if role == "resistance" else "swing_low"
-            if kind in want:
+            if kind in want and r0 <= i <= r1:
                 found.append({"kind": kind, "i": i, "value": price})
 
     if "window_high" in want:
-        i = max(range(n), key=lambda k: rows[k][2])
-        found.append({"kind": "window_high", "i": i, "value": rows[i][2]})
+        i = max(range(r0, r1 + 1), key=lambda k: rows[k][2])
+        found.append({"kind": "window_high", "i": i, "value": rows[i][2],
+                      **({"_fixed_id": f"R{datetime.fromtimestamp(rows[i][0] + IST_OFF, tz=timezone.utc).strftime('%d%m%y')}H"} if ranged else {})})
     if "window_low" in want:
-        i = min(range(n), key=lambda k: rows[k][3])
-        found.append({"kind": "window_low", "i": i, "value": rows[i][3]})
+        i = min(range(r0, r1 + 1), key=lambda k: rows[k][3])
+        found.append({"kind": "window_low", "i": i, "value": rows[i][3],
+                      **({"_fixed_id": f"R{datetime.fromtimestamp(rows[i][0] + IST_OFF, tz=timezone.utc).strftime('%d%m%y')}L"} if ranged else {})})
 
     # 52-week extremes are a stable fact of the DAILY series, not of whatever
     # window happens to be loaded — computing them here means "mark the 52w
@@ -1138,16 +1201,30 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
     # which is intrinsic to the point rather than to its position in a list.
     seen: dict[str, int] = {}
     for a in found:
+        if a.get("_fixed_id"):
+            a["_id"] = a["_fixed_id"]
+            continue
         base = f"A{int(round(a['value']))}"
         seen[base] = seen.get(base, 0) + 1
         a["_id"] = base if seen[base] == 1 else f"{base}-{n - 1 - a['i']}"
 
-    # the 52w pair rides exempt from the cap: mapped to the oldest on-screen
-    # index it sorts last, and `limit` silently dropped it — draw_shape then
-    # reported an id that get_anchors itself had just handed out as missing
+    # Anchors the caller ADDRESSED (52w pair, at_times bars, range extremes)
+    # ride exempt from the cap: sorted by recency they can land last, and
+    # `limit` silently dropped them — draw_shape then reported an id that
+    # get_anchors itself had just handed out as missing.
     cap = max(1, min(int(limit or 12), 30))
-    found = ([a for a in found if "_ts_abs" not in a][:cap]
-             + [a for a in found if "_ts_abs" in a])
+    addressed = [a for a in found if "_ts_abs" in a or "_fixed_id" in a]
+    found = ([a for a in found
+              if "_ts_abs" not in a and "_fixed_id" not in a][:cap] + addressed)
+
+    # Addressed anchors also register for the TURN, so draw_shape can
+    # resolve them without re-supplying the address.
+    for a in addressed:
+        if "_fixed_id" in a:
+            i = a["i"]
+            _mint_anchor(a["_id"], {
+                "id": a["_id"], "kind": a["kind"], "_ts": rows[i][0],
+                "t": _ist(rows[i][0], wt), "value": round(a["value"], 2)})
 
     out = []
     for a in found:
@@ -1185,6 +1262,7 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
         })
     return {
         "anchors": out,
+        **({"not_placed": not_placed} if not_placed else {}),
         "around_fields": ["t", "open", "high", "low", "close", "volume"],
         "last_price": rows[-1][4],
         "provenance": {"interval": interval, "bars_scanned": n,
@@ -1232,6 +1310,9 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     if "error" in got:
         return got
     by_id = {a["id"].upper(): a for a in got["anchors"]}
+    # anchors minted by address earlier in the turn resolve by id alone
+    for k, v in _minted_anchors().items():
+        by_id.setdefault(k, v)
     missing = [i for i in ids if i not in by_id]
     if missing:
         return {"not_found": missing,
@@ -3158,17 +3239,28 @@ def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> 
         if i0 is None or i1 is None or i0 > i1:
             return {"error": "no sessions inside that window"}
         i0 = max(1, i0)
-        if i1 - i0 > 60:
-            i0 = i1 - 60   # cap the listed span at 60 sessions, newest kept
+    # the per-session listing is capped, but the FULL asked window is kept —
+    # capping it silently once hid a year-old block deal from "last year"
+    i0_full = i0
+    narrowed = i1 - i0 > 60
+    if narrowed:
+        i0 = i1 - 60
     d0, d1 = _iso_day(rows[i0][0]), _iso_day(rows[i1][0])
+    d0_full = _iso_day(rows[i0_full][0])
     signs = _day_change_signs(rows, i0, i1)
     sess = _flows_sessions(d0, d1, signs)
-    deals = _flows_deals(d0, d1)
-    out = {"window": {"from": _ist(rows[i0][0], False),
+    deals = _flows_deals(d0_full, d1)
+    out = {"window": {"from": _ist(rows[i0_full][0], False),
                       "to": _ist(rows[i1][0], False),
-                      "sessions": i1 - i0 + 1},
+                      "sessions": i1 - i0_full + 1},
            "sessions": sess[-30:],
            "deals": deals[:12] or "none printed in this window"}
+    if narrowed:
+        out["sessions_note"] = (
+            f"the asked window spans {i1 - i0_full + 1} sessions — the "
+            f"per-session delivery/OI listing covers only the LAST 61 "
+            f"(from {_ist(rows[i0][0], False)}); deals cover the whole "
+            "window. Say so if summarising delivery or OI for the full span.")
     if len(sess) > 30:
         out["sessions_omitted"] = f"{len(sess) - 30} earlier sessions omitted"
     pers = [s["delivery_pct"] for s in sess if "delivery_pct" in s]
@@ -3514,7 +3606,7 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
             "as widened or narrowed.")
     # A tail of the series, when asked for — enough to see a cross or a turn
     # without shipping hundreds of numbers nobody reads.
-    k = max(0, min(int(series_points or 0), 60))
+    k = max(0, min(int(series_points or 0), 240))
     if k:
         idx = list(range(max(0, len(rows) - k), len(rows)))
         out["series"] = {
@@ -3764,7 +3856,7 @@ TOOLS = [
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_anchors",
-     "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps, and the 52-week high/low — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. For the 52-week high or low ask kinds=['high_52w','low_52w'] — they are computed from the daily series whatever interval is open; never fetch candles to find them. You never type a coordinate.",
+     "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps, and the 52-week high/low — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. For the 52-week high or low ask kinds=['high_52w','low_52w']. To anchor at a SPECIFIC date the conversation has located (the day of the biggest fall, a particular high), pass at_times — each mints bar_high/bar_low anchors at that real bar (ids carry the date, e.g. T060126H/T060126L for 06 Jan 2026), drawable this whole turn. To box or bound a named period, pass frm/to — window_high/window_low then become that RANGE's extremes (date-carrying ids R<ddmmyy>H/L). You never type a coordinate.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "default 300"},
@@ -3772,6 +3864,10 @@ TOOLS = [
                    "enum": ["swing_high", "swing_low", "session_open", "session_close",
                             "window_high", "window_low", "gap", "high_52w", "low_52w"]},
                    "description": "omit for all kinds"},
+         "at_times": {"type": "array", "items": {"type": "string"},
+                      "description": "up to 4 dates/times (chart format, e.g. '06 Jan 2026') — mints bar_high/bar_low anchors at each, ids T1H/T1L, T2H/T2L…"},
+         "frm": {"type": "string", "description": "range start — scopes window_high/window_low (and swings) to a named period"},
+         "to": {"type": "string", "description": "range end"},
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
@@ -3895,7 +3991,7 @@ TOOLS = [
                     "description": "price column, default close"},
          "mult": {"type": "number", "description": "band width multiplier for bbands / keltner / supertrend"},
          "anchor_time": {"type": "string", "description": "for anchored_vwap: the bar to anchor at, in the chart's format e.g. '11 Jun 2026'"},
-         "series_points": {"type": "integer", "description": "return the last N points of the series too (max 60) — use it to see a cross or a turn, not just the current value"},
+         "series_points": {"type": "integer", "description": "return the last N points of the series too (max 240) — use it to see a cross or a turn, or to LOCATE when a cross happened (then mark it via get_anchors at_times)"},
          "at": {"type": "array", "items": {"type": "string"},
                 "description": "IST times (chart format, e.g. '08 Jul 2026 15:25', max 20) — returns the indicator's value at each plus mean/median/min/max, computed server-side. Use for 'average RSI at my marked points' by copying the times from the chart context's drawings; never average values by hand"},
          "frm": {"type": "string", "description": "aggregate over a window instead: IST start"},

@@ -418,8 +418,13 @@ const Scene = (() => {
         let drew = 0;
         // An oscillator leg can't be seen unless its pane is open, so drawing
         // one opens it. The chart follows the answer, not the other way round.
+        // …but a CLEAR op references a pane to remove things FROM it —
+        // auto-opening that pane resurrected the very indicator whose
+        // orphaned marks were being purged
         const need = new Set((patch || [])
-          .filter((a) => a.pane && a.pane !== "price").map((a) => a.pane));
+          .filter((a) => a.pane && a.pane !== "price"
+                  && a.kind !== "clear" && a.kind !== "clear_levels")
+          .map((a) => a.pane));
         let opened = false;
         for (const key of need) {
           if (env.panes().some((p) => p.key === key)) continue;
@@ -444,7 +449,8 @@ const Scene = (() => {
                     : scope === "id_prefix"
                       ? !(String(x.id || "").startsWith(a.prefix || " ")
                           && (!a.pane || x.pane === a.pane))
-                      : x.kind !== scope;
+                      : scope === "pane" ? x.pane !== a.pane
+                        : x.kind !== scope;
             });
             drew++; continue;
           }
