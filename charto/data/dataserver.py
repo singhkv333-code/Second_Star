@@ -1051,7 +1051,7 @@ def _gaps(rows: list[tuple], with_time: bool = True) -> dict:
 
 
 _ANCHOR_KINDS = ("swing_high", "swing_low", "session_open", "session_close",
-                 "window_high", "window_low", "gap")
+                 "window_high", "window_low", "gap", "high_52w", "low_52w")
 
 
 def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
@@ -1085,6 +1085,28 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
     if "window_low" in want:
         i = min(range(n), key=lambda k: rows[k][3])
         found.append({"kind": "window_low", "i": i, "value": rows[i][3]})
+
+    # 52-week extremes are a stable fact of the DAILY series, not of whatever
+    # window happens to be loaded — computing them here means "mark the 52w
+    # high" never spends a round fetching candles to find a number code
+    # already holds, and never depends on the on-screen interval or lookback.
+    # computed when asked for by name, and always during draw_shape's _raw
+    # re-resolution so the ids resolve at ANY interval — but kept out of the
+    # generic listing, which they would only pad
+    if ({"high_52w", "low_52w"} & want) and (kinds or _raw):
+        daily = _rows("1d", 270)
+        if daily:
+            cut = daily[-1][0] - 364 * 86400
+            win = [(j, r) for j, r in enumerate(daily) if r[0] >= cut]
+            for kind, col, pick in (("high_52w", 2, max), ("low_52w", 3, min)):
+                if kind in want and win:
+                    j, r0 = pick(win, key=lambda x: x[1][col])
+                    # nearest current-interval index, for recency sorting only;
+                    # the anchor's own time/value stay exact
+                    i_near = max(0, next((k for k in range(n)
+                                          if rows[k][0] > r0[0]), n) - 1)
+                    found.append({"kind": kind, "i": i_near, "value": r0[col],
+                                  "_ts_abs": r0[0], "_daily": daily, "_j": j})
 
     if wt and {"session_open", "session_close"} & want:
         day = _ist_day(rows[-1][0])
@@ -1120,12 +1142,31 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
         seen[base] = seen.get(base, 0) + 1
         a["_id"] = base if seen[base] == 1 else f"{base}-{n - 1 - a['i']}"
 
-    found = found[:max(1, min(int(limit or 12), 30))]
+    # the 52w pair rides exempt from the cap: mapped to the oldest on-screen
+    # index it sorts last, and `limit` silently dropped it — draw_shape then
+    # reported an id that get_anchors itself had just handed out as missing
+    cap = max(1, min(int(limit or 12), 30))
+    found = ([a for a in found if "_ts_abs" not in a][:cap]
+             + [a for a in found if "_ts_abs" in a])
 
     out = []
     for a in found:
         i = a["i"]
         aid = a["_id"]
+        if "_ts_abs" in a:
+            # a 52w anchor's location is a daily-bar fact: report its own
+            # exact date and daily neighbourhood, whatever interval is open
+            dl, j = a["_daily"], a["_j"]
+            lo, hi = max(0, j - 3), min(len(dl), j + 4)
+            out.append({
+                "id": aid, "kind": a["kind"], "t": _ist(a["_ts_abs"], False),
+                **({"_ts": a["_ts_abs"]} if _raw else {}),
+                "value": round(a["value"], 2),
+                "window": "trailing 52 weeks of daily bars",
+                "around": [[_ist(r[0], False), r[1], r[2], r[3], r[4], r[5]]
+                           for r in dl[lo:hi]],
+            })
+            continue
         lo, hi = max(0, i - 3), min(n, i + 4)
         out.append({
             "id": aid, "kind": a["kind"], "t": _ist(rows[i][0], wt),
@@ -1199,6 +1240,32 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
            "interval": interval, "bars_scanned": got["provenance"]["bars_scanned"],
            "anchors": ids, "strength": "user-directed",
            "first_touch": picked[0]["t"], "last_touch": picked[-1]["t"]}
+    # A 1-anchor shape given several anchors draws one PER anchor. It used
+    # to draw only the first while the return listed them all as drawn — the
+    # model then truthfully relayed a lie ("both marked") it had been told.
+    if _SHAPES[shape] == 1 and len(picked) > 1:
+        drawn = []
+        for a in picked:
+            auto = {"high_52w": "52W high", "low_52w": "52W low"}.get(
+                a["kind"], a["kind"].replace("_", " "))
+            one: dict = {"id": "S" + a["id"], "pane": pane, "role": role,
+                         "label": label or auto, "source": {
+                             **src, "anchors": [a["id"]],
+                             "first_touch": a["t"], "last_touch": a["t"]}}
+            if shape == "hline":
+                one.update(kind="level", price=a["value"])
+            elif shape == "vline":
+                one.update(kind="vline", t=a["_ts"])
+            else:
+                one.update(kind="point", a={"t": a["_ts"], "v": a["value"]})
+            _scene_add(one)
+            drawn.append(one["id"])
+        return {"drawn": drawn, "shape": shape, "from_anchors": ids,
+                "points": [{"t": a["t"], "value": a["value"],
+                            "kind": a["kind"]} for a in picked],
+                "_note": (f"{len(drawn)} separate {shape}s drawn, one per "
+                          "anchor. Describe each using its anchor kind.")}
+
     ann: dict = {"kind": "segment", "id": "S" + "-".join(ids), "pane": pane,
                  "role": role, "label": label or shape, "source": src}
     if shape in ("segment", "ray"):
@@ -3488,18 +3555,18 @@ TOOLS = [
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_anchors",
-     "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. You never type a coordinate.",
+     "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps, and the 52-week high/low — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. For the 52-week high or low ask kinds=['high_52w','low_52w'] — they are computed from the daily series whatever interval is open; never fetch candles to find them. You never type a coordinate.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "default 300"},
          "kinds": {"type": "array", "items": {"type": "string",
                    "enum": ["swing_high", "swing_low", "session_open", "session_close",
-                            "window_high", "window_low", "gap"]},
+                            "window_high", "window_low", "gap", "high_52w", "low_52w"]},
                    "description": "omit for all kinds"},
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Giving a 1-anchor shape (hline/vline/point) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
      "parameters": {"type": "object", "properties": {
          "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib"],
                    "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%)"},
