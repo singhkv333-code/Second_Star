@@ -109,6 +109,86 @@ def _scene_take() -> list[dict]:
     _scene.items = []
     return items
 
+
+# ── the user's drawings, addressable by id ────────────────────────
+# Set once per turn from the chart envelope. Before this existed the model
+# had to TRANSCRIBE a drawing's coordinates into evaluate_* arguments, which
+# is exactly the class of thing that goes silently wrong (a mis-copied
+# timestamp scores a different line and still returns a confident number).
+# A reference is checked; a transcription is not.
+_drawings = threading.local()
+
+# Which evaluator owns which drawing type. A type absent here has no honest
+# scoring path, and saying so beats scoring it as something it is not.
+_DRAW_KIND = {
+    "trend": ("line", None), "ray": ("line", None), "extended": ("line", None),
+    "hline": ("line", None),
+    "fib": ("fib", None),
+    "rect": ("drawing", "zone"), "priceRange": ("drawing", "zone"),
+    "channel": ("drawing", "channel"), "regression": ("drawing", "channel"),
+    "long": ("drawing", "position"), "short": ("drawing", "position"),
+}
+_TOOL_FOR = {"line": "evaluate_line", "fib": "evaluate_fib",
+             "drawing": "evaluate_drawing"}
+
+
+def _drawings_set(ctx: dict | None) -> None:
+    _drawings.by_ref = {}
+    for d in (ctx or {}).get("drawings") or []:
+        for key in (d.get("ref"), d.get("id")):
+            if key:
+                _drawings.by_ref[str(key).upper()] = d
+
+
+def _drawing_get(ref: str) -> dict:
+    """A drawing by ref/id, or an error naming what actually exists."""
+    by = getattr(_drawings, "by_ref", None) or {}
+    d = by.get(str(ref or "").upper().strip())
+    if d:
+        return {"ok": d}
+    avail = sorted({v.get("ref") or v.get("id") for v in by.values()})
+    return {"error": f"no drawing '{ref}' on this chart",
+            "available": avail,
+            "_note": ("Nothing was scored. The user's drawings are listed in "
+                      "the chart context with their refs — use one of those "
+                      "exactly, and if the list is empty say the user has not "
+                      "drawn anything rather than inventing coordinates.")
+            if avail else
+            ("The user has no drawings on this chart. Say so — do not "
+             "score coordinates you made up.")}
+
+
+def _drawing_points(d: dict) -> list[dict]:
+    """Anchors as {t, v}. A horizontal line carries one anchor, so its second
+    point is synthesised at the same value — the line is flat either way."""
+    pts = [{"t": p.get("t"), "v": p.get("p", p.get("v"))} for p in d.get("pts") or []]
+    if d.get("type") == "hline" and len(pts) == 1:
+        pts.append({"t": pts[0]["t"], "v": pts[0]["v"], "_flat": True})
+    return pts
+
+
+def _drawing_for(ref: str, want: str) -> dict:
+    """Resolve `ref` and confirm this tool is the one that scores its type."""
+    got = _drawing_get(ref)
+    if "error" in got:
+        return got
+    d = got["ok"]
+    kind = _DRAW_KIND.get(d.get("type"))
+    if not kind:
+        return {"error": f"a {d.get('type')} drawing has no scoring method",
+                "_note": (f"{d.get('type')} is not a shape with a record to "
+                          f"check — describe what it marks instead, and say "
+                          f"plainly that it cannot be scored. Scoreable: "
+                          f"lines, fibs, rectangles, channels, positions.")}
+    family, sub = kind
+    if family != want:
+        return {"error": f"{d.get('type')} is scored by {_TOOL_FOR[family]}, "
+                         f"not this tool",
+                "call": _TOOL_FOR[family],
+                "_note": (f"Nothing was scored. Re-call {_TOOL_FOR[family]} "
+                          f"with drawing_id={d.get('ref') or d.get('id')}.")}
+    return {"ok": d, "sub": sub, "points": _drawing_points(d)}
+
 def _ist(ts: int, with_time: bool = True) -> str:
     d = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
     return d.strftime("%d %b %Y %H:%M") if with_time else d.strftime("%d %b %Y")
@@ -1304,16 +1384,34 @@ def _score_line(rows: list[tuple], t1: int, v1: float, t2: int, v2: float,
                        f"own ±{window}-bar pivot window")}
 
 
-def tool_evaluate_line(p1_time: str, p1_value: float, p2_time: str,
-                       p2_value: float, interval: str = "5m",
-                       lookback_bars: int = 500) -> dict:
+def tool_evaluate_line(p1_time: str = "", p1_value: float = 0.0,
+                       p2_time: str = "", p2_value: float = 0.0,
+                       interval: str = "5m", lookback_bars: int = 500,
+                       drawing_id: str = "") -> dict:
     """Score a line the USER drew — the inverse of curate-by-reference.
 
-    Coordinates are accepted here on purpose: they are the user's own
-    geometry echoed back from the chart, not numbers the model invented. The
-    same evidence rules as levels apply, including judging each touch only
-    after its own pivot window so a local extremum cannot flatter the line.
+    Prefer `drawing_id`: the geometry is then looked up from the chart, not
+    retyped, so a mis-copied timestamp cannot score a different line and
+    still return a confident number. Raw coordinates remain accepted for a
+    line the user described but has not drawn. The same evidence rules as
+    levels apply, including judging each touch only after its own pivot
+    window so a local extremum cannot flatter the line.
     """
+    if drawing_id:
+        got = _drawing_for(drawing_id, "line")
+        if "error" in got:
+            return got
+        pts = got["points"]
+        p1_time, p1_value = pts[0]["t"], pts[0]["v"]
+        p2_time, p2_value = pts[1]["t"], pts[1]["v"]
+        if pts[1].get("_flat"):        # horizontal line: flat by construction
+            t0 = _parse_ist(p1_time)
+            p2_time = _ist((t0 or 0) + 86400, interval not in ("1d", "1w", "1mo"))
+    elif not (p1_time and p2_time):
+        return {"error": "give either drawing_id, or both p1_time and p2_time",
+                "_note": ("Nothing was scored. If the user means a line they "
+                          "drew, pass its ref from the chart context as "
+                          "drawing_id rather than copying its coordinates.")}
     t1, t2 = _parse_ist(p1_time), _parse_ist(p2_time)
     if t1 is None or t2 is None:
         return {"error": "could not parse p1_time / p2_time (expect 'YYYY-MM-DD HH:MM' IST)"}
@@ -1456,15 +1554,28 @@ def _fib_record(rows: list[tuple], window: int, tol: float,
     return {"stat": stat, "legs_used": used, "legs_found": len(legs)}
 
 
-def tool_evaluate_fib(p1_time: str, p1_value: float, p2_time: str,
-                      p2_value: float, interval: str = "1d",
-                      lookback_bars: int = 600) -> dict:
+def tool_evaluate_fib(p1_time: str = "", p1_value: float = 0.0,
+                      p2_time: str = "", p2_value: float = 0.0,
+                      interval: str = "1d", lookback_bars: int = 600,
+                      drawing_id: str = "") -> dict:
     """Score a fib retracement: this drawing, and the ratios' own track record.
 
-    Coordinates are accepted for the same reason evaluate_line accepts them —
-    they are the user's geometry echoed back from the chart, not numbers the
-    model invented.
+    Prefer `drawing_id` — the leg is then read from the chart rather than
+    retyped. Raw coordinates remain accepted for a leg the user named but
+    has not drawn.
     """
+    if drawing_id:
+        got = _drawing_for(drawing_id, "fib")
+        if "error" in got:
+            return got
+        pts = got["points"]
+        p1_time, p1_value = pts[0]["t"], pts[0]["v"]
+        p2_time, p2_value = pts[1]["t"], pts[1]["v"]
+    elif not (p1_time and p2_time):
+        return {"error": "give either drawing_id, or both p1_time and p2_time",
+                "_note": ("Nothing was scored. If the user means a fib they "
+                          "drew, pass its ref from the chart context as "
+                          "drawing_id rather than copying its coordinates.")}
     t1, t2 = _parse_ist(p1_time), _parse_ist(p2_time)
     if t1 is None or t2 is None:
         return {"error": "could not read p1_time / p2_time",
@@ -1746,13 +1857,28 @@ def _position_record(rows: list[tuple], entry: float, target: float,
             "horizon_bars": horizon}
 
 
-def tool_evaluate_drawing(kind: str, points: list, interval: str = "1d",
-                          lookback_bars: int = 600) -> dict:
+def tool_evaluate_drawing(kind: str = "", points: list | None = None,
+                          interval: str = "1d", lookback_bars: int = 600,
+                          drawing_id: str = "") -> dict:
     """Score a zone, a channel or a planned position the USER drew.
 
-    Coordinates are the user's own geometry echoed back from the chart, for
-    the same reason evaluate_line accepts them: they were not invented here.
+    Prefer `drawing_id`: both the geometry AND the kind then come from the
+    chart, so a rectangle cannot be scored as a channel and no coordinate is
+    retyped. Raw points remain accepted for a shape the user described but
+    has not drawn.
     """
+    if drawing_id:
+        got = _drawing_for(drawing_id, "drawing")
+        if "error" in got:
+            return got
+        # the drawing knows what it is; an argument that disagrees is a
+        # mis-read, and silently honouring it would score the wrong thing
+        kind, points = got["sub"], got["points"]
+    elif not points:
+        return {"error": "give either drawing_id, or kind and points",
+                "_note": ("Nothing was scored. If the user means a shape they "
+                          "drew, pass its ref from the chart context as "
+                          "drawing_id rather than copying its coordinates.")}
     kind = (kind or "").lower().strip()
     if kind not in ("zone", "channel", "position"):
         return {"error": f"unknown kind '{kind}'",
@@ -2688,25 +2814,27 @@ TOOLS = [
          "role": {"type": "string", "enum": ["resistance", "support", "neutral"]}},
          "required": ["shape", "anchor_ids", "interval"]}},
     {"type": "function", "name": "evaluate_line",
-     "description": "Score a line the USER drew: how many swings touched it, how many held vs broke, where it projects now. Use whenever the user asks whether their own trendline is any good, or what its record is. Pass the two endpoints exactly as they appear in the chart context's drawings list.",
+     "description": "Score a line the USER drew: how many swings touched it, how many held vs broke, where it projects now. Use whenever the user asks whether their own trendline is any good, or what its record is. ALWAYS pass drawing_id when the line is one the user drew — the chart context lists every drawing with its ref, and referencing it is checked whereas copying coordinates is not. The message may also name the drawing the user tagged; that ref is the subject. Endpoints are for a line the user described but has not drawn.",
      "parameters": {"type": "object", "properties": {
+         "drawing_id": {"type": "string", "description": "ref of the user's drawing (e.g. 'D3') from the chart context — preferred over coordinates"},
          "p1_time": {"type": "string", "description": "IST 'YYYY-MM-DD HH:MM' of the first endpoint"},
          "p1_value": {"type": "number"},
          "p2_time": {"type": "string"},
          "p2_value": {"type": "number"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "default 500"}},
-         "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "evaluate_fib",
      "description": "Score a fibonacci retracement. Returns TWO things: where this drawing's levels sit and whether price has reached them since the leg, AND the base rate for each ratio across every past swing leg on this symbol — how often the 0.618 (or 0.5, or 0.382) actually turned price — measured against a non-fibonacci control so the rate can be read honestly. Use whenever a fib retracement comes up: the user drew one, asked whether fibs work here, or asked what a ratio means on this chart. Pass the leg's two endpoints from the chart context's drawings list.",
      "parameters": {"type": "object", "properties": {
+         "drawing_id": {"type": "string", "description": "ref of the user's fib drawing (e.g. 'D3') from the chart context — preferred over coordinates when they drew it"},
          "p1_time": {"type": "string", "description": "IST time of the leg's START, as the chart shows it, e.g. '08 Jul 2026 15:25'"},
          "p1_value": {"type": "number", "description": "price at the start of the leg (the 100% end)"},
          "p2_time": {"type": "string", "description": "IST time of the leg's END"},
          "p2_value": {"type": "number", "description": "price at the end of the leg (the 0% end)"},
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
-         "required": ["p1_time", "p1_value", "p2_time", "p2_value", "interval"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
      "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
      "parameters": {"type": "object", "properties": {
@@ -2731,8 +2859,9 @@ TOOLS = [
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
     {"type": "function", "name": "evaluate_drawing",
-     "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
+     "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. ALWAYS pass drawing_id when the shape is one the user drew — the chart context lists every drawing with its ref, and both the geometry AND the kind are then read from the chart instead of retyped. The message may also name the drawing the user tagged; that ref is the subject. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
      "parameters": {"type": "object", "properties": {
+         "drawing_id": {"type": "string", "description": "ref of the user's drawing (e.g. 'D3') from the chart context — preferred; kind and points are then read from the chart"},
          "kind": {"type": "string", "enum": ["zone", "channel", "position"]},
          "points": {"type": "array",
                     "description": "zone: the band's two edges (value only, time optional). channel: two points on one edge then one on the other, all with times. position: entry, then target, then stop (value only). Copy them from the chart context's drawings list.",
@@ -2741,7 +2870,7 @@ TOOLS = [
                         "v": {"type": "number", "description": "price"}}}},
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "default 600"}},
-         "required": ["kind", "points", "interval"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "get_bars",
      "description": "Actual OHLCV bars for a window. Use for any specific bar, date, or price the chart summary doesn't contain.",
      "parameters": {"type": "object", "properties": {
@@ -2804,10 +2933,23 @@ def run_tool(name: str, args: dict) -> dict:
     if not fn:
         return {"error": f"unknown tool {name}"}
     try:
-        return fn(**args)
+        out = fn(**args)
     except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
         logging.warning("charto tool %s failed: %s", name, exc)
         return {"error": f"{name} failed: {exc}"}
+    # Stamp WHICH drawing a score belongs to, here rather than in each tool,
+    # so no return path can omit it. A score the reply cannot name is a score
+    # the user cannot check against the shape they meant.
+    ref = args.get("drawing_id") if isinstance(args, dict) else None
+    if ref and isinstance(out, dict) and "error" not in out:
+        got = _drawing_get(ref)
+        d = got.get("ok") or {}
+        out["scored_drawing"] = {"ref": d.get("ref") or ref, "type": d.get("type")}
+        out["_scored_note"] = (
+            f"These numbers are for the user's {d.get('type', 'drawing')} "
+            f"{d.get('ref') or ref} — name it in the reply so they know which "
+            f"shape was scored.")
+    return out
 
 
 def _n(v) -> str:
@@ -2903,10 +3045,14 @@ def _render_context(ctx: dict) -> str:
             txt = f' "{d["text"]}"' if d.get("text") else ""
             # values on an indicator pane are that indicator's units, not ₹
             on = f" on {d['on']}" if d.get("on") else ""
-            parts.append(f"[{d['id']}] {d['type']}{on} {pts}{txt}{tag}")
+            parts.append(f"[{d.get('ref') or d['id']}] {d['type']}{on} {pts}{txt}{tag}")
         more = ctx.get("drawings_omitted")
         L.append("User's own drawings: " + " · ".join(parts)
                  + (f" · (+{more} more)" if more else ""))
+        L.append("The bracketed code is that drawing's ref. To score one, pass "
+                 "it as drawing_id to evaluate_line / evaluate_fib / "
+                 "evaluate_drawing — never retype its coordinates, and never "
+                 "score a drawing the user did not ask about.")
         if any(d.get("on") for d in ctx["drawings"]):
             L.append("Drawings marked 'on <indicator>' sit in that indicator's "
                      "pane: their values are that indicator's units (an RSI "
@@ -3016,6 +3162,15 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
     for i, m in enumerate(messages):
         role = m.get("role", "user")
         txt = str(m.get("content", ""))
+        # a tagged drawing IS the subject of that message — state it as a
+        # fact of the turn, so "is this any good?" has an unambiguous referent
+        # instead of the model guessing which shape "this" means
+        tag = m.get("drawing")
+        if tag and tag.get("ref"):
+            txt = (f"[the user tagged drawing {tag['ref']} "
+                   f"({tag.get('label') or tag.get('type') or 'drawing'}) — "
+                   f"this drawing is what the message is about; score it by "
+                   f"passing drawing_id={tag['ref']}]\n" + txt)
         img = m.get("image") if i == last_img else None
         if img and len(img) > 3_000_000:
             img = None
@@ -3051,6 +3206,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     wire += _wire_messages(messages)
 
     _scene_reset()
+    _drawings_set(context)   # tools can now resolve a drawing by ref
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     tok_in = tok_out = 0
@@ -3123,6 +3279,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     wire += _wire_messages(messages)
 
     _scene_reset()
+    _drawings_set(context)   # tools can now resolve a drawing by ref
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     tok_in = tok_out = 0

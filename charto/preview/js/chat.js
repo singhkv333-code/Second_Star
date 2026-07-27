@@ -23,6 +23,7 @@
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
     ...(t.image ? { image: t.image } : {}),
+    ...(t.drawing ? { drawing: t.drawing } : {}),
   }));
   // Persist a bounded tail. A long session of table-heavy replies would
   // otherwise walk into the ~5MB localStorage ceiling, and Store.set swallows
@@ -40,6 +41,28 @@
   let ctxOn = true;     // chart-state envelope attached to each message
   let lastBlock = "";   // what the model was actually told, for the inspector
   let pendingImage = null;   // a captured screenshot waiting to ride the next send
+  let pendingDraw = null;    // the drawing this message is about, by ref
+
+  // ── drawing tag ───────────────────────────────────────
+  // Selecting a shape offers it as the subject of the next question, the same
+  // way pinning a candle does. The message then carries the drawing's REF, so
+  // the tools resolve exact geometry instead of the model guessing which
+  // shape "this" meant and retyping its coordinates.
+  function setDrawTag(d) {
+    pendingDraw = d;
+    const row = el("drawTagRow");
+    row.style.display = d ? "" : "none";
+    if (!d) return;
+    const on = d.pane && d.pane !== "price" ? ` · on ${d.pane}` : "";
+    row.innerHTML = `<span class="draw-tag"><span class="ref">${d.ref}</span>`
+      + `${d.label.toLowerCase()}${on}`
+      + `<span class="x" data-untag="1" title="Don't ask about this">`
+      + `${Icons.svg("x", "xs")}</span></span>`;
+  }
+  document.addEventListener("charto:draw-select", (e) => setDrawTag(e.detail));
+  el("drawTagRow").addEventListener("click", (e) => {
+    if (e.target.closest("[data-untag]")) setDrawTag(null);
+  });
 
   // ── screenshot attach flow ────────────────────────────
   // The camera button captures the CHART (all panes, no chat, no shell) and
@@ -191,12 +214,21 @@
     if (e) e.remove();
   }
 
-  function addUserTurn(text, image) {
+  function addUserTurn(text, image, drawing) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn user";
     const b = document.createElement("div");
     b.className = "bubble";
+    if (drawing) {
+      // the tag stays visible in the thread: scrolling back must show WHICH
+      // shape a past answer was about, not just that one was tagged
+      const tg = document.createElement("div");
+      tg.className = "bubble-tag";
+      tg.textContent = `${drawing.ref} · ${String(drawing.label).toLowerCase()}`
+        + (drawing.pane && drawing.pane !== "price" ? ` on ${drawing.pane}` : "");
+      b.appendChild(tg);
+    }
     if (image) {
       const img = document.createElement("img");
       img.className = "shot";
@@ -361,7 +393,7 @@
   (function restoreThread() {
     if (!turns.length) return;
     for (const t of turns) {
-      if (t.role === "user") { addUserTurn(t.content, t.image); continue; }
+      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing); continue; }
       finishTurn(addAssistantTurn(), t.content, t.meta || []);
     }
     toBottom();
@@ -372,14 +404,17 @@
     const text = input.value.trim();
     if ((!text && !pendingImage) || pending) return;
     const image = pendingImage;
+    const drawing = pendingDraw;
     setAttachment(null);
+    setDrawTag(null);
     input.value = "";
     autoGrow();
     pending = true;
     sendBtn.disabled = true;
 
-    turns.push({ role: "user", content: text, ...(image ? { image } : {}) });
-    addUserTurn(text, image);
+    turns.push({ role: "user", content: text,
+                 ...(image ? { image } : {}), ...(drawing ? { drawing } : {}) });
+    addUserTurn(text, image, drawing);
     const turn = addAssistantTurn();
     const t0 = performance.now();
 

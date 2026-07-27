@@ -20,6 +20,9 @@ const Drawings = (() => {
 
   function create(chart, candle, env) {
     // env: { getBars, getIntervalSec, container, stage, panes, setStatus, onToolDone }
+    // Short human-readable ref per drawing ("D3"), monotonic and never
+    // recycled — it is what the chat tags and what the tools resolve by.
+    let refSeq = 0;
     const state = {
       tool: "cursor",
       magnet: false,
@@ -38,14 +41,37 @@ const Drawings = (() => {
     // ── persistence + telemetry ─────────────────────────
     function load() {
       try {
-        return (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
+        const raw = (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
           .filter((d) => Tools.SPECS[d.type])
           .map((d) => ({ ...d, pane: d.pane || "price" }));
+        // Refs must never be reused: a chat turn that says "D3" has to keep
+        // meaning the same shape, so a deleted D3 leaves a hole rather than
+        // renumbering the survivors. Backfill anything saved before refs.
+        let max = 0;
+        for (const d of raw) {
+          const n = d.ref && /^D(\d+)$/.exec(d.ref);
+          if (n) max = Math.max(max, +n[1]);
+        }
+        for (const d of raw) if (!d.ref) d.ref = "D" + (++max);
+        refSeq = Math.max(refSeq, max);
+        return raw;
       } catch { return []; }
     }
     const save = () => {
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
     };
+    /** Announce which drawing is selected. The chat listens and offers to
+     *  tag it, so "is this any good?" carries a ref instead of leaving the
+     *  model to guess which shape "this" meant. */
+    function emitSelect() {
+      const d = state.drawings.find((q) => q.id === state.selId) || null;
+      document.dispatchEvent(new CustomEvent("charto:draw-select", {
+        detail: d && {
+          id: d.id, ref: d.ref, type: d.type, pane: d.pane,
+          label: Tools.SPECS[d.type] ? Tools.SPECS[d.type].label : d.type,
+        },
+      }));
+    }
     function logUse(tool) {
       let u = {};
       try { u = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
@@ -305,12 +331,14 @@ const Drawings = (() => {
         if (hit) {
           const d = state.drawings.find((q) => q.id === hit);
           state.selId = hit;
+          emitSelect();
           state.drag = { id: hit, handle: -1, pane: a.key, start: a,
                          orig: JSON.parse(JSON.stringify(d.pts)) };
           state.consumedDown = true; setScroll(false); e2.preventDefault();
         } else {
           state.consumedDown = !!state.selId;   // the click spent itself deselecting
           state.selId = null;
+          emitSelect();
         }
         _ru(); return;
       }
@@ -393,9 +421,11 @@ const Drawings = (() => {
         d.text = txt;
       }
       d.id = newId();
+      d.ref = "D" + (++refSeq);
       state.drawings.push(d);
       state.selId = d.id;
       save(); logUse(d.type);
+      emitSelect();
       env.setStatus(`${spec.label.toLowerCase()} added (${state.drawings.length})`);
       _ru();
       env.onToolDone();
@@ -406,10 +436,10 @@ const Drawings = (() => {
       if (/^(INPUT|TEXTAREA)$/.test(e2.target.tagName)) return;
       if ((e2.key === "Delete" || e2.key === "Backspace") && state.selId) {
         state.drawings = state.drawings.filter((d) => d.id !== state.selId);
-        state.selId = null; save(); _ru();
+        state.selId = null; save(); _ru(); emitSelect();
         env.setStatus("drawing deleted");
       }
-      if (e2.key === "Escape") { state.draft = null; state.selId = null; _ru(); env.onToolDone(); }
+      if (e2.key === "Escape") { state.draft = null; state.selId = null; _ru(); emitSelect(); env.onToolDone(); }
     });
 
     return {
@@ -424,7 +454,7 @@ const Drawings = (() => {
         _ru();
       },
       toggleMagnet() { state.magnet = !state.magnet; return state.magnet; },
-      clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); },
+      clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
       count: () => state.drawings.length,
       syncPanes,
       /** Geometry of one drawing, for the backend to score. */

@@ -669,7 +669,9 @@
     const drawings = draw.state.drawings.slice(0, 15).map((d) => {
       const pts = d.type === "brush" ? [d.pts[0], d.pts[d.pts.length - 1]] : d.pts;
       return {
-        id: d.id, type: d.type, text: d.text || undefined,
+        // `ref` is the short stable handle the chat tags and the evaluate
+        // tools resolve by; `id` stays for anything holding an older one
+        id: d.id, ref: d.ref, type: d.type, text: d.text || undefined,
         on: paneLabel(d.pane),
         selected: d.id === draw.state.selId || undefined,
         pts: pts.map((q) => ({ t: T(q.t), p: r2(q.v) })),
