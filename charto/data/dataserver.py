@@ -1205,13 +1205,21 @@ _SHAPES = {"segment": 2, "ray": 2, "box": 2, "band": 2, "hline": 1,
 
 def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                     lookback_bars: int = 300, pane: str = "price",
-                    label: str = "", role: str = "neutral") -> dict:
+                    label: str = "", role: str = "neutral",
+                    draw_mode: str = "add") -> dict:
     """Compose a shape from anchors resolved by id.
 
     The model chooses the shape and which anchors; every number still comes
     from the detector that produced the anchor. There is no field here that
     accepts a coordinate.
     """
+    if str(draw_mode or "add").lower() == "clear":
+        # shapes had no removal path at all — the chart-wide eraser was the
+        # user's only recourse for a single unwanted hline
+        _scene_add({"kind": "clear", "scope": "all", "owner": "draw_shape"})
+        return {"cleared": True,
+                "_note": "Every shape previously drawn via draw_shape is "
+                         "removed. Other tools' drawings are untouched."}
     shape = (shape or "").lower().strip()
     if shape not in _SHAPES:
         return {"error": f"unknown shape '{shape}'", "available": sorted(_SHAPES)}
@@ -3227,7 +3235,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        to: str = "", mark_points: bool = False,
                        connect: bool = False,
                        mark_levels: list | None = None,
-                       remove: bool = False) -> dict:
+                       remove: bool = False,
+                       clear_marks: bool = False) -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -3262,6 +3271,23 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                           "not on the chart nothing changes — say what was "
                           "removed, and re-add with draw=true if the user "
                           "wants a fresh one.")}
+    if clear_marks:
+        # take the MARKS off an indicator while leaving the indicator alone —
+        # the pane-removal lever was the only one, so "remove the lines you
+        # added on rsi" nuked the whole pane. Marks share the id prefix
+        # IX<NAME>- (the trailing dash matters: IXAD- must not catch IXADX-).
+        pane = (None if indicators.SPECS[name]["pane"] == "overlay" or not period
+                else f"{name}@{int(period)}")
+        _scene_add({"kind": "clear", "scope": "id_prefix",
+                    "prefix": "IX" + name.upper() + "-",
+                    **({"pane": pane} if pane else {}),
+                    "owner": "get_indicator"})
+        which = f"the {name}({period}) line" if period else f"every {name} line"
+        return {"marks_cleared": name,
+                "_note": (f"All levels, dots and connections previously marked "
+                          f"on {which} are removed. The indicator itself is "
+                          "still on the chart — this cleared only the marks. "
+                          "Use remove=true to take the indicator off too.")}
     rows = _rows(interval, max(200, min(int(lookback_bars or 400), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -3588,7 +3614,9 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "must match the get_anchors call"},
          "pane": {"type": "string", "description": "'price', or an indicator id like 'rsi'"},
          "label": {"type": "string", "description": "short caption drawn on the chart"},
-         "role": {"type": "string", "enum": ["resistance", "support", "neutral"]}},
+         "role": {"type": "string", "enum": ["resistance", "support", "neutral"]},
+         "draw_mode": {"type": "string", "enum": ["add", "clear"],
+                       "description": "'clear' removes every shape previously drawn via draw_shape (other tools' drawings stay) — anchor_ids may be empty then"}},
          "required": ["shape", "anchor_ids", "interval"]}},
     {"type": "function", "name": "evaluate_line",
      "description": "Score a line the USER drew: how many swings touched it, how many held vs broke, where it projects now. Use whenever the user asks whether their own trendline is any good, or what its record is. ALWAYS pass drawing_id when the line is one the user drew — the chart context lists every drawing with its ref, and referencing it is checked whereas copying coordinates is not. The message may also name the drawing the user tagged; that ref is the subject. Endpoints are for a line the user described but has not drawn.",
@@ -3705,7 +3733,8 @@ TOOLS = [
          "connect": {"type": "boolean", "description": "connect the `at` values with a line on the indicator's pane — an indicator trendline whose y-values come from the series, never guessed"},
          "mark_levels": {"type": "array", "items": {"type": "number"}, "description": "horizontal reference lines on the indicator's own scale, e.g. [70,30] on rsi or [0] on macd. When marking an indicator the user already has plotted, pass that line's period (it is in the chart context, e.g. 'RSI 70') so the marks sit on that exact line"},
          "draw": {"type": "boolean", "description": "add it to the user's chart"},
-         "remove": {"type": "boolean", "description": "remove this indicator from the chart instead of computing it — period targets one variant, omitted removes every variant of the name"}},
+         "remove": {"type": "boolean", "description": "remove this indicator AND its pane from the chart — period targets one variant, omitted removes every variant of the name"},
+         "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
 ]
 

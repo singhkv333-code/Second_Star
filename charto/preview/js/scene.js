@@ -441,7 +441,10 @@ const Scene = (() => {
               return scope === "all" ? false
                 : scope === "level" ? !(x.kind === "level" || x.kind === "zone")
                   : scope === "markers" ? x.kind !== "markers"
-                    : x.kind !== scope;
+                    : scope === "id_prefix"
+                      ? !(String(x.id || "").startsWith(a.prefix || " ")
+                          && (!a.pane || x.pane === a.pane))
+                      : x.kind !== scope;
             });
             drew++; continue;
           }
