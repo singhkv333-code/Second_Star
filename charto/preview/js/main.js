@@ -787,6 +787,21 @@
         Promise.resolve(ind.toggle(id, state.bars)).then(changed).catch(() => {});
       }
     },
+    onIndicatorRemove: (a) => {              // "remove the rsi"
+      const raw = String(a.name || "");
+      const name = raw.split("@")[0];
+      const period = a.period || Number(raw.split("@")[1]) || 0;
+      // no period → every variant of the name goes; a period targets one
+      const victims = [...ind.active.keys()].filter((id) => {
+        const d = ind.CATALOG.find((c) => c.id === id);
+        return d && d.name === name && (!period || d.period === period);
+      });
+      victims.forEach((id) => ind.remove(id));
+      if (victims.length) {
+        renderChips();
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      }
+    },
     isCursorMode: () => draw.state.tool === "cursor",
     onSelect: (a, y) => showProvenance(a, y),
   });

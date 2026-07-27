@@ -3226,7 +3226,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        at: list | None = None, frm: str = "",
                        to: str = "", mark_points: bool = False,
                        connect: bool = False,
-                       mark_levels: list | None = None) -> dict:
+                       mark_levels: list | None = None,
+                       remove: bool = False) -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -3250,6 +3251,17 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
     if source not in indicators.SOURCES:
         return {"error": f"unknown source '{source}'",
                 "available": list(indicators.SOURCES)}
+    if remove:
+        # taking a pane OFF the chart is a scene op, not a computation —
+        # nothing to fetch, nothing to derive
+        _scene_add({"kind": "indicator_remove", "name": name,
+                    "period": int(period or 0)})
+        which = f"{name}({period})" if period else f"every {name} variant"
+        return {"removed": name, **({"period": int(period)} if period else {}),
+                "_note": (f"Removal of {which} sent to the chart. If it was "
+                          "not on the chart nothing changes — say what was "
+                          "removed, and re-add with draw=true if the user "
+                          "wants a fresh one.")}
     rows = _rows(interval, max(200, min(int(lookback_bars or 400), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -3669,7 +3681,9 @@ TOOLS = [
          "Use this rather than pulling bars and doing the arithmetic yourself — the result carries the exact "
          "formula and smoothing used, which differ between platforms. Reach for adx when the question is whether "
          "price is TRENDING or just ranging, bbands bandwidth for volatility compression, and the volume family "
-         "when asked whether volume confirms a move."),
+         "when asked whether volume confirms a move. remove=true takes an indicator OFF the chart (period to "
+         "target one variant, omit for all of that name) — removing and re-adding with new settings in the same "
+         "round is how 'replace my RSI with…' is done."),
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string",
                   "enum": ["sma", "ema", "wma", "hma", "dema", "bbands", "keltner", "donchian",
@@ -3690,7 +3704,8 @@ TOOLS = [
          "mark_points": {"type": "boolean", "description": "draw a dot ON the indicator at each `at` time, at its computed value — for marking crosses, extremes, tests of a level"},
          "connect": {"type": "boolean", "description": "connect the `at` values with a line on the indicator's pane — an indicator trendline whose y-values come from the series, never guessed"},
          "mark_levels": {"type": "array", "items": {"type": "number"}, "description": "horizontal reference lines on the indicator's own scale, e.g. [70,30] on rsi or [0] on macd. When marking an indicator the user already has plotted, pass that line's period (it is in the chart context, e.g. 'RSI 70') so the marks sit on that exact line"},
-         "draw": {"type": "boolean", "description": "add it to the user's chart"}},
+         "draw": {"type": "boolean", "description": "add it to the user's chart"},
+         "remove": {"type": "boolean", "description": "remove this indicator from the chart instead of computing it — period targets one variant, omitted removes every variant of the name"}},
          "required": ["name", "interval"]}},
 ]
 

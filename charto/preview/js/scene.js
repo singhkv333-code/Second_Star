@@ -446,6 +446,10 @@ const Scene = (() => {
             drew++; continue;
           }
           if (a.kind === "indicator") { env.onIndicator(a); drew++; continue; }
+          if (a.kind === "indicator_remove") {
+            if (env.onIndicatorRemove) env.onIndicatorRemove(a);
+            drew++; continue;
+          }
           if (!DRAWN.has(a.kind)) continue;
           const i = state.items.findIndex((x) => x.id === a.id);
           if (i >= 0) state.items[i] = a; else state.items.push(a);
