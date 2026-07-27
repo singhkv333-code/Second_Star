@@ -51,6 +51,7 @@ const Indicators = (() => {
   ];
 
   let CATALOG = [];          // presets joined with what the backend reports
+  let KNOWN = {};            // the backend's own catalogue, kept for minting
   let BASE = "";
 
   async function loadCatalogue(base) {
@@ -60,6 +61,7 @@ const Indicators = (() => {
       const r = await fetch(`${base}/indicators`);
       for (const x of (await r.json()).indicators) known[x.name] = x;
     } catch { /* offline: fall back to presets alone */ }
+    KNOWN = known;
     CATALOG = PRESETS
       .filter((p) => !Object.keys(known).length || known[p.name])
       .map((p) => ({
@@ -71,6 +73,48 @@ const Indicators = (() => {
         formula: (known[p.name] || {}).formula || "",
       }));
     return CATALOG;
+  }
+
+  /** The catalog entry for (name, period) — minted on demand. The presets
+   *  are a convenience, not the limit: "RSI 26" clones the RSI preset with
+   *  the new period so any period renders under its own honest label,
+   *  instead of silently collapsing onto the preset's period (which drew
+   *  RSI 14 while the reply quoted RSI 26). Returns the id, or null when
+   *  the backend doesn't know the indicator at all. */
+  function ensure(name, period) {
+    if (!name) return null;
+    const p = Number(period) || 0;
+    const exact = CATALOG.find((c) => c.name === name && c.period === p);
+    if (exact) return exact.id;
+    const sib = CATALOG.find((c) => c.name === name);
+    if (!p) return sib ? sib.id : null;   // no period asked: the default def
+    const id = `${name}${p}`;
+    if (sib) {
+      // first numeric token in the label is always the period
+      CATALOG.push({ ...sib, id, period: p,
+                     label: sib.label.replace(/\d+/, String(p)) });
+      return id;
+    }
+    if (KNOWN[name]) {                    // renderable but not a preset (wma…)
+      const k = KNOWN[name];
+      CATALOG.push({
+        id, name, period: p,
+        label: `${name.toUpperCase().replace(/_/g, " ")} ${p}`,
+        kind: k.pane === "own" ? "pane" : "overlay",
+        group: k.group || "trend", lines: k.lines || ["value"],
+        bounds: k.bounds, formula: k.formula || "",
+      });
+      return id;
+    }
+    return null;
+  }
+
+  /** Re-materialise a persisted id like "rsi26" after a reload, when the
+   *  dynamic def it referred to no longer exists. */
+  function ensureFromId(id) {
+    if (CATALOG.find((c) => c.id === id)) return id;
+    const m = /^([a-z_]+?)(\d+)$/.exec(id);
+    return m ? ensure(m[1], Number(m[2])) : null;
   }
 
   // The chart plots on IST-shifted times — main.js's fetchBars does
@@ -266,9 +310,22 @@ const Indicators = (() => {
       refreshOverlayLegend();
     }
 
+    /** Swap a live indicator to a new period: same indicator, new def. */
+    async function setPeriod(id, period) {
+      const def = CATALOG.find((c) => c.id === id);
+      const p = Number(period) || 0;
+      if (!def || !p || p === def.period) return id;
+      const nid = ensure(def.name, p);
+      if (!nid || nid === id) return id;
+      remove(id);
+      await add(nid);
+      return nid;
+    }
+
     return {
       get CATALOG() { return CATALOG; },
       active,
+      ensure, ensureFromId, setPeriod,
       setContext(next) { ctx = { ...ctx, ...next }; },
       toggle(id, _bars) { return active.has(id) ? (remove(id), Promise.resolve()) : add(id); },
       remove, recomputeAll, retheme,

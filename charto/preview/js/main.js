@@ -225,12 +225,56 @@
   function renderChips() {
     el("indChips").innerHTML = [...ind.active.keys()].map((id) => {
       const c = ind.CATALOG.find((q) => q.id === id);
-      return `<span class="chip">${c.label}` +
+      // a period is editable in place; period-less indicators (psar, vwap,
+      // obv) have nothing to edit, so their labels stay inert
+      const lbl = c.period > 0
+        ? `<span class="lbl" data-edit="${id}" title="Edit period">${c.label}</span>`
+        : c.label;
+      return `<span class="chip">${lbl}` +
         `<span class="x" data-rm="${id}" title="Remove">${Icons.svg("x", "xs")}</span></span>`;
     }).join("");
     // the chips ARE the active set, so this is the one honest save point —
     // it catches the menu, the chip's x, and anything the chat adds
     Store.set("indicators", [...ind.active.keys()]);
+  }
+
+  // ── period editor: click a chip's label, type, Enter ──
+  const periodPop = el("periodPop");
+  periodPop.addEventListener("click", (e) => e.stopPropagation());
+  function openPeriodEditor(anchorEl, id) {
+    const def = ind.CATALOG.find((c) => c.id === id);
+    if (!def) return;
+    periodPop.innerHTML =
+      `<div class="head">${def.label.replace(/\s*\d.*$/, "")} · period</div>` +
+      `<div class="period-row">` +
+      `<input id="periodInput" type="number" min="2" max="500" step="1" value="${def.period}">` +
+      `<button class="btn outline" id="periodApply">Apply</button></div>` +
+      (def.formula ? `<div class="hint">${def.formula}</div>` : "");
+    const r = anchorEl.getBoundingClientRect();
+    periodPop.style.left = `${Math.min(r.left, window.innerWidth - 260)}px`;
+    periodPop.style.top = `${r.bottom + 8}px`;
+    closeMenus(periodPop);
+    periodPop.classList.add("open");
+    const input = el("periodInput");
+    input.focus();
+    input.select();
+    const apply = async () => {
+      const v = Math.max(2, Math.min(500, parseInt(input.value, 10) || def.period));
+      periodPop.classList.remove("open");
+      if (v === def.period) return;
+      try {
+        await ind.setPeriod(id, v);
+        renderChips();
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      } catch (err) {
+        status(`could not apply period ${v}: ${err.message}`);
+      }
+    };
+    el("periodApply").onclick = apply;
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") apply();
+      if (e.key === "Escape") periodPop.classList.remove("open");
+    };
   }
   el("indBtn").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -254,6 +298,12 @@
     renderIndMenu(); renderChips();
   });
   el("indChips").addEventListener("click", (e) => {
+    const ed = e.target.closest("[data-edit]");
+    if (ed) {
+      e.stopPropagation();
+      openPeriodEditor(ed, ed.dataset.edit);
+      return;
+    }
     const x = e.target.closest("[data-rm]");
     if (!x) return;
     ind.remove(x.dataset.rm);
@@ -385,9 +435,11 @@
   // ids survive a pane reshuffle; pane indices do not.
   function panesList() {
     const out = [{ key: "price", label: "price", pane: candle.getPane(), series: candle }];
-    for (const [id, a] of ind.active) {
+    for (const [, a] of ind.active) {
       if (a.def.kind !== "pane" || !a.series.length) continue;
-      out.push({ key: id, label: a.def.label, pane: a.series[0].getPane(), series: a.series[0] });
+      // keyed by NAME, not active id: a divergence leg targets pane "rsi"
+      // and must still land there when the user has re-perioded it to rsi26
+      out.push({ key: a.def.name, label: a.def.label, pane: a.series[0].getPane(), series: a.series[0] });
     }
     return out;
   }
@@ -699,11 +751,11 @@
           + `${a.source.bars_scanned} ${a.source.interval} bars`
         : "";
     },
-    onIndicator: (a) => {                    // "add the 50-day average"
-      const id = a.name === "sma" && a.period === 50 ? "sma50"
-        : a.name === "sma" && a.period === 200 ? "sma200"
-        : a.name === "sma" ? "sma20" : a.name === "ema" ? "ema21" : a.name;
-      if (ind.CATALOG.some((c) => c.id === id) && !ind.isActive(id)) {
+    onIndicator: (a) => {                    // "add the 70-day average"
+      // ensure() mints a def for ANY period, so the line drawn is the line
+      // computed — mapping onto presets drew RSI 14 for a quoted RSI 26
+      const id = ind.ensure(a.name, a.period || 0);
+      if (id && !ind.isActive(id)) {
         Promise.resolve(ind.toggle(id, state.bars)).then(() => renderChips()).catch(() => {});
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
       }
@@ -870,15 +922,17 @@
     await loadInterval(iv);
 
     for (const id of Store.get("indicators", [])) {
-      const def = ind.CATALOG.find((c) => c.id === id);
+      // dynamic defs (rsi26) don't survive a reload — re-mint from the id
+      const rid = ind.ensureFromId(id);
+      const def = rid && ind.CATALOG.find((c) => c.id === rid);
       // VWAP is session-anchored — silently skip it if the saved interval is
       // daily+, rather than restoring an indicator that can't mean anything
-      if (!def || ind.isActive(id)) continue;
+      if (!def || ind.isActive(rid)) continue;
       if (def.intradayOnly && DAILY.has(state.interval)) continue;
       // never swallow: a restore that fails silently leaves a chip on
       // screen with no series under it, which looks like a render bug
-      await Promise.resolve(ind.toggle(id, state.bars))
-        .catch((err) => { console.error("[charto] indicator restore failed", id, err); });
+      await Promise.resolve(ind.toggle(rid, state.bars))
+        .catch((err) => { console.error("[charto] indicator restore failed", rid, err); });
     }
     renderChips();
 

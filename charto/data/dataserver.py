@@ -2356,7 +2356,9 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        lookback_bars: int = 400, draw: bool = False,
                        source: str = "close", mult: float = 0,
                        fast: int = 0, slow: int = 0, signal: int = 0,
-                       series_points: int = 0, anchor_time: str = "") -> dict:
+                       series_points: int = 0, anchor_time: str = "",
+                       at: list | None = None, frm: str = "",
+                       to: str = "") -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -2383,6 +2385,16 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
     rows = _rows(interval, max(200, min(int(lookback_bars or 400), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
+    # an aggregate over marked points or a window may reach further back than
+    # the default page — deepen the data BEFORE computing, so the tool sees
+    # what the question is actually about (bounded at 5000 bars)
+    if at or frm:
+        wanted = [t for t in ([_parse_ist(frm)] if frm else [])
+                  + [_parse_ist(str(s)) for s in (at or [])[:20]] if t]
+        if wanted and min(wanted) < rows[0][0]:
+            deeper = _rows(interval, 5000)
+            if deeper and deeper[0][0] < rows[0][0]:
+                rows = deeper
 
     extra: dict = {}
     if mult:
@@ -2428,6 +2440,72 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
             **{ln: [None if v[i] is None else round(v[i], 4) for i in idx]
                for ln, v in res["lines"].items()},
         }
+    # ── values at marked points / over a window, aggregated SERVER-SIDE ──
+    # "Average RSI at my three marked lows" must never be the model doing
+    # arithmetic over a series tail — code owns the math. The primary line
+    # (the first named one) is what gets aggregated, and the result says so.
+    if at or frm or to:
+        prim = next(iter(res["lines"]))
+        line = res["lines"][prim]
+        picked: list[tuple] = []          # (display_t, value)
+        unread: list[str] = []
+        outside: list[str] = []
+        if at:
+            iv_sec = INTRADAY_MIN.get(interval, 0) * 60 or 86400
+            for s in list(at)[:20]:
+                t = _parse_ist(str(s))
+                if t is None:
+                    unread.append(str(s))
+                    continue
+                j = next((i for i in range(len(rows) - 1, -1, -1)
+                          if rows[i][0] <= t), None)
+                if j is None or t >= rows[-1][0] + iv_sec:
+                    outside.append(str(s))
+                    continue
+                picked.append((_ist(rows[j][0], wt), line[j]))
+        else:
+            t0, t1 = _parse_ist(frm), _parse_ist(to)
+            bad = [n for n, v, p in (("frm", frm, t0), ("to", to, t1))
+                   if v and p is None]
+            if bad:
+                return {"error": f"could not read {' and '.join(bad)} as a date",
+                        "hint": "use the chart's format, e.g. '08 Jul 2026' — "
+                                "nothing was aggregated."}
+            idxs = [i for i, r in enumerate(rows)
+                    if (t0 is None or r[0] >= t0) and (t1 is None or r[0] <= t1)]
+            picked = [(_ist(rows[i][0], wt), line[i]) for i in idxs]
+            if t0 is not None and rows and t0 < rows[0][0]:
+                out["_window_note"] = (
+                    f"even at this interval's deepest page the bars start "
+                    f"{_ist(rows[0][0], wt)} — the aggregate covers from "
+                    f"there, not from {frm}. If the question allows, re-call "
+                    f"on a coarser interval (e.g. 1d) where the window is "
+                    f"reachable, and say which interval the average is from.")
+        if unread:
+            return {"error": f"could not read these times: {', '.join(unread)}",
+                    "hint": "use the chart's format, e.g. '08 Jul 2026 15:25' — "
+                            "nothing was aggregated."}
+        vals = [v for _, v in picked if v is not None]
+        agg: dict = {"line": prim, "points": len(picked),
+                     "with_value": len(vals)}
+        if vals:
+            sv = sorted(vals)
+            agg.update(mean=round(sum(vals) / len(vals), 4),
+                       median=round(sv[len(sv) // 2], 4),
+                       min=round(sv[0], 4), max=round(sv[-1], 4))
+        else:
+            agg["note"] = ("none of these bars has a value — the line has "
+                           "not warmed up there. Say that; do not average "
+                           "nothing.")
+        if at and len(picked) <= 12:
+            agg["at_values"] = [{"t": t, "value": None if v is None
+                                 else round(v, 4)} for t, v in picked]
+        if outside:
+            agg["outside_data"] = outside
+            agg["outside_note"] = ("these times fall outside the loaded bars "
+                                   "and were NOT included — name them if the "
+                                   "user asked about them")
+        out["aggregate"] = agg
     if draw:
         # The chart owns the same formulas, so drawing is naming — but only
         # for what the FE can actually render. Claiming to have drawn
@@ -2626,6 +2704,10 @@ TOOLS = [
          "mult": {"type": "number", "description": "band width multiplier for bbands / keltner / supertrend"},
          "anchor_time": {"type": "string", "description": "for anchored_vwap: the bar to anchor at, in the chart's format e.g. '11 Jun 2026'"},
          "series_points": {"type": "integer", "description": "return the last N points of the series too (max 60) — use it to see a cross or a turn, not just the current value"},
+         "at": {"type": "array", "items": {"type": "string"},
+                "description": "IST times (chart format, e.g. '08 Jul 2026 15:25', max 20) — returns the indicator's value at each plus mean/median/min/max, computed server-side. Use for 'average RSI at my marked points' by copying the times from the chart context's drawings; never average values by hand"},
+         "frm": {"type": "string", "description": "aggregate over a window instead: IST start"},
+         "to": {"type": "string", "description": "IST end of the aggregate window"},
          "draw": {"type": "boolean", "description": "add it to the user's chart"}},
          "required": ["name", "interval"]}},
 ]
