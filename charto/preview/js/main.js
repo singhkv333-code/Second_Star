@@ -438,8 +438,11 @@
     for (const [, a] of ind.active) {
       if (a.def.kind !== "pane" || !a.series.length) continue;
       // keyed by NAME, not active id: a divergence leg targets pane "rsi"
-      // and must still land there when the user has re-perioded it to rsi26
-      out.push({ key: a.def.name, label: a.def.label, pane: a.series[0].getPane(), series: a.series[0] });
+      // and must still land there when the user has re-perioded it to rsi26.
+      // `period` rides along so a composite key ("rsi@26") can pick the
+      // right variant when two of the same indicator are open.
+      out.push({ key: a.def.name, period: a.def.period, label: a.def.label,
+                 pane: a.series[0].getPane(), series: a.series[0] });
     }
     return out;
   }
@@ -743,6 +746,7 @@
       badge.style.display = n ? "" : "none";
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
+      ind.rescalePanes();     // marks feed pane autoscale — recompute now
     },
     onHover: (a) => {
       el("drawStatus").textContent = a
@@ -751,13 +755,34 @@
           + `${a.source.bars_scanned} ${a.source.interval} bars`
         : "";
     },
-    onIndicator: (a) => {                    // "add the 70-day average"
+    onIndicator: async (a) => {              // "add the 70-day average"
+      // pane keys may arrive composite ("rsi@26") from period-aware marks
+      const raw = String(a.name || "");
+      const name = raw.split("@")[0];
+      const period = a.period || Number(raw.split("@")[1]) || 0;
+      const changed = () => {
+        renderChips();
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      };
+      // if this indicator is already on the chart, chat RE-PERIODS it in
+      // place — a second variant of the same indicator appears only when
+      // the user adds one deliberately from the menu
+      const activeId = [...ind.active.keys()].find((id) => {
+        const d = ind.CATALOG.find((c) => c.id === id);
+        return d && d.name === name;
+      });
+      if (activeId) {
+        const d = ind.CATALOG.find((c) => c.id === activeId);
+        if (!period || d.period === period) return;
+        try { await ind.setPeriod(activeId, period); changed(); }
+        catch (err) { status(`could not switch ${name} to ${period}: ${err.message}`); }
+        return;
+      }
       // ensure() mints a def for ANY period, so the line drawn is the line
       // computed — mapping onto presets drew RSI 14 for a quoted RSI 26
-      const id = ind.ensure(a.name, a.period || 0);
+      const id = ind.ensure(name, period);
       if (id && !ind.isActive(id)) {
-        Promise.resolve(ind.toggle(id, state.bars)).then(() => renderChips()).catch(() => {});
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        Promise.resolve(ind.toggle(id, state.bars)).then(changed).catch(() => {});
       }
     },
     isCursorMode: () => draw.state.tool === "cursor",
@@ -766,6 +791,22 @@
   el("sceneClear").innerHTML = Icons.svg("eraser", "sm");
   el("sceneClear").addEventListener("click", () => scene.clear());
   document.addEventListener("charto:indicators-changed", () => scene.syncPanes());
+
+  // marked levels/points on an indicator pane feed its autoscale, so a
+  // "70" line on the RSI is actually on screen instead of off-scale
+  ind.setScaleExtras((name, period) => {
+    const vals = [];
+    for (const a of scene.state.items) {
+      const [nm, per] = String(a.pane || "").split("@");
+      if (nm !== name || (per && +per !== period)) continue;
+      if (a.kind === "level") vals.push(a.price);
+      else if (a.kind === "zone") vals.push(a.lo, a.hi);
+      else if (a.kind === "point" && a.a) vals.push(a.a.v);
+      else if (a.kind === "segment") vals.push(a.p1.v, a.p2.v);
+      else if (a.kind === "poly") for (const p of a.pts || []) vals.push(p.v);
+    }
+    return vals.filter((v) => Number.isFinite(v));
+  });
 
   // ── provenance card: every drawn line is interrogable ──
   const prov = el("provCard");
@@ -935,6 +976,9 @@
         .catch((err) => { console.error("[charto] indicator restore failed", rid, err); });
     }
     renderChips();
+    // panes created during restore need every layer's primitives attached —
+    // the same signal a live indicator change sends
+    document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
 
     const levels = Store.get("scene", []);
     if (levels.length) {

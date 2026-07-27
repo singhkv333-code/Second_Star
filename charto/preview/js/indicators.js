@@ -188,6 +188,10 @@ const Indicators = (() => {
     const active = new Map();
     let overlayLegend = null;
     let ctx = { interval: "1d", limit: 3000 };
+    // scene marks on a pane (rsi 70/30 lines…) sit outside the data's own
+    // range; the pane's autoscale must stretch to include them or a marked
+    // level is silently invisible. main.js injects the lookup.
+    let scaleExtras = null;
 
     function nextPane() { return chart.panes().length; }
 
@@ -246,16 +250,39 @@ const Indicators = (() => {
       if (!active.has(id)) return;     // toggled off while in flight
       const pane = def.kind === "pane" ? nextPane() : 0;
       const specs = toSpecs(def, lines, pane);
-      const series = specs.map((s) => {
+      // widen this pane's scale to include whatever the scene has marked on
+      // it — the provider is consulted on every autoscale pass
+      const scaleWithMarks = (orig) => {
+        const r = orig();
+        const extras = scaleExtras ? scaleExtras(def.name, def.period) : [];
+        if (!r || !r.priceRange || !extras.length) return r;
+        return { ...r, priceRange: {
+          minValue: Math.min(r.priceRange.minValue, ...extras),
+          maxValue: Math.max(r.priceRange.maxValue, ...extras),
+        } };
+      };
+      const series = specs.map((s, i) => {
         const api = s.hist
           ? chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, s.pane ?? 0)
           : chart.addSeries(LWC.LineSeries, {
               priceLineVisible: false, lastValueVisible: false,
               crosshairMarkerVisible: false, ...(s.opts || {}),
+              ...(def.kind === "pane" && i === 0
+                ? { autoscaleInfoProvider: scaleWithMarks } : {}),
             }, s.pane ?? 0);
         api.setData(s.data);
         return api;
       });
+      // a fresh oscillator pane defaults to an equal share of the chart;
+      // price should stay dominant, so a new pane takes ~1/3 of the price
+      // pane's stretch — relative to whatever LWC's default factor is
+      if (def.kind === "pane" && series.length) {
+        const p = series[0].getPane();
+        const base = chart.panes()[0];
+        if (p.setStretchFactor && base.getStretchFactor) {
+          p.setStretchFactor(base.getStretchFactor() * 0.32);
+        }
+      }
       const entry = { series, def, specs, legendLines: legendLines(def, specs),
                       data: specs.map((s) => s.data) };
       if (def.kind === "pane" && series.length) {
@@ -322,10 +349,22 @@ const Indicators = (() => {
       return nid;
     }
 
+    /** Force every indicator pane to re-run autoscale — called when the
+     *  scene changes, since marked levels feed the scale via the provider. */
+    function rescalePanes() {
+      for (const [, a] of active) {
+        if (a.def.kind === "pane" && a.series.length) {
+          try { a.series[0].priceScale().applyOptions({ autoScale: true }); }
+          catch { /* series being torn down */ }
+        }
+      }
+    }
+
     return {
       get CATALOG() { return CATALOG; },
       active,
-      ensure, ensureFromId, setPeriod,
+      ensure, ensureFromId, setPeriod, rescalePanes,
+      setScaleExtras(fn) { scaleExtras = fn; },
       setContext(next) { ctx = { ...ctx, ...next }; },
       toggle(id, _bars) { return active.has(id) ? (remove(id), Promise.resolve()) : add(id); },
       remove, recomputeAll, retheme,

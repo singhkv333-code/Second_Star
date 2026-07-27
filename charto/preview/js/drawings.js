@@ -205,9 +205,12 @@ const Drawings = (() => {
     }
     function syncPanes() {
       const live = env.panes();
-      const keys = new Set(live.map((p) => p.key));
       for (const [key, rec] of [...attached]) {
-        if (keys.has(key)) continue;
+        // same KEY is not same PANE: re-perioding an indicator destroys its
+        // pane and creates a fresh one under the same name, and a primitive
+        // left on the dead pane renders nothing, silently
+        const lp = live.find((p) => p.key === key);
+        if (lp && lp.pane === rec.pane) continue;
         try { rec.pane.detachPrimitive(rec.prim); } catch {}
         attached.delete(key); rus.delete(key);
       }

@@ -39,7 +39,18 @@ const Scene = (() => {
     const attached = new Map();            // paneKey -> {pane, prim}
 
     const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-    const paneFor = (key) => env.panes().find((p) => p.key === (key || "price"));
+    /** Pane keys may be composite — "rsi@26" means the rsi pane whose line
+     *  is period 26, so marks land on the variant they were computed from
+     *  when two of the same indicator are open. Plain names keep working. */
+    function paneFor(keyRaw) {
+      const key = keyRaw || "price";
+      const ps = env.panes();
+      const exact = ps.find((p) => p.key === key);
+      if (exact) return exact;
+      const [nm, per] = String(key).split("@");
+      return ps.find((p) => p.key === nm && (!per || p.period === +per))
+        || ps.find((p) => p.key === nm);
+    }
     function vToY(v, key) {
       const p = paneFor(key);
       return p ? p.series.priceToCoordinate(v) : null;
@@ -96,7 +107,8 @@ const Scene = (() => {
       return logicalToX(lo + (ct - bars[lo].time) / span);
     }
 
-    const mine = (a, key) => (a.pane || "price") === (key || "price");
+    const mine = (a, key) =>
+      String(a.pane || "price").split("@")[0] === (key || "price");
 
     /* Annotation kinds that are plain geometry — composed by draw_shape from
      * resolved anchors rather than produced by a detector. They render and
@@ -305,9 +317,12 @@ const Scene = (() => {
     /** Attach to any new pane, drop any that went away. */
     function syncPanes() {
       const live = env.panes();
-      const keys = new Set(live.map((p) => p.key));
       for (const [key, rec] of [...attached]) {
-        if (keys.has(key)) continue;
+        // same KEY is not same PANE: re-perioding an indicator destroys its
+        // pane and creates a fresh one under the same name, and a primitive
+        // left on the dead pane renders nothing, silently
+        const lp = live.find((p) => p.key === key);
+        if (lp && lp.pane === rec.pane) continue;
         try { rec.pane.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
         attached.delete(key); rus.delete(key);
       }

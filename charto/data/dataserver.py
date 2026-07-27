@@ -2358,7 +2358,9 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        fast: int = 0, slow: int = 0, signal: int = 0,
                        series_points: int = 0, anchor_time: str = "",
                        at: list | None = None, frm: str = "",
-                       to: str = "") -> dict:
+                       to: str = "", mark_points: bool = False,
+                       connect: bool = False,
+                       mark_levels: list | None = None) -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -2462,7 +2464,7 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                 if j is None or t >= rows[-1][0] + iv_sec:
                     outside.append(str(s))
                     continue
-                picked.append((_ist(rows[j][0], wt), line[j]))
+                picked.append((_ist(rows[j][0], wt), line[j], rows[j][0]))
         else:
             t0, t1 = _parse_ist(frm), _parse_ist(to)
             bad = [n for n, v, p in (("frm", frm, t0), ("to", to, t1))
@@ -2473,7 +2475,7 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                                 "nothing was aggregated."}
             idxs = [i for i, r in enumerate(rows)
                     if (t0 is None or r[0] >= t0) and (t1 is None or r[0] <= t1)]
-            picked = [(_ist(rows[i][0], wt), line[i]) for i in idxs]
+            picked = [(_ist(rows[i][0], wt), line[i], rows[i][0]) for i in idxs]
             if t0 is not None and rows and t0 < rows[0][0]:
                 out["_window_note"] = (
                     f"even at this interval's deepest page the bars start "
@@ -2485,7 +2487,7 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
             return {"error": f"could not read these times: {', '.join(unread)}",
                     "hint": "use the chart's format, e.g. '08 Jul 2026 15:25' — "
                             "nothing was aggregated."}
-        vals = [v for _, v in picked if v is not None]
+        vals = [v for _, v, _ in picked if v is not None]
         agg: dict = {"line": prim, "points": len(picked),
                      "with_value": len(vals)}
         if vals:
@@ -2499,13 +2501,81 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                            "nothing.")
         if at and len(picked) <= 12:
             agg["at_values"] = [{"t": t, "value": None if v is None
-                                 else round(v, 4)} for t, v in picked]
+                                 else round(v, 4)} for t, v, _ in picked]
         if outside:
             agg["outside_data"] = outside
             agg["outside_note"] = ("these times fall outside the loaded bars "
                                    "and were NOT included — name them if the "
                                    "user asked about them")
         out["aggregate"] = agg
+
+    # ── marks ON the indicator itself ─────────────────────
+    # A dot, a connecting line, a reference level — drawn on the indicator's
+    # own pane at its own scale. Every y-value is read off the computed
+    # series (a mark at a time lands where the line actually was); there is
+    # no field here that accepts a model-invented coordinate.
+    if mark_levels or ((mark_points or connect) and at):
+        # composite pane key: the marks belong to THIS period's line, and
+        # "rsi@26" lets the chart pick the right pane when the user has two
+        # RSI variants open instead of dumping marks on whichever came first
+        pane_key = ("price" if indicators.SPECS[name]["pane"] == "overlay"
+                    else f"{name}@{res['spec']['period']}")
+        mid = "IX" + name.upper()
+        msrc = {"tool": "get_indicator",
+                "method": "value read off the computed series",
+                "interval": interval, "strength": "user-directed",
+                "bars_scanned": len(rows)}
+        marked: dict = {}
+        valid = ([(d, v, ts) for d, v, ts in picked if v is not None][:12]
+                 if (mark_points or connect) and at else [])
+        if (mark_points or connect) and at and not valid:
+            marked["points_note"] = ("none of those bars has a value (line "
+                                     "not warmed up there) — nothing marked")
+        if mark_points and valid:
+            for i, (d, v, ts) in enumerate(valid):
+                _scene_add({"kind": "point", "id": f"{mid}-p{i}", "link": mid,
+                            "pane": pane_key, "role": "neutral",
+                            "a": {"t": ts, "v": round(v, 4)},
+                            "source": {**msrc, "first_touch": d,
+                                       "last_touch": d}})
+            marked["points_marked"] = len(valid)
+        if connect:
+            if len(valid) >= 2:
+                _scene_add({"kind": "poly", "id": mid + "-c", "link": mid,
+                            "pane": pane_key, "role": "neutral", "solid": True,
+                            "pts": [{"t": ts, "v": round(v, 4)}
+                                    for _, v, ts in valid],
+                            "source": {**msrc, "first_touch": valid[0][0],
+                                       "last_touch": valid[-1][0]}})
+                marked["connected"] = len(valid)
+            else:
+                marked["connect_note"] = ("connecting needs at least two bars "
+                                          "with values — nothing was drawn")
+        lvls = []
+        for lv in (mark_levels or [])[:4]:
+            try:
+                lvf = float(lv)
+            except (TypeError, ValueError):
+                continue
+            _scene_add({"kind": "level", "id": f"{mid}-l{lvf:g}",
+                        "price": lvf, "pane": pane_key, "role": "neutral",
+                        "strength": "user-directed",
+                        "label": f"{name} {lvf:g}",
+                        "source": {**msrc, "first_touch": "—",
+                                   "last_touch": "—"}})
+            lvls.append(lvf)
+        if lvls:
+            marked["levels"] = lvls
+        # the marks annotate a specific line — plot that same line (same
+        # name, same period) so a mark never floats over a different series
+        if name in _FE_RENDERABLE and (marked.get("points_marked")
+                                       or marked.get("connected") or lvls):
+            _scene_add({"kind": "indicator", "name": name,
+                        "period": res["spec"]["period"],
+                        "source": {"tool": "get_indicator",
+                                   "interval": interval}})
+        out["marked"] = marked
+        out["_drawn_note"] = _drawn_ledger()
     if draw:
         # The chart owns the same formulas, so drawing is naming — but only
         # for what the FE can actually render. Claiming to have drawn
@@ -2708,6 +2778,9 @@ TOOLS = [
                 "description": "IST times (chart format, e.g. '08 Jul 2026 15:25', max 20) — returns the indicator's value at each plus mean/median/min/max, computed server-side. Use for 'average RSI at my marked points' by copying the times from the chart context's drawings; never average values by hand"},
          "frm": {"type": "string", "description": "aggregate over a window instead: IST start"},
          "to": {"type": "string", "description": "IST end of the aggregate window"},
+         "mark_points": {"type": "boolean", "description": "draw a dot ON the indicator at each `at` time, at its computed value — for marking crosses, extremes, tests of a level"},
+         "connect": {"type": "boolean", "description": "connect the `at` values with a line on the indicator's pane — an indicator trendline whose y-values come from the series, never guessed"},
+         "mark_levels": {"type": "array", "items": {"type": "number"}, "description": "horizontal reference lines on the indicator's own scale, e.g. [70,30] on rsi or [0] on macd. When marking an indicator the user already has plotted, pass that line's period (it is in the chart context, e.g. 'RSI 70') so the marks sit on that exact line"},
          "draw": {"type": "boolean", "description": "add it to the user's chart"}},
          "required": ["name", "interval"]}},
 ]
