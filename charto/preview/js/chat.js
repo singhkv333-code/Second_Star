@@ -19,16 +19,56 @@
   // One source for the thread: the wire payload maps out of this, and this is
   // what persists — so a restored conversation and a live one can't diverge.
   // `meta` is display-only (latency, tokens, tools) and never reaches the model.
-  const turns = Store.get("chat", []);   // [{role, content, meta?}]
-  const wireHistory = () => turns.map((t) => ({ role: t.role, content: t.content }));
+  const turns = Store.get("chat", []);   // [{role, content, image?, meta?}]
+  const wireHistory = () => turns.map((t) => ({
+    role: t.role, content: t.content,
+    ...(t.image ? { image: t.image } : {}),
+  }));
   // Persist a bounded tail. A long session of table-heavy replies would
   // otherwise walk into the ~5MB localStorage ceiling, and Store.set swallows
   // quota errors — so it would stop saving silently rather than loudly.
+  // Screenshots are the heavy part: persist only the NEWEST one (the same
+  // policy the server applies to what the model sees).
   const KEEP_TURNS = 60;
-  const saveTurns = () => Store.set("chat", turns.slice(-KEEP_TURNS));
+  const saveTurns = () => {
+    const tail = turns.slice(-KEEP_TURNS);
+    const lastImg = tail.map((t) => !!t.image).lastIndexOf(true);
+    Store.set("chat", tail.map((t, i) =>
+      t.image && i !== lastImg ? { ...t, image: undefined } : t));
+  };
   let pending = false;
   let ctxOn = true;     // chart-state envelope attached to each message
   let lastBlock = "";   // what the model was actually told, for the inspector
+  let pendingImage = null;   // a captured screenshot waiting to ride the next send
+
+  // ── screenshot attach flow ────────────────────────────
+  // The camera button captures the CHART (all panes, no chat, no shell) and
+  // offers it here; nothing is sent until the user attaches and sends.
+  function setAttachment(uri) {
+    pendingImage = uri;
+    el("attachRow").style.display = uri ? "" : "none";
+    if (uri) el("attachThumb").src = uri;
+  }
+  document.addEventListener("charto:screenshot", (e) => {
+    el("shotPopImg").src = e.detail.uri;
+    el("shotPop").style.display = "";
+    el("shotAttach").onclick = () => {
+      setAttachment(e.detail.uri);
+      el("shotPop").style.display = "none";
+      input.focus();
+    };
+    el("shotDismiss").onclick = () => { el("shotPop").style.display = "none"; };
+  });
+  el("attachRemove").addEventListener("click", () => setAttachment(null));
+  // pasting an image into the composer attaches it the same way
+  input.addEventListener("paste", (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((x) => x.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    const r = new FileReader();
+    r.onload = () => setAttachment(r.result);
+    r.readAsDataURL(item.getAsFile());
+  });
 
   // ── markdown ──────────────────────────────────────────
   // Small on purpose: headings, lists, code, emphasis, rules. Escape first,
@@ -151,13 +191,23 @@
     if (e) e.remove();
   }
 
-  function addUserTurn(text) {
+  function addUserTurn(text, image) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn user";
     const b = document.createElement("div");
     b.className = "bubble";
-    b.textContent = text;
+    if (image) {
+      const img = document.createElement("img");
+      img.className = "shot";
+      img.src = image;
+      b.appendChild(img);
+    }
+    if (text) {
+      const t = document.createElement("div");
+      t.textContent = text;
+      b.appendChild(t);
+    }
     turn.appendChild(b);
     msgsEl.appendChild(turn);
     toBottom();
@@ -311,7 +361,7 @@
   (function restoreThread() {
     if (!turns.length) return;
     for (const t of turns) {
-      if (t.role === "user") { addUserTurn(t.content); continue; }
+      if (t.role === "user") { addUserTurn(t.content, t.image); continue; }
       finishTurn(addAssistantTurn(), t.content, t.meta || []);
     }
     toBottom();
@@ -320,14 +370,16 @@
   // ── send ──────────────────────────────────────────────
   async function send() {
     const text = input.value.trim();
-    if (!text || pending) return;
+    if ((!text && !pendingImage) || pending) return;
+    const image = pendingImage;
+    setAttachment(null);
     input.value = "";
     autoGrow();
     pending = true;
     sendBtn.disabled = true;
 
-    turns.push({ role: "user", content: text });
-    addUserTurn(text);
+    turns.push({ role: "user", content: text, ...(image ? { image } : {}) });
+    addUserTurn(text, image);
     const turn = addAssistantTurn();
     const t0 = performance.now();
 

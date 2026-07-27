@@ -923,6 +923,27 @@
   document.addEventListener("charto:unpin", (e) => pins.remove(e.detail));
 
   // ── theme toggle ──────────────────────────────────────
+  // ── screenshot: the chart (all panes), never the chat or the shell ──
+  el("shotBtn").innerHTML = Icons.svg("camera", "sm");
+  el("shotBtn").addEventListener("click", () => {
+    // LWC renders everything — candles, panes, axes, our primitives — into
+    // its own canvases, so takeScreenshot() is exactly "the chart and
+    // nothing else". Downscale so image tokens stay sane.
+    const full = chart.takeScreenshot();
+    const MAX_W = 1280;
+    let c = full;
+    if (full.width > MAX_W) {
+      c = document.createElement("canvas");
+      c.width = MAX_W;
+      c.height = Math.round(full.height * (MAX_W / full.width));
+      c.getContext("2d").drawImage(full, 0, 0, c.width, c.height);
+    }
+    document.dispatchEvent(new CustomEvent("charto:screenshot", {
+      detail: { uri: c.toDataURL("image/png") },
+    }));
+    status("screenshot captured — attach it in the chat");
+  });
+
   const themeBtn = el("themeToggle");
   function paintThemeBtn() {
     // show what you'd switch TO, the way macOS/Linear do it

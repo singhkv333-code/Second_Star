@@ -3002,6 +3002,35 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
 _MAX_TOOL_ROUNDS = 3  # bounds latency; 1 round answers almost everything
 
 
+def _wire_messages(messages: list[dict]) -> list[dict]:
+    """History → Responses-API input items, screenshots included honestly.
+
+    A user message may carry `image` (a data-URI chart screenshot). Only the
+    NEWEST one goes to the model — re-shipping every past screenshot on every
+    turn would grow input cost without bound — and an older message that had
+    one says so in text, so the model never half-remembers an image it can no
+    longer see."""
+    last_img = max((i for i, m in enumerate(messages) if m.get("image")),
+                   default=None)
+    out: list[dict] = []
+    for i, m in enumerate(messages):
+        role = m.get("role", "user")
+        txt = str(m.get("content", ""))
+        img = m.get("image") if i == last_img else None
+        if img and len(img) > 3_000_000:
+            img = None
+            txt += "\n[attached screenshot was too large to send — say so]"
+        elif m.get("image") and i != last_img:
+            txt += "\n[a chart screenshot was attached here; only the newest screenshot stays in context]"
+        if img:
+            out.append({"role": role, "content": [
+                {"type": "input_text", "text": txt},
+                {"type": "input_image", "image_url": img}]})
+        else:
+            out.append({"role": role, "content": txt})
+    return out
+
+
 def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     """Responses-API call with the tool loop.
 
@@ -3019,8 +3048,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
-    wire += [{"role": m.get("role", "user"), "content": str(m.get("content", ""))}
-             for m in messages]
+    wire += _wire_messages(messages)
 
     _scene_reset()
     tool_trace: list[dict] = []
@@ -3092,8 +3120,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
-    wire += [{"role": m.get("role", "user"), "content": str(m.get("content", ""))}
-             for m in messages]
+    wire += _wire_messages(messages)
 
     _scene_reset()
     tool_trace: list[dict] = []
