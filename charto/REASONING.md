@@ -350,6 +350,40 @@ with search bought only when the question is genuinely about the outside world.
 
 ---
 
+## 11. Build result (2026-07-27 — §9 items 1-4 SHIPPED)
+
+Built: `explain_move` (composite, ~650-token return), NIFTY benchmark via
+`sync_benchmark.py` (yfinance EOD, tagged, 2,846 sessions, `--kite` upgrade
+path), `search_news` (isolated sub-call, effort=low, (symbol,window)-keyed
+SQLite cache), `CAUSAL_RULES` rail (~140 tok), and the `mult` crash fix.
+Carried cost measured: bare-floor 5,020 vs 5,036 before with the chart
+envelope in place of the new schemas — net ~+490/hop for the whole feature.
+
+Live multi-turn eval through `/chat` (one conversation, triad per turn):
+
+| Turn | s | in | out | tools | verdict |
+|---|---:|---:|---:|---|---|
+| why did it fall 21-22 Jul | 26.0 | 17.3k | 671 | explain_move, search_news | market third vs stock two-thirds via beta split; anatomy cited; inference labelled |
+| any news behind it? | 17.0 | 18.4k | 523 | both (search cached) | dated events + sources; widened window itself to include results day |
+| daily RSI oversold? | 12.7 | 11.8k | 181 | get_indicator | regression clean — no causal machinery fired |
+| why move on 2 Jun (flat day) | 12.3 | 12.3k | 382 | explain_move only | "didn't materially move… no clear catalyst" — did NOT search |
+
+Baseline for the same causal question before the build: 28.3s · 32k · 3
+rounds · 9 calls, and no honest way to separate market from stock.
+
+One legibility fix from the run (single sanctioned retest, passed): the
+results field is now `first_reactable_session` — a bare `date` got the
+release day and the reactable day conflated. Emergent behaviour worth
+keeping: the model widened the search window on its own after explain_move
+showed results one session pre-window — the aimed-search loop working as
+designed, unprompted.
+
+Still open from §9: item 5's fixed probe set with the *catalyst claimed vs
+real* column tracked release-over-release; block/bulk + delivery % + OI
+doors (need feeds); Kite re-login to upgrade the benchmark rows.
+
+---
+
 ## Appendix — bug found while measuring
 
 `get_indicator` forwards `mult` to every indicator function, but only

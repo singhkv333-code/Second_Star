@@ -508,6 +508,14 @@ SPECS: dict = {
 
 NAMES = tuple(sorted(SPECS))
 
+# Which indicators actually take a band-width multiplier — derived from the
+# functions' own signatures so it can never drift from them. Forwarding
+# `mult` to the rest raised TypeError and burned the whole tool call.
+import inspect as _inspect
+MULT_OK = frozenset(
+    k for k, v in SPECS.items()
+    if "mult" in _inspect.signature(v["fn"]).parameters)
+
 
 def compute(name: str, rows: list[tuple], period: int = 0,
             source: str = "close", **extra) -> dict:

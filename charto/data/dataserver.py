@@ -2634,6 +2634,454 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     return res
 
 
+# ── explain_move: the whole "why did it move" evidence pack in one call ────
+#
+# Six of the seven rungs of a causal question are local arithmetic: is the
+# move abnormal for THIS stock, how much of it was the index, when in the
+# session it happened, was a result nearby, what structure broke, and how
+# similar moves resolved before. Fetching them one narrow tool at a time cost
+# a measured 9 calls / 3 rounds / 28s — so they ship together, unasked,
+# because every extra round re-pays the full prompt floor and a full RTT.
+# The return states FACTS, never directives: "NIFTY fell 0.8% over the same
+# window" is computation; "so search the market story" would be code deciding
+# meaning, which is the disease this file is built to avoid.
+
+def _bench_closes() -> dict:
+    """ISO date -> (close, source) for the benchmark index, whole history."""
+    try:
+        return {d: (c, s) for d, c, s in _con.execute(
+            "SELECT trade_date, c, source FROM benchmark WHERE symbol='NIFTY 50'")}
+    except sqlite3.Error:
+        return {}
+
+
+def _iso_day(ts: int) -> str:
+    return datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc).date().isoformat()
+
+
+def _minutes_of(day_ts: int) -> list[tuple]:
+    """1-min bars of the IST session containing day_ts."""
+    day0 = _ist_day(day_ts) * 86400 - IST_OFF
+    return _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol='RELIANCE' "
+        "AND ts>=? AND ts<? ORDER BY ts", (day0, day0 + 86400)).fetchall()
+
+
+def _session_anatomy(prev_close: float, mins: list[tuple]) -> dict:
+    """Where inside the session the move happened — gap vs legs vs close —
+    plus how concentrated the volume was at the edges of the day."""
+    if not mins:
+        return {}
+    o, cl = mins[0][1], mins[-1][4]
+    vol = sum(m[5] for m in mins) or 1
+
+    def hm(ts: int) -> str:
+        t = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
+        return f"{t.hour:02d}:{t.minute:02d}"
+
+    def px_at(clock: str) -> float:
+        best = o
+        for m in mins:
+            if hm(m[0]) <= clock:
+                best = m[4]
+            else:
+                break
+        return best
+
+    legs = [("gap_overnight", prev_close, o)]
+    for name, a, b in (("open_15m", "09:15", "09:30"),
+                       ("morning", "09:30", "12:00"),
+                       ("midday", "12:00", "14:30")):
+        legs.append((name, px_at(a) if a != "09:15" else o, px_at(b)))
+    legs.append(("last_hour", px_at("14:30"), cl))
+    out = {k: round((b / a - 1) * 100, 2) for k, a, b in legs if a}
+    out["vol_first_30m_pct"] = round(sum(
+        m[5] for m in mins if hm(m[0]) < "09:45") / vol * 100)
+    out["vol_last_30m_pct"] = round(sum(
+        m[5] for m in mins if hm(m[0]) >= "15:00") / vol * 100)
+    return out
+
+
+def tool_explain_move(frm: str = "", to: str = "") -> dict:
+    """Everything local that bears on "why did it move" over a date window.
+
+    Abnormality against this stock's own history, the index split, the
+    intraday anatomy, results proximity, structure crossed, patterns ending
+    in the window, and the record of similar past moves — one call.
+    """
+    rows = _rows("1d", 5000)
+    if len(rows) < 60:
+        return {"error": "not enough daily history"}
+    closes = [r[4] for r in rows]
+
+    # ── resolve the window to session indexes ──
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else None
+    if (frm and t0 is None) or (to and t1 is None):
+        return {"error": "could not read the date(s)",
+                "hint": "use the chart's format, e.g. '22 Jul 2026' or "
+                        "'21 Jul 2026' to '22 Jul 2026'"}
+    if t0 is None and t1 is None:
+        i0 = i1 = len(rows) - 1                      # the latest session
+    else:
+        if t0 is None:
+            t0 = t1
+        if t1 is None:
+            t1 = t0
+        if t1 < t0:
+            t0, t1 = t1, t0
+        i0 = next((i for i, r in enumerate(rows) if r[0] >= t0), None)
+        i1 = next((i for i in range(len(rows) - 1, -1, -1)
+                   if rows[i][0] < t1 + 86400), None)
+        if i0 is None or i1 is None or i0 > i1:
+            return {"error": "no sessions inside that window",
+                    "data_spans": f"{_ist(rows[0][0], False)} → "
+                                  f"{_ist(rows[-1][0], False)} IST"}
+    if i0 == 0:
+        i0 = 1                                       # need a prior close
+    n = i1 - i0 + 1
+    if n > 60:
+        return {"error": f"window is {n} sessions — this tool explains moves, "
+                         "not eras; narrow it to 60 sessions or fewer"}
+
+    prev_close, last_close = closes[i0 - 1], closes[i1]
+    ret = last_close / prev_close - 1
+    direction = 1 if ret >= 0 else -1
+
+    # ── per-session rows, with intraday anatomy where 1-min bars exist ──
+    sessions = []
+    for i in range(i0, min(i1, i0 + 9) + 1):
+        pc = closes[i - 1]
+        t, o, h, l, c, v = rows[i]
+        v20 = [rows[j][5] for j in range(max(0, i - 20), i)]
+        s = {"date": _ist(t, False),
+             "close": round(c, 2), "pct": round((c / pc - 1) * 100, 2),
+             "range": [round(l, 2), round(h, 2)], "volume": v,
+             "vol_vs_20d_avg": round(v / (sum(v20) / len(v20)), 2)
+             if v20 and sum(v20) else None}
+        anatomy = _session_anatomy(pc, _minutes_of(t))
+        if anatomy:
+            s["anatomy_pct"] = anatomy
+        sessions.append(s)
+    omitted = n - len(sessions)
+
+    out: dict = {
+        "window": {"from": _ist(rows[i0][0], False), "to": _ist(rows[i1][0], False),
+                   "sessions": n,
+                   "move_pct": round(ret * 100, 2),
+                   "from_close": round(prev_close, 2),
+                   "to_close": round(last_close, 2)},
+        "sessions": sessions,
+    }
+    if omitted > 0:
+        out["sessions_omitted"] = (f"{omitted} middle sessions omitted — "
+                                   "call get_bars for them if needed")
+
+    # ── abnormality: this move against this stock's own n-session history ──
+    hist = [closes[j] / closes[j - n] - 1
+            for j in range(n, i0)][-500:]
+    if len(hist) >= 30:
+        mean = sum(hist) / len(hist)
+        sd = (sum((x - mean) ** 2 for x in hist) / (len(hist) - 1)) ** 0.5
+        pct_rank = sum(1 for x in hist if abs(x) <= abs(ret)) / len(hist)
+        med_abs = _median([abs(x) for x in hist])
+        out["abnormality"] = {
+            "z_score": round(ret / sd, 2) if sd else None,
+            "abs_percentile": round(pct_rank * 100),
+            "typical_abs_move_pct": round((med_abs or 0) * 100, 2),
+            "based_on": f"{len(hist)} prior {n}-session windows",
+        }
+    else:
+        out["abnormality"] = {"withheld": f"only {len(hist)} prior "
+                              f"{n}-session windows — too few to place this one"}
+
+    # ── the index split: how much of the move was the market ──
+    bench = _bench_closes()
+    d_prev, d_last = _iso_day(rows[i0 - 1][0]), _iso_day(rows[i1][0])
+    if bench.get(d_prev) and bench.get(d_last):
+        b_ret = bench[d_last][0] / bench[d_prev][0] - 1
+        pairs = []
+        for i in range(i0 - 1, 0, -1):
+            da, db = _iso_day(rows[i - 1][0]), _iso_day(rows[i][0])
+            if da in bench and db in bench:
+                pairs.append((closes[i] / closes[i - 1] - 1,
+                              bench[db][0] / bench[da][0] - 1))
+            if len(pairs) >= 250:
+                break
+        blk: dict = {"index": "NIFTY 50",
+                     "index_pct": round(b_ret * 100, 2),
+                     "source": bench[d_last][1]}
+        if len(pairs) >= 60:
+            mb = sum(b for _, b in pairs) / len(pairs)
+            ms = sum(s for s, _ in pairs) / len(pairs)
+            var = sum((b - mb) ** 2 for _, b in pairs)
+            cov = sum((s - ms) * (b - mb) for s, b in pairs)
+            beta = cov / var if var else None
+            if beta is not None:
+                blk["beta"] = round(beta, 2)
+                blk["expected_from_index_pct"] = round(beta * b_ret * 100, 2)
+                blk["residual_pct"] = round((ret - beta * b_ret) * 100, 2)
+                blk["beta_note"] = (f"beta over {len(pairs)} pre-window "
+                                    "sessions; residual = the part the "
+                                    "index does not account for")
+        out["index_split"] = blk
+    else:
+        out["index_split"] = {"withheld": "no benchmark close for "
+                              f"{d_prev if not bench.get(d_prev) else d_last} "
+                              "— market-vs-stock split unavailable; do not "
+                              "guess which it was"}
+
+    # ── scheduled events: results on or near the window ──
+    near = []
+    dates_iso = {_iso_day(rows[i][0]): i for i in range(len(rows))}
+    for r in _results(200):
+        j = dates_iso.get(r["trade_date"])
+        if j is None:
+            continue
+        if i0 - 3 <= j <= i1 + 3:
+            rel = ("in window" if i0 <= j <= i1 else
+                   f"{i0 - j} session(s) before window" if j < i0 else
+                   f"{j - i1} session(s) after window")
+            # "first_reactable_session", not "date": an after-market filing's
+            # release day and the day the market could trade on it differ,
+            # and a bare "date" got the two conflated in replies
+            near.append({"quarter": r["quarter"],
+                         "first_reactable_session": r["trade_date"],
+                         "filed_after_market_close": r["after_market"],
+                         "position": rel})
+    out["results_nearby"] = near or "none within 3 sessions of the window"
+
+    # ── structure: pre-window levels the move crossed, and what's next ──
+    pre = rows[max(0, i0 - 300):i0]
+    crossed, nearest = [], {}
+    if len(pre) >= 60:
+        for lv in _levels(pre, with_time=False):
+            p = lv["price"]
+            entry = {"price": p, "role_before_move": lv["role"],
+                     "touches": lv["touches"]}
+            if (prev_close - p) * (last_close - p) < 0:
+                crossed.append(entry)
+            elif p < last_close and (
+                    "below" not in nearest
+                    or p > nearest["below"]["price"]):
+                nearest["below"] = entry
+            elif p > last_close and (
+                    "above" not in nearest
+                    or p < nearest["above"]["price"]):
+                nearest["above"] = entry
+    out["structure"] = {
+        "levels_crossed": crossed[:3] or "none — the move stayed between "
+                                         "its pre-window levels",
+        "nearest_below": nearest.get("below"),
+        "nearest_above": nearest.get("above"),
+    }
+
+    # ── patterns whose story ends in (or right at) the window ──
+    thru = rows[max(0, i1 - 300):i1 + 1]
+    pats = []
+    try:
+        piv = _pivots(thru, 5)
+        tol = _tolerance(thru)
+        fmt = lambda ts: _ist(ts, False)  # noqa: E731
+        for p in patterns.chart_patterns(thru, piv, tol, fmt, None, limit=8):
+            pt = _parse_ist(p["to"])
+            if pt and rows[i0][0] - 5 * 86400 <= pt <= rows[i1][0] + 86400:
+                pats.append({"pattern": p["pattern"],
+                             "direction": p["direction"],
+                             "status": p.get("status"),
+                             "from": p["from"], "to": p["to"]})
+        atr = _atr(thru, 14)
+        for c in patterns.candlesticks(thru, atr, lambda ts: ts, None,
+                                       limit=12):
+            if rows[i0][0] <= c["t"] <= rows[i1][0]:
+                pats.append({"pattern": c["pattern"],
+                             "direction": c["direction"],
+                             "candle_on": _ist(c["t"], False),
+                             "at": c["at"]})
+    except Exception as exc:  # noqa: BLE001 — detector failure must not kill the pack
+        logging.warning("explain_move patterns failed: %s", exc)
+    out["patterns_in_window"] = pats[:5] or "none detected ending in the window"
+
+    # ── the record of similar past moves, with its control ──
+    events, j, last_j = [], n, -10**9
+    while j < i0 - 1:
+        r_j = closes[j] / closes[j - n] - 1
+        if (r_j >= 0) == (ret >= 0) and abs(r_j) >= abs(ret) and j - last_j >= n:
+            events.append(j)
+            last_j = j
+        j += 1
+    cont = [1 if ((closes[e + 1] / closes[e] - 1) >= 0) == (ret >= 0) else 0
+            for e in events if e + 1 <= i0 - 1]
+    base_all = [1 if ((closes[i] / closes[i - 1] - 1) >= 0) == (ret >= 0) else 0
+                for i in range(1, i0)]
+    word = "up" if direction > 0 else "down"
+    hist_blk = {"matched": f"{len(events)} prior {n}-session moves {word} "
+                           f"≥ {abs(ret) * 100:.2f}% (non-overlapping)"}
+    hist_blk.update(_rate("continued_next_session_pct",
+                          sum(cont), len(cont) - sum(cont), "instance"))
+    if base_all:
+        hist_blk["control_any_session_pct"] = round(
+            sum(base_all) / len(base_all) * 100)
+        hist_blk["control_note"] = (f"share of ALL sessions that closed {word} "
+                                    "— quote the continuation rate only "
+                                    "against this")
+    out["similar_moves_before"] = hist_blk
+
+    mins_last = _minutes_of(rows[i1][0])
+    if i1 == len(rows) - 1 and mins_last:
+        hhmm = datetime.fromtimestamp(mins_last[-1][0] + IST_OFF,
+                                      tz=timezone.utc).strftime("%H:%M")
+        if hhmm < "15:25":
+            out["partial_session"] = (f"the last session's data ends at {hhmm} "
+                                      "IST — treat it as in progress")
+
+    out["_note"] = (
+        "Every figure above is computed from the local bar store"
+        + (" (index closes: " + bench[d_last][1] + ")" if bench.get(d_last) else "")
+        + ". This is the complete local evidence: quote quantities only from "
+          "here. Read abnormality first — a move inside this stock's normal "
+          "range needs no catalyst, and 'no clear catalyst' is a complete "
+          "answer. If an outside cause is still plausible, call search_news "
+          "once for dated events; behavioural readings (who was likely "
+          "buying/selling) must name the observed fact they rest on and be "
+          "stated as inference, not fact.")
+    return out
+
+
+# ── search_news: the outside world, behind a thin function tool ────────────
+#
+# The hosted web_search_preview costs ~4,300 input tokens merely to be
+# ATTACHED — as much as all other tools together — and the prompt floor is
+# re-paid every round. So the hosted tool never enters the main wire: this
+# function makes a second, throwaway Responses call that carries it, and the
+# main loop pays only this thin schema plus ~300 tokens of dated events.
+# The sub-call's prompt is the rail: events with dates and sources, never
+# quantities — so a stale aggregator's price table can't reach the answer.
+
+_NEWS_TTL_RECENT = 3600           # window touching the present: 1 hour
+_NEWS_RECENT_DAYS = 3             # past this age a window's news is settled
+
+_NEWS_PROMPT = (
+    "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
+    "Search the web once — twice only if the first search returns nothing — "
+    "and report what HAPPENED around {window}: company announcements or "
+    "filings, analyst/rating actions, sector or market-wide events, and "
+    "macro or global causes the financial press tied to those dates."
+    "{focus} Reply with 3-6 lines, each 'date · what happened · source "
+    "domain'. Only events that carry a date. Do NOT report prices, returns, "
+    "percentages, volumes or targets — the caller holds exact figures and "
+    "yours would be stale. If nothing is dated to the window, reply exactly: "
+    "nothing found for this window.")
+
+
+def _news_cache_get(key: str) -> dict | None:
+    try:
+        _con.execute("CREATE TABLE IF NOT EXISTS news_cache ("
+                     "key TEXT PRIMARY KEY, fetched_at INTEGER, "
+                     "recent INTEGER, payload TEXT)")
+        row = _con.execute("SELECT fetched_at, recent, payload "
+                           "FROM news_cache WHERE key=?", (key,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    fetched, recent, payload = row
+    import time as _t
+    if recent and _t.time() - fetched > _NEWS_TTL_RECENT:
+        return None
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+
+
+def _news_cache_put(key: str, recent: bool, data: dict) -> None:
+    import time as _t
+    try:
+        _con.execute("INSERT OR REPLACE INTO news_cache VALUES (?,?,?,?)",
+                     (key, int(_t.time()), int(recent), json.dumps(data)))
+        _con.commit()
+    except sqlite3.Error:
+        pass
+
+
+def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
+    """Dated outside events for a window — an isolated browse, cached.
+
+    Returns causes only: events with dates and source domains. Quantities
+    never come from here.
+    """
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        return {"error": "web lookup unavailable (no LLM credentials)"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else t0
+    if t0 is None:
+        return {"error": "give the window, e.g. frm='21 Jul 2026' "
+                         "to='22 Jul 2026'"}
+    if t1 is None:
+        t1 = t0
+    d0, d1 = _iso_day(t0), _iso_day(t1)
+    window = d0 if d0 == d1 else f"{d0} to {d1}"
+
+    key = f"RELIANCE|{d0}|{d1}"
+    cached = _news_cache_get(key)
+    if cached:
+        return {**cached, "cached": True}
+
+    import time as _t
+    recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
+    prompt = _NEWS_PROMPT.format(
+        symbol="RELIANCE", window=window,
+        focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
+    payload = {
+        "model": LLM_DEPLOYMENT,
+        "input": [{"role": "user", "content": prompt}],
+        "tools": [{"type": "web_search_preview",
+                   "search_context_size": "low"}],
+        "max_output_tokens": 600,
+        "reasoning": {"effort": "low"},
+    }
+    req = urllib.request.Request(
+        f"{AZURE_ENDPOINT}/responses",
+        data=json.dumps(payload).encode(),
+        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+            data = json.loads(r.read())
+    except Exception as exc:  # noqa: BLE001 — a dead browse must not kill the turn
+        return {"error": f"web lookup failed: {exc}",
+                "_note": "Answer from the local evidence and say the web "
+                         "lookup was unavailable — do not guess at news."}
+
+    text, sources, searched = [], [], 0
+    for item in data.get("output", []):
+        if item.get("type") == "web_search_call":
+            searched += 1
+        elif item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    text.append(c.get("text", ""))
+                    for a in c.get("annotations") or []:
+                        if a.get("type") == "url_citation" and a.get("url"):
+                            sources.append(a["url"])
+    body = "".join(text).strip()
+    out = {
+        "window": window,
+        "events": body or "nothing found for this window",
+        "sources": sorted(set(sources))[:6],
+        "_note": ("These are candidate CAUSES only — events with dates. "
+                  "Every quantity (price, %, volume, level) must come from "
+                  "the chart tools; if a headline implies a number, use the "
+                  "tool's number. An event here explains the move only if "
+                  "its timing fits the anatomy (a mid-session move is not "
+                  "explained by overnight news)."),
+    }
+    if searched and body:
+        _news_cache_put(key, recent, out)
+    return out
+
+
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
                   to: str | None = None, limit: int = 40) -> dict:
     limit = max(1, min(int(limit or 40), 80))
@@ -2750,8 +3198,14 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                 rows = deeper
 
     extra: dict = {}
+    mult_ignored = False
     if mult:
-        extra["mult"] = float(mult)
+        # only bbands/keltner/supertrend take a width multiplier; forwarding
+        # it to the rest raised TypeError and burned the whole call
+        if name in indicators.MULT_OK:
+            extra["mult"] = float(mult)
+        else:
+            mult_ignored = True
     if name == "macd":
         extra.update({k: int(v) for k, v in
                       (("fast", fast), ("slow", slow), ("signal", signal)) if v})
@@ -2783,6 +3237,12 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
         "last_price": rows[-1][4],
         "spec": res["spec"],
     }
+    if mult_ignored:
+        out["mult_ignored"] = (
+            f"'{name}' has no band-width multiplier, so mult was ignored — "
+            f"it applies only to {', '.join(sorted(indicators.MULT_OK))}. "
+            "The value above is the plain computation; do not describe it "
+            "as widened or narrowed.")
     # A tail of the series, when asked for — enough to see a cross or a turn
     # without shipping hundreds of numbers nobody reads.
     k = max(0, min(int(series_points or 0), 60))
@@ -2963,6 +3423,19 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
 
 
 TOOLS = [
+    {"type": "function", "name": "explain_move",
+     "description": "The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
+     "parameters": {"type": "object", "properties": {
+         "frm": {"type": "string", "description": "first session of the move, chart format e.g. '21 Jul 2026'; omit both dates for the latest session"},
+         "to": {"type": "string", "description": "last session of the move; omit for a single day"}},
+      "required": []}},
+    {"type": "function", "name": "search_news",
+     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. Use ONLY after explain_move, at most once per turn, when its local evidence leaves an outside cause plausible (the move was abnormal, or clearly market-wide, or sat on no local event). Returns events with dates and sources, never numbers.",
+     "parameters": {"type": "object", "properties": {
+         "frm": {"type": "string", "description": "window start, e.g. '21 Jul 2026'"},
+         "to": {"type": "string", "description": "window end; omit for one day"},
+         "focus": {"type": "string", "description": "optional angle, e.g. 'market-wide selloff cause' or 'company filings'"}},
+      "required": ["frm"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
@@ -3167,7 +3640,9 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,
-             "evaluate_results": tool_evaluate_results}
+             "evaluate_results": tool_evaluate_results,
+             "explain_move": tool_explain_move,
+             "search_news": tool_search_news}
 
 
 def run_tool(name: str, args: dict) -> dict:
@@ -3216,6 +3691,23 @@ tables all render; pick whatever shape fits. The one thing a narrow column
 punishes is repeated figures buried in prose — the same fields across several
 dates, bars or symbols read far better as a compact table (numbers
 right-aligned with `|---:|`)."""
+
+# The causal contract (~120 tokens). A rail, not a procedure: it says where
+# quantities and causes each come from and what an honest "why" answer owes,
+# and leaves every judgement — whether to search, what the evidence means —
+# to the model.
+CAUSAL_RULES = """\
+## Explaining a move
+For any why-did-it-move question, call explain_move first — one call returns
+the anatomy, the index split and the local evidence. Judge abnormality before
+reaching for a cause: a move inside the stock's normal range needs none, and
+"no clear catalyst" is a complete, correct answer — most days have none. The
+web (search_news, at most once per turn) supplies only dated events; every
+quantity comes from tools, and a stale headline never overrides a tool. Say
+plainly how much was the market and how much the stock. A cause must fit the
+anatomy: overnight news does not explain a mid-session move. State behavioural
+readings (who was likely buying or selling) as inference from a named
+observable, never as known motive."""
 
 
 def build_context_block(ctx: dict | None) -> str:
@@ -3441,7 +3933,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES) if x)
+    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES, CAUSAL_RULES) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -3514,7 +4006,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": "Azure creds not found in pivot/.env"}
         return
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES) if x)
+    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES, CAUSAL_RULES) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
