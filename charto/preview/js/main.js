@@ -917,6 +917,14 @@
                     downAt[0] - chartEl.getBoundingClientRect().left)) return;
     const b = param.seriesData.get(candle);
     if (!b) return;
+    // A pin means THE CANDLE, not "wherever I happened to click": the click
+    // must land on the bar's high-low span (small grab tolerance), so a
+    // stray click in empty chart space attaches nothing to the chat.
+    const yClick = yInPane(downAt[1], "price");
+    const yHi = candle.priceToCoordinate(b.high);
+    const yLo = candle.priceToCoordinate(b.low);
+    if (yClick === null || yHi === null || yLo === null) return;
+    if (yClick < yHi - 8 || yClick > yLo + 8) return;
     const v = state.bars.find((x) => x.time === param.time);
     pins.toggle({ ...b, volume: v ? v.volume : 0 });
   });
@@ -924,24 +932,95 @@
 
   // ── theme toggle ──────────────────────────────────────
   // ── screenshot: the chart (all panes), never the chat or the shell ──
-  el("shotBtn").innerHTML = Icons.svg("camera", "sm");
-  el("shotBtn").addEventListener("click", () => {
-    // LWC renders everything — candles, panes, axes, our primitives — into
-    // its own canvases, so takeScreenshot() is exactly "the chart and
-    // nothing else". Downscale so image tokens stay sane.
+  // LWC renders everything — candles, panes, axes, our primitives — into
+  // its own canvases, so takeScreenshot() is exactly "the chart and
+  // nothing else". `rect` (container px) crops it; either way the result
+  // is downscaled so image tokens stay sane.
+  function captureChart(rect) {
     const full = chart.takeScreenshot();
-    const MAX_W = 1280;
+    const sx = full.width / chartEl.clientWidth;
+    const sy = full.height / chartEl.clientHeight;
     let c = full;
-    if (full.width > MAX_W) {
+    if (rect) {
       c = document.createElement("canvas");
-      c.width = MAX_W;
-      c.height = Math.round(full.height * (MAX_W / full.width));
-      c.getContext("2d").drawImage(full, 0, 0, c.width, c.height);
+      c.width = Math.max(1, Math.round(rect.w * sx));
+      c.height = Math.max(1, Math.round(rect.h * sy));
+      c.getContext("2d").drawImage(
+        full, rect.x * sx, rect.y * sy, rect.w * sx, rect.h * sy,
+        0, 0, c.width, c.height);
+    }
+    const MAX_W = 1280;
+    if (c.width > MAX_W) {
+      const d = document.createElement("canvas");
+      d.width = MAX_W;
+      d.height = Math.round(c.height * (MAX_W / c.width));
+      d.getContext("2d").drawImage(c, 0, 0, d.width, d.height);
+      c = d;
     }
     document.dispatchEvent(new CustomEvent("charto:screenshot", {
       detail: { uri: c.toDataURL("image/png") },
     }));
     status("screenshot captured — attach it in the chat");
+  }
+
+  /** Drag a marquee over the chart; the selection becomes the screenshot.
+   *  Esc or a sub-24px drag cancels. The overlay swallows every pointer
+   *  event, so the drawing tools cannot fire mid-selection. */
+  function selectRegionCapture() {
+    const ov = document.createElement("div");
+    ov.className = "shot-overlay";
+    ov.innerHTML = '<div class="shot-hint">drag to capture · Esc to cancel</div>';
+    chartEl.appendChild(ov);
+    let mq = null, x0 = 0, y0 = 0;
+    const off = () => {
+      ov.remove();
+      document.removeEventListener("keydown", onKey, true);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); off(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    ov.addEventListener("mousedown", (e) => {
+      const r = ov.getBoundingClientRect();
+      x0 = e.clientX - r.left; y0 = e.clientY - r.top;
+      mq = document.createElement("div");
+      mq.className = "shot-marquee";
+      ov.appendChild(mq);
+      e.preventDefault();
+    });
+    ov.addEventListener("mousemove", (e) => {
+      if (!mq) return;
+      const r = ov.getBoundingClientRect();
+      const x1 = e.clientX - r.left, y1 = e.clientY - r.top;
+      Object.assign(mq.style, {
+        left: `${Math.min(x0, x1)}px`, top: `${Math.min(y0, y1)}px`,
+        width: `${Math.abs(x1 - x0)}px`, height: `${Math.abs(y1 - y0)}px`,
+      });
+    });
+    ov.addEventListener("mouseup", (e) => {
+      if (!mq) return;
+      const r = ov.getBoundingClientRect();
+      const x1 = e.clientX - r.left, y1 = e.clientY - r.top;
+      const rect = { x: Math.min(x0, x1), y: Math.min(y0, y1),
+                     w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+      off();
+      if (rect.w < 24 || rect.h < 24) { status("selection too small — cancelled"); return; }
+      captureChart(rect);
+    });
+  }
+
+  el("shotBtn").innerHTML = Icons.svg("camera", "sm");
+  el("shotBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus(el("shotMenu"));
+    el("shotMenu").classList.toggle("open");
+  });
+  el("shotMenu").addEventListener("click", (e) => {
+    const it = e.target.closest("[data-shot]");
+    if (!it) return;
+    el("shotMenu").classList.remove("open");
+    if (it.dataset.shot === "full") captureChart(null);
+    else selectRegionCapture();
   });
 
   const themeBtn = el("themeToggle");

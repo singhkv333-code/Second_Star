@@ -444,6 +444,22 @@
   .shot-pop-actions { display: flex; gap: 6px; }
   .shot-pop-actions .btn { height: 26px; font-size: 12px; }
   .attach-row { margin-bottom: 6px; }
+  .shot-overlay {
+    position: absolute; inset: 0; z-index: 40; cursor: crosshair;
+    background: transparent;
+  }
+  .shot-marquee {
+    position: absolute; border: 1.5px dashed var(--primary);
+    background: var(--primary-soft); border-radius: 3px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); pointer-events: none;
+  }
+  .shot-hint {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: var(--popover); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 14px; font-size: 11.5px;
+    color: var(--muted-foreground); box-shadow: var(--shadow);
+    pointer-events: none; white-space: nowrap;
+  }
   .attach-chip {
     display: inline-flex; gap: 7px; align-items: center; height: 28px;
     font-size: 11.5px; color: var(--muted-foreground);
@@ -620,7 +636,13 @@
 
     <span class="badge accent" id="sceneCount" style="display:none"></span>
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
-    <button class="btn icon" id="shotBtn" title="Screenshot the chart for the chat"></button>
+    <div class="menu-wrap">
+      <button class="btn icon" id="shotBtn" title="Screenshot the chart for the chat"></button>
+      <div class="dropdown right" id="shotMenu">
+        <div class="item" data-shot="full"><span>Full chart</span></div>
+        <div class="item" data-shot="region"><span>Select area…</span></div>
+      </div>
+    </div>
     <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
     <button class="btn outline" id="chatToggle"></button>
   </header>
@@ -714,7 +736,7 @@
   <script src="./js/tools.js?v=5"></script>
   <script src="./js/drawings.js?v=7"></script>
   <script src="./js/scene.js?v=9"></script>
-  <script src="./js/main.js?v=11"></script>
+  <script src="./js/main.js?v=13"></script>
   <script src="./js/chat.js?v=7"></script>
 </body>
 </html>
