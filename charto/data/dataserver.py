@@ -3497,7 +3497,7 @@ TOOLS = [
          "to": {"type": "string", "description": "last session of the move; omit for a single day"}},
       "required": []}},
     {"type": "function", "name": "search_news",
-     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. Use ONLY after explain_move, at most once per turn, when its local evidence leaves an outside cause plausible (the move was abnormal, or clearly market-wide, or sat on no local event). Returns events with dates and sources, never numbers.",
+     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search per turn. Returns events with dates and sources, never numbers.",
      "parameters": {"type": "object", "properties": {
          "frm": {"type": "string", "description": "window start, e.g. '21 Jul 2026'"},
          "to": {"type": "string", "description": "window end; omit for one day"},
@@ -3765,16 +3765,21 @@ right-aligned with `|---:|`)."""
 # to the model.
 CAUSAL_RULES = """\
 ## Explaining a move
-For any why-did-it-move question, call explain_move first — one call returns
-the anatomy, the index split and the local evidence. Judge abnormality before
-reaching for a cause: a move inside the stock's normal range needs none, and
-"no clear catalyst" is a complete, correct answer — most days have none. The
-web (search_news, at most once per turn) supplies only dated events; every
-quantity comes from tools, and a stale headline never overrides a tool. Say
-plainly how much was the market and how much the stock. A cause must fit the
-anatomy: overnight news does not explain a mid-session move. State behavioural
-readings (who was likely buying or selling) as inference from a named
-observable, never as known motive."""
+For any why-did-it-move question, call explain_move — one call returns the
+anatomy, the index split and the local evidence. When the question itself
+already asks for causes or news of a NAMED move — a fall, rally, crash or
+spike the user asserts happened — call search_news in the SAME round (one
+batched round is a whole inference hop cheaper than two). When the user has
+not named a move ("why did it move on X?" could be a flat day), call
+explain_move alone and judge abnormality first: a move inside the stock's
+normal range
+needs none, and "no clear catalyst" is a complete, correct answer — most
+days have none. search_news (at most once per turn) supplies only dated
+events; every quantity comes from tools, and a stale headline never
+overrides a tool. Say plainly how much was the market and how much the
+stock. A cause must fit the anatomy: overnight news does not explain a
+mid-session move. State behavioural readings (who was likely buying or
+selling) as inference from a named observable, never as known motive."""
 
 
 def build_context_block(ctx: dict | None) -> str:
