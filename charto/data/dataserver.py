@@ -2599,6 +2599,362 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
     return res
 
 
+# ── universe screening ────────────────────────────────────────────
+# Daily bars for the whole universe live in bars_1d (built by
+# import_universe_daily.py from the same _fold_daily the chart uses). The
+# features below are plain arithmetic on those bars — the model composes any
+# combination of them; this code only validates and computes.
+
+SCREEN_FEATURES = (
+    "close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y",
+    "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
+    "sma20_rel", "sma50_rel", "sma200_rel",
+    "range_20d_pct", "vol_z20", "turnover_20d_cr",
+)
+
+# Spelled out because an error that only lists names tells the model which
+# words are legal, not which one it meant.
+SCREEN_FEATURE_HELP = {
+    "close": "last daily close, rupees",
+    "ret_1d": "% change over the last session",
+    "ret_1w": "% over 5 sessions",
+    "ret_1m": "% over 21 sessions",
+    "ret_3m": "% over 63 sessions",
+    "ret_6m": "% over 126 sessions",
+    "ret_1y": "% over 252 sessions",
+    "dist_52w_high": "% from the 52-week high (0 = at it, negative = below)",
+    "dist_52w_low": "% above the 52-week low",
+    "rsi14": "RSI(14) on daily closes",
+    "atr_pct": "ATR(14) as % of close — daily volatility",
+    "sma20_rel": "% of close above (+) or below (-) the 20-day SMA",
+    "sma50_rel": "% of close above (+) or below (-) the 50-day SMA",
+    "sma200_rel": "% of close above (+) or below (-) the 200-day SMA",
+    "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
+    "vol_z20": "last session's volume in σ of the prior 20 sessions",
+    "turnover_20d_cr": "avg daily close*volume over 20 sessions, rupees crore",
+}
+
+SCREEN_OPS = ("lt", "gt")
+_SCREEN_SCAN_CAP = 80   # symbols a pattern pass will scan
+_screen_cache: dict = {}
+
+
+def _screen_stamp() -> tuple | None:
+    # (count, newest, version): count+newest miss an in-place UPDATE that adds
+    # no rows and no new day, so import_universe_daily bumps screen_meta on
+    # every absorb — our own tooling can never leave a running server stale
+    try:
+        cnt, mx = _con.execute("SELECT COUNT(*), MAX(ts) FROM bars_1d").fetchone()
+        ver = 0
+        if _con.execute("SELECT 1 FROM sqlite_master WHERE name='screen_meta'"
+                        ).fetchone():
+            ver = _con.execute(
+                "SELECT MAX(version) FROM screen_meta").fetchone()[0] or 0
+        return (cnt, mx, ver)
+    except sqlite3.Error:
+        return None
+
+
+def _rel(a: float, b) -> float | None:
+    return None if not b else round((a - b) / b * 100, 2)
+
+
+def _squash(s: str, sep: str = "") -> str:
+    return sep.join("".join(ch if ch.isalnum() else " " for ch in s).lower().split())
+
+
+def _screen_row_features(rows: list[tuple]) -> dict:
+    """ascending daily (ts,o,h,l,c,v) for ONE symbol → its feature dict.
+
+    Every feature whose window the symbol cannot cover is None. Falling back
+    to a shorter window would rank a six-month listing against a ten-year one
+    and call both a 1-year return; a null is the honest answer and the filter
+    simply excludes it.
+    """
+    n = len(rows)
+    closes = [r[4] for r in rows]
+    c = closes[-1]
+    f: dict = {k: None for k in SCREEN_FEATURES}
+    f["close"] = round(c, 2)
+    for key, back in (("ret_1d", 1), ("ret_1w", 5), ("ret_1m", 21),
+                      ("ret_3m", 63), ("ret_6m", 126), ("ret_1y", 252)):
+        if n > back:
+            f[key] = _rel(c, closes[-1 - back])
+    if n >= 252:
+        w = rows[-252:]
+        f["dist_52w_high"] = _rel(c, max(r[2] for r in w))
+        f["dist_52w_low"] = _rel(c, min(r[3] for r in w))
+    if n >= 16:
+        r14 = indicators.compute("rsi", rows, 14)["last"]["rsi"]
+        f["rsi14"] = None if r14 is None else round(r14, 1)
+    a14 = indicators.atr(rows, 14)
+    if a14 and a14[-1] is not None:
+        f["atr_pct"] = round(a14[-1] / c * 100, 2) if c else None
+    for key, p in (("sma20_rel", 20), ("sma50_rel", 50), ("sma200_rel", 200)):
+        if n >= p:
+            f[key] = _rel(c, indicators.sma(closes[-p:], p)[-1])
+    if n >= 20:
+        w = rows[-20:]
+        f["range_20d_pct"] = round(
+            (max(r[2] for r in w) - min(r[3] for r in w)) / c * 100, 2) if c else None
+        f["turnover_20d_cr"] = round(
+            sum(r[4] * r[5] for r in w) / len(w) / 1e7, 2)
+    if n >= 21:
+        vols = [r[5] for r in rows[-21:-1]]
+        m = sum(vols) / len(vols)
+        sd = (sum((x - m) ** 2 for x in vols) / len(vols)) ** 0.5
+        f["vol_z20"] = round((rows[-1][5] - m) / sd, 2) if sd else None
+    return f
+
+
+def _screen_features() -> dict:
+    """{symbol: {feature: value}} for every symbol in bars_1d.
+
+    Cached on bars_1d's own (row count, newest ts) rather than on a clock:
+    absorbing the universe artifact changes both, so the next call rebuilds
+    and a night of no new data never pays for a rebuild.
+    """
+    stamp = _screen_stamp()
+    if stamp is None or not stamp[0]:
+        return {}
+    if _screen_cache.get("stamp") == stamp:
+        return _screen_cache["feats"]
+    t0 = time.time()
+    by_sym: dict[str, list] = {}
+    for row in _con.execute(
+            "SELECT symbol,ts,o,h,l,c,v FROM bars_1d ORDER BY symbol, ts"):
+        by_sym.setdefault(row[0], []).append(row[1:])
+    # deepest lookback is 252 sessions of ret_1y + warmup; the pattern path
+    # reads [-300:] — retaining full history would hold ~370 MB at 500 symbols
+    by_sym = {s: r[-560:] for s, r in by_sym.items()}
+    feats = {s: _screen_row_features(r) for s, r in by_sym.items() if len(r) >= 2}
+    last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
+    days = list(last_day.values())
+    mode_day = max(set(days), key=days.count) if days else None
+    _screen_cache.update(stamp=stamp, feats=feats, bars=by_sym,
+                         last_day=last_day, mode_day=mode_day,
+                         built_s=round(time.time() - t0, 2))
+    logging.info("charto screen matrix: %d symbols in %.2fs",
+                 len(feats), _screen_cache["built_s"])
+    return feats
+
+
+def _screen_vocab(msg: str) -> dict:
+    return {"error": msg,
+            "features": SCREEN_FEATURE_HELP, "ops": list(SCREEN_OPS),
+            "_note": ("Nothing was screened. Re-call using exactly these "
+                      "feature names; a band is two filters on the same "
+                      "feature (gt then lt).")}
+
+
+def tool_screen_universe(filters: list | None = None, industry: str = "",
+                         pattern: str = "", pattern_within: int = 5,
+                         sort: str = "", limit: int = 15) -> dict:
+    """Rank the whole stored universe on end-of-day features.
+
+    Deliberately not a catalogue of named screens: the model composes the
+    filters, so "coiled large-caps above their 200-day" is expressible without
+    anyone having anticipated it. The engine's whole job is to refuse the
+    unspeakable loudly and compute the rest exactly.
+    """
+    feats = _screen_features()
+    if not feats:
+        return {"error": "the daily universe table (bars_1d) is empty",
+                "_note": ("Say universe screening is unavailable until the "
+                          "daily universe is built — do not answer a "
+                          "which-stocks question from the chart symbol alone.")}
+
+    parsed: list[tuple] = []
+    for spec in (filters or []):
+        if not isinstance(spec, dict):
+            return _screen_vocab("each filter must be an object "
+                                 "{feature, op, value}")
+        name = str(spec.get("feature") or "").strip()
+        op = str(spec.get("op") or "").strip().lower()
+        if name not in SCREEN_FEATURES:
+            return _screen_vocab(f"unknown feature '{name}'")
+        if op not in SCREEN_OPS:
+            return _screen_vocab(f"unknown op '{op}' on {name}")
+        try:
+            val = float(spec.get("value"))
+        except (TypeError, ValueError):
+            return _screen_vocab(f"filter on {name} needs a numeric value")
+        parsed.append((name, op, val))
+
+    cls = {r[0]: (r[1], r[2]) for r in _con.execute(
+        "SELECT symbol, name, industry FROM classification")}
+    want_inds: set = set()
+    if str(industry or "").strip():
+        # Moneycontrol industry slugs carry no separators ("banksprivatesector"),
+        # so both sides are squashed before matching — otherwise the natural
+        # words the model actually types can never hit a single one.
+        known = {i for _, i in cls.values() if i}
+        q = _squash(industry)
+        want_inds = {i for i in known if _squash(i) == q} or \
+                    {i for i in known if q and (q in _squash(i) or _squash(i) in q)}
+        if not want_inds:
+            toks = [t for t in _squash(industry, " ").split() if len(t) >= 4]
+            near = sorted(i for i in known
+                          if any(t in _squash(i) or _squash(i).startswith(t[:5])
+                                 for t in toks))
+            # An empty "closest" is a dead end, so the whole vocabulary goes
+            # back instead — an error the model cannot act on costs more than
+            # the 192 names do.
+            return {"error": f"no industry named '{industry}'",
+                    ("closest" if near else "industries"): near[:15] or sorted(known),
+                    "industries_total": len(known),
+                    "_note": ("Nothing was screened. Industries are "
+                              "Moneycontrol slugs; re-call with one of the "
+                              "names above, drop `industry` to screen every "
+                              "industry, or call get_peers to read a known "
+                              "company's exact industry.")}
+
+    sort_by = str(sort or "").strip()
+    if sort_by and sort_by not in SCREEN_FEATURES:
+        return _screen_vocab(f"cannot sort by '{sort_by}'")
+    if not sort_by:
+        sort_by = parsed[0][0] if parsed else "turnover_20d_cr"
+    # Descending unless the screen itself asked for small values of this
+    # feature — "RSI under 30" wants the most oversold first, not the least.
+    desc = not any(nm == sort_by and op == "lt" for nm, op, _ in parsed)
+
+    kind = str(pattern or "").lower().strip()
+    if kind and kind not in patterns.CHART_KINDS + patterns.CANDLE_KINDS:
+        return {"error": f"unknown pattern '{kind}'",
+                "available": {"chart": list(patterns.CHART_KINDS),
+                              "candlestick": list(patterns.CANDLE_KINDS)},
+                "_note": ("Nothing was screened. Re-call with one exact name "
+                          "from this list, or drop `pattern`.")}
+
+    survivors = []
+    for sym, f in feats.items():
+        name, ind = cls.get(sym, (sym, None))
+        if want_inds and ind not in want_inds:
+            continue
+        for fname, op, val in parsed:
+            v = f.get(fname)
+            if v is None or not (v > val if op == "gt" else v < val):
+                break
+        else:
+            survivors.append({"symbol": sym, "name": name, "industry": ind,
+                              "_f": f})
+    survivors.sort(key=lambda r: (r["_f"].get(sort_by) is None,
+                                  -(r["_f"].get(sort_by) or 0) if desc
+                                  else (r["_f"].get(sort_by) or 0)))
+
+    scanned = unscanned = 0
+    within = max(1, min(int(pattern_within or 5), 120))
+    if kind:
+        pool, unscanned = survivors[:_SCREEN_SCAN_CAP], \
+            max(0, len(survivors) - _SCREEN_SCAN_CAP)
+        hit = []
+        for r in pool:
+            bars = ((_screen_cache.get("bars") or {}).get(r["symbol"]) or [])[-300:]
+            if len(bars) < 60:
+                continue
+            scanned += 1
+            ist = lambda ts: _ist(ts, False)  # noqa: E731 — daily bars
+            found = patterns.candlesticks(
+                bars, _atr(bars, 14), ist, {kind}, limit=8) \
+                if kind in patterns.CANDLE_KINDS else patterns.chart_patterns(
+                    bars, _pivots(bars, 5), _tolerance(bars), ist, {kind}, limit=8)
+            # Both detectors return newest first. Without the recency filter a
+            # "which stocks show an engulfing" screen matched every symbol on
+            # a candle from three months ago — true, and not the question.
+            found = [p for p in found if p["bars_ago"] <= within]
+            if found:
+                r["pattern"] = {k: v for k, v in found[0].items()
+                                if not k.startswith("_")}
+                hit.append(r)
+        survivors = hit
+
+    n_lim = max(1, min(int(limit or 15), 50))
+    shown = survivors[:n_lim]
+    # Only the features the screen actually referenced come back — a row
+    # carrying all 17 is noise the model has to re-filter mentally.
+    keep = ["close"] + [nm for nm, _, _ in parsed] + [sort_by]
+    # as_of is the last session MOST symbols share — one symbol topped up
+    # further (or holding a partial day) must not stamp the whole universe
+    mode_day = _screen_cache.get("mode_day")
+    last_day = _screen_cache.get("last_day") or {}
+    as_of = _ist(mode_day * 86400 - IST_OFF, False) if mode_day else "unknown"
+    stale_shown = 0
+    rows = []
+    for r in shown:
+        out = {"symbol": r["symbol"], "name": r["name"],
+               "industry": r["industry"]}
+        d = last_day.get(r["symbol"])
+        if d is not None and d != mode_day:
+            out["as_of"] = _ist(d * 86400 - IST_OFF, False)
+            stale_shown += 1
+        for k in keep:
+            if k not in out:
+                out[k] = r["_f"].get(k)
+        if "pattern" in r:
+            out["pattern"] = r["pattern"]
+        rows.append(out)
+    universe = len(feats)
+    res = {"universe": universe, "matched": len(survivors),
+           "shown": len(rows), "as_of": as_of,
+           "sorted_by": {"feature": sort_by,
+                         "order": "desc" if desc else "asc"},
+           "filters_applied": [{"feature": n, "op": o, "value": v}
+                               for n, o, v in parsed],
+           "rows": rows}
+    if want_inds:
+        res["industry_matched"] = sorted(want_inds)
+    if kind:
+        res["pattern"] = kind
+        res["pattern_within_sessions"] = within
+        res["symbols_scanned_for_pattern"] = scanned
+        if unscanned:
+            res["not_scanned_for_pattern"] = unscanned
+    note = [
+        f"Every value is an end-of-day figure as of {as_of}, computed across "
+        f"the {universe} stocks whose daily bars are stored here — state both "
+        f"the date and that universe whenever you quote a count or a rank.",
+        "Symbols lacking the history a filter needs are excluded, never "
+        "defaulted to zero.",
+        "This is arithmetic on price and volume, not a view on any company: "
+        "present the rows as a markdown table and close as analysis, not "
+        "advice.",
+    ]
+    if not survivors:
+        # A screen that finds nothing is an answer. Left unmarked it reads as
+        # a failure and invites quietly loosening the filter it was asked for.
+        note.insert(1, "Nothing passed. Say plainly that no stock in this "
+                       "universe meets the criteria, name the filter that "
+                       "bound, and offer a looser number — never relax it "
+                       "yourself and present the result as if it were asked "
+                       "for.")
+    elif len(survivors) > len(rows):
+        note.insert(1, f"{len(survivors)} names matched and {len(rows)} are "
+                       f"shown — say so rather than implying the list is whole.")
+    if kind:
+        note.insert(1, f"A {kind} counts only if it completed within the last "
+                       f"{within} sessions — say the window, and quote each "
+                       f"hit's own bars_ago rather than implying it printed "
+                       f"today.")
+    if unscanned:
+        note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
+                       f"so {unscanned} matching symbols were never checked "
+                       f"for {kind} — say the scan was capped.")
+    if stale_shown:
+        note.insert(1, f"{stale_shown} shown row(s) carry their own as_of "
+                       f"because their last stored session differs from the "
+                       f"universe date — quote per-row dates for those.")
+    # Measured against the classified company list rather than a fixed number,
+    # so the warning retires itself the day the full artifact is absorbed and
+    # never has to be edited to stop lying in either direction.
+    if universe < 0.9 * max(1, len(cls)):
+        note.insert(0, f"Only {universe} of the {len(cls)} companies in the "
+                       f"list have daily bars so far, so this is a PARTIAL "
+                       f"universe, not the market — say that before quoting "
+                       f"any result.")
+    res["_note"] = " ".join(note)
+    return res
+
+
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
@@ -4342,6 +4698,30 @@ TOOLS = [
          "lookback_bars": {"type": "integer",
                            "description": "window length, default 250 (~1y of 1d)"}},
          "required": ["symbols"]}},
+    {"type": "function", "name": "screen_universe",
+     "description": (
+         "Screen the WHOLE stored universe — every company, not the chart's "
+         "symbol — on the end-of-day features in the filter enum, optionally "
+         "narrowed to an industry or to names printing a given daily pattern. "
+         "Compose any combination yourself: a filter is one feature, lt or gt, "
+         "and a number; a band is two filters on the same feature. Use it for "
+         "every 'which stocks / find me / how many companies' question about "
+         "setups, criteria or structure across many names. Results are "
+         "end-of-day and carry their own as-of date and universe size — quote "
+         "both."),
+     "parameters": {"type": "object", "properties": {
+         "filters": {"type": "array", "description": "all must pass",
+                     "items": {"type": "object", "properties": {
+                         "feature": {"type": "string", "enum": list(SCREEN_FEATURES)},
+                         "op": {"type": "string", "enum": list(SCREEN_OPS)},
+                         "value": {"type": "number"}},
+                         "required": ["feature", "op", "value"]}},
+         "industry": {"type": "string", "description": "one industry; a miss returns the closest names"},
+         "pattern": {"type": "string", "description": "require this daily pattern, e.g. bull_flag, bullish_engulfing"},
+         "pattern_within": {"type": "integer", "description": "sessions the pattern may be old, default 5"},
+         "sort": {"type": "string", "description": "feature to rank by; defaults to the first filter's"},
+         "limit": {"type": "integer", "description": "rows returned, 1-50, default 15"}},
+         "required": []}},
     {"type": "function", "name": "plan_position",
      "description": (
          "Draw or update the trade-plan overlay (entry/stop/targets) and return "
@@ -4461,6 +4841,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "plan_position": tool_plan_position,
              "get_peers": tool_get_peers,
              "compare_symbols": tool_compare_symbols,
+             "screen_universe": tool_screen_universe,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,
