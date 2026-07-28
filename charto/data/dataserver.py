@@ -2883,6 +2883,13 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     last_day = _screen_cache.get("last_day") or {}
     as_of = _ist(mode_day * 86400 - IST_OFF, False) if mode_day else "unknown"
     stale_shown = 0
+    # One read for the whole screen — every hit row is the same kind on the
+    # same daily interval, so the pooled record is identical across rows.
+    uni = _pattern_universe_stats(kind, "1d", 10) if kind else None
+    uni_rate = None
+    if uni and uni.get("with_direction_rate_pct") is not None:
+        uni_rate = {"with_direction_rate_pct": uni["with_direction_rate_pct"],
+                    "n": uni.get("n")}
     rows = []
     for r in shown:
         out = {"symbol": r["symbol"], "name": r["name"],
@@ -2896,6 +2903,8 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
                 out[k] = r["_f"].get(k)
         if "pattern" in r:
             out["pattern"] = r["pattern"]
+            if uni_rate:
+                out["universe_rate"] = uni_rate
         rows.append(out)
     universe = len(feats)
     res = {"universe": universe, "matched": len(survivors),
@@ -2939,6 +2948,12 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
                        f"{within} sessions — say the window, and quote each "
                        f"hit's own bars_ago rather than implying it printed "
                        f"today.")
+    if uni_rate:
+        note.insert(1, f"`universe_rate` is the same 10-session forward "
+                       f"reliability pooled across the stored universe as of "
+                       f"{uni.get('as_of') or 'the pooled run'} — it "
+                       f"describes the shape, not these rows, so never "
+                       f"present it as each stock's own record.")
     if unscanned:
         note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
                        f"so {unscanned} matching symbols were never checked "
@@ -3175,6 +3190,58 @@ _EDGE_ONLY = {"ascending_triangle", "descending_triangle",
               "rectangle", "channel_up", "channel_down", "broadening",
               "cup_and_handle", "rounding_bottom", "rounding_top"}
 
+# Horizons the pooled artifact is computed at. A tool horizon of 13 is
+# answered with the 10-bar record and the mismatch is never hidden — see
+# `horizon_bars` inside the universe block.
+_UNIVERSE_HORIZONS = (5, 10, 20)
+# Only the fields the artifact is allowed to surface; anything else in the
+# table stays there. Same names as this chart's own result, so the model
+# compares like with like instead of two vocabularies.
+_UNIVERSE_FIELDS = ("n", "n_symbols", "with_direction_rate_pct",
+                    "with_direction_rate_pct_withheld",
+                    "control_base_rate_pct", "edge_pp", "avg_move_pct")
+
+
+def _pattern_universe_stats(kind: str, interval: str, h: int) -> dict | None:
+    """The same evaluation pooled across the stored universe, if it exists.
+
+    Precomputed by an offline artifact into `pattern_stats`; this only
+    reads it. The table is tiny and usually absent, so a missing table is
+    a plain None (house pattern) and every caller degrades to the
+    single-chart answer it already had.
+    """
+    try:
+        cur = _con.execute(
+            "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
+            "AND horizon=?", (kind, interval, int(h)))
+        cols = [d[0] for d in cur.description]
+        row = cur.fetchone()
+        if not row:
+            return None
+        rec = dict(zip(cols, row))
+        as_of = None
+        try:
+            m = _con.execute("SELECT value FROM pattern_stats_meta "
+                             "WHERE key='as_of'").fetchone()
+            as_of = m[0] if m else None
+        except sqlite3.Error:
+            as_of = None
+    except sqlite3.Error:
+        return None
+    out = {k: rec[k] for k in _UNIVERSE_FIELDS
+           if rec.get(k) is not None}
+    if not out:
+        return None
+    if out.get("with_direction_rate_pct") is None and \
+            "with_direction_rate_pct_withheld" not in out:
+        out["with_direction_rate_pct_withheld"] = (
+            "the pooled run graded no instance at this horizon — say the "
+            "universe record is unavailable, not that the rate is zero")
+    out["horizon_bars"] = int(h)
+    if as_of:
+        out["as_of"] = as_of
+    return out
+
 
 def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                           lookback_bars: int = 1000,
@@ -3303,6 +3370,19 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         "difference, and a rate alone is decoration. This is one symbol's "
         "history at one horizon, not a forecast; past instances of a shape "
         "do not obligate the next one.")
+    uh = min(_UNIVERSE_HORIZONS, key=lambda x: (abs(x - h), x))
+    uni = _pattern_universe_stats(k, interval, uh)
+    if uni:
+        res["universe"] = uni
+        res["_note"] += (
+            f" The `universe` block is the SAME methodology pooled across the "
+            f"~500 stored stocks as of {uni.get('as_of') or 'the pooled run'}"
+            + (f" at a {uh}-bar horizon, the nearest graded to this call's "
+               f"{h}" if uh != h else "") +
+            ". Quote both scopes and, when they disagree, say so plainly — "
+            "one chart is a small sample and the pooled record does not "
+            "override what this symbol actually did. Edge-fitted shapes have "
+            "no universe record at all.")
     return res
 
 
@@ -5396,6 +5476,8 @@ def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in rows:
+        if not (o and h and l and c):
+            continue   # all-zero placeholder minutes are no-data, not prices
         key, bts = _bucket_stamp(ts, minutes)
         if key != cur_key:
             out.append([bts, o, h, l, c, v])
@@ -5414,6 +5496,8 @@ def _fold_daily(rows: list[tuple]) -> list[list]:
     out: list[list] = []
     cur_day = None
     for ts, o, h, l, c, v in rows:
+        if not (o and h and l and c):
+            continue   # zero placeholder minutes: same rule as _resample_intraday
         day = _ist_day(ts)
         if day != cur_day:
             out.append([day * 86400 - IST_OFF, o, h, l, c, v])
@@ -5550,8 +5634,8 @@ def _live_push(sym: str, form: list, closed: bool) -> None:
 
 def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
     """The one seam every tick source calls. ts = the tick's epoch second."""
-    if ((ts + IST_OFF) % 86400) // 60 < SESSION_OPEN_MIN:
-        return    # pre-open prints must not be persisted as the 09:15 candle
+    if price <= 0 or ((ts + IST_OFF) % 86400) // 60 < SESSION_OPEN_MIN:
+        return    # zero-price / pre-open prints must not enter any candle
     _, bts = _bucket_stamp(ts, 1)
     st = _live_state(sym)
     closed_bar = None
