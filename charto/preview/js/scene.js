@@ -164,21 +164,24 @@ const Scene = (() => {
       // trade-plan overlay from plan_position: reward box per target
       // (fading with distance), one risk box, dashed entry. Same palette as
       // the user's own long/short tool so the two layers read as one idiom.
+      // trade plan from plan_position — same primitive (and so the exact
+      // same TradingView-style design) as the user's own long/short tool
       position: (a) => {
-        // a point comes FIRST because the generic a.label chip anchors on the
-        // first primitive's projection, and only point/box expose an x,y —
-        // this pins the chip to the entry line where traders expect it
-        const e = { t: a.t0, v: a.entry }, x1 = a.t1;
-        const out = [Geo.point(e),
-                     Geo.segment(e, { t: x1, v: a.entry },
-                                 { dash: [4, 4], width: 1 })];
-        (a.targets || []).forEach((tp, i) => {
-          out.push(Geo.box(e, { t: x1, v: tp }, { fill: "#22d3ee" }));
-          out.push(Geo.label({ t: x1, v: tp }, `T${i + 1} ${tp.toFixed(2)}`));
-        });
-        out.push(Geo.box(e, { t: x1, v: a.stop }, { fill: "#f5a524" }));
-        out.push(Geo.label({ t: x1, v: a.stop }, `stop ${a.stop.toFixed(2)}`));
-        return out;
+        const inr = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+        const pct = (v) => Math.abs((v - a.entry) / a.entry * 100).toFixed(2);
+        const dst = (v) => Math.abs(v - a.entry).toFixed(2);
+        const amt = (i) => (a.pnl && a.pnl[i] != null) ? `, Amount: ${inr(a.pnl[i])}` : "";
+        const center = [
+          a.qty ? `Qty: ${a.qty}` + (a.risk_amount ? ` · Risk: ${inr(a.risk_amount)}` : "")
+                : (a.side === "short" ? "Short" : "Long"),
+          `Risk/reward ratio: ${a.rr ?? "—"}`];
+        return [Geo.position(
+          { t: a.t0, v: a.entry },
+          { v: a.stop, text: `Stop: ${a.stop.toFixed(2)} (${pct(a.stop)}%) ${dst(a.stop)}`
+                             + (a.risk_amount ? `, Amount: ${inr(a.risk_amount)}` : "") },
+          (a.targets || []).map((tp, i) => ({
+            v: tp, text: `Target: ${tp.toFixed(2)} (${pct(tp)}%) ${dst(tp)}${amt(i)}` })),
+          { t1: a.t1, center })];
       },
       fib: (a) => {
         const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];
@@ -333,7 +336,9 @@ const Scene = (() => {
                         dash: prim.dash ?? [7, 4], fillAlpha: 0.12 }, e);
             if (!anchor) anchor = px;
           }
-          if (a.label && anchor) {
+          // a position paints its own pills and centre chip — the generic
+          // label chip would duplicate them
+          if (a.label && anchor && a.kind !== "position") {
             const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
             const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
             chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);

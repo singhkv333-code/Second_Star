@@ -132,18 +132,18 @@ const Tools = (() => {
   function positionTool(a, c, side) {
     const [entry, target, stop] = a;
     const rr = G.riskReward(entry.v, target.v, stop.v);
-    const reward = { t: entry.t, v: target.v }, risk = { t: entry.t, v: stop.v };
-    return [
-      G.box(reward, { t: target.t, v: entry.v }, { fill: "#22d3ee", fillAlpha: 0.14 }),
-      G.box(risk, { t: target.t, v: entry.v }, { fill: "#f5a524", fillAlpha: 0.14 }),
-      G.hline(entry.v, { dash: [4, 4], width: 1 }),
-      G.label({ t: target.t, v: target.v }, `target ${c.fmt(target.v)}`),
-      G.label({ t: target.t, v: stop.v }, `stop ${c.fmt(stop.v)}`),
-      // breakeven hit rate 1/(1+RR): the win rate this shape silently demands
-      G.label({ t: target.t, v: entry.v },
-              rr === null ? `${side} · R:R —`
-                : `${side} · R:R ${rr.toFixed(2)} · needs ${Math.round(100 / (1 + rr))}%`),
-    ];
+    const pct = (v) => Math.abs((v - entry.v) / entry.v * 100).toFixed(2);
+    const dist = (v) => c.fmt(Math.abs(v - entry.v));
+    // breakeven hit rate 1/(1+RR): the win rate this shape silently demands
+    const center = rr === null
+      ? [`${side === "long" ? "Long" : "Short"}`, "Risk/reward ratio: —"]
+      : [`${side === "long" ? "Long" : "Short"} · needs ${Math.round(100 / (1 + rr))}% to break even`,
+         `Risk/reward ratio: ${rr.toFixed(2)}`];
+    return [G.position(
+      { t: Math.min(entry.t, target.t, stop.t), v: entry.v },
+      { v: stop.v, text: `Stop: ${c.fmt(stop.v)} (${pct(stop.v)}%) ${dist(stop.v)}` },
+      [{ v: target.v, text: `Target: ${c.fmt(target.v)} (${pct(target.v)}%) ${dist(target.v)}` }],
+      { t1: Math.max(entry.t, target.t, stop.t), center })];
   }
 
   const GROUPS = [

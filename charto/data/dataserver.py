@@ -2284,6 +2284,9 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
                              f"entry {round(entry, 2)} for a "
                              f"{'long' if long_ else 'short'}"}
 
+    # models send qty:0 / risk_amount:0 to mean "derive it" — honour that
+    qty = int(qty) if qty else None
+    risk_amount = float(risk_amount) if risk_amount else None
     if risk_amount is None and capital and risk_pct:
         risk_amount = capital * risk_pct / 100
     if qty is None and risk_amount:
@@ -2340,6 +2343,8 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
     _scene_add({"kind": "position", "id": "plan", "pane": "price",
                 "side": plan["side"], "entry": plan["entry"],
                 "stop": plan["stop"], "targets": [t["price"] for t in tgt],
+                "pnl": [t.get("pnl") for t in tgt] if qty else None,
+                "risk_amount": plan.get("risk_amount"),
                 "qty": qty, "rr": tgt[0]["rr"], "t0": t0, "t1": rows[-1][0],
                 "label": (f"{plan['side']} · R:R {tgt[0]['rr']}"
                           + (f" · qty {qty}" if qty else "")),

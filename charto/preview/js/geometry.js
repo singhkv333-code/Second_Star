@@ -33,6 +33,13 @@ const Geo = (() => {
   const box = (a, b, o = {}) => ({ kind: "box", a, b, ...o });
   const poly = (pts, o = {}) => ({ kind: "poly", pts, closed: false, ...o });
   const label = (a, text, o = {}) => ({ kind: "label", a, text, ...o });
+  // TradingView-style position plan: reward/risk zones, pill labels on the
+  // target and stop edges, a bordered centre chip on the entry line. ONE
+  // primitive so the user's drawn tool and the chat scene render the
+  // identical design from a single painter. targets: [{v, text}] sorted
+  // nearest-first; stop: {v, text}; o: {t1, center: [line, line]}.
+  const position = (entry, stop, targets, o = {}) =>
+    ({ kind: "position", entry, stop, targets, ...o });
 
   // ── plane maths ─────────────────────────────────────────
 
@@ -153,6 +160,14 @@ const Geo = (() => {
         const pts = prim.pts.map(P);
         return pts.some((p) => !p) ? null : { pts };
       }
+      case "position": {
+        const x0 = X(prim.entry.t), x1 = X(prim.t1);
+        const yE = Y(prim.entry.v), yS = Y(prim.stop.v);
+        if ([x0, x1, yE, yS].some((q) => q === null)) return null;
+        const yT = prim.targets.map((tp) => Y(tp.v));
+        if (yT.some((q) => q === null)) return null;
+        return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), yE, yS, yT };
+      }
       default: return null;
     }
   }
@@ -182,6 +197,15 @@ const Geo = (() => {
         const inside = prim.fill && mx > px.x && mx < px.x + px.w
           && my > px.y && my < px.y + px.h;
         return nearEdge || !!inside;
+      }
+      case "position": {
+        if (mx < px.x0 - tol || mx > px.x1 + tol) return false;
+        const yFar = px.yT.length ? px.yT[px.yT.length - 1] : px.yE;
+        const inReward = my > Math.min(px.yE, yFar) - tol
+          && my < Math.max(px.yE, yFar) + tol;
+        const inRisk = my > Math.min(px.yE, px.yS) - tol
+          && my < Math.max(px.yE, px.yS) + tol;
+        return inReward || inRisk;
       }
       case "poly": {
         if (prim.closed && pointInPoly(mx, my, px.pts)) return true;
@@ -288,6 +312,56 @@ const Geo = (() => {
         chip(ctx, prim.text, Math.max(0, Math.min(x, env.w - w)), px.p[1] + 6, col);
         break;
       }
+      case "position": {
+        const GREEN = "#089981", RED = "#f23645";
+        const w = px.x1 - px.x0, cx = (px.x0 + px.x1) / 2;
+        const yFar = px.yT.length ? px.yT[px.yT.length - 1] : px.yE;
+        ctx.setLineDash([]);
+        ctx.fillStyle = rgba(GREEN, 0.16);
+        ctx.fillRect(px.x0, Math.min(px.yE, yFar), w, Math.abs(yFar - px.yE));
+        ctx.fillStyle = rgba(RED, 0.16);
+        ctx.fillRect(px.x0, Math.min(px.yE, px.yS), w, Math.abs(px.yS - px.yE));
+        // intermediate target boundaries inside the reward zone
+        ctx.strokeStyle = rgba(GREEN, 0.55); ctx.lineWidth = 1;
+        for (const y of px.yT.slice(0, -1)) {
+          ctx.beginPath(); ctx.moveTo(px.x0, y); ctx.lineTo(px.x1, y); ctx.stroke();
+        }
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = rgba("#e6e8ee", 0.85);
+        ctx.beginPath(); ctx.moveTo(px.x0, px.yE); ctx.lineTo(px.x1, px.yE); ctx.stroke();
+        ctx.setLineDash([]);
+        const pill = (text, y, bg, above) => {
+          ctx.font = `11px ${FONT}`;
+          const pw = ctx.measureText(text).width + 18, ph = 22;
+          const x = Math.max(4, Math.min(cx - pw / 2, env.w - pw - 4));
+          const py = above ? y - ph - 4 : y + 4;
+          ctx.fillStyle = bg;
+          ctx.beginPath(); ctx.roundRect(x, py, pw, ph, 6); ctx.fill();
+          ctx.fillStyle = "#fff";
+          ctx.fillText(text, x + 9, py + 15);
+        };
+        px.yT.forEach((y, i) => {
+          const tp = prim.targets[i];
+          if (tp.text) pill(tp.text, y, GREEN, y <= px.yE);
+        });
+        if (prim.stop.text) pill(prim.stop.text, px.yS, RED, px.yS < px.yE);
+        const lines = prim.center || [];
+        if (lines.length) {
+          ctx.font = `11px ${FONT}`;
+          const lw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
+          const lh = lines.length * 15 + 12;
+          const x = Math.max(4, Math.min(cx - lw / 2, env.w - lw - 4));
+          const y = px.yE - lh / 2;
+          ctx.fillStyle = rgba("#0d3a32", 0.95);
+          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.fill();
+          ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.stroke();
+          ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+          lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 17 + i * 15));
+          ctx.textAlign = "left";
+        }
+        break;
+      }
     }
     ctx.restore();
   }
@@ -304,7 +378,7 @@ const Geo = (() => {
   }
 
   return {
-    point, hline, vline, segment, band, vband, box, poly, label,
+    point, hline, vline, segment, band, vband, box, poly, label, position,
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward,
