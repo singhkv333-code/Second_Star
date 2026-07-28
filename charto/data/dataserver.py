@@ -2471,6 +2471,128 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
         "is analysis, not a recommendation, and must close as such.")}
 
 
+def _classification_row(sym: str):
+    try:
+        return _con.execute(
+            "SELECT name, industry FROM classification WHERE symbol=?",
+            (sym,)).fetchone()
+    except sqlite3.Error:
+        return None
+
+
+def tool_get_peers(symbol: str = "") -> dict:
+    """The company's industry classification and its peer group."""
+    sym = (symbol or _sym()).upper().strip()
+    row = _classification_row(sym)
+    if not row:
+        return {"symbol": sym,
+                "error": "no industry classification for this symbol",
+                "_note": ("Say the classification is unavailable rather than "
+                          "guessing peers from the name.")}
+    name, ind = row
+    have = {r[0] for r in _con.execute("SELECT DISTINCT symbol FROM bars")}
+    peers = [{"symbol": p, "name": n, **({} if p in have else {"cold": True})}
+             for p, n in _con.execute(
+                 "SELECT symbol, name FROM classification "
+                 "WHERE industry=? AND symbol!=? ORDER BY symbol", (ind, sym))]
+    return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
+            "_note": (
+                "Industry comes from the Moneycontrol classification; peers "
+                "are limited to the 500-company chart universe. To compare, "
+                "pick a handful (the user's ask decides which — do not dump "
+                "the whole list) and call compare_symbols. A peer marked "
+                "cold downloads its history on first use, ~6 s each.")}
+
+
+def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
+                         lookback_bars: int = 250) -> dict:
+    """Cross-symbol comparison on locally stored bars, aligned to a
+    common window so no symbol is scored over a span the others lack."""
+    syms = []
+    for s in (symbols or []):
+        s = str(s).upper().strip()
+        if s and s not in syms:
+            syms.append(s)
+    if not (2 <= len(syms) <= 8):
+        return {"error": "give 2-8 symbols to compare"}
+    for s in syms:
+        err = _ensure_symbol(s)
+        if err:
+            return {"error": f"cannot compare: {err['error']}"}
+
+    lb = max(60, min(int(lookback_bars or 250), 1500))
+    series: dict[str, list[tuple]] = {}
+    for s in syms:
+        bars = get_bars(s, interval, None, lb)["bars"]
+        if len(bars) < 20:
+            return {"error": f"{s} has under 20 {interval} bars — too thin "
+                             "to compare on this interval"}
+        series[s] = [(b["t"], b["h"], b["l"], b["c"], b["v"]) for b in bars]
+
+    start = max(v[0][0] for v in series.values())   # common window start
+    out, rets = {}, {}
+    for s, rows in series.items():
+        rows = [r for r in rows if r[0] >= start]
+        closes = [r[3] for r in rows]
+        peak, dd = closes[0], 0.0
+        for c in closes:
+            peak = max(peak, c)
+            dd = min(dd, c / peak - 1)
+        tr = [max(h - l, abs(h - rows[i - 1][3]), abs(l - rows[i - 1][3]))
+              for i, (_, h, l, _c, _v) in enumerate(rows) if i]
+        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else None
+        out[s] = {
+            "last": round(closes[-1], 2),
+            "return_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+            "max_drawdown_pct": round(dd * 100, 2),
+            "atr_pct_of_price": round(atr / closes[-1] * 100, 2) if atr else None,
+            "avg_daily_turnover_cr": round(
+                sum(r[3] * r[4] for r in rows) / len(rows) / 1e7, 1),
+            "bars": len(rows),
+        }
+        rets[s] = {r[0]: r[3] for r in rows}
+
+    common = sorted(set.intersection(*(set(v) for v in rets.values())))
+    corr = {}
+    if len(common) >= 30:
+        chg = {s: [rets[s][t2] / rets[s][t1] - 1
+                   for t1, t2 in zip(common, common[1:])] for s in syms}
+
+        def _r(a, b):
+            n = len(a)
+            ma, mb = sum(a) / n, sum(b) / n
+            ca = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+            va = sum((x - ma) ** 2 for x in a) * sum((y - mb) ** 2 for y in b)
+            return round(ca / va ** 0.5, 2) if va else None
+
+        corr = {f"{a}~{b}": _r(chg[a], chg[b])
+                for i, a in enumerate(syms) for b in syms[i + 1:]}
+
+    wt = interval not in ("1d", "1w", "1mo")
+    res = {"window": f"{_ist(start, wt)} → {_ist(max(v[-1][0] for v in series.values()), wt)} IST",
+           "interval": interval,
+           "metrics": out,
+           "ranked_by_return": sorted(syms, key=lambda s: -out[s]["return_pct"]),
+           "return_correlation": corr or "under 30 common bars — not computed"}
+    try:
+        brows = _con.execute(
+            "SELECT c FROM benchmark WHERE symbol='NIFTY 50' "
+            "AND trade_date>=? ORDER BY trade_date",
+            (_iso_day(start),)).fetchall()
+        if len(brows) >= 2:
+            res["nifty50_return_pct_same_window"] = round(
+                (brows[-1][0] / brows[0][0] - 1) * 100, 2)
+    except sqlite3.Error:
+        pass
+    res["_note"] = (
+        "All symbols are measured over the SAME common window (a later "
+        "listing shortens it for everyone — say so if 'bars' looks small). "
+        "Present a markdown table; quote these numbers exactly. Turnover is "
+        "rupees crore per bar. This is descriptive comparison, not a "
+        "ranking of what to buy — close as analysis, not advice.")
+    return res
+
+
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
@@ -4184,6 +4306,29 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
+    {"type": "function", "name": "get_peers",
+     "description": (
+         "The company's industry classification (Moneycontrol) and its peer "
+         "group within the 500-company universe. Use for 'who are the "
+         "peers/competitors' and as the first step of any peer comparison — "
+         "then pick the relevant few and call compare_symbols."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string",
+                    "description": "defaults to the chart's symbol"}},
+         "required": []}},
+    {"type": "function", "name": "compare_symbols",
+     "description": (
+         "Compare 2-8 symbols over a common window: return %, max drawdown, "
+         "ATR volatility, avg turnover, return correlation, and the NIFTY 50 "
+         "return over the same span. Symbols not yet stored locally download "
+         "first (~6 s each). Use for any cross-company or company-vs-peers "
+         "question; the chart's own symbol must be listed explicitly."),
+     "parameters": {"type": "object", "properties": {
+         "symbols": {"type": "array", "items": {"type": "string"}},
+         "interval": {"type": "string", "enum": ["1d", "1w"]},
+         "lookback_bars": {"type": "integer",
+                           "description": "window length, default 250 (~1y of 1d)"}},
+         "required": ["symbols"]}},
     {"type": "function", "name": "plan_position",
      "description": (
          "Draw or update the trade-plan overlay (entry/stop/targets) and return "
@@ -4301,6 +4446,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
              "plan_position": tool_plan_position,
+             "get_peers": tool_get_peers,
+             "compare_symbols": tool_compare_symbols,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,
@@ -4415,6 +4562,9 @@ def _render_context(ctx: dict) -> str:
         f"· low {_n(w['low']['p'])} ({w['low']['t']}) "
         f"· avg vol {w['avg_volume']:,}",
     ]
+    cls = _classification_row(str(ctx.get("symbol") or ""))
+    if cls:
+        L.insert(2, f"{cls[0]} · industry: {cls[1]} (Moneycontrol classification)")
     if ctx.get("session"):
         s = ctx["session"]
         L.append(f"Session {s['date']}: open {_n(s['open'])} → {_n(s['last'])} "
