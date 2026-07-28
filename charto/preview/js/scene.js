@@ -410,8 +410,110 @@ const Scene = (() => {
       }
     });
 
+    // ── manual adjustment ───────────────────────────────
+    // Chat drawings are draggable like the user's own shapes: the whole
+    // shape translates, and a position's entry/stop/target lines move one
+    // at a time. The id never changes; `adjusted: true` marks the geometry
+    // as the USER'S revision — the backend reads these values from the
+    // chart context, so a moved plan re-prices as it now stands.
+    let drag = null;
+    let swallowClick = false;   // a drag-release is not a select
+    const setScroll = (on) => chart.applyOptions({ handleScroll: on, handleScale: on });
+    const priceAt = (y, key) => {
+      const p = paneFor(key);
+      return p ? p.series.coordinateToPrice(y) : null;
+    };
+    const r2 = (v) => Math.round(v * 100) / 100;
+
+    function positionHandle(a, my, key) {
+      const near = (v) => {
+        const y = vToY(v, key);
+        return y !== null && Math.abs(my - y) < HIT + 2;
+      };
+      if (near(a.entry)) return { k: "entry" };
+      if (near(a.stop)) return { k: "stop" };
+      for (let i = 0; i < (a.targets || []).length; i++) {
+        if (near(a.targets[i])) return { k: "target", i };
+      }
+      return null;
+    }
+
+    function applyDelta(a, o, dv, dt, h) {
+      const mv = (p, q) => { p.v = r2(q.v + dv); p.t = q.t + dt; };
+      switch (a.kind) {
+        case "level": a.price = r2(o.price + dv); break;
+        case "zone": a.lo = r2(o.lo + dv); a.hi = r2(o.hi + dv); break;
+        case "segment": case "fib": mv(a.p1, o.p1); mv(a.p2, o.p2); break;
+        case "box": mv(a.a, o.a); mv(a.b, o.b); break;
+        case "vline": a.t = o.t + dt; break;
+        case "point": mv(a.a, o.a); break;
+        case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
+        case "position":
+          if (h && h.k === "entry") a.entry = r2(o.entry + dv);
+          else if (h && h.k === "stop") a.stop = r2(o.stop + dv);
+          else if (h && h.k === "target") {
+            a.targets = o.targets.map((t, i) => (i === h.i ? r2(t + dv) : t));
+          } else {
+            a.entry = r2(o.entry + dv); a.stop = r2(o.stop + dv);
+            a.targets = o.targets.map((t) => r2(t + dv));
+            a.t0 = o.t0 + dt; a.t1 = o.t1 + dt;
+          }
+          break;
+      }
+    }
+
+    // sizing that no longer matches the moved geometry is recomputed where
+    // the arithmetic is unambiguous (rr, qty from the kept risk budget) and
+    // DROPPED where it is not (pnl depends on the server-side split)
+    function refreshDerived(a) {
+      if (a.kind !== "position") return;
+      const risk = Math.abs(a.entry - a.stop);
+      a.rr = risk && a.targets.length
+        ? r2(Math.abs(a.targets[0] - a.entry) / risk) : null;
+      if (a.risk_amount && risk) a.qty = Math.floor(a.risk_amount / risk);
+      a.pnl = null;
+      a.label = `${a.side} · R:R ${a.rr ?? "—"}` + (a.qty ? ` · qty ${a.qty}` : "");
+    }
+
+    env.container.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || !env.isCursorMode()) return;
+      if (env.userBusy && env.userBusy()) return;  // a user drawing took this press
+      const p = pointIn(e);
+      const a = hitAt(p.y, p.key, p.x);
+      if (!a || a.kind === "markers") return;
+      const l0 = chart.timeScale().coordinateToLogical(p.x);
+      drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
+               orig: JSON.parse(JSON.stringify(a)),
+               handle: a.kind === "position" ? positionHandle(a, p.y, p.key) : null };
+      setScroll(false); e.preventDefault();
+    });
+    env.container.addEventListener("mousemove", (e) => {
+      if (!drag) return;
+      const p = pointIn(e);
+      const v1 = priceAt(env.yIn(e.clientY, drag.key), drag.key);
+      const l1 = chart.timeScale().coordinateToLogical(p.x);
+      if (v1 === null || drag.v0 === null) return;
+      const sec = env.getIntervalSec ? env.getIntervalSec() : 60;
+      const dt = (l1 !== null && drag.l0 !== null)
+        ? Math.round((l1 - drag.l0) * sec) : 0;
+      applyDelta(drag.a, drag.orig, v1 - drag.v0, dt, drag.handle);
+      drag.moved = true;
+      _ru();
+    });
+    window.addEventListener("mouseup", () => {
+      if (!drag) return;
+      if (drag.moved && JSON.stringify(drag.a) !== JSON.stringify(drag.orig)) {
+        drag.a.adjusted = true;
+        refreshDerived(drag.a);
+        swallowClick = true;
+        env.onChange(count());   // persists the moved geometry
+      }
+      drag = null; setScroll(true);
+    });
+
     env.container.addEventListener("click", (e) => {
       if (!env.isCursorMode()) return;
+      if (swallowClick) { swallowClick = false; return; }
       const p = pointIn(e);
       const hit = hitAt(p.y, p.key, p.x);
       if (hit) {

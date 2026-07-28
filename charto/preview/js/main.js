@@ -681,6 +681,25 @@
       };
     });
 
+    // Chat-drawn annotations, CURRENT geometry — the user can drag these,
+    // so the backend must read them from here, not from what it drew
+    const chat_drawings = scene.state.items.slice(0, 20).map((a) => {
+      const g = a.kind === "level" ? { price: r2(a.price) }
+        : a.kind === "zone" ? { lo: r2(a.lo), hi: r2(a.hi) }
+        : (a.kind === "segment" || a.kind === "fib")
+          ? { p1: { t: T(a.p1.t), p: r2(a.p1.v) }, p2: { t: T(a.p2.t), p: r2(a.p2.v) } }
+        : a.kind === "box"
+          ? { a: { t: T(a.a.t), p: r2(a.a.v) }, b: { t: T(a.b.t), p: r2(a.b.v) } }
+        : a.kind === "position"
+          ? { side: a.side, entry: r2(a.entry), stop: r2(a.stop),
+              targets: (a.targets || []).map(r2), qty: a.qty || undefined,
+              risk_amount: a.risk_amount || undefined }
+        : null;
+      return g && { id: a.id, kind: a.kind, on: paneLabel(a.pane),
+                    label: a.label || undefined,
+                    adjusted: a.adjusted || undefined, ...g };
+    }).filter(Boolean);
+
     return {
       symbol: SYMBOL, exchange: "NSE",
       source: "local 1-min store (Kite-sourced)",
@@ -706,6 +725,7 @@
         label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
       })),
       drawings,
+      chat_drawings: chat_drawings.length ? chat_drawings : undefined,
       drawings_omitted: Math.max(0, draw.state.drawings.length - 15) || undefined,
       pins: pins.list().map((p) => ({
         t: T(p.time), o: r2(p.open), h: r2(p.high),
@@ -754,11 +774,15 @@
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
     },
     onHover: (a) => {
-      el("drawStatus").textContent = a
-        ? `${a.label} — ${a.source.strength} · `      // label already says touches
-          + `last ${a.source.last_touch} · ${a.source.method} over `
-          + `${a.source.bars_scanned} ${a.source.interval} bars`
-        : "";
+      if (!a) { el("drawStatus").textContent = ""; return; }
+      const s = a.source || {};
+      // label already says touches; skip fields this kind doesn't carry —
+      // a position has no touch record and printed a row of 'undefined'
+      el("drawStatus").textContent = [
+        a.label, s.strength, s.last_touch && `last ${s.last_touch}`,
+        s.method && `${s.method} over ${s.bars_scanned} ${s.interval} bars`,
+        a.adjusted && "user-adjusted",
+      ].filter(Boolean).join(" · ");
     },
     onIndicator: async (a) => {              // "add the 70-day average"
       // pane keys may arrive composite ("rsi@26") from period-aware marks
@@ -806,6 +830,10 @@
       }
     },
     isCursorMode: () => draw.state.tool === "cursor",
+    // drawings.js's mousedown runs first (attached earlier); if it took the
+    // press — drag, handle, or a click spent deselecting — the scene must
+    // not also start a drag under it
+    userBusy: () => draw.state.consumedDown || draw.state.draft !== null,
     onSelect: (a, y) => showProvenance(a, y),
   });
   el("sceneClear").innerHTML = Icons.svg("eraser", "sm");

@@ -154,6 +154,43 @@ def _drawings_set(ctx: dict | None) -> None:
         for key in (d.get("ref"), d.get("id")):
             if key:
                 _drawings.by_ref[str(key).upper()] = d
+    # chat-drawn annotations, addressable by their scene id. The FE lets the
+    # user DRAG these, so the context copy is the current truth — resolving
+    # from it (never from what a tool drew earlier) is what makes a moved
+    # plan re-price as it now stands.
+    _drawings.chat_by_id = {}
+    for d in (ctx or {}).get("chat_drawings") or []:
+        if d.get("id"):
+            _drawings.chat_by_id[str(d["id"]).upper()] = d
+
+
+_CHAT_AS_TYPE = {"level": "hline", "zone": "rect", "segment": "trend",
+                 "fib": "fib"}
+
+
+def _chat_drawing_as_user(c: dict) -> dict | None:
+    """A chat annotation reshaped so the evaluate tools can score it."""
+    k = c.get("kind")
+    if k == "position":
+        tgt = (c.get("targets") or [None])[0]
+        if tgt is None or c.get("entry") is None or c.get("stop") is None:
+            return None
+        pts = [{"p": c["entry"]}, {"p": tgt}, {"p": c["stop"]}]
+        return {"type": "short" if c.get("side") == "short" else "long",
+                "pts": pts, "id": c.get("id"), "_chat": c}
+    if k == "level":
+        return {"type": "hline", "pts": [{"p": c.get("price")}],
+                "id": c.get("id"), "_chat": c}
+    if k == "zone":
+        return {"type": "rect", "pts": [{"p": c.get("lo")}, {"p": c.get("hi")}],
+                "id": c.get("id"), "_chat": c}
+    if k in ("segment", "fib"):
+        p1, p2 = c.get("p1") or {}, c.get("p2") or {}
+        return {"type": _CHAT_AS_TYPE[k],
+                "pts": [{"t": p1.get("t"), "p": p1.get("p")},
+                        {"t": p2.get("t"), "p": p2.get("p")}],
+                "id": c.get("id"), "_chat": c}
+    return None
 
 
 def _drawing_get(ref: str) -> dict:
@@ -162,7 +199,14 @@ def _drawing_get(ref: str) -> dict:
     d = by.get(str(ref or "").upper().strip())
     if d:
         return {"ok": d}
-    avail = sorted({v.get("ref") or v.get("id") for v in by.values()})
+    chat = getattr(_drawings, "chat_by_id", None) or {}
+    c = chat.get(str(ref or "").upper().strip())
+    if c:
+        conv = _chat_drawing_as_user(c)
+        if conv:
+            return {"ok": conv}
+    avail = sorted({v.get("ref") or v.get("id") for v in by.values()}
+                   | set(chat.keys()))
     return {"error": f"no drawing '{ref}' on this chart",
             "available": avail,
             "_note": ("Nothing was scored. The user's drawings are listed in "
@@ -2247,15 +2291,29 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
     atr14 = next((x for x in reversed(a) if x), None)
 
     if drawing_id:
-        got = _drawing_for(drawing_id, "drawing")
-        if "error" in got:
-            return got
-        if got["sub"] != "position":
-            return {"error": f"drawing {drawing_id} is a {got['sub']}, not a "
-                             "position — draw one with the long/short tool or "
-                             "give entry/stop/targets directly"}
-        pv = [p.get("v", p.get("p")) for p in got["points"][:3]]
-        entry, targets, stop = pv[0], [pv[1]], pv[2]
+        # a chat-drawn plan resolves with EVERYTHING it carries — all targets
+        # and the sizing the user last set — so a dragged plan re-prices as
+        # it now stands without re-typing anything
+        c = (getattr(_drawings, "chat_by_id", None) or {}).get(
+            str(drawing_id).upper().strip())
+        if c and c.get("kind") == "position" and c.get("targets"):
+            entry, stop = c["entry"], c["stop"]
+            targets = list(c["targets"])
+            side = side or c.get("side") or ""
+            if qty is None and c.get("qty"):
+                qty = c["qty"]
+            if risk_amount is None and c.get("risk_amount"):
+                risk_amount = c["risk_amount"]
+        else:
+            got = _drawing_for(drawing_id, "drawing")
+            if "error" in got:
+                return got
+            if got["sub"] != "position":
+                return {"error": f"drawing {drawing_id} is a {got['sub']}, not "
+                                 "a position — draw one with the long/short "
+                                 "tool or give entry/stop/targets directly"}
+            pv = [p.get("v", p.get("p")) for p in got["points"][:3]]
+            entry, targets, stop = pv[0], [pv[1]], pv[2]
 
     entry = float(entry) if entry is not None else last
     if stop is None and stop_atr is not None and atr14:
@@ -4351,6 +4409,30 @@ def _render_context(ctx: dict) -> str:
                      "level, a MACD value), never rupees.")
     else:
         L.append("User's own drawings: none")
+
+    if ctx.get("chat_drawings"):
+        parts = []
+        for d in ctx["chat_drawings"]:
+            k = d["kind"]
+            g = (f"@{_n(d['price'])}" if k == "level"
+                 else f"{_n(d['lo'])}–{_n(d['hi'])}" if k == "zone"
+                 else f"{d['p1']['t']} @{_n(d['p1']['p'])} → {d['p2']['t']} "
+                      f"@{_n(d['p2']['p'])}" if k in ("segment", "fib")
+                 else f"{d.get('side')} entry {_n(d['entry'])} stop "
+                      f"{_n(d['stop'])} targets "
+                      f"{'/'.join(_n(t) for t in d['targets'])}"
+                      + (f" qty {d['qty']}" if d.get("qty") else "")
+                 if k == "position" else "")
+            on = f" on {d['on']}" if d.get("on") else ""
+            adj = " (USER-ADJUSTED)" if d.get("adjusted") else ""
+            parts.append(f"[{d['id']}] {k}{on} {g}{adj}")
+        L.append("Drawn by chat, still on the chart: " + " · ".join(parts))
+        L.append("These geometries are CURRENT — the user can drag chat "
+                 "drawings, and USER-ADJUSTED marks one they moved: its values "
+                 "are the user's revision, which supersedes whatever a tool "
+                 "drew earlier. Address one by passing its bracketed id as "
+                 "drawing_id; a moved plan re-prices via plan_position with "
+                 "drawing_id alone (its targets and sizing carry over).")
 
     L.append(
         "\nThese facts describe the visible chart. For anything they don't contain "
