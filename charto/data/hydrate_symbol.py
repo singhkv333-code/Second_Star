@@ -32,22 +32,45 @@ FLOWS = HERE / "flows_market.db"
 ACCOUNT = "https://pivotmarketdata.blob.core.windows.net/kite-1min"
 
 
+def _download(url: str) -> bytes:
+    """4 ranged streams — the single-stream transfer was half the wall time."""
+    head = urllib.request.Request(url, method="HEAD")
+    size = int(urllib.request.urlopen(head, timeout=30, context=CTX)
+               .headers["Content-Length"])
+    if size < 2_000_000:
+        return urllib.request.urlopen(url, timeout=120, context=CTX).read()
+    from concurrent.futures import ThreadPoolExecutor
+    step = -(-size // 4)
+
+    def part(lo: int) -> bytes:
+        req = urllib.request.Request(
+            url, headers={"Range": f"bytes={lo}-{min(lo + step, size) - 1}"})
+        return urllib.request.urlopen(req, timeout=120, context=CTX).read()
+
+    with ThreadPoolExecutor(4) as ex:
+        return b"".join(ex.map(part, range(0, size, step)))
+
+
 def main(symbol: str) -> None:
     t0 = time.time()
     sas = (HERE / ".blob_sas").read_text().strip()
     blob = urllib.parse.quote(f"nse/1min/{symbol}_1min.parquet")
-    data = urllib.request.urlopen(f"{ACCOUNT}/{blob}?{sas}", timeout=120,
-                                  context=CTX).read()
+    data = _download(f"{ACCOUNT}/{blob}?{sas}")
+    t_dl = time.time()
 
-    import pandas as pd
-    df = pd.read_parquet(io.BytesIO(data))
-    rows = list(zip([symbol] * len(df), df["epoch"].tolist(),
-                    (df["o"] / 100.0).tolist(), (df["h"] / 100.0).tolist(),
-                    (df["l"] / 100.0).tolist(), (df["c"] / 100.0).tolist(),
-                    df["v"].tolist()))
+    import pyarrow.parquet as pq   # pandas costs 0.6 s of import for nothing
+    t_ = pq.read_table(io.BytesIO(data))
+    epoch = t_.column("epoch").to_numpy()
+    rows = zip([symbol] * t_.num_rows, epoch.tolist(),
+               (t_.column("o").to_numpy() / 100.0).tolist(),
+               (t_.column("h").to_numpy() / 100.0).tolist(),
+               (t_.column("l").to_numpy() / 100.0).tolist(),
+               (t_.column("c").to_numpy() / 100.0).tolist(),
+               t_.column("v").to_numpy().tolist())
 
     con = sqlite3.connect(DB)
     con.execute("PRAGMA journal_mode=WAL")     # readers keep working mid-insert
+    con.execute("PRAGMA synchronous=OFF")      # derived data — re-fetchable
     con.execute("PRAGMA busy_timeout=10000")
     con.executemany("INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)", rows)
 
@@ -66,7 +89,7 @@ def main(symbol: str) -> None:
     n = con.execute("SELECT COUNT(*) FROM bars WHERE symbol=?", (symbol,)).fetchone()[0]
     con.close()
     print(f"HYDRATED {symbol}: {n:,} bars, flows {flows}, "
-          f"{time.time() - t0:.1f}s")
+          f"{time.time() - t0:.1f}s (download {t_dl - t0:.1f}s)")
 
 
 if __name__ == "__main__":

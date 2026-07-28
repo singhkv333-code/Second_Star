@@ -1234,16 +1234,18 @@
     const render = (query) => {
       const q = query.trim().toUpperCase();
       const pool = all || [];
+      // the whole universe renders — 500 rows is nothing, and a cap made
+      // the list look like it "couldn't load more" past the B's
       const hits = q
         ? pool.filter((s) => s.includes(q))
             .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
-                            || a.localeCompare(b)).slice(0, 60)
-        : pool.slice(0, 60);
+                            || a.localeCompare(b))
+        : pool;
       list.innerHTML = hits.map((s) =>
         `<div class="item" data-sym="${s}"><span class="lead">` +
         (hyd.has(s) ? '<span class="dot-h"></span>' : "") +
         `${s}</span>` +
-        (hyd.has(s) ? "" : '<span class="cold">~8s first load</span>') +
+        (hyd.has(s) ? "" : '<span class="cold">~6s first load</span>') +
         "</div>").join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';
     };
