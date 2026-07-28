@@ -12,6 +12,10 @@ which differs slightly from NSE's official 30-min-VWAP close).
 GET /bars?symbol=RELIANCE&interval=5m&limit=3000[&to=<epoch_s exclusive>]
   -> {symbol, interval, bars:[{t,o,h,l,c,v}], has_more, earliest, latest}
 GET /meta?symbol=RELIANCE -> {symbol, count, earliest, latest}
+GET /stream?symbol=RELIANCE -> SSE {type:"bar", closed_1m, bars:{1m..1h,1d}}
+GET /replay?symbol=RELIANCE&speed=300[&date=YYYY-MM-DD][&stop=1]
+  re-feeds a stored session through the live tick engine (dev driver; the
+  same seam a Kite websocket would use). stop=1 returns the symbol to idle.
 
 Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 """
@@ -19,8 +23,10 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import sqlite3
 import threading
+import time
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -3193,9 +3199,16 @@ def _iso_day(ts: int) -> str:
 def _minutes_of(day_ts: int) -> list[tuple]:
     """1-min bars of the IST session containing day_ts."""
     day0 = _ist_day(day_ts) * 86400 - IST_OFF
-    return _con.execute(
+    hi = day0 + 86400
+    live = _live_view(_sym())
+    if live and live[1] is not None:
+        hi = min(hi, live[1])   # replay clock: the session's future is hidden
+    rows = _con.execute(
         "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
-        "AND ts>=? AND ts<? ORDER BY ts", (_sym(), day0, day0 + 86400)).fetchall()
+        "AND ts>=? AND ts<? ORDER BY ts", (_sym(), day0, hi)).fetchall()
+    if live and live[0] is not None and day0 <= live[0][0] < day0 + 86400:
+        _merge_form_intraday(rows, live[0])
+    return rows
 
 
 def _session_anatomy(prev_close: float, mins: list[tuple]) -> dict:
@@ -4478,6 +4491,15 @@ def run_tool(name: str, args: dict) -> dict:
             f"These numbers are for the user's {d.get('type', 'drawing')} "
             f"{d.get('ref') or ref} — name it in the reply so they know which "
             f"shape was scored.")
+    # A forming bar reads like any other bar once it is inside a tool result.
+    # Say so here, once, rather than teaching every tool to caveat itself.
+    st = _LIVE.get(_sym())
+    form = st["form"] if st else None
+    if (form and isinstance(out, dict) and "error" not in out
+            and ("bars" in out or "as_of" in out or "interval" in out)):
+        out["_live_note"] = (
+            f"The last bar is still FORMING (as of {_hm_ist(form[0])} IST) — "
+            f"treat its values as provisional, not a closed candle.")
     return out
 
 
@@ -4565,6 +4587,10 @@ def _render_context(ctx: dict) -> str:
     cls = _classification_row(str(ctx.get("symbol") or ""))
     if cls:
         L.insert(2, f"{cls[0]} · industry: {cls[1]} (Moneycontrol classification)")
+    _st = _LIVE.get(str(ctx.get("symbol") or ""))
+    _form = _st["form"] if _st else None
+    if _form:
+        L.insert(2, f"live · forming bar {_hm_ist(_form[0])} IST")
     if ctx.get("session"):
         s = ctx["session"]
         L.append(f"Session {s['date']}: open {_n(s['open'])} → {_n(s['last'])} "
@@ -4945,6 +4971,20 @@ def _ist_day(ts: int) -> int:
     return (ts + IST_OFF) // 86400
 
 
+def _bucket_stamp(ts: int, minutes: int) -> tuple[tuple[int, int], int]:
+    """(day, bucket) identity and the stamped bar-open ts a 1-min row falls in.
+
+    The single source of bucket arithmetic: the historical resampler and the
+    live bar builder both call it, so a forming bar can never land on a
+    different stamp than the same minute would get after it is closed.
+    """
+    ist = ts + IST_OFF
+    day = ist // 86400
+    mod = (ist % 86400) // 60
+    bucket = max(0, mod - SESSION_OPEN_MIN) // minutes
+    return (day, bucket), day * 86400 + (SESSION_OPEN_MIN + bucket * minutes) * 60 - IST_OFF
+
+
 def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     """rows = ascending (ts,o,h,l,c,v) 1-min bars → bucketed bars.
 
@@ -4955,14 +4995,8 @@ def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in rows:
-        ist = ts + IST_OFF
-        day = ist // 86400
-        mod = (ist % 86400) // 60
-        bucket = max(0, mod - SESSION_OPEN_MIN) // minutes
-        key = (day, bucket)
+        key, bts = _bucket_stamp(ts, minutes)
         if key != cur_key:
-            bucket_start_mod = SESSION_OPEN_MIN + bucket * minutes
-            bts = day * 86400 + bucket_start_mod * 60 - IST_OFF
             out.append([bts, o, h, l, c, v])
             cur_key = key
         else:
@@ -4974,12 +5008,8 @@ def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     return out
 
 
-def _daily(symbol: str) -> list[list]:
-    if symbol in _daily_cache:
-        return _daily_cache[symbol]
-    rows = _con.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (symbol,)
-    ).fetchall()
+def _fold_daily(rows: list[tuple]) -> list[list]:
+    """ascending 1-min rows → one bar per IST trade date."""
     out: list[list] = []
     cur_day = None
     for ts, o, h, l, c, v in rows:
@@ -4993,12 +5023,21 @@ def _daily(symbol: str) -> list[list]:
             b[3] = min(b[3], l)
             b[4] = c
             b[5] += v
+    return out
+
+
+def _daily(symbol: str) -> list[list]:
+    cached = _daily_cache.get(symbol)   # one atomic read — the tick thread pops
+    if cached is not None:
+        return cached
+    out = _fold_daily(_con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (symbol,)
+    ).fetchall())
     _daily_cache[symbol] = out
     return out
 
 
-def _weekly_or_monthly(symbol: str, mode: str) -> list[list]:
-    daily = _daily(symbol)
+def _weekly_or_monthly(daily: list[list], mode: str) -> list[list]:
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in daily:
@@ -5017,14 +5056,253 @@ def _weekly_or_monthly(symbol: str, mode: str) -> list[list]:
     return out
 
 
+# ── live tick engine ──────────────────────────────────────────────
+# Ticks enter through one seam, _live_on_tick. Today the only driver is the
+# replay thread below re-feeding stored 1-min rows; a Kite websocket would
+# call the same function with the same four arguments. The engine keeps one
+# FORMING 1-min bar per symbol and writes a minute to SQLite the moment it
+# closes; get_bars merges the forming bar, so every tool and /bars goes live
+# without knowing this file has a tick loop. Indicators stay pure functions
+# of rows — nothing here stores an indicator value.
+#
+# horizon != None means replay: stored rows at or after it are the future
+# being re-played and stay hidden until the clock reaches them.
+_LIVE: dict[str, dict] = {}
+_LIVE_GUARD = threading.Lock()
+# Writes go on their own connection (WAL is on) so a tick can never land
+# mid-read on the shared reader.
+_live_writer = sqlite3.connect(DB_PATH, check_same_thread=False)
+_LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
+
+
+def _hm_ist(ts: int) -> str:
+    t = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
+    return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def _live_state(sym: str) -> dict:
+    with _LIVE_GUARD:
+        st = _LIVE.get(sym)
+        if st is None:
+            st = _LIVE[sym] = {"lock": threading.Lock(), "form": None,
+                               "horizon": None, "subs": [], "replaying": False,
+                               "replay_stop": False, "thread": None,
+                               "last_push": 0.0}
+        return st
+
+
+def _live_view(sym: str) -> tuple[list | None, int | None] | None:
+    """(forming bar, horizon) — None when the symbol is idle, which is what
+    keeps get_bars on exactly the pre-live code path."""
+    st = _LIVE.get(sym)
+    if st is None:
+        return None
+    with st["lock"]:
+        f, hz = st["form"], st["horizon"]
+        if f is None and hz is None:
+            return None
+        return (list(f) if f is not None else None, hz)
+
+
+def _live_snapshot(sym: str, form: list) -> dict:
+    """The current FORMING bar of every interval, for the SSE payload.
+
+    Bounded by construction: only the current session's closed minutes are
+    read, and each interval is folded by the same bucket math the historical
+    resampler uses.
+    """
+    day0 = _ist_day(form[0]) * 86400 - IST_OFF
+    mins = _live_writer.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+        "ORDER BY ts", (sym, day0, form[0])).fetchall()
+    tail = tuple(form)
+    out = {}
+    for name, m in INTRADAY_MIN.items():
+        _, bts = _bucket_stamp(form[0], m)
+        b = _resample_intraday([r for r in mins if r[0] >= bts] + [tail], m)[-1]
+        out[name] = {"t": b[0], "o": b[1], "h": b[2], "l": b[3],
+                     "c": b[4], "v": b[5]}
+    d = _fold_daily(mins + [tail])[-1]
+    out["1d"] = {"t": d[0], "o": d[1], "h": d[2], "l": d[3], "c": d[4], "v": d[5]}
+    return out
+
+
+def _live_push(sym: str, form: list, closed: bool) -> None:
+    st = _LIVE.get(sym)
+    if st is None:
+        return
+    with st["lock"]:
+        subs = list(st["subs"])
+    if not subs:
+        return
+    ev = {"type": "bar", "symbol": sym, "closed_1m": closed,
+          "bars": _live_snapshot(sym, form)}
+    for q in subs:
+        try:
+            q.put_nowait(ev)
+        except queue.Full:            # a subscriber that cannot keep up is gone
+            q.dead = True             # its SSE loop closes the socket, so the
+            with st["lock"]:          # browser reconnects instead of freezing
+                if q in st["subs"]:
+                    st["subs"].remove(q)
+
+
+def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
+    """The one seam every tick source calls. ts = the tick's epoch second."""
+    if ((ts + IST_OFF) % 86400) // 60 < SESSION_OPEN_MIN:
+        return    # pre-open prints must not be persisted as the 09:15 candle
+    _, bts = _bucket_stamp(ts, 1)
+    st = _live_state(sym)
+    closed_bar = None
+    with st["lock"]:
+        f = st["form"]
+        if f is not None and f[0] == bts:
+            f[2] = max(f[2], price)
+            f[3] = min(f[3], price)
+            f[4] = price
+            f[5] += vol
+        else:
+            if f is not None:
+                _live_writer.execute(
+                    "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                    (sym, f[0], f[1], f[2], f[3], f[4], int(f[5])))
+                _live_writer.commit()
+                _daily_cache.pop(sym, None)
+                closed_bar = list(f)
+            st["form"] = [bts, price, price, price, price, vol]
+            if st["horizon"] is not None:
+                st["horizon"] = bts        # exclusive: the minute being formed
+        snap = list(st["form"])
+        now = time.monotonic()
+        throttled = closed_bar is None and now - st["last_push"] < _LIVE_MIN_GAP
+        if not throttled:
+            st["last_push"] = now
+    if throttled:
+        return
+    if closed_bar is not None:
+        # the minute's FINAL state must always reach the chart — a throttled
+        # drop here would leave a permanently wrong candle on screen
+        _live_push(sym, closed_bar, True)
+    _live_push(sym, snap, False)
+
+
+def _merge_form_intraday(rows: list, form: list) -> None:
+    """Append (or replace) the forming minute onto ascending 1-min rows."""
+    if rows and rows[-1][0] == form[0]:
+        rows[-1] = tuple(form)
+    elif not rows or form[0] > rows[-1][0]:
+        rows.append(tuple(form))
+
+
+def _merge_form_daily(daily: list[list], form: list) -> list[list]:
+    """A copy of `daily` with the forming minute folded in — never mutates the
+    cached list, which outlives any replay."""
+    out = list(daily)
+    if out and _ist_day(out[-1][0]) == _ist_day(form[0]):
+        ts, o, h, l, c, v = out[-1]
+        out[-1] = [ts, o, max(h, form[2]), min(l, form[3]), form[4], v + form[5]]
+    elif not out or form[0] > out[-1][0]:
+        out.append([_ist_day(form[0]) * 86400 - IST_OFF,
+                    form[1], form[2], form[3], form[4], form[5]])
+    return out
+
+
+def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
+    """Re-feed one stored session as ticks. Each 1-min row becomes four ticks
+    (o,h,l,c) — the writes it triggers are INSERT OR REPLACE of the identical
+    row, so a replay leaves the store exactly as it found it."""
+    st = _live_state(sym)
+    step = 60.0 / speed / 4
+    try:
+        for ts, o, h, l, c, v in rows:
+            part = int(v or 0) // 4
+            for i, price in enumerate((o, h, l, c)):
+                if st["replay_stop"]:
+                    return
+                _live_on_tick(sym, ts, price,
+                              int(v or 0) - 3 * part if i == 3 else part)
+                time.sleep(step)
+    except Exception as exc:  # noqa: BLE001 — a dead driver must not wedge state
+        logging.warning("charto replay %s failed: %s", sym, exc)
+    finally:
+        with st["lock"]:
+            f = st["form"]
+            if not st["replay_stop"]:
+                if f is not None:
+                    _live_writer.execute(
+                        "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                        (sym, f[0], f[1], f[2], f[3], f[4], int(f[5])))
+                    _live_writer.commit()
+                    _daily_cache.pop(sym, None)
+                st["form"] = None
+                # the replayed rows are all back in the store, so plain history
+                # is correct — a lingering horizon would silently clip every
+                # later session from every tool with no note saying so
+                st["horizon"] = None
+            else:
+                st["form"] = None
+                st["horizon"] = None
+            st["replaying"] = False
+
+
+def _replay(sym: str, date: str | None, speed: float, stop: bool) -> tuple[int, dict]:
+    st = _live_state(sym)
+    if stop:
+        st["replay_stop"] = True
+        th = st["thread"]
+        if th is not None and th.is_alive():
+            th.join(timeout=3)
+        with st["lock"]:
+            st["form"] = None
+            st["horizon"] = None
+            st["replaying"] = False
+        return 200, {"replaying": None, "symbol": sym}
+    if not speed or speed <= 0:
+        return 400, {"error": "speed must be > 0"}
+    if date:
+        try:
+            d = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return 400, {"error": f"bad date {date} — want YYYY-MM-DD"}
+        day = int(d.timestamp()) // 86400
+    else:
+        last = _con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
+                            (sym,)).fetchone()[0]
+        if last is None:
+            return 404, {"error": f"no bars for {sym}"}
+        day = _ist_day(last)
+    day0 = day * 86400 - IST_OFF
+    rows = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+        "ORDER BY ts", (sym, day0, day0 + 86400)).fetchall()
+    if not rows:
+        return 404, {"error": f"no bars for {sym} on {_iso_day(day0)}"}
+    with st["lock"]:
+        if st["replaying"]:   # checked under the lock — two starts cannot race
+            return 409, {"error": f"{sym} is already replaying"}
+        st["form"] = None
+        st["horizon"] = day0
+        st["replaying"] = True
+        st["replay_stop"] = False
+        st["thread"] = threading.Thread(
+            target=_replay_run, args=(sym, day0, rows, speed), daemon=True)
+    st["thread"].start()
+    return 200, {"replaying": sym, "date": _iso_day(day0),
+                 "bars": len(rows), "speed": speed}
+
+
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
+    live = _live_view(symbol)
+    form, horizon = live if live else (None, None)
     if interval in INTRADAY_MIN:
         mins = INTRADAY_MIN[interval]
         raw_needed = limit * mins + 400  # slack for session boundaries
-        if to:
+        upper = to if horizon is None else (
+            horizon if to is None else min(to, horizon))
+        if upper:
             rows = _con.execute(
                 "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
-                "ORDER BY ts DESC LIMIT ?", (symbol, to, raw_needed)
+                "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)
             ).fetchall()
         else:
             rows = _con.execute(
@@ -5032,13 +5310,20 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
                 "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)
             ).fetchall()
         rows.reverse()
+        if form is not None and (to is None or form[0] < to):
+            _merge_form_intraday(rows, form)
         bars = _resample_intraday(rows, mins)[-limit:]
         has_more = bool(rows) and _con.execute(
             "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
             (symbol, rows[0][0])).fetchone() is not None
     else:
-        series = _daily(symbol) if interval == "1d" \
-            else _weekly_or_monthly(symbol, interval)
+        daily = _daily(symbol) if horizon is None else _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? ORDER BY ts",
+            (symbol, horizon)).fetchall())
+        if form is not None:
+            daily = _merge_form_daily(daily, form)
+        series = daily if interval == "1d" \
+            else _weekly_or_monthly(daily, interval)
         if to:
             series = [b for b in series if b[0] < to]
         bars = series[-limit:]
@@ -5090,6 +5375,40 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _send_live(self, symbol: str) -> None:
+        """SSE of forming bars. One queue per subscriber; a client that stops
+        reading is dropped rather than back-pressuring the tick loop."""
+        st = _live_state(symbol)
+        q: queue.Queue = queue.Queue(maxsize=64)
+        q.dead = False   # set by _live_push on eviction; ends this loop
+        try:
+            with st["lock"]:
+                st["subs"].append(q)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            while not q.dead:
+                try:
+                    ev = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(
+                        f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto live sse failed: %s", exc)
+        finally:
+            with st["lock"]:
+                if q in st["subs"]:
+                    st["subs"].remove(q)
 
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
@@ -5148,6 +5467,19 @@ class Handler(BaseHTTPRequestHandler):
                                    for i, v in enumerate(series) if v is not None]
                               for ln, series in res["lines"].items()},
                 })
+            if u.path == "/replay":
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                code, payload = _replay(
+                    symbol, q.get("date"), float(q.get("speed", 300) or 300),
+                    q.get("stop") in ("1", "true", "yes"))
+                return self._send(code, payload)
+            if u.path == "/stream":
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                return self._send_live(symbol)
             if u.path == "/meta":
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",

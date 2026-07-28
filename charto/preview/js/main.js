@@ -25,6 +25,7 @@
     bars: [],          // chart-time bars {time,open,high,low,close,volume}
     hasMore: true,
     loadingOlder: false,
+    switching: false,  // interval switch in flight — stream events wait it out
   };
 
   // ── chart ─────────────────────────────────────────────
@@ -93,6 +94,7 @@
     state.interval = interval;
     setOverlay(true, "Loading…");
     const t0 = performance.now();
+    state.switching = true;   // latch: stream events must not touch the old series mid-switch
     try {
       const { bars, hasMore } = await fetchBars(interval, null, PAGE[interval]);
       state.bars = bars; state.hasMore = hasMore;
@@ -112,6 +114,8 @@
       coverScene();
     } catch (e) {
       setOverlay(true, String(e.message || e), true);
+    } finally {
+      state.switching = false;
     }
   }
 
@@ -177,6 +181,43 @@
     const got = await loadOlderPage();
     if (got) status(`loaded ${got} older bars (total ${state.bars.length})`);
   });
+
+  // ── live stream ───────────────────────────────────────
+  // One EventSource for the whole session: every event carries the forming bar
+  // of every interval, so switching interval needs no new stream. The browser
+  // reconnects on its own.
+  let indTimer = null, es = null;
+  function openStream() {
+    if (es) return;
+    es = new EventSource(`${API}/stream?symbol=${encodeURIComponent(SYMBOL)}`);
+    es.onmessage = (msg) => {
+      if (state.loadingOlder || state.switching) return;   // bars array is being rewritten
+      let ev;
+      try { ev = JSON.parse(msg.data); } catch { return; }
+      if (!ev || ev.type !== "bar" || !ev.bars) return;
+      const b = ev.bars[state.interval];
+      if (!b) return;                   // 1w/1mo aren't streamed
+      const bar = { time: b.t + IST, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v };
+      const last = state.bars[state.bars.length - 1];
+      if (last && last.time === bar.time) state.bars[state.bars.length - 1] = bar;
+      else if (last && bar.time < last.time) return;   // stale/out-of-order
+      else state.bars.push(bar);
+      candle.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      volume.update({ time: bar.time, value: bar.volume,
+        color: bar.close >= bar.open ? Theme.c("volUp") : Theme.c("volDown") });
+      lastBar = bar;
+      paintReadout(lastBar);
+      // the server owns indicator math — refresh at most once a second, and a
+      // fast stream of closes must not keep pushing the refresh into the future
+      if (ev.closed_1m && !indTimer) {
+        indTimer = setTimeout(() => {
+          indTimer = null;
+          ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length });
+        }, 1000);
+      }
+    };
+    es.onerror = () => status("live stream reconnecting…");
+  }
 
   // ── readout ───────────────────────────────────────────
   let lastBar = null;
@@ -1174,7 +1215,7 @@
   // the view back at the live edge) and put back everything the user built.
   // Drawings restore themselves — drawings.js reads its own store at create().
   (async function boot() {
-    await Indicators.loadCatalogue(API);
+    await Indicators.loadCatalogue(API, SYMBOL);
     ind.setContext({ interval: Store.get("interval", "5m") });
     renderIndMenu();
     const saved = Store.get("interval", "5m");
@@ -1211,6 +1252,8 @@
       // so the orphan purge saw an empty scene — signal once more now
       document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
     }
+
+    openStream();   // only once history is on the chart, so ticks extend it
   })();
 
   // expose for debugging + the chat pane

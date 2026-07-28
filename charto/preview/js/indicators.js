@@ -53,9 +53,11 @@ const Indicators = (() => {
   let CATALOG = [];          // presets joined with what the backend reports
   let KNOWN = {};            // the backend's own catalogue, kept for minting
   let BASE = "";
+  let SYM = "";              // without it every series computes on the default symbol
 
-  async function loadCatalogue(base) {
+  async function loadCatalogue(base, symbol) {
     BASE = base;
+    SYM = symbol || "";
     let known = {};
     try {
       const r = await fetch(`${base}/indicators`);
@@ -127,6 +129,7 @@ const Indicators = (() => {
   async function fetchSeries(def, interval, limit) {
     const q = new URLSearchParams({
       name: def.name, interval, limit: String(limit),
+      ...(SYM ? { symbol: SYM } : {}),
       ...(def.period ? { period: String(def.period) } : {}),
     });
     const r = await fetch(`${BASE}/indicator?${q}`);
