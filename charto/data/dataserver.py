@@ -2790,8 +2790,12 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         # words the model actually types can never hit a single one.
         known = {i for _, i in cls.values() if i}
         q = _squash(industry)
-        want_inds = {i for i in known if _squash(i) == q} or \
-                    {i for i in known if q and (q in _squash(i) or _squash(i) in q)}
+        # substring matching needs length to mean anything: "it" sits inside
+        # wh"it"egoods and hosp"it"al, so short queries match by prefix only
+        want_inds = {i for i in known if _squash(i) == q} or (
+            {i for i in known if q and (q in _squash(i) or _squash(i) in q)}
+            if len(q) >= 4 else
+            {i for i in known if q and _squash(i).startswith(q)})
         if not want_inds:
             toks = [t for t in _squash(industry, " ").split() if len(t) >= 4]
             near = sorted(i for i in known
@@ -4743,8 +4747,12 @@ TOOLS = [
                    "description": "scale-out fraction per target, e.g. [0.5, 0.5]"},
          "qty": {"type": "integer"},
          "risk_amount": {"type": "number",
-                         "description": "rupees to risk; qty is derived"},
-         "capital": {"type": "number"},
+                         "description": "rupees the user is prepared to LOSE "
+                         "('risking 50k' means this, NOT capital); qty is "
+                         "derived from it"},
+         "capital": {"type": "number",
+                     "description": "rupees DEPLOYED to buy — only when the "
+                     "user says invest/deploy, never for 'risking X'"},
          "risk_pct": {"type": "number",
                       "description": "with capital: risk_amount = capital × risk_pct/100"},
          "side": {"type": "string", "enum": ["long", "short"]},
@@ -4881,6 +4889,16 @@ def run_tool(name: str, args: dict) -> dict:
         out["_live_note"] = (
             f"The last bar is still FORMING (as of {_hm_ist(form[0])} IST) — "
             f"treat its values as provisional, not a closed candle.")
+    # Geometry drawn on a timeframe the chart is not showing is invisible to
+    # the user until they switch — a "drawn" claim with nothing on screen
+    # reads as a failure, so the reply must name the switch.
+    iv, ctx_iv = args.get("interval"), getattr(_req, "ctx_interval", "")
+    if (iv and ctx_iv and iv != ctx_iv and isinstance(out, dict)
+            and "error" not in out and getattr(_scene, "items", None)):
+        out["_interval_note"] = (
+            f"This was drawn on the {iv} timeframe but the chart currently "
+            f"shows {ctx_iv} — tell the user to click the {iv} interval "
+            f"button to see it; the chat cannot switch the view.")
     return out
 
 
@@ -5194,6 +5212,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
+    _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     tok_in = tok_out = 0
@@ -5267,6 +5286,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
+    _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     tok_in = tok_out = 0
