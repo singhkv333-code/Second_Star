@@ -161,6 +161,25 @@ const Scene = (() => {
       })],
       // ratios and colours come from Tools, the same source the user's own fib
       // tool draws from — one ladder, so the two layers cannot drift apart
+      // trade-plan overlay from plan_position: reward box per target
+      // (fading with distance), one risk box, dashed entry. Same palette as
+      // the user's own long/short tool so the two layers read as one idiom.
+      position: (a) => {
+        // a point comes FIRST because the generic a.label chip anchors on the
+        // first primitive's projection, and only point/box expose an x,y —
+        // this pins the chip to the entry line where traders expect it
+        const e = { t: a.t0, v: a.entry }, x1 = a.t1;
+        const out = [Geo.point(e),
+                     Geo.segment(e, { t: x1, v: a.entry },
+                                 { dash: [4, 4], width: 1 })];
+        (a.targets || []).forEach((tp, i) => {
+          out.push(Geo.box(e, { t: x1, v: tp }, { fill: "#22d3ee" }));
+          out.push(Geo.label({ t: x1, v: tp }, `T${i + 1} ${tp.toFixed(2)}`));
+        });
+        out.push(Geo.box(e, { t: x1, v: a.stop }, { fill: "#f5a524" }));
+        out.push(Geo.label({ t: x1, v: a.stop }, `stop ${a.stop.toFixed(2)}`));
+        return out;
+      },
       fib: (a) => {
         const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];
         Geo.ladder(a.p1.v, a.p2.v, Tools.FIB).forEach((lv, i) => {
@@ -399,7 +418,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position"]);
 
     return {
       state,

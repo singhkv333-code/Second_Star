@@ -2221,6 +2221,139 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
     return res
 
 
+def tool_plan_position(entry: float | None = None, stop: float | None = None,
+                       stop_atr: float | None = None, targets: list | None = None,
+                       targets_r: list | None = None, split: list | None = None,
+                       qty: int | None = None, risk_amount: float | None = None,
+                       capital: float | None = None, risk_pct: float | None = None,
+                       side: str = "", drawing_id: str = "", interval: str = "1d",
+                       draw_mode: str = "add") -> dict:
+    """The user's trade plan as an overlay plus its risk arithmetic.
+
+    Everything here is derived from the handful of numbers the user gave —
+    entry, stop, targets, and one sizing input. Nothing is detected or
+    recommended; the split between this and evaluate_drawing is deliberate:
+    that tool scores history, this one prices a plan.
+    """
+    if str(draw_mode or "add").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "position", "owner": "plan_position"})
+        return {"cleared": True, "_note": "Plan overlay removed from the chart."}
+
+    rows = _rows(interval, 400)
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    last = rows[-1][4]
+    a = _atr(rows, 14)
+    atr14 = next((x for x in reversed(a) if x), None)
+
+    if drawing_id:
+        got = _drawing_for(drawing_id, "drawing")
+        if "error" in got:
+            return got
+        if got["sub"] != "position":
+            return {"error": f"drawing {drawing_id} is a {got['sub']}, not a "
+                             "position — draw one with the long/short tool or "
+                             "give entry/stop/targets directly"}
+        pv = [p.get("v", p.get("p")) for p in got["points"][:3]]
+        entry, targets, stop = pv[0], [pv[1]], pv[2]
+
+    entry = float(entry) if entry is not None else last
+    if stop is None and stop_atr is not None and atr14:
+        s = (side or "").lower() or ("long" if (targets or [entry + 1])[0] > entry
+                                     else "short")
+        stop = entry - stop_atr * atr14 if s == "long" else entry + stop_atr * atr14
+    if stop is None:
+        return {"error": "a plan needs a stop — give stop, or stop_atr with side"}
+    stop = float(stop)
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return {"error": "stop equals entry; there is no risk to size against"}
+    long_ = stop < entry if not side else side.lower() == "long"
+    if (stop >= entry) if long_ else (stop <= entry):
+        return {"error": "the stop is on the same side as the target",
+                "given": {"entry": entry, "stop": stop, "side": side}}
+    if not targets and targets_r:
+        targets = [entry + r * risk if long_ else entry - r * risk
+                   for r in targets_r]
+    if not targets:
+        return {"error": "a plan needs at least one target (targets or targets_r)"}
+    tps = sorted((float(t) for t in targets[:3]), reverse=not long_)
+    for t in tps:
+        if (t <= entry) if long_ else (t >= entry):
+            return {"error": f"target {round(t, 2)} is on the loss side of "
+                             f"entry {round(entry, 2)} for a "
+                             f"{'long' if long_ else 'short'}"}
+
+    if risk_amount is None and capital and risk_pct:
+        risk_amount = capital * risk_pct / 100
+    if qty is None and risk_amount:
+        qty = int(risk_amount // risk)
+        if qty < 1:
+            return {"error": f"risking {round(risk_amount, 2)} cannot buy one "
+                             f"share: a single share risks {round(risk, 2)} "
+                             "between entry and stop"}
+    if risk_amount is None and qty:
+        risk_amount = qty * risk
+
+    fr = None
+    if split:
+        fr = [max(0.0, float(f)) for f in split[:len(tps)]]
+        tot = sum(fr) or 1
+        fr = [f / tot for f in fr] + [0.0] * (len(tps) - len(fr))
+
+    tgt = []
+    for i, t in enumerate(tps):
+        rr = abs(t - entry) / risk
+        d = {"price": round(t, 2), "move_pct": round((t - entry) / entry * 100, 2),
+             "rr": round(rr, 2), "breakeven_hit_pct": round(1 / (1 + rr) * 100)}
+        if qty:
+            d["pnl"] = round(abs(t - entry) * qty * (fr[i] if fr else 1))
+        if fr:
+            d["exit_fraction"] = round(fr[i], 2)
+        tgt.append(d)
+
+    plan = {"side": "long" if long_ else "short", "entry": round(entry, 2),
+            "stop": round(stop, 2),
+            "stop_pct": round((stop - entry) / entry * 100, 2),
+            "risk_per_share": round(risk, 2), "targets": tgt}
+    if atr14:
+        plan["stop_distance_atr"] = round(risk / atr14, 2)
+        plan["atr14"] = round(atr14, 2)
+    if qty:
+        plan["qty"] = qty
+        plan["risk_amount"] = round(qty * risk)
+        if capital:
+            plan["capital_at_risk_pct"] = round(qty * risk / capital * 100, 2)
+            plan["position_cost"] = round(qty * entry)
+    if fr and qty:
+        plan["blended"] = {
+            "rr": round(sum(f * t["rr"] for f, t in zip(fr, tgt)), 2),
+            "pnl_all_targets": round(sum(t.get("pnl", 0) for t in tgt))}
+
+    p = _position_record(rows, entry, tps[0], stop, _tolerance(rows))
+    hist = {k: v for k, v in p.items() if k != "horizon_bars"}
+    hist.update(_rate("hit_rate", p["wins"], p["losses"], "resolved trial"))
+    hist["_basis"] = (f"entry→first target vs stop on {len(rows)} {interval} "
+                      f"bars; see evaluate_drawing for the full method")
+
+    t0 = rows[max(0, len(rows) - 40)][0]
+    _scene_add({"kind": "position", "id": "plan", "pane": "price",
+                "side": plan["side"], "entry": plan["entry"],
+                "stop": plan["stop"], "targets": [t["price"] for t in tgt],
+                "qty": qty, "rr": tgt[0]["rr"], "t0": t0, "t1": rows[-1][0],
+                "label": (f"{plan['side']} · R:R {tgt[0]['rr']}"
+                          + (f" · qty {qty}" if qty else "")),
+                "source": {"tool": "plan_position", "interval": interval}})
+
+    return {"plan": plan, "history": hist, "_note": (
+        "Drawn on the chart; a new plan_position call replaces it, "
+        "draw_mode=clear removes it. Quote these figures exactly, and always "
+        "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
+        "rate without that benchmark reads as an edge it may not be (within "
+        "~8 points is noise: say so). This prices the USER'S stated plan; it "
+        "is analysis, not a recommendation, and must close as such.")}
+
+
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
@@ -3934,6 +4067,37 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
+    {"type": "function", "name": "plan_position",
+     "description": (
+         "Draw or update the trade-plan overlay (entry/stop/targets) and return "
+         "its risk arithmetic: R:R and breakeven hit-rate per target, position "
+         "size from a risk budget, per-target P&L, stop distance in ATR(14)s, "
+         "and the historical entry→target-vs-stop record. Expresses the USER'S "
+         "stated idea — never invent a trade unprompted. Entry defaults to the "
+         "last close. A new call replaces the plan; draw_mode=clear removes it. "
+         "To size a position the user DREW, pass its ref as drawing_id."),
+     "parameters": {"type": "object", "properties": {
+         "entry": {"type": "number"}, "stop": {"type": "number"},
+         "stop_atr": {"type": "number",
+                      "description": "alt to stop: ATR(14) multiples from entry"},
+         "targets": {"type": "array", "items": {"type": "number"},
+                     "description": "up to 3 prices"},
+         "targets_r": {"type": "array", "items": {"type": "number"},
+                       "description": "alt to targets: R multiples, e.g. [1.5, 3]"},
+         "split": {"type": "array", "items": {"type": "number"},
+                   "description": "scale-out fraction per target, e.g. [0.5, 0.5]"},
+         "qty": {"type": "integer"},
+         "risk_amount": {"type": "number",
+                         "description": "rupees to risk; qty is derived"},
+         "capital": {"type": "number"},
+         "risk_pct": {"type": "number",
+                      "description": "with capital: risk_amount = capital × risk_pct/100"},
+         "side": {"type": "string", "enum": ["long", "short"]},
+         "drawing_id": {"type": "string"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "draw_mode": {"type": "string", "enum": ["add", "clear"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "evaluate_drawing",
      "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. ALWAYS pass drawing_id when the shape is one the user drew — the chart context lists every drawing with its ref, and both the geometry AND the kind are then read from the chart instead of retyped. The message may also name the drawing the user tagged; that ref is the subject. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
      "parameters": {"type": "object", "properties": {
@@ -4019,6 +4183,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
+             "plan_position": tool_plan_position,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,

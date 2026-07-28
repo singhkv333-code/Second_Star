@@ -139,8 +139,10 @@ const Tools = (() => {
       G.hline(entry.v, { dash: [4, 4], width: 1 }),
       G.label({ t: target.t, v: target.v }, `target ${c.fmt(target.v)}`),
       G.label({ t: target.t, v: stop.v }, `stop ${c.fmt(stop.v)}`),
+      // breakeven hit rate 1/(1+RR): the win rate this shape silently demands
       G.label({ t: target.t, v: entry.v },
-              `${side} · R:R ${rr === null ? "—" : rr.toFixed(2)}`),
+              rr === null ? `${side} · R:R —`
+                : `${side} · R:R ${rr.toFixed(2)} · needs ${Math.round(100 / (1 + rr))}%`),
     ];
   }
 
