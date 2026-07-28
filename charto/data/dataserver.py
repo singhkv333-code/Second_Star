@@ -87,6 +87,60 @@ def _minted_anchors() -> dict:
     return getattr(_scene, "minted_anchors", {}) or {}
 
 
+# ── per-request symbol ────────────────────────────────────────────
+# One dataserver, 500 companies. Every tool and query reads the symbol
+# from here; do_GET / do_POST stamp it per request. Symbols hydrate on
+# first touch from the blob universe (parquet → local SQLite, ~10 s once)
+# via hydrate_symbol.py under the pivot venv — this process stays stdlib.
+_req = threading.local()
+
+
+def _sym() -> str:
+    return getattr(_req, "symbol", "RELIANCE")
+
+
+_SYMBOLS_PATH = Path(__file__).parent / "symbols.json"
+_symbols_cache: list[str] = []
+_HYDRATE_LOCKS: dict[str, threading.Lock] = {}
+_HYDRATE_GUARD = threading.Lock()
+_VENV_PY = Path(__file__).resolve().parents[2] / "pivot" / ".venv" / "bin" / "python"
+
+
+def _known_symbols() -> list[str]:
+    global _symbols_cache
+    if not _symbols_cache and _SYMBOLS_PATH.exists():
+        _symbols_cache = json.loads(_SYMBOLS_PATH.read_text())
+    return _symbols_cache
+
+
+def _symbol_ready(sym: str) -> bool:
+    return bool(_con.execute(
+        "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
+
+
+def _ensure_symbol(sym: str) -> dict | None:
+    """None when the symbol is servable; an error dict otherwise."""
+    if _symbol_ready(sym):
+        return None
+    if sym not in _known_symbols():
+        return {"error": f"unknown symbol {sym}",
+                "hint": "GET /symbols lists the universe"}
+    with _HYDRATE_GUARD:
+        lock = _HYDRATE_LOCKS.setdefault(sym, threading.Lock())
+    with lock:
+        if _symbol_ready(sym):
+            return None
+        import subprocess
+        r = subprocess.run(
+            [str(_VENV_PY), str(Path(__file__).parent / "hydrate_symbol.py"),
+             sym], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            return {"error": f"hydration failed for {sym}",
+                    "detail": (r.stderr or r.stdout)[-400:]}
+        logging.info("hydrated %s: %s", sym, r.stdout.strip())
+    return None
+
+
 def _scene_add(annotation: dict) -> None:
     # Stamp WHICH tool put this on the chart. A clear used to match on kind
     # alone and reach across tools — get_levels(draw_mode="replace") silently
@@ -707,7 +761,7 @@ def _divergences(rows: list[tuple], osc: list, window: int = 5,
 # ── tool implementations ──────────────────────────────────────────
 
 def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
-    d = get_bars("RELIANCE", interval, to, limit)
+    d = get_bars(_sym(), interval, to, limit)
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
 
 
@@ -2775,7 +2829,7 @@ def _results(limit: int = 200) -> list[dict]:
         rows = _con.execute(
             "SELECT quarter, period_end, trade_date, broadcast_at, "
             "after_market, filings FROM results WHERE symbol=? "
-            "ORDER BY trade_date DESC LIMIT ?", ("RELIANCE", limit)).fetchall()
+            "ORDER BY trade_date DESC LIMIT ?", (_sym(), limit)).fetchall()
     except sqlite3.Error:
         return []
     return [{"quarter": q, "period_end": pe, "trade_date": td,
@@ -3018,8 +3072,8 @@ def _minutes_of(day_ts: int) -> list[tuple]:
     """1-min bars of the IST session containing day_ts."""
     day0 = _ist_day(day_ts) * 86400 - IST_OFF
     return _con.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol='RELIANCE' "
-        "AND ts>=? AND ts<? ORDER BY ts", (day0, day0 + 86400)).fetchall()
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
+        "AND ts>=? AND ts<? ORDER BY ts", (_sym(), day0, day0 + 86400)).fetchall()
 
 
 def _session_anatomy(prev_close: float, mins: list[tuple]) -> dict:
@@ -3071,7 +3125,7 @@ _QUADRANT = {(1, 1): "long buildup", (-1, 1): "short buildup",
 def _flows_have() -> bool:
     try:
         return bool(_con.execute(
-            "SELECT 1 FROM delivery WHERE symbol='RELIANCE' LIMIT 1").fetchone())
+            "SELECT 1 FROM delivery WHERE symbol=? LIMIT 1", (_sym(),)).fetchone())
     except sqlite3.Error:
         return False
 
@@ -3079,9 +3133,9 @@ def _flows_have() -> bool:
 def _deliv_history(before_iso: str, n: int = 500) -> list[float]:
     try:
         return [r[0] for r in _con.execute(
-            "SELECT deliv_per FROM delivery WHERE symbol='RELIANCE' AND d<? "
+            "SELECT deliv_per FROM delivery WHERE symbol=? AND d<? "
             "AND deliv_per IS NOT NULL ORDER BY d DESC LIMIT ?",
-            (before_iso, n))]
+            (_sym(), before_iso, n))]
     except sqlite3.Error:
         return []
 
@@ -3093,8 +3147,8 @@ def _flows_sessions(d0_iso: str, d1_iso: str, closes_by_day: dict) -> list[dict]
     try:
         for d, per, dq, q in _con.execute(
                 "SELECT d, deliv_per, deliv_qty, qty FROM delivery "
-                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
-                (d0_iso, d1_iso)):
+                "WHERE symbol=? AND d BETWEEN ? AND ? ORDER BY d",
+                (_sym(), d0_iso, d1_iso)):
             s = out.setdefault(d, {"date": d})
             if per is not None:
                 s["delivery_pct"] = round(per, 2)
@@ -3107,8 +3161,8 @@ def _flows_sessions(d0_iso: str, d1_iso: str, closes_by_day: dict) -> list[dict]
                         f"only {len(hist)} prior sessions — too few to rank")
         for d, oi, chg in _con.execute(
                 "SELECT d, SUM(oi), SUM(oi_chg) FROM fut_oi "
-                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? GROUP BY d "
-                "ORDER BY d", (d0_iso, d1_iso)):
+                "WHERE symbol=? AND d BETWEEN ? AND ? GROUP BY d "
+                "ORDER BY d", (_sym(), d0_iso, d1_iso)):
             s = out.setdefault(d, {"date": d})
             s["futures_oi"] = oi
             s["oi_change"] = chg
@@ -3127,8 +3181,8 @@ def _flows_deals(d0_iso: str, d1_iso: str) -> list[dict]:
                  "qty": q, "price": p}
                 for d, k, c, s, q, p in _con.execute(
                     "SELECT d, kind, client, side, qty, price FROM deals "
-                    "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
-                    (d0_iso, d1_iso))]
+                    "WHERE symbol=? AND d BETWEEN ? AND ? ORDER BY d",
+                    (_sym(), d0_iso, d1_iso))]
     except sqlite3.Error:
         return []
 
@@ -3553,7 +3607,7 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
     d0, d1 = _iso_day(t0), _iso_day(t1)
     window = d0 if d0 == d1 else f"{d0} to {d1}"
 
-    key = f"RELIANCE|{d0}|{d1}"
+    key = f"{_sym()}|{d0}|{d1}"
     cached = _news_cache_get(key)
     if cached:
         return {**cached, "cached": True}
@@ -3561,7 +3615,7 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
     import time as _t
     recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
     prompt = _NEWS_PROMPT.format(
-        symbol="RELIANCE", window=window,
+        symbol=_sym(), window=window,
         focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
     payload = {
         "model": LLM_DEPLOYMENT,
@@ -4891,11 +4945,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         symbol = q.get("symbol", "RELIANCE").upper()
+        _req.symbol = symbol
         try:
+            if u.path == "/symbols":
+                have = {r[0] for r in _con.execute(
+                    "SELECT DISTINCT symbol FROM bars")}
+                return self._send(200, {"symbols": _known_symbols(),
+                                        "hydrated": sorted(have)})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
                 if interval not in (*INTRADAY_MIN, "1d", "1w", "1mo"):
                     return self._send(400, {"error": f"bad interval {interval}"})
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
                 to = int(q["to"]) if q.get("to") else None
                 limit = min(int(q.get("limit", 3000)), 20000)
                 return self._send(200, get_bars(symbol, interval, to, limit))
@@ -4962,6 +5025,12 @@ class Handler(BaseHTTPRequestHandler):
             messages = body.get("messages") or []
             if not isinstance(messages, list) or not messages:
                 return self._send(400, {"error": "messages[] required"})
+            sym = str((body.get("context") or {}).get("symbol")
+                      or "RELIANCE").upper()
+            _req.symbol = sym
+            err = _ensure_symbol(sym)
+            if err:
+                return self._send(400, err)
             if body.get("stream"):
                 return self._send_stream(messages, body.get("context"))
             return self._send(200, llm_chat(messages, body.get("context")))

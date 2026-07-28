@@ -13,7 +13,8 @@
 "use strict";
 
 const Drawings = (() => {
-  const STORE_KEY = "charto_drawings_v2_RELIANCE";
+  const STORE_KEY = "charto_drawings_v2_" +
+    ((new URLSearchParams(location.search).get("symbol") || "RELIANCE").toUpperCase());
   const USAGE_KEY = "charto_tool_usage_v1";
   const HIT = 7;
   const G = Geo;

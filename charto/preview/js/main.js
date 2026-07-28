@@ -9,7 +9,8 @@
   const LWC = window.LightweightCharts;
   const API = "http://127.0.0.1:5174";
   const IST = 19800;
-  const SYMBOL = "RELIANCE";
+  const SYMBOL = (new URLSearchParams(location.search).get("symbol")
+                  || "RELIANCE").toUpperCase();
   const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
 
@@ -505,7 +506,7 @@
       const blob = new Blob([draw.exportJSON()], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "charto_drawings_RELIANCE.json";
+      a.download = `charto_drawings_${SYMBOL}.json`;
       a.click();
       return;
     }
@@ -1213,5 +1214,66 @@
   })();
 
   // expose for debugging + the chat pane
+  // ── company search — the symbol pill opens the 500-company universe ──
+  // Picking one navigates to ?symbol=X: a full reload is what guarantees a
+  // genuinely fresh session (chart, chat, drawings and scene all re-init
+  // against that symbol's own persisted state). First open of a company
+  // hydrates it server-side from the blob universe (~8 s once).
+  (() => {
+    el("symbolName").textContent = SYMBOL;
+    el("roTitle").textContent = SYMBOL;
+    document.title = `${SYMBOL} — Charto`;
+    const pill = el("symbolPill"), menu = el("symbolMenu");
+    const input = el("symSearch"), list = el("symList");
+    let all = null, hyd = new Set();
+    const go = (s) => {
+      if (!s || s === SYMBOL) { menu.classList.remove("open"); return; }
+      pill.style.opacity = "0.6";
+      location.search = "?symbol=" + encodeURIComponent(s);
+    };
+    const render = (query) => {
+      const q = query.trim().toUpperCase();
+      const pool = all || [];
+      const hits = q
+        ? pool.filter((s) => s.includes(q))
+            .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
+                            || a.localeCompare(b)).slice(0, 60)
+        : pool.slice(0, 60);
+      list.innerHTML = hits.map((s) =>
+        `<div class="item" data-sym="${s}"><span class="lead">` +
+        (hyd.has(s) ? '<span class="dot-h"></span>' : "") +
+        `${s}</span>` +
+        (hyd.has(s) ? "" : '<span class="cold">~8s first load</span>') +
+        "</div>").join("")
+        || '<div class="item" style="color:var(--faint)">no match</div>';
+    };
+    pill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const opening = !menu.classList.contains("open");
+      window.__chartoCloseMenus && window.__chartoCloseMenus();
+      menu.classList.toggle("open", opening);
+      if (!opening) return;
+      if (!all) {
+        try {
+          const d = await fetch(`${API}/symbols`).then((r) => r.json());
+          all = d.symbols || []; hyd = new Set(d.hydrated || []);
+        } catch { all = []; }
+      }
+      input.value = ""; render(""); input.focus();
+    });
+    input.addEventListener("input", () => render(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") go(list.querySelector(".item[data-sym]")?.dataset.sym);
+      if (e.key === "Escape") menu.classList.remove("open");
+    });
+    list.addEventListener("click", (e) => {
+      const it = e.target.closest(".item[data-sym]");
+      if (it) go(it.dataset.sym);
+    });
+    document.addEventListener("click", (e) => {
+      if (!menu.contains(e.target) && e.target !== pill) menu.classList.remove("open");
+    });
+  })();
+
   window.__charto = { chart, candle, state, draw, ind, scene, pins, getChartContext };
 })();

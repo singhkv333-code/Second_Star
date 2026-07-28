@@ -109,6 +109,21 @@
     font-size: 11px; font-weight: 500; color: var(--muted-foreground);
     letter-spacing: 0;
   }
+  #symbolPill { cursor: pointer; }
+  #symbolPill:hover { background: var(--accent); }
+  #symbolMenu { width: 270px; }
+  #symbolMenu input {
+    width: 100%; background: var(--input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--foreground);
+    padding: 7px 9px; font-size: 12.5px; outline: none; margin-bottom: 5px;
+  }
+  #symbolMenu input:focus { border-color: var(--ring); }
+  #symList { max-height: 340px; overflow-y: auto; }
+  #symList .item .dot-h {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--up);
+    display: inline-block; flex: none;
+  }
+  #symList .item .cold { font-size: 10.5px; color: var(--faint); }
 
   /* segmented control (intervals) */
   .seg { display: inline-flex; align-items: center; gap: 2px; }
@@ -639,7 +654,16 @@
 <body>
   <header>
     <div class="brand">Charto<span class="dot">.</span></div>
-    <div class="symbol">RELIANCE <span class="ex">NSE</span></div>
+    <div class="menu-wrap">
+      <div class="symbol" id="symbolPill" title="Search companies">
+        <span id="symbolName">RELIANCE</span> <span class="ex">NSE</span>
+      </div>
+      <div class="dropdown" id="symbolMenu">
+        <input id="symSearch" placeholder="Search 500 companies…"
+               autocomplete="off" spellcheck="false" />
+        <div id="symList"></div>
+      </div>
+    </div>
     <div class="vsep"></div>
 
     <div class="seg" id="intervalSeg">
@@ -757,15 +781,15 @@
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
   <div id="periodPop" class="dropdown"></div>
-  <script src="./js/store.js?v=4"></script>
+  <script src="./js/store.js?v=5"></script>
   <script src="./js/theme.js?v=4"></script>
   <script src="./js/icons.js?v=6"></script>
   <script src="./js/indicators.js?v=11"></script>
   <script src="./js/geometry.js?v=7"></script>
   <script src="./js/tools.js?v=7"></script>
-  <script src="./js/drawings.js?v=9"></script>
+  <script src="./js/drawings.js?v=10"></script>
   <script src="./js/scene.js?v=19"></script>
-  <script src="./js/main.js?v=21"></script>
+  <script src="./js/main.js?v=22"></script>
   <script src="./js/chat.js?v=9"></script>
 </body>
 </html>
