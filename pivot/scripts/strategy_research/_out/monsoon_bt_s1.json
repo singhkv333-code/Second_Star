@@ -1,0 +1,70 @@
+{
+ "name": "S1 Kharif Sowing Agri-Input Basket (BASKET/CONFIRMATION)",
+ "total_return_pct": 95.0,
+ "cagr_in_market_pct": 34.2,
+ "max_dd_pct": -20.4,
+ "win_rate_pct": 77.8,
+ "n_trades": 9,
+ "wins": 7,
+ "in_market_days": 572,
+ "terminal_equity": 195.0,
+ "forward_stats": {
+  "observed_sharpe": 0.0873,
+  "skew": 0.2416,
+  "kurtosis": 5.7789,
+  "n_obs": 581,
+  "num_trials": 3,
+  "psr": 0.9828,
+  "min_trl": 352.0,
+  "deflated_sharpe": 0.8964
+ },
+ "monte_carlo": {
+  "n_sims": 2000,
+  "block_size": 8,
+  "dd_median_pct": -16.66,
+  "dd_p95_severity_pct": -26.89,
+  "dd_worst_pct": -43.59,
+  "terminal_median_pct": 131.57,
+  "terminal_p05_pct": 39.04,
+  "prob_loss": 0.0025,
+  "prob_dd_worse_than_tol": 0.267,
+  "drawdown_tolerance_pct": -20.0
+ },
+ "sub_periods": {
+  "n_periods": 4,
+  "period_returns_pct": [
+   29.5,
+   3.25,
+   16.92,
+   24.73
+  ],
+  "positive_period_frac": 1.0,
+  "best_period_return_pct": 29.5,
+  "worst_period_return_pct": 3.25,
+  "concentration": 0.387
+ },
+ "verdict": {
+  "verdict": "unproven",
+  "label": "Unproven",
+  "confidence": 90,
+  "rationale": "There may be an edge but it isn't established yet: PSR 98%; DSR 90% after 3 variants.",
+  "flags": []
+ },
+ "benchmark_nifty": {
+  "total_return_pct": 498.5,
+  "cagr_pct": 12.0,
+  "max_dd_pct": -38.4
+ },
+ "two_dial": {
+  "outcome": {
+   "letter": "B",
+   "score": 70,
+   "rationale": "Outcome B (70/100): analog hit-rate 78%; relationship strength 45%; N=9."
+  },
+  "expression": {
+   "letter": "B",
+   "score": 63,
+   "rationale": "Expression B (63/100): CAAR/BHAR alignment 100%; significance p=0.168; net-of-cost survival 74%."
+  }
+ }
+}

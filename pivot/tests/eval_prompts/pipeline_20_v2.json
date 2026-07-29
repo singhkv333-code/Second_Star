@@ -1,0 +1,152 @@
+{
+  "label": "pipeline_20_v2",
+  "description": "20-prompt tight pipeline eval. Fresh tickers and wordings; same shape coverage as pipeline_50 but distilled. NO event triggers. Tests whether the over-confirmation-prose fix lands.",
+  "prompts": [
+    {
+      "id": "p2_mt_eternal_3tier_drawdown",
+      "prompt": "buy 18 ETERNAL when RSI(14)<33 AND MACD hist > 0. Sell 6 at +3%, sell 6 more at +6%, sell rest if drawdown from peak >= 5% OR held > 25 bars",
+      "category": "pipe_multi_tier_exit",
+      "tags": ["multi_tier", "compound_entry", "drawdown_exit"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_mt_hindalco_2tier_atr",
+      "prompt": "long 14 HINDALCO on Keltner upper band cross. Sell 7 when up 4%, sell 7 more if price drops below entry_price minus 2x ATR(14)",
+      "category": "pipe_multi_tier_exit",
+      "tags": ["multi_tier", "keltner", "atr_stop"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_mt_dixon_partial_then_trail",
+      "prompt": "buy 10 DIXON when 50 EMA crosses above 200 EMA. Sell 5 at +5%, then trail an 8% stop on the remaining 5 from peak unrealised",
+      "category": "pipe_multi_tier_exit",
+      "tags": ["multi_tier", "golden_cross", "partial_then_trail"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_mtf_weekly_compound_monthly",
+      "prompt": "every Tuesday at 10am buy 8 BANKBEES. If BANKNIFTY drops 2% intraday from open sell 12 of my BANKBEES holding. On the last Friday of every month squareoff my full BANKBEES position",
+      "category": "pipe_multi_trigger_fanout",
+      "tags": ["fanout", "weekly_plus_intraday_plus_monthly"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_mtf_independent_indicators_3leg",
+      "prompt": "watch ICICIBANK: when RSI<28 buy 6 shares; when MACD hist crosses above zero buy 4 more; when RSI rises above 72 sell 10",
+      "category": "pipe_multi_trigger_fanout",
+      "tags": ["fanout", "three_indicator_branches"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_mtf_open_close_indicator",
+      "prompt": "every weekday 5 minutes after market open buy 3 GAIL. Every weekday 10 minutes before market close sell 3 GAIL. If RSI on GAIL rises above 75 anytime, sell 6 more",
+      "category": "pipe_multi_trigger_fanout",
+      "tags": ["fanout", "market_relative_time_brackets"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_mtf_two_symbol_independent",
+      "prompt": "when DRREDDY RSI drops below 30 buy 5 shares; separately when CIPLA RSI drops below 30 buy 6 shares; each leg exits independently once its position is up 4%",
+      "category": "pipe_multi_trigger_fanout",
+      "tags": ["fanout", "two_symbols", "independent_exits"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_cma_morning_compound_then_buy",
+      "prompt": "every weekday at 09:35 check ONGC: if RSI<32 AND price is above 20 EMA notify me. If also MACD hist > 0, buy 12 ONGC shares",
+      "category": "pipe_compound_mixed_action",
+      "tags": ["compound_gate", "notify_then_buy"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_cma_hourly_position_check",
+      "prompt": "every hour during market check my BAJAJFINSV position: notify me if it's drawn down more than 4% from peak. If drawdown exceeds 7%, sell half my BAJAJFINSV holding at market",
+      "category": "pipe_compound_mixed_action",
+      "tags": ["position_state_gate", "tiered_alert_then_act"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_cma_eod_screen",
+      "prompt": "every weekday at 15:20 evaluate INDUSINDBK: notify me if MACD line is above signal AND price is above the 50 EMA. If RSI is also below 40, buy 4 INDUSINDBK at market",
+      "category": "pipe_compound_mixed_action",
+      "tags": ["compound_gate", "eod_check"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_aee_4condition_3way_exit",
+      "prompt": "buy 10 ASIANPAINT when (RSI(14) < 36 AND MACD hist > 0 AND price above 100 EMA AND volume > 1.5x 20-day avg). Exit when (RSI > 73 OR drawdown from peak >= 6% OR bars held > 28)",
+      "category": "pipe_advanced_entry_exit",
+      "tags": ["compound_4in_3out"],
+      "expect": {"tool_any_of": ["propose_pipeline_workflow", "propose_dsl_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_aee_percentrank_atr_compound_exit",
+      "prompt": "long 12 TATAMOTORS when ATR(14) is in the bottom 20% of its 252-bar distribution AND price > 50 EMA. Exit when (price drops below entry_price - 2x ATR OR drawdown from peak > 5%)",
+      "category": "pipe_advanced_entry_exit",
+      "tags": ["percentrank", "atr_compound_exit"],
+      "expect": {"tool_any_of": ["propose_pipeline_workflow", "propose_dsl_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_aee_barssince_pct_change",
+      "prompt": "buy 8 BHARTIARTL when RSI dropped below 32 within the last 6 bars AND price is now above the 20 EMA. Trail a 7% stop from peak unrealised gain",
+      "category": "pipe_advanced_entry_exit",
+      "tags": ["barssince", "trail"],
+      "expect": {"tool_any_of": ["propose_pipeline_workflow", "propose_dsl_workflow"], "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_sc_monday_only_compound_entry",
+      "prompt": "ONLY on Mondays AND Tuesdays buy 14 ITC when MACD hist > 0 AND price > 20 EMA. Sell 7 when up 3%, sell 7 more when up 6% OR after 10 bars held",
+      "category": "pipe_session_compound",
+      "tags": ["session_day", "compound_entry", "multi_tier_exit"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_sc_friday_pair_independent",
+      "prompt": "every Friday only, if HCLTECH RSI<40 AND TCS RSI<40 buy 5 HCLTECH and 5 TCS. Each leg exits when its position is up 4% OR after 8 bars held",
+      "category": "pipe_session_compound",
+      "tags": ["session_day", "pair_with_independent_exits"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_ps_spread_volume_compound",
+      "prompt": "buy 7 KOTAKBANK when KOTAKBANK/HDFCBANK ratio drops below 0.42 AND today's KOTAKBANK volume is greater than 1.5x its 20-day average. Sell 4 at +3%, sell 3 more if the ratio recovers above 0.48",
+      "category": "pipe_pair_spread_multi",
+      "tags": ["pair_ratio", "volume_filter", "multi_tier"],
+      "expect": {"tool": "propose_pipeline_workflow", "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "p2_ps_correlation_session_filter",
+      "prompt": "on Wednesdays AND Thursdays only, when the 60-day correlation between SUNPHARMA and DRREDDY is above 0.7 AND SUNPHARMA RSI<32 buy 8 SUNPHARMA. Exit when correlation drops below 0.5 OR position up 4%",
+      "category": "pipe_pair_spread_multi",
+      "tags": ["correlation_filter", "session_day"],
+      "expect": {"tool_any_of": ["propose_pipeline_workflow", "propose_dsl_workflow"], "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "p2_refuse_ifelse_branch",
+      "prompt": "buy 12 NTPC when RSI<32. Wait 30 minutes, then if NTPC is still above entry set a 2% trailing stop, otherwise sell at market",
+      "category": "pipe_refuse_engine_gap",
+      "tags": ["refuse", "if_else"],
+      "expect": {"tool": "propose_pipeline_workflow", "no_workflow_draft": true, "min_response_chars": 30}
+    },
+    {
+      "id": "p2_refuse_loop_holdings",
+      "prompt": "for each of my current holdings up more than 12% from average buy price, sell 30% of that position at market",
+      "category": "pipe_refuse_engine_gap",
+      "tags": ["refuse", "loop"],
+      "expect": {"tool": "propose_pipeline_workflow", "no_workflow_draft": true, "min_response_chars": 30}
+    },
+    {
+      "id": "p2_refuse_voting_3conditions",
+      "prompt": "watch 3 conditions on MARUTI: RSI drops below 30, price gaps down 2% intraday, volume > 2x avg. If at least 2 of these happen on the same day, buy 4 MARUTI",
+      "category": "pipe_refuse_engine_gap",
+      "tags": ["refuse", "voting"],
+      "expect": {"tool": "propose_pipeline_workflow", "no_workflow_draft": true, "min_response_chars": 30}
+    }
+  ]
+}

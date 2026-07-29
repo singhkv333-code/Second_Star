@@ -1,0 +1,182 @@
+[
+  {
+    "id": "earnings_next_indigo",
+    "prompt": "when does INDIGO report next",
+    "tags": ["calendar-events", "re-probe-find-tool-fix"],
+    "expect": "Iter_4 patch added trigger phrasings to get_upcoming_events; should fire it directly with no find_tool detour, no 'no calendar tool' line."
+  },
+  {
+    "id": "exdiv_tataconsum_query",
+    "prompt": "next ex-dividend date for TATACONSUM",
+    "tags": ["calendar-events", "corporate-action", "re-probe-find-tool-fix"],
+    "expect": "Direct get_upcoming_events call; if empty, must say 'no event on the TATACONSUM calendar I have' — not blame missing tool."
+  },
+  {
+    "id": "earnings_when_jublfood",
+    "prompt": "when is JUBLFOOD going to announce quarterly results",
+    "tags": ["calendar-events", "re-probe-find-tool-fix"],
+    "expect": "Earnings calendar query in a different phrasing; tests whether 'going to announce' triggers get_upcoming_events too."
+  },
+  {
+    "id": "cancel_sbin_symbol_anchor",
+    "prompt": "cancel my SBIN order",
+    "tags": ["order-cancel", "re-probe-symbol-anchored-cancel"],
+    "expect": "Patched cancel_order desc should let model chain list_pending_orders → cancel_order; no order_id ask."
+  },
+  {
+    "id": "drop_irctc_limit_buy",
+    "prompt": "drop the IRCTC limit buy I put in",
+    "tags": ["order-cancel", "re-probe-symbol-anchored-cancel"],
+    "expect": "Symbol-anchored cancel via colloquial verb; should resolve via pending-order lookup, not ask for ID."
+  },
+  {
+    "id": "modify_coforge_limit_price",
+    "prompt": "change my pending COFORGE limit to 7240",
+    "tags": ["order-modify", "re-probe-symbol-anchored-cancel"],
+    "expect": "Symbol-anchored modify; should fetch pending COFORGE order, modify price to 7240, no order_id prompt."
+  },
+  {
+    "id": "backtest_breakout_piind",
+    "prompt": "test a 20-day high breakout on PIIND, exit after 10 sessions, run it over the last 3 years",
+    "tags": ["backtest", "re-probe-backtest-verb-routing"],
+    "expect": "Patched propose_workflow desc says backtest verbs never route there; should hit backtest_dsl_tree and emit metrics."
+  },
+  {
+    "id": "backtest_friday_dca_oberoi",
+    "prompt": "backtest a friday DCA into OBEROIRLTY vs nifty over the last 4 years",
+    "tags": ["backtest", "dca", "benchmark-compare", "re-probe-backtest-verb-routing"],
+    "expect": "Backtest + benchmark; should route to backtest_workflow with benchmark, not propose_workflow draft card."
+  },
+  {
+    "id": "amo_muthootfin",
+    "prompt": "put an AMO buy in for 30 MUTHOOTFIN at market, fire at open tomorrow",
+    "tags": ["order", "amo", "unsupported-order-type", "silent-fabrication-probe"],
+    "expect": "AMO not in v1 (system.md not yet patched); should refuse cleanly, not preflight as a normal market order."
+  },
+  {
+    "id": "bracket_tatapower",
+    "prompt": "TATAPOWER bracket order: buy 50 at 412, SL 405, target 428",
+    "tags": ["order", "bracket-shape", "unsupported-order-type", "silent-fabrication-probe"],
+    "expect": "Bracket not in v1; observability probe — see if model silently chains limit+OCO or honestly refuses."
+  },
+  {
+    "id": "cover_order_gail",
+    "prompt": "place a cover order on GAIL, buy 100 at market with a 2% intraday stoploss",
+    "tags": ["order", "cover-order", "unsupported-order-type", "silent-fabrication-probe"],
+    "expect": "Cover orders aren't in v1; probe whether model recognises CO at all or treats as plain market."
+  },
+  {
+    "id": "iceberg_bankbaroda",
+    "prompt": "buy 5000 BANKBARODA as an iceberg, slice it into chunks of 500",
+    "tags": ["order", "iceberg", "unsupported-order-type", "silent-fabrication-probe"],
+    "expect": "Iceberg not in v1; probe whether model fabricates a slicing workflow or refuses honestly."
+  },
+  {
+    "id": "t_plus_zero_settlement",
+    "prompt": "is T+0 settlement live for all stocks now or only some, how do I opt in",
+    "tags": ["conceptual", "market-microstructure", "fresh-territory"],
+    "expect": "Educational — T+0 is opt-in, runs on a subset of NSE/BSE scrips on the T+0 segment; no tool call."
+  },
+  {
+    "id": "bsda_account_eligibility",
+    "prompt": "what is a BSDA demat account and am I eligible if I have 3 lakh in holdings",
+    "tags": ["conceptual", "demat", "fresh-territory"],
+    "expect": "Educational — Basic Services Demat Account, ≤₹2L tier-1 / ≤₹10L tier-2 limits; user with ₹3L sits in tier-2."
+  },
+  {
+    "id": "nri_nro_nre_eligibility",
+    "prompt": "I moved to dubai last year — can I keep trading on pivot with my NRO account",
+    "tags": ["edge-nri", "account-eligibility", "fresh-territory"],
+    "expect": "NRI/NRO/PIS rules are out of v1 scope; should honestly say broker/NRI compliance isn't a Pivot chat surface."
+  },
+  {
+    "id": "amc_charges_question",
+    "prompt": "how much annual maintenance charge does pivot deduct from my demat",
+    "tags": ["account", "fees", "fresh-territory"],
+    "expect": "Pivot doesn't run the demat — should clarify it's a chat layer / route to broker for AMC, not fabricate a number."
+  },
+  {
+    "id": "span_margin_question",
+    "prompt": "what's the SPAN margin requirement for a NIFTY short straddle next expiry",
+    "tags": ["edge-fno", "margin", "span", "fresh-territory"],
+    "expect": "F&O margin calc not in v1; should refuse on F&O grounds without inventing a SPAN number."
+  },
+  {
+    "id": "fii_dii_flows_question",
+    "prompt": "what were yesterday's FII and DII cash market flows",
+    "tags": ["market-data", "flows", "fresh-territory"],
+    "expect": "Daily provisional/final FII-DII flows — likely no tool; should honestly say no flows feed in chat."
+  },
+  {
+    "id": "buyback_open_check",
+    "prompt": "any open buyback offers I can tender into right now",
+    "tags": ["corporate-action", "buyback", "fresh-territory"],
+    "expect": "Buyback offers feed not in v1; honest gap-name or route to broker corporate-actions screen."
+  },
+  {
+    "id": "rights_issue_question_recltd",
+    "prompt": "RECLTD announced a rights issue, how do I apply through pivot",
+    "tags": ["corporate-action", "rights-issue", "fresh-territory"],
+    "expect": "Rights subscription not in v1 chat surface; should clearly say so and not invent a path."
+  },
+  {
+    "id": "ofs_subscription_pfc",
+    "prompt": "there's an OFS opening for PFC tomorrow, can I bid through here",
+    "tags": ["corporate-action", "ofs", "fresh-territory"],
+    "expect": "OFS subscription not in v1; clean refusal expected."
+  },
+  {
+    "id": "bonus_issue_impact_question",
+    "prompt": "if a stock I own announces a 1:1 bonus, does my position value change",
+    "tags": ["conceptual", "corporate-action", "fresh-territory"],
+    "expect": "Educational — share count doubles, price halves, value unchanged ex-bonus; no tool."
+  },
+  {
+    "id": "reit_invit_investment_query",
+    "prompt": "want to put some money into Embassy REIT and Powergrid InvIT, can I do that here",
+    "tags": ["edge-product", "reit-invit", "fresh-territory"],
+    "expect": "REITs and InvITs trade on NSE — should clarify whether they're in v1's equity universe or route to spot order; tests scope honesty."
+  },
+  {
+    "id": "ipo_subscription_window_question",
+    "prompt": "the ZYDUSLIFE OFS — is the bidding still open today or did it close",
+    "tags": ["corporate-action", "ofs-window", "fresh-territory"],
+    "expect": "Specific live-status question on a corporate action; no calendar tool likely covers OFS windows — honest gap-name expected."
+  },
+  {
+    "id": "lower_circuit_cant_exit_lichsg",
+    "prompt": "my LICHSGFIN is locked in lower circuit, my sell order from this morning is just sitting there. what now",
+    "tags": ["operational", "stuck-order", "fresh-territory"],
+    "expect": "Empathetic operational answer — sell sits in queue at LC, only fills if buyers appear or circuit revises; no fabricated workaround."
+  },
+  {
+    "id": "concept_slippage_explanation",
+    "prompt": "what does slippage mean when i place a market order",
+    "tags": ["conceptual", "execution", "fresh-territory"],
+    "expect": "Tight definition: diff between expected and actual fill, larger for thin books / big orders; no upsell."
+  },
+  {
+    "id": "concept_impact_cost",
+    "prompt": "what is impact cost and is it different from slippage",
+    "tags": ["conceptual", "execution", "fresh-territory"],
+    "expect": "Educational — impact cost = round-trip cost to execute a defined-size order against the book; relates to but isn't identical to slippage."
+  },
+  {
+    "id": "concept_mtm_futures_vs_stocks",
+    "prompt": "how does daily MTM work on futures vs just holding the underlying stock",
+    "tags": ["conceptual", "derivatives", "fresh-territory"],
+    "expect": "Educational — futures cash-settled daily against settle price; stocks unrealised until sold. No tool, no F&O-trading offer."
+  },
+  {
+    "id": "concept_haircut_on_margin",
+    "prompt": "what is a haircut when i pledge shares for margin",
+    "tags": ["conceptual", "margin", "fresh-territory"],
+    "expect": "Educational — haircut = discount on collateral value (e.g. liquid stock 10-15%, midcap 30%+); no tool."
+  },
+  {
+    "id": "ambiguous_godrej_buy",
+    "prompt": "buy 15 godrej",
+    "tags": ["ambiguous", "ask-user", "consistency-probe"],
+    "expect": "Godrej family: GODREJCP, GODREJIND, GODREJPROP, GODREJAGRO — should ask which one; tests Tata/Mahindra/Adani pattern consistency on a new family."
+  }
+]

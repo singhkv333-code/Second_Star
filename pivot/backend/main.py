@@ -1,0 +1,570 @@
+# ruff: noqa: E402
+# Logging must be configured before the rest of the backend is imported
+# so every module-level `logging.getLogger(__name__)` inherits the
+# structlog-backed root handler. That forces the call ordering you see
+# below — the file-level noqa silences ruff's import-position checker.
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+import structlog
+
+from backend.config import settings
+from backend.observability.logging_setup import configure_logging
+from backend.observability.request_context import RequestContextMiddleware
+
+configure_logging()
+from backend.observability.sentry_setup import configure_sentry
+configure_sentry()
+from backend.posthog_client import init_posthog, shutdown_posthog
+logger = structlog.get_logger(__name__)
+
+from backend.database import SessionLocal
+from backend.cache import redis_client
+from backend.auth.router import router as auth_router
+from backend.routers.orders import router as orders_router
+from backend.routers.chat import router as chat_router
+from backend.routers.sip import router as sip_router
+from backend.routers.strategy import router as strategy_router
+from backend.routers.products import router as products_router
+from backend.routers.portfolio import router as portfolio_router
+from backend.routers.backtest import router as backtest_router
+from backend.routers.scheduler import router as scheduler_router
+from backend.routers.brokers import router as brokers_router, callback_alias_router as brokers_callback_alias_router
+from backend.routers.compare import router as compare_router
+from backend.routers.expr_backtest import router as expr_backtest_router
+from backend.routers.pairs_backtest import router as pairs_backtest_router
+from backend.routers.portfolio_backtest import router as portfolio_backtest_router
+from backend.routers.workflows import router as workflows_router
+from backend.routers.runs import router as runs_router
+from backend.routers.approvals import router as approvals_router
+from backend.routers.webhooks import router as webhooks_router
+from backend.routers.run_stream import router as run_stream_router
+from backend.routers.scheduled import router as scheduled_router
+from backend.routers.markets import router as markets_router
+from backend.routers.conversations import router as conversations_router
+from backend.routers.backtest_alias import router as backtest_alias_router
+from backend.routers.financials import router as financials_router
+from backend.routers.companies import router as companies_router
+from backend.routers.quotes import router as quotes_router
+from backend.routers.portfolio_perf import router as portfolio_perf_router
+from backend.routers.paper import router as paper_router
+from backend.routers.ipo_applications import router as ipo_applications_router
+from backend.routers.stock_automations import router as stock_automations_router
+from backend.routers.news import router as news_router
+from backend.routers.admin import router as admin_router
+from backend.routers.quotes_ws import router as quotes_ws_router
+from backend.routers.kite_ticker_admin import router as kite_ticker_admin_router
+from backend.routers.admin_simulate import router as admin_simulate_router
+from backend.routers.backtest_dsl import router as backtest_dsl_router
+from backend.routers.options_admin import router as options_admin_router
+from backend.routers.option_strategies import router as option_strategies_router
+from backend.routers.views import router as views_router
+from backend.routers.feedback import router as feedback_router
+from backend.routers.screener import router as screener_router
+from backend.routers.audio import router as audio_router
+
+# Interactive API docs (Swagger/ReDoc/OpenAPI schema) disclose the full route
+# + schema surface, so disable them in production — dev/beta keep them for
+# convenience.
+_docs_on = settings.app_env != "production"
+app = FastAPI(
+    title="Pivot API",
+    description="AI-powered investing platform for Indian retail investors",
+    version=settings.app_version,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Per-request context middleware. Must be registered AFTER CORS so
+# preflight (OPTIONS) responses also carry an X-Request-ID header.
+app.add_middleware(RequestContextMiddleware)
+
+# Gzip large JSON payloads (screener grid, instrument lists, financials
+# histories) — pure win on transfer time for anything over ~1.5 KB; small
+# responses skip compression entirely.
+#
+# GZipMiddleware pipes every response chunk through zlib as it's sent, but
+# zlib's compressor only flushes its output buffer once enough data has
+# accumulated (or the stream closes) — see GZipResponder.send_with_gzip in
+# starlette/middleware/gzip.py. For POST /chat/stream (SSE), each token
+# delta is a handful of bytes, so zlib holds everything in its internal
+# buffer and only flushes once the whole reply is done, at which point the
+# entire response arrives in one shot. This silently defeats real,
+# correctly-built SSE streaming on both ends (chat_service.handle_stream
+# yields deltas; ChatDemo.tsx reads them incrementally) — the bytes just
+# never leave the server until the end. Route SSE responses around gzip
+# entirely; everything else keeps the compression win.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
+
+_NO_GZIP_PATHS = {"/chat/stream"}
+
+
+class ConditionalGZipMiddleware:
+    def __init__(self, app: ASGIApp, **gzip_kwargs) -> None:
+        self.app = app
+        self._gzip = GZipMiddleware(app, **gzip_kwargs)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") in _NO_GZIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+        await self._gzip(scope, receive, send)
+
+
+app.add_middleware(ConditionalGZipMiddleware, minimum_size=1500)
+
+app.include_router(auth_router)
+app.include_router(orders_router)
+app.include_router(chat_router)
+app.include_router(sip_router)
+app.include_router(strategy_router)
+app.include_router(products_router)
+app.include_router(portfolio_router)
+app.include_router(backtest_router)
+app.include_router(scheduler_router)
+app.include_router(brokers_router)
+app.include_router(brokers_callback_alias_router)
+app.include_router(compare_router)
+app.include_router(expr_backtest_router)
+app.include_router(pairs_backtest_router)
+app.include_router(portfolio_backtest_router)
+app.include_router(backtest_alias_router)
+# scheduled_router MUST mount before workflows_router — otherwise the
+# more-specific path /api/workflows/scheduled-runs gets caught by the
+# /api/workflows/{id} route in workflows_router.
+app.include_router(scheduled_router)
+app.include_router(markets_router)
+app.include_router(quotes_router)
+app.include_router(portfolio_perf_router)
+app.include_router(paper_router)
+app.include_router(ipo_applications_router)
+app.include_router(stock_automations_router)
+app.include_router(news_router)
+app.include_router(conversations_router)
+app.include_router(workflows_router)
+app.include_router(financials_router)
+app.include_router(companies_router)
+app.include_router(runs_router)
+app.include_router(approvals_router)
+app.include_router(webhooks_router)
+app.include_router(run_stream_router)
+app.include_router(admin_router)
+app.include_router(quotes_ws_router)
+app.include_router(kite_ticker_admin_router)
+# admin simulate-trigger endpoints — self-guarded against production
+# (every endpoint 404s when settings.app_env == "production").
+app.include_router(admin_simulate_router)
+# DSL-tree backtester (Phase B). Sits alongside the legacy
+# /backtest/* paths under a separate /api/backtest/dsl/* namespace.
+app.include_router(backtest_dsl_router)
+# F&O P0 admin surface — chain/universe inspection + manual refresh.
+app.include_router(options_admin_router)
+# F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
+app.include_router(option_strategies_router)
+# View Markets V2 — flag-gated at the endpoint level (404 when off).
+app.include_router(views_router)
+app.include_router(feedback_router)
+# Screener tab — curated universe + fundamentals + search (read-only).
+app.include_router(screener_router)
+# Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
+app.include_router(audio_router)
+
+# ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
+#
+# Every non-2xx response from the Agent System surface MUST use:
+#   { "error": { "code": "...", "message": "...", "details": {...} } }
+#
+# FastAPI's default HTTPException serialisation produces `{"detail": ...}`
+# which the frontend's `isError(result)` check (`"error" in result`)
+# silently misses. We install handlers below to wrap every raised
+# HTTPException + every Pydantic body-validation error.
+#
+# Status codes outside the locked set fall back to "internal_error".
+_ERROR_CODE_BY_STATUS = {
+    400: "validation_error",
+    401: "unauthenticated",
+    403: "unauthenticated",
+    404: "not_found",
+    409: "state_conflict",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    503: "not_yet_available",
+}
+
+
+# Scope discipline: the canonical envelope is contractual ONLY for the
+# Agent System surface (`/api/*` and the WebSocket). Legacy routes
+# (`/auth/*`, `/portfolio/*`, etc.) keep FastAPI's default `{"detail": ...}`
+# shape so we don't regress their existing test suites. The handlers
+# below sniff request.url.path and only rewrap when the path matches.
+def _is_api_v1(request: Request) -> bool:
+    return request.url.path.startswith("/api/")
+
+
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(
+    request: Request, exc: HTTPException,
+) -> JSONResponse:
+    """Wrap any raised HTTPException into the §2 canonical envelope —
+    but only for /api/* routes. Legacy routes get the FastAPI default.
+
+    Routers under /api/* may raise:
+      - HTTPException(status_code, detail="message string")
+        → message=string, details=None
+      - HTTPException(status_code, detail={"code": "...", "message": "...",
+        "details": {...}})  ← preferred for endpoint-specific codes
+        → use the embedded shape verbatim
+      - HTTPException(status_code, detail={"any": "dict"})  (legacy)
+        → message="request failed", details=detail
+    """
+    if not _is_api_v1(request):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+
+    code = _ERROR_CODE_BY_STATUS.get(exc.status_code, "internal_error")
+    detail = exc.detail
+    if isinstance(detail, dict) and "code" in detail and "message" in detail:
+        # Router opted into a specific error code — trust it.
+        body: dict[str, object] = {
+            "error": {
+                "code": str(detail["code"]),
+                "message": str(detail["message"]),
+                "details": detail.get("details"),
+            }
+        }
+    elif isinstance(detail, str):
+        body = {
+            "error": {
+                "code": code,
+                "message": detail,
+                "details": None,
+            }
+        }
+    else:
+        body = {
+            "error": {
+                "code": code,
+                "message": "request failed",
+                "details": detail if isinstance(detail, dict) else None,
+            }
+        }
+    return JSONResponse(status_code=exc.status_code, content=body)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError,
+) -> JSONResponse:
+    """Pydantic body validation → 422.
+
+    Under /api/*: emits the canonical envelope with `validation_error`
+    code and per-field details. Legacy routes keep FastAPI's default
+    422 shape.
+    """
+    # jsonable_encoder makes the error list JSON-safe: Pydantic v2 puts the
+    # raw exception object in `ctx` (e.g. {"error": ValueError(...)}) when a
+    # custom field_validator raises ValueError, which json.dumps cannot
+    # serialise — without this a weak-password / any ValueError validator
+    # returns 500 instead of 422.
+    from fastapi.encoders import jsonable_encoder
+    errors = jsonable_encoder(exc.errors())
+    if not _is_api_v1(request):
+        return JSONResponse(
+            status_code=422, content={"detail": errors},
+        )
+
+    details: dict[str, object] = {"errors": errors}
+    if errors:
+        first = errors[0]
+        loc = list(first.get("loc", []))
+        details["reason"] = str(first.get("type", ""))
+        # Try to extract a step_index when the loc looks like
+        # ("body", "steps", <int>, ...). The frontend uses this to
+        # highlight the offending step in the editor.
+        try:
+            i = loc.index("steps")
+            if i + 1 < len(loc) and isinstance(loc[i + 1], int):
+                details["step_index"] = loc[i + 1]
+            if i + 2 < len(loc):
+                details["field"] = ".".join(str(p) for p in loc[i + 2:])
+        except ValueError:
+            # `steps` not in loc — top-level field validation
+            if loc and loc[0] == "body" and len(loc) > 1:
+                details["field"] = ".".join(str(p) for p in loc[1:])
+    body = {
+        "error": {
+            "code": "validation_error",
+            "message": (
+                errors[0]["msg"]
+                if errors and errors[0].get("msg") else
+                "request body invalid"
+            ),
+            "details": details,
+        }
+    }
+    return JSONResponse(status_code=422, content=body)
+
+
+@app.on_event("startup")
+async def startup():
+    """Start the SIP/strategy scheduler. All times in IST."""
+    init_posthog(settings.posthog_project_token, settings.posthog_host)
+
+    from backend.scheduler import init_scheduler
+    from backend.utils.time_utils import format_ist, now_ist
+
+    try:
+        init_scheduler(database_url=settings.database_url)
+        # Plug the workflows poll job into the same AsyncIOScheduler.
+        # It scans `workflows` every 30s for active+due trigger.schedule
+        # rows and fires them via the engine.
+        from backend import scheduler as scheduler_module
+        from backend.workflows.scheduler import register_workflow_scheduler
+        if scheduler_module.scheduler is not None:
+            register_workflow_scheduler(scheduler_module.scheduler)
+            # View Markets lifecycle worker — additive, flag-gated. The
+            # registration helper is a NO-OP unless
+            # `config.view_markets_enabled` (default off), so prod is
+            # unaffected and the job doesn't exist when disabled.
+            from backend.view_markets.lifecycle import (
+                register_view_markets_lifecycle,
+            )
+
+            register_view_markets_lifecycle(scheduler_module.scheduler)
+        logger.info(
+            f"[{format_ist(now_ist())}] "
+            f"Pivot backend started. Scheduler running on IST."
+        )
+    except Exception as e:
+        logger.warning(f"Scheduler failed to start: {e}")
+
+    # WHY this is fire-and-forget: warmup is a token cost we'd rather
+    # spend in the background after the server is serving traffic
+    # than block startup on. The function logs its own outcomes; if
+    # it fails the app still works (just no p99 cache benefit).
+    try:
+        from backend.services.cache_warmup import schedule_warmup_after_startup
+        schedule_warmup_after_startup()
+    except Exception as e:
+        logger.info(f"Cache warmup scheduling skipped: {e}")
+
+    # Phase 2: auto-start the Kite ticker if a real access token exists
+    # in DB. Wrapped — startup must never fail because the ticker
+    # can't reach upstream Kite WS.
+    try:
+        _maybe_autostart_kite_ticker()
+    except Exception as e:
+        logger.info(f"Kite ticker autostart skipped: {e}")
+
+
+def _maybe_autostart_kite_ticker() -> None:
+    """Best-effort: find the most recent active broker session for Kite and
+    boot the ticker under it. Silent when no real session exists or when
+    we're in mock mode."""
+    from backend.brokers.sessions import get_active_kite_session
+    from backend.kite.auth import KITE_MOCK_MODE, read_kite_access_token
+    from backend.kite.portfolio import get_holdings
+    from backend.kite.ticker import get_ticker_manager
+
+    if KITE_MOCK_MODE:
+        logger.info("Kite ticker autostart: mock mode, skipping")
+        return
+    db = SessionLocal()
+    try:
+        session = get_active_kite_session(db)
+        if session is None:
+            # CATCH-22 FIX (2026-07-11): the daily-death case leaves the session
+            # is_active=False, and get_active_kite_session filters on is_active —
+            # so the self-heal block below (which only runs for an ACTIVE session
+            # whose token later reads invalid) was never reached for exactly the
+            # case it exists for. Run the unattended refresh, which mints
+            # opted-in INACTIVE sessions from stored creds, then re-fetch. This
+            # is the server's own automation (not a manual login).
+            try:
+                from backend.services.kite_session_refresh import (
+                    refresh_kite_sessions,
+                )
+                refresh_kite_sessions()
+                db.expire_all()
+                session = get_active_kite_session(db)
+            except Exception as _heal_err:  # noqa: BLE001
+                logger.info(
+                    "Kite ticker autostart: boot self-heal failed: %s",
+                    str(_heal_err)[:200],
+                )
+            if session is None:
+                logger.info("Kite ticker autostart: no active broker session")
+                return
+        token = read_kite_access_token(session)
+        if not token or token.startswith("mock_"):
+            logger.info("Kite ticker autostart: token unavailable / mocked")
+            return
+        seeds: list[str] = []
+        token_invalid = False
+        try:
+            holdings = get_holdings(token) or []
+            for h in holdings:
+                ts = h.get("tradingsymbol") if isinstance(h, dict) else None
+                if ts:
+                    seeds.append(str(ts))
+        except Exception as e:
+            msg = str(e).lower()
+            if "incorrect" in msg or "tokenexception" in msg or "access_token" in msg:
+                token_invalid = True
+            logger.info(f"Kite ticker autostart: holdings seed failed: {e}")
+
+        # Seed the curated sector universe too (2026-07-03 perf pass) — with
+        # only holdings seeded, an account with few/no holdings left the tick
+        # cache empty, so every quote fell through to a slow REST/yfinance
+        # path. ~80 extra subscriptions is nothing against the 3,000-per-
+        # connection WS budget and makes screener/stock-page quotes live.
+        try:
+            from backend.services.sector_universe import _UNIVERSE
+            have = {s.upper() for s in seeds}
+            seeds.extend(
+                r.symbol for r in _UNIVERSE if r.symbol.upper() not in have
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"Kite ticker autostart: universe seed skipped: {e}")
+
+        if token_invalid:
+            # Stale token (typically expired at 7:30 IST or rotated api_key).
+            # If this session opted into the encrypted-credential replay,
+            # self-heal: mint a fresh token right here (2026-07-04 beta-prep)
+            # instead of degrading the whole day to the yfinance fallback.
+            if (getattr(session, "persistence_mode", None) == "totp_login"
+                    and getattr(session, "auto_login_opt_in", False)):
+                try:
+                    from backend.brokers.registry import get_connector
+
+                    token = get_connector("kite").mint_access_token(db, session)
+                    token_invalid = False
+                    logger.info(
+                        "Kite ticker autostart: stale token self-healed via "
+                        "auto-relogin for user %s", session.user_id,
+                    )
+                except Exception as mint_err:  # noqa: BLE001
+                    logger.info(
+                        f"Kite ticker autostart: auto-relogin failed: {mint_err}"
+                    )
+        if token_invalid:
+            # Before the one-way deactivation, confirm the token is REALLY
+            # dead with an explicit verify call. The message-sniff above
+            # ("access_token"/"incorrect" substrings) false-positived on a
+            # transient failure on 2026-07-10 and killed a healthy session —
+            # and every read path filters on is_active, so nothing recovered
+            # until the next morning's cron.
+            try:
+                from backend.kite import auth as _kauth
+                if token and not token.startswith("mock_") and \
+                        _kauth.verify_token_valid(token):
+                    logger.info(
+                        "Kite ticker autostart: holdings failed but token "
+                        "verifies fine — keeping session active (transient "
+                        "error, not an expiry)."
+                    )
+                    token_invalid = False
+            except Exception:  # noqa: BLE001 — verify failed too: truly dead
+                pass
+        if token_invalid:
+            # No stored credentials (or replay failed). Mark the session
+            # inactive so we don't thrash the WS reconnect loop. User must
+            # re-do Kite OAuth.
+            try:
+                session.is_active = False
+                db.add(session)
+                db.commit()
+                logger.info(
+                    "Kite ticker autostart: stale token; broker session id=%s marked inactive — please re-auth.",
+                    session.id,
+                )
+            except Exception as commit_err:
+                logger.info(
+                    f"Kite ticker autostart: could not invalidate session: {commit_err}"
+                )
+            return
+
+        get_ticker_manager().start(
+            access_token=token,
+            user_id=int(session.user_id) if session.user_id else None,
+            seed_symbols=seeds,
+        )
+    finally:
+        db.close()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    try:
+        from backend import scheduler as scheduler_module
+        if scheduler_module.scheduler:
+            scheduler_module.scheduler.shutdown()
+    except Exception:
+        pass
+    try:
+        from backend.kite.ticker import get_ticker_manager
+        get_ticker_manager().stop()
+    except Exception:
+        pass
+    # Close the pooled LLM HTTP client (keep-alive connection pool).
+    try:
+        from backend.llm.openai_client import aclose_shared_async_client
+        await aclose_shared_async_client()
+    except Exception:
+        pass
+    try:
+        shutdown_posthog()
+    except Exception:
+        pass
+
+
+@app.get("/health")
+def health_check():
+    """Health check — verifies app, database, Redis, and reports AI/broker mock mode."""
+    db_status = "ok"
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    redis_status = "ok"
+    try:
+        redis_client.ping()
+    except Exception as e:
+        redis_status = f"error: {str(e)}"
+
+    return {
+        "status": "ok" if db_status == "ok" else "degraded",
+        "version": settings.app_version,
+        "environment": settings.app_env,
+        "database": db_status,
+        "redis": redis_status,
+        "mock_mode": {
+            "kite": not bool(settings.kite_api_key),
+            "openai": not bool(settings.openai_api_key),
+            "azure": not bool(settings.azure_key),
+        },
+    }
+
+
+@app.get("/")
+def root():
+    return {"message": "Pivot API is running", "docs": "/docs", "health": "/health"}

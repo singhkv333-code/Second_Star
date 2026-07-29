@@ -1,0 +1,1981 @@
+"""Action step executors.
+
+Actions mutate state and MUST be idempotent (ARCHITECTURE.md §7
+invariant 1). Every executor here uses the engine-supplied
+`client_request_id = sha1(f"{run_id}:{step_index}:{attempts}")` so the
+broker can reject duplicates on retry.
+
+max_retries=1: actions are idempotent so we tolerate one transient
+retry, but no more — we don't want to spam orders if the failure is
+structural.
+
+Day 2 ships `action.place_order` (real, including the approval-pause
+path). Other actions stay NotImplementedError until Day 3-4.
+"""
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any, Optional
+
+from backend.kite.orders import (
+    cancel_order,
+    get_orders,
+    place_order,
+)
+# Entry + GTT placements route through the paper broker (by account mode);
+# squareoff_* / cancel_orders keep using the kite helpers above because
+# they size from kite get_positions / get_orders (paper reads land in P4).
+from backend.paper.routing import (
+    is_auto_exec_allowed,
+    paper_position_qty,
+    should_use_paper,
+    submit_gtt,
+    submit_order,
+)
+from backend.models import StepStatus, WorkflowApproval
+from backend.workflows.engine import _AwaitingApproval
+from backend.workflows.registry import register_step
+from backend.workflows.schemas import (
+    ActionAllocateNotionalConfig,
+    ActionArmIpoIntentConfig,
+    ActionCancelOrdersConfig,
+    ActionPlaceOptionStrategyConfig,
+    ActionPlaceOrderConfig,
+    ActionAllocateBasketConfig,
+    ActionSetProtectiveConfig,
+    ActionSetStoplossConfig,
+    ActionSetTakeprofitConfig,
+    ActionSquareoffAllConfig,
+    ActionSquareoffAllIntradayConfig,
+    ActionSquareoffConfig,
+    ActionSquareoffSymbolConfig,
+    ActionUpdateWatchlistConfig,
+)
+
+
+def _paper_squareoff(
+    ctx: Any,
+    *,
+    symbol_filter: Optional[str] = None,
+    product_filter: Optional[str] = None,
+) -> dict[str, Any]:
+    """Square off paper positions (P4): read the PAPER book, place opposite-
+    side MARKET orders through the paper broker so they fill into the same
+    book. Equity is CNC (long) by default, but a MIS sell can open a short
+    (see paper/fills.py) — flatten both product legs unless the caller
+    narrows to one (``product_filter="MIS"`` for an intraday-only close)."""
+    from backend.paper.positions import paper_positions_kite_shape
+
+    positions = paper_positions_kite_shape(ctx.db, int(ctx.workflow.user_id))
+    products = [product_filter] if product_filter else ["CNC", "MIS"]
+    legs: list[dict] = []
+    for p in products:
+        for leg in _build_squareoff_legs(
+            positions, product_filter=p, symbol_filter=symbol_filter,
+        ):
+            legs.append({**leg, "product": p})
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for leg in legs:
+        try:
+            r = submit_order(
+                ctx,
+                tradingsymbol=leg["symbol"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                order_type="MARKET",
+                exchange=leg["exchange"],
+                product=leg.get("product", "CNC"),
+                # Retry-stable per-symbol key (one position per symbol per
+                # pass) so a re-fire of the step dedups instead of re-selling.
+                leg_key=leg["symbol"],
+            )
+            placed.append({
+                "symbol": leg["symbol"], "side": leg["transaction_type"],
+                "qty": leg["quantity"], "order_id": str(r.get("order_id", "")),
+                "status": str(r.get("status", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+
+    n_filled = sum(
+        1 for o in placed if o.get("status") not in ("REJECTED", "failed")
+    )
+    # Cancel the now-orphaned resting SELL guards (stop-loss / take-profit /
+    # GTT) for each flattened symbol, so they can't re-arm against a LATER
+    # position the user re-opens (silent unwanted exit otherwise).
+    cancelled = _paper_cancel_protective_sells(
+        ctx, {leg["symbol"] for leg in legs},
+    )
+    # If legs were expected but NONE filled, don't report success — raise so
+    # the engine's retry fires and a persistent failure surfaces as a failed
+    # step instead of a silent square-off-that-didn't.
+    if legs and n_filled == 0:
+        raise RuntimeError(
+            f"paper squareoff placed no fills ({len(skipped)} skipped)"
+        )
+    return {
+        "orders": placed,
+        "skipped": skipped,
+        "n_filled": n_filled,
+        "n_skipped": len(skipped),
+        "cancelled_guards": cancelled,
+        "scope": "paper",
+    }
+
+
+def _paper_cancel_protective_sells(ctx: Any, symbols: set) -> list[str]:
+    """Cancel resting SELL orders (SL/TP/GTT) for the given symbols — used
+    after a squareoff so an orphaned protective order can't fire against a
+    later re-opened position. Returns the cancelled order ids."""
+    if not symbols:
+        return []
+    from backend.models import PaperOrder
+    from backend.paper.fills import cancel_resting_order
+    from backend.paper.positions import paper_open_orders_kite_shape
+
+    cancelled: list[str] = []
+    for o in paper_open_orders_kite_shape(ctx.db, int(ctx.workflow.user_id)):
+        if str(o.get("transaction_type", "")).upper() != "SELL":
+            continue
+        if str(o.get("tradingsymbol", "")).upper() not in symbols:
+            continue
+        po = ctx.db.get(PaperOrder, o.get("order_id"))
+        if po is not None and str(po.status) == "resting":
+            cancel_resting_order(ctx.db, po)
+            cancelled.append(po.id)
+    return cancelled
+
+
+def _paper_cancel_orders(ctx: Any) -> dict[str, Any]:
+    """Cancel matching paper resting orders (LIMIT/SL/GTT) — the paper-mode
+    equivalent of action.cancel_orders (P4). Releases any reserved cash."""
+    from backend.models import PaperOrder
+    from backend.paper.fills import cancel_resting_order
+    from backend.paper.positions import paper_open_orders_kite_shape
+
+    cfg = ctx.config
+    symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
+    side_filter = (cfg.get("side_filter") or "").upper() or None
+    cancelled: list[str] = []
+    for o in paper_open_orders_kite_shape(ctx.db, int(ctx.workflow.user_id)):
+        if symbol_filter and str(o.get("tradingsymbol", "")).upper() != symbol_filter:
+            continue
+        if side_filter and str(o.get("transaction_type", "")).upper() != side_filter:
+            continue
+        po = ctx.db.get(PaperOrder, o.get("order_id"))
+        if po is not None and str(po.status) == "resting":
+            cancel_resting_order(ctx.db, po)
+            cancelled.append(po.id)
+    return {"cancelled_count": len(cancelled), "order_ids": cancelled}
+
+
+def _kite_token_for_run(ctx: Any) -> str:
+    """Resolve the Kite token for the workflow's user. Mirrors
+    services.portfolio: in mock mode (no Kite session) we return a
+    placeholder string; KITE_MOCK_MODE in backend/kite/auth.py routes
+    the call to mock data."""
+    from backend.models import User
+
+    user = (
+        ctx.db.query(User)
+        .filter(User.id == int(ctx.workflow.user_id))
+        .first()
+    )
+    if user and user.active_broker_session and user.active_broker_session.access_token:
+        from backend.kite.auth import read_kite_access_token
+        token = read_kite_access_token(user.active_broker_session)
+        if token:
+            return token
+    return "mock_token"
+
+
+def _resolve_entry_price_for_sl(ctx: Any, symbol: str, token: str) -> float:
+    """Find the entry fill price for a percentage-based stop-loss.
+
+    Walks the run context for the most recent action.place_order whose
+    output covers ``symbol`` and returns its ``executed_price``. If no
+    prior fill is found in this run (e.g. SL is being placed standalone
+    on an existing holding), falls back to the live LTP from Kite.
+    Raises ValueError when neither source produces a price.
+    """
+    run_ctx = getattr(ctx.run, "context", None) or {}
+    steps_ctx = run_ctx.get("steps") if isinstance(run_ctx, dict) else None
+    if isinstance(steps_ctx, dict):
+        # Most recent step first.
+        for _, step_out in sorted(
+            steps_ctx.items(), key=lambda kv: int(kv[0]), reverse=True,
+        ):
+            if not isinstance(step_out, dict):
+                continue
+            fill_sym = str(step_out.get("symbol", "")).upper()
+            fill_price = step_out.get("executed_price") or step_out.get("price")
+            if fill_sym == symbol and fill_price:
+                return float(fill_price)
+
+    # Fallback: live LTP from Kite. The engine treats this as the
+    # entry-equivalent for standalone SLs (e.g. user adds a 2% SL on a
+    # holding they already own).
+    from backend.kite.market_data import get_live_quote
+    try:
+        quotes = get_live_quote(token, [f"NSE:{symbol}"])
+        for v in quotes.values():
+            ltp = v.get("last_price") or v.get("ltp") if isinstance(v, dict) else None
+            if ltp:
+                return float(ltp)
+    except Exception:
+        pass
+    raise ValueError(
+        f"action.set_stoploss: trigger_offset_pct given for {symbol} "
+        f"but no prior fill in this run and live quote unavailable"
+    )
+
+
+def _has_pending_approval(ctx: Any) -> Optional[WorkflowApproval]:
+    """Look for a still-undecided approval row for this (run, step).
+    Used to detect the 'engine first encounters a requires_approval=
+    true step' moment vs the 'engine resumes after approval decided'
+    moment. The latter has decision='approved'."""
+    return (
+        ctx.db.query(WorkflowApproval)
+        .filter(
+            WorkflowApproval.run_id == ctx.run.id,
+            WorkflowApproval.step_index == ctx.step.step_index,
+        )
+        .order_by(WorkflowApproval.requested_at.desc())
+        .first()
+    )
+
+
+@register_step(
+    step_type="action.place_order",
+    category="action",
+    label="Place an order",
+    description=(
+        "Buy or sell a symbol — market or limit — via your broker. "
+        "Approval-gated."
+    ),
+    icon="shopping-cart",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionPlaceOrderConfig,
+    group="Orders",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "order_id": {"type": "string"},
+            "status": {"type": "string"},
+            "client_request_id": {"type": "string"},
+            "symbol": {"type": "string"},
+            "side": {"type": "string"},
+            "executed_price": {"type": ["number", "null"]},
+            "quantity": {"type": "integer"},
+            "executed_value_inr": {"type": ["number", "null"]},
+            "notional_inr_used": {"type": ["number", "null"]},
+        },
+        "required": ["order_id", "client_request_id"],
+    },
+)
+async def execute_action_place_order(ctx: Any) -> Optional[dict[str, Any]]:
+    """Two-phase executor for the demo path:
+
+      Phase 1 (no decision yet, requires_approval=true): write a
+      WorkflowApproval row and raise _AwaitingApproval. The engine
+      flips the run to `awaiting_approval` and returns; resumption
+      happens via the approvals router.
+
+      Phase 2 (decision='approved', or no approval needed): submit the
+      order to Kite with the engine-supplied client_request_id. The
+      Kite layer is in mock mode by default in tests, so this returns
+      a synthetic order_id without hitting any real broker.
+
+      Approval rejected → the engine never re-enters this executor;
+      the approvals router terminates the run as `cancelled`.
+    """
+    cfg = ctx.config
+    requires_approval = bool(cfg.get("requires_approval", False))
+
+    if requires_approval:
+        existing = _has_pending_approval(ctx)
+        if existing is None or existing.decision is None:
+            # First-touch: create a fresh approval row. Use the same
+            # session the engine handed us so the row appears in the
+            # same transaction.
+            from backend.workflows.engine import _utcnow
+            summary = (
+                f"{cfg['side'].upper()} {cfg['quantity']} {cfg['symbol']} "
+                f"at {cfg.get('order_type', 'market')}"
+            )
+            if cfg.get("order_type") == "limit" and cfg.get("limit_price"):
+                summary += f" (limit ₹{cfg['limit_price']})"
+
+            approval = WorkflowApproval(
+                run_id=ctx.run.id,
+                step_index=ctx.step.step_index,
+                expires_at=_utcnow() + timedelta(minutes=15),
+                summary=summary,
+            )
+            ctx.db.add(approval)
+            ctx.db.commit()
+            ctx.db.refresh(approval)
+            raise _AwaitingApproval(approval.id)
+
+        if existing.decision == "rejected":
+            # Engine should never re-enter this executor on rejection,
+            # but be defensive.
+            raise RuntimeError(
+                f"approval rejected at step {ctx.step.step_index}"
+            )
+        # decision == "approved" → fall through to actual order placement.
+
+    # Phase 2: place the real order (or mock-order in test mode).
+    token = _kite_token_for_run(ctx)
+    side = cfg["side"]
+    # buy/short both submit BUY-side... no: buy and cover BOTH buy shares
+    # (cover buys back to close a short); sell and short both sell shares
+    # (short sells past the held quantity to open one). Only "cover" was
+    # previously mismapped to SELL, which bought nothing back.
+    transaction_type = "SELL" if side in ("sell", "short") else "BUY"
+    product = str(cfg.get("product", "CNC")).upper()
+    if side == "short":
+        # A short can only be opened intraday (CNC stays long-only in the
+        # fill engine) — force MIS regardless of what the draft specified,
+        # so "short" always actually shorts instead of hitting
+        # insufficient_position under a CNC default.
+        product = "MIS"
+    order_type = cfg.get("order_type", "market").upper()
+    price = (
+        float(cfg["limit_price"])
+        if order_type == "LIMIT" and cfg.get("limit_price") is not None
+        else None
+    )
+
+    # Resolve quantity. Two sources, schema-validated to be XOR:
+    #   - cfg["quantity"]: literal integer or pre-resolved ref
+    #   - cfg["notional_inr"]: rupee amount; we fetch live price and
+    #     compute floor(notional / price).
+    qty_field = cfg.get("quantity")
+    notional = cfg.get("notional_inr")
+    if qty_field is not None:
+        quantity = int(qty_field)
+        # Defensive: the schema now rejects a non-positive literal at
+        # construction, but a direct-API/legacy draft could still reach here.
+        if quantity <= 0:
+            raise ValueError(
+                f"action.place_order: quantity must be > 0 (got {quantity})"
+            )
+    elif notional is not None:
+        # Notional path: fetch live LTP for the symbol and convert.
+        # Use the same kite_token + helper as set_stoploss's fallback.
+        from backend.kite.market_data import get_live_quote
+        symbol = str(cfg["symbol"]).upper()
+        instrument = f"NSE:{symbol}"
+        try:
+            quotes = get_live_quote(token, [instrument]) or {}
+            ltp = float((quotes.get(instrument) or {}).get("last_price", 0) or 0)
+        except Exception:
+            ltp = 0.0
+        if ltp <= 0:
+            raise ValueError(
+                f"action.place_order: notional_inr given for {symbol} "
+                f"but live price unavailable; cannot convert to shares"
+            )
+        quantity = int(float(notional) // ltp)
+        if quantity <= 0:
+            raise ValueError(
+                f"action.place_order: notional_inr={notional} too small "
+                f"for {symbol} at ₹{ltp:.2f} — would buy 0 shares"
+            )
+    else:
+        # Schema validator should have caught this; defensive.
+        raise ValueError(
+            "action.place_order: neither quantity nor notional_inr provided"
+        )
+
+    result = submit_order(
+        ctx,
+        access_token=token,
+        tradingsymbol=str(cfg["symbol"]),
+        exchange="NSE",
+        transaction_type=transaction_type,
+        quantity=quantity,
+        order_type=order_type,
+        price=price,
+        product=product,
+        tag=f"wf_{ctx.client_request_id[:16]}",
+    )
+
+    # HONEST BOUNDARY: a rejected order must FAIL the step, not report success.
+    # The paper broker returns status="REJECTED" (with a reject_reason) for
+    # insufficient cash/position/price; a live broker reject shapes similarly.
+    # Without this raise the engine marks the step — and any downstream
+    # set_stoploss — as succeeded against a fill that never happened.
+    # ("REGISTERED" is NOT a reject: it's the armed register-not-execute path.)
+    _status = str(result.get("status", "")).upper()
+    if _status in ("REJECTED", "REJECT", "FAILED", "CANCELLED", "ERROR"):
+        _reason = (
+            result.get("reject_reason")
+            or result.get("message")
+            or _status.lower()
+        )
+        raise ValueError(
+            f"order rejected for {str(cfg['symbol']).upper()}: {_reason}"
+        )
+
+    # Expose enough detail that a downstream action.set_stoploss can
+    # resolve trigger_offset_pct against this fill — without round-trip
+    # to the broker. In mock mode `result` carries an `average_price`;
+    # in live mode the broker returns it on the order resource.
+    executed_price = (
+        result.get("average_price")
+        or result.get("price")
+        or (price if order_type == "LIMIT" else None)
+    )
+    executed_value = (
+        float(executed_price) * int(quantity)
+        if (executed_price and quantity) else None
+    )
+    return {
+        "order_id": str(result.get("order_id", "")),
+        "status": str(result.get("status", "")),
+        "client_request_id": ctx.client_request_id,
+        "symbol": str(cfg["symbol"]).upper(),
+        "side": side,
+        "executed_price": float(executed_price) if executed_price else None,
+        "quantity": quantity,
+        "executed_value_inr": executed_value,
+        "notional_inr_used": (
+            float(notional) if notional is not None else None
+        ),
+    }
+
+
+@register_step(
+    step_type="action.cancel_orders",
+    category="action",
+    label="Cancel pending orders",
+    description="Cancel your matching pending orders by symbol and side.",
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionCancelOrdersConfig,
+    group="Orders",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "cancelled_count": {"type": "integer"},
+            "order_ids": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["cancelled_count"],
+    },
+)
+async def execute_action_cancel_orders(ctx: Any) -> Optional[dict[str, Any]]:
+    """Cancel every pending order matching the optional symbol/side
+    filters. Idempotent: cancelling an already-cancelled order is a
+    no-op (Kite returns CANCELLED). On retry, only orders still pending
+    get re-cancelled — the order_id list shrinks naturally."""
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_cancel_orders(ctx)
+    # An unattended agent must not cancel the user's live broker orders unless
+    # auto-exec is enabled (register-not-execute; the user's own orders are theirs).
+    if not is_auto_exec_allowed(int(ctx.workflow.user_id)):
+        try:
+            from backend.brokers.audit import record_audit
+            record_audit(
+                ctx.db, user_id=int(ctx.workflow.user_id), broker=None,
+                event_type="cancel_intent", status="REGISTERED",
+                detail="unattended cancel armed — auto-exec disabled",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "cancelled_count": 0, "order_ids": [], "status": "REGISTERED",
+            "note": (
+                "Cancel ARMED, not executed — auto-execution is not enabled. "
+                "Manage pending orders in your broker app."
+            ),
+        }
+    cfg = ctx.config
+    symbol_filter = (cfg.get("symbol_filter") or "").upper() or None
+    side_filter = (cfg.get("side_filter") or "").upper() or None  # BUY/SELL
+    token = _kite_token_for_run(ctx)
+
+    orders = get_orders(token) or []
+    pending: list[dict[str, Any]] = []
+    for o in orders:
+        status = str(o.get("status", "")).upper()
+        if status not in {"OPEN", "PENDING", "TRIGGER PENDING"}:
+            continue
+        if symbol_filter and str(o.get("tradingsymbol", "")).upper() != symbol_filter:
+            continue
+        if side_filter and str(o.get("transaction_type", "")).upper() != side_filter:
+            continue
+        pending.append(o)
+
+    cancelled_ids: list[str] = []
+    for o in pending:
+        order_id = str(o.get("order_id", ""))
+        if not order_id:
+            continue
+        try:
+            cancel_order(token, order_id)
+            cancelled_ids.append(order_id)
+        except Exception as e:
+            # Best-effort: log and continue. The engine's max_retries=1
+            # gives one retry; persistent failures bubble up.
+            import logging
+            logging.getLogger(__name__).warning(
+                "cancel_order failed for %s: %s", order_id, e,
+            )
+
+    return {
+        "cancelled_count": len(cancelled_ids),
+        "order_ids": cancelled_ids,
+    }
+
+
+@register_step(
+    step_type="action.set_stoploss",
+    category="action",
+    label="Set a stop-loss",
+    description=(
+        "Protect a holding with a stop-loss sell, at a price or a % "
+        "below entry (optionally trailing)."
+    ),
+    icon="shield",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSetStoplossConfig,
+    group="Exits & protection",
+    deprecated=True,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "trigger_id": {"type": "string"},
+            "client_request_id": {"type": "string"},
+        },
+        "required": ["trigger_id"],
+    },
+)
+async def execute_action_set_stoploss(ctx: Any) -> Optional[dict[str, Any]]:
+    """Set a stop-loss as a Kite GTT (Good-Till-Triggered) sell order.
+    Idempotent via the engine's client_request_id (passed to the broker
+    as `tag`). Quantity defaults to the user's current holding for the
+    symbol when not specified.
+
+    Trigger price resolution:
+      - ``trigger_price`` (absolute) → used as-is.
+      - ``trigger_offset_pct`` (percentage) → resolved at execution time
+        as ``preceding_fill_price * (1 - pct/100)``. The preceding fill
+        is the most recent successful action.place_order in the run's
+        context for this symbol. Falls back to live LTP when no prior
+        fill exists in this run.
+    """
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    qty = cfg.get("quantity")
+    token = _kite_token_for_run(ctx)
+
+    trigger_price = cfg.get("trigger_price")
+    if trigger_price is None and cfg.get("trigger_offset_pct") is not None:
+        pct = float(cfg["trigger_offset_pct"])
+        entry = _resolve_entry_price_for_sl(ctx, symbol, token)
+        trigger_price = round(entry * (1 - pct / 100.0), 2)
+    elif trigger_price is None:
+        raise ValueError(
+            "action.set_stoploss: neither trigger_price nor "
+            "trigger_offset_pct supplied"
+        )
+    trigger_price = float(trigger_price)
+
+    if qty is None:
+        # Default to the current holding qty — sized from the PAPER
+        # position when this account fills in paper, else the kite holding.
+        if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+            qty = paper_position_qty(ctx.db, int(ctx.workflow.user_id), symbol)
+        else:
+            from backend.services.portfolio import get_user_portfolio
+            portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+            holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+            for h in holdings:
+                if str(h.get("tradingsymbol", "")).upper() == symbol:
+                    qty = int(h.get("quantity", 0))
+                    break
+    if not qty or int(qty) <= 0:
+        raise ValueError(
+            f"action.set_stoploss: no quantity specified and no holding "
+            f"of {symbol} found"
+        )
+
+    # GTT limit price is the trigger_price (sell at the trigger).
+    result = submit_gtt(
+        ctx,
+        access_token=token,
+        tradingsymbol=symbol,
+        exchange="NSE",
+        transaction_type="SELL",
+        quantity=int(qty),
+        trigger_price=trigger_price,
+        limit_price=trigger_price,
+        last_price=trigger_price,
+    )
+    return {
+        "trigger_id": str(result.get("trigger_id", "")),
+        "client_request_id": ctx.client_request_id,
+    }
+
+
+@register_step(
+    step_type="action.set_takeprofit",
+    category="action",
+    label="Set a take-profit",
+    description=(
+        "Lock in gains on a holding with a take-profit sell, at a price "
+        "or a % above entry."
+    ),
+    icon="target",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSetTakeprofitConfig,
+    group="Exits & protection",
+    deprecated=True,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "trigger_id": {"type": "string"},
+            "client_request_id": {"type": "string"},
+        },
+        "required": ["trigger_id"],
+    },
+)
+async def execute_action_set_takeprofit(ctx: Any) -> Optional[dict[str, Any]]:
+    """Live executor: places a GTT sell at the trigger_price (Kite has no
+    distinct take-profit type — same primitive as set_stoploss).
+
+    Resolution mirrors set_stoploss but ABOVE the entry:
+      - ``trigger_price`` (absolute) → as-is.
+      - ``trigger_offset_pct`` → entry_fill * (1 + pct/100).
+
+    Backtest sim: handled by workflow_backtester._execute_branch which
+    registers a take-profit alongside any stoploss; on each subsequent
+    bar, if HIGH ≥ trigger_price the position fills at trigger.
+    """
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    qty = cfg.get("quantity")
+    token = _kite_token_for_run(ctx)
+
+    trigger_price = cfg.get("trigger_price")
+    if trigger_price is None and cfg.get("trigger_offset_pct") is not None:
+        pct = float(cfg["trigger_offset_pct"])
+        entry = _resolve_entry_price_for_sl(ctx, symbol, token)
+        trigger_price = round(entry * (1 + pct / 100.0), 2)
+    elif trigger_price is None:
+        raise ValueError(
+            "action.set_takeprofit: neither trigger_price nor "
+            "trigger_offset_pct supplied"
+        )
+    trigger_price = float(trigger_price)
+
+    if qty is None:
+        if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+            qty = paper_position_qty(ctx.db, int(ctx.workflow.user_id), symbol)
+        else:
+            from backend.services.portfolio import get_user_portfolio
+            portfolio = get_user_portfolio(int(ctx.workflow.user_id), ctx.db)
+            holdings = portfolio.get("holdings", []) if isinstance(portfolio, dict) else []
+            for h in holdings:
+                if str(h.get("tradingsymbol", "")).upper() == symbol:
+                    qty = int(h.get("quantity", 0))
+                    break
+    if not qty or int(qty) <= 0:
+        raise ValueError(
+            f"action.set_takeprofit: no quantity specified and no "
+            f"holding of {symbol} found"
+        )
+
+    result = submit_gtt(
+        ctx,
+        access_token=token,
+        tradingsymbol=symbol,
+        exchange="NSE",
+        transaction_type="SELL",
+        quantity=int(qty),
+        trigger_price=trigger_price,
+        limit_price=trigger_price,
+        last_price=trigger_price,
+    )
+    return {
+        "trigger_id": str(result.get("trigger_id", "")),
+        "client_request_id": ctx.client_request_id,
+    }
+
+
+@register_step(
+    step_type="action.set_protective",
+    category="action",
+    label="Set a protective sell",
+    description=(
+        "Protect a holding with a stop-loss OR a take-profit sell — "
+        "at a price or % from entry."
+    ),
+    icon="shield",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSetProtectiveConfig,
+    group="Exits & protection",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "trigger_id": {"type": "string"},
+            "client_request_id": {"type": "string"},
+            "kind": {"type": "string"},
+        },
+        "required": ["trigger_id"],
+    },
+)
+async def execute_action_set_protective(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Dispatch on ``kind`` into the existing stop-loss / take-profit
+    executors so we don't duplicate the GTT resolution + holding-default
+    + percent-offset logic. The two replaced step_types
+    (``action.set_stoploss``, ``action.set_takeprofit``) stay registered
+    + deprecated so any persisted/active workflow still runs."""
+
+    cfg = ctx.config
+    kind = str(cfg.get("kind", "stoploss")).lower()
+    # The legacy executors read ctx.config directly, so we hand them a
+    # minimal wrapper whose `config` dict carries only the fields they
+    # expect (no `kind` discriminator). This keeps the shared
+    # _resolve_entry_price_for_sl / paper-routing path identical.
+    legacy_cfg = {k: v for k, v in cfg.items() if k != "kind"}
+
+    class _Ctx:
+        pass
+
+    proxy = _Ctx()
+    for attr in (
+        "db", "run", "step", "workflow", "client_request_id",
+        "attempts", "config",
+    ):
+        if hasattr(ctx, attr):
+            setattr(proxy, attr, getattr(ctx, attr))
+    proxy.config = legacy_cfg
+
+    if kind == "takeprofit":
+        out = await execute_action_set_takeprofit(proxy)
+    else:
+        out = await execute_action_set_stoploss(proxy)
+    if isinstance(out, dict):
+        out.setdefault("kind", kind)
+    return out
+
+
+@register_step(
+    step_type="action.allocate_basket",
+    category="action",
+    label="Open a weighted basket",
+    description=(
+        "Open several long/short legs at set weights in one step."
+    ),
+    icon="layers",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionAllocateBasketConfig,
+    group="Baskets",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "legs": {"type": "array"},
+            "total_deployed_inr": {"type": "number"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["legs", "n_filled"],
+    },
+)
+async def execute_action_allocate_basket(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Live executor for weighted baskets.
+
+    Splits ``total_inr`` across legs by ``weight``, fetches each leg's
+    LTP in a single Kite quote round-trip, converts to share counts,
+    and places one order per leg under per-leg client_request_ids.
+
+    Short legs raise NotImplementedError on the live path — Pivot v1
+    doesn't broker live shorts on equities. The backtester DOES simulate
+    them; for live trading the workflow validator should refuse to
+    activate any draft with a short leg.
+    """
+
+    cfg = ctx.config
+    legs_cfg = cfg["legs"]
+    total_inr = float(cfg["total_inr"])
+    order_type = str(cfg.get("order_type", "market")).upper()
+    token = _kite_token_for_run(ctx)
+
+    # Reject shorts on the live path.
+    short_legs = [
+        leg for leg in legs_cfg if str(leg.get("side", "long")) == "short"
+    ]
+    if short_legs:
+        raise NotImplementedError(
+            "action.allocate_basket: live shorts not yet supported "
+            f"(short legs: {[l['symbol'] for l in short_legs]}). "
+            "Backtest is fine; activate without short legs to go live."
+        )
+
+    # Normalise weights so they sum to 1.
+    weights_sum = sum(float(leg["weight"]) for leg in legs_cfg) or 1.0
+    # Multi-asset marks: get_mark_price returns an INR mark for Indian (NSE),
+    # US equities/ETFs (Alpaca → yfinance × USD/INR), and crypto (Kraken/
+    # CoinGecko × USD/INR). No more NSE:-only Kite quote that blanked US/crypto.
+    from backend.paper.marks import get_mark_price
+    from backend.paper.quantity import quantize_qty
+    from backend.market.market_hours import asset_class_for_symbol
+    _EXCH_FOR = {"us_equity": "NASDAQ", "us_etf": "NASDAQ", "crypto": "CRYPTO"}
+
+    placed: list[dict[str, Any]] = []
+    deployed = 0.0
+    parent_req = ctx.client_request_id
+    for _leg_i, leg in enumerate(legs_cfg):
+        sym = str(leg["symbol"]).upper()
+        weight = float(leg["weight"]) / weights_sum
+        slice_inr = total_inr * weight
+        ac = asset_class_for_symbol(sym)
+        mk = get_mark_price(sym, token)
+        ltp = float(mk) if mk is not None else 0.0  # INR mark, all asset classes
+        if ltp <= 0:
+            placed.append({"symbol": sym, "status": "no_price"})
+            continue
+        # Fractional for US shares / crypto units; whole shares for Indian.
+        qty = quantize_qty(slice_inr / ltp, symbol=sym, asset_class=ac)
+        if qty <= 0:
+            placed.append({"symbol": sym, "status": "slice_too_small"})
+            continue
+        leg_tag = f"basket_{parent_req[:10]}_{sym[:10]}"
+        try:
+            r = submit_order(
+                ctx,
+                access_token=token,
+                tradingsymbol=sym,
+                exchange=_EXCH_FOR.get(ac, "NSE"),
+                transaction_type="BUY",
+                quantity=qty,
+                order_type=order_type,
+                price=None,
+                product="CNC",
+                tag=leg_tag,
+                leg_key=str(_leg_i),
+            )
+        except Exception as e:
+            placed.append({"symbol": sym, "status": "failed", "error": str(e)[:200]})
+            continue
+        fill = float(r.get("average_price") or ltp)
+        deployed += fill * float(qty)
+        placed.append({
+            "symbol": sym, "side": "long", "qty": float(qty),
+            "weight": weight, "slice_inr": round(slice_inr, 2),
+            "fill_price": fill, "status": str(r.get("status", "")),
+            "order_id": str(r.get("order_id", "")),
+        })
+
+    return {
+        "legs": placed,
+        # REJECTED legs are NOT fills — exclude them (a rejected buy deployed
+        # no capital) so n_filled/total_deployed stay honest.
+        "n_filled": sum(
+            1 for o in placed
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "NO_PRICE", "SLICE_TOO_SMALL", "REJECTED",
+                    "REJECT", "CANCELLED", "ERROR"}
+        ),
+        "total_deployed_inr": round(deployed, 2),
+        "client_request_id": parent_req,
+    }
+
+
+def _unattended_live_exit_gate(
+    ctx: Any, *, scope: str,
+) -> Optional[dict[str, Any]]:
+    """Register-not-execute gate for UNATTENDED LIVE exits (squareoff / cancel).
+
+    The entry path (routing.submit_order) already arms rather than places when
+    the user isn't on the auto-exec allow-list. The squareoff/cancel executors
+    call kite.orders directly (they size from live Kite positions), so WITHOUT
+    this gate a triggered exit would place real broker MARKET orders even with
+    auto-execution disabled — a hole in the SEBI-aligned posture.
+
+    Returns an ARMED result dict (place nothing) when auto-exec is NOT allowed;
+    returns None when it IS allowed (caller proceeds to place). Paper accounts
+    never reach here (each executor checks should_use_paper first).
+    """
+    uid = int(ctx.workflow.user_id)
+    if is_auto_exec_allowed(uid):
+        return None
+    # Arm: record the intent, send nothing to the broker.
+    try:
+        from backend.brokers.audit import record_audit
+        record_audit(
+            ctx.db, user_id=uid, broker=None,
+            event_type="exit_intent", status="REGISTERED",
+            detail=f"unattended {scope} squareoff/cancel armed — auto-exec disabled",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never fail the run
+        pass
+    return {
+        "orders": [], "skipped": [], "n_filled": 0, "n_skipped": 0,
+        "scope": scope, "status": "REGISTERED",
+        "note": (
+            "Exit ARMED, not executed — auto-execution is not enabled for "
+            "this account. Square off in your broker app (register-not-execute)."
+        ),
+    }
+
+
+@register_step(
+    step_type="action.squareoff_all",
+    category="action",
+    label="Close all positions",
+    description=(
+        "Exit every open position — long and short — at market."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffAllConfig,
+    group="Exits & protection",
+    deprecated=True,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_all(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Close every open position. Walks Kite positions (both products),
+    sends opposite-side market orders to flatten each. Backtest fills
+    at close (consistent with squareoff_all_intraday); live executor
+    matches the broker's standard squareoff path."""
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_squareoff(ctx)
+    _armed = _unattended_live_exit_gate(ctx, scope="all")
+    if _armed is not None:
+        return _armed
+    from backend.kite.portfolio import get_positions
+
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter="MIS", symbol_filter=None,
+    ) + _build_squareoff_legs(
+        positions, product_filter="CNC", symbol_filter=None,
+    )
+    # Retry-stable crid (no ctx.attempts) so an engine retry dedups at the
+    # broker instead of re-selling under a fresh key.
+    parent_req = (
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}"
+    )
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for i, leg in enumerate(legs):
+        leg_req = f"{parent_req}:leg{i}:{leg['symbol']}"
+        try:
+            r = place_order(
+                access_token=token,
+                tradingsymbol=leg["symbol"],
+                exchange=leg["exchange"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                product=leg.get("product", "CNC"),
+                order_type="MARKET",
+                client_request_id=leg_req,
+            )
+            placed.append({
+                "symbol": leg["symbol"],
+                "side": leg["transaction_type"],
+                "qty": leg["quantity"],
+                "order_id": str(r.get("order_id", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+    return {
+        "orders": placed,
+        "skipped": skipped,
+        "n_filled": len(placed),
+        "scope": "all",
+    }
+
+
+@register_step(
+    step_type="action.update_watchlist",
+    category="action",
+    label="Update your watchlist",
+    description="Add or remove a symbol from your watchlist.",
+    icon="list-plus",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionUpdateWatchlistConfig,
+    group="Special",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "action": {"type": "string"},
+            "symbol": {"type": "string"},
+        },
+        "required": ["action", "symbol"],
+    },
+)
+async def execute_action_update_watchlist(ctx: Any) -> Optional[dict[str, Any]]:
+    """Add or remove a symbol from the user's watchlist.
+
+    Idempotent on both sides:
+      - 'add' for a symbol already in the watchlist → no-op (the
+        UNIQUE (user_id, symbol, exchange) constraint guarantees this
+        anyway, but we check first to avoid IntegrityError noise in
+        logs).
+      - 'remove' for a symbol absent from the watchlist → no-op.
+
+    Engine retries are safe by construction: on retry the row already
+    exists (add) or already doesn't (remove).
+    """
+    from sqlalchemy import and_
+
+    from backend.models import WatchlistItem
+
+    cfg = ctx.config
+    action = str(cfg["action"]).lower()
+    symbol = str(cfg["symbol"]).upper()
+    exchange = str(cfg.get("exchange", "NSE")).upper()
+    user_id = int(ctx.workflow.user_id)
+
+    existing = (
+        ctx.db.query(WatchlistItem)
+        .filter(and_(
+            WatchlistItem.user_id == user_id,
+            WatchlistItem.symbol == symbol,
+            WatchlistItem.exchange == exchange,
+        ))
+        .first()
+    )
+
+    mutated = False
+    if action == "add" and existing is None:
+        ctx.db.add(WatchlistItem(
+            user_id=user_id, symbol=symbol, exchange=exchange,
+        ))
+        ctx.db.commit()
+        mutated = True
+    elif action == "remove" and existing is not None:
+        ctx.db.delete(existing)
+        ctx.db.commit()
+        mutated = True
+    elif action not in {"add", "remove"}:
+        raise ValueError(f"unsupported watchlist action: {action!r}")
+
+    return {
+        "action": action,
+        "symbol": symbol,
+        "exchange": exchange,
+        "mutated": mutated,
+    }
+
+
+# ── Notional basket allocator ────────────────────────────────────────
+
+
+@register_step(
+    step_type="action.allocate_notional",
+    category="action",
+    label="Split a budget across stocks",
+    description=(
+        "Divide a ₹ budget across a list of symbols (equal or "
+        "cap-weighted) and place each — replaces many single orders."
+    ),
+    icon="layout-grid",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionAllocateNotionalConfig,
+    group="Baskets",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "total_deployed_inr": {"type": "number"},
+            "residual_inr": {"type": "number"},
+            "n_filled": {"type": "integer"},
+            "n_skipped": {"type": "integer"},
+        },
+        "required": ["orders", "total_deployed_inr"],
+    },
+)
+async def execute_action_allocate_notional(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Equal or mcap-weighted basket order under one client_request_id.
+
+    Steps:
+      1. Resolve `symbols` (list literal OR ref to a list of dicts /
+         strings — fetch.screener returns ranked dicts; we accept both).
+      2. Pull live LTPs for every symbol (single Kite quote round-trip).
+      3. Compute INR slice per symbol per `strategy`. equal = total/N.
+         mcap_weighted = total * (mcap_i / sum(mcap)).
+      4. Convert each slice → integer share count = floor(slice / ltp).
+         Symbols whose slice is too small for one share get logged as
+         skipped — the engine surfaces this on the run card.
+      5. Place each order via the same kite.orders.place_order helper
+         the single-symbol path uses. Tag each with a per-leg
+         client_request_id derived from the parent so retries are
+         broker-side idempotent (each leg's tag is unique to its
+         (run, symbol) pair).
+      6. Return a list of fills + the deployed total.
+    """
+    from backend.kite.market_data import get_live_quote
+
+    cfg = ctx.config
+    side = str(cfg["side"])
+    txn_type = "BUY" if side == "buy" else "SELL"
+    order_type = str(cfg.get("order_type", "market")).upper()
+    strategy = str(cfg.get("strategy", "equal"))
+    total_inr = float(cfg["total_inr"])
+
+    # ── 1. Resolve symbols ──
+    raw_syms = cfg["symbols"]
+    if isinstance(raw_syms, str):
+        # Refs were already resolved by the engine before us, so a
+        # bare string at this point means the user typed a comma-sep
+        # list. Split + strip.
+        symbol_rows = [
+            {"symbol": s.strip().upper()}
+            for s in raw_syms.split(",") if s.strip()
+        ]
+    elif isinstance(raw_syms, list):
+        symbol_rows = []
+        for item in raw_syms:
+            if isinstance(item, str):
+                symbol_rows.append({"symbol": item.strip().upper()})
+            elif isinstance(item, dict) and item.get("symbol"):
+                # Accept the fetch.screener row shape directly so the
+                # mcap_weighted strategy has the cap data.
+                symbol_rows.append({
+                    "symbol": str(item["symbol"]).upper(),
+                    "mcap_cr": item.get("mcap_cr"),
+                })
+    else:
+        raise ValueError(
+            f"action.allocate_notional: symbols must be a list or "
+            f"comma-separated string; got {type(raw_syms).__name__}"
+        )
+    if not symbol_rows:
+        raise ValueError(
+            "action.allocate_notional: symbols list is empty after "
+            "resolution"
+        )
+
+    n = len(symbol_rows)
+
+    # ── 2. Live quotes (one round-trip) ──
+    token = _kite_token_for_run(ctx)
+    instruments = [f"NSE:{r['symbol']}" for r in symbol_rows]
+    try:
+        quotes = get_live_quote(token, instruments) or {}
+    except Exception as e:
+        raise ValueError(
+            f"action.allocate_notional: live quotes unavailable ({e}); "
+            "cannot convert notional to share counts"
+        ) from None
+    for r in symbol_rows:
+        q = quotes.get(f"NSE:{r['symbol']}") or {}
+        r["ltp"] = float(q.get("last_price", 0) or 0)
+
+    missing_ltp = [r["symbol"] for r in symbol_rows if r["ltp"] <= 0]
+    if missing_ltp:
+        raise ValueError(
+            f"action.allocate_notional: no live price for "
+            f"{', '.join(missing_ltp)}; aborting basket"
+        )
+
+    # ── 3. Compute INR slices ──
+    if strategy == "mcap_weighted" and all(
+        r.get("mcap_cr") for r in symbol_rows
+    ):
+        total_mcap = sum(int(r["mcap_cr"]) for r in symbol_rows)
+        for r in symbol_rows:
+            r["slice_inr"] = total_inr * (
+                int(r["mcap_cr"]) / total_mcap
+            )
+    else:
+        # 'equal' or fallback when caps missing
+        slice_inr = total_inr / n
+        for r in symbol_rows:
+            r["slice_inr"] = slice_inr
+
+    # ── 4. Slice → integer shares ──
+    skipped: list[dict[str, Any]] = []
+    for r in symbol_rows:
+        qty = int(r["slice_inr"] // r["ltp"])
+        if qty <= 0:
+            skipped.append({
+                "symbol": r["symbol"],
+                "reason": (
+                    f"slice ₹{r['slice_inr']:.0f} too small for one "
+                    f"share at ₹{r['ltp']:.2f}"
+                ),
+                "slice_inr": round(r["slice_inr"], 2),
+                "ltp": r["ltp"],
+            })
+        r["qty"] = qty
+
+    # ── 5. Place each leg ──
+    orders: list[dict[str, Any]] = []
+    deployed = 0.0
+    parent_req = ctx.client_request_id
+    for _leg_i, r in enumerate(symbol_rows):
+        if r["qty"] <= 0:
+            continue
+        leg_tag = f"wf_{parent_req[:10]}_{r['symbol'][:10]}"
+        try:
+            result = submit_order(
+                ctx,
+                access_token=token,
+                tradingsymbol=r["symbol"],
+                exchange="NSE",
+                transaction_type=txn_type,
+                quantity=r["qty"],
+                order_type=order_type,
+                leg_key=str(_leg_i),
+                price=None,
+                product="CNC",
+                tag=leg_tag,
+            )
+        except Exception as e:
+            # Continue with the rest of the basket; don't let one
+            # broker hiccup tank the whole agent.
+            orders.append({
+                "symbol": r["symbol"],
+                "qty": r["qty"],
+                "status": "failed",
+                "error": str(e)[:200],
+            })
+            continue
+        fill_price = float(
+            result.get("average_price") or r["ltp"]
+        )
+        deployed += fill_price * r["qty"]
+        orders.append({
+            "symbol": r["symbol"],
+            "qty": r["qty"],
+            "ltp_at_compute": r["ltp"],
+            "fill_price": fill_price,
+            "slice_inr": round(r["slice_inr"], 2),
+            "order_id": str(result.get("order_id", "")),
+            "status": str(result.get("status", "")),
+        })
+
+    return {
+        "orders": orders,
+        "skipped": skipped,
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
+        "n_skipped": len(skipped),
+        "total_deployed_inr": round(deployed, 2),
+        "residual_inr": round(total_inr - deployed, 2),
+        "strategy": strategy,
+        "side": side,
+        "client_request_id": parent_req,
+    }
+
+
+# ── Squareoff actions ─────────────────────────────────────────────────
+
+
+def _build_squareoff_legs(
+    positions: dict, *, product_filter: str, symbol_filter: Optional[str],
+) -> list[dict]:
+    """Filter Kite positions into closeable legs.
+
+    Kite returns positions with positive (long) and negative (short)
+    `quantity`. To exit, we send the OPPOSITE side: long → SELL, short
+    → BUY. Zero-qty rows are net-flat and skipped.
+    """
+    legs: list[dict] = []
+    rows = positions.get("net") if isinstance(positions, dict) else None
+    if not isinstance(rows, list):
+        return legs
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("product", "")).upper() != product_filter:
+            continue
+        sym = str(r.get("tradingsymbol", "")).upper()
+        if symbol_filter and sym != symbol_filter:
+            continue
+        qty = int(r.get("quantity", 0) or 0)
+        if qty == 0:
+            continue
+        legs.append({
+            "symbol": sym,
+            "exchange": str(r.get("exchange", "NSE")),
+            "transaction_type": "SELL" if qty > 0 else "BUY",
+            "quantity": abs(qty),
+        })
+    return legs
+
+
+def _place_squareoff_legs(
+    legs: list[dict], token: str, *, product: str, parent_req: str,
+) -> tuple[list[dict], list[dict]]:
+    """Run the same place_order helper that action.place_order uses."""
+    placed: list[dict] = []
+    skipped: list[dict] = []
+    for i, leg in enumerate(legs):
+        leg_req = f"{parent_req}:leg{i}:{leg['symbol']}"
+        try:
+            result = place_order(
+                access_token=token,
+                tradingsymbol=leg["symbol"],
+                exchange=leg["exchange"],
+                transaction_type=leg["transaction_type"],
+                quantity=leg["quantity"],
+                product=product,
+                order_type="MARKET",
+                client_request_id=leg_req,
+            )
+            placed.append({
+                "symbol": leg["symbol"],
+                "side": leg["transaction_type"],
+                "quantity": leg["quantity"],
+                "order_id": str(result.get("order_id", "")),
+                "status": str(result.get("status", "")),
+            })
+        except Exception as e:
+            skipped.append({"symbol": leg["symbol"], "reason": str(e)[:160]})
+    return placed, skipped
+
+
+@register_step(
+    step_type="action.squareoff_all_intraday",
+    category="action",
+    label="Close all intraday (MIS)",
+    description=(
+        "Exit every open intraday (MIS) position — pair with Intraday "
+        "P&L for P&L-gated exits."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffAllIntradayConfig,
+    group="Exits & protection",
+    deprecated=True,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "skipped": {"type": "array"},
+            "n_filled": {"type": "integer"},
+            "n_skipped": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_all_intraday(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    from backend.kite.portfolio import get_positions
+
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        # A paper MIS sell can open a short (see paper/fills.py) — close
+        # just the MIS legs, leaving any CNC holdings alone.
+        result = _paper_squareoff(ctx, product_filter="MIS")
+        result["scope"] = "intraday"
+        return result
+    _armed = _unattended_live_exit_gate(ctx, scope="intraday")
+    if _armed is not None:
+        return _armed
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter="MIS", symbol_filter=None,
+    )
+    parent_req = (
+        f"sqoff_all:{ctx.run.id}:{ctx.step.step_index}"
+    )
+    orders, skipped = _place_squareoff_legs(
+        legs, token, product="MIS", parent_req=parent_req,
+    )
+    return {
+        "orders": orders,
+        "skipped": skipped,
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
+        "n_skipped": len(skipped),
+        "scope": "intraday",
+        "client_request_id": parent_req,
+    }
+
+
+@register_step(
+    step_type="action.squareoff_symbol",
+    category="action",
+    label="Close a position",
+    description="Exit one symbol's open lot at market.",
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffSymbolConfig,
+    group="Exits & protection",
+    deprecated=True,
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "n_filled": {"type": "integer"},
+        },
+        "required": ["orders", "n_filled"],
+    },
+)
+async def execute_action_squareoff_symbol(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    from backend.kite.portfolio import get_positions
+
+    if should_use_paper(ctx.db, int(ctx.workflow.user_id)):
+        return _paper_squareoff(
+            ctx, symbol_filter=str(ctx.config["symbol"]).upper(),
+        )
+    _armed = _unattended_live_exit_gate(ctx, scope="symbol")
+    if _armed is not None:
+        return _armed
+    cfg = ctx.config
+    symbol = str(cfg["symbol"]).upper()
+    product = str(cfg.get("product", "MIS")).upper()
+    token = _kite_token_for_run(ctx)
+    positions = get_positions(token)
+    legs = _build_squareoff_legs(
+        positions, product_filter=product, symbol_filter=symbol,
+    )
+    parent_req = (
+        f"sqoff_sym:{symbol}:{ctx.run.id}:{ctx.step.step_index}"
+    )
+    orders, skipped = _place_squareoff_legs(
+        legs, token, product=product, parent_req=parent_req,
+    )
+    return {
+        "orders": orders,
+        "skipped": skipped,
+        "n_filled": sum(
+            1 for o in orders
+            if str(o.get("status", "")).upper()
+            not in {"FAILED", "REJECTED", "REJECT", "CANCELLED", "ERROR"}
+        ),
+        "n_skipped": len(skipped),
+        "symbol": symbol,
+        "product": product,
+        "client_request_id": parent_req,
+    }
+
+
+@register_step(
+    step_type="action.squareoff",
+    category="action",
+    label="Close positions",
+    description=(
+        "Exit positions at market. Pick the scope: all positions, a "
+        "single symbol, or all intraday (MIS) only."
+    ),
+    icon="x-circle",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionSquareoffConfig,
+    group="Exits & protection",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "orders": {"type": "array"},
+            "skipped": {"type": "array"},
+            "n_filled": {"type": "integer"},
+            "n_skipped": {"type": "integer"},
+            "scope": {"type": "string"},
+        },
+        "required": ["orders", "n_filled", "scope"],
+    },
+)
+async def execute_action_squareoff(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Dispatch on ``scope`` into the existing squareoff executors —
+    they all rely on the same ``_build_squareoff_legs`` +
+    ``_place_squareoff_legs`` shared helpers (or the paper-broker
+    counterparts), so this is a thin proxy."""
+
+    cfg = ctx.config
+    scope = str(cfg.get("scope", "all")).lower()
+
+    class _Ctx:
+        pass
+
+    proxy = _Ctx()
+    for attr in (
+        "db", "run", "step", "workflow", "client_request_id",
+        "attempts", "config",
+    ):
+        if hasattr(ctx, attr):
+            setattr(proxy, attr, getattr(ctx, attr))
+
+    if scope == "symbol":
+        # The legacy per-symbol path reads `symbol` + `product` off
+        # ctx.config directly — strip the discriminator so its schema
+        # doesn't choke on the extra key.
+        proxy.config = {
+            "symbol": cfg["symbol"],
+            "product": cfg.get("product", "MIS"),
+        }
+        return await execute_action_squareoff_symbol(proxy)
+    if scope == "intraday":
+        proxy.config = {}
+        return await execute_action_squareoff_all_intraday(proxy)
+    # default = "all"
+    proxy.config = {}
+    return await execute_action_squareoff_all(proxy)
+
+
+# ── IPO arm-intent (P2 — register-not-execute) ───────────────────────
+
+
+@register_step(
+    step_type="action.arm_ipo_intent",
+    category="action",
+    label="Register an IPO application",
+    description=(
+        "Record an IPO application reminder. Pivot never submits a bid "
+        "— you apply and approve the UPI mandate yourself."
+    ),
+    icon="file-check",
+    max_retries=2,
+    trigger_only=False,
+    config_model=ActionArmIpoIntentConfig,
+    group="Special",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "ipo_symbol": {"type": "string"},
+            "ipo_name": {"type": ["string", "null"]},
+            "ipo_type": {"type": "string"},
+            "status": {"type": "string"},
+            "amount_estimate": {"type": ["number", "null"]},
+            "applied": {"type": "boolean"},
+            "stale": {"type": "boolean"},
+            # P3: present (string uuid) when the user was in paper mode and
+            # the labelled-simulation row was written; null otherwise.
+            "paper_allocation_id": {"type": ["string", "null"]},
+        },
+        "required": ["ipo_symbol", "status", "applied"],
+    },
+)
+async def execute_action_arm_ipo_intent(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """Write an `intent_armed` row to ``ipo_applications``. NO broker call.
+
+    Flow:
+      1. Read cfg + user_id from ctx.
+      2. Re-validate the IPO via ``ipo_feed.get_ipo_details`` so we
+         catch type/lot_size/band changes vs draft time.
+      3. Compute amount_estimate from the live band + lot size using
+         ``compute_amount_estimate`` (the same helper the REST register
+         path uses). If lot_size or band is missing we skip the math
+         (store 0/None honestly) rather than fabricate.
+      4. On feed-unreachable, still arm with ``stale=True`` — the
+         autonomous path can't block on NSE flaking. But we never
+         invent a band: amount_estimate is None when unverifiable.
+      5. Persist via ``persist_ipo_application(..., status="intent_armed",
+         autonomous=True, source="workflow-arm")``. Pivot's verb is
+         "arm" / "remind", never "apply".
+
+    Hard rule: NEVER calls ``backend.kite.orders.place_order`` or any
+    broker / paper / UPI-mandate entry point. The companion notify step
+    in the same workflow tells the user "Pivot has NOT applied".
+    """
+    from backend.services.ipo_application_service import (
+        compute_amount_estimate,
+        persist_ipo_application,
+    )
+    from backend.services.ipo_feed import get_ipo_details, parse_price_band
+
+    cfg = ctx.config
+    user_id = int(ctx.workflow.user_id)
+    symbol = str(cfg["ipo_symbol"]).strip().upper()
+    quantity_lots = int(cfg["quantity_lots"])
+    category = str(cfg["category"])
+    bid_price_mode = str(cfg["bid_price_mode"])
+    bid_price_raw = cfg.get("bid_price")
+    bid_price: Optional[float] = (
+        float(bid_price_raw) if bid_price_raw is not None else None
+    )
+
+    # workflow_id is a UUID string in this schema; the soft-FK column on
+    # ipo_applications is Integer (mirrors paper_orders' soft-ref pattern).
+    # If we can't safely coerce, skip the link rather than blow up.
+    workflow_id_int: Optional[int]
+    try:
+        workflow_id_int = int(ctx.workflow.id)
+    except (TypeError, ValueError):
+        workflow_id_int = None
+
+    feed = get_ipo_details(symbol)
+    stale = False
+    ipo_name: Optional[str] = None
+    ipo_type: str = "mainboard"
+    lot_size: Optional[int] = None
+    price_band: Optional[dict[str, Any]] = None
+
+    if feed.get("source") == "unreachable":
+        # Autonomous path must not block on NSE flaking. Arm stale.
+        stale = True
+    elif feed.get("found"):
+        ipo = feed.get("ipo") or {}
+        ipo_name = ipo.get("name")
+        ipo_type = "sme" if ipo.get("type") == "sme" else "mainboard"
+        raw_lot = ipo.get("lot_size")
+        try:
+            if raw_lot is None or raw_lot == "":
+                lot_size = None
+            else:
+                lot_size = int(raw_lot)
+        except (TypeError, ValueError):
+            lot_size = None
+        price_band = parse_price_band(ipo.get("price_band"))
+    else:
+        # Honest: feed reachable but the IPO is no longer in the live
+        # window. Still arm (the user explicitly wanted the reminder),
+        # but mark stale + skip amount.
+        stale = True
+
+    # Compute amount_estimate ONLY when we have honest inputs.
+    amount_estimate: Optional[float]
+    if (
+        lot_size is not None and lot_size > 0
+        and price_band is not None
+        and price_band.get("max") is not None
+    ):
+        try:
+            amount_estimate = compute_amount_estimate(
+                quantity_lots=quantity_lots,
+                lot_size=lot_size,
+                bid_price_mode=bid_price_mode,
+                bid_price=bid_price,
+                price_band_max=float(price_band["max"]),
+            )
+        except ValueError:
+            # cfg disagrees with feed (e.g. fixed mode but no bid_price).
+            # Don't fabricate a number; persist None.
+            amount_estimate = None
+    else:
+        amount_estimate = None
+
+    # persist_ipo_application requires a positive lot_size (Integer col).
+    # When we couldn't honestly compute one, store 0 — paired with
+    # amount_estimate=None this is the honest "lot data unavailable"
+    # marker the FE can render distinctly.
+    lot_size_for_row = lot_size if (lot_size and lot_size > 0) else 0
+    amount_estimate_for_row = (
+        amount_estimate if amount_estimate is not None else 0.0
+    )
+
+    # P3: when the user is in paper mode, the IPOApplication row records
+    # paper_mode=True so the audit trail is clear (the parallel
+    # PaperIpoAllocation row written below carries the simulated outcome).
+    paper = should_use_paper(ctx.db, user_id)
+    row = persist_ipo_application(
+        ctx.db, user_id,
+        ipo_symbol=symbol,
+        ipo_name=ipo_name,
+        ipo_type=ipo_type,
+        category=category,
+        quantity_lots=quantity_lots,
+        lot_size=lot_size_for_row,
+        bid_price_mode=bid_price_mode,
+        bid_price=bid_price,
+        amount_estimate=amount_estimate_for_row,
+        upi_id_masked=None,
+        conversation_id=None,
+        workflow_id=workflow_id_int,
+        source="workflow-arm",
+        stale=stale,
+        autonomous=True,
+        paper_mode=paper,
+        status="intent_armed",
+    )
+    ctx.db.commit()
+    ctx.db.refresh(row)
+
+    # P3: paper-mode parallel-ledger write. NEVER mutates cash/positions
+    # /NAV — see backend/paper/ipo_sim.py's module header for the
+    # invariants. Only writes when the user is in paper mode AND the
+    # IPOApplication row has a valid id (committed/refreshed above).
+    paper_allocation_id: Optional[str] = None
+    if paper:
+        from backend.paper.ipo_sim import simulate_paper_ipo_allocation
+
+        ipo_record_for_sim = (
+            feed.get("ipo") if (feed and feed.get("found")) else None
+        )
+        alloc = simulate_paper_ipo_allocation(
+            ctx.db, user_id,
+            app_row=row,
+            ipo_record=ipo_record_for_sim,
+            source="workflow-arm",
+        )
+        ctx.db.commit()
+        ctx.db.refresh(alloc)
+        paper_allocation_id = str(alloc.id)
+
+    return {
+        "ipo_symbol": symbol,
+        "ipo_name": ipo_name,
+        "ipo_type": ipo_type,
+        "status": "intent_armed",
+        "amount_estimate": amount_estimate,
+        "applied": False,  # Pivot has NOT applied — load-bearing flag.
+        "stale": stale,
+        "paper_allocation_id": paper_allocation_id,
+    }
+
+
+@register_step(
+    step_type="action.place_option_strategy",
+    category="action",
+    label="Place / register an option strategy",
+    description=(
+        "Build a multi-leg option strategy. Paper book fills in "
+        "simulation; live book registers the intent only — you place it "
+        "in your broker app. MCX commodities supported (register-not-execute)."
+    ),
+    icon="layers",
+    max_retries=1,
+    trigger_only=False,
+    config_model=ActionPlaceOptionStrategyConfig,
+    group="Special",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "strategy_id": {"type": "string"},
+            "underlying": {"type": "string"},
+            "template": {"type": "string"},
+            "expiry": {"type": "string"},
+            "book": {"type": "string"},
+            "status": {"type": "string"},
+            "qty_lots": {"type": "integer"},
+            "max_loss": {"type": ["number", "null"]},
+            "pop": {"type": ["number", "null"]},
+            "margin_estimate": {"type": ["number", "null"]},
+            "legs": {"type": "array"},
+            "fills": {"type": "array"},
+            "executed": {"type": "boolean"},
+        },
+        "required": ["strategy_id", "status", "book", "executed"],
+    },
+)
+async def execute_action_place_option_strategy(
+    ctx: Any,
+) -> Optional[dict[str, Any]]:
+    """F&O P3: resolve the template against the LIVE chain at fire
+    time (same engine as the chat cards — delta/liquidity strike rules,
+    payoff, SPAN margin, critique), run the SAME fail-closed pre-trade
+    gate as the REST registration path (safety.run_option_pretrade_gate
+    — MCX block, expiry-gamma naked-short block, lot caps, kill
+    switch), persist the OptionStrategy row, then:
+
+      book='paper' → execute the legs in the paper book NOW
+                     (mid±half-spread, margin reserve for shorts).
+      book='live'  → status stays 'registered' — REGISTER-NOT-EXECUTE,
+                     forever. The companion notify step tells the user
+                     to act in their broker app.
+
+    Approval: requires_approval=true pauses the run via the standard
+    WorkflowApproval flow BEFORE anything persists.
+
+    Idempotency: one strategy per run-step — re-entry (engine retry)
+    finds the existing row via the (workflow_run_id-scoped) duplicate
+    check and re-drives only the unfilled paper legs (per-leg
+    client_request_ids dedup fills).
+    """
+    cfg = ctx.config
+    requires_approval = bool(cfg.get("requires_approval", False))
+
+    if requires_approval:
+        existing = _has_pending_approval(ctx)
+        if existing is None or existing.decision is None:
+            from backend.workflows.engine import _utcnow
+
+            summary = (
+                f"{cfg['template'].replace('_', ' ')} on "
+                f"{cfg['underlying'].upper()} ×{cfg.get('qty_lots', 1)} "
+                f"lot(s), {cfg.get('book', 'paper')} book"
+            )
+            approval = WorkflowApproval(
+                run_id=ctx.run.id,
+                step_index=ctx.step.step_index,
+                expires_at=_utcnow() + timedelta(minutes=15),
+                summary=summary,
+            )
+            ctx.db.add(approval)
+            ctx.db.commit()
+            ctx.db.refresh(approval)
+            raise _AwaitingApproval(approval.id)
+        if existing.decision == "rejected":
+            raise RuntimeError(
+                f"approval rejected at step {ctx.step.step_index}"
+            )
+
+    from backend.safety import run_option_pretrade_gate
+    from backend.services.option_strategies import (
+        TEMPLATES,
+        StrategyResolutionError,
+        resolve_strategy,
+    )
+    from backend.services.option_strategy_service import (
+        persist_option_strategy,
+    )
+
+    db = ctx.db
+    user_id = int(ctx.workflow.user_id)
+    underlying = str(cfg["underlying"]).strip().upper()
+    template = str(cfg["template"]).strip().lower()
+    book = str(cfg.get("book", "paper"))
+    qty_lots = int(cfg.get("qty_lots", 1))
+
+    # Idempotent re-entry: a strategy already created by THIS run.
+    from backend.models import OptionStrategy
+
+    run_id = str(ctx.run.id)
+    strategy = (
+        db.query(OptionStrategy)
+        .filter(
+            OptionStrategy.user_id == user_id,
+            OptionStrategy.workflow_id == run_id,
+        )
+        .first()
+    )
+
+    if strategy is None:
+        # Resolve expiry rule → ISO date for the engine.
+        from backend.market.instrument_master import list_expiries
+
+        expiry_rule = str(cfg.get("expiry_rule", "nearest"))
+        expiries = list_expiries(db, underlying)
+        if not expiries:
+            raise ValueError(
+                f"no listed option expiries for {underlying} — "
+                "is it an F&O underlying?"
+            )
+        if expiry_rule == "next" and len(expiries) > 1:
+            expiry = expiries[1]["expiry"]
+        elif expiry_rule == "monthly":
+            expiry = next(
+                (e["expiry"] for e in expiries if e["kind"] == "monthly"),
+                expiries[-1]["expiry"],
+            )
+        else:
+            expiry = expiries[0]["expiry"]
+
+        explicit_legs = None
+        strikes = cfg.get("strikes")
+        if strikes and template in TEMPLATES:
+            spec_legs = TEMPLATES[template].legs
+            if len(strikes) == len(spec_legs):
+                explicit_legs = [
+                    {"option_type": s.option_type, "side": s.side,
+                     "strike": float(k)}
+                    for s, k in zip(spec_legs, strikes)
+                ]
+
+        try:
+            payload = resolve_strategy(
+                db, underlying, template,
+                expiry=expiry, qty_lots=qty_lots,
+                explicit_legs=explicit_legs,
+            )
+        except StrategyResolutionError as exc:
+            raise ValueError(f"option strategy resolution failed: {exc}")
+        payload["editable"]["book"] = book
+
+        # The SAME fail-closed gate as the REST path. Workflow path is
+        # autonomous → the user's activation of the workflow IS the
+        # disclosure acknowledgement (the draft card carries it).
+        ok, reason = run_option_pretrade_gate(payload, acknowledged=True)
+        if not ok:
+            raise ValueError(f"pre-trade gate blocked: {reason}")
+
+        strategy = persist_option_strategy(
+            db,
+            user_id=user_id,
+            payload=payload,
+            book=book,
+            qty_lots=qty_lots,
+            workflow_id=run_id,
+            source="workflow",
+        )
+
+    fills: list[dict] = []
+    executed = False
+    if book == "paper" and strategy.status in ("registered", "active"):
+        from backend.config import settings as _settings
+
+        if getattr(_settings, "paper_trading_enabled", True):
+            from backend.paper.options_routing import (
+                OptionFillError,
+                submit_option_strategy,
+            )
+
+            try:
+                result = submit_option_strategy(db, user_id, strategy)
+            except OptionFillError as exc:
+                raise ValueError(f"paper execution failed: {exc}")
+            if not result["success"]:
+                raise ValueError(
+                    f"paper execution failed: {result['error']}"
+                )
+            fills = result["fills"]
+            executed = True
+            db.commit()
+
+    return {
+        "strategy_id": str(strategy.id),
+        "underlying": strategy.underlying,
+        "template": strategy.template,
+        "expiry": strategy.expiry.isoformat(),
+        "book": strategy.book,
+        "status": strategy.status,
+        "qty_lots": strategy.qty_lots,
+        "max_loss": float(strategy.max_loss) if strategy.max_loss is not None else None,
+        "pop": strategy.pop,
+        "margin_estimate": (
+            float(strategy.margin_estimate)
+            if strategy.margin_estimate is not None else None
+        ),
+        "legs": [
+            {"option_type": l.option_type, "side": l.side,
+             "strike": float(l.strike), "tradingsymbol": l.tradingsymbol}
+            for l in strategy.legs
+        ],
+        "fills": fills,
+        "executed": executed,
+    }
+
+
+# Keep StepStatus import alive in case future executors emit run-step
+# status nuances directly (currently engine-only).
+_ = StepStatus

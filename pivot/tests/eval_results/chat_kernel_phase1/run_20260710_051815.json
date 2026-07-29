@@ -1,0 +1,121 @@
+{
+ "ts": "20260710_051815",
+ "elapsed_s": 40.7,
+ "base": "http://localhost:8000",
+ "user_id": 649,
+ "sessions_file": "tests/eval_prompts/fundamentals_history_3.json",
+ "only": null,
+ "n_sessions": 3,
+ "n_turns": 4,
+ "sessions": [
+  {
+   "category": "fundamentals-history",
+   "name": "roe_trend_tcs",
+   "why": "History-shaped fundamentals ask must route to query_financials (agg=series), NOT fetch_fundamentals (latest snapshot only). Reply must quote real per-year ROE values with years, note direction, and never fabricate.",
+   "conv": "s_493516a34f",
+   "turns": [
+    {
+     "i": 0,
+     "say": "How has TCS's ROE evolved over the last 5 years?",
+     "response": "Do you want TCS\u2019s latest ROE snapshot, or a comparison with another IT name?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 12374,
+     "latency_server_ms": 11909,
+     "input_tokens": 161915,
+     "output_tokens": 585,
+     "cost_usd": 0.027345,
+     "llm_calls": 4
+    }
+   ]
+  },
+  {
+   "category": "fundamentals-history",
+   "name": "max_profit_year_reliance",
+   "why": "The headline query_financials class: max/min-year question answerable ONLY from the 12y statement history (agg=max on net_profit). Must name the fiscal year AND the rupee value from the DB; web_search_brief or fetch_fundamentals here is a routing failure.",
+   "conv": "s_b803126174",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Which year did Reliance make its highest ever profit, and how much was it?",
+     "response": "Reliance\u2019s highest ever consolidated net profit in the data I have was for the year ended **31 March 2026**, at **\u20b995,610 crore**.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 5418,
+     "latency_server_ms": 4977,
+     "input_tokens": 80944,
+     "output_tokens": 299,
+     "cost_usd": 0.011247,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "fundamentals-history",
+   "name": "revenue_cagr_compare",
+   "why": "Multi-symbol history aggregation: revenue CAGR for two names over 5y via query_financials (agg=cagr, symbols=[INFY,WIPRO]) \u2014 one call, both symbols, real numbers, a defended one-line comparison. Follow-up amendment must extend the window, not re-ask.",
+   "conv": "s_1bcc7e8899",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Compare the revenue growth of Infosys vs Wipro over the last 5 years",
+     "response": "## Snapshot\n\nUsing the available consolidated annual filings in the database, **Infosys grew revenue much faster than Wipro** over the last reported window.\n\n| Company | Revenue CAGR | Period captured |\n|---|---:|---|\n| Infosys (`INFY`) | **10.1%** | FY22 to FY26 |\n| Wipro (`WIPRO`) | **4.0%** | FY22 to FY26 |\n\n## View\n\n- **Infosys**: stronger top-line compounding, adding about **10% a year** over the window.\n- **Wipro**: slower growth at roughly **4% a year**, which is materially behind Infosys.\n- The gap is about **6.1 percentage points** of CAGR in Infosys\u2019 favour.\n\n## Bottom line\n\nOn revenue growth alone, **Infosys wins clearly**. The available data covers a **4-year span** from FY22 to FY26, even though you asked for 5 years, so I\u2019m using the latest complete annual window the DB returned.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 8879,
+     "latency_server_ms": 8440,
+     "input_tokens": 82528,
+     "output_tokens": 711,
+     "cost_usd": 0.017712,
+     "llm_calls": 2
+    },
+    {
+     "i": 1,
+     "say": "make it 10 years",
+     "response": "Over the 10-year window available in the database, **Infosys again grew revenue faster than Wipro**.\n\n- **Infosys revenue CAGR:** **11.24%**\n- **Wipro revenue CAGR:** **5.87%**\n\nThat is a gap of about **5.4 percentage points** in Infosys\u2019 favour. On the raw series, Infosys rose from **\u20b968,484 cr** to **\u20b91,78,650 cr**, while Wipro went from **\u20b955,448 cr** to **\u20b992,624 cr** over the same span.\n\nIf you want, I can also compare **profit growth** or **ROE/ROCE** for the same 10-year period.",
+     "tools_called": [
+      "find_tool",
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "find_tool",
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10635,
+     "latency_server_ms": 10190,
+     "input_tokens": 129700,
+     "output_tokens": 528,
+     "cost_usd": 0.028436,
+     "llm_calls": 3
+    }
+   ]
+  }
+ ]
+}

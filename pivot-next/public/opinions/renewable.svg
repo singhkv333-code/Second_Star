@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Solar panel and wind turbine">
+  <rect width="200" height="200" fill="#0f3d2e"/>
+  <circle cx="150" cy="52" r="24" fill="#f2c14e"/>
+  <g stroke="#f2c14e" stroke-width="5" stroke-linecap="round">
+    <path d="M150 14v-8M150 98v8M188 52h8M104 52h8M177 25l6-6M117 85l-6 6M177 79l6 6M117 19l-6-6"/>
+  </g>
+  <!-- wind turbine -->
+  <path d="M52 168V78" stroke="#e8f2ec" stroke-width="7" stroke-linecap="round"/>
+  <g fill="#e8f2ec">
+    <path d="M52 74 46 26c0-4 12-4 12 0Z"/>
+    <path d="M56 80 98 58c4-2 9 8 4 10Z"/>
+    <path d="M48 80 6 58c-4-2-9 8-4 10Z"/>
+  </g>
+  <circle cx="52" cy="78" r="8" fill="#f2c14e"/>
+  <!-- solar array -->
+  <g fill="#3ba776" stroke="#0f3d2e" stroke-width="4">
+    <path d="M96 172l16-44h72l-16 44Z"/>
+  </g>
+  <g stroke="#0f3d2e" stroke-width="4" opacity="0.85">
+    <path d="M120 128l-16 44M144 128l-16 44M168 128l-16 44M110 150h72"/>
+  </g>
+  <rect x="140" y="172" width="7" height="16" fill="#e8f2ec"/>
+</svg>

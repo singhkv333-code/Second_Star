@@ -1,0 +1,44 @@
+{
+ "ts": "20260705_211402",
+ "elapsed_s": 17.4,
+ "base": "http://localhost:8000",
+ "user_id": 629,
+ "sessions_file": "tests/eval_prompts/construction_holding_25.json",
+ "only": "monsoon_basket",
+ "n_sessions": 1,
+ "n_turns": 1,
+ "sessions": [
+  {
+   "category": "construction-thematic",
+   "name": "monsoon_basket",
+   "why": "The screenshot bug: thematic positioning must render strategy_builder_card with named constituents, not an agent/workflow card.",
+   "conv": "s_cb2afbdaf8",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Make me a basket of stocks that profit from a good monsoon.",
+     "response": "What\u2019s your investable amount for this basket so I can decide how many names to use and how concentrated to make it?",
+     "tools_called": [
+      "ask_user_dynamic"
+     ],
+     "render_hint": "clarify_card",
+     "raw_keys": [
+      "_render_hint",
+      "clarify"
+     ],
+     "card_digest": {
+      "hint": "clarify_card",
+      "compact": "{\"_render_hint\": \"clarify_card\", \"clarify\": {\"session_slot_state\": {\"view\": {\"direction\": \"none\", \"target\": \"market\", \"conviction\": \"medium\"}, \"risk\": \"balanced\", \"horizon\": \"medium\", \"capital_inr\": null, \"asset_prefs\": {\"allow\": [\"equity\", \"etf_mf\", \"gold\"], \"deny\": [\"options\"], \"exclusions\": []}, \"theme\": \"good monsoon / rural recovery\", \"symbols\": null, \"assumed\": {\"view\": true, \"risk\": true, \"horizon\": true, \"capital_inr\": true, \"asset_prefs\": true, \"theme\": false}}, \"total\": 3, \"index\": 0, \"questions\": [{\"id\": \"q_capital_inr\", \"slot\": \"capital_inr\", \"prompt\": \"What\\u2019s your investable amount for this basket so I can decide how many names to use and how concentrated to make it?\", \"voi\": 0.865, \"options\": [{\"id\": \"lt_50000\", \"label\": \"Under \\u20b950k\"}, {\"id\": \"50k_2l\", \"label\": \"\\u20b950k to \\u20b92 lakh\"}, {\"id\": \"2l_10l\", \"label\": \"\\u20b92 lakh to \\u20b910 lakh\"}, {\"id\": \"gt_10l\", \"label\": \"Above \\u20b910 lakh\"}, {\"id\": \"unsure\", \"label\": \"Not fixed yet; suggest a basket size\"}], \"free_text\": true, \"skippable\": true}, {\"id\": \"q_asset_prefs\", \"slot\": \"asset_prefs\", \"prompt\": \"What do you want me to allow in the build \\u2014 direct stocks only, or can I use ETF/MF sleeves too if they fit the monsoon theme better?\", \"voi\": 0.778, \"options\": [{\"id\": \"equity_only\", \"label\": \"Direct stocks only\"}, {\"id\": \"equity_plus_etf_mf\", \"label\": \"Direct stocks plus ETF/MF sleeves\"}, {\"id\": \"etf_mf_first\", \"label\": \"Prefer ETF/MF sleeves, use stocks only if needed\"}, {\"id\": \"flexible\"\u2026"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 14652,
+     "latency_server_ms": 14141,
+     "input_tokens": 42497,
+     "output_tokens": 1644,
+     "cost_usd": 0.014816,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

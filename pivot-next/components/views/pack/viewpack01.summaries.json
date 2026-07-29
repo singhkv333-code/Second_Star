@@ -1,0 +1,253 @@
+[
+  {
+    "id": "renewable",
+    "view_type": "theme",
+    "title": "Will renewable energy grow over the years?",
+    "thesis": "India's solar, wind and grid build-out lifts the power producers and equipment makers behind it.",
+    "category": "Renewable · Theme",
+    "time_horizon": "Long term",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "renewable-growth",
+      "tier": "aggressive",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": "unproven",
+      "total_return_pct": 107.07,
+      "excess_return_pct": 83.96,
+      "plain_label": "Renewable Growth",
+      "nifty_total_pct": 23.12,
+      "n_episodes": null,
+      "pct_episodes_beat": null,
+      "worst_drop_pct": null,
+      "equity_curve": null,
+      "pct_positive": null,
+      "n_positive": null,
+      "cagr_pct": 27.65,
+      "curve_years": 2.98
+    },
+    "expression_count": 3,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will renewable energy grow over the years?",
+    "plain_summary": "India's solar, wind and grid build-out lifts the power producers and equipment makers behind it.",
+    "short_title": "Will renewable energy grow over the years?",
+    "stance": {
+      "yes": {
+        "verdict": "Own the build-out",
+        "summary": "If capacity keeps being added year after year, the producers, grid firms and equipment makers behind it tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay broad",
+        "summary": "If the build-out slows, these names likely track the market — broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": false
+  },
+  {
+    "id": "gold",
+    "view_type": "event",
+    "title": "Will Gold prices rise?",
+    "thesis": "Hold the metal itself, through ETFs, rather than the companies that trade in it.",
+    "category": "Commodity · Event",
+    "time_horizon": "Dynamic",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "gold-silver-etf",
+      "tier": "balanced",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": "unproven",
+      "total_return_pct": 157.63,
+      "excess_return_pct": 134.51,
+      "plain_label": "Gold + Silver ETF",
+      "nifty_total_pct": 23.12,
+      "n_episodes": null,
+      "pct_episodes_beat": null,
+      "worst_drop_pct": null,
+      "equity_curve": null,
+      "pct_positive": null,
+      "n_positive": null,
+      "cagr_pct": 37.36,
+      "curve_years": 2.98
+    },
+    "expression_count": 3,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will Gold prices rise?",
+    "plain_summary": "Hold the metal itself, through ETFs, rather than the companies that trade in it.",
+    "short_title": "Will Gold prices rise?",
+    "stance": {
+      "yes": {
+        "verdict": "Own the gold beneficiaries",
+        "summary": "If gold keeps climbing, jewellers, gold-loan financiers and gold itself tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay in equities",
+        "summary": "If gold stalls instead, gold-linked stocks likely just tread water — broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": false
+  },
+  {
+    "id": "monsoon",
+    "view_type": "theme",
+    "title": "Will India have a good monsoon this season?",
+    "thesis": "A strong monsoon lifts rural demand - tractors, fertilisers, two-wheelers and FMCG.",
+    "category": "Monsoon · Event",
+    "time_horizon": "One season",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": {
+      "id": "ad89abe0-0f1e-46cd-a820-a5b3e396a24c",
+      "tier": "aggressive",
+      "expression_kind": "basket",
+      "grade": null,
+      "trust_verdict": null,
+      "total_return_pct": 46.6,
+      "excess_return_pct": 23.48,
+      "plain_label": "Own 7 high-beta monsoon cyclicals",
+      "nifty_total_pct": 23.12,
+      "n_episodes": null,
+      "pct_episodes_beat": null,
+      "worst_drop_pct": null,
+      "equity_curve": [],
+      "cagr_pct": 13.69,
+      "curve_years": 2.98
+    },
+    "expression_count": 2,
+    "transmission_count": 2,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": false,
+    "plain_one_liner": "Will India have a good monsoon this season?",
+    "plain_summary": "A strong monsoon lifts rural demand - tractors, fertilisers, two-wheelers and FMCG.",
+    "short_title": "Will India have a good monsoon this season?",
+    "stance": {
+      "yes": {
+        "verdict": "Own rural demand",
+        "summary": "A good monsoon means better farm income, and the tractor, fertiliser, two-wheeler and FMCG names that sell into it tend to rise together."
+      },
+      "no": {
+        "has_trade": true,
+        "verdict": "Stay broad",
+        "summary": "A weak monsoon squeezes rural spending — these names usually lag, so broad equity exposure is the steadier bet."
+      }
+    },
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": false
+  },
+  {
+    "id": "ev",
+    "view_type": "theme",
+    "title": "Will EVs outnumber non-electric cars?",
+    "thesis": "The basket behind this one — makers, batteries and parts — is still being built.",
+    "category": "Autos · Theme",
+    "time_horizon": "Over 1 year",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": null,
+    "expression_count": 0,
+    "transmission_count": 0,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": true,
+    "plain_one_liner": "Will EVs outnumber non-electric cars?",
+    "plain_summary": "The basket behind this one — makers, batteries and parts — is still being built.",
+    "short_title": "Will EVs outnumber non-electric cars?",
+    "stance": null,
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": true,
+    "forward_expected_net_pct": null,
+    "forward_band_pct": null
+  },
+  {
+    "id": "nuclear",
+    "view_type": "theme",
+    "title": "Will nuclear power supply a tenth of India's electricity?",
+    "thesis": "The basket behind this one — reactor builders, heavy engineering and grid — is still being built.",
+    "category": "Nuclear · Theme",
+    "time_horizon": "Over 1 year",
+    "status": "open",
+    "resolution_date": null,
+    "created_at": "2026-06-29T18:21:39.487863Z",
+    "published_at": "2026-06-29T18:21:39.965318Z",
+    "outcome_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "expression_confidence": {
+      "score": null,
+      "letter": null
+    },
+    "best_expression": null,
+    "expression_count": 0,
+    "transmission_count": 0,
+    "follower_count": 0,
+    "is_following": false,
+    "is_developing": true,
+    "plain_one_liner": "Will nuclear power supply a tenth of India's electricity?",
+    "plain_summary": "The basket behind this one — reactor builders, heavy engineering and grid — is still being built.",
+    "short_title": "Will nuclear power supply a tenth of India's electricity?",
+    "stance": null,
+    "best_episode_pct": null,
+    "best_episode_label": null,
+    "coming_soon": true,
+    "forward_expected_net_pct": null,
+    "forward_band_pct": null
+  }
+]

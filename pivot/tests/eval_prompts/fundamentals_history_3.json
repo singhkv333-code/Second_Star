@@ -1,0 +1,35 @@
+[
+  {
+    "category": "fundamentals-history",
+    "name": "roe_trend_reliance",
+    "why": "History-shaped fundamentals ask must route to query_financials (agg=series). RELIANCE has full ratio history in the DB: reply must quote real per-year ROE values with years, note direction, never fabricate.",
+    "turns": [
+      "How has Reliance's ROE evolved over the last 5 years?"
+    ]
+  },
+  {
+    "category": "fundamentals-history",
+    "name": "roe_trend_tcs_honest_gap",
+    "why": "HONESTY case: TCS carries P&L-only history in the mc DB (no ratio rows), so a TCS ROE series is genuinely unavailable. Correct behavior: call query_financials, get the structured null, say the series isn't available, and offer the real alternative (profit/EPS history, or the latest ROE snapshot) — never fabricate a series, never a dead-end apology.",
+    "turns": [
+      "How has TCS's ROE evolved over the last 5 years?"
+    ]
+  },
+  {
+    "category": "fundamentals-history",
+    "name": "max_profit_year_reliance",
+    "why": "The headline query_financials class: max/min-year question answerable ONLY from the 12y statement history (agg=max on net_profit). Must name the fiscal year AND the rupee value from the DB; web_search_brief or fetch_fundamentals here is a routing failure.",
+    "turns": [
+      "Which year did Reliance make its highest ever profit, and how much was it?"
+    ]
+  },
+  {
+    "category": "fundamentals-history",
+    "name": "revenue_cagr_compare",
+    "why": "Multi-symbol history aggregation: revenue CAGR for two names over 5y via query_financials (agg=cagr, symbols=[INFY,WIPRO]) — one call, both symbols, real numbers, a defended one-line comparison. Follow-up amendment must extend the window, not re-ask.",
+    "turns": [
+      "Compare the revenue growth of Infosys vs Wipro over the last 5 years",
+      "make it 10 years"
+    ]
+  }
+]

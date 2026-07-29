@@ -1,0 +1,201 @@
+{
+  "label": "r1r5_50",
+  "description": "Post-R1..R5 sweep — multi-turn sessions covering context preservation, analysis, ungrounded levels, expiry phrasing, yes-no resolution, vague messages. Same conv_id within each session.",
+  "sessions": [
+    {
+      "id": "S01_context_explainer",
+      "turns": [
+        {"prompt": "Explain business model of Reliance", "expect": {"reply_class": "explainer", "no_workflow_draft": true, "min_response_chars": 320, "no_unsolicited_ltp": true}},
+        {"prompt": "Now compare it with TCS", "expect": {"reply_class": "explainer", "no_workflow_draft": true, "min_response_chars": 280}}
+      ]
+    },
+    {
+      "id": "S02_yes_disambiguation",
+      "turns": [
+        {"prompt": "What are key metrics for ICICI Bank?", "expect": {"no_workflow_draft": true, "tool_any_of": ["ASK_USER"]}},
+        {"prompt": "yes", "expect": {"no_workflow_draft": true, "no_fabrication": true, "no_phrase_any_of": ["draft above", "retry it as-is", "last attempt failed"]}}
+      ]
+    },
+    {
+      "id": "S03_yes_comparison",
+      "turns": [
+        {"prompt": "Which has better fundamentals: HDFC or ICICI?", "expect": {}},
+        {"prompt": "yes", "expect": {"no_workflow_draft": true, "no_phrase_any_of": ["draft above", "Save & activate"]}}
+      ]
+    },
+    {
+      "id": "S04_ungrounded_resistance",
+      "turns": [
+        {"prompt": "Build an agent — Buy HDFCBANK 10 shares if stock closes above resistance", "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}},
+        {"prompt": "use 20-day rolling high", "expect": {"render_hint": "workflow_draft_card"}}
+      ]
+    },
+    {
+      "id": "S05_grounded_resistance",
+      "turns": [
+        {"prompt": "Buy 5 INFY if it closes above 1640", "expect": {"render_hint": "workflow_draft_card"}}
+      ]
+    },
+    {
+      "id": "S06_30_day_expiry",
+      "turns": [
+        {"prompt": "Buy Reliance if it drops 10%, sell when it rises 5% after buying. Run this strategy for the next 30 days.", "expect": {"render_hint": "workflow_draft_card", "has_valid_until": true}}
+      ]
+    },
+    {
+      "id": "S07_until_friday",
+      "turns": [
+        {"prompt": "Set up an agent that sells my INFY at market if RSI crosses above 70 — valid till next Friday only", "expect": {"render_hint": "workflow_draft_card", "has_valid_until": true}}
+      ]
+    },
+    {
+      "id": "S08_dma_emit_after_go",
+      "turns": [
+        {"prompt": "Buy Reliance when 20 DMA crosses above 50 DMA", "expect": {}},
+        {"prompt": "yes do that", "expect": {"render_hint_any_of": ["workflow_draft_card", "ask_user"], "no_phrase_any_of": ["I can do that", "I can do it for Reliance with"]}},
+        {"prompt": "do it", "expect": {"no_three_turn_loop": true, "no_phrase_any_of": ["I can do it for Reliance with"]}}
+      ]
+    },
+    {
+      "id": "S09_multi_trigger_3_actions",
+      "turns": [
+        {"prompt": "Every Monday at open buy 5 NIFTYBEES; if NIFTY drops 2% intraday sell 10 from my holdings; on Friday close squareoff full NIFTYBEES", "expect": {"render_hint": "workflow_draft_card"}}
+      ]
+    },
+    {
+      "id": "S10_dsl_compound_entry_exit",
+      "turns": [
+        {"prompt": "Buy 20 RELIANCE when RSI<35 AND MACD hist > 0 AND volume > 1.5x its 20-day avg. Sell when down 5% from peak OR held > 30 bars.", "expect": {"render_hint": "workflow_draft_card"}}
+      ]
+    },
+    {
+      "id": "S11_vague_build_intent",
+      "turns": [
+        {"prompt": "build me an agent", "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S12_filler_after_q",
+      "turns": [
+        {"prompt": "Set up an automation for me", "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}},
+        {"prompt": "hmm", "expect": {"no_workflow_draft": true}},
+        {"prompt": "any of those works", "expect": {"no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S13_capability",
+      "turns": [
+        {"prompt": "what all can you do", "expect": {"reply_class": "capability", "no_workflow_draft": true, "max_response_chars": 1200}}
+      ]
+    },
+    {
+      "id": "S14_small_talk_then_action",
+      "turns": [
+        {"prompt": "hi", "expect": {"reply_class": "small_talk", "no_workflow_draft": true, "max_response_chars": 600}},
+        {"prompt": "buy 10 INFY at market", "expect": {"tool_any_of": ["place_market_order", "propose_threshold_order", "propose_workflow", "ASK_USER"]}}
+      ]
+    },
+    {
+      "id": "S15_dynamic_sizing_backtest_block",
+      "turns": [
+        {"prompt": "buy INFY equal to 5% of my portfolio value when RSI<30, sell when RSI>70", "expect": {"render_hint": "workflow_draft_card", "backtestable_false_ok": true}}
+      ]
+    },
+    {
+      "id": "S16_drop_10_percent",
+      "turns": [
+        {"prompt": "Notify me if NIFTY drops 2% intraday from open", "expect": {"render_hint": "workflow_draft_card"}}
+      ]
+    },
+    {
+      "id": "S17_analysis_no_action",
+      "turns": [
+        {"prompt": "What is the current PE of HDFCBANK", "expect": {"no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S18_analytical_explainer_long",
+      "turns": [
+        {"prompt": "Walk me through how a SIP differs from a one-time investment", "expect": {"reply_class": "explainer", "min_response_chars": 280}}
+      ]
+    },
+    {
+      "id": "S19_multi_turn_drift",
+      "turns": [
+        {"prompt": "Buy 5 TCS when RSI<30", "expect": {}},
+        {"prompt": "make it 10", "expect": {"render_hint_any_of": ["workflow_draft_card"], "no_workflow_draft_false_ok": true}},
+        {"prompt": "scratch that, what's the PE of TCS instead?", "expect": {"no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S20_pivot_breakout",
+      "turns": [
+        {"prompt": "Build an agent — buy SBIN on a breakout", "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S21_swing_high",
+      "turns": [
+        {"prompt": "Build agent: sell TATAMOTORS when it falls below swing low", "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S22_thanks",
+      "turns": [
+        {"prompt": "thanks", "expect": {"reply_class": "small_talk", "no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S23_explainer_fno",
+      "turns": [
+        {"prompt": "Explain how option Greeks work — delta, theta, vega in plain English", "expect": {"reply_class": "explainer", "min_response_chars": 320}}
+      ]
+    },
+    {
+      "id": "S24_one_word_followup",
+      "turns": [
+        {"prompt": "Show me Reliance vs ONGC — which has better fundamentals", "expect": {}},
+        {"prompt": "deeper", "expect": {"no_workflow_draft": true, "min_response_chars": 200}}
+      ]
+    },
+    {
+      "id": "S25_long_session",
+      "turns": [
+        {"prompt": "I have ₹50K to deploy this month", "expect": {"no_workflow_draft": true}},
+        {"prompt": "What are my options for steady income", "expect": {"no_workflow_draft": true}},
+        {"prompt": "explain the second one in more detail", "expect": {"no_workflow_draft": true, "min_response_chars": 200}}
+      ]
+    },
+    {
+      "id": "S26_explain_then_build",
+      "turns": [
+        {"prompt": "what is a covered call", "expect": {"reply_class": "explainer", "no_workflow_draft": true}},
+        {"prompt": "set up an agent that does it for INFY when RSI is high", "expect": {"tool_any_of": ["ASK_USER", "propose_workflow"]}}
+      ]
+    },
+    {
+      "id": "S27_two_step_buy",
+      "turns": [
+        {"prompt": "buy 7 reliance and sell 2 eternal", "expect": {"tool_any_of": ["place_market_order", "place_basket_order", "ASK_USER"]}}
+      ]
+    },
+    {
+      "id": "S28_alert_only",
+      "turns": [
+        {"prompt": "send me an alert when HDFCBANK crosses above 200 DMA", "expect": {"render_hint_any_of": ["workflow_draft_card", "ask_user"]}}
+      ]
+    },
+    {
+      "id": "S29_indicator_question",
+      "turns": [
+        {"prompt": "what is the RSI on TCS right now", "expect": {"no_workflow_draft": true}}
+      ]
+    },
+    {
+      "id": "S30_news_event",
+      "turns": [
+        {"prompt": "Build me an agent — if RBI cuts repo rate AND BANKNIFTY is up >1% next morning, buy 30 HDFCBANK", "expect": {"render_hint_any_of": ["workflow_draft_card", "ask_user"]}}
+      ]
+    }
+  ]
+}

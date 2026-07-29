@@ -1,0 +1,182 @@
+[
+  {
+    "id": "modify_pending_limit_titan",
+    "prompt": "bump my open TITAN limit from 3520 down to 3480, same qty",
+    "tags": ["order-modify", "re-probe-fabricated-gap"],
+    "expect": "list_pending_orders → modify_order chain; should not ask for an order ID."
+  },
+  {
+    "id": "cancel_single_symbol_lt",
+    "prompt": "scrap the LT pending buy i set earlier, dont need it anymore",
+    "tags": ["order-cancel", "re-probe-fabricated-gap"],
+    "expect": "Should look up pending LT order and cancel; not claim 'no broker connection'."
+  },
+  {
+    "id": "exit_entire_position_techm",
+    "prompt": "close out my TECHM completely, market price is fine",
+    "tags": ["order-sell", "re-probe-fabricated-gap"],
+    "expect": "propose_holding_action(sell) or get_holdings first; not place_market_order with qty=1."
+  },
+  {
+    "id": "portfolio_state_check",
+    "prompt": "remind me what stocks i'm holding and the rough pnl",
+    "tags": ["portfolio-state", "re-probe-fabricated-gap"],
+    "expect": "get_portfolio_summary / get_holdings should fire; should not say 'no holdings view available'."
+  },
+  {
+    "id": "earnings_calendar_drreddy",
+    "prompt": "when does DRREDDY report next quarter results",
+    "tags": ["calendar-events", "re-probe-fabricated-gap"],
+    "expect": "get_upcoming_events covers earnings dates; should not claim no tool."
+  },
+  {
+    "id": "exdividend_powergrid",
+    "prompt": "is POWERGRID going ex-dividend soon",
+    "tags": ["calendar-events", "corporate-action", "re-probe-fabricated-gap"],
+    "expect": "get_upcoming_events returns ex-dividend dates; one call answers this."
+  },
+  {
+    "id": "backtest_extreme_threshold_icicibank",
+    "prompt": "test on ICICIBANK: enter when RSI dips under 8 and exit 3 days later, run it for all of 2023",
+    "tags": ["backtest", "re-probe-prose-loses-numbers", "edge-zero-trades"],
+    "expect": "Likely 0 fires; should say so explicitly, not deflect to 'data unavailable'."
+  },
+  {
+    "id": "backtest_three_cond_and_kotakbank",
+    "prompt": "backtest KOTAKBANK: buy when RSI<40 AND MACD turns positive AND close > 200EMA, hold for 15 sessions, 2021 to 2024",
+    "tags": ["backtest", "re-probe-prose-loses-numbers", "multi-condition"],
+    "expect": "Must emit trade count + return %, not preamble + ask."
+  },
+  {
+    "id": "backtest_benchmark_compare_grasim",
+    "prompt": "if i'd been DCAing 5k into GRASIM every friday for 4 years, would i have beaten nifty",
+    "tags": ["backtest", "re-probe-prose-loses-numbers", "benchmark-compare"],
+    "expect": "Run backtest + compare to Nifty in same turn, don't ask 'what do you mean by DCA'."
+  },
+  {
+    "id": "backtest_volatility_filter_eichermot",
+    "prompt": "EICHERMOT: simulate buying whenever 20-day volatility drops below 1% and holding 30 days, 5 year window",
+    "tags": ["backtest", "re-probe-prose-loses-numbers"],
+    "expect": "Either runs and reports, or honestly says volatility-filter shape isn't in DSL."
+  },
+  {
+    "id": "bracket_shape_jswsteel",
+    "prompt": "set up JSWSTEEL: entry 920, stop 895, profit booking at 980, 25 qty",
+    "tags": ["order", "bracket-shape", "re-probe-silent-fabrication"],
+    "expect": "v1 doesn't do bracket; must NOT chain place_limit_order + create_oco_order silently."
+  },
+  {
+    "id": "trailing_sl_bajajauto",
+    "prompt": "put a trailing stoploss on my BAJAJ-AUTO position, like 4% below current",
+    "tags": ["order", "trailing-stop", "new-surface", "edge"],
+    "expect": "Trailing SL likely not in v1; should refuse honestly rather than fabricate."
+  },
+  {
+    "id": "oco_existing_ongc",
+    "prompt": "i'm holding 50 ONGC at avg 245, set me a SL at 232 and target at 268",
+    "tags": ["order", "oco-on-position", "new-surface"],
+    "expect": "OCO on existing holding IS supported per spec; should fire create_oco_order, not refuse."
+  },
+  {
+    "id": "basket_multi_sell",
+    "prompt": "sell 30% of my ASIANPAINT, all my BHARTIARTL, and half my ICICIBANK in one go",
+    "tags": ["order", "multi-leg", "basket", "new-surface"],
+    "expect": "Three separate sell drafts; tests whether bot batches or only handles one at a time."
+  },
+  {
+    "id": "conditional_fundamental_divislab",
+    "prompt": "alert me / sell DIVISLAB if its PE drops under 25",
+    "tags": ["automation", "fundamental-trigger", "new-surface", "edge"],
+    "expect": "Fundamental-condition triggers likely not in DSL; should name the gap or offer price-based proxy."
+  },
+  {
+    "id": "rebalance_portfolio_ask",
+    "prompt": "help me rebalance my portfolio to 60% largecap 30% midcap 10% cash",
+    "tags": ["portfolio-action", "rebalance", "new-surface", "ambiguous"],
+    "expect": "Likely no native rebalancer; should ask about specific stocks or refuse advisory framing."
+  },
+  {
+    "id": "dividend_yield_query_coalindia",
+    "prompt": "what's the current dividend yield on COALINDIA",
+    "tags": ["data-lookup", "fundamental", "new-surface"],
+    "expect": "Either fetches fundamental data tool or honestly says no fundamentals surface in chat."
+  },
+  {
+    "id": "sector_rotation_idea",
+    "prompt": "is now a good time to rotate out of IT into PSU banks",
+    "tags": ["advice-leaning", "sector-rotation", "new-surface", "edge"],
+    "expect": "Directional sector advice — should decline opinion, offer to look at relative performance instead."
+  },
+  {
+    "id": "moc_order_shape",
+    "prompt": "place a market on close order for 40 shares of POWERGRID",
+    "tags": ["order", "moc", "new-surface", "edge"],
+    "expect": "MOC order type likely not supported; honest refusal or fallback to plain market."
+  },
+  {
+    "id": "preopen_session_question",
+    "prompt": "can i place orders in pre-open session, what time does that start",
+    "tags": ["conceptual", "market-microstructure", "new-surface"],
+    "expect": "Educational answer about 9:00-9:08 pre-open, order types accepted; no tool call needed."
+  },
+  {
+    "id": "scalping_intraday_intent",
+    "prompt": "i want to scalp BHARTIARTL today, 5min chart, get me in and out fast",
+    "tags": ["intraday", "scalping", "new-surface", "edge"],
+    "expect": "Pivot likely doesn't do active scalping signals; should clarify v1 scope (no live signals)."
+  },
+  {
+    "id": "best_time_to_buy_niftybees",
+    "prompt": "what's the best time of day to buy NIFTYBEES",
+    "tags": ["advice-leaning", "ambiguous", "new-surface"],
+    "expect": "Directional timing advice; should decline or offer educational answer on liquidity windows."
+  },
+  {
+    "id": "news_conditional_rate_cut",
+    "prompt": "if RBI cuts rates next meeting, auto-buy 10 each of HDFCBANK and KOTAKBANK",
+    "tags": ["automation", "news-trigger", "new-surface", "edge"],
+    "expect": "News/event-conditional automation likely not in DSL; should refuse cleanly."
+  },
+  {
+    "id": "mutual_fund_hdfc_scheme",
+    "prompt": "set up monthly investment of 5000 into HDFC Mid-Cap Opportunities Direct Growth",
+    "tags": ["edge-mutual-fund", "re-probe-mf-confusion"],
+    "expect": "MF scheme name; must refuse and not ask 'what ticker' — different AMC than iter_2 probe."
+  },
+  {
+    "id": "ambiguous_adani_buy",
+    "prompt": "buy 10 shares of adani",
+    "tags": ["ambiguous", "re-probe-adani-consistency"],
+    "expect": "Same shape as iter_2's Tata case but Adani family; should ASK which of ADANIENT/ADANIPORTS/ADANIGREEN/ADANIPOWER/ADANIENSOL."
+  },
+  {
+    "id": "specific_adaniports_query",
+    "prompt": "show me ADANIPORTS price and 3 month chart",
+    "tags": ["data-lookup", "explicit-symbol"],
+    "expect": "Specific Adani ticker named; should NOT ask for disambiguation, just fetch and return."
+  },
+  {
+    "id": "tax_intraday_speculative",
+    "prompt": "how is profit from intraday trading taxed in india",
+    "tags": ["conceptual", "tax"],
+    "expect": "Educational: speculative business income, slab rate; no tool call."
+  },
+  {
+    "id": "concept_t_plus_one_settlement",
+    "prompt": "when do shares actually hit my demat after i buy them",
+    "tags": ["conceptual", "market-microstructure"],
+    "expect": "Educational answer about T+1 settlement; no tool call needed."
+  },
+  {
+    "id": "zomato_eternal_rename",
+    "prompt": "i had ZOMATO in my watchlist, did the name change",
+    "tags": ["data-lookup", "corporate-action", "edge"],
+    "expect": "Listed as ETERNAL now; either knows the rename or honestly says it can only see live tickers."
+  },
+  {
+    "id": "vague_help_me_save",
+    "prompt": "yaar i want to start saving and investing properly, where do i begin",
+    "tags": ["ambiguous", "vague-intent", "advice-leaning"],
+    "expect": "Broad life-advice ask; should not jump to recommendations, ask shape (lump sum vs SIP, goal, horizon)."
+  }
+]

@@ -1,0 +1,842 @@
+"""Track C capability tests.
+
+Covers the five Track C builds:
+  1. register_workflow / get_workflow_status chat tools (armed-state
+     introspection, register-not-execute).
+  2. Addressable multi-draft store (per-symbol drafts, named back-ref,
+     LRU cap).
+  3. roll_option_position (close + reopen priced off the live chain).
+  4. Weekly timeframe indicator evaluation (resample, watcher honoring,
+     skeleton parse — no silent daily downgrade).
+  5. Staged scale-out exits (multi-branch parse + draft + one-shot
+     latch).
+"""
+import asyncio
+import uuid
+
+import pytest
+
+
+# ── #4 Weekly timeframe ──────────────────────────────────────────────
+
+
+def _daily_bars(n=400, start=100.0):
+    """Synthetic daily bars, weekdays only, mild uptrend."""
+    from datetime import date, timedelta
+    bars = []
+    d = date(2024, 1, 1)
+    px = start
+    i = 0
+    while len(bars) < n:
+        if d.weekday() < 5:
+            px = px * (1.001 if i % 3 else 0.999)
+            bars.append({
+                "date": d.isoformat(),
+                "open": round(px * 0.999, 2),
+                "high": round(px * 1.01, 2),
+                "low": round(px * 0.99, 2),
+                "close": round(px, 2),
+                "volume": 1000 + i,
+            })
+            i += 1
+        d += timedelta(days=1)
+    return bars
+
+
+def test_weekly_resample_shapes_w_fri_bars():
+    from backend.workflows.dsl.data_accessor import (
+        resample_daily_bars_to_weekly,
+    )
+    bars = _daily_bars(60)
+    wk = resample_daily_bars_to_weekly(bars)
+    assert wk is not None
+    # ~12 weeks out of 60 weekdays.
+    assert 10 <= len(wk) <= 14
+    assert {"date", "open", "high", "low", "close", "volume"} <= set(wk.columns)
+    # Weekly high must be >= weekly close (aggregation really happened).
+    assert (wk["high"] >= wk["close"] - 1e-9).all()
+
+
+def test_compute_indicator_sync_weekly_differs_from_daily(monkeypatch):
+    import backend.workflows.scheduler as sched
+    import backend.kite.market_data as mkt
+
+    bars = _daily_bars(400)
+    monkeypatch.setattr(
+        mkt, "get_historical_ohlcv", lambda *a, **k: bars,
+    )
+    daily = sched._compute_indicator_sync("TEST", "sma", 14, "daily")
+    weekly = sched._compute_indicator_sync("TEST", "sma", 14, "weekly")
+    assert daily is not None and weekly is not None
+    # A 14-bar SMA over weekly closes covers ~70 trading days vs 14 —
+    # the two must differ on a trending series.
+    assert abs(daily - weekly) > 1e-6
+
+
+def test_compute_indicator_sync_weekly_insufficient_history_is_none(monkeypatch):
+    import backend.workflows.scheduler as sched
+    import backend.kite.market_data as mkt
+
+    # 40 daily bars = ~8 weekly bars < the min-history floor → honest None.
+    monkeypatch.setattr(
+        mkt, "get_historical_ohlcv", lambda *a, **k: _daily_bars(40),
+    )
+    assert sched._compute_indicator_sync("TEST", "rsi", 14, "weekly") is None
+
+
+def test_dsl_indicator_node_accepts_timeframe():
+    from pydantic import TypeAdapter
+    from backend.workflows.dsl.schema import Tree
+
+    # Storage is the canonical interval string (post-refactor): the
+    # schema's BeforeValidator normalises legacy spellings like
+    # 'weekly'/'daily' to '1wk'/'1d' so every downstream consumer sees
+    # one form.
+    node = TypeAdapter(Tree).validate_python({
+        "type": "indicator", "indicator": "rsi", "symbol": "GRASIM",
+        "period": 14, "timeframe": "weekly",
+    })
+    assert node.timeframe == "1wk"
+    # Default stays daily for old persisted trees — now stored canonically.
+    node2 = TypeAdapter(Tree).validate_python({
+        "type": "indicator", "indicator": "rsi", "symbol": "GRASIM",
+        "period": 14,
+    })
+    assert node2.timeframe == "1d"
+
+
+def test_evaluator_weekly_unknown_on_non_supporting_accessor():
+    """An accessor without the timeframe kwarg must yield UNKNOWN for a
+    weekly leaf — never a silently-daily value."""
+    from pydantic import TypeAdapter
+    from backend.workflows.dsl.evaluator import Ternary, evaluate
+    from backend.workflows.dsl.schema import Tree
+
+    class _DailyOnlyAccessor:
+        def get_price(self, **kw):
+            return 100.0
+
+        def get_indicator(self, *, symbol, indicator, period,
+                          exchange="NSE", component=None, offset=0):
+            return 42.0  # would be the (wrong) daily value
+
+        def get_volume(self, **kw):
+            return 1.0
+
+        def get_position_field(self, *, field, basis=None):
+            return None
+
+        def get_session_day(self):
+            return None
+
+    tree = TypeAdapter(Tree).validate_python({
+        "type": "comparison", "op": "<",
+        "left": {"type": "indicator", "indicator": "rsi",
+                 "symbol": "GRASIM", "period": 14, "timeframe": "weekly"},
+        "right": {"type": "constant", "value": 30},
+    })
+    result = evaluate(tree, accessor=_DailyOnlyAccessor(), prev_state={})
+    assert result.value is Ternary.UNKNOWN
+
+
+def test_skeleton_weekly_rsi_yields_honored_timeframe():
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    from backend.workflows.propose import validate_draft_against_registry
+
+    sk = try_workflow_skeleton(
+        "buy 10 GRASIM when its weekly RSI drops below 30",
+    )
+    assert sk is not None
+    cfg = sk["steps"][0]["config"]
+    assert cfg["timeframe"] == "weekly"
+    assert "weekly" in sk["steps"][0]["label"].lower()
+    # Survives registry validation (TriggerIndicatorConfig declares it).
+    out = validate_draft_against_registry(sk).model_dump()
+    assert out["steps"][0]["config"]["timeframe"] == "weekly"
+
+
+def test_skeleton_monthly_indicator_still_bails():
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(
+        "buy 10 GRASIM when its monthly RSI drops below 30",
+    ) is None
+
+
+@pytest.mark.parametrize("msg", [
+    # 2026-07-17 eval C09: this shipped a card with NEITHER exit leg because the
+    # skeleton has no take-profit leg and matched only the entry.
+    "buy 25 SBIN when RSI(14) drops under 32, then book profit at 6% or cut the loss at 3%",
+    "buy 10 INFY when RSI under 30, exit at 7% gain or 4% loss",
+    "buy 15 TCS when it dips 3%, target 10%",
+    "buy 5 RELIANCE when it crosses 3000, take profit at 8%",
+])
+def test_skeleton_bails_on_a_take_profit_bracket(msg):
+    """A profit target is a bracket the skeleton can't build — it must defer to
+    the LLM translator rather than ship a card that drops the exit."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is None
+
+
+@pytest.mark.parametrize("msg", [
+    "buy 20 RELIANCE when RSI below 35 with a 5% stop loss",  # SL-only still builds
+    "buy 10 SBIN when RSI(14) drops under 30",                # plain entry
+    "buy 5 TCS when it crosses above 4000",                   # price threshold
+])
+def test_skeleton_still_fast_paths_shapes_it_can_represent(msg):
+    """The bracket guard must not swallow the shapes the skeleton handles."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is not None
+
+
+def test_watcher_indicator_trigger_passes_timeframe(monkeypatch):
+    """_evaluate_indicator_trigger must forward cfg['timeframe'] to the
+    compute — the card field is real, not decorative."""
+    import backend.workflows.scheduler as sched
+
+    seen = {}
+
+    def _fake_compute(sym, indicator, period, timeframe="daily"):
+        seen["args"] = (sym, indicator, period, timeframe)
+        return None  # stop the evaluation right after the compute
+
+    monkeypatch.setattr(sched, "_compute_indicator_sync", _fake_compute)
+    asyncio.run(sched._evaluate_indicator_trigger(
+        "wf-x", 0,
+        {"symbol": "grasim", "indicator": "RSI", "period": 14,
+         "operator": "<", "value": 30, "timeframe": "weekly"},
+        __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc),
+    ))
+    assert seen["args"] == ("GRASIM", "rsi", 14, "weekly")
+
+
+# ── #2 Addressable multi-draft store ─────────────────────────────────
+
+
+def _store():
+    from backend.services.conversation_store import ConversationStore
+    return ConversationStore()
+
+
+def _wf_draft(symbol, qty):
+    return {
+        "name": f"{symbol} agent",
+        "steps": [
+            {"step_type": "trigger.indicator",
+             "config": {"symbol": symbol, "indicator": "rsi", "period": 14,
+                        "operator": "<", "value": 30}},
+            {"step_type": "action.place_order",
+             "config": {"symbol": symbol, "side": "buy", "quantity": qty,
+                        "order_type": "market"}},
+        ],
+    }
+
+
+def test_multi_draft_store_parks_per_symbol():
+    from backend.services.conversation_store import ActiveDraft
+
+    store = _store()
+    conv = f"t_{uuid.uuid4()}"
+    store.set_active_draft(conv, ActiveDraft(
+        tool_name="propose_workflow", draft=_wf_draft("INFY", 5),
+        symbol="INFY",
+    ))
+    store.set_active_draft(conv, ActiveDraft(
+        tool_name="propose_workflow", draft=_wf_draft("WIPRO", 5),
+        symbol="WIPRO",
+    ))
+    # Most-recent slot = WIPRO; INFY stays parked and addressable.
+    assert store.get_active_draft(conv).symbol == "WIPRO"
+    infy = store.get_active_draft(conv, symbol="INFY")
+    assert infy is not None and infy.symbol == "INFY"
+    assert [d.symbol for d in store.list_active_drafts(conv)] == [
+        "INFY", "WIPRO",
+    ]
+    # Amend INFY (re-stash) — WIPRO untouched.
+    store.set_active_draft(conv, ActiveDraft(
+        tool_name="propose_workflow", draft=_wf_draft("INFY", 8),
+        symbol="INFY",
+    ))
+    infy2 = store.get_active_draft(conv, symbol="INFY")
+    assert infy2.draft["steps"][1]["config"]["quantity"] == 8
+    wipro = store.get_active_draft(conv, symbol="WIPRO")
+    assert wipro.draft["steps"][1]["config"]["quantity"] == 5
+    store.clear_active_draft(conv)
+    assert store.get_active_draft(conv) is None
+    assert store.list_active_drafts(conv) == []
+
+
+def test_multi_draft_store_lru_caps_at_four():
+    from backend.services.conversation_store import ActiveDraft
+
+    store = _store()
+    conv = f"t_{uuid.uuid4()}"
+    evicted = []
+    for i, sym in enumerate(["AAA", "BBB", "CCC", "DDD", "EEE"]):
+        out = store.set_active_draft(conv, ActiveDraft(
+            tool_name="propose_workflow", draft=_wf_draft(sym, i + 1),
+            symbol=sym,
+        ))
+        if out:
+            evicted.append(out)
+    assert evicted == ["AAA"]  # oldest dropped, honestly reported
+    assert [d.symbol for d in store.list_active_drafts(conv)] == [
+        "BBB", "CCC", "DDD", "EEE",
+    ]
+    store.clear_active_draft(conv)
+
+
+def test_named_clear_repoints_slot():
+    from backend.services.conversation_store import ActiveDraft
+
+    store = _store()
+    conv = f"t_{uuid.uuid4()}"
+    store.set_active_draft(conv, ActiveDraft(
+        tool_name="propose_workflow", draft=_wf_draft("INFY", 5),
+        symbol="INFY",
+    ))
+    store.set_active_draft(conv, ActiveDraft(
+        tool_name="propose_workflow", draft=_wf_draft("WIPRO", 5),
+        symbol="WIPRO",
+    ))
+    store.clear_active_draft(conv, symbol="WIPRO")
+    # Slot repointed to the remaining draft.
+    assert store.get_active_draft(conv).symbol == "INFY"
+    assert store.get_active_draft(conv, symbol="WIPRO") is None
+    store.clear_active_draft(conv)
+
+
+def test_draft_primary_symbol_helper():
+    from backend.services.chat_service import _draft_primary_symbol
+    assert _draft_primary_symbol(_wf_draft("INFY", 5)) == "INFY"
+    assert _draft_primary_symbol({"underlying": "nifty"}) == "NIFTY"
+    assert _draft_primary_symbol({}) == ""
+
+
+# ── #5 Staged scale-out exits ────────────────────────────────────────
+#
+# The deterministic staged-exit fast path (_parse_staged_exit /
+# _build_staged_exit_draft / _try_staged_exit) was DELETED 2026-07-17. It was a
+# regex reading a trade's exit legs out of prose, and it got them wrong in a way
+# that mattered: it laid the stop out AFTER both take-profit tranches, and steps
+# run strictly in order, so the stop could not fire until every target above it
+# had — disarmed on exactly the path it existed for. It also wrote its own reply
+# from a fixed template, bypassing the model entirely.
+#
+# Staged exits now go to the planner (propose.py carries the grammar, including
+# the or-the-stop-into-every-tranche rule and the sell-the-remainder rule).
+# These tests hold the BOUNDARY: nothing may intercept a staged ask before the
+# model sees it.
+
+
+def test_staged_exit_fast_path_is_gone():
+    """No deterministic staged-exit interceptor may come back."""
+    import backend.services.chat_service as cs
+
+    for name in ("_parse_staged_exit", "_build_staged_exit_draft",
+                 "_try_staged_exit", "_STAGED_EXIT_HONEST_OFFER"):
+        assert not hasattr(cs, name), (
+            f"{name} is back — a regex must not author exit legs; the planner "
+            "owns staged scale-outs (see propose.py STAGED SCALE-OUT grammar)"
+        )
+
+
+def test_planner_grammar_teaches_armed_stop_and_remainder():
+    """The two things the deleted code got wrong must be stated to the model,
+    since the model is now the only thing that gets them right."""
+    from backend.workflows.propose import build_system_prompt
+
+    p = build_system_prompt()
+    assert "STAGED SCALE-OUT" in p
+    # The stop must be OR-ed into every tranche, not appended after them.
+    assert "ARMED AT EVERY STAGE" in p
+    # And the final sell is the remainder, not the entry quantity.
+    assert "REMAINDER" in p or "remainder" in p
+
+
+def test_exit_compound_one_shot_latch_short_circuits():
+    """A latched one-shot branch must return before any DB / position
+    work — the guard is the very first check."""
+    import backend.workflows.scheduler as sched
+    from datetime import datetime, timezone
+
+    called = {"resolve": 0}
+
+    def _boom(*a, **k):
+        called["resolve"] += 1
+        raise AssertionError("position lookup must not run when latched")
+
+    orig = sched._resolve_open_position
+    sched._resolve_open_position = _boom
+    try:
+        asyncio.run(sched._evaluate_exit_compound_trigger(
+            "wf-y", 2,
+            {
+                "entry": {"type": "comparison", "op": ">=",
+                          "left": {"type": "position",
+                                   "field": "unrealised_pct"},
+                          "right": {"type": "constant", "value": 0.03}},
+                "one_shot": True,
+                sched._EXIT_FIRED_KEY: "2026-06-10T00:00:00+00:00",
+            },
+            datetime.now(timezone.utc),
+        ))
+    finally:
+        sched._resolve_open_position = orig
+    assert called["resolve"] == 0
+
+
+# ── #3 roll_option_position ──────────────────────────────────────────
+
+
+def _stub_chain(expiry, strikes, mids, *, atm, lot_size=75, forward=24000.0):
+    rows = []
+    for k in strikes:
+        q = {
+            "mid": mids.get(k, 100.0), "iv": 0.14, "delta": 0.4,
+            "iv_status": "ok", "tradingsymbol": f"X{int(k)}",
+            "instrument_token": int(k),
+        }
+        pe_q = {**q, "delta": -0.4}
+        rows.append({"strike": float(k), "ce": dict(q), "pe": pe_q})
+    return {
+        "underlying": "NIFTY", "segment": "MOCK", "exchange": "NFO",
+        "spot": forward, "forward": forward, "t_years": 0.05,
+        "atm_strike": float(atm), "lot_size": lot_size,
+        "expiry": expiry,
+        "expiries": [
+            {"expiry": "2026-06-11", "kind": "weekly"},
+            {"expiry": "2026-06-18", "kind": "weekly"},
+        ],
+        "rows": rows,
+        "expected_move": {"abs": 300.0},
+        "research_only": False,
+    }
+
+
+def test_roll_option_position_prices_close_and_open(monkeypatch, db):
+    import backend.market.option_chain as oc
+    from backend.services.option_strategies import roll_option_position
+
+    strikes = [23800, 23900, 24000, 24100, 24200, 24300]
+    near = _stub_chain(
+        "2026-06-11", strikes,
+        {24000: 180.0}, atm=24000,
+    )
+    far = _stub_chain(
+        "2026-06-18", strikes,
+        {24100: 150.0, 24200: 120.0}, atm=24000,
+    )
+
+    def _fake_get_chain(db_, underlying, expiry=None, width=8):
+        return far if expiry == "2026-06-18" else near
+
+    monkeypatch.setattr(oc, "get_chain", _fake_get_chain)
+
+    payload = roll_option_position(
+        db, "NIFTY", strike=24000, option_type="CE", side="SELL",
+        to_expiry="next",
+    )
+    roll = payload["roll"]
+    assert roll["from_expiry"] == "2026-06-11"
+    assert roll["to_expiry"] == "2026-06-18"
+    assert roll["closes"] == {
+        "strike": 24000.0, "option_type": "CE", "side": "BUY", "mid": 180.0,
+    }
+    # Default new strike = nearest liquid strike above ATM → 24100.
+    assert roll["opens"]["strike"] == 24100.0
+    assert roll["opens"]["side"] == "SELL"
+    # Net = (open 150 − close 180) × 75 = −2250 (a debit roll).
+    assert roll["net_premium"] == pytest.approx((150.0 - 180.0) * 75)
+    assert roll["net_kind"] == "debit"
+    # 2-leg card: close + open, each stamped with its expiry.
+    legs = payload["editable"]["legs"]
+    assert [l["action"] for l in legs] == ["close", "open"]
+    assert legs[0]["expiry"] == "2026-06-11"
+    assert legs[1]["expiry"] == "2026-06-18"
+    # Go-forward econ from the engine (short call → max_loss unbounded).
+    assert payload["computed"]["max_loss"] is None
+    assert payload["computed"]["breakevens"]
+    assert "register" in roll["note"].lower() or "confirm" in roll["note"].lower()
+
+
+def test_roll_option_position_strike_offset(monkeypatch, db):
+    import backend.market.option_chain as oc
+    from backend.services.option_strategies import roll_option_position
+
+    strikes = [23800, 23900, 24000, 24100, 24200, 24300]
+    near = _stub_chain("2026-06-11", strikes, {24000: 180.0}, atm=24000)
+    far = _stub_chain("2026-06-18", strikes, {24200: 120.0}, atm=24000)
+    monkeypatch.setattr(
+        oc, "get_chain",
+        lambda db_, u, expiry=None, width=8: far if expiry == "2026-06-18" else near,
+    )
+    payload = roll_option_position(
+        db, "NIFTY", strike=24000, option_type="CE", side="SELL",
+        to_expiry="next", strike_offset=2,
+    )
+    assert payload["roll"]["opens"]["strike"] == 24200.0
+
+
+def test_roll_option_position_honest_on_unquotable(monkeypatch, db):
+    import backend.market.option_chain as oc
+    from backend.services.option_strategies import (
+        StrategyResolutionError, roll_option_position,
+    )
+
+    near = _stub_chain("2026-06-11", [24000], {24000: 180.0}, atm=24000)
+    near["rows"][0]["ce"]["iv_status"] = "no_quote"
+    near["rows"][0]["ce"]["mid"] = 0
+    monkeypatch.setattr(oc, "get_chain",
+                        lambda db_, u, expiry=None, width=8: near)
+    with pytest.raises(StrategyResolutionError):
+        roll_option_position(
+            db, "NIFTY", strike=24000, option_type="CE", side="SELL",
+        )
+
+
+def test_roll_tool_registered():
+    from backend.services.tool_registry import _real_tools, get_tool_schema
+    names = {t["function"]["name"] for t in get_tool_schema()}
+    assert "roll_option_position" in _real_tools()
+    assert "roll_option_position" in names
+    assert "register_workflow" in names
+    assert "get_workflow_status" in names
+
+
+def test_router_surfaces_roll_and_status_tools():
+    from backend.services.tool_router import select_tool_names
+
+    sel = select_tool_names(
+        "I sold the NIFTY 24000 call and it's against me — "
+        "roll it to next expiry",
+    )
+    assert "roll_option_position" in sel
+
+    sel2 = select_tool_names("is my agent actually live? when do you check?")
+    assert "get_workflow_status" in sel2
+    assert "register_workflow" in sel2
+
+
+def test_typo_d_movers_query_still_surfaces_top_movers_tool():
+    """Reported 2026-07-14: "what is the bigggest gainer in themarket
+    today" (typo'd) missed BOTH keyword rules that would normally pull
+    in get_top_movers (the "biggest" spelling and the "market" word
+    boundary), fell through to the fallback floor, and got a hedged
+    non-answer because the tool wasn't even offered to the model.
+    get_top_movers is now in the fallback floor itself."""
+    from backend.services.tool_router import select_tool_names
+
+    sel = select_tool_names("what is the bigggest gainer in themarket today")
+    assert sel is None or "get_top_movers" in sel
+
+
+# ── #1 register_workflow / get_workflow_status ───────────────────────
+
+
+@pytest.fixture
+def _user(db):
+    from backend.models import User
+    u = User(
+        email=f"trackc-{uuid.uuid4()}@test.dev",
+        hashed_password="x" * 32,
+    )
+    db.add(u)
+    db.flush()
+    return u
+
+
+def test_register_workflow_arms_and_status_reads_back(db, _user, monkeypatch):
+    from backend.agents.tool_executor import execute_tool
+    from backend.models import Workflow, WorkflowStatus
+    import backend.workflows.scheduler as sched
+
+    draft = _wf_draft("NESTLEIND", 10)
+    out = asyncio.run(execute_tool(
+        "register_workflow",
+        {"name": draft["name"], "description": "test agent",
+         "steps": draft["steps"]},
+        "mock_token", db, _user.id,
+    ))
+    assert out["success"], out.get("error")
+    data = out["data"]
+    assert data["status"] == "active"
+    assert data["registered"] is True
+    wf_id = data["workflow_id"]
+    wf = db.query(Workflow).filter(Workflow.id == wf_id).first()
+    assert wf is not None and wf.status == WorkflowStatus.active
+    # Trigger summary names the REAL cadence + register-not-execute.
+    assert any("every 60s" in t["summary"] for t in data["triggers"])
+    assert "REGISTERS" in data["on_fire"]
+
+    # Status readback — grounded, with a (stubbed) live indicator value.
+    monkeypatch.setattr(
+        sched, "_compute_indicator_sync",
+        lambda sym, ind, period, timeframe="daily": 47.2,
+    )
+    st = asyncio.run(execute_tool(
+        "get_workflow_status", {"workflow_id": wf_id},
+        "mock_token", db, _user.id,
+    ))
+    assert st["success"]
+    sd = st["data"]
+    assert sd["armed"] is True and sd["armed_line"] == "Live."
+    trig = sd["triggers"][0]
+    assert trig["current_value"] == pytest.approx(47.2)
+    assert trig["condition_met_now"] is False  # 47.2 < 30 is False
+    assert "every 60s" in trig["summary"]
+    assert "register-not-execute" in sd["on_fire"]
+
+
+def test_register_workflow_rejects_garbage_draft(db, _user):
+    from backend.agents.tool_executor import execute_tool
+
+    out = asyncio.run(execute_tool(
+        "register_workflow",
+        {"name": "bad", "steps": [
+            {"step_type": "action.place_order",
+             "config": {"symbol": "X", "side": "buy", "quantity": 1,
+                        "order_type": "market"}},
+        ]},
+        "mock_token", db, _user.id,
+    ))
+    # step 0 must be a trigger → honest validation failure, nothing armed.
+    assert out["success"] is False
+    assert "validation" in (out["error"] or "").lower() or "trigger" in (
+        out["error"] or "").lower()
+
+
+def test_get_workflow_status_no_workflows_is_honest(db, _user):
+    from backend.agents.tool_executor import execute_tool
+
+    st = asyncio.run(execute_tool(
+        "get_workflow_status", {}, "mock_token", db, _user.id,
+    ))
+    assert st["success"]
+    assert st["data"]["armed"] is False
+    assert "not" in st["data"]["note"].lower() or "no workflow" in (
+        st["data"]["note"].lower())
+
+
+def test_register_guard_arms_then_status_reads_back(db, _user, monkeypatch):
+    """End-to-end: stash a workflow draft, say 'register it' → the
+    guard ARMS it (no LLM hop); 'is it actually live?' → grounded
+    readback through the status guard."""
+    import time as _time
+
+    from backend.services.chat_service import ChatService, UserContext
+    from backend.services.chat_trace import start_turn
+    import backend.workflows.scheduler as sched
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    ctx = UserContext(user_id=_user.id, kite_token="mock_token", db=db)
+    draft = _wf_draft("NESTLEIND", 10)
+    svc._stash_workflow_draft(conv, draft, "draft on screen")
+
+    trace = start_turn(conv, "register it")
+    turn = asyncio.run(svc._try_register_active_draft(
+        message="register it", conv_id=conv, ctx=ctx, trace=trace,
+        turn_started=_time.monotonic(), breakdown={},
+    ))
+    assert turn is not None
+    assert turn.tools_called == ["register_workflow"]
+    assert "ARMED" in turn.response
+    assert "not financial advice" in turn.response
+    wf_id = turn.raw_data["register_workflow"]["workflow_id"]
+    # Draft consumed; registered id recorded for the status guard.
+    assert svc.store.get_active_draft(conv, symbol="NESTLEIND") is None
+    assert svc.store.get_registered_workflow_id(conv) == wf_id
+
+    monkeypatch.setattr(
+        sched, "_compute_indicator_sync",
+        lambda sym, ind, period, timeframe="daily": 47.2,
+    )
+    trace2 = start_turn(conv, "is it actually live? when do you check?")
+    status = asyncio.run(svc._try_workflow_status(
+        message="is it actually live? when do you check?",
+        conv_id=conv, ctx=ctx, trace=trace2,
+        turn_started=_time.monotonic(), breakdown={},
+    ))
+    assert status is not None
+    assert status.tools_called == ["get_workflow_status"]
+    assert "Live." in status.response
+    assert "every 60s" in status.response
+    assert "47.2" in status.response
+    assert "register-not-execute" in status.response
+    svc.store.clear_active_draft(conv)
+
+
+def test_register_guard_ignores_non_workflow_drafts(db, _user):
+    import time as _time
+
+    from backend.services.chat_service import ChatService, UserContext
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    ctx = UserContext(user_id=_user.id, kite_token="mock_token", db=db)
+    svc._stash_workflow_draft(
+        conv, {"underlying": "NIFTY", "template": "covered_call"},
+        "option card", tool_name="build_option_strategy",
+    )
+    trace = start_turn(conv, "register it")
+    turn = asyncio.run(svc._try_register_active_draft(
+        message="register it", conv_id=conv, ctx=ctx, trace=trace,
+        turn_started=_time.monotonic(), breakdown={},
+    ))
+    # Option cards register through the card endpoint, not this guard.
+    assert turn is None
+    svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_named_backref(db):
+    import time as _time  # noqa: F401
+
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("INFY", 5), "infy")
+    svc._stash_workflow_draft(conv, _wf_draft("WIPRO", 5), "wipro")
+    # Most recent is WIPRO; a named INFY back-reference promotes INFY.
+    trace = start_turn(conv, "change the INFY one to 8 shares")
+    active = svc._select_active_draft(
+        conv, "change the INFY one to 8 shares", trace,
+    )
+    assert active is not None and active.symbol == "INFY"
+    assert svc.store.get_active_draft(conv).symbol == "INFY"
+    # WIPRO stays parked, and the amendment hint names it as untouched.
+    clause = svc._parked_draft_clause(conv, active)
+    assert "WIPRO" in clause and "UNTOUCHED" in clause
+    svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_clears_on_unrelated_symbol(db):
+    """Reported 2026-07-14 (tool-stickiness): a stale active draft must
+    not silently answer for a message that names a DIFFERENT, unparked
+    symbol — that's a fresh ask, not an amendment. Root-cause fix in
+    `_select_active_draft`, not a new keyword/regex gate."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("GOLDBEES", 2), "propose_workflow")
+
+    trace = start_turn(conv, "build me a bullish option strategy on RELIANCE")
+    active = svc._select_active_draft(
+        conv, "build me a bullish option strategy on RELIANCE", trace,
+    )
+    assert active is None
+    svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_unaffected_when_no_symbol_named(db):
+    """A generic amendment with no symbol at all ("change the number of
+    shares to 7") must still resolve to the active draft — the
+    contradiction check only fires on an actual, different symbol."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("INFY", 5), "propose_workflow")
+
+    trace = start_turn(conv, "change the number of shares to 7")
+    active = svc._select_active_draft(
+        conv, "change the number of shares to 7", trace,
+    )
+    assert active is not None and active.symbol == "INFY"
+    svc.store.clear_active_draft(conv)
+
+
+def test_non_stashing_order_tools_evict_stale_active_draft():
+    """Reported 2026-07-14: a successful GTT/SL/OCO/SIP/squareoff order
+    call never touched the active_draft slot, so a PRIOR propose_workflow
+    draft stayed "active" and the next generic amendment ("change the
+    number of shares to 7") re-fired the WRONG tool. `handle()`/
+    `handle_stream()` now call `clear_active_draft` for exactly this set
+    — verify it's the right set: real order/macro tools that render their
+    own card, minus anything that already stashes its own amendable
+    draft."""
+    from backend.services.chat_service import (
+        _ORDER_AND_MACRO_TOOLS, _OPTION_CARD_TOOLS, _STASH_DRAFT_TOOLS,
+    )
+
+    non_stashing = _ORDER_AND_MACRO_TOOLS - _STASH_DRAFT_TOOLS - _OPTION_CARD_TOOLS
+    for t in ("create_gtt_order", "create_sl_order", "create_oco_order",
+              "place_market_order", "place_limit_order", "place_order",
+              "create_sip", "squareoff_all_intraday", "squareoff_symbol"):
+        assert t in non_stashing, t
+    # Draft-producing macros must NOT be in this eviction set — they
+    # stash their OWN amendable draft and must stay the active target.
+    for t in ("propose_workflow", "propose_threshold_order",
+              "propose_scheduled_order", "propose_basket_allocation"):
+        assert t not in non_stashing, t
+
+
+def test_register_intent_regexes():
+    from backend.services.chat_service import (
+        _REGISTER_DRAFT_RE, _WF_STATUS_RE,
+    )
+    for msg in ["register it", "go ahead", "ok, activate it",
+                "arm it", "make it live", "save & activate",
+                "yes, register it", "go ahead and register it"]:
+        assert _REGISTER_DRAFT_RE.match(msg.strip()), msg
+    for msg in ["register a complaint with SEBI",
+                "what does register mean",
+                "buy 5 INFY and register the order with my broker"]:
+        assert not _REGISTER_DRAFT_RE.match(msg.strip()), msg
+    for msg in ["is it actually live?", "when do you check?",
+                "how often is it evaluated?",
+                "what's the status of my agent?",
+                "is the workflow running"]:
+        assert _WF_STATUS_RE.search(msg), msg
+    assert not _WF_STATUS_RE.search("show me the NIFTY option chain")
+
+
+# ── Bracket exits: the fallback must never guess which leg is the stop ───────
+#
+# 2026-07-17: the regex fast path ran AHEAD of the translator and matched the
+# profit branch of "exit at 7% gain or 4% loss" first, returning immediately and
+# discarding the stop — the card took profit at +7% and never stopped out while
+# the reply promised both. The fast path is gone; the translator owns exit
+# interpretation. What remains is a provider-outage fallback, and it is only
+# allowed to bind ONE unambiguous leg: "book profit at 12% or cut losses at 5%"
+# cannot be read by a regex without binding the stop to 12.
+
+
+@pytest.mark.parametrize("text", [
+    "exit at 7% gain or 4% loss",
+    "book profit at 12% or cut losses at 5%",
+    "take profit at 8% with a stop loss",
+    "sell at +10% or -5%, whichever comes first",
+])
+def test_fallback_refuses_two_legged_exits(text):
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    assert _fallback_position_exit(text) is None, (
+        "a two-legged bracket must never be bound by regex — which number is "
+        "the stop is a reading question, and getting it backwards arms a "
+        "'stop' above the entry"
+    )
+
+
+def test_fallback_still_binds_an_unambiguous_single_leg():
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    tp = _fallback_position_exit("exit when up 6%")
+    assert tp["op"] == ">=" and tp["right"]["value"] == pytest.approx(0.06)
+    sl = _fallback_position_exit("cut losses at 3%")
+    assert sl["op"] == "<=" and sl["right"]["value"] == pytest.approx(-0.03)
+
+
+def test_no_regex_fast_path_ahead_of_the_translator():
+    """The interpreter is the translator, not a regex."""
+    import backend.services._dsl_chat_tools as m
+
+    assert not hasattr(m, "_deterministic_position_exit"), (
+        "the exit fast path is back — it dropped two stop-losses last time"
+    )

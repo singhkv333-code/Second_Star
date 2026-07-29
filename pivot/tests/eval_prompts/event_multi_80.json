@@ -1,0 +1,585 @@
+{
+  "label": "event_multi_80",
+  "description": "80-prompt eval covering event-based triggers (Polymarket + news), multi-condition entry+exit, scheduled / market-relative-time, holding actions, basket allocation, plus direct diagnostics (no-draft) and conversational fallbacks.",
+  "prompts": [
+    {
+      "id": "pm_thr_btc_120k_above_25",
+      "prompt": "alert me when the polymarket odds of Bitcoin hitting $120k by year-end cross above 25 percent",
+      "category": "pm_threshold",
+      "tags": ["polymarket", "threshold", "crypto"],
+      "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold", "direction": "above"}
+    },
+    {
+      "id": "pm_thr_modi_third_term_above_80",
+      "prompt": "ping me if the prediction-market probability of Modi serving a full third term ever closes above 80%",
+      "category": "pm_threshold",
+      "tags": ["polymarket", "threshold", "politics", "india"],
+      "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold", "direction": "above"}
+    },
+    {
+      "id": "pm_thr_fed_cut_below_40",
+      "prompt": "tell me when Polymarket's odds of a Fed rate cut at the next FOMC meeting drop below 40 percent",
+      "category": "pm_threshold",
+      "tags": ["polymarket", "threshold", "macro"],
+      "expect": {"tool": "propose_polymarket_trigger", "mode": "threshold", "direction": "below"}
+    },
+    {
+      "id": "pm_thr_iran_ceasefire_smart_default",
+      "prompt": "set me up an alert on the polymarket market for the Iran-Israel ceasefire holding through December",
+      "category": "pm_threshold",
+      "tags": ["polymarket", "threshold", "geopolitics", "smart_default"],
+      "expect": {"tool": "propose_polymarket_trigger", "threshold_was_assumed": true, "threshold_presets_nonempty": true}
+    },
+    {
+      "id": "pm_thr_nvidia_record_above_70",
+      "prompt": "if Polymarket's NVIDIA all-time-high-by-Q1 contract crosses 70 percent yes, send me a notification immediately",
+      "category": "pm_threshold",
+      "tags": ["polymarket", "threshold", "equities"],
+      "expect": {"tool": "propose_polymarket_trigger", "mode": "threshold", "direction": "above"}
+    },
+
+    {
+      "id": "pm_res_trump_china_tariff",
+      "prompt": "let me know when the polymarket market 'will Trump impose new China tariffs by Q1 2026' actually resolves YES",
+      "category": "pm_resolution",
+      "tags": ["polymarket", "resolution"],
+      "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution", "resolve_on": "YES"}
+    },
+    {
+      "id": "pm_res_oscar_no",
+      "prompt": "alert me when the Polymarket 'will Oppenheimer 2 win best picture' market resolves NO",
+      "category": "pm_resolution",
+      "tags": ["polymarket", "resolution", "entertainment"],
+      "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution", "resolve_on": "NO"}
+    },
+    {
+      "id": "pm_res_recession_any",
+      "prompt": "tell me when the polymarket 'US recession before mid-2026' market resolves either way — yes or no, I just want to know the outcome",
+      "category": "pm_resolution",
+      "tags": ["polymarket", "resolution"],
+      "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution", "resolve_on": "ANY"}
+    },
+
+    {
+      "id": "pm_browse_politics",
+      "prompt": "show me what political markets are open on polymarket right now",
+      "category": "pm_browse",
+      "tags": ["polymarket", "browse"],
+      "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card"}
+    },
+    {
+      "id": "pm_browse_crypto",
+      "prompt": "list the top crypto-related contracts trading on Polymarket",
+      "category": "pm_browse",
+      "tags": ["polymarket", "browse", "crypto"],
+      "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card"}
+    },
+
+    {
+      "id": "pm_compound_btc_buy_ibit",
+      "prompt": "when polymarket BTC > 150k by year-end crosses above 40 percent, buy 5 IBIT.NS for me on market open the next day",
+      "category": "pm_compound",
+      "tags": ["polymarket", "compound", "two_step"],
+      "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow"]}
+    },
+    {
+      "id": "pm_compound_recession_sell_nifty",
+      "prompt": "if the polymarket US recession contract resolves YES, sell my NIFTYBEES holding the next session",
+      "category": "pm_compound",
+      "tags": ["polymarket", "compound", "exit_on_event"],
+      "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow", "propose_holding_action"]}
+    },
+    {
+      "id": "pm_compound_fed_cut_buy_bonds",
+      "prompt": "set up an automation: when Polymarket Fed-cut odds cross above 70 percent, buy 50 units of BHARATBOND at market",
+      "category": "pm_compound",
+      "tags": ["polymarket", "compound", "two_step"],
+      "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow"]}
+    },
+
+    {
+      "id": "news_rbi_rate_buy_bank",
+      "prompt": "watch the news — if RBI cuts the repo rate at the next MPC meeting, buy 20 shares of HDFCBANK at market the next morning",
+      "category": "news_event",
+      "tags": ["news", "trigger_event", "rbi"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_dsl_workflow"]}
+    },
+    {
+      "id": "news_tcs_earnings_gap_sell",
+      "prompt": "if TCS's quarterly earnings news breaks and TCS gaps down more than 3 percent the next day, sell my entire TCS holding",
+      "category": "news_event",
+      "tags": ["news", "trigger_event", "earnings", "compound"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_dsl_workflow", "propose_holding_action"]}
+    },
+    {
+      "id": "news_reliance_jio_split_buy",
+      "prompt": "set up an agent: if a news article confirms a Jio Financial demerger from Reliance, buy 10 RELIANCE shares at market",
+      "category": "news_event",
+      "tags": ["news", "trigger_event", "corporate_action"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_dsl_workflow"]}
+    },
+    {
+      "id": "news_china_tariff_basket",
+      "prompt": "alert me by buying 5 NIFTYIT when news confirms the US imposes fresh tariffs on China — IT services usually rally on that",
+      "category": "news_event",
+      "tags": ["news", "trigger_event", "geopolitics", "thesis"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_dsl_workflow"]}
+    },
+    {
+      "id": "news_adani_probe_sell",
+      "prompt": "if news of any new SEBI probe into the Adani group breaks, square off my full ADANIPORTS holding immediately",
+      "category": "news_event",
+      "tags": ["news", "trigger_event", "regulatory"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_dsl_workflow", "propose_holding_action"]}
+    },
+
+    {
+      "id": "sched_sip_infy_monthly",
+      "prompt": "buy 2 INFY on the 5th of every month at 9:30 IST",
+      "category": "scheduled",
+      "tags": ["scheduled", "sip_like", "monthly"],
+      "expect": {"tool_any_of": ["propose_scheduled_order", "propose_workflow", "create_sip"]}
+    },
+    {
+      "id": "sched_buy_niftybees_weekly",
+      "prompt": "every Monday and Thursday at 10am, buy 50 units of NIFTYBEES at market",
+      "category": "scheduled",
+      "tags": ["scheduled", "weekly", "multi_day"],
+      "expect": {"tool_any_of": ["propose_scheduled_order", "propose_workflow"]}
+    },
+    {
+      "id": "sched_squareoff_friday_close",
+      "prompt": "every Friday at 3:15pm, square off all my intraday positions",
+      "category": "scheduled",
+      "tags": ["scheduled", "weekly", "squareoff"],
+      "expect": {"tool_any_of": ["propose_scheduled_order", "propose_workflow"]}
+    },
+    {
+      "id": "sched_buy_goldbees_first_friday",
+      "prompt": "build me an automation that buys 10 GOLDBEES on the first Friday of every month at noon — I want to dollar-cost into gold",
+      "category": "scheduled",
+      "tags": ["scheduled", "edge", "monthly_first_friday"],
+      "expect": {"tool_any_of": ["propose_scheduled_order", "propose_workflow"]}
+    },
+
+    {
+      "id": "mrt_buy_hdfcbank_open_plus_5",
+      "prompt": "buy 5 HDFCBANK 5 minutes after market open every day",
+      "category": "market_time",
+      "tags": ["market_relative_time", "open_offset"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_scheduled_order"]}
+    },
+    {
+      "id": "mrt_sell_axis_before_close",
+      "prompt": "set up a rule that sells 3 AXISBANK 15 minutes before market close every weekday",
+      "category": "market_time",
+      "tags": ["market_relative_time", "close_offset"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_scheduled_order"]}
+    },
+    {
+      "id": "mrt_buy_bankbees_preopen",
+      "prompt": "buy 20 BANKBEES in the pre-open session every Monday",
+      "category": "market_time",
+      "tags": ["market_relative_time", "pre_open"],
+      "expect": {"tool_any_of": ["propose_workflow", "propose_scheduled_order"]}
+    },
+
+    {
+      "id": "dsl_entry_rsi_macd_volume",
+      "prompt": "buy 10 INFY when RSI(14) is below 35 AND MACD histogram is positive AND today's volume is above the 20-day average volume",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "triple_condition"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_supertrend_adx_strong",
+      "prompt": "buy 5 LT when price flips above Supertrend(10,3) AND ADX(14) is above 25 — only when the trend is genuinely strong",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "trend"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_bb_squeeze_stoch",
+      "prompt": "agent that buys SBIN when Bollinger bandwidth is in the bottom 20% of its 252-bar distribution AND stochastic %K crosses above %D",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "squeeze", "percentrank"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_donchian_atr_breakout",
+      "prompt": "buy 15 KOTAKBANK when price breaks above its 20-day Donchian upper AND ATR(14) is above 2 percent of the close — confirming a real breakout",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "breakout", "volatility_filter"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_pair_spread_corr",
+      "prompt": "go long 5 TCS when the TCS/INFY price spread drops below 1.3 AND the 60-day correlation between TCS and INFY is above 0.6",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "pair", "correlation"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_gap_recovery",
+      "prompt": "buy 25 ITC when it gaps down more than 2% at open AND closes above the open in the first 30 minutes — a classic gap fill setup",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "gap"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "dsl_entry_three_way_trend",
+      "prompt": "monitor MARUTI and buy 4 shares when price is above 50 EMA AND 50 EMA is above 200 EMA AND ADX is above 20",
+      "category": "dsl_entry",
+      "tags": ["dsl_entry", "triple_filter", "trend_stack"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+
+    {
+      "id": "ee_reliance_ma_cross_dd_exit",
+      "prompt": "buy 8 RELIANCE when the 20-day MA crosses above the 50-day MA, and sell when my unrealised loss from the entry crosses 5 percent",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "ma_cross", "drawdown_exit"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_tcs_bollinger_trail",
+      "prompt": "buy 4 TCS when price closes below the lower Bollinger band(20,2). Exit when price falls 8% from the peak since entry",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "bollinger", "trailing_stop"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_infy_rsi_target_pct",
+      "prompt": "buy 12 INFY when RSI(14) drops below 30, sell as soon as my position is up 4 percent",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "rsi", "target_pct"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_hdfcbank_macd_cross_supertrend_exit",
+      "prompt": "agent: buy 6 HDFCBANK when MACD line crosses above its signal line AND price is above the 100 EMA. Exit when price falls below Supertrend(10,3)",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "macd", "supertrend_exit"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_kotakbank_donchian_bars_held",
+      "prompt": "buy 7 KOTAKBANK on a 20-day Donchian breakout. Exit if I have been holding for more than 30 bars OR if RSI > 75 — whichever comes first",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "donchian", "time_exit_or_rsi"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_sbin_keltner_atr_stop",
+      "prompt": "buy 10 SBIN when price crosses above the Keltner upper band(20,2). Exit when price drops below entry_price minus 2x ATR(14)",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "keltner", "atr_stop"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_axisbank_volume_breakout_target",
+      "prompt": "buy 9 AXISBANK when volume is greater than 2x its 20-day average AND price makes a new 20-day high. Take profit when position gains 6 percent",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "volume_breakout", "target_pct"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_wipro_stoch_oversold_trail_8",
+      "prompt": "go long 30 WIPRO when stochastic %K crosses above 20 from below. Trail an 8% stop from the peak unrealised gain",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "stoch", "trail"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_ltcompound_3in_2out",
+      "prompt": "build agent: buy 6 LT when (RSI<35 AND MACD hist > 0 AND price above 100 EMA). Exit when (RSI > 70 OR drawdown from peak > 6 percent)",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "compound_in_and_out", "complex"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+    {
+      "id": "ee_eternal_session_only_macd_pct_exit",
+      "prompt": "buy 50 ETERNAL only on Tuesdays and Wednesdays when MACD histogram is above zero. Exit when my position is up 3 percent OR I have held for 10 bars",
+      "category": "dsl_entry_exit",
+      "tags": ["entry_exit", "session_day", "compound_exit"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"], "render_hint": "workflow_draft_card"}
+    },
+
+    {
+      "id": "he_tcs_indicator_sell_full",
+      "prompt": "if RSI(14) on TCS climbs above 75, sell ALL my TCS holdings — whatever quantity I currently have",
+      "category": "holding_exit",
+      "tags": ["holding_exit", "full_position"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "he_reliance_price_threshold_sell_all",
+      "prompt": "agent: sell my entire RELIANCE holding when price crosses below 2300",
+      "category": "holding_exit",
+      "tags": ["holding_exit", "price_threshold"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_workflow", "propose_dsl_workflow"]}
+    },
+    {
+      "id": "he_infy_supertrend_flip_exit",
+      "prompt": "exit my full INFY position whenever price drops below Supertrend(10,3)",
+      "category": "holding_exit",
+      "tags": ["holding_exit", "supertrend"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "he_hdfcbank_drawdown_exit",
+      "prompt": "if my HDFCBANK position drops 7 percent below my entry price, exit the whole thing",
+      "category": "holding_exit",
+      "tags": ["holding_exit", "drawdown"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_dsl_workflow", "propose_workflow"]}
+    },
+
+    {
+      "id": "ps_pair_tcs_infy_friday",
+      "prompt": "every Friday, if TCS RSI(14) is below 40 AND INFY RSI(14) is also below 40, buy 5 of each at market",
+      "category": "pair_session",
+      "tags": ["pair", "session_day", "rsi"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "ps_bankbees_open_monday_only",
+      "prompt": "buy 25 BANKBEES at open ONLY on Mondays when NIFTY closed lower the previous Friday",
+      "category": "pair_session",
+      "tags": ["pair", "session_day", "prior_close_filter"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "ps_pair_zscore_session",
+      "prompt": "on Tuesdays and Thursdays only, buy 5 KOTAKBANK when the 60-bar zscore of the KOTAKBANK/HDFCBANK spread drops below -2",
+      "category": "pair_session",
+      "tags": ["pair", "session_day", "zscore"],
+      "expect": {"tool_any_of": ["propose_dsl_workflow", "propose_workflow"]}
+    },
+
+    {
+      "id": "ha_sell_axis_when_pct_up",
+      "prompt": "sell my entire AXISBANK position when it's up 12 percent from my average buy price",
+      "category": "holding_action",
+      "tags": ["holding_action", "pct_target"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_workflow", "propose_dsl_workflow"]}
+    },
+    {
+      "id": "ha_trailing_sl_reliance",
+      "prompt": "put a trailing 5 percent stop loss on my RELIANCE position",
+      "category": "holding_action",
+      "tags": ["holding_action", "trailing_sl"],
+      "expect": {"tool_any_of": ["propose_holding_action", "create_sl_order", "propose_workflow"]}
+    },
+    {
+      "id": "ha_set_sl_tcs_abs",
+      "prompt": "set a stop loss on TCS at 3400 — sell if it touches that price",
+      "category": "holding_action",
+      "tags": ["holding_action", "abs_sl"],
+      "expect": {"tool_any_of": ["propose_holding_action", "create_sl_order", "create_gtt_order", "propose_workflow"]}
+    },
+    {
+      "id": "ha_sell_infy_scheduled",
+      "prompt": "sell 10 of my INFY shares at market every Friday at 2:30pm",
+      "category": "holding_action",
+      "tags": ["holding_action", "scheduled_exit"],
+      "expect": {"tool_any_of": ["propose_holding_action", "propose_scheduled_order", "propose_workflow"]}
+    },
+
+    {
+      "id": "bk_steel_equal_1l",
+      "prompt": "invest 1 lakh rupees equally across the top 10 steel stocks today",
+      "category": "basket",
+      "tags": ["basket", "sector", "equal"],
+      "expect": {"tool_any_of": ["propose_basket_allocation", "propose_workflow"]}
+    },
+    {
+      "id": "bk_it_mcap_weekly",
+      "prompt": "set up an automation to deploy 50k every Monday across the top 8 IT stocks, weighted by market cap",
+      "category": "basket",
+      "tags": ["basket", "sector", "mcap_weighted", "scheduled"],
+      "expect": {"tool_any_of": ["propose_basket_allocation", "propose_workflow"]}
+    },
+    {
+      "id": "bk_psu_banks_gap_filter",
+      "prompt": "allocate 75k equally across the top 5 PSU bank stocks, but only on days NIFTY gaps down more than 0.5%",
+      "category": "basket",
+      "tags": ["basket", "sector", "gap_gate", "compound"],
+      "expect": {"tool_any_of": ["propose_basket_allocation", "propose_workflow", "propose_dsl_workflow"]}
+    },
+
+    {
+      "id": "to_buy_sbin_rsi_below_30",
+      "prompt": "buy 10 SBIN when RSI(14) drops below 30",
+      "category": "threshold_order",
+      "tags": ["threshold_order", "single_condition", "rsi"],
+      "expect": {"tool_any_of": ["propose_threshold_order", "propose_dsl_workflow", "propose_workflow"]}
+    },
+    {
+      "id": "to_buy_niftybees_price_below_240",
+      "prompt": "place an order to buy 50 NIFTYBEES if price drops below 240",
+      "category": "threshold_order",
+      "tags": ["threshold_order", "price"],
+      "expect": {"tool_any_of": ["propose_threshold_order", "propose_workflow", "create_gtt_order"]}
+    },
+    {
+      "id": "to_sell_hdfc_ema_break",
+      "prompt": "build a single-rule: sell 5 HDFCBANK when price crosses below the 100 EMA",
+      "category": "threshold_order",
+      "tags": ["threshold_order", "single_condition", "ema"],
+      "expect": {"tool_any_of": ["propose_threshold_order", "propose_dsl_workflow", "propose_workflow"]}
+    },
+
+    {
+      "id": "di_rsi_reliance",
+      "prompt": "what is the current RSI(14) on RELIANCE",
+      "category": "diag_indicator",
+      "tags": ["diagnostic", "indicator", "single"],
+      "expect": {"tool_any_of": ["get_indicator", "get_multiple_indicators"], "no_workflow_draft": true}
+    },
+    {
+      "id": "di_macd_adx_sbin",
+      "prompt": "show me MACD, ADX and RSI for SBIN right now",
+      "category": "diag_indicator",
+      "tags": ["diagnostic", "indicator", "multi"],
+      "expect": {"tool_any_of": ["get_indicator", "get_multiple_indicators"], "no_workflow_draft": true}
+    },
+    {
+      "id": "di_sharpe_compare",
+      "prompt": "which has had a better Sharpe ratio over the past year — HDFCBANK, ICICIBANK or KOTAKBANK",
+      "category": "diag_indicator",
+      "tags": ["diagnostic", "performance", "compare"],
+      "expect": {"tool_any_of": ["compare_performance", "get_performance_metrics"], "no_workflow_draft": true}
+    },
+
+    {
+      "id": "dp_portfolio_total",
+      "prompt": "what's my portfolio currently worth and how am I doing today",
+      "category": "diag_portfolio",
+      "tags": ["diagnostic", "portfolio", "summary"],
+      "expect": {"tool_any_of": ["get_portfolio_summary", "get_holdings"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dp_holdings_sorted",
+      "prompt": "show me my holdings sorted by largest P&L gain",
+      "category": "diag_portfolio",
+      "tags": ["diagnostic", "portfolio", "sorted"],
+      "expect": {"tool_any_of": ["get_holdings"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dp_holding_detail_tcs",
+      "prompt": "what's my average buy price on TCS and how much am I up overall",
+      "category": "diag_portfolio",
+      "tags": ["diagnostic", "holding_detail"],
+      "expect": {"tool_any_of": ["get_holding_detail", "get_holdings"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dp_sector_alloc",
+      "prompt": "what's my sector breakdown — am I overexposed to banking?",
+      "category": "diag_portfolio",
+      "tags": ["diagnostic", "sector"],
+      "expect": {"tool_any_of": ["get_sector_breakdown"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dp_tax_summary",
+      "prompt": "give me my STCG vs LTCG situation for this financial year",
+      "category": "diag_portfolio",
+      "tags": ["diagnostic", "tax"],
+      "expect": {"tool_any_of": ["get_tax_summary"], "no_workflow_draft": true}
+    },
+
+    {
+      "id": "dm_live_price_infy",
+      "prompt": "what's INFY trading at right now",
+      "category": "diag_market_data",
+      "tags": ["diagnostic", "live_price"],
+      "expect": {"tool_any_of": ["get_live_price"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dm_index_nifty",
+      "prompt": "where is NIFTY right now",
+      "category": "diag_market_data",
+      "tags": ["diagnostic", "index"],
+      "expect": {"tool_any_of": ["get_index_level", "get_live_price"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dm_top_gainers",
+      "prompt": "show me today's top 5 gainers in NIFTY50",
+      "category": "diag_market_data",
+      "tags": ["diagnostic", "movers"],
+      "expect": {"tool_any_of": ["get_top_movers"], "no_workflow_draft": true}
+    },
+    {
+      "id": "dm_52wk_hdfc",
+      "prompt": "what's the 52-week high and low on HDFCBANK",
+      "category": "diag_market_data",
+      "tags": ["diagnostic", "52wk"],
+      "expect": {"tool_any_of": ["get_52wk_range", "get_price_history"], "no_workflow_draft": true}
+    },
+
+    {
+      "id": "au_ambiguous_buy_more",
+      "prompt": "buy more",
+      "category": "ask_user_edge",
+      "tags": ["ambiguous", "ask_user"],
+      "expect": {"tool_any_of": ["ASK_USER"], "render_hint_any_of": ["ask_user", null]}
+    },
+    {
+      "id": "au_vague_strategy",
+      "prompt": "make me a good strategy for my account",
+      "category": "ask_user_edge",
+      "tags": ["ambiguous", "ask_user"],
+      "expect": {"tool_any_of": ["ASK_USER"], "no_workflow_draft": true}
+    },
+    {
+      "id": "au_unknown_ticker",
+      "prompt": "buy 10 ZZQXY tomorrow morning",
+      "category": "ask_user_edge",
+      "tags": ["unknown_ticker", "ask_user"],
+      "expect": {"tool_any_of": ["ASK_USER", "find_tool"], "no_workflow_draft": true}
+    },
+
+    {
+      "id": "cv_explain_rsi",
+      "prompt": "can you explain to me what RSI actually measures in plain English",
+      "category": "conversational_no_tool",
+      "tags": ["pure_chat", "education"],
+      "expect": {"no_workflow_draft": true, "min_response_chars": 120}
+    },
+    {
+      "id": "cv_yesterday_market_recap",
+      "prompt": "what should I be paying attention to as a retail investor this week",
+      "category": "conversational_no_tool",
+      "tags": ["pure_chat", "open_question"],
+      "expect": {"no_workflow_draft": true, "min_response_chars": 80}
+    },
+
+    {
+      "id": "bt_rsi_macd_reliance",
+      "prompt": "backtest a strategy that buys RELIANCE when RSI < 30 and MACD histogram is positive, exits when RSI > 70 — over the last 2 years",
+      "category": "backtest_only",
+      "tags": ["backtest", "dsl_tree"],
+      "expect": {"tool_any_of": ["backtest_dsl_tree", "backtest_workflow"], "render_hint": "indicator_backtest_chart"}
+    },
+    {
+      "id": "bt_ma_cross_infy_5y",
+      "prompt": "how would a 20/50 EMA crossover have done on INFY over the last 5 years",
+      "category": "backtest_only",
+      "tags": ["backtest", "ma_cross"],
+      "expect": {"tool_any_of": ["backtest_dsl_tree", "backtest_workflow"], "render_hint": "indicator_backtest_chart"}
+    },
+    {
+      "id": "bt_bollinger_meanrev_sbin",
+      "prompt": "simulate a mean-reversion: buy SBIN below the lower Bollinger band, sell when it crosses the middle band — 3 years",
+      "category": "backtest_only",
+      "tags": ["backtest", "bollinger", "meanrev"],
+      "expect": {"tool_any_of": ["backtest_dsl_tree", "backtest_workflow"], "render_hint": "indicator_backtest_chart"}
+    },
+    {
+      "id": "bt_donchian_breakout_tcs",
+      "prompt": "test a 20-day Donchian breakout strategy on TCS — how would it have done over the past 2 years with a 5% trailing stop",
+      "category": "backtest_only",
+      "tags": ["backtest", "donchian", "trail"],
+      "expect": {"tool_any_of": ["backtest_dsl_tree", "backtest_workflow"], "render_hint": "indicator_backtest_chart"}
+    }
+  ]
+}

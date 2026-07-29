@@ -1,0 +1,201 @@
+[
+  {"id": "pm_thr_btc_150k_above_30", "prompt": "alert me when Bitcoin $150k probability crosses above 30%",
+   "tags": ["polymarket","threshold","explicit_pct"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold", "matched": true}},
+
+  {"id": "pm_thr_trump_2028_above_25", "prompt": "ping me if Trump 2028 nomination probability rises above 25%",
+   "tags": ["polymarket","threshold","politics"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold"}},
+
+  {"id": "pm_thr_fed_june_above_60", "prompt": "let me know when Fed June rate cut probability goes above 60%",
+   "tags": ["polymarket","threshold","macro"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold", "matched": true}},
+
+  {"id": "pm_thr_iran_ceasefire_below_20", "prompt": "alert me when probability of Iran ceasefire holding drops below 20%",
+   "tags": ["polymarket","threshold","below","geopolitics"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft", "mode": "threshold", "direction": "below"}},
+
+  {"id": "pm_thr_btc_above_100k_above_70", "prompt": "ping me when Bitcoin above $100k probability hits 70%",
+   "tags": ["polymarket","threshold","crypto"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft"}},
+
+  {"id": "pm_thr_eth_4k_above_50", "prompt": "tell me when Ethereum $4000 probability crosses above 50%",
+   "tags": ["polymarket","threshold","crypto"],
+   "expect": {"tool": "propose_polymarket_trigger", "render_hint": "polymarket_trigger_draft"}},
+
+  {"id": "pm_thr_modi_2029_above_80", "prompt": "alert me when Modi remaining PM after 2029 probability goes above 80%",
+   "tags": ["polymarket","threshold","politics","india_unlikely_match"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_thr_world_cup_brazil_above_30", "prompt": "ping me when Brazil winning FIFA World Cup probability rises above 30%",
+   "tags": ["polymarket","threshold","sports"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_thr_nba_finals_above_25", "prompt": "alert me when NBA finals winner probability for Lakers crosses 25%",
+   "tags": ["polymarket","threshold","sports"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_thr_xi_summit_above_40", "prompt": "tell me when Trump-Xi summit deal probability goes above 40%",
+   "tags": ["polymarket","threshold","geopolitics"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_thr_nobel_above_15", "prompt": "alert me when Trump Nobel Peace Prize 2026 probability hits above 15%",
+   "tags": ["polymarket","threshold","awards"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_thr_oil_100_above_55", "prompt": "ping me when WTI crude above $100 by year-end probability crosses 55%",
+   "tags": ["polymarket","threshold","macro"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_smart_no_threshold_iran", "prompt": "alert me if Iran ceasefire breaks down",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger", "threshold_was_assumed": true, "threshold_presets_nonempty": true}},
+
+  {"id": "pm_smart_no_threshold_btc", "prompt": "ping me on the Bitcoin $150k market",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger", "threshold_was_assumed": true}},
+
+  {"id": "pm_smart_no_threshold_modi", "prompt": "watch the Modi 2029 prediction market and alert me on big moves",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_smart_no_threshold_fed", "prompt": "alert me on the Fed June rate cut probability",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger", "threshold_was_assumed": true}},
+
+  {"id": "pm_smart_no_threshold_election", "prompt": "set an alert on the 2028 US Presidential election market",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_smart_no_threshold_sports", "prompt": "alert me when the World Cup winner odds change a lot",
+   "tags": ["polymarket","threshold","smart_default","no_number"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_res_trump_2028_yes", "prompt": "execute when Trump 2028 election resolves YES",
+   "tags": ["polymarket","resolution","yes"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution", "resolve_on": "YES"}},
+
+  {"id": "pm_res_fed_no", "prompt": "fire when the Fed June rate cut market resolves NO",
+   "tags": ["polymarket","resolution","no"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution", "resolve_on": "NO"}},
+
+  {"id": "pm_res_iran_actually_breaks", "prompt": "execute when the Iran ceasefire actually breaks down",
+   "tags": ["polymarket","resolution","geopolitics"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution"}},
+
+  {"id": "pm_res_world_cup_resolves", "prompt": "send me a ping once the 2026 FIFA World Cup winner is decided",
+   "tags": ["polymarket","resolution","sports"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution"}},
+
+  {"id": "pm_res_btc_150k_decided", "prompt": "alert me when the Bitcoin $150k market is decided",
+   "tags": ["polymarket","resolution","crypto"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution"}},
+
+  {"id": "pm_res_either_outcome", "prompt": "tell me when the Trump-Xi summit deal market resolves either way",
+   "tags": ["polymarket","resolution","any"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution"}},
+
+  {"id": "pm_browse_default", "prompt": "what's hot on polymarket today",
+   "tags": ["polymarket","browse"],
+   "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card", "events_nonempty": true}},
+
+  {"id": "pm_browse_bitcoin", "prompt": "show me open Bitcoin markets on polymarket",
+   "tags": ["polymarket","browse","crypto"],
+   "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card", "events_nonempty": true}},
+
+  {"id": "pm_browse_politics", "prompt": "browse political markets on poly",
+   "tags": ["polymarket","browse","politics"],
+   "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card"}},
+
+  {"id": "pm_browse_sports", "prompt": "what sports markets are open on polymarket",
+   "tags": ["polymarket","browse","sports"],
+   "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card"}},
+
+  {"id": "pm_browse_geopolitics", "prompt": "show me Iran-related polymarket events",
+   "tags": ["polymarket","browse","geopolitics"],
+   "expect": {"tool": "browse_polymarket_markets", "render_hint": "polymarket_market_browse_card"}},
+
+  {"id": "pm_browse_what_can_i_bet", "prompt": "what can I bet on polymarket about the 2028 election",
+   "tags": ["polymarket","browse","politics"],
+   "expect": {"tool": "browse_polymarket_markets"}},
+
+  {"id": "pm_neg_trump_no_win", "prompt": "alert me if Trump does NOT win 2028 election probability rises above 40%",
+   "tags": ["polymarket","negation","no_side"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_neg_fed_no_cut", "prompt": "ping me if Fed does NOT cut rates in June probability above 50%",
+   "tags": ["polymarket","negation","no_side"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_neg_modi_loses", "prompt": "alert me when Modi loses the 2029 election probability hits 30%",
+   "tags": ["polymarket","negation","politics"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_neg_brazil_doesnt_win", "prompt": "tell me when Brazil does NOT win FIFA World Cup probability goes above 80%",
+   "tags": ["polymarket","negation","sports"],
+   "expect": {"tool": "propose_polymarket_trigger"}},
+
+  {"id": "pm_compound_buy_reliance_sell_on_poly", "prompt": "buy 10 RELIANCE now and sell when WTI crude > $100 on polymarket crosses 60%",
+   "tags": ["polymarket","compound","workflow"],
+   "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow"]}},
+
+  {"id": "pm_compound_buy_oil_etf_on_resolution", "prompt": "buy oil ETF when the Iran ceasefire market resolves NO",
+   "tags": ["polymarket","compound","resolution"],
+   "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow"]}},
+
+  {"id": "pm_compound_hedge_sell_trump", "prompt": "sell my hedge when Trump 2028 election resolves NO",
+   "tags": ["polymarket","compound","resolution"],
+   "expect": {"tool": "propose_polymarket_trigger", "mode": "resolution"}},
+
+  {"id": "pm_compound_buy_btc_etf_on_threshold", "prompt": "buy Bitcoin ETF when poly probability of BTC $150k crosses above 40%",
+   "tags": ["polymarket","compound","threshold"],
+   "expect": {"tool_any_of": ["propose_polymarket_trigger", "propose_workflow"]}},
+
+  {"id": "pm_no_match_aliens", "prompt": "alert me if aliens land on Earth before 2027 probability goes above 5%",
+   "tags": ["polymarket","no_match"],
+   "expect": {"tool": "propose_polymarket_trigger", "matched": false}},
+
+  {"id": "pm_no_match_vague_crypto", "prompt": "alert me when something good happens in crypto",
+   "tags": ["polymarket","no_match","vague"],
+   "expect": {"tool_any_of": ["propose_polymarket_trigger", "ASK_USER"]}},
+
+  {"id": "pm_no_match_vague_election", "prompt": "tell me when the election goes well",
+   "tags": ["polymarket","no_match","vague"],
+   "expect": {"tool_any_of": ["propose_polymarket_trigger", "ASK_USER"]}},
+
+  {"id": "base_buy_infy", "prompt": "buy 10 INFY at market",
+   "tags": ["baseline","order","not_polymarket"],
+   "expect": {"tool": "place_market_order", "render_hint": "logic_card"}},
+
+  {"id": "base_portfolio", "prompt": "show me my portfolio",
+   "tags": ["baseline","portfolio","not_polymarket"],
+   "expect": {"tool_any_of": ["get_portfolio_summary", "get_holdings"]}},
+
+  {"id": "base_rsi_reliance", "prompt": "what's the 14-day RSI of RELIANCE",
+   "tags": ["baseline","indicator","not_polymarket"],
+   "expect": {"tool_any_of": ["get_indicator", "get_multiple_indicators"]}},
+
+  {"id": "base_sl_holding", "prompt": "set a 2% stop loss on my INFY holding",
+   "tags": ["baseline","stop_loss","not_polymarket"],
+   "expect": {"tool_any_of": ["propose_holding_action", "create_sl_order"]}},
+
+  {"id": "base_market_status", "prompt": "is the market open right now",
+   "tags": ["baseline","market_status","not_polymarket"],
+   "expect": {"tool": "get_market_status"}},
+
+  {"id": "base_backtest_rsi", "prompt": "backtest buying TCS when 14-day RSI drops below 30 over the last 2 years",
+   "tags": ["baseline","backtest","not_polymarket"],
+   "expect": {"tool_any_of": ["backtest_dsl_tree", "backtest_workflow"]}},
+
+  {"id": "base_yield_recommendation", "prompt": "recommend the best fixed-income option for 2 years",
+   "tags": ["baseline","yields","not_polymarket"],
+   "expect": {"tool_any_of": ["get_yield_recommendation", "compare_yields"]}},
+
+  {"id": "base_agent_build", "prompt": "build me an agent that buys 5 RELIANCE every Monday at 9:20",
+   "tags": ["baseline","agent","not_polymarket"],
+   "expect": {"tool_any_of": ["propose_workflow", "propose_scheduled_order"]}},
+
+  {"id": "base_cancel_order", "prompt": "cancel my pending TITAN order",
+   "tags": ["baseline","order_manage","not_polymarket"],
+   "expect": {"tool_any_of": ["list_pending_orders", "cancel_order"]}}
+]

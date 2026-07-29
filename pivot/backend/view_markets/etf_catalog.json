@@ -1,0 +1,848 @@
+{
+ "generated_on": "2026-07-02",
+ "source": "Kite NSE cash dump + yfinance 3mo verification",
+ "categories": {
+  "nifty50": {
+   "symbol": "NIFTYBEES",
+   "tracks": "Nifty 50",
+   "matches": [
+    "index",
+    "largecap",
+    "nifty"
+   ],
+   "last_price": 274.27,
+   "as_of": "2026-07-02",
+   "adv_cr": 175.47,
+   "alternates": [
+    {
+     "symbol": "SETFNIF50",
+     "last_price": 259.38,
+     "as_of": "2026-07-02",
+     "adv_cr": 20.86
+    },
+    {
+     "symbol": "HDFCNIFTY",
+     "last_price": 271.63,
+     "as_of": "2026-07-02",
+     "adv_cr": 2.73
+    }
+   ]
+  },
+  "next50": {
+   "symbol": "JUNIORBEES",
+   "tracks": "Nifty Next 50",
+   "matches": [
+    "index",
+    "largecap"
+   ],
+   "last_price": 782.42,
+   "as_of": "2026-07-02",
+   "adv_cr": 28.39,
+   "alternates": [
+    {
+     "symbol": "SETFNN50",
+     "last_price": 773.18,
+     "as_of": "2026-07-02",
+     "adv_cr": 2.3
+    },
+    {
+     "symbol": "NEXT50IETF",
+     "last_price": 76.29,
+     "as_of": "2026-07-02",
+     "adv_cr": 6.12
+    }
+   ]
+  },
+  "midcap": {
+   "symbol": "MID150BEES",
+   "tracks": "Nifty Midcap 150",
+   "matches": [
+    "midcap"
+   ],
+   "last_price": 237.12,
+   "as_of": "2026-07-02",
+   "adv_cr": 16.84,
+   "alternates": [
+    {
+     "symbol": "HDFCMID150",
+     "last_price": 23.18,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.97
+    },
+    {
+     "symbol": "MIDCAPIETF",
+     "last_price": 23.74,
+     "as_of": "2026-07-02",
+     "adv_cr": 2.24
+    },
+    {
+     "symbol": "MIDCAPETF",
+     "last_price": 23.45,
+     "as_of": "2026-07-02",
+     "adv_cr": 4.41
+    }
+   ]
+  },
+  "smallcap": {
+   "symbol": "HDFCSML250",
+   "tracks": "Nifty Smallcap 250",
+   "matches": [
+    "smallcap"
+   ],
+   "last_price": 180.68,
+   "as_of": "2026-07-02",
+   "adv_cr": 28.89,
+   "alternates": [
+    {
+     "symbol": "MOSMALL250",
+     "last_price": 17.99,
+     "as_of": "2026-07-02",
+     "adv_cr": 3.2
+    },
+    {
+     "symbol": "GROWWSC250",
+     "last_price": 10.32,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.16
+    }
+   ]
+  },
+  "bank": {
+   "symbol": "BANKBEES",
+   "tracks": "Nifty Bank",
+   "matches": [
+    "Banks",
+    "Financial Services",
+    "bank"
+   ],
+   "last_price": 600.07,
+   "as_of": "2026-07-02",
+   "adv_cr": 64.96,
+   "alternates": [
+    {
+     "symbol": "BANKIETF",
+     "last_price": 59.68,
+     "as_of": "2026-07-02",
+     "adv_cr": 6.14
+    },
+    {
+     "symbol": "SETFNIFBK",
+     "last_price": 596.32,
+     "as_of": "2026-07-02",
+     "adv_cr": 3.57
+    },
+    {
+     "symbol": "BANKETF",
+     "last_price": 591.59,
+     "as_of": "2026-07-02",
+     "adv_cr": 1.6
+    }
+   ]
+  },
+  "psu_bank": {
+   "symbol": "PSUBNKBEES",
+   "tracks": "Nifty PSU Bank",
+   "matches": [
+    "PSU Banks",
+    "psu bank"
+   ],
+   "last_price": 95.38,
+   "as_of": "2026-07-02",
+   "adv_cr": 33.48,
+   "alternates": [
+    {
+     "symbol": "PSUBANK",
+     "last_price": 854.79,
+     "as_of": "2026-07-02",
+     "adv_cr": 2.21
+    },
+    {
+     "symbol": "PSUBNKIETF",
+     "last_price": 86.93,
+     "as_of": "2026-07-02",
+     "adv_cr": 1.71
+    }
+   ]
+  },
+  "it": {
+   "symbol": "ITBEES",
+   "tracks": "Nifty IT",
+   "matches": [
+    "Information Technology",
+    "IT",
+    "software"
+   ],
+   "last_price": 29.94,
+   "as_of": "2026-07-02",
+   "adv_cr": 53.69,
+   "alternates": [
+    {
+     "symbol": "ITIETF",
+     "last_price": 29.88,
+     "as_of": "2026-07-02",
+     "adv_cr": 3.11
+    },
+    {
+     "symbol": "ITETF",
+     "last_price": 28.48,
+     "as_of": "2026-07-02",
+     "adv_cr": 1.54
+    },
+    {
+     "symbol": "SBIETFIT",
+     "last_price": 298.82,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.39
+    },
+    {
+     "symbol": "AXISTECETF",
+     "last_price": 296.77,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.1
+    }
+   ]
+  },
+  "pharma": {
+   "symbol": "PHARMABEES",
+   "tracks": "Nifty Pharma",
+   "matches": [
+    "Pharmaceuticals",
+    "pharma"
+   ],
+   "last_price": 25.96,
+   "as_of": "2026-07-02",
+   "adv_cr": 16.28,
+   "alternates": []
+  },
+  "healthcare": {
+   "symbol": "HEALTHIETF",
+   "tracks": "Nifty Healthcare",
+   "matches": [
+    "Healthcare",
+    "hospitals"
+   ],
+   "last_price": 165.26,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.65,
+   "alternates": [
+    {
+     "symbol": "MOHEALTH",
+     "last_price": 50.2,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.35
+    },
+    {
+     "symbol": "HEALTHY",
+     "last_price": 16.58,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.51
+    },
+    {
+     "symbol": "HEALTHADD",
+     "last_price": 162.94,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.11
+    }
+   ]
+  },
+  "auto": {
+   "symbol": "AUTOBEES",
+   "tracks": "Nifty Auto",
+   "matches": [
+    "Automobiles",
+    "auto"
+   ],
+   "last_price": 278.7,
+   "as_of": "2026-07-02",
+   "adv_cr": 5.0,
+   "alternates": [
+    {
+     "symbol": "AUTOIETF",
+     "last_price": 27.91,
+     "as_of": "2026-07-02",
+     "adv_cr": 1.54
+    }
+   ]
+  },
+  "fmcg": {
+   "symbol": "FMCGIETF",
+   "tracks": "Nifty FMCG",
+   "matches": [
+    "FMCG",
+    "consumer staples"
+   ],
+   "last_price": 53.65,
+   "as_of": "2026-07-02",
+   "adv_cr": 4.38,
+   "alternates": []
+  },
+  "consumption": {
+   "symbol": "CONSUMBEES",
+   "tracks": "Nifty India Consumption",
+   "matches": [
+    "Consumer",
+    "consumption",
+    "rural"
+   ],
+   "last_price": 130.58,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.08,
+   "alternates": [
+    {
+     "symbol": "CONSUMIETF",
+     "last_price": 121.95,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.16
+    },
+    {
+     "symbol": "AXISCETF",
+     "last_price": 121.12,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.02
+    }
+   ]
+  },
+  "metal": {
+   "symbol": "METALIETF",
+   "tracks": "Nifty Metal",
+   "matches": [
+    "Metals & Mining",
+    "metal"
+   ],
+   "last_price": 12.53,
+   "as_of": "2026-07-02",
+   "adv_cr": 11.0,
+   "alternates": [
+    {
+     "symbol": "GROWWMETAL",
+     "last_price": 11.91,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.73
+    },
+    {
+     "symbol": "METAL",
+     "last_price": 12.62,
+     "as_of": "2026-07-02",
+     "adv_cr": 4.1
+    }
+   ]
+  },
+  "energy": {
+   "symbol": "ENERGY",
+   "tracks": "Nifty Energy",
+   "matches": [
+    "Energy",
+    "power",
+    "utilities"
+   ],
+   "last_price": 39.31,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.28,
+   "alternates": [
+    {
+     "symbol": "MOENERGY",
+     "last_price": 39.83,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.78
+    }
+   ]
+  },
+  "oil_gas": {
+   "symbol": "OILIETF",
+   "tracks": "Nifty Oil & Gas",
+   "matches": [
+    "Oil Gas & Consumable Fuels",
+    "oil"
+   ],
+   "last_price": 11.29,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.66,
+   "alternates": []
+  },
+  "cpse": {
+   "symbol": "CPSEETF",
+   "tracks": "Nifty CPSE",
+   "matches": [
+    "PSU",
+    "public sector"
+   ],
+   "last_price": 97.27,
+   "as_of": "2026-07-02",
+   "adv_cr": 13.0,
+   "alternates": []
+  },
+  "infra": {
+   "symbol": "INFRAIETF",
+   "tracks": "Nifty Infrastructure",
+   "matches": [
+    "Infrastructure",
+    "Construction",
+    "capital goods"
+   ],
+   "last_price": 97.08,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.22,
+   "alternates": [
+    {
+     "symbol": "INFRABEES",
+     "last_price": 977.14,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.64
+    },
+    {
+     "symbol": "MOINFRA",
+     "last_price": 62.86,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.02
+    }
+   ]
+  },
+  "realty": {
+   "symbol": "MOREALTY",
+   "tracks": "Nifty Realty",
+   "matches": [
+    "Realty",
+    "real estate"
+   ],
+   "last_price": 86.84,
+   "as_of": "2026-07-02",
+   "adv_cr": 4.45,
+   "alternates": [
+    {
+     "symbol": "GROWWRLTY",
+     "last_price": 9.73,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.22
+    }
+   ]
+  },
+  "defence": {
+   "symbol": "MODEFENCE",
+   "tracks": "Nifty India Defence",
+   "matches": [
+    "Defence",
+    "Aerospace & Defense",
+    "defense"
+   ],
+   "last_price": 105.3,
+   "as_of": "2026-07-02",
+   "adv_cr": 18.12,
+   "alternates": [
+    {
+     "symbol": "GROWWDEFNC",
+     "last_price": 95.99,
+     "as_of": "2026-07-02",
+     "adv_cr": 2.36
+    }
+   ]
+  },
+  "manufacturing": {
+   "symbol": "MAKEINDIA",
+   "tracks": "Nifty India Manufacturing",
+   "matches": [
+    "Manufacturing",
+    "Industrial Manufacturing",
+    "make in india"
+   ],
+   "last_price": 163.26,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.52,
+   "alternates": [
+    {
+     "symbol": "MANUFGBEES",
+     "last_price": 160.3,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.08
+    },
+    {
+     "symbol": "MOMGF",
+     "last_price": 159.01,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.01
+    }
+   ]
+  },
+  "ev": {
+   "symbol": "GROWWEV",
+   "tracks": "Nifty EV & New Age Automotive",
+   "matches": [
+    "EV",
+    "electric vehicle",
+    "new age automotive"
+   ],
+   "last_price": 31.56,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.92,
+   "alternates": [
+    {
+     "symbol": "EVINDIA",
+     "last_price": 31.55,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.68
+    },
+    {
+     "symbol": "EVIETF",
+     "last_price": 31.59,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.43
+    }
+   ]
+  },
+  "internet": {
+   "symbol": "GROWWNET",
+   "tracks": "Nifty India Internet",
+   "matches": [
+    "internet",
+    "digital",
+    "platforms",
+    "fintech"
+   ],
+   "last_price": 9.66,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.15,
+   "alternates": [
+    {
+     "symbol": "INTERNET",
+     "last_price": 13.05,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.12
+    }
+   ]
+  },
+  "capital_markets": {
+   "symbol": "MOCAPITAL",
+   "tracks": "Nifty Capital Markets",
+   "matches": [
+    "capital markets",
+    "exchanges",
+    "brokers"
+   ],
+   "last_price": 55.5,
+   "as_of": "2026-07-02",
+   "adv_cr": 4.52,
+   "alternates": [
+    {
+     "symbol": "GROWWCAPM",
+     "last_price": 11.61,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.57
+    }
+   ]
+  },
+  "railways": {
+   "symbol": "GROWWRAIL",
+   "tracks": "Nifty India Railways PSU",
+   "matches": [
+    "railways"
+   ],
+   "last_price": 29.39,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.56,
+   "alternates": []
+  },
+  "power": {
+   "symbol": "GROWWPOWER",
+   "tracks": "Nifty Power",
+   "matches": [
+    "Power",
+    "utilities"
+   ],
+   "last_price": 12.12,
+   "as_of": "2026-07-02",
+   "adv_cr": 3.9,
+   "alternates": []
+  },
+  "tourism": {
+   "symbol": "MOTOUR",
+   "tracks": "Nifty India Tourism",
+   "matches": [
+    "tourism",
+    "hotels",
+    "aviation"
+   ],
+   "last_price": 80.35,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.41,
+   "alternates": []
+  },
+  "gold": {
+   "symbol": "GOLDBEES",
+   "tracks": "Domestic gold price",
+   "matches": [
+    "gold",
+    "bullion"
+   ],
+   "last_price": 117.69,
+   "as_of": "2026-07-02",
+   "adv_cr": 310.65,
+   "alternates": [
+    {
+     "symbol": "GOLDCASE",
+     "last_price": 22.37,
+     "as_of": "2026-07-02",
+     "adv_cr": 21.84
+    },
+    {
+     "symbol": "AXISGOLD",
+     "last_price": 118.82,
+     "as_of": "2026-07-02",
+     "adv_cr": 34.05
+    },
+    {
+     "symbol": "GOLDIETF",
+     "last_price": 121.93,
+     "as_of": "2026-07-02",
+     "adv_cr": 60.82
+    }
+   ]
+  },
+  "silver": {
+   "symbol": "SILVERBEES",
+   "tracks": "Domestic silver price",
+   "matches": [
+    "silver"
+   ],
+   "last_price": 216.28,
+   "as_of": "2026-07-02",
+   "adv_cr": 562.47,
+   "alternates": [
+    {
+     "symbol": "SILVERIETF",
+     "last_price": 225.82,
+     "as_of": "2026-07-02",
+     "adv_cr": 106.54
+    },
+    {
+     "symbol": "SILVERADD",
+     "last_price": 218.11,
+     "as_of": "2026-07-02",
+     "adv_cr": 9.09
+    }
+   ]
+  },
+  "nasdaq100": {
+   "symbol": "MON100",
+   "tracks": "Nasdaq 100 (INR)",
+   "matches": [
+    "us tech",
+    "nasdaq",
+    "global tech",
+    "AI"
+   ],
+   "last_price": 335.9,
+   "as_of": "2026-07-02",
+   "adv_cr": 17.51,
+   "alternates": []
+  },
+  "faang": {
+   "symbol": "MAFANG",
+   "tracks": "NYSE FANG+ (INR)",
+   "matches": [
+    "us tech",
+    "faang",
+    "AI"
+   ],
+   "last_price": 188.36,
+   "as_of": "2026-07-02",
+   "adv_cr": 2.22,
+   "alternates": []
+  },
+  "sp500": {
+   "symbol": "MASPTOP50",
+   "tracks": "S&P 500 Top 50 (INR)",
+   "matches": [
+    "us equities",
+    "s&p"
+   ],
+   "last_price": 78.02,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.63,
+   "alternates": []
+  },
+  "momentum": {
+   "symbol": "MOM30IETF",
+   "tracks": "Nifty 200 Momentum 30",
+   "matches": [
+    "momentum factor"
+   ],
+   "last_price": 31.29,
+   "as_of": "2026-07-02",
+   "adv_cr": 2.36,
+   "alternates": [
+    {
+     "symbol": "MOMOMENTUM",
+     "last_price": 62.76,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.3
+    },
+    {
+     "symbol": "MOMENTUM30",
+     "last_price": 30.82,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.1
+    },
+    {
+     "symbol": "HDFCMOMENT",
+     "last_price": 31.11,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.41
+    }
+   ]
+  },
+  "quality": {
+   "symbol": "QUAL30IETF",
+   "tracks": "Nifty 200 Quality 30",
+   "matches": [
+    "quality factor"
+   ],
+   "last_price": 20.59,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.19,
+   "alternates": [
+    {
+     "symbol": "MOQUALITY",
+     "last_price": 202.11,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.04
+    },
+    {
+     "symbol": "SBIETFQLTY",
+     "last_price": 216.81,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.04
+    },
+    {
+     "symbol": "HDFCQUAL",
+     "last_price": 56.99,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.04
+    }
+   ]
+  },
+  "value": {
+   "symbol": "MOVALUE",
+   "tracks": "Nifty 500 Value 50 / NV20",
+   "matches": [
+    "value factor"
+   ],
+   "last_price": 114.58,
+   "as_of": "2026-07-02",
+   "adv_cr": 0.95,
+   "alternates": [
+    {
+     "symbol": "NV20IETF",
+     "last_price": 13.74,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.36
+    },
+    {
+     "symbol": "NV20",
+     "last_price": 11985.9,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.07
+    }
+   ]
+  },
+  "low_vol": {
+   "symbol": "LOWVOLIETF",
+   "tracks": "Nifty 100 Low Volatility 30",
+   "matches": [
+    "low volatility",
+    "defensive"
+   ],
+   "last_price": 21.98,
+   "as_of": "2026-07-02",
+   "adv_cr": 1.81,
+   "alternates": [
+    {
+     "symbol": "MOLOWVOL",
+     "last_price": 37.02,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.05
+    },
+    {
+     "symbol": "HDFCLOWVOL",
+     "last_price": 20.49,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.01
+    },
+    {
+     "symbol": "LOWVOL",
+     "last_price": 204.77,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.01
+    }
+   ]
+  },
+  "alpha": {
+   "symbol": "ALPHA",
+   "tracks": "Nifty Alpha 50",
+   "matches": [
+    "alpha factor"
+   ],
+   "last_price": 51.56,
+   "as_of": "2026-07-02",
+   "adv_cr": 6.86,
+   "alternates": [
+    {
+     "symbol": "ALPHAETF",
+     "last_price": 26.2,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.87
+    },
+    {
+     "symbol": "MOALPHA50",
+     "last_price": 53.35,
+     "as_of": "2026-07-02",
+     "adv_cr": 0.04
+    }
+   ]
+  },
+  "liquid": {
+   "symbol": "LIQUIDBEES",
+   "tracks": "Overnight rate (cash parking)",
+   "matches": [
+    "cash",
+    "liquid",
+    "idle"
+   ],
+   "last_price": 1000.0,
+   "as_of": "2026-07-02",
+   "adv_cr": 279.03,
+   "alternates": [
+    {
+     "symbol": "LIQUIDCASE",
+     "last_price": 114.8,
+     "as_of": "2026-07-02",
+     "adv_cr": 199.2
+    },
+    {
+     "symbol": "LIQUIDETF",
+     "last_price": 1000.0,
+     "as_of": "2026-07-02",
+     "adv_cr": 12.49
+    },
+    {
+     "symbol": "LIQUIDADD",
+     "last_price": 1133.71,
+     "as_of": "2026-07-02",
+     "adv_cr": 43.9
+    }
+   ]
+  },
+  "gilt": {
+   "symbol": "LTGILTBEES",
+   "tracks": "8-13y G-sec",
+   "matches": [
+    "gilt",
+    "bonds",
+    "duration",
+    "rates"
+   ],
+   "last_price": 29.88,
+   "as_of": "2026-07-02",
+   "adv_cr": 3.6,
+   "alternates": []
+  }
+ }
+}

@@ -1,0 +1,52 @@
+name: Deploy frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pivot-next/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: pivotacrindia
+  RESOURCE_GROUP: Pivot
+  CONTAINER_APP: pivot-frontend
+  IMAGE: pivot-frontend
+  # Backend FQDN is stable (Container Apps env default domain doesn't change) —
+  # this must match what the backend Container App is actually deployed at.
+  BACKEND_API_BASE: https://pivot-backend.bravehill-067b98ce.centralindia.azurecontainerapps.io/api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image (ACR Tasks — no Docker needed on the runner)
+        run: |
+          az acr build \
+            --registry $ACR_NAME \
+            --image $IMAGE:${{ github.sha }} \
+            --image $IMAGE:latest \
+            --file pivot-next/Dockerfile \
+            --build-arg NEXT_PUBLIC_PIVOT_API_BASE=$BACKEND_API_BASE \
+            pivot-next
+
+      - name: Deploy new image to Container App
+        run: |
+          az containerapp update \
+            --name $CONTAINER_APP \
+            --resource-group $RESOURCE_GROUP \
+            --image $ACR_NAME.azurecr.io/$IMAGE:${{ github.sha }}

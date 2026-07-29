@@ -1,0 +1,147 @@
+{
+ "ts": "20260710_101825",
+ "elapsed_s": 47.4,
+ "base": "http://localhost:8000",
+ "user_id": 653,
+ "sessions_file": "tests/eval_prompts/fundamentals_history_3.json",
+ "only": null,
+ "n_sessions": 4,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "fundamentals-history",
+   "name": "roe_trend_reliance",
+   "why": "History-shaped fundamentals ask must route to query_financials (agg=series). RELIANCE has full ratio history in the DB: reply must quote real per-year ROE values with years, note direction, never fabricate.",
+   "conv": "s_b62038e581",
+   "turns": [
+    {
+     "i": 0,
+     "say": "How has Reliance's ROE evolved over the last 5 years?",
+     "response": "Reliance\u2019s consolidated ROE has been fairly range-bound over the last 5 years: **7.78% (FY22), 9.31% (FY23), 8.77% (FY24), 8.25% (FY25), and 8.93% (FY26)**.  \n\nThe pattern is a modest rise into FY23, a mild slide over the next two years, and then a recovery in FY26. Overall, it suggests **stable but not strongly expanding equity returns**.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 7642,
+     "latency_server_ms": 7143,
+     "input_tokens": 79042,
+     "output_tokens": 406,
+     "cost_usd": 0.016207,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "fundamentals-history",
+   "name": "roe_trend_tcs_honest_gap",
+   "why": "HONESTY case: TCS carries P&L-only history in the mc DB (no ratio rows), so a TCS ROE series is genuinely unavailable. Correct behavior: call query_financials, get the structured null, say the series isn't available, and offer the real alternative (profit/EPS history, or the latest ROE snapshot) \u2014 never fabricate a series, never a dead-end apology.",
+   "conv": "s_0204613eff",
+   "turns": [
+    {
+     "i": 0,
+     "say": "How has TCS's ROE evolved over the last 5 years?",
+     "response": "I couldn\u2019t retrieve the 5-year ROE series for TCS. Would you like me to pull the latest ROE snapshot and related profitability metrics instead?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 9837,
+     "latency_server_ms": 9375,
+     "input_tokens": 118955,
+     "output_tokens": 577,
+     "cost_usd": 0.016862,
+     "llm_calls": 4
+    }
+   ]
+  },
+  {
+   "category": "fundamentals-history",
+   "name": "max_profit_year_reliance",
+   "why": "The headline query_financials class: max/min-year question answerable ONLY from the 12y statement history (agg=max on net_profit). Must name the fiscal year AND the rupee value from the DB; web_search_brief or fetch_fundamentals here is a routing failure.",
+   "conv": "s_7f0ed4f1e0",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Which year did Reliance make its highest ever profit, and how much was it?",
+     "response": "Reliance\u2019s highest ever consolidated net profit in the data I pulled was in the year ended **31 March 2026**, at **\u20b995,610 crore**.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 6849,
+     "latency_server_ms": 6366,
+     "input_tokens": 79685,
+     "output_tokens": 296,
+     "cost_usd": 0.015891,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "fundamentals-history",
+   "name": "revenue_cagr_compare",
+   "why": "Multi-symbol history aggregation: revenue CAGR for two names over 5y via query_financials (agg=cagr, symbols=[INFY,WIPRO]) \u2014 one call, both symbols, real numbers, a defended one-line comparison. Follow-up amendment must extend the window, not re-ask.",
+   "conv": "s_d237695deb",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Compare the revenue growth of Infosys vs Wipro over the last 5 years",
+     "response": "## Snapshot\n\nUsing the latest 5-year-style revenue window available in the database, **Infosys grew revenue faster than Wipro**.\n\n| Company | Revenue CAGR | Start Revenue | End Revenue | Span |\n|---|---:|---:|---:|---:|\n| `INFY` | **10.1%** | \u20b91,21,641 crore | \u20b91,78,650 crore | 4 years |\n| `WIPRO` | **4.0%** | \u20b979,312 crore | \u20b992,624 crore | 4 years |\n\n## View\n\n**Winner: Infosys.** Its revenue compounded at about **10.1%** versus **4.0%** for Wipro over the reported window, so Infosys showed materially stronger top-line expansion.\n\nThe gap is meaningful: Infosys added roughly \u20b957,000 crore of revenue over the period, while Wipro added about \u20b913,000 crore. That suggests Infosys has had the stronger demand or execution profile on the top line.\n\nOne caveat: the database\u2019s available span here is **4 years of reported periods** rather than a full 5-year run, so this is best read as the most recent multi-year trend available, not a perfect calendar-5-year comparison.\n\nThis is analysis, not financial advice.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10918,
+     "latency_server_ms": 10447,
+     "input_tokens": 80392,
+     "output_tokens": 928,
+     "cost_usd": 0.01805,
+     "llm_calls": 3
+    },
+    {
+     "i": 1,
+     "say": "make it 10 years",
+     "response": "Over the last 10 reported years, **Infosys grew revenue faster than Wipro**.\n\n- `INFY`: **11.24% CAGR** from \u20b968,484 crore to \u20b91,78,650 crore\n- `WIPRO`: **5.87% CAGR** from \u20b955,448 crore to \u20b992,624 crore\n\nSo Infosys compounded at nearly **double** Wipro\u2019s pace over the period.",
+     "tools_called": [
+      "query_financials"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "query_financials"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 8491,
+     "latency_server_ms": 7683,
+     "input_tokens": 82419,
+     "output_tokens": 422,
+     "cost_usd": 0.016749,
+     "llm_calls": 3
+    }
+   ]
+  }
+ ]
+}

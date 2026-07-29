@@ -1,0 +1,5704 @@
+{
+  "generated_at": "2026-07-03T13:22:06.272432+00:00",
+  "base_value": 100000.0,
+  "benchmark": "^NSEI",
+  "curve_method": "average_occurrence_normalised",
+  "engine_available": true,
+  "expressions": {
+    "3080d77a-1e95-4a26-b4cb-0d032ff024bb": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 98191.95,
+          "benchmark": 99596.46
+        },
+        {
+          "t": "2",
+          "strategy": 97787.47,
+          "benchmark": 99155.87
+        },
+        {
+          "t": "3",
+          "strategy": 98476.01,
+          "benchmark": 98859.05
+        },
+        {
+          "t": "4",
+          "strategy": 98663.24,
+          "benchmark": 98902.65
+        },
+        {
+          "t": "5",
+          "strategy": 99277.62,
+          "benchmark": 99198.06
+        },
+        {
+          "t": "6",
+          "strategy": 100154.66,
+          "benchmark": 99689.69
+        },
+        {
+          "t": "7",
+          "strategy": 101267.25,
+          "benchmark": 99634.14
+        },
+        {
+          "t": "8",
+          "strategy": 101066.59,
+          "benchmark": 99309.03
+        },
+        {
+          "t": "9",
+          "strategy": 101630.13,
+          "benchmark": 99414.96
+        },
+        {
+          "t": "10",
+          "strategy": 101788.76,
+          "benchmark": 99568.55
+        },
+        {
+          "t": "11",
+          "strategy": 103216.44,
+          "benchmark": 99713.6
+        },
+        {
+          "t": "12",
+          "strategy": 103730.89,
+          "benchmark": 99335.57
+        },
+        {
+          "t": "13",
+          "strategy": 104478.83,
+          "benchmark": 99197.67
+        },
+        {
+          "t": "14",
+          "strategy": 103986.09,
+          "benchmark": 99310.68
+        },
+        {
+          "t": "15",
+          "strategy": 104514.9,
+          "benchmark": 99294.0
+        },
+        {
+          "t": "16",
+          "strategy": 105322.2,
+          "benchmark": 99453.16
+        },
+        {
+          "t": "17",
+          "strategy": 104397.49,
+          "benchmark": 99373.1
+        },
+        {
+          "t": "18",
+          "strategy": 104664.62,
+          "benchmark": 99603.53
+        },
+        {
+          "t": "19",
+          "strategy": 105057.49,
+          "benchmark": 99706.95
+        },
+        {
+          "t": "20",
+          "strategy": 105835.4,
+          "benchmark": 99497.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "REC",
+          "symbol": "RECLTD",
+          "return_pct": 5.8,
+          "position": "long",
+          "weight_pct": 37.3
+        },
+        {
+          "name": "Adani Power",
+          "symbol": "ADANIPOWER",
+          "return_pct": 6.1,
+          "position": "long",
+          "weight_pct": 13.6
+        },
+        {
+          "name": "JP Power",
+          "symbol": "JPPOWER",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 11.8
+        },
+        {
+          "name": "RVNL",
+          "symbol": "RVNL",
+          "return_pct": 7.5,
+          "position": "long",
+          "weight_pct": 12.3
+        },
+        {
+          "name": "Engineers India",
+          "symbol": "ENGINERSIN",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 25.0
+        }
+      ],
+      "risk_return_ratio": 2.6,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 8,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "TCS Q4FY22 print",
+          "date": "Apr 2022",
+          "return_pct": -12.8,
+          "benchmark_pct": -10.6,
+          "positive": false
+        },
+        {
+          "label": "Q1FY23 margins",
+          "date": "Jul 2022",
+          "return_pct": 10.3,
+          "benchmark_pct": 7.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY23 slowdown",
+          "date": "Jan 2023",
+          "return_pct": -8.4,
+          "benchmark_pct": -2.1,
+          "positive": false
+        },
+        {
+          "label": "Q4FY23 weak FY24 guide",
+          "date": "Apr 2023",
+          "return_pct": 20.8,
+          "benchmark_pct": 2.8,
+          "positive": true
+        },
+        {
+          "label": "Q1FY24 furloughs",
+          "date": "Jul 2023",
+          "return_pct": 23.6,
+          "benchmark_pct": 1.3,
+          "positive": true
+        },
+        {
+          "label": "Q2FY24 soft growth",
+          "date": "Oct 2023",
+          "return_pct": 7.4,
+          "benchmark_pct": -2.1,
+          "positive": true
+        },
+        {
+          "label": "Q4FY24 muted FY25",
+          "date": "Apr 2024",
+          "return_pct": 12.1,
+          "benchmark_pct": -1.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY25 guidance cut",
+          "date": "Jan 2025",
+          "return_pct": -6.2,
+          "benchmark_pct": 0.7,
+          "positive": false
+        }
+      ],
+      "positive_episodes": 5,
+      "exit_period": "Held ~20 trading days (about a month) after each weak-guidance print",
+      "historical_alignment": {
+        "score": 60,
+        "letter": "C"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 5,
+        "terminal_pct": [
+          -26.98,
+          -17.58,
+          -15.41,
+          -13.88,
+          -12.86,
+          -12.13,
+          -11.36,
+          -10.65,
+          -10.31,
+          -9.71,
+          -9.29,
+          -8.9,
+          -8.5,
+          -8.12,
+          -7.63,
+          -7.13,
+          -6.48,
+          -6.15,
+          -5.84,
+          -5.43,
+          -5.13,
+          -4.78,
+          -4.37,
+          -4.15,
+          -3.83,
+          -3.5,
+          -3.24,
+          -2.96,
+          -2.75,
+          -2.5,
+          -2.23,
+          -2.08,
+          -1.66,
+          -1.36,
+          -1.1,
+          -0.93,
+          -0.78,
+          -0.48,
+          -0.15,
+          0.04,
+          0.26,
+          0.56,
+          0.89,
+          1.08,
+          1.36,
+          1.62,
+          1.88,
+          2.19,
+          2.42,
+          2.6,
+          2.77,
+          3.1,
+          3.37,
+          3.58,
+          3.8,
+          4.0,
+          4.2,
+          4.38,
+          4.58,
+          4.85,
+          5.02,
+          5.25,
+          5.49,
+          5.79,
+          6.05,
+          6.41,
+          6.72,
+          6.88,
+          7.08,
+          7.31,
+          7.52,
+          7.79,
+          8.06,
+          8.3,
+          8.48,
+          8.74,
+          8.89,
+          9.11,
+          9.37,
+          9.66,
+          9.79,
+          10.04,
+          10.31,
+          10.68,
+          11.03,
+          11.26,
+          11.62,
+          11.9,
+          12.19,
+          12.53,
+          12.73,
+          13.09,
+          13.3,
+          13.65,
+          13.94,
+          14.53,
+          14.84,
+          15.17,
+          15.52,
+          16.04,
+          16.44,
+          16.87,
+          17.26,
+          17.82,
+          18.56,
+          18.99,
+          19.4,
+          19.85,
+          20.53,
+          21.1,
+          21.76,
+          22.4,
+          23.21,
+          24.12,
+          25.49,
+          27.24,
+          29.55,
+          31.79,
+          34.64,
+          46.45
+        ],
+        "p05": -11.37,
+        "p25": -2.3,
+        "median": 4.94,
+        "p75": 12.58,
+        "p95": 24.13,
+        "prob_loss": 0.325
+      },
+      "weight_scheme": "min_variance",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "basket",
+        "as_of": "2026-07-02",
+        "selection_method": "Event-conditioned backtest: per-name return measured inside each of the view's 8 historical occurrence windows (same windows as the headline strategy), over a thesis-aligned universe of 116 names.",
+        "basis": "lite_basket",
+        "min_entry_inr": 1822.0,
+        "budget_used_inr": 2000.0,
+        "legs": [
+          {
+            "symbol": "ENGINERSIN",
+            "shares": 2,
+            "price": 240.62,
+            "cost": 481.24,
+            "weight_target": 0.291,
+            "weight_actual": 0.2641,
+            "event_mean_pct": 6.64
+          },
+          {
+            "symbol": "RECLTD",
+            "shares": 1,
+            "price": 363.35,
+            "cost": 363.35,
+            "weight_target": 0.2501,
+            "weight_actual": 0.1994,
+            "event_mean_pct": 5.78
+          },
+          {
+            "symbol": "RVNL",
+            "shares": 2,
+            "price": 235.69,
+            "cost": 471.38,
+            "weight_target": 0.2042,
+            "weight_actual": 0.2587,
+            "event_mean_pct": 7.49
+          },
+          {
+            "symbol": "JPPOWER",
+            "shares": 16,
+            "price": 17.66,
+            "cost": 282.56,
+            "weight_target": 0.135,
+            "weight_actual": 0.1551,
+            "event_mean_pct": 6.61
+          },
+          {
+            "symbol": "ADANIPOWER",
+            "shares": 1,
+            "price": 223.5,
+            "cost": 223.5,
+            "weight_target": 0.1197,
+            "weight_actual": 0.1227,
+            "event_mean_pct": 6.14
+          }
+        ],
+        "dropped": [],
+        "substitutions": [],
+        "note": "A pared-down version of the same basket \u2014 5 of 5 names, whole shares only, so weights drift a little from the full strategy."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 14.82,
+        "avg_loss_pct": -9.14,
+        "max_gain_pct": 23.55,
+        "max_loss_pct": -12.77,
+        "n_gain": 5,
+        "n_loss": 3,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 5.84,
+      "avg_episode_benchmark_pct": -0.5,
+      "avg_episode_excess_pct": 6.34,
+      "pct_positive": 62.5,
+      "n_positive": 5,
+      "trust_verdict": "unproven"
+    },
+    "88f056f9-ab60-4b67-80eb-f0d4ab984d80": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 98819.61,
+          "benchmark": 99596.46
+        },
+        {
+          "t": "2",
+          "strategy": 98688.02,
+          "benchmark": 99155.87
+        },
+        {
+          "t": "3",
+          "strategy": 100027.32,
+          "benchmark": 98859.05
+        },
+        {
+          "t": "4",
+          "strategy": 100314.78,
+          "benchmark": 98902.65
+        },
+        {
+          "t": "5",
+          "strategy": 100619.8,
+          "benchmark": 99198.06
+        },
+        {
+          "t": "6",
+          "strategy": 100965.86,
+          "benchmark": 99689.69
+        },
+        {
+          "t": "7",
+          "strategy": 101880.81,
+          "benchmark": 99634.14
+        },
+        {
+          "t": "8",
+          "strategy": 101862.33,
+          "benchmark": 99309.03
+        },
+        {
+          "t": "9",
+          "strategy": 102941.12,
+          "benchmark": 99414.96
+        },
+        {
+          "t": "10",
+          "strategy": 103034.45,
+          "benchmark": 99568.55
+        },
+        {
+          "t": "11",
+          "strategy": 104234.82,
+          "benchmark": 99713.6
+        },
+        {
+          "t": "12",
+          "strategy": 104916.6,
+          "benchmark": 99335.57
+        },
+        {
+          "t": "13",
+          "strategy": 105898.5,
+          "benchmark": 99197.67
+        },
+        {
+          "t": "14",
+          "strategy": 105198.64,
+          "benchmark": 99310.68
+        },
+        {
+          "t": "15",
+          "strategy": 105467.77,
+          "benchmark": 99294.0
+        },
+        {
+          "t": "16",
+          "strategy": 106153.09,
+          "benchmark": 99453.16
+        },
+        {
+          "t": "17",
+          "strategy": 105552.69,
+          "benchmark": 99373.1
+        },
+        {
+          "t": "18",
+          "strategy": 105286.42,
+          "benchmark": 99603.53
+        },
+        {
+          "t": "19",
+          "strategy": 105553.71,
+          "benchmark": 99706.95
+        },
+        {
+          "t": "20",
+          "strategy": 106156.06,
+          "benchmark": 99497.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "REC",
+          "symbol": "RECLTD",
+          "return_pct": 5.8,
+          "position": "long",
+          "weight_pct": 28.9
+        },
+        {
+          "name": "Adani Power",
+          "symbol": "ADANIPOWER",
+          "return_pct": 6.1,
+          "position": "long",
+          "weight_pct": 31.4
+        },
+        {
+          "name": "JP Power",
+          "symbol": "JPPOWER",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 4.3
+        },
+        {
+          "name": "RVNL",
+          "symbol": "RVNL",
+          "return_pct": 7.5,
+          "position": "long",
+          "weight_pct": 1.8
+        },
+        {
+          "name": "Engineers India",
+          "symbol": "ENGINERSIN",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 33.6
+        },
+        {
+          "name": "Nifty 50",
+          "symbol": "^NSEI",
+          "return_pct": -0.5,
+          "position": "short",
+          "weight_pct": null
+        }
+      ],
+      "risk_return_ratio": 4.7,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 8,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "TCS Q4FY22 print",
+          "date": "Apr 2022",
+          "return_pct": 1.7,
+          "benchmark_pct": -10.6,
+          "positive": true
+        },
+        {
+          "label": "Q1FY23 margins",
+          "date": "Jul 2022",
+          "return_pct": 5.5,
+          "benchmark_pct": 7.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY23 slowdown",
+          "date": "Jan 2023",
+          "return_pct": -13.9,
+          "benchmark_pct": -2.1,
+          "positive": false
+        },
+        {
+          "label": "Q4FY23 weak FY24 guide",
+          "date": "Apr 2023",
+          "return_pct": 17.8,
+          "benchmark_pct": 2.8,
+          "positive": true
+        },
+        {
+          "label": "Q1FY24 furloughs",
+          "date": "Jul 2023",
+          "return_pct": 21.9,
+          "benchmark_pct": 1.3,
+          "positive": true
+        },
+        {
+          "label": "Q2FY24 soft growth",
+          "date": "Oct 2023",
+          "return_pct": 8.1,
+          "benchmark_pct": -2.1,
+          "positive": true
+        },
+        {
+          "label": "Q4FY24 muted FY25",
+          "date": "Apr 2024",
+          "return_pct": 13.2,
+          "benchmark_pct": -1.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY25 guidance cut",
+          "date": "Jan 2025",
+          "return_pct": -5.1,
+          "benchmark_pct": 0.7,
+          "positive": false
+        }
+      ],
+      "positive_episodes": 6,
+      "exit_period": "Held ~20 trading days (about a month) after each weak-guidance print",
+      "historical_alignment": {
+        "score": 78,
+        "letter": "B"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 5,
+        "terminal_pct": [
+          -24.3,
+          -15.07,
+          -13.7,
+          -12.68,
+          -11.46,
+          -10.42,
+          -9.82,
+          -9.14,
+          -8.68,
+          -8.18,
+          -7.38,
+          -6.95,
+          -6.45,
+          -6.12,
+          -5.84,
+          -5.55,
+          -5.13,
+          -4.75,
+          -4.42,
+          -4.02,
+          -3.64,
+          -3.32,
+          -3.1,
+          -2.82,
+          -2.43,
+          -2.17,
+          -1.78,
+          -1.51,
+          -1.25,
+          -1.05,
+          -0.8,
+          -0.51,
+          -0.27,
+          0.04,
+          0.25,
+          0.47,
+          0.77,
+          1.11,
+          1.24,
+          1.49,
+          1.76,
+          2.0,
+          2.2,
+          2.38,
+          2.66,
+          2.84,
+          3.05,
+          3.27,
+          3.45,
+          3.67,
+          3.82,
+          4.11,
+          4.3,
+          4.48,
+          4.65,
+          4.81,
+          4.92,
+          5.15,
+          5.36,
+          5.57,
+          5.8,
+          6.01,
+          6.13,
+          6.35,
+          6.53,
+          6.71,
+          6.92,
+          7.12,
+          7.35,
+          7.53,
+          7.67,
+          7.9,
+          8.08,
+          8.2,
+          8.43,
+          8.73,
+          8.89,
+          9.05,
+          9.29,
+          9.49,
+          9.71,
+          9.96,
+          10.19,
+          10.34,
+          10.61,
+          10.81,
+          11.03,
+          11.29,
+          11.6,
+          11.88,
+          12.15,
+          12.48,
+          12.72,
+          13.17,
+          13.47,
+          13.8,
+          14.05,
+          14.34,
+          14.69,
+          15.06,
+          15.38,
+          15.6,
+          15.99,
+          16.34,
+          16.8,
+          17.17,
+          17.56,
+          18.27,
+          18.85,
+          19.35,
+          19.86,
+          20.66,
+          21.49,
+          22.58,
+          23.53,
+          24.38,
+          25.7,
+          28.31,
+          32.47,
+          43.6
+        ],
+        "p05": -9.87,
+        "p25": -0.87,
+        "median": 5.7,
+        "p75": 11.9,
+        "p95": 22.65,
+        "prob_loss": 0.275
+      },
+      "weight_scheme": "factor",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "hedge",
+        "as_of": "2026-07-02",
+        "selection_method": "Event-conditioned backtest: per-name return measured inside each of the view's 8 historical occurrence windows (same windows as the headline strategy), over a thesis-aligned universe of 116 names.",
+        "basis": "lite_basket",
+        "min_entry_inr": 1862.0,
+        "budget_used_inr": 2000.0,
+        "legs": [
+          {
+            "symbol": "ENGINERSIN",
+            "shares": 3,
+            "price": 240.62,
+            "cost": 721.86,
+            "weight_target": 0.4163,
+            "weight_actual": 0.3877,
+            "event_mean_pct": 6.64
+          },
+          {
+            "symbol": "ADANIPOWER",
+            "shares": 3,
+            "price": 223.5,
+            "cost": 670.5,
+            "weight_target": 0.2926,
+            "weight_actual": 0.3602,
+            "event_mean_pct": 6.14
+          },
+          {
+            "symbol": "RECLTD",
+            "shares": 1,
+            "price": 363.35,
+            "cost": 363.35,
+            "weight_target": 0.2062,
+            "weight_actual": 0.1952,
+            "event_mean_pct": 5.78
+          },
+          {
+            "symbol": "JPPOWER",
+            "shares": 6,
+            "price": 17.66,
+            "cost": 105.96,
+            "weight_target": 0.0526,
+            "weight_actual": 0.0569,
+            "event_mean_pct": 6.61
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "RVNL",
+            "reason": "weight too small to buy one share at \u20b9236"
+          }
+        ],
+        "substitutions": [],
+        "note": "A pared-down version of the same basket \u2014 4 of 5 names, whole shares only, so weights drift a little from the full strategy. Note: the index-hedge short leg needs margin at your broker \u2014 at a small ticket you hold the long side without the hedge (more market risk)."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.38,
+        "avg_loss_pct": -9.52,
+        "max_gain_pct": 21.95,
+        "max_loss_pct": -13.93,
+        "n_gain": 6,
+        "n_loss": 2,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 6.15,
+      "avg_episode_benchmark_pct": -0.5,
+      "avg_episode_excess_pct": 6.66,
+      "pct_positive": 75.0,
+      "n_positive": 6,
+      "trust_verdict": "promising"
+    },
+    "ab89395e-2ec9-4475-b694-26d679714c50": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 99140.48,
+          "benchmark": 99596.46
+        },
+        {
+          "t": "2",
+          "strategy": 99291.95,
+          "benchmark": 99155.87
+        },
+        {
+          "t": "3",
+          "strategy": 100289.43,
+          "benchmark": 98859.05
+        },
+        {
+          "t": "4",
+          "strategy": 100987.23,
+          "benchmark": 98902.65
+        },
+        {
+          "t": "5",
+          "strategy": 101689.17,
+          "benchmark": 99198.06
+        },
+        {
+          "t": "6",
+          "strategy": 102161.61,
+          "benchmark": 99689.69
+        },
+        {
+          "t": "7",
+          "strategy": 103336.33,
+          "benchmark": 99634.14
+        },
+        {
+          "t": "8",
+          "strategy": 103660.31,
+          "benchmark": 99309.03
+        },
+        {
+          "t": "9",
+          "strategy": 103898.28,
+          "benchmark": 99414.96
+        },
+        {
+          "t": "10",
+          "strategy": 103145.71,
+          "benchmark": 99568.55
+        },
+        {
+          "t": "11",
+          "strategy": 104112.76,
+          "benchmark": 99713.6
+        },
+        {
+          "t": "12",
+          "strategy": 105300.16,
+          "benchmark": 99335.57
+        },
+        {
+          "t": "13",
+          "strategy": 106494.63,
+          "benchmark": 99197.67
+        },
+        {
+          "t": "14",
+          "strategy": 105339.49,
+          "benchmark": 99310.68
+        },
+        {
+          "t": "15",
+          "strategy": 105633.33,
+          "benchmark": 99294.0
+        },
+        {
+          "t": "16",
+          "strategy": 106605.29,
+          "benchmark": 99453.16
+        },
+        {
+          "t": "17",
+          "strategy": 105705.18,
+          "benchmark": 99373.1
+        },
+        {
+          "t": "18",
+          "strategy": 105956.12,
+          "benchmark": 99603.53
+        },
+        {
+          "t": "19",
+          "strategy": 106087.41,
+          "benchmark": 99706.95
+        },
+        {
+          "t": "20",
+          "strategy": 106230.8,
+          "benchmark": 99497.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "REC",
+          "symbol": "RECLTD",
+          "return_pct": 5.8,
+          "position": "long",
+          "weight_pct": 31.4
+        },
+        {
+          "name": "Adani Power",
+          "symbol": "ADANIPOWER",
+          "return_pct": 6.1,
+          "position": "long",
+          "weight_pct": 19.1
+        },
+        {
+          "name": "JP Power",
+          "symbol": "JPPOWER",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 16.2
+        },
+        {
+          "name": "RVNL",
+          "symbol": "RVNL",
+          "return_pct": 7.5,
+          "position": "long",
+          "weight_pct": 16.4
+        },
+        {
+          "name": "Engineers India",
+          "symbol": "ENGINERSIN",
+          "return_pct": 6.6,
+          "position": "long",
+          "weight_pct": 17.0
+        },
+        {
+          "name": "IT sector (short)",
+          "symbol": null,
+          "return_pct": null,
+          "position": "short",
+          "weight_pct": null
+        }
+      ],
+      "risk_return_ratio": 5.7,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 8,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "TCS Q4FY22 print",
+          "date": "Apr 2022",
+          "return_pct": 8.6,
+          "benchmark_pct": -10.6,
+          "positive": true
+        },
+        {
+          "label": "Q1FY23 margins",
+          "date": "Jul 2022",
+          "return_pct": 5.8,
+          "benchmark_pct": 7.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY23 slowdown",
+          "date": "Jan 2023",
+          "return_pct": -15.4,
+          "benchmark_pct": -2.1,
+          "positive": false
+        },
+        {
+          "label": "Q4FY23 weak FY24 guide",
+          "date": "Apr 2023",
+          "return_pct": 15.2,
+          "benchmark_pct": 2.8,
+          "positive": true
+        },
+        {
+          "label": "Q1FY24 furloughs",
+          "date": "Jul 2023",
+          "return_pct": 9.4,
+          "benchmark_pct": 1.3,
+          "positive": true
+        },
+        {
+          "label": "Q2FY24 soft growth",
+          "date": "Oct 2023",
+          "return_pct": 10.4,
+          "benchmark_pct": -2.1,
+          "positive": true
+        },
+        {
+          "label": "Q4FY24 muted FY25",
+          "date": "Apr 2024",
+          "return_pct": 17.0,
+          "benchmark_pct": -1.3,
+          "positive": true
+        },
+        {
+          "label": "Q3FY25 guidance cut",
+          "date": "Jan 2025",
+          "return_pct": -1.2,
+          "benchmark_pct": 0.7,
+          "positive": false
+        }
+      ],
+      "positive_episodes": 6,
+      "exit_period": "Held ~20 trading days (about a month) after each weak-guidance print",
+      "historical_alignment": {
+        "score": 78,
+        "letter": "B"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 5,
+        "terminal_pct": [
+          -20.4,
+          -15.07,
+          -12.94,
+          -12.25,
+          -11.31,
+          -10.45,
+          -9.7,
+          -9.27,
+          -8.7,
+          -8.25,
+          -7.81,
+          -7.15,
+          -6.51,
+          -6.05,
+          -5.7,
+          -5.45,
+          -5.07,
+          -4.6,
+          -4.32,
+          -4.0,
+          -3.68,
+          -3.45,
+          -3.14,
+          -2.88,
+          -2.65,
+          -2.27,
+          -1.99,
+          -1.73,
+          -1.47,
+          -1.29,
+          -0.98,
+          -0.82,
+          -0.6,
+          -0.34,
+          0.03,
+          0.37,
+          0.64,
+          0.78,
+          1.03,
+          1.2,
+          1.6,
+          1.83,
+          1.94,
+          2.07,
+          2.24,
+          2.52,
+          2.73,
+          2.96,
+          3.18,
+          3.47,
+          3.61,
+          3.84,
+          3.98,
+          4.23,
+          4.51,
+          4.76,
+          4.99,
+          5.18,
+          5.46,
+          5.71,
+          6.03,
+          6.25,
+          6.36,
+          6.59,
+          6.82,
+          7.0,
+          7.27,
+          7.44,
+          7.63,
+          7.82,
+          8.1,
+          8.34,
+          8.52,
+          8.72,
+          8.97,
+          9.28,
+          9.54,
+          9.7,
+          9.95,
+          10.14,
+          10.39,
+          10.69,
+          10.98,
+          11.2,
+          11.44,
+          11.72,
+          11.91,
+          12.08,
+          12.4,
+          12.69,
+          12.97,
+          13.2,
+          13.49,
+          13.75,
+          14.06,
+          14.51,
+          14.96,
+          15.22,
+          15.47,
+          15.75,
+          16.19,
+          16.57,
+          17.04,
+          17.38,
+          17.76,
+          18.24,
+          18.75,
+          19.03,
+          19.7,
+          20.09,
+          20.76,
+          21.12,
+          21.73,
+          22.47,
+          23.57,
+          24.51,
+          25.66,
+          27.65,
+          30.78,
+          38.05
+        ],
+        "p05": -9.76,
+        "p25": -1.07,
+        "median": 5.88,
+        "p75": 12.74,
+        "p95": 22.51,
+        "prob_loss": 0.2845
+      },
+      "weight_scheme": "risk_parity",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "pair",
+        "as_of": null,
+        "basis": "margin_required",
+        "min_entry_inr": null,
+        "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.07,
+        "avg_loss_pct": -8.29,
+        "max_gain_pct": 17.0,
+        "max_loss_pct": -15.41,
+        "n_gain": 6,
+        "n_loss": 2,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 6.23,
+      "avg_episode_benchmark_pct": -0.5,
+      "avg_episode_excess_pct": 6.73,
+      "pct_positive": 75.0,
+      "n_positive": 6,
+      "trust_verdict": "promising"
+    },
+    "53133f60-1885-4653-924b-1b2e9d2442ae": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 100535.43,
+          "benchmark": 100186.89
+        },
+        {
+          "t": "2",
+          "strategy": 101521.21,
+          "benchmark": 100677.15
+        },
+        {
+          "t": "3",
+          "strategy": 101313.27,
+          "benchmark": 100783.29
+        },
+        {
+          "t": "4",
+          "strategy": 101294.43,
+          "benchmark": 100654.85
+        },
+        {
+          "t": "5",
+          "strategy": 101412.86,
+          "benchmark": 100363.43
+        },
+        {
+          "t": "6",
+          "strategy": 101309.77,
+          "benchmark": 100078.61
+        },
+        {
+          "t": "7",
+          "strategy": 101742.85,
+          "benchmark": 100322.31
+        },
+        {
+          "t": "8",
+          "strategy": 101578.44,
+          "benchmark": 100434.11
+        },
+        {
+          "t": "9",
+          "strategy": 102206.59,
+          "benchmark": 100872.39
+        },
+        {
+          "t": "10",
+          "strategy": 102954.97,
+          "benchmark": 101128.94
+        },
+        {
+          "t": "11",
+          "strategy": 102935.79,
+          "benchmark": 100840.41
+        },
+        {
+          "t": "12",
+          "strategy": 103093.7,
+          "benchmark": 100743.08
+        },
+        {
+          "t": "13",
+          "strategy": 103238.09,
+          "benchmark": 100445.91
+        },
+        {
+          "t": "14",
+          "strategy": 103566.02,
+          "benchmark": 100857.46
+        },
+        {
+          "t": "15",
+          "strategy": 103137.68,
+          "benchmark": 100728.28
+        },
+        {
+          "t": "16",
+          "strategy": 103586.92,
+          "benchmark": 100891.42
+        },
+        {
+          "t": "17",
+          "strategy": 104154.0,
+          "benchmark": 101139.67
+        },
+        {
+          "t": "18",
+          "strategy": 103952.13,
+          "benchmark": 101199.03
+        },
+        {
+          "t": "19",
+          "strategy": 104464.08,
+          "benchmark": 101779.11
+        },
+        {
+          "t": "20",
+          "strategy": 105226.92,
+          "benchmark": 101598.75
+        },
+        {
+          "t": "21",
+          "strategy": 106361.44,
+          "benchmark": 102261.23
+        },
+        {
+          "t": "22",
+          "strategy": 106947.47,
+          "benchmark": 102216.35
+        },
+        {
+          "t": "23",
+          "strategy": 107125.33,
+          "benchmark": 102210.28
+        },
+        {
+          "t": "24",
+          "strategy": 107039.4,
+          "benchmark": 102415.29
+        },
+        {
+          "t": "25",
+          "strategy": 107180.9,
+          "benchmark": 102664.94
+        },
+        {
+          "t": "26",
+          "strategy": 107760.21,
+          "benchmark": 102488.86
+        },
+        {
+          "t": "27",
+          "strategy": 108445.64,
+          "benchmark": 103164.31
+        },
+        {
+          "t": "28",
+          "strategy": 108474.27,
+          "benchmark": 103341.79
+        },
+        {
+          "t": "29",
+          "strategy": 108530.52,
+          "benchmark": 103367.78
+        },
+        {
+          "t": "30",
+          "strategy": 108552.12,
+          "benchmark": 103143.39
+        },
+        {
+          "t": "31",
+          "strategy": 108368.59,
+          "benchmark": 103620.72
+        },
+        {
+          "t": "32",
+          "strategy": 108626.29,
+          "benchmark": 103578.29
+        },
+        {
+          "t": "33",
+          "strategy": 108468.55,
+          "benchmark": 103648.08
+        },
+        {
+          "t": "34",
+          "strategy": 108019.48,
+          "benchmark": 103607.23
+        },
+        {
+          "t": "35",
+          "strategy": 108186.92,
+          "benchmark": 103558.02
+        },
+        {
+          "t": "36",
+          "strategy": 108155.44,
+          "benchmark": 103209.52
+        },
+        {
+          "t": "37",
+          "strategy": 108174.48,
+          "benchmark": 103611.58
+        },
+        {
+          "t": "38",
+          "strategy": 108455.12,
+          "benchmark": 104313.09
+        },
+        {
+          "t": "39",
+          "strategy": 108049.24,
+          "benchmark": 104302.26
+        },
+        {
+          "t": "40",
+          "strategy": 107609.92,
+          "benchmark": 103966.59
+        },
+        {
+          "t": "41",
+          "strategy": 107352.44,
+          "benchmark": 103657.85
+        },
+        {
+          "t": "42",
+          "strategy": 107115.96,
+          "benchmark": 103538.44
+        },
+        {
+          "t": "43",
+          "strategy": 107466.32,
+          "benchmark": 103222.93
+        },
+        {
+          "t": "44",
+          "strategy": 108123.71,
+          "benchmark": 103727.09
+        },
+        {
+          "t": "45",
+          "strategy": 108280.72,
+          "benchmark": 103806.52
+        },
+        {
+          "t": "46",
+          "strategy": 108413.32,
+          "benchmark": 103901.22
+        },
+        {
+          "t": "47",
+          "strategy": 109039.3,
+          "benchmark": 103868.65
+        },
+        {
+          "t": "48",
+          "strategy": 109142.37,
+          "benchmark": 103605.08
+        },
+        {
+          "t": "49",
+          "strategy": 108897.51,
+          "benchmark": 103343.78
+        },
+        {
+          "t": "50",
+          "strategy": 108475.45,
+          "benchmark": 102747.01
+        },
+        {
+          "t": "51",
+          "strategy": 108538.15,
+          "benchmark": 102478.31
+        },
+        {
+          "t": "52",
+          "strategy": 108956.49,
+          "benchmark": 102725.19
+        },
+        {
+          "t": "53",
+          "strategy": 108982.78,
+          "benchmark": 102969.35
+        },
+        {
+          "t": "54",
+          "strategy": 108806.83,
+          "benchmark": 102822.06
+        },
+        {
+          "t": "55",
+          "strategy": 108929.99,
+          "benchmark": 102790.3
+        },
+        {
+          "t": "56",
+          "strategy": 109740.09,
+          "benchmark": 103178.09
+        },
+        {
+          "t": "57",
+          "strategy": 109921.25,
+          "benchmark": 102870.97
+        },
+        {
+          "t": "58",
+          "strategy": 110328.82,
+          "benchmark": 102330.12
+        },
+        {
+          "t": "59",
+          "strategy": 110579.3,
+          "benchmark": 102736.65
+        },
+        {
+          "t": "60",
+          "strategy": 110513.77,
+          "benchmark": 102871.86
+        },
+        {
+          "t": "61",
+          "strategy": 110323.7,
+          "benchmark": 102259.18
+        },
+        {
+          "t": "62",
+          "strategy": 110169.24,
+          "benchmark": 102076.7
+        },
+        {
+          "t": "63",
+          "strategy": 109925.61,
+          "benchmark": 101647.76
+        },
+        {
+          "t": "64",
+          "strategy": 110441.7,
+          "benchmark": 103160.44
+        },
+        {
+          "t": "65",
+          "strategy": 111467.36,
+          "benchmark": 103884.42
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Britannia",
+          "symbol": "BRITANNIA",
+          "return_pct": 20.8,
+          "position": "long",
+          "weight_pct": 19.5
+        },
+        {
+          "name": "MRF",
+          "symbol": "MRF",
+          "return_pct": 2.5,
+          "position": "long",
+          "weight_pct": 18.8
+        },
+        {
+          "name": "Marico",
+          "symbol": "MARICO",
+          "return_pct": 12.7,
+          "position": "long",
+          "weight_pct": 21.2
+        },
+        {
+          "name": "Apollo Tyres",
+          "symbol": "APOLLOTYRE",
+          "return_pct": 1.5,
+          "position": "long",
+          "weight_pct": 2.1
+        },
+        {
+          "name": "Godrej Consumer",
+          "symbol": "GODREJCP",
+          "return_pct": 11.8,
+          "position": "long",
+          "weight_pct": 11.2
+        },
+        {
+          "name": "HUL",
+          "symbol": "HINDUNILVR",
+          "return_pct": 10.9,
+          "position": "long",
+          "weight_pct": 27.2
+        }
+      ],
+      "risk_return_ratio": 8.2,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 4,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "2010 monsoon",
+          "date": "Jun\u2013Aug 2010",
+          "return_pct": 15.4,
+          "benchmark_pct": 8.7,
+          "positive": true
+        },
+        {
+          "label": "2011 monsoon",
+          "date": "Jun\u2013Aug 2011",
+          "return_pct": 4.4,
+          "benchmark_pct": -10.6,
+          "positive": true
+        },
+        {
+          "label": "2016 monsoon",
+          "date": "Jun\u2013Aug 2016",
+          "return_pct": 13.7,
+          "benchmark_pct": 7.4,
+          "positive": true
+        },
+        {
+          "label": "2021 monsoon",
+          "date": "Jun\u2013Aug 2021",
+          "return_pct": 12.4,
+          "benchmark_pct": 10.0,
+          "positive": true
+        }
+      ],
+      "positive_episodes": 4,
+      "exit_period": "Held through the Jun\u2013Aug monsoon window (~3 months) each year",
+      "historical_alignment": null,
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 6,
+        "terminal_pct": [
+          -11.0,
+          -5.26,
+          -3.84,
+          -2.99,
+          -2.06,
+          -1.37,
+          -0.83,
+          -0.21,
+          0.27,
+          0.65,
+          1.01,
+          1.34,
+          1.69,
+          2.06,
+          2.36,
+          2.52,
+          2.86,
+          3.16,
+          3.46,
+          3.68,
+          3.91,
+          4.13,
+          4.42,
+          4.59,
+          4.95,
+          5.17,
+          5.38,
+          5.57,
+          5.73,
+          5.92,
+          6.17,
+          6.36,
+          6.58,
+          6.81,
+          6.98,
+          7.15,
+          7.34,
+          7.6,
+          7.78,
+          7.95,
+          8.12,
+          8.26,
+          8.47,
+          8.58,
+          8.71,
+          8.94,
+          9.14,
+          9.29,
+          9.43,
+          9.53,
+          9.73,
+          9.86,
+          10.02,
+          10.18,
+          10.34,
+          10.61,
+          10.83,
+          11.03,
+          11.16,
+          11.26,
+          11.42,
+          11.57,
+          11.65,
+          11.8,
+          11.92,
+          12.11,
+          12.34,
+          12.45,
+          12.64,
+          12.87,
+          13.03,
+          13.2,
+          13.31,
+          13.56,
+          13.78,
+          13.98,
+          14.18,
+          14.34,
+          14.52,
+          14.71,
+          14.98,
+          15.14,
+          15.38,
+          15.6,
+          15.79,
+          16.0,
+          16.22,
+          16.32,
+          16.6,
+          16.75,
+          17.05,
+          17.37,
+          17.55,
+          17.71,
+          17.9,
+          18.35,
+          18.56,
+          18.73,
+          18.85,
+          19.19,
+          19.56,
+          19.76,
+          19.96,
+          20.38,
+          20.93,
+          21.33,
+          21.97,
+          22.39,
+          22.86,
+          23.22,
+          23.66,
+          24.17,
+          24.95,
+          25.52,
+          26.25,
+          27.12,
+          28.53,
+          30.81,
+          33.97,
+          41.91
+        ],
+        "p05": -0.97,
+        "p25": 6.12,
+        "median": 11.31,
+        "p75": 16.84,
+        "p95": 25.54,
+        "prob_loss": 0.0615
+      },
+      "weight_scheme": "min_variance",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "basket",
+        "as_of": "2026-07-02",
+        "selection_method": "Event-conditioned backtest: per-name return measured inside each of the view's 4 historical occurrence windows (same windows as the headline strategy), over a thesis-aligned universe of 86 names.",
+        "basis": "lite_basket",
+        "min_entry_inr": 3473.0,
+        "budget_used_inr": 3500.0,
+        "legs": [
+          {
+            "symbol": "JISLJALEQS",
+            "shares": 34,
+            "price": 35.11,
+            "cost": 1193.74,
+            "weight_target": 0.3362,
+            "weight_actual": 0.3437,
+            "event_mean_pct": 24.89,
+            "substitute": true
+          },
+          {
+            "symbol": "MARICO",
+            "shares": 1,
+            "price": 837.9,
+            "cost": 837.9,
+            "weight_target": 0.241,
+            "weight_actual": 0.2412,
+            "event_mean_pct": 12.68
+          },
+          {
+            "symbol": "GODREJCP",
+            "shares": 1,
+            "price": 1011.7,
+            "cost": 1011.7,
+            "weight_target": 0.1227,
+            "weight_actual": 0.2913,
+            "event_mean_pct": 11.81
+          },
+          {
+            "symbol": "APOLLOTYRE",
+            "shares": 1,
+            "price": 430.1,
+            "cost": 430.1,
+            "weight_target": 0.013,
+            "weight_actual": 0.1238,
+            "event_mean_pct": 1.54
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "SCHAEFFLER",
+            "reason": "one share \u2248 \u20b94,189 exceeds the \u20b93,500 ticket"
+          },
+          {
+            "symbol": "HINDUNILVR",
+            "reason": "weight too small to buy one share at \u20b92,121"
+          }
+        ],
+        "substitutions": [
+          {
+            "in": "JISLJALEQS",
+            "out": "BRITANNIA",
+            "reason": "one share \u2248 \u20b95,156 exceeds even the \u20b95,000 ceiling",
+            "in_mean_episode_pct": 24.89,
+            "in_n_episodes": 4
+          },
+          {
+            "in": "SCHAEFFLER",
+            "out": "MRF",
+            "reason": "one share \u2248 \u20b9127,900 exceeds even the \u20b95,000 ceiling",
+            "in_mean_episode_pct": 24.13,
+            "in_n_episodes": 4
+          }
+        ],
+        "note": "A pared-down version of the same basket \u2014 4 of 6 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: JISLJALEQS (for BRITANNIA), SCHAEFFLER (for MRF).",
+        "etf_alternative": {
+          "symbol": "CONSUMBEES",
+          "units": 7,
+          "price": 130.58,
+          "cost": 914.06,
+          "tracks": "Nifty India Consumption",
+          "as_of": "2026-07-02"
+        }
+      },
+      "gain_loss": {
+        "avg_gain_pct": 11.47,
+        "avg_loss_pct": null,
+        "max_gain_pct": 15.38,
+        "max_loss_pct": 4.4,
+        "n_gain": 4,
+        "n_loss": 0,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 11.47,
+      "avg_episode_benchmark_pct": 3.88,
+      "avg_episode_excess_pct": 7.58,
+      "pct_positive": 100.0,
+      "n_positive": 4,
+      "trust_verdict": "insufficient_data"
+    },
+    "ad89abe0-0f1e-46cd-a820-a5b3e396a24c": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 100900.67,
+          "benchmark": 100186.89
+        },
+        {
+          "t": "2",
+          "strategy": 101844.91,
+          "benchmark": 100677.15
+        },
+        {
+          "t": "3",
+          "strategy": 102096.75,
+          "benchmark": 100783.29
+        },
+        {
+          "t": "4",
+          "strategy": 102329.14,
+          "benchmark": 100654.85
+        },
+        {
+          "t": "5",
+          "strategy": 102399.92,
+          "benchmark": 100363.43
+        },
+        {
+          "t": "6",
+          "strategy": 102526.07,
+          "benchmark": 100078.61
+        },
+        {
+          "t": "7",
+          "strategy": 102301.85,
+          "benchmark": 100322.31
+        },
+        {
+          "t": "8",
+          "strategy": 102397.66,
+          "benchmark": 100434.11
+        },
+        {
+          "t": "9",
+          "strategy": 103689.15,
+          "benchmark": 100872.39
+        },
+        {
+          "t": "10",
+          "strategy": 104312.3,
+          "benchmark": 101128.94
+        },
+        {
+          "t": "11",
+          "strategy": 105115.99,
+          "benchmark": 100840.41
+        },
+        {
+          "t": "12",
+          "strategy": 105084.36,
+          "benchmark": 100743.08
+        },
+        {
+          "t": "13",
+          "strategy": 105209.63,
+          "benchmark": 100445.91
+        },
+        {
+          "t": "14",
+          "strategy": 105059.25,
+          "benchmark": 100857.46
+        },
+        {
+          "t": "15",
+          "strategy": 104709.84,
+          "benchmark": 100728.28
+        },
+        {
+          "t": "16",
+          "strategy": 104576.28,
+          "benchmark": 100891.42
+        },
+        {
+          "t": "17",
+          "strategy": 105171.82,
+          "benchmark": 101139.67
+        },
+        {
+          "t": "18",
+          "strategy": 105616.06,
+          "benchmark": 101199.03
+        },
+        {
+          "t": "19",
+          "strategy": 105958.24,
+          "benchmark": 101779.11
+        },
+        {
+          "t": "20",
+          "strategy": 106647.21,
+          "benchmark": 101598.75
+        },
+        {
+          "t": "21",
+          "strategy": 106973.19,
+          "benchmark": 102261.23
+        },
+        {
+          "t": "22",
+          "strategy": 107383.9,
+          "benchmark": 102216.35
+        },
+        {
+          "t": "23",
+          "strategy": 107666.39,
+          "benchmark": 102210.28
+        },
+        {
+          "t": "24",
+          "strategy": 107494.44,
+          "benchmark": 102415.29
+        },
+        {
+          "t": "25",
+          "strategy": 107232.17,
+          "benchmark": 102664.94
+        },
+        {
+          "t": "26",
+          "strategy": 107904.67,
+          "benchmark": 102488.86
+        },
+        {
+          "t": "27",
+          "strategy": 107542.84,
+          "benchmark": 103164.31
+        },
+        {
+          "t": "28",
+          "strategy": 107357.94,
+          "benchmark": 103341.79
+        },
+        {
+          "t": "29",
+          "strategy": 107491.84,
+          "benchmark": 103367.78
+        },
+        {
+          "t": "30",
+          "strategy": 107458.83,
+          "benchmark": 103143.39
+        },
+        {
+          "t": "31",
+          "strategy": 107916.1,
+          "benchmark": 103620.72
+        },
+        {
+          "t": "32",
+          "strategy": 107737.23,
+          "benchmark": 103578.29
+        },
+        {
+          "t": "33",
+          "strategy": 107543.39,
+          "benchmark": 103648.08
+        },
+        {
+          "t": "34",
+          "strategy": 106941.52,
+          "benchmark": 103607.23
+        },
+        {
+          "t": "35",
+          "strategy": 107041.45,
+          "benchmark": 103558.02
+        },
+        {
+          "t": "36",
+          "strategy": 106933.3,
+          "benchmark": 103209.52
+        },
+        {
+          "t": "37",
+          "strategy": 108016.06,
+          "benchmark": 103611.58
+        },
+        {
+          "t": "38",
+          "strategy": 108730.5,
+          "benchmark": 104313.09
+        },
+        {
+          "t": "39",
+          "strategy": 108316.74,
+          "benchmark": 104302.26
+        },
+        {
+          "t": "40",
+          "strategy": 107655.38,
+          "benchmark": 103966.59
+        },
+        {
+          "t": "41",
+          "strategy": 107288.82,
+          "benchmark": 103657.85
+        },
+        {
+          "t": "42",
+          "strategy": 107740.51,
+          "benchmark": 103538.44
+        },
+        {
+          "t": "43",
+          "strategy": 109324.73,
+          "benchmark": 103222.93
+        },
+        {
+          "t": "44",
+          "strategy": 111376.6,
+          "benchmark": 103727.09
+        },
+        {
+          "t": "45",
+          "strategy": 112047.04,
+          "benchmark": 103806.52
+        },
+        {
+          "t": "46",
+          "strategy": 113168.77,
+          "benchmark": 103901.22
+        },
+        {
+          "t": "47",
+          "strategy": 115355.39,
+          "benchmark": 103868.65
+        },
+        {
+          "t": "48",
+          "strategy": 116192.83,
+          "benchmark": 103605.08
+        },
+        {
+          "t": "49",
+          "strategy": 115243.43,
+          "benchmark": 103343.78
+        },
+        {
+          "t": "50",
+          "strategy": 113711.02,
+          "benchmark": 102747.01
+        },
+        {
+          "t": "51",
+          "strategy": 114393.31,
+          "benchmark": 102478.31
+        },
+        {
+          "t": "52",
+          "strategy": 115288.64,
+          "benchmark": 102725.19
+        },
+        {
+          "t": "53",
+          "strategy": 115422.36,
+          "benchmark": 102969.35
+        },
+        {
+          "t": "54",
+          "strategy": 114919.94,
+          "benchmark": 102822.06
+        },
+        {
+          "t": "55",
+          "strategy": 115188.33,
+          "benchmark": 102790.3
+        },
+        {
+          "t": "56",
+          "strategy": 115478.2,
+          "benchmark": 103178.09
+        },
+        {
+          "t": "57",
+          "strategy": 115906.62,
+          "benchmark": 102870.97
+        },
+        {
+          "t": "58",
+          "strategy": 116964.48,
+          "benchmark": 102330.12
+        },
+        {
+          "t": "59",
+          "strategy": 116709.13,
+          "benchmark": 102736.65
+        },
+        {
+          "t": "60",
+          "strategy": 117150.08,
+          "benchmark": 102871.86
+        },
+        {
+          "t": "61",
+          "strategy": 117924.35,
+          "benchmark": 102259.18
+        },
+        {
+          "t": "62",
+          "strategy": 118300.29,
+          "benchmark": 102076.7
+        },
+        {
+          "t": "63",
+          "strategy": 117917.71,
+          "benchmark": 101647.76
+        },
+        {
+          "t": "64",
+          "strategy": 118610.39,
+          "benchmark": 103160.44
+        },
+        {
+          "t": "65",
+          "strategy": 120373.34,
+          "benchmark": 103884.42
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Buy CE (ATM)",
+          "symbol": "BRITANNIA",
+          "return_pct": null,
+          "position": "long",
+          "weight_pct": null
+        },
+        {
+          "name": "Sell CE (+4%)",
+          "symbol": "BRITANNIA",
+          "return_pct": null,
+          "position": "short",
+          "weight_pct": null
+        }
+      ],
+      "risk_return_ratio": 9.5,
+      "underlying_symbol": "Britannia",
+      "curve_basis": "underlying",
+      "n_episodes": 4,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "2010 monsoon",
+          "date": "Jun\u2013Aug 2010",
+          "return_pct": 23.1,
+          "benchmark_pct": 8.7,
+          "positive": true
+        },
+        {
+          "label": "2011 monsoon",
+          "date": "Jun\u2013Aug 2011",
+          "return_pct": 17.3,
+          "benchmark_pct": -10.6,
+          "positive": true
+        },
+        {
+          "label": "2016 monsoon",
+          "date": "Jun\u2013Aug 2016",
+          "return_pct": 25.6,
+          "benchmark_pct": 7.4,
+          "positive": true
+        },
+        {
+          "label": "2021 monsoon",
+          "date": "Jun\u2013Aug 2021",
+          "return_pct": 15.6,
+          "benchmark_pct": 10.0,
+          "positive": true
+        }
+      ],
+      "positive_episodes": 4,
+      "exit_period": "Held through the Jun\u2013Aug monsoon window (~3 months) each year",
+      "historical_alignment": null,
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 6,
+        "terminal_pct": [
+          -18.15,
+          -9.35,
+          -5.43,
+          -4.31,
+          -2.95,
+          -1.93,
+          -0.81,
+          -0.12,
+          0.53,
+          0.97,
+          1.72,
+          2.3,
+          3.09,
+          3.46,
+          4.04,
+          4.53,
+          4.8,
+          5.24,
+          5.71,
+          6.14,
+          6.55,
+          6.97,
+          7.36,
+          7.82,
+          8.12,
+          8.41,
+          8.82,
+          9.17,
+          9.49,
+          9.92,
+          10.23,
+          10.48,
+          10.8,
+          11.16,
+          11.5,
+          11.78,
+          12.01,
+          12.37,
+          12.63,
+          13.05,
+          13.45,
+          13.77,
+          14.11,
+          14.44,
+          14.8,
+          15.11,
+          15.37,
+          15.72,
+          16.16,
+          16.42,
+          16.61,
+          16.87,
+          17.13,
+          17.36,
+          17.65,
+          17.96,
+          18.52,
+          18.79,
+          19.12,
+          19.46,
+          19.65,
+          19.93,
+          20.3,
+          20.51,
+          20.84,
+          21.27,
+          21.63,
+          21.94,
+          22.28,
+          22.62,
+          22.94,
+          23.19,
+          23.57,
+          24.03,
+          24.53,
+          24.86,
+          25.15,
+          25.45,
+          25.76,
+          26.0,
+          26.35,
+          26.62,
+          26.93,
+          27.33,
+          27.58,
+          28.03,
+          28.41,
+          28.78,
+          29.2,
+          29.78,
+          30.18,
+          30.6,
+          30.96,
+          31.5,
+          32.22,
+          32.64,
+          33.03,
+          33.4,
+          33.89,
+          34.47,
+          35.2,
+          35.87,
+          36.48,
+          37.13,
+          37.81,
+          38.85,
+          39.7,
+          40.5,
+          41.73,
+          42.71,
+          44.82,
+          46.25,
+          47.24,
+          48.66,
+          50.53,
+          53.01,
+          55.12,
+          59.08,
+          66.4,
+          116.61
+        ],
+        "p05": -0.83,
+        "p25": 10.09,
+        "median": 19.58,
+        "p75": 29.84,
+        "p95": 48.72,
+        "prob_loss": 0.061,
+        "basis": "underlying"
+      },
+      "weight_scheme": "equal",
+      "weight_fallback": null,
+      "option_model": {
+        "structure": "bull_call_spread",
+        "direction": "bullish",
+        "underlying_label": "Britannia",
+        "legs": [
+          {
+            "action": "BUY",
+            "option_type": "CE",
+            "strike_pct": 100.0,
+            "strike_label": "ATM"
+          },
+          {
+            "action": "SELL",
+            "option_type": "CE",
+            "strike_pct": 103.9,
+            "strike_label": "+4%"
+          }
+        ],
+        "net_premium_pct": 1.52,
+        "width_pct": 3.9,
+        "max_loss_pct": -100.0,
+        "max_profit_pct": 156.8,
+        "breakeven_move_pct": 1.52,
+        "pop_pct": 41.8,
+        "net_greeks": {
+          "delta": 0.2626,
+          "gamma": 0.01012,
+          "vega": 0.0159,
+          "theta": -0.0098
+        },
+        "vol_used_pct": 19.8,
+        "horizon_days": 20,
+        "payoff": [
+          {
+            "move_pct": -25.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -24.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -23.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -22.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -21.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -20.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -19.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -18.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -17.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -16.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -15.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -14.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -13.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -12.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -11.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -10.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -9.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -8.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -7.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -6.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -5.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -4.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -3.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -2.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": -1.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": 0.0,
+            "pnl_pct": -100.0
+          },
+          {
+            "move_pct": 1.0,
+            "pnl_pct": -34.2
+          },
+          {
+            "move_pct": 2.0,
+            "pnl_pct": 31.7
+          },
+          {
+            "move_pct": 3.0,
+            "pnl_pct": 97.5
+          },
+          {
+            "move_pct": 4.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 5.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 6.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 7.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 8.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 9.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 10.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 11.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 12.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 13.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 14.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 15.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 16.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 17.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 18.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 19.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 20.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 21.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 22.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 23.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 24.0,
+            "pnl_pct": 156.8
+          },
+          {
+            "move_pct": 25.0,
+            "pnl_pct": 156.8
+          }
+        ],
+        "basis": "modelled_bs",
+        "assumptions": "Modelled with Black\u2013Scholes at the underlying's realised volatility and a stated risk-free rate on a reference spot of 100; final strikes and premia are set at deploy. Max loss is capped at the debit paid."
+      },
+      "entry": {
+        "kind": "option_strategy",
+        "as_of": "2026-07-02",
+        "basis": "option_premium",
+        "min_entry_inr": 9796.0,
+        "lot_size": 125,
+        "note": "One lot's net premium \u2014 the smallest real ticket for this structure. Final premium is set at deploy.",
+        "small_ticket": {
+          "structure": "long_call",
+          "underlying": "Britannia",
+          "otm_offset_pct": 7.6,
+          "strike_label": "+8%",
+          "lot_size": 125,
+          "est_premium_per_lot_inr": 1983.0,
+          "breakeven_move_pct": 7.91,
+          "pop_pct": 9.6,
+          "delta": 0.116,
+          "vol_used_pct": 19.8,
+          "horizon_days": 20,
+          "basis": "modelled_bs",
+          "note": "A single long option \u2014 the only structure whose true cash need is just the premium (short legs block SPAN margin). The further the strike, the cheaper the ticket and the less likely it pays."
+        }
+      },
+      "gain_loss": {
+        "avg_gain_pct": null,
+        "avg_loss_pct": null,
+        "max_gain_pct": 156.8,
+        "max_loss_pct": -100.0,
+        "max_gain_uncapped": false,
+        "n_gain": null,
+        "n_loss": null,
+        "basis": "modelled"
+      },
+      "avg_episode_return_pct": 20.37,
+      "avg_episode_benchmark_pct": 3.88,
+      "avg_episode_excess_pct": 16.48,
+      "pct_positive": null,
+      "n_positive": null,
+      "trust_verdict": null
+    },
+    "6778bad9-9d0a-4528-9f24-5384e2b705cc": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 99965.52,
+          "benchmark": 100186.89
+        },
+        {
+          "t": "2",
+          "strategy": 100148.08,
+          "benchmark": 100677.15
+        },
+        {
+          "t": "3",
+          "strategy": 100005.69,
+          "benchmark": 100783.29
+        },
+        {
+          "t": "4",
+          "strategy": 100146.89,
+          "benchmark": 100654.85
+        },
+        {
+          "t": "5",
+          "strategy": 100306.25,
+          "benchmark": 100363.43
+        },
+        {
+          "t": "6",
+          "strategy": 100412.55,
+          "benchmark": 100078.61
+        },
+        {
+          "t": "7",
+          "strategy": 100474.08,
+          "benchmark": 100322.31
+        },
+        {
+          "t": "8",
+          "strategy": 100334.83,
+          "benchmark": 100434.11
+        },
+        {
+          "t": "9",
+          "strategy": 100403.91,
+          "benchmark": 100872.39
+        },
+        {
+          "t": "10",
+          "strategy": 100577.13,
+          "benchmark": 101128.94
+        },
+        {
+          "t": "11",
+          "strategy": 100717.95,
+          "benchmark": 100840.41
+        },
+        {
+          "t": "12",
+          "strategy": 100824.42,
+          "benchmark": 100743.08
+        },
+        {
+          "t": "13",
+          "strategy": 100977.34,
+          "benchmark": 100445.91
+        },
+        {
+          "t": "14",
+          "strategy": 100951.24,
+          "benchmark": 100857.46
+        },
+        {
+          "t": "15",
+          "strategy": 100776.27,
+          "benchmark": 100728.28
+        },
+        {
+          "t": "16",
+          "strategy": 100844.26,
+          "benchmark": 100891.42
+        },
+        {
+          "t": "17",
+          "strategy": 100923.83,
+          "benchmark": 101139.67
+        },
+        {
+          "t": "18",
+          "strategy": 100798.09,
+          "benchmark": 101199.03
+        },
+        {
+          "t": "19",
+          "strategy": 100795.27,
+          "benchmark": 101779.11
+        },
+        {
+          "t": "20",
+          "strategy": 101268.49,
+          "benchmark": 101598.75
+        },
+        {
+          "t": "21",
+          "strategy": 101373.76,
+          "benchmark": 102261.23
+        },
+        {
+          "t": "22",
+          "strategy": 101626.89,
+          "benchmark": 102216.35
+        },
+        {
+          "t": "23",
+          "strategy": 101825.51,
+          "benchmark": 102210.28
+        },
+        {
+          "t": "24",
+          "strategy": 101734.16,
+          "benchmark": 102415.29
+        },
+        {
+          "t": "25",
+          "strategy": 101699.5,
+          "benchmark": 102664.94
+        },
+        {
+          "t": "26",
+          "strategy": 102037.66,
+          "benchmark": 102488.86
+        },
+        {
+          "t": "27",
+          "strategy": 101994.46,
+          "benchmark": 103164.31
+        },
+        {
+          "t": "28",
+          "strategy": 101931.14,
+          "benchmark": 103341.79
+        },
+        {
+          "t": "29",
+          "strategy": 101963.56,
+          "benchmark": 103367.78
+        },
+        {
+          "t": "30",
+          "strategy": 102068.77,
+          "benchmark": 103143.39
+        },
+        {
+          "t": "31",
+          "strategy": 101855.61,
+          "benchmark": 103620.72
+        },
+        {
+          "t": "32",
+          "strategy": 101960.0,
+          "benchmark": 103578.29
+        },
+        {
+          "t": "33",
+          "strategy": 101874.26,
+          "benchmark": 103648.08
+        },
+        {
+          "t": "34",
+          "strategy": 101688.25,
+          "benchmark": 103607.23
+        },
+        {
+          "t": "35",
+          "strategy": 101783.66,
+          "benchmark": 103558.02
+        },
+        {
+          "t": "36",
+          "strategy": 101879.23,
+          "benchmark": 103209.52
+        },
+        {
+          "t": "37",
+          "strategy": 101718.51,
+          "benchmark": 103611.58
+        },
+        {
+          "t": "38",
+          "strategy": 101540.68,
+          "benchmark": 104313.09
+        },
+        {
+          "t": "39",
+          "strategy": 101292.53,
+          "benchmark": 104302.26
+        },
+        {
+          "t": "40",
+          "strategy": 101269.84,
+          "benchmark": 103966.59
+        },
+        {
+          "t": "41",
+          "strategy": 101314.05,
+          "benchmark": 103657.85
+        },
+        {
+          "t": "42",
+          "strategy": 101301.79,
+          "benchmark": 103538.44
+        },
+        {
+          "t": "43",
+          "strategy": 101681.54,
+          "benchmark": 103222.93
+        },
+        {
+          "t": "44",
+          "strategy": 101804.24,
+          "benchmark": 103727.09
+        },
+        {
+          "t": "45",
+          "strategy": 101832.76,
+          "benchmark": 103806.52
+        },
+        {
+          "t": "46",
+          "strategy": 101869.97,
+          "benchmark": 103901.22
+        },
+        {
+          "t": "47",
+          "strategy": 102256.73,
+          "benchmark": 103868.65
+        },
+        {
+          "t": "48",
+          "strategy": 102482.03,
+          "benchmark": 103605.08
+        },
+        {
+          "t": "49",
+          "strategy": 102507.68,
+          "benchmark": 103343.78
+        },
+        {
+          "t": "50",
+          "strategy": 102528.88,
+          "benchmark": 102747.01
+        },
+        {
+          "t": "51",
+          "strategy": 102650.53,
+          "benchmark": 102478.31
+        },
+        {
+          "t": "52",
+          "strategy": 102674.36,
+          "benchmark": 102725.19
+        },
+        {
+          "t": "53",
+          "strategy": 102589.4,
+          "benchmark": 102969.35
+        },
+        {
+          "t": "54",
+          "strategy": 102487.84,
+          "benchmark": 102822.06
+        },
+        {
+          "t": "55",
+          "strategy": 102583.21,
+          "benchmark": 102790.3
+        },
+        {
+          "t": "56",
+          "strategy": 102796.11,
+          "benchmark": 103178.09
+        },
+        {
+          "t": "57",
+          "strategy": 102956.3,
+          "benchmark": 102870.97
+        },
+        {
+          "t": "58",
+          "strategy": 103350.43,
+          "benchmark": 102330.12
+        },
+        {
+          "t": "59",
+          "strategy": 103352.27,
+          "benchmark": 102736.65
+        },
+        {
+          "t": "60",
+          "strategy": 103283.55,
+          "benchmark": 102871.86
+        },
+        {
+          "t": "61",
+          "strategy": 103515.13,
+          "benchmark": 102259.18
+        },
+        {
+          "t": "62",
+          "strategy": 103587.47,
+          "benchmark": 102076.7
+        },
+        {
+          "t": "63",
+          "strategy": 103713.41,
+          "benchmark": 101647.76
+        },
+        {
+          "t": "64",
+          "strategy": 103184.92,
+          "benchmark": 103160.44
+        },
+        {
+          "t": "65",
+          "strategy": 103300.23,
+          "benchmark": 103884.42
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Britannia",
+          "symbol": "BRITANNIA",
+          "return_pct": 20.8,
+          "position": "long",
+          "weight_pct": 23.0
+        },
+        {
+          "name": "MRF",
+          "symbol": "MRF",
+          "return_pct": 2.5,
+          "position": "long",
+          "weight_pct": 18.5
+        },
+        {
+          "name": "Marico",
+          "symbol": "MARICO",
+          "return_pct": 12.7,
+          "position": "long",
+          "weight_pct": 18.6
+        },
+        {
+          "name": "Apollo Tyres",
+          "symbol": "APOLLOTYRE",
+          "return_pct": 1.5,
+          "position": "long",
+          "weight_pct": 10.4
+        },
+        {
+          "name": "Godrej Consumer",
+          "symbol": "GODREJCP",
+          "return_pct": 11.8,
+          "position": "long",
+          "weight_pct": 13.6
+        },
+        {
+          "name": "HUL",
+          "symbol": "HINDUNILVR",
+          "return_pct": 10.9,
+          "position": "long",
+          "weight_pct": 15.8
+        },
+        {
+          "name": "Nifty 50",
+          "symbol": "^NSEI",
+          "return_pct": 3.9,
+          "position": "short",
+          "weight_pct": null
+        }
+      ],
+      "risk_return_ratio": 4.2,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 4,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "2010 monsoon",
+          "date": "Jun\u2013Aug 2010",
+          "return_pct": 2.5,
+          "benchmark_pct": 8.7,
+          "positive": true
+        },
+        {
+          "label": "2011 monsoon",
+          "date": "Jun\u2013Aug 2011",
+          "return_pct": 7.0,
+          "benchmark_pct": -10.6,
+          "positive": true
+        },
+        {
+          "label": "2016 monsoon",
+          "date": "Jun\u2013Aug 2016",
+          "return_pct": 3.3,
+          "benchmark_pct": 7.4,
+          "positive": true
+        },
+        {
+          "label": "2021 monsoon",
+          "date": "Jun\u2013Aug 2021",
+          "return_pct": 0.4,
+          "benchmark_pct": 10.0,
+          "positive": true
+        }
+      ],
+      "positive_episodes": 4,
+      "exit_period": "Held through the Jun\u2013Aug monsoon window (~3 months) each year",
+      "historical_alignment": null,
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 6,
+        "terminal_pct": [
+          -8.12,
+          -3.85,
+          -3.09,
+          -2.71,
+          -2.44,
+          -2.2,
+          -1.94,
+          -1.74,
+          -1.62,
+          -1.35,
+          -1.08,
+          -0.92,
+          -0.81,
+          -0.66,
+          -0.53,
+          -0.34,
+          -0.26,
+          -0.15,
+          -0.06,
+          0.04,
+          0.19,
+          0.28,
+          0.37,
+          0.47,
+          0.56,
+          0.71,
+          0.83,
+          0.94,
+          1.03,
+          1.07,
+          1.16,
+          1.23,
+          1.35,
+          1.45,
+          1.54,
+          1.59,
+          1.67,
+          1.72,
+          1.81,
+          1.86,
+          1.96,
+          2.04,
+          2.1,
+          2.2,
+          2.29,
+          2.36,
+          2.42,
+          2.48,
+          2.54,
+          2.62,
+          2.69,
+          2.73,
+          2.77,
+          2.84,
+          2.91,
+          2.98,
+          3.05,
+          3.13,
+          3.18,
+          3.26,
+          3.31,
+          3.37,
+          3.43,
+          3.5,
+          3.57,
+          3.66,
+          3.72,
+          3.78,
+          3.86,
+          3.91,
+          3.97,
+          4.03,
+          4.11,
+          4.18,
+          4.25,
+          4.36,
+          4.44,
+          4.52,
+          4.59,
+          4.69,
+          4.76,
+          4.83,
+          4.9,
+          4.99,
+          5.06,
+          5.12,
+          5.25,
+          5.34,
+          5.43,
+          5.51,
+          5.61,
+          5.68,
+          5.79,
+          5.87,
+          5.96,
+          6.09,
+          6.21,
+          6.29,
+          6.4,
+          6.5,
+          6.61,
+          6.79,
+          6.89,
+          7.03,
+          7.14,
+          7.27,
+          7.42,
+          7.55,
+          7.68,
+          7.88,
+          8.09,
+          8.24,
+          8.48,
+          8.74,
+          9.01,
+          9.26,
+          9.8,
+          10.32,
+          11.38,
+          16.87
+        ],
+        "p05": -1.94,
+        "p25": 1.12,
+        "median": 3.29,
+        "p75": 5.54,
+        "p95": 8.77,
+        "prob_loss": 0.1565
+      },
+      "weight_scheme": "risk_parity",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "pair",
+        "as_of": null,
+        "basis": "margin_required",
+        "min_entry_inr": null,
+        "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 3.3,
+        "avg_loss_pct": null,
+        "max_gain_pct": 7.01,
+        "max_loss_pct": 0.36,
+        "n_gain": 4,
+        "n_loss": 0,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 3.3,
+      "avg_episode_benchmark_pct": 3.88,
+      "avg_episode_excess_pct": -0.58,
+      "pct_positive": 100.0,
+      "n_positive": 4,
+      "trust_verdict": "insufficient_data"
+    },
+    "6f7f441b-ccc0-41e2-ad8e-31796dea4217": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 100003.76,
+          "benchmark": 100105.35
+        },
+        {
+          "t": "2",
+          "strategy": 100057.94,
+          "benchmark": 100103.75
+        },
+        {
+          "t": "3",
+          "strategy": 99959.76,
+          "benchmark": 100101.94
+        },
+        {
+          "t": "4",
+          "strategy": 100273.31,
+          "benchmark": 100581.37
+        },
+        {
+          "t": "5",
+          "strategy": 100390.64,
+          "benchmark": 100669.54
+        },
+        {
+          "t": "6",
+          "strategy": 100659.41,
+          "benchmark": 100761.74
+        },
+        {
+          "t": "7",
+          "strategy": 100569.69,
+          "benchmark": 100798.9
+        },
+        {
+          "t": "8",
+          "strategy": 100642.77,
+          "benchmark": 100889.23
+        },
+        {
+          "t": "9",
+          "strategy": 100756.63,
+          "benchmark": 100917.62
+        },
+        {
+          "t": "10",
+          "strategy": 100657.9,
+          "benchmark": 100828.01
+        },
+        {
+          "t": "11",
+          "strategy": 100710.38,
+          "benchmark": 101023.76
+        },
+        {
+          "t": "12",
+          "strategy": 100578.37,
+          "benchmark": 100771.83
+        },
+        {
+          "t": "13",
+          "strategy": 100549.37,
+          "benchmark": 100784.91
+        },
+        {
+          "t": "14",
+          "strategy": 100901.18,
+          "benchmark": 100917.07
+        },
+        {
+          "t": "15",
+          "strategy": 100752.85,
+          "benchmark": 100683.76
+        },
+        {
+          "t": "16",
+          "strategy": 100930.29,
+          "benchmark": 100757.78
+        },
+        {
+          "t": "17",
+          "strategy": 101307.2,
+          "benchmark": 101123.2
+        },
+        {
+          "t": "18",
+          "strategy": 101420.7,
+          "benchmark": 101375.1
+        },
+        {
+          "t": "19",
+          "strategy": 101750.42,
+          "benchmark": 101608.53
+        },
+        {
+          "t": "20",
+          "strategy": 101639.7,
+          "benchmark": 101482.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Asian Paints",
+          "symbol": "ASIANPAINT",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 20.0
+        },
+        {
+          "name": "Berger Paints",
+          "symbol": "BERGEPAINT",
+          "return_pct": 2.9,
+          "position": "long",
+          "weight_pct": 20.0
+        },
+        {
+          "name": "IndiGo",
+          "symbol": "INDIGO",
+          "return_pct": 1.1,
+          "position": "long",
+          "weight_pct": 20.0
+        },
+        {
+          "name": "HPCL",
+          "symbol": "HINDPETRO",
+          "return_pct": 2.0,
+          "position": "long",
+          "weight_pct": 2.3
+        },
+        {
+          "name": "BPCL",
+          "symbol": "BPCL",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 17.7
+        },
+        {
+          "name": "IOC",
+          "symbol": "IOC",
+          "return_pct": 0.7,
+          "position": "long",
+          "weight_pct": 20.0
+        }
+      ],
+      "risk_return_ratio": 8.0,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 64,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2010",
+          "return_pct": -0.6,
+          "benchmark_pct": -4.9,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2010",
+          "return_pct": 8.8,
+          "benchmark_pct": 2.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2010",
+          "return_pct": -1.1,
+          "benchmark_pct": 3.0,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2010",
+          "return_pct": 7.7,
+          "benchmark_pct": 8.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2011",
+          "return_pct": 3.9,
+          "benchmark_pct": 1.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2011",
+          "return_pct": 3.4,
+          "benchmark_pct": 4.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2011",
+          "return_pct": -0.2,
+          "benchmark_pct": -5.0,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2011",
+          "return_pct": -0.7,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2012",
+          "return_pct": -0.5,
+          "benchmark_pct": 4.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2012",
+          "return_pct": 5.0,
+          "benchmark_pct": 3.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2013",
+          "return_pct": 7.1,
+          "benchmark_pct": 10.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2014",
+          "return_pct": -1.0,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2014",
+          "return_pct": 7.4,
+          "benchmark_pct": 1.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2015",
+          "return_pct": -0.9,
+          "benchmark_pct": 3.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2015",
+          "return_pct": 4.7,
+          "benchmark_pct": 2.1,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2015",
+          "return_pct": 3.4,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2015",
+          "return_pct": -5.3,
+          "benchmark_pct": -8.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2015",
+          "return_pct": 2.6,
+          "benchmark_pct": 5.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2015",
+          "return_pct": 4.4,
+          "benchmark_pct": -4.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2015",
+          "return_pct": 6.6,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2016",
+          "return_pct": -10.1,
+          "benchmark_pct": -2.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2016",
+          "return_pct": 3.8,
+          "benchmark_pct": 7.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2016",
+          "return_pct": 4.5,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2016",
+          "return_pct": 6.5,
+          "benchmark_pct": 4.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2016",
+          "return_pct": -8.3,
+          "benchmark_pct": -3.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2017",
+          "return_pct": 11.6,
+          "benchmark_pct": 3.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2017",
+          "return_pct": -1.8,
+          "benchmark_pct": 3.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2017",
+          "return_pct": -3.2,
+          "benchmark_pct": 0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2018",
+          "return_pct": 2.4,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2018",
+          "return_pct": 1.4,
+          "benchmark_pct": 3.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2018",
+          "return_pct": 18.6,
+          "benchmark_pct": 4.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2018",
+          "return_pct": 8.0,
+          "benchmark_pct": 3.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2018",
+          "return_pct": -0.7,
+          "benchmark_pct": 2.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2019",
+          "return_pct": -6.0,
+          "benchmark_pct": -0.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2019",
+          "return_pct": 6.0,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2019",
+          "return_pct": 1.4,
+          "benchmark_pct": 3.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2020",
+          "return_pct": -3.0,
+          "benchmark_pct": -2.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2020",
+          "return_pct": -20.3,
+          "benchmark_pct": -26.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2020",
+          "return_pct": 5.1,
+          "benchmark_pct": 12.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2020",
+          "return_pct": -1.0,
+          "benchmark_pct": 3.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2020",
+          "return_pct": 9.5,
+          "benchmark_pct": 9.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2021",
+          "return_pct": -4.4,
+          "benchmark_pct": -2.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2021",
+          "return_pct": -0.7,
+          "benchmark_pct": 5.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2021",
+          "return_pct": -1.2,
+          "benchmark_pct": -0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2022",
+          "return_pct": 1.6,
+          "benchmark_pct": 1.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2022",
+          "return_pct": 5.6,
+          "benchmark_pct": 6.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2022",
+          "return_pct": 0.8,
+          "benchmark_pct": 1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2022",
+          "return_pct": -5.7,
+          "benchmark_pct": -1.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2022",
+          "return_pct": 5.8,
+          "benchmark_pct": -0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2023",
+          "return_pct": -1.8,
+          "benchmark_pct": -1.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2023",
+          "return_pct": 0.6,
+          "benchmark_pct": 4.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2023",
+          "return_pct": 8.7,
+          "benchmark_pct": 2.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2023",
+          "return_pct": 1.1,
+          "benchmark_pct": -1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2023",
+          "return_pct": 11.2,
+          "benchmark_pct": 7.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2024",
+          "return_pct": -5.2,
+          "benchmark_pct": 0.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2024",
+          "return_pct": -15.1,
+          "benchmark_pct": -5.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2025",
+          "return_pct": 7.6,
+          "benchmark_pct": 2.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2025",
+          "return_pct": 4.1,
+          "benchmark_pct": 6.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2025",
+          "return_pct": -1.9,
+          "benchmark_pct": -3.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2025",
+          "return_pct": -0.0,
+          "benchmark_pct": 2.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2025",
+          "return_pct": 7.8,
+          "benchmark_pct": 1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2026",
+          "return_pct": 5.1,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2026",
+          "return_pct": 0.8,
+          "benchmark_pct": -0.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2026",
+          "return_pct": 1.2,
+          "benchmark_pct": 0.3,
+          "positive": true
+        }
+      ],
+      "positive_episodes": 38,
+      "exit_period": "Exits at a profit target, else ~20 trading days",
+      "historical_alignment": {
+        "score": 60,
+        "letter": "C"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 11,
+        "terminal_pct": [
+          -26.65,
+          -15.97,
+          -13.08,
+          -11.15,
+          -10.0,
+          -8.94,
+          -8.09,
+          -7.34,
+          -6.92,
+          -6.53,
+          -6.12,
+          -5.88,
+          -5.62,
+          -5.36,
+          -5.12,
+          -4.84,
+          -4.51,
+          -4.23,
+          -4.0,
+          -3.87,
+          -3.63,
+          -3.47,
+          -3.28,
+          -3.14,
+          -3.0,
+          -2.85,
+          -2.69,
+          -2.52,
+          -2.37,
+          -2.27,
+          -2.13,
+          -1.99,
+          -1.83,
+          -1.64,
+          -1.57,
+          -1.49,
+          -1.38,
+          -1.21,
+          -1.1,
+          -0.98,
+          -0.84,
+          -0.74,
+          -0.6,
+          -0.45,
+          -0.35,
+          -0.17,
+          -0.02,
+          0.13,
+          0.24,
+          0.36,
+          0.5,
+          0.59,
+          0.74,
+          0.88,
+          0.98,
+          1.07,
+          1.2,
+          1.38,
+          1.53,
+          1.62,
+          1.73,
+          1.87,
+          1.98,
+          2.05,
+          2.16,
+          2.29,
+          2.46,
+          2.6,
+          2.69,
+          2.8,
+          2.9,
+          3.0,
+          3.12,
+          3.24,
+          3.41,
+          3.52,
+          3.64,
+          3.77,
+          3.87,
+          4.0,
+          4.1,
+          4.25,
+          4.38,
+          4.51,
+          4.61,
+          4.68,
+          4.84,
+          4.96,
+          5.12,
+          5.28,
+          5.5,
+          5.6,
+          5.72,
+          5.86,
+          6.01,
+          6.21,
+          6.49,
+          6.64,
+          6.8,
+          6.93,
+          7.08,
+          7.25,
+          7.45,
+          7.67,
+          8.03,
+          8.25,
+          8.51,
+          8.77,
+          9.04,
+          9.37,
+          9.7,
+          10.12,
+          10.57,
+          11.05,
+          12.05,
+          12.64,
+          13.23,
+          14.32,
+          16.53,
+          20.44
+        ],
+        "p05": -8.1,
+        "p25": -2.19,
+        "median": 1.67,
+        "p75": 5.37,
+        "p95": 11.07,
+        "prob_loss": 0.3885
+      },
+      "weight_scheme": "factor",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "multi_asset",
+        "as_of": "2026-07-02",
+        "selection_method": "Event-conditioned backtest: per-name return measured inside each of the view's 64 historical occurrence windows (same windows as the headline strategy), over a thesis-aligned universe of 99 names.",
+        "basis": "lite_basket",
+        "min_entry_inr": 1911.0,
+        "budget_used_inr": 2000.0,
+        "legs": [
+          {
+            "symbol": "PATANJALI",
+            "shares": 2,
+            "price": 407.7,
+            "cost": 815.4,
+            "weight_target": 0.3599,
+            "weight_actual": 0.4268,
+            "event_mean_pct": 8.59,
+            "substitute": true
+          },
+          {
+            "symbol": "BERGEPAINT",
+            "shares": 1,
+            "price": 512.8,
+            "cost": 512.8,
+            "weight_target": 0.2329,
+            "weight_actual": 0.2684,
+            "event_mean_pct": 2.94
+          },
+          {
+            "symbol": "BPCL",
+            "shares": 1,
+            "price": 303.35,
+            "cost": 303.35,
+            "weight_target": 0.1998,
+            "weight_actual": 0.1588,
+            "event_mean_pct": 2.62
+          },
+          {
+            "symbol": "IOC",
+            "shares": 2,
+            "price": 139.48,
+            "cost": 278.96,
+            "weight_target": 0.183,
+            "weight_actual": 0.146,
+            "event_mean_pct": 0.72
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "ASIANPAINT",
+            "reason": "one share \u2248 \u20b92,653 exceeds the \u20b92,000 ticket"
+          },
+          {
+            "symbol": "HINDPETRO",
+            "reason": "weight too small to buy one share at \u20b9394"
+          }
+        ],
+        "substitutions": [
+          {
+            "in": "PATANJALI",
+            "out": "INDIGO",
+            "reason": "one share \u2248 \u20b95,386 exceeds even the \u20b95,000 ceiling",
+            "in_mean_episode_pct": 8.59,
+            "in_n_episodes": 64
+          }
+        ],
+        "note": "A pared-down version of the same basket \u2014 4 of 6 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: PATANJALI (for INDIGO)."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 5.41,
+        "avg_loss_pct": -3.87,
+        "max_gain_pct": 18.62,
+        "max_loss_pct": -20.27,
+        "n_gain": 38,
+        "n_loss": 26,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 1.64,
+      "avg_episode_benchmark_pct": 1.48,
+      "avg_episode_excess_pct": 0.16,
+      "pct_positive": 59.4,
+      "n_positive": 38,
+      "trust_verdict": "unproven"
+    },
+    "e0027d6a-cc03-4d65-8532-587becaca68d": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 99802.33,
+          "benchmark": 100105.35
+        },
+        {
+          "t": "2",
+          "strategy": 99825.43,
+          "benchmark": 100103.75
+        },
+        {
+          "t": "3",
+          "strategy": 99791.79,
+          "benchmark": 100101.94
+        },
+        {
+          "t": "4",
+          "strategy": 99705.25,
+          "benchmark": 100581.37
+        },
+        {
+          "t": "5",
+          "strategy": 99731.47,
+          "benchmark": 100669.54
+        },
+        {
+          "t": "6",
+          "strategy": 99827.28,
+          "benchmark": 100761.74
+        },
+        {
+          "t": "7",
+          "strategy": 99762.14,
+          "benchmark": 100798.9
+        },
+        {
+          "t": "8",
+          "strategy": 99757.91,
+          "benchmark": 100889.23
+        },
+        {
+          "t": "9",
+          "strategy": 99796.73,
+          "benchmark": 100917.62
+        },
+        {
+          "t": "10",
+          "strategy": 99804.42,
+          "benchmark": 100828.01
+        },
+        {
+          "t": "11",
+          "strategy": 99762.84,
+          "benchmark": 101023.76
+        },
+        {
+          "t": "12",
+          "strategy": 99839.31,
+          "benchmark": 100771.83
+        },
+        {
+          "t": "13",
+          "strategy": 99822.83,
+          "benchmark": 100784.91
+        },
+        {
+          "t": "14",
+          "strategy": 99912.08,
+          "benchmark": 100917.07
+        },
+        {
+          "t": "15",
+          "strategy": 99948.21,
+          "benchmark": 100683.76
+        },
+        {
+          "t": "16",
+          "strategy": 99991.41,
+          "benchmark": 100757.78
+        },
+        {
+          "t": "17",
+          "strategy": 99979.48,
+          "benchmark": 101123.2
+        },
+        {
+          "t": "18",
+          "strategy": 99908.82,
+          "benchmark": 101375.1
+        },
+        {
+          "t": "19",
+          "strategy": 99941.85,
+          "benchmark": 101608.53
+        },
+        {
+          "t": "20",
+          "strategy": 99969.09,
+          "benchmark": 101482.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Asian Paints",
+          "symbol": "ASIANPAINT",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 28.4
+        },
+        {
+          "name": "Berger Paints",
+          "symbol": "BERGEPAINT",
+          "return_pct": 2.9,
+          "position": "long",
+          "weight_pct": 19.1
+        },
+        {
+          "name": "IndiGo",
+          "symbol": "INDIGO",
+          "return_pct": 1.1,
+          "position": "long",
+          "weight_pct": 15.8
+        },
+        {
+          "name": "HPCL",
+          "symbol": "HINDPETRO",
+          "return_pct": 2.0,
+          "position": "long",
+          "weight_pct": 13.0
+        },
+        {
+          "name": "BPCL",
+          "symbol": "BPCL",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 12.0
+        },
+        {
+          "name": "IOC",
+          "symbol": "IOC",
+          "return_pct": 0.7,
+          "position": "long",
+          "weight_pct": 11.7
+        },
+        {
+          "name": "Nifty 50",
+          "symbol": "^NSEI",
+          "return_pct": 1.5,
+          "position": "short",
+          "weight_pct": null
+        }
+      ],
+      "risk_return_ratio": -0.1,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 64,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2010",
+          "return_pct": 2.0,
+          "benchmark_pct": -4.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2010",
+          "return_pct": 2.5,
+          "benchmark_pct": 2.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2010",
+          "return_pct": -1.6,
+          "benchmark_pct": 3.0,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2010",
+          "return_pct": -1.0,
+          "benchmark_pct": 8.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2011",
+          "return_pct": 1.6,
+          "benchmark_pct": 1.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2011",
+          "return_pct": -0.2,
+          "benchmark_pct": 4.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2011",
+          "return_pct": 2.5,
+          "benchmark_pct": -5.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2011",
+          "return_pct": -3.9,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2012",
+          "return_pct": -2.3,
+          "benchmark_pct": 4.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2012",
+          "return_pct": 0.5,
+          "benchmark_pct": 3.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2013",
+          "return_pct": -2.1,
+          "benchmark_pct": 10.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2014",
+          "return_pct": -3.1,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2014",
+          "return_pct": 3.4,
+          "benchmark_pct": 1.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2015",
+          "return_pct": -1.9,
+          "benchmark_pct": 3.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2015",
+          "return_pct": 0.8,
+          "benchmark_pct": 2.1,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2015",
+          "return_pct": 2.6,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2015",
+          "return_pct": 0.9,
+          "benchmark_pct": -8.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2015",
+          "return_pct": -1.4,
+          "benchmark_pct": 5.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2015",
+          "return_pct": 4.0,
+          "benchmark_pct": -4.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2015",
+          "return_pct": 2.6,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2016",
+          "return_pct": -3.3,
+          "benchmark_pct": -2.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2016",
+          "return_pct": -1.9,
+          "benchmark_pct": 7.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2016",
+          "return_pct": 1.7,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2016",
+          "return_pct": 2.0,
+          "benchmark_pct": 4.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2016",
+          "return_pct": -2.4,
+          "benchmark_pct": -3.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2017",
+          "return_pct": 2.8,
+          "benchmark_pct": 3.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2017",
+          "return_pct": -2.1,
+          "benchmark_pct": 3.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2017",
+          "return_pct": -1.7,
+          "benchmark_pct": 0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2018",
+          "return_pct": 0.8,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2018",
+          "return_pct": -1.1,
+          "benchmark_pct": 3.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2018",
+          "return_pct": 6.2,
+          "benchmark_pct": 4.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2018",
+          "return_pct": 1.6,
+          "benchmark_pct": 3.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2018",
+          "return_pct": -1.5,
+          "benchmark_pct": 2.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2019",
+          "return_pct": -3.0,
+          "benchmark_pct": -0.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2019",
+          "return_pct": 1.7,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2019",
+          "return_pct": -0.6,
+          "benchmark_pct": 3.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2020",
+          "return_pct": -0.5,
+          "benchmark_pct": -2.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2020",
+          "return_pct": 4.5,
+          "benchmark_pct": -26.1,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2020",
+          "return_pct": -2.9,
+          "benchmark_pct": 12.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2020",
+          "return_pct": -2.3,
+          "benchmark_pct": 3.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2020",
+          "return_pct": -0.2,
+          "benchmark_pct": 9.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2021",
+          "return_pct": -0.5,
+          "benchmark_pct": -2.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2021",
+          "return_pct": -3.5,
+          "benchmark_pct": 5.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2021",
+          "return_pct": -0.4,
+          "benchmark_pct": -0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2022",
+          "return_pct": -0.2,
+          "benchmark_pct": 1.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2022",
+          "return_pct": -0.4,
+          "benchmark_pct": 6.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2022",
+          "return_pct": -0.6,
+          "benchmark_pct": 1.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2022",
+          "return_pct": -2.3,
+          "benchmark_pct": -1.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2022",
+          "return_pct": 2.6,
+          "benchmark_pct": -0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2023",
+          "return_pct": -0.2,
+          "benchmark_pct": -1.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2023",
+          "return_pct": -2.0,
+          "benchmark_pct": 4.0,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2023",
+          "return_pct": 2.2,
+          "benchmark_pct": 2.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2023",
+          "return_pct": 0.5,
+          "benchmark_pct": -1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2023",
+          "return_pct": 1.2,
+          "benchmark_pct": 7.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2024",
+          "return_pct": -3.1,
+          "benchmark_pct": 0.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2024",
+          "return_pct": -5.6,
+          "benchmark_pct": -5.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2025",
+          "return_pct": 2.4,
+          "benchmark_pct": 2.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2025",
+          "return_pct": -1.4,
+          "benchmark_pct": 6.0,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2025",
+          "return_pct": 0.5,
+          "benchmark_pct": -3.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2025",
+          "return_pct": -1.0,
+          "benchmark_pct": 2.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2025",
+          "return_pct": 3.0,
+          "benchmark_pct": 1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2026",
+          "return_pct": 2.4,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2026",
+          "return_pct": 0.7,
+          "benchmark_pct": -0.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2026",
+          "return_pct": -0.0,
+          "benchmark_pct": 0.3,
+          "positive": false
+        }
+      ],
+      "positive_episodes": 28,
+      "exit_period": "Exits at a profit target, else ~20 trading days",
+      "historical_alignment": {
+        "score": 42,
+        "letter": "D"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 11,
+        "terminal_pct": [
+          -6.22,
+          -4.88,
+          -4.49,
+          -4.24,
+          -3.99,
+          -3.77,
+          -3.65,
+          -3.44,
+          -3.33,
+          -3.15,
+          -3.02,
+          -2.89,
+          -2.8,
+          -2.72,
+          -2.64,
+          -2.56,
+          -2.49,
+          -2.41,
+          -2.35,
+          -2.3,
+          -2.22,
+          -2.12,
+          -2.05,
+          -1.98,
+          -1.91,
+          -1.86,
+          -1.81,
+          -1.77,
+          -1.72,
+          -1.68,
+          -1.64,
+          -1.56,
+          -1.51,
+          -1.46,
+          -1.38,
+          -1.32,
+          -1.27,
+          -1.23,
+          -1.19,
+          -1.15,
+          -1.1,
+          -1.04,
+          -0.98,
+          -0.95,
+          -0.87,
+          -0.83,
+          -0.77,
+          -0.72,
+          -0.67,
+          -0.63,
+          -0.6,
+          -0.57,
+          -0.51,
+          -0.47,
+          -0.42,
+          -0.39,
+          -0.35,
+          -0.33,
+          -0.29,
+          -0.24,
+          -0.22,
+          -0.17,
+          -0.13,
+          -0.09,
+          -0.05,
+          -0.0,
+          0.05,
+          0.09,
+          0.13,
+          0.16,
+          0.21,
+          0.24,
+          0.29,
+          0.37,
+          0.4,
+          0.44,
+          0.48,
+          0.52,
+          0.57,
+          0.62,
+          0.66,
+          0.69,
+          0.74,
+          0.78,
+          0.86,
+          0.91,
+          0.95,
+          1.0,
+          1.06,
+          1.12,
+          1.18,
+          1.24,
+          1.3,
+          1.37,
+          1.43,
+          1.51,
+          1.61,
+          1.67,
+          1.73,
+          1.78,
+          1.86,
+          1.97,
+          2.09,
+          2.18,
+          2.27,
+          2.41,
+          2.51,
+          2.6,
+          2.77,
+          2.91,
+          3.09,
+          3.23,
+          3.42,
+          3.58,
+          3.74,
+          4.0,
+          4.44,
+          4.83,
+          5.52,
+          9.99
+        ],
+        "p05": -3.65,
+        "p25": -1.65,
+        "median": -0.23,
+        "p75": 1.12,
+        "p95": 3.59,
+        "prob_loss": 0.547
+      },
+      "weight_scheme": "risk_parity",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "pair",
+        "as_of": null,
+        "basis": "margin_required",
+        "min_entry_inr": null,
+        "note": "The short leg needs margin at your broker \u2014 realistic pair sizes start well above a small ticket. The long side alone is a different (unhedged) trade."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 2.15,
+        "avg_loss_pct": -1.72,
+        "max_gain_pct": 6.23,
+        "max_loss_pct": -5.61,
+        "n_gain": 28,
+        "n_loss": 36,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": -0.03,
+      "avg_episode_benchmark_pct": 1.48,
+      "avg_episode_excess_pct": -1.51,
+      "pct_positive": 43.8,
+      "n_positive": 28,
+      "trust_verdict": "no_edge"
+    },
+    "ac66729f-77b9-4475-8666-c5739f7ed753": {
+      "equity_curve": [
+        {
+          "t": "0",
+          "strategy": 100000.0,
+          "benchmark": 100000.0
+        },
+        {
+          "t": "1",
+          "strategy": 100032.36,
+          "benchmark": 100105.35
+        },
+        {
+          "t": "2",
+          "strategy": 100052.84,
+          "benchmark": 100103.75
+        },
+        {
+          "t": "3",
+          "strategy": 99946.37,
+          "benchmark": 100101.94
+        },
+        {
+          "t": "4",
+          "strategy": 100293.12,
+          "benchmark": 100581.37
+        },
+        {
+          "t": "5",
+          "strategy": 100468.07,
+          "benchmark": 100669.54
+        },
+        {
+          "t": "6",
+          "strategy": 100746.07,
+          "benchmark": 100761.74
+        },
+        {
+          "t": "7",
+          "strategy": 100628.94,
+          "benchmark": 100798.9
+        },
+        {
+          "t": "8",
+          "strategy": 100699.89,
+          "benchmark": 100889.23
+        },
+        {
+          "t": "9",
+          "strategy": 100821.85,
+          "benchmark": 100917.62
+        },
+        {
+          "t": "10",
+          "strategy": 100668.26,
+          "benchmark": 100828.01
+        },
+        {
+          "t": "11",
+          "strategy": 100754.86,
+          "benchmark": 101023.76
+        },
+        {
+          "t": "12",
+          "strategy": 100667.2,
+          "benchmark": 100771.83
+        },
+        {
+          "t": "13",
+          "strategy": 100704.29,
+          "benchmark": 100784.91
+        },
+        {
+          "t": "14",
+          "strategy": 101020.98,
+          "benchmark": 100917.07
+        },
+        {
+          "t": "15",
+          "strategy": 100828.34,
+          "benchmark": 100683.76
+        },
+        {
+          "t": "16",
+          "strategy": 100937.34,
+          "benchmark": 100757.78
+        },
+        {
+          "t": "17",
+          "strategy": 101331.74,
+          "benchmark": 101123.2
+        },
+        {
+          "t": "18",
+          "strategy": 101426.61,
+          "benchmark": 101375.1
+        },
+        {
+          "t": "19",
+          "strategy": 101746.33,
+          "benchmark": 101608.53
+        },
+        {
+          "t": "20",
+          "strategy": 101708.81,
+          "benchmark": 101482.38
+        }
+      ],
+      "holdings": [
+        {
+          "name": "Asian Paints",
+          "symbol": "ASIANPAINT",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 40.5
+        },
+        {
+          "name": "Berger Paints",
+          "symbol": "BERGEPAINT",
+          "return_pct": 2.9,
+          "position": "long",
+          "weight_pct": 18.5
+        },
+        {
+          "name": "IndiGo",
+          "symbol": "INDIGO",
+          "return_pct": 1.1,
+          "position": "long",
+          "weight_pct": 13.8
+        },
+        {
+          "name": "HPCL",
+          "symbol": "HINDPETRO",
+          "return_pct": 2.0,
+          "position": "long",
+          "weight_pct": 0.0
+        },
+        {
+          "name": "BPCL",
+          "symbol": "BPCL",
+          "return_pct": 2.6,
+          "position": "long",
+          "weight_pct": 5.7
+        },
+        {
+          "name": "IOC",
+          "symbol": "IOC",
+          "return_pct": 0.7,
+          "position": "long",
+          "weight_pct": 21.6
+        }
+      ],
+      "risk_return_ratio": 9.0,
+      "underlying_symbol": null,
+      "curve_basis": "in_position_episodes",
+      "n_episodes": 64,
+      "episode_boundaries": [],
+      "episodes": [
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2010",
+          "return_pct": -0.2,
+          "benchmark_pct": -4.9,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2010",
+          "return_pct": 8.4,
+          "benchmark_pct": 2.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2010",
+          "return_pct": 1.7,
+          "benchmark_pct": 3.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2010",
+          "return_pct": 7.3,
+          "benchmark_pct": 8.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2011",
+          "return_pct": 7.2,
+          "benchmark_pct": 1.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2011",
+          "return_pct": 3.4,
+          "benchmark_pct": 4.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2011",
+          "return_pct": 0.9,
+          "benchmark_pct": -5.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2011",
+          "return_pct": -0.4,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2012",
+          "return_pct": -3.0,
+          "benchmark_pct": 4.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2012",
+          "return_pct": 6.7,
+          "benchmark_pct": 3.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2013",
+          "return_pct": 6.9,
+          "benchmark_pct": 10.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2014",
+          "return_pct": -1.7,
+          "benchmark_pct": 6.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2014",
+          "return_pct": 8.0,
+          "benchmark_pct": 1.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2015",
+          "return_pct": -2.5,
+          "benchmark_pct": 3.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2015",
+          "return_pct": 4.3,
+          "benchmark_pct": 2.1,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2015",
+          "return_pct": 5.7,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2015",
+          "return_pct": -6.5,
+          "benchmark_pct": -8.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2015",
+          "return_pct": 3.4,
+          "benchmark_pct": 5.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2015",
+          "return_pct": 3.1,
+          "benchmark_pct": -4.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2015",
+          "return_pct": 6.1,
+          "benchmark_pct": 0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2016",
+          "return_pct": -6.6,
+          "benchmark_pct": -2.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2016",
+          "return_pct": 4.0,
+          "benchmark_pct": 7.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2016",
+          "return_pct": 2.4,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2016",
+          "return_pct": 9.6,
+          "benchmark_pct": 4.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2016",
+          "return_pct": -9.5,
+          "benchmark_pct": -3.8,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2017",
+          "return_pct": 8.9,
+          "benchmark_pct": 3.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2017",
+          "return_pct": -0.7,
+          "benchmark_pct": 3.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2017",
+          "return_pct": -3.2,
+          "benchmark_pct": 0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2018",
+          "return_pct": 2.2,
+          "benchmark_pct": -0.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2018",
+          "return_pct": 2.2,
+          "benchmark_pct": 3.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2018",
+          "return_pct": 17.2,
+          "benchmark_pct": 4.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2018",
+          "return_pct": 7.3,
+          "benchmark_pct": 3.3,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Dec 2018",
+          "return_pct": 0.7,
+          "benchmark_pct": 2.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2019",
+          "return_pct": -5.3,
+          "benchmark_pct": -0.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2019",
+          "return_pct": 2.6,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2019",
+          "return_pct": 1.6,
+          "benchmark_pct": 3.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jan 2020",
+          "return_pct": -1.7,
+          "benchmark_pct": -2.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2020",
+          "return_pct": -17.1,
+          "benchmark_pct": -26.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2020",
+          "return_pct": 3.2,
+          "benchmark_pct": 12.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2020",
+          "return_pct": 2.2,
+          "benchmark_pct": 3.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2020",
+          "return_pct": 6.2,
+          "benchmark_pct": 9.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2021",
+          "return_pct": -2.1,
+          "benchmark_pct": -2.2,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jul 2021",
+          "return_pct": -0.3,
+          "benchmark_pct": 5.5,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2021",
+          "return_pct": -0.5,
+          "benchmark_pct": -0.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2022",
+          "return_pct": 1.0,
+          "benchmark_pct": 1.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2022",
+          "return_pct": 6.4,
+          "benchmark_pct": 6.7,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2022",
+          "return_pct": 0.7,
+          "benchmark_pct": 1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2022",
+          "return_pct": -4.8,
+          "benchmark_pct": -1.7,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2022",
+          "return_pct": 3.2,
+          "benchmark_pct": -0.2,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Feb 2023",
+          "return_pct": -0.3,
+          "benchmark_pct": -1.4,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2023",
+          "return_pct": 0.3,
+          "benchmark_pct": 4.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2023",
+          "return_pct": 8.9,
+          "benchmark_pct": 2.9,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2023",
+          "return_pct": -1.2,
+          "benchmark_pct": -1.6,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Nov 2023",
+          "return_pct": 8.4,
+          "benchmark_pct": 7.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Sep 2024",
+          "return_pct": -5.7,
+          "benchmark_pct": 0.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2024",
+          "return_pct": -16.3,
+          "benchmark_pct": -5.1,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Mar 2025",
+          "return_pct": 7.5,
+          "benchmark_pct": 2.5,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2025",
+          "return_pct": 2.2,
+          "benchmark_pct": 6.0,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2025",
+          "return_pct": -1.4,
+          "benchmark_pct": -3.3,
+          "positive": false
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Aug 2025",
+          "return_pct": 1.0,
+          "benchmark_pct": 2.1,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Oct 2025",
+          "return_pct": 8.9,
+          "benchmark_pct": 1.6,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Apr 2026",
+          "return_pct": 6.7,
+          "benchmark_pct": 1.4,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "May 2026",
+          "return_pct": 1.5,
+          "benchmark_pct": -0.8,
+          "positive": true
+        },
+        {
+          "label": "Brent \u22128%/10d de-escalation",
+          "date": "Jun 2026",
+          "return_pct": -0.1,
+          "benchmark_pct": 0.3,
+          "positive": false
+        }
+      ],
+      "positive_episodes": 41,
+      "exit_period": "Exits at a profit target, else ~20 trading days",
+      "historical_alignment": {
+        "score": 60,
+        "letter": "C"
+      },
+      "monte_carlo": {
+        "n_sims": 2000,
+        "block_size": 11,
+        "terminal_pct": [
+          -24.17,
+          -13.99,
+          -11.98,
+          -10.89,
+          -9.54,
+          -8.56,
+          -7.54,
+          -7.0,
+          -6.67,
+          -6.19,
+          -5.91,
+          -5.58,
+          -5.22,
+          -4.86,
+          -4.56,
+          -4.32,
+          -4.07,
+          -3.9,
+          -3.7,
+          -3.51,
+          -3.34,
+          -3.14,
+          -2.97,
+          -2.84,
+          -2.68,
+          -2.53,
+          -2.42,
+          -2.22,
+          -2.03,
+          -1.9,
+          -1.79,
+          -1.64,
+          -1.54,
+          -1.36,
+          -1.29,
+          -1.21,
+          -1.04,
+          -0.9,
+          -0.74,
+          -0.62,
+          -0.48,
+          -0.36,
+          -0.29,
+          -0.2,
+          -0.08,
+          0.04,
+          0.18,
+          0.34,
+          0.44,
+          0.56,
+          0.7,
+          0.78,
+          0.87,
+          1.01,
+          1.15,
+          1.27,
+          1.39,
+          1.48,
+          1.64,
+          1.74,
+          1.91,
+          2.07,
+          2.16,
+          2.27,
+          2.36,
+          2.47,
+          2.57,
+          2.69,
+          2.78,
+          2.85,
+          2.97,
+          3.07,
+          3.15,
+          3.27,
+          3.41,
+          3.52,
+          3.62,
+          3.74,
+          3.8,
+          3.9,
+          4.02,
+          4.14,
+          4.27,
+          4.44,
+          4.55,
+          4.63,
+          4.72,
+          4.85,
+          4.99,
+          5.1,
+          5.23,
+          5.39,
+          5.55,
+          5.73,
+          5.91,
+          6.09,
+          6.32,
+          6.5,
+          6.68,
+          6.84,
+          6.97,
+          7.09,
+          7.2,
+          7.49,
+          7.79,
+          7.99,
+          8.28,
+          8.49,
+          8.73,
+          9.05,
+          9.41,
+          9.73,
+          10.14,
+          10.52,
+          11.03,
+          11.72,
+          12.22,
+          13.43,
+          14.74,
+          18.95
+        ],
+        "p05": -7.6,
+        "p25": -1.82,
+        "median": 1.82,
+        "p75": 5.15,
+        "p95": 10.53,
+        "prob_loss": 0.375
+      },
+      "weight_scheme": "min_variance",
+      "weight_fallback": null,
+      "option_model": null,
+      "entry": {
+        "kind": "basket",
+        "as_of": "2026-07-02",
+        "selection_method": "Event-conditioned backtest: per-name return measured inside each of the view's 64 historical occurrence windows (same windows as the headline strategy), over a thesis-aligned universe of 99 names.",
+        "basis": "lite_basket",
+        "min_entry_inr": 1886.0,
+        "budget_used_inr": 2000.0,
+        "legs": [
+          {
+            "symbol": "PATANJALI",
+            "shares": 2,
+            "price": 407.7,
+            "cost": 815.4,
+            "weight_target": 0.3504,
+            "weight_actual": 0.4323,
+            "event_mean_pct": 8.59,
+            "substitute": true
+          },
+          {
+            "symbol": "BERGEPAINT",
+            "shares": 1,
+            "price": 512.8,
+            "cost": 512.8,
+            "weight_target": 0.2956,
+            "weight_actual": 0.2719,
+            "event_mean_pct": 2.94
+          },
+          {
+            "symbol": "IOC",
+            "shares": 4,
+            "price": 139.48,
+            "cost": 557.92,
+            "weight_target": 0.2662,
+            "weight_actual": 0.2958,
+            "event_mean_pct": 0.72
+          }
+        ],
+        "dropped": [
+          {
+            "symbol": "ASIANPAINT",
+            "reason": "one share \u2248 \u20b92,653 exceeds the \u20b92,000 ticket"
+          },
+          {
+            "symbol": "BPCL",
+            "reason": "weight too small to buy one share at \u20b9303"
+          }
+        ],
+        "substitutions": [
+          {
+            "in": "PATANJALI",
+            "out": "INDIGO",
+            "reason": "one share \u2248 \u20b95,386 exceeds even the \u20b95,000 ceiling",
+            "in_mean_episode_pct": 8.59,
+            "in_n_episodes": 64
+          }
+        ],
+        "note": "A pared-down version of the same basket \u2014 3 of 5 names, whole shares only, so weights drift a little from the full strategy. Priced-out names were replaced by event-tested picks from the same theme: PATANJALI (for INDIGO)."
+      },
+      "gain_loss": {
+        "avg_gain_pct": 4.88,
+        "avg_loss_pct": -3.95,
+        "max_gain_pct": 17.16,
+        "max_loss_pct": -17.14,
+        "n_gain": 41,
+        "n_loss": 23,
+        "basis": "episodes"
+      },
+      "avg_episode_return_pct": 1.71,
+      "avg_episode_benchmark_pct": 1.48,
+      "avg_episode_excess_pct": 0.23,
+      "pct_positive": 64.1,
+      "n_positive": 41,
+      "trust_verdict": "unproven"
+    }
+  },
+  "fundamental_comparison": {
+    "4f40f896-0953-4d66-bf6f-1932667b531e": null,
+    "81809245-feeb-4ead-9f35-eb8166757cb7": null,
+    "19f04e99-b704-4166-b99a-697049885d44": null
+  }
+}
