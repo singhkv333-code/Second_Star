@@ -2504,10 +2504,14 @@ def tool_get_peers(symbol: str = "") -> dict:
     return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
             "_note": (
                 "Industry comes from the Moneycontrol classification; peers "
-                "are limited to the 500-company chart universe. To compare, "
-                "pick a handful (the user's ask decides which — do not dump "
-                "the whole list) and call compare_symbols. A peer marked "
-                "cold downloads its history on first use, ~6 s each.")}
+                "are limited to the 500-company chart universe. To compare "
+                "price paths, pick a handful (the user's ask decides which — "
+                "do not dump the whole list) and call compare_symbols. To "
+                f"compare a single METRIC across the whole peer set — RSI, "
+                f"returns, distance from highs, any screen feature — call "
+                f"screen_universe with industry='{ind}' and sort by that "
+                f"feature; it covers every peer at once, cold or not. A peer "
+                "marked cold downloads its history on first use, ~6 s each.")}
 
 
 def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
@@ -2609,6 +2613,7 @@ SCREEN_FEATURES = (
     "close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y",
     "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
     "sma20_rel", "sma50_rel", "sma200_rel",
+    "sma50_cross_ago", "sma200_cross_ago",
     "range_20d_pct", "vol_z20", "turnover_20d_cr",
 )
 
@@ -2629,6 +2634,13 @@ SCREEN_FEATURE_HELP = {
     "sma20_rel": "% of close above (+) or below (-) the 20-day SMA",
     "sma50_rel": "% of close above (+) or below (-) the 50-day SMA",
     "sma200_rel": "% of close above (+) or below (-) the 200-day SMA",
+    "sma50_cross_ago": "sessions since close last crossed its 50-day SMA "
+                       "(either direction — sma50_rel's sign says which side "
+                       "it is on NOW); 'just crossed above' = this lt N plus "
+                       "sma50_rel gt 0. Null if no cross within ~120 sessions",
+    "sma200_cross_ago": "sessions since close last crossed its 200-day SMA "
+                        "(either direction — pair with sma200_rel's sign); "
+                        "null if no cross within ~120 sessions",
     "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
     "vol_z20": "last session's volume in σ of the prior 20 sessions",
     "turnover_20d_cr": "avg daily close*volume over 20 sessions, rupees crore",
@@ -2693,6 +2705,20 @@ def _screen_row_features(rows: list[tuple]) -> dict:
     for key, p in (("sma20_rel", 20), ("sma50_rel", 50), ("sma200_rel", 200)):
         if n >= p:
             f[key] = _rel(c, indicators.sma(closes[-p:], p)[-1])
+    # a cross is a state CHANGE — "which side now" is the smaX_rel sign, this
+    # is how many sessions ago the side last flipped
+    for key, p in (("sma50_cross_ago", 50), ("sma200_cross_ago", 200)):
+        if n >= p + 2:
+            s = indicators.sma(closes, p)
+            if s[-1] is None:
+                continue
+            latest = closes[-1] > s[-1]
+            for i in range(n - 2, max(p - 2, n - 122), -1):
+                if s[i] is None:
+                    break
+                if (closes[i] > s[i]) != latest:
+                    f[key] = n - 2 - i
+                    break
     if n >= 20:
         w = rows[-20:]
         f["range_20d_pct"] = round(
@@ -4892,7 +4918,9 @@ TOOLS = [
          "The company's industry classification (Moneycontrol) and its peer "
          "group within the 500-company universe. Use for 'who are the "
          "peers/competitors' and as the first step of any peer comparison — "
-         "then pick the relevant few and call compare_symbols."),
+         "then compare_symbols for price paths, or screen_universe with the "
+         "industry to rank ONE metric (RSI, returns, any feature) across "
+         "every peer at once."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string",
                     "description": "defaults to the chart's symbol"}},
@@ -4918,9 +4946,11 @@ TOOLS = [
          "Compose any combination yourself: a filter is one feature, lt or gt, "
          "and a number; a band is two filters on the same feature. Use it for "
          "every 'which stocks / find me / how many companies' question about "
-         "setups, criteria or structure across many names. Results are "
-         "end-of-day and carry their own as-of date and universe size — quote "
-         "both."),
+         "setups, criteria or structure across many names — including "
+         "comparing one metric across a sector's peers (industry + sort by "
+         "the metric) and fresh crossovers (smaX_cross_ago lt N with "
+         "smaX_rel's sign for the direction). Results are end-of-day and "
+         "carry their own as-of date and universe size — quote both."),
      "parameters": {"type": "object", "properties": {
          "filters": {"type": "array", "description": "all must pass",
                      "items": {"type": "object", "properties": {
