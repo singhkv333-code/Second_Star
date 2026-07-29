@@ -38,12 +38,19 @@ Four edits, all marked. Three hang off a single `CHARTO` flag in
 | --- | --- |
 | Buy / Sell CTAs | charto has no order path; a button that cannot register an order is a fake control |
 | Watchlist bookmark | charto has no accounts |
-| Financial Performance panel | charto stores no statements — the grid would be all em-dashes |
+
+Key Metrics and the Financial Performance panel are live: `sync_financials.py`
+runs **Pivot's own** `backend.market.financials_db` against the same
+Moneycontrol database and stores the assembled payloads, so the numbers are
+Pivot's, not a second derivation. Where Moneycontrol has no ratio row (D/E,
+current ratio, P/B, EV multiples for much of the universe) Pivot calls
+yfinance live; charto fills the same gaps from the enrichment snapshot instead,
+tagged `yfinance` — so those few can sit a scrape behind Pivot's live call.
 
 The fourth: `app/stock/[symbol]/view.tsx` swaps Pivot's `AppShell` (its sidebar
 of tabs charto doesn't have) for a charto bar with a link back to the chart,
 and `/stock` is ungated in `AppBootstrap` so the page opens without a sign-in.
 
-Fields charto genuinely lacks (ROE, ROCE, D/E, Net Margin) render as the page's
-own em-dash, never as a filler number. `Year Founded` comes from the same
-curated map Pivot ships.
+A field neither source publishes for a company renders as the page's own
+em-dash, never as a filler number. `Year Founded` comes from the same curated
+map Pivot ships.

@@ -9,8 +9,13 @@ futures roll:
   * indices (segment INDICES) — never expire, continuous=False, volume is
     always 0 because an index is computed rather than traded.
   * futures (MCX-FUT metals/energy, CDS-FUT currency) — each contract only
-    holds data for its own life, so we request the FRONT MONTH token with
-    continuous=True and Kite stitches the back-history for us.
+    holds data for its own life. Kite REJECTS continuous=True on minute data
+    ("invalid interval for continuous data" — it is a daily+ feature), and
+    expired contracts are absent from the instrument master, so their history
+    is simply unreachable. Measured 2026-07-29: the FRONT contract is the
+    deepest of the listed ones (USDINR26JULFUT carries 2025-07-29 onward,
+    later expiries start progressively later), so ~12-13 months is the hard
+    ceiling for 1-minute futures history. FUT_LOOKBACK_DAYS reflects that.
 
 Run:  cd pivot && source .venv/bin/activate
       python ../charto/data/backfill_macro.py            # all 37
@@ -36,8 +41,9 @@ from backend.kite.auth import (                                # noqa: E402
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
 FLOOR = datetime(2015, 2, 2, tzinfo=timezone.utc)   # measured Kite 1-min floor
-WINDOW_DAYS = 55        # cap is 60; stay safe
-WORKERS = 3             # measured sweet spot — 3 req/s is where Kite stops 429ing
+FUT_LOOKBACK_DAYS = 400   # a listed future's whole life; older contracts are gone
+WINDOW_DAYS = 55          # cap is 60; stay safe
+WORKERS = 3               # measured sweet spot — 3 req/s is where Kite stops 429ing
 
 INDICES = [
     "NIFTY 50", "NIFTY BANK", "INDIA VIX", "NIFTY IT", "NIFTY AUTO",
@@ -69,7 +75,8 @@ def get_token() -> str:
 
 
 def resolve(kite, wanted: set[str]) -> list[tuple[str, int, bool]]:
-    """-> [(symbol, instrument_token, continuous)]. Futures pick front month."""
+    """-> [(symbol, instrument_token, is_future)]. Futures pick front month —
+    the deepest-listed contract, since expired ones are unreachable."""
     inst = kite.instruments()
     out: list[tuple[str, int, bool]] = []
     for name in INDICES:
@@ -110,12 +117,13 @@ def _connect() -> sqlite3.Connection:
     return con
 
 
-def backfill(con, token: str, symbol: str, instrument: int, continuous: bool) -> None:
+def backfill(con, token: str, symbol: str, instrument: int, is_future: bool) -> None:
     t0 = time.time()
+    now = datetime.now(timezone.utc)
+    floor = now - timedelta(days=FUT_LOOKBACK_DAYS) if is_future else FLOOR
     row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?", (symbol,)).fetchone()
     start = (datetime.fromtimestamp(row[0], timezone.utc) - timedelta(days=2)
-             if row and row[0] else FLOOR)
-    now = datetime.now(timezone.utc)
+             if row and row[0] else floor)
     if start >= now - timedelta(minutes=5):
         print(f"  {symbol:20s} already current")
         return
@@ -141,7 +149,7 @@ def backfill(con, token: str, symbol: str, instrument: int, continuous: bool) ->
             try:
                 candles = kite.historical_data(
                     instrument_token=instrument, from_date=frm, to_date=to,
-                    interval="minute", continuous=continuous, oi=False,
+                    interval="minute", continuous=False, oi=False,
                 )
             except Exception as exc:                       # noqa: BLE001
                 with _lock:
@@ -197,8 +205,8 @@ def main(argv: list[str]) -> None:
 
     con = _connect()
     t0 = time.time()
-    for symbol, instrument, continuous in targets:
-        backfill(con, token, symbol, instrument, continuous)
+    for symbol, instrument, is_future in targets:
+        backfill(con, token, symbol, instrument, is_future)
     print(f"\nALL DONE in {time.time() - t0:.0f}s", flush=True)
     con.close()
 

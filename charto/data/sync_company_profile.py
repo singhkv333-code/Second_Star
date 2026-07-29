@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS company_profile (
   pb            REAL,
   ev_sales      REAL,
   ev_ebitda     REAL,
+  roe           REAL,
+  roa           REAL,
+  net_margin    REAL,
+  current_ratio REAL,
+  debt_to_equity REAL,
+  book_value_ps REAL,
   synced_at     INTEGER
 );
 """
@@ -82,6 +88,26 @@ def _logo(sym: str, website: str | None, precomputed: str | None,
     if dom:
         return f"https://img.logo.dev/{dom}?token={LOGO_TOKEN}&size=128&format=png"
     return precomputed or None
+
+
+def _yf_ratios(raw: dict) -> tuple:
+    """(roe, roa, net_margin, current_ratio, debt_to_equity, book_value/share),
+    scaled the way Pivot scales them (yfinance_fundamentals._ratios_from_info):
+    ratios as percentages, debtToEquity divided by 100. Same scaling matters —
+    the same field must not read 0.10x on one surface and 10.4 on another."""
+    def pct(k):
+        v = raw.get(k)
+        return round(v * 100, 4) if isinstance(v, (int, float)) else None
+
+    def mult(k):
+        v = raw.get(k)
+        return round(v, 4) if isinstance(v, (int, float)) else None
+
+    d2e = raw.get("debtToEquity")
+    return (pct("returnOnEquity"), pct("returnOnAssets"),
+            pct("profitMargins"), mult("currentRatio"),
+            round(d2e / 100, 4) if isinstance(d2e, (int, float)) else None,
+            mult("bookValue"))
 
 
 def _ceo(officers) -> str | None:
@@ -171,14 +197,15 @@ def main() -> None:
             _logo(sym, website, logo, overrides), ep[0], ep[1], ep[2],
             _ceo(raw.get("companyOfficers")),
             raw.get("priceToBook"), raw.get("enterpriseToRevenue"),
-            raw.get("enterpriseToEbitda"), now))
+            raw.get("enterpriseToEbitda"),
+            *_yf_ratios(raw), now))
 
     db = sqlite3.connect(HERE / "charto_bars.db")
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("DROP TABLE IF EXISTS company_profile")   # schema evolves here
     db.executescript(DDL)
     db.executemany(
-        "INSERT INTO company_profile VALUES (" + ",".join("?" * 22) + ")", rows)
+        "INSERT INTO company_profile VALUES (" + ",".join("?" * 28) + ")", rows)
     db.commit()
     n, s, m, p, c, lo = db.execute(
         "SELECT COUNT(*), COUNT(summary), COUNT(market_cap), COUNT(eps), "

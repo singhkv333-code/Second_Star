@@ -88,10 +88,10 @@ type SeriesEntry = {
 const RANGE_OPTIONS: SparklineRange[] = ["1D", "1W", "1M", "6M", "1Y", "5Y"];
 
 // charto: this page is copied from Pivot unchanged except for what charto has
-// no source for. charto is a chart, not a broker and not an account system —
-// it has no order path, no watchlist, and no statements DB — so the Buy/Sell
-// CTAs, the bookmark, and the Financial Performance grid are suppressed rather
-// than rendered as controls that cannot work or a table of em-dashes.
+// no source for. charto is a chart, not a broker and not an account system, so
+// the Buy/Sell CTAs and the watchlist bookmark are suppressed rather than
+// rendered as controls that cannot work. The statements ARE here — synced from
+// the same Moneycontrol database by Pivot's own code (sync_financials.py).
 const CHARTO = true;
 
 // ---------------------------------------------------------------------------
@@ -516,7 +516,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           )}
 
           {/* Unified Financials panel — company statements; an index has none. */}
-          {!CHARTO && quoteState.kind === "ok" && !isIndexQuote && (
+          {quoteState.kind === "ok" && !isIndexQuote && (
             <FinancialsPanel
               quote={quoteState.quote}
               financials={financials}

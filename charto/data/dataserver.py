@@ -2489,7 +2489,9 @@ def _classification_row(sym: str):
 _PROFILE_COLS = ("sc_id", "name", "long_name", "industry_slug", "sector",
                  "industry", "market_cap", "summary", "website", "employees",
                  "city", "country", "logo_url", "eps", "eps_basis",
-                 "eps_period", "ceo", "pb", "ev_sales", "ev_ebitda")
+                 "eps_period", "ceo", "pb", "ev_sales", "ev_ebitda", "roe",
+                 "roa", "net_margin", "current_ratio", "debt_to_equity",
+                 "book_value_ps")
 
 # The range buttons, in the same set the Pivot stock page offers. Each maps to
 # an interval this store actually holds, so the page's chart is the chart's
@@ -2653,39 +2655,76 @@ def _api_quote(sym: str) -> tuple[int, dict]:
 
 
 def _api_financials(sym: str) -> tuple[int, dict]:
+    """Pivot's financials payload: the statements as Pivot's own code
+    assembled them (sync_financials.py), plus the profile and the two
+    yfinance-sourced multiples this store already holds."""
     row = _con.execute(
         f"SELECT {','.join(_PROFILE_COLS)} FROM company_profile WHERE symbol=?",
         (sym,)).fetchone()
     prof = dict(zip(_PROFILE_COLS, row)) if row else {}
-    if not prof:
-        return 200, {"available": False, "company": None, "latest": {},
-                     "history": {}, "profile": None, "source": "charto"}
-    def latest(key, item, unit=None):
-        v = prof.get(key)
-        return None if v is None else {
-            "value": v, "period_end": None, "period_label": "TTM",
-            "line_item": item, "unit": unit, "basis": "consolidated",
-            "source": "yfinance"}
-    return 200, {
-        "available": True,
-        "company": {"sc_id": prof.get("sc_id") or "", "name": prof.get("name") or sym,
-                    "nse_symbol": sym, "bse_code": None, "ticker": sym,
-                    "sector": prof.get("sector"),
-                    "industry_slug": prof.get("industry_slug"),
-                    "market_cap": prof.get("market_cap"), "is_active": True},
-        "latest": {k: v for k, v in (
-            ("price_to_book", latest("pb", "Price to Book")),
-            ("ev_to_sales", latest("ev_sales", "EV to Sales")),
-            ("ev_to_ebitda", latest("ev_ebitda", "EV to EBITDA")),
-            ("eps", latest("eps", "Basic EPS (Rs.)", "Rs.")),
-        ) if v},
-        "history": {},
-        "profile": {"name": prof.get("long_name") or prof.get("name"),
-                    "blurb": prof.get("summary"), "sector": prof.get("sector"),
-                    "industry": prof.get("industry"),
-                    "website": prof.get("website"), "ceo": prof.get("ceo")},
-        "source": "moneycontrol+enrich",
-    }
+    try:
+        blob = _con.execute("SELECT payload FROM financials WHERE symbol=?",
+                            (sym,)).fetchone()
+    except sqlite3.Error:
+        blob = None
+    out = json.loads(blob[0]) if blob else {
+        "available": False, "company": None, "latest": {}, "history": {},
+        "source": "moneycontrol_via_financials_db"}
+
+    if prof:
+        # Moneycontrol carries no ratios for a chunk of the universe (banks
+        # especially); Pivot fills those from yfinance live. The same two
+        # figures are already synced here, so they fill the same gaps —
+        # tagged yfinance, and only where MC left a hole.
+        for field, key, item in (("price_to_book", "pb", "Price to Book"),
+                                 ("ev_to_sales", "ev_sales", "EV to Sales"),
+                                 ("ev_to_ebitda", "ev_ebitda", "EV to EBITDA"),
+                                 ("roe", "roe", "Return on Equity"),
+                                 ("roa", "roa", "Return on Assets"),
+                                 ("net_profit_margin", "net_margin",
+                                  "Net Profit Margin"),
+                                 ("current_ratio", "current_ratio",
+                                  "Current Ratio"),
+                                 ("debt_to_equity", "debt_to_equity",
+                                  "Debt to Equity"),
+                                 ("book_value_per_share", "book_value_ps",
+                                  "Book Value / Share")):
+            v = prof.get(key)
+            if out.get("latest", {}).get(field) is None and v is not None:
+                out.setdefault("latest", {})[field] = {
+                    "value": float(v), "period_end": None,
+                    "period_label": "TTM", "line_item": item, "unit": None,
+                    "basis": "consolidated", "source": "yfinance"}
+        out["profile"] = {"name": prof.get("long_name") or prof.get("name"),
+                          "blurb": prof.get("summary"),
+                          "sector": prof.get("sector"),
+                          "industry": prof.get("industry"),
+                          "website": prof.get("website"), "ceo": prof.get("ceo")}
+        if not out.get("company"):
+            out["company"] = {
+                "sc_id": prof.get("sc_id") or "", "name": prof.get("name") or sym,
+                "nse_symbol": sym, "bse_code": None, "ticker": sym,
+                "sector": prof.get("sector"),
+                "industry_slug": prof.get("industry_slug"),
+                "market_cap": prof.get("market_cap"), "is_active": True}
+        out["available"] = bool(out.get("available")) or any(
+            v is not None for v in (out.get("latest") or {}).values())
+    return 200, out
+
+
+def _api_balance_sheet(sym: str, basis: str) -> tuple[int, dict]:
+    basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    try:
+        row = _con.execute(
+            "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
+            (sym, basis)).fetchone()
+    except sqlite3.Error:
+        row = None
+    if not row:
+        return 200, {"available": False, "company": None, "basis": basis,
+                     "unit": None, "periods": [], "rows": [],
+                     "source": "not stored in charto"}
+    return 200, json.loads(row[0])
 
 
 def _api_search(q: str, limit: int) -> dict:
@@ -2735,11 +2774,8 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                               for b in bars]}
     if tail[:1] == ["financials"]:
         s = sym_of(1)
-        if len(tail) > 2:      # /financials/{sym}/balance_sheet — charto holds
-            return 200, {     # no statements, and says so rather than faking
-                "available": False, "company": None, "basis": "consolidated",
-                "unit": None, "periods": [], "rows": [],
-                "source": "not stored in charto"}
+        if len(tail) > 2:      # /financials/{sym}/balance_sheet
+            return _api_balance_sheet(s, q.get("basis", "consolidated"))
         return _api_financials(s)
     if tail[:2] == ["markets", "metric-series"]:
         return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
