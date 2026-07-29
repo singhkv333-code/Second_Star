@@ -18,7 +18,7 @@
 const Indicators = (() => {
   const LWC = window.LightweightCharts;
   const fmt = (n) => n == null ? "—"
-    : Math.abs(n) >= 1000 ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+    : Math.abs(n) >= 1000 ? Sym.num(n)
     : n.toFixed(2);
 
   // ── catalogue, loaded from the backend ────────────────
@@ -124,7 +124,7 @@ const Indicators = (() => {
   // its points land 5.5 hours off every candle, which silently stretches the
   // time axis instead of erroring. The backend speaks raw epoch throughout;
   // the display shift stays in the data client, applied once, here and there.
-  const IST = 19800;
+  const IST = Sym.tz;
 
   async function fetchSeries(def, interval, limit) {
     const q = new URLSearchParams({

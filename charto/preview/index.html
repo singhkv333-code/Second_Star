@@ -133,11 +133,11 @@
     white-space: nowrap; max-width: 118px;
   }
   #symList .item .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
-  #symList .item .co-logo, .prose a.sym-link .co-logo {
+  #symList .item .co-logo, .prose .co-logo {
     width: 15px; height: 15px; border-radius: 3px; object-fit: contain;
     background: var(--muted); flex: none;
   }
-  .prose a.sym-link .co-logo {
+  .prose .co-logo {
     width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px;
     display: inline-block;
   }
@@ -148,15 +148,7 @@
   #symList .item:hover .open-co { opacity: 1; }
   #symList .item .open-co:hover { color: var(--primary); background: var(--accent); }
 
-  /* company links inside a reply */
-  .prose a.sym-link {
-    color: var(--primary); text-decoration: none;
-    border-bottom: 1px solid transparent; font-weight: 560;
-  }
-  .prose a.sym-link:hover {
-    border-bottom-color: var(--primary); background: var(--primary-soft);
-    border-radius: 3px;
-  }
+  /* a company's mark, inline before its name in a reply's table */
 
   /* segmented control (intervals) */
   .seg { display: inline-flex; align-items: center; gap: 2px; }
@@ -689,7 +681,7 @@
     <div class="brand">Charto<span class="dot">.</span></div>
     <div class="menu-wrap">
       <div class="symbol" id="symbolPill" title="Search companies">
-        <span id="symbolName">RELIANCE</span> <span class="ex">NSE</span>
+        <span id="symbolName">RELIANCE</span> <span class="ex" id="symbolVenue">NSE</span>
       </div>
       <div class="dropdown" id="symbolMenu">
         <input id="symSearch" placeholder="Search 500 companies…"
@@ -814,15 +806,15 @@
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
   <div id="periodPop" class="dropdown"></div>
-  <script src="./js/store.js?v=5"></script>
-  <script src="./js/theme.js?v=4"></script>
+  <script src="./js/store.js?v=7"></script>
+  <script src="./js/theme.js?v=5"></script>
   <script src="./js/icons.js?v=6"></script>
-  <script src="./js/indicators.js?v=12"></script>
+  <script src="./js/indicators.js?v=13"></script>
   <script src="./js/geometry.js?v=7"></script>
   <script src="./js/tools.js?v=7"></script>
-  <script src="./js/drawings.js?v=10"></script>
-  <script src="./js/scene.js?v=19"></script>
-  <script src="./js/main.js?v=32"></script>
-  <script src="./js/chat.js?v=16"></script>
+  <script src="./js/drawings.js?v=11"></script>
+  <script src="./js/scene.js?v=20"></script>
+  <script src="./js/main.js?v=34"></script>
+  <script src="./js/chat.js?v=19"></script>
 </body>
 </html>

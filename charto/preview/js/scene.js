@@ -68,7 +68,7 @@ const Scene = (() => {
     const _ru = () => { for (const f of rus.values()) f(); };
     const attached = new Map();            // paneKey -> {pane, prim}
 
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.num(n);
     /** Pane keys may be composite — "rsi@26" means the rsi pane whose line
      *  is period 26, so marks land on the variant they were computed from
      *  when two of the same indicator are open. Plain names keep working. */
@@ -167,7 +167,7 @@ const Scene = (() => {
       // trade plan from plan_position — same primitive (and so the exact
       // same TradingView-style design) as the user's own long/short tool
       position: (a) => {
-        const inr = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+        const inr = (n) => Sym.price(Math.round(n), { maximumFractionDigits: 0 });
         const pct = (v) => Math.abs((v - a.entry) / a.entry * 100).toFixed(2);
         const dst = (v) => Math.abs(v - a.entry).toFixed(2);
         const amt = (i) => (a.pnl && a.pnl[i] != null) ? `, Amount: ${inr(a.pnl[i])}` : "";

@@ -12,9 +12,10 @@ the same bars.
 cd charto/web && npx next dev -p 5175        # node_modules symlinks to pivot-next
 ```
 
-Then `http://localhost:5175/stock/RELIANCE`. The chart links here from three
-places: a company name inside a chat **table**, the ↗ on a search-dropdown row,
-and `Open chart →` links back.
+Then `http://localhost:5175/stock/RELIANCE`. The chart links here from the ↗ on
+a search-dropdown row, and `Open chart →` links back. Chat replies are not
+linked — a reply's tables carry the company's logo next to its name, nothing
+more.
 
 `.env.local` points the copied `lib/api.ts` at charto:
 

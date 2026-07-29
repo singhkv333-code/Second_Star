@@ -4728,9 +4728,17 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
         # keep the bar CONTAINING t_from, not just bars starting after it
         rows = [r for r in rows if r[0] + iv > t_from][:limit]
     if not rows:
+        # The floor is PER SYMBOL now that the store holds more than NSE
+        # equities — crypto starts 2015-07-20 (BTC) or 2021 (Bybit pairs), a
+        # listed future only a few months back. A hardcoded 2015-02-02 sent
+        # the model to argue with a user about a window that never existed.
+        lo = _con.execute("SELECT MIN(ts) FROM bars WHERE symbol=?",
+                          (_sym(),)).fetchone()[0]
+        closes = ("this symbol trades 24/7" if session_for(_sym()) == UTC_SESSION
+                  else "markets are closed on weekends and holidays")
         return {"error": "no bars in that range",
-                "hint": "history starts 2015-02-02; markets are closed on "
-                        "weekends and NSE holidays"}
+                "hint": (f"{_sym()} history starts {_ist(lo)}; {closes}"
+                         if lo else f"no bars stored for {_sym()} at all")}
     return {
         "bars": [{"t": _ist(r[0]), "o": r[1], "h": r[2], "l": r[3], "c": r[4], "v": r[5]}
                  for r in rows],
@@ -6090,18 +6098,19 @@ def _live_snapshot(sym: str, form: list) -> dict:
     read, and each interval is folded by the same bucket math the historical
     resampler uses.
     """
-    day0 = _ist_day(form[0]) * 86400 - IST_OFF
+    sess = session_for(sym)
+    day0 = _ist_day(form[0], sess[1]) * 86400 - sess[1]
     mins = _live_writer.execute(
         "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
         "ORDER BY ts", (sym, day0, form[0])).fetchall()
     tail = tuple(form)
     out = {}
     for name, m in INTRADAY_MIN.items():
-        _, bts = _bucket_stamp(form[0], m)
-        b = _resample_intraday([r for r in mins if r[0] >= bts] + [tail], m)[-1]
+        _, bts = _bucket_stamp(form[0], m, sess)
+        b = _resample_intraday([r for r in mins if r[0] >= bts] + [tail], m, sess)[-1]
         out[name] = {"t": b[0], "o": b[1], "h": b[2], "l": b[3],
                      "c": b[4], "v": b[5]}
-    d = _fold_daily(mins + [tail])[-1]
+    d = _fold_daily(mins + [tail], sess)[-1]
     out["1d"] = {"t": d[0], "o": d[1], "h": d[2], "l": d[3], "c": d[4], "v": d[5]}
     return out
 
@@ -6128,9 +6137,13 @@ def _live_push(sym: str, form: list, closed: bool) -> None:
 
 def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
     """The one seam every tick source calls. ts = the tick's epoch second."""
-    if price <= 0 or ((ts + IST_OFF) % 86400) // 60 < SESSION_OPEN_MIN:
+    sess = session_for(sym)
+    open_min, tz_off = sess
+    if price <= 0 or ((ts + tz_off) % 86400) // 60 < open_min:
         return    # zero-price / pre-open prints must not enter any candle
-    _, bts = _bucket_stamp(ts, 1)
+    # ^ gated on the SYMBOL's clock: a 09:15-IST gate would have dropped every
+    # crypto tick between UTC midnight and 03:45 UTC as "pre-open".
+    _, bts = _bucket_stamp(ts, 1, sess)
     st = _live_state(sym)
     closed_bar = None
     with st["lock"]:
@@ -6173,15 +6186,17 @@ def _merge_form_intraday(rows: list, form: list) -> None:
         rows.append(tuple(form))
 
 
-def _merge_form_daily(daily: list[list], form: list) -> list[list]:
+def _merge_form_daily(daily: list[list], form: list,
+                      session: tuple[int, int] = NSE_SESSION) -> list[list]:
     """A copy of `daily` with the forming minute folded in — never mutates the
     cached list, which outlives any replay."""
+    tz_off = session[1]
     out = list(daily)
-    if out and _ist_day(out[-1][0]) == _ist_day(form[0]):
+    if out and _ist_day(out[-1][0], tz_off) == _ist_day(form[0], tz_off):
         ts, o, h, l, c, v = out[-1]
         out[-1] = [ts, o, max(h, form[2]), min(l, form[3]), form[4], v + form[5]]
     elif not out or form[0] > out[-1][0]:
-        out.append([_ist_day(form[0]) * 86400 - IST_OFF,
+        out.append([_ist_day(form[0], tz_off) * 86400 - tz_off,
                     form[1], form[2], form[3], form[4], form[5]])
     return out
 
@@ -6249,8 +6264,11 @@ def _replay(sym: str, date: str | None, speed: float, stop: bool) -> tuple[int, 
                             (sym,)).fetchone()[0]
         if last is None:
             return 404, {"error": f"no bars for {sym}"}
-        day = _ist_day(last)
-    day0 = day * 86400 - IST_OFF
+        day = _ist_day(last, session_for(sym)[1])
+    # the replayed window is the symbol's own day: asking for 2026-07-20 on a
+    # 24/7 symbol used to hand back 19 Jul 18:30 -> 20 Jul 18:30 UTC (IST
+    # midnight), which is a different session than the date names.
+    day0 = day * 86400 - session_for(sym)[1]
     rows = _con.execute(
         "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
         "ORDER BY ts", (sym, day0, day0 + 86400)).fetchall()
@@ -6300,7 +6318,7 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
             "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? ORDER BY ts",
             (symbol, horizon)).fetchall(), session_for(symbol))
         if form is not None:
-            daily = _merge_form_daily(daily, form)
+            daily = _merge_form_daily(daily, form, session_for(symbol))
         series = daily if interval == "1d" \
             else _weekly_or_monthly(daily, interval)
         if to:
@@ -6424,7 +6442,13 @@ class Handler(BaseHTTPRequestHandler):
                         "WHERE long_name IS NOT NULL"))
                 except sqlite3.Error:
                     logos, longs = {}, {}
-                return self._send(200, {"symbols": _known_symbols(),
+                # Anything already in the store is searchable even when it is
+                # absent from the NSE universe file: indices, India VIX, MCX
+                # futures, INR pairs and crypto arrive via backfill_macro.py /
+                # backfill_crypto.py rather than through hydration, so keying
+                # the picker off the universe alone made them unreachable
+                # except by typing ?symbol= into the URL.
+                return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,
                                         "logos": logos})

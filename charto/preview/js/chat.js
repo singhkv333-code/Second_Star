@@ -12,15 +12,6 @@
 
 (function () {
   const API = "http://127.0.0.1:5174";
-  // Pivot's stock page, copied into charto/web and served by `next dev`
-  // there (see charto/web/README). Company links open it directly.
-  const COMPANY_PAGE = "http://localhost:5175";
-  // The page is a different ORIGIN, so it cannot read charto's stored
-  // theme — carry it in the URL or a dark chart opens a white page.
-  const companyHref = (sym) =>
-    `${COMPANY_PAGE}/stock/${encodeURIComponent(sym)}?theme=`
-    + (document.documentElement.getAttribute("data-theme") || "dark");
-
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -343,34 +334,42 @@
     return done;
   }
 
-  // ── company links ────────────────────────────────────────
-  // A reply names companies constantly; each one is a page the user can open.
-  // Linking runs on the FINISHED turn over text nodes, never over the markdown
-  // string: a regex on HTML would eventually match inside a tag it wrote.
-  let SYMS = null, TO_SYM = null, SYM_RE = null, LOGOS = {};
+  // ── company logos ────────────────────────────────────────
+  // A reply's table rows are per-company, so the company's mark belongs next
+  // to its NAME — the ticker column stays plain text. Nothing is linked: the
+  // page is reached from the search dropdown. This runs on the FINISHED turn
+  // over text nodes, never over the markdown string: a regex on HTML would
+  // eventually match inside a tag it wrote.
+  let SYMS = null, TO_SYM = null, SYM_RE = null, LOGOS = {}, NAME_KEYS = null;
   fetch(`${API}/symbols`).then((r) => r.json()).then((d) => {
     SYMS = new Set(d.symbols || []);
     LOGOS = d.logos || {};
     TO_SYM = new Map(SYMS.size ? [...SYMS].map((s) => [s, s]) : []);
-    // A reply names companies either way — "TCS" or "Caplin Labs" — so both
-    // resolve. Case-sensitive, so the word "reliance" in prose is not a link.
+    // A reply names companies either way — "TCS" or "Caplin Labs". Only the
+    // NAME spellings carry a logo; a bare ticker is left exactly as written.
+    NAME_KEYS = new Set();
     for (const src of [d.names || {}, d.long || {}]) {
       for (const [sym, name] of Object.entries(src)) {
-        if (name && name.length > 3 && !TO_SYM.has(name)) TO_SYM.set(name, sym);
+        if (name && name.length > 3 && !TO_SYM.has(name)) {
+          TO_SYM.set(name, sym);
+          NAME_KEYS.add(name);
+        }
       }
     }
     const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const alts = [...TO_SYM.keys()].sort((a, b) => b.length - a.length).map(esc);
     SYM_RE = new RegExp(`(?<![\\w&-])(${alts.join("|")})(?![\\w&-])`, "g");
-    // a restored session renders before this fetch lands — link it now that
-    // the map exists, or reopening a company would lose every link
-    document.querySelectorAll(".prose").forEach(linkCompanies);
-  }).catch(() => { SYMS = new Set(); });
+    // a restored session renders before this fetch lands — mark it now that
+    // the map exists, or a reopened conversation would lose every logo
+    document.querySelectorAll(".prose").forEach((p) => {
+      try { linkCompanies(p); } catch (e) { console.warn("[charto] mark failed", e); }
+    });
+  }).catch((e) => { console.warn("[charto] symbols fetch failed", e); SYMS = new Set(); });
 
-  /** Link company names to their page — in TABLES only. Prose names the same
-   *  company several times a paragraph, and linking each one turns the answer
-   *  into a field of blue; a table row is already a per-company row, so the
-   *  link belongs there and reads as navigation rather than decoration. */
+  /** Put each company's logo before its NAME — in TABLES only. Prose names the
+   *  same company several times a paragraph, and a mark on each one is
+   *  decoration; a table row is already a per-company row. Tickers and
+   *  companies with no known logo are left untouched. */
   function linkCompanies(root) {
     if (!SYM_RE || !TO_SYM || !TO_SYM.size) return;
     const jobs = [];
@@ -390,30 +389,21 @@
       SYM_RE.lastIndex = 0;
       while ((m = SYM_RE.exec(node.nodeValue))) {
         const sym = TO_SYM.get(m[0]);
-        if (!sym) continue;
+        // a ticker is not a name, and a company with no stored logo has
+        // nothing to add — both are left as the model wrote them
+        if (!sym || !NAME_KEYS.has(m[0]) || !LOGOS[sym]) continue;
         if (m.index > last) {
           frag.appendChild(document.createTextNode(
             node.nodeValue.slice(last, m.index)));
         }
-        const a = document.createElement("a");
-        a.className = "sym-link";
-        a.href = companyHref(sym);
-        // a new tab: following a link must not tear down the chart the
-        // answer is about
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.title = `${sym} — company page`;
-        if (LOGOS[sym]) {
-          const img = document.createElement("img");
-          img.className = "co-logo";
-          img.src = LOGOS[sym];
-          img.alt = "";
-          img.loading = "lazy";
-          img.onerror = () => img.remove();   // a dead logo must not leave a box
-          a.appendChild(img);
-        }
-        a.appendChild(document.createTextNode(m[0]));
-        frag.appendChild(a);
+        const img = document.createElement("img");
+        img.className = "co-logo";
+        img.src = LOGOS[sym];
+        img.alt = "";
+        img.loading = "lazy";
+        img.onerror = () => img.remove();   // a dead logo must not leave a box
+        frag.appendChild(img);
+        frag.appendChild(document.createTextNode(m[0]));
         last = m.index + m[0].length;
       }
       if (!frag.childNodes.length) continue;
@@ -575,7 +565,7 @@
       const label = `${t.getUTCDate()} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][t.getUTCMonth()]} `
         + `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
       return `<span class="pin"><span class="t">${label}</span>`
-        + `${Number(p.close).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+        + `${Sym.num(p.close, { minimumFractionDigits: 2 })}`
         + `<span class="x" data-unpin="${p.time}">${Icons.svg("x", "xs")}</span></span>`;
     }).join("");
     if (e.detail.length) input.focus();

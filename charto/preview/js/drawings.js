@@ -153,7 +153,7 @@ const Drawings = (() => {
     const envFor = (key, w, h) => ({ tToX, vToY: (v) => vToY(v, key), w, h });
 
     // ── tool build context ──────────────────────────────
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.num(n);
     const buildCtx = {
       fmt,
       fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,

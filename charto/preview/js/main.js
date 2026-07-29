@@ -12,7 +12,11 @@
   // there (see charto/web/README). Company links open it directly.
   const COMPANY_PAGE = "http://localhost:5175";
 
-  const IST = 19800;
+  // Per-symbol: +05:30 for Indian instruments, 0 for crypto (whose bars the
+  // dataserver folds on UTC midnight). Every `+ IST` / `- IST` below is a
+  // shift between raw exchange time and chart time, so this one binding
+  // switches the whole axis.
+  const IST = Sym.tz;
   const SYMBOL = (new URLSearchParams(location.search).get("symbol")
                   || "RELIANCE").toUpperCase();
   const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
@@ -111,7 +115,7 @@
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
       el("barsLine").textContent = `${bars.length.toLocaleString()} × ${interval}`;
-      status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ₹${lastBar.close}`);
+      status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ${Sym.price(lastBar.close)}`);
       setOverlay(false);
       // drawings live in time, not in any one interval — make sure the new
       // interval's data actually reaches back to what is on the chart
@@ -228,7 +232,7 @@
   function paintReadout(b) {
     if (!b) { el("roOhlc").innerHTML = ""; return; }
     const cls = b.close >= b.open ? "up" : "down";
-    const f = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const f = (n) => Sym.num(n);
     el("roOhlc").innerHTML =
       `<span>O <b class="${cls}">${f(b.open)}</b></span>` +
       `<span>H <b class="${cls}">${f(b.high)}</b></span>` +
@@ -747,8 +751,8 @@
     }).filter(Boolean);
 
     return {
-      symbol: SYMBOL, exchange: "NSE",
-      source: "local 1-min store (Kite-sourced)",
+      symbol: SYMBOL, exchange: Sym.venue,
+      source: `local 1-min store (${Sym.feed})`,
       interval: state.interval,
       view: {
         from: T(first.time), to: T(last.time),
@@ -929,7 +933,7 @@
     provFor = a.id;
     const s = a.source || {};
     const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
-    const num = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+    const num = (n) => Sym.num(n, { minimumFractionDigits: 2 });
     // Every annotation answers the same question — "what is your record?" —
     // but each detector measures a different thing, so each states its own
     // rule. A hit rate whose definition is hidden is the number we refuse.
@@ -988,7 +992,7 @@
     provDraw = d;
     provFor = d.id;
     const T = (t) => fmtIST(t + IST, !DAILY.has(state.interval));
-    const num = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+    const num = (n) => Sym.num(n, { minimumFractionDigits: 2 });
     const g = draw.geometryOf(d.id) || { pts: [] };
     const unit = d.pane && d.pane !== "price"
       ? ((ind.CATALOG.find((c) => c.id === d.pane) || {}).label || d.pane) : "";
@@ -1040,7 +1044,7 @@
     const a = scene.state.items.find((x) => x.id === provFor);
     if (act === "ask" && a) {
       const t = (a.source || {}).tool;
-      const n = (v) => Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+      const n = (v) => Sym.num(v, { minimumFractionDigits: 2 });
       const subject = t === "get_trendlines" ? `the ${a.role} trendline`
         : t === "get_divergences" ? `the ${(a.source || {}).strength || ""} divergence`
           : a.kind === "zone" ? `the ${a.role} zone ${n(a.lo)}–${n(a.hi)}`
@@ -1268,6 +1272,8 @@
   // hydrates it server-side from the blob universe (~8 s once).
   (() => {
     el("symbolName").textContent = SYMBOL;
+    el("symbolVenue").textContent = Sym.venue;
+    el("srcLine").textContent = `local store · ${Sym.feed}`;
     el("roTitle").textContent = SYMBOL;
     document.title = `${SYMBOL} — Charto`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
