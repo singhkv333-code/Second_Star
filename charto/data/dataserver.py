@@ -2824,10 +2824,21 @@ def tool_get_peers(symbol: str = "") -> dict:
              for p, n in _con.execute(
                  "SELECT symbol, name FROM classification "
                  "WHERE industry=? AND symbol!=? ORDER BY symbol", (ind, sym))]
+    # Counted, not hardcoded. It read "500-company" until the universe grew to
+    # hold indices, crypto, MCX futures and INR pairs — and India VIX, asked
+    # for its peers, answered "no peers in the available 500-company chart
+    # universe", which was both the wrong number and the wrong noun.
+    n_uni = _con.execute(
+        "SELECT COUNT(*) FROM classification").fetchone()[0]
     return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
             "_note": (
-                "Industry comes from the Moneycontrol classification; peers "
-                "are limited to the 500-company chart universe. To compare "
+                f"Industry comes from the Moneycontrol classification; peers "
+                f"are limited to the {n_uni}-instrument chart universe, which "
+                f"holds NSE stocks, indices, India VIX, spot crypto, MCX "
+                f"futures and INR pairs — do not call it a company universe. "
+                f"An instrument alone in its industry has no peers here; say "
+                f"that plainly rather than implying it has no counterparts "
+                f"anywhere. To compare "
                 "price paths, pick a handful (the user's ask decides which — "
                 "do not dump the whole list) and call compare_symbols. To "
                 f"compare a single METRIC across the whole peer set — RSI, "
@@ -3799,6 +3810,26 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         if res.get("with_direction_rate_pct") is not None and base:
             res["edge_pp"] = (res["with_direction_rate_pct"]
                               - res["control"]["base_rate_pct"])
+            # The same error bar the pooled ledger carries. This path is the
+            # one that needed it MOST and did not have it: a single chart
+            # grades a handful of instances, not thousands. Measured live,
+            # India VIX reported a hammer with a "+22 percentage-point
+            # historical edge" off 16 cases — one standard error is 11.6pp
+            # there, so the edge was inside the noise and got narrated as a
+            # finding. The control term is negligible here (it spans every
+            # bar in the window) but is included so both paths agree.
+            p = res["with_direction_rate_pct"] / 100
+            se = (p * (1 - p) / len(evals)) ** 0.5 * 100
+            pc = res["control"]["base_rate_pct"] / 100
+            se = (se ** 2 + pc * (1 - pc) / len(base) * 1e4) ** 0.5
+            res["edge_se_pp"] = round(se, 1)
+            res["edge_verdict"] = (
+                "within sampling noise — say the shape is indistinguishable "
+                "from its base rate on this chart, and do NOT quote the edge "
+                "as a finding"
+                if abs(res["edge_pp"]) <= 2 * se else
+                "larger than twice its sampling error — a real difference on "
+                "this chart, still a historical tendency and not a forecast")
     else:
         res["direction_note"] = (
             "neutral shape — it has no textbook direction to score, so only "
@@ -3821,7 +3852,13 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         "Quote the pattern rate NEXT TO the base rate — the edge is the "
         "difference, and a rate alone is decoration. This is one symbol's "
         "history at one horizon, not a forecast; past instances of a shape "
-        "do not obligate the next one.")
+        "do not obligate the next one."
+        + (f" `edge_verdict` decides how this chart's edge may be described: "
+           f"{res['edge_verdict']}. An edge inside its error bar must not be "
+           f"called an edge, a tendency, or 'modest' — it is a coin flip on "
+           f"this many cases. Never present a percentage-point difference "
+           f"without saying how many instances produced it."
+           if res.get("edge_verdict") else ""))
     uh = min(_UNIVERSE_HORIZONS, key=lambda x: (abs(x - h), x))
     uni = _pattern_universe_stats(k, interval, uh)
     if uni:
