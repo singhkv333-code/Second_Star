@@ -4948,9 +4948,12 @@ TOOLS = [
          "every 'which stocks / find me / how many companies' question about "
          "setups, criteria or structure across many names — including "
          "comparing one metric across a sector's peers (industry + sort by "
-         "the metric) and fresh crossovers (smaX_cross_ago lt N with "
-         "smaX_rel's sign for the direction). Results are end-of-day and "
-         "carry their own as-of date and universe size — quote both."),
+         "the metric; the chart symbol's OWN industry is already stated in "
+         "your context, so call this directly — a get_peers round first "
+         "just to learn it wastes a full hop) and fresh crossovers "
+         "(smaX_cross_ago lt N with smaX_rel's sign for the direction). "
+         "Results are end-of-day and carry their own as-of date and "
+         "universe size — quote both."),
      "parameters": {"type": "object", "properties": {
          "filters": {"type": "array", "description": "all must pass",
                      "items": {"type": "object", "properties": {
