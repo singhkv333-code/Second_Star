@@ -3374,15 +3374,29 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
     uni = _pattern_universe_stats(k, interval, uh)
     if uni:
         res["universe"] = uni
+        # Verified: candle instances are bit-identical between the pooled
+        # sweep and this tool; chart shapes are NOT — the sweep detects in
+        # rolling 600-bar windows each judged against its own volatility,
+        # so shape counts legitimately differ from this single-pass scan.
+        same_method = k in patterns.CANDLE_KINDS
         res["_note"] += (
-            f" The `universe` block is the SAME methodology pooled across the "
-            f"~500 stored stocks as of {uni.get('as_of') or 'the pooled run'}"
+            f" The `universe` block pools ~500 stored stocks as of "
+            f"{uni.get('as_of') or 'the pooled run'}"
             + (f" at a {uh}-bar horizon, the nearest graded to this call's "
-               f"{h}" if uh != h else "") +
-            ". Quote both scopes and, when they disagree, say so plainly — "
-            "one chart is a small sample and the pooled record does not "
-            "override what this symbol actually did. Edge-fitted shapes have "
-            "no universe record at all.")
+               f"{h}" if uh != h else "") + ". "
+            + ("For candlestick kinds it is the SAME method as this chart's "
+               "number — quote both scopes and, when they disagree, say so "
+               "plainly; the pooled record does not override what this "
+               "symbol actually did."
+               if same_method else
+               "For chart shapes it is a DIFFERENT measurement: formations "
+               "found in rolling 600-bar windows, each judged against its "
+               "own volatility, while this chart was scanned in one pass — "
+               "the two can legitimately count different instances. Present "
+               "it as its own scope; never reconcile the counts.")
+            + " Each rate must be quoted next to its OWN control (the pooled "
+              "control is full-history, this chart's is its window). "
+              "Edge-fitted shapes have no universe record at all.")
     return res
 
 
@@ -4119,6 +4133,37 @@ def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> 
 
 _NEWS_TTL_RECENT = 3600           # window touching the present: 1 hour
 _NEWS_RECENT_DAYS = 3             # past this age a window's news is settled
+_NEWS_TTL_OVERHANG = 86400        # open conditions evolve daily, not hourly
+_NEWS_TTL_UPCOMING = 43200        # calendars move slower still
+
+# A cause is an interval, not a point: a succession question opened on the
+# 18th is still pressing on the 22nd, but a "what happened on the 22nd"
+# search will never rank the 18th's article. So the full scope asks three
+# differently-shaped questions concurrently — dated catalysts, OPEN
+# conditions, and scheduled anticipations — and the cache for the two new
+# legs is keyed by symbol alone: market truth, shared by every session,
+# refreshed by TTL rather than re-discovered per window.
+
+_NEWS_OVERHANG_PROMPT = (
+    "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
+    "Search the web once — twice only if the first search returns nothing — "
+    "for company-specific situations that were OPEN AND UNRESOLVED as of "
+    "{window}, regardless of when they began: leadership or succession "
+    "questions, regulatory approvals awaited, legal or tax disputes, rating "
+    "watches, deal or merger uncertainty, guidance doubts. Reply with 1-4 "
+    "lines, each 'origin date · the open situation and its state as of "
+    "{window} · source domain'. Only situations with a dated origin and a "
+    "source. Do NOT report prices, returns, percentages or targets. If "
+    "nothing is genuinely open, reply exactly: no open overhangs found.")
+
+_NEWS_UPCOMING_PROMPT = (
+    "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
+    "Search the web once — twice only if the first search returns nothing — "
+    "for scheduled events shortly AFTER {window} that investors position "
+    "around: board meetings, results dates, ex-dividend or record dates, "
+    "regulatory decisions due. Reply with 1-3 lines, each 'date · scheduled "
+    "event · source domain'. Only dated, sourced items; no prices or "
+    "estimates. If nothing is scheduled, reply exactly: nothing scheduled.")
 
 _NEWS_PROMPT = (
     "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
@@ -4133,7 +4178,7 @@ _NEWS_PROMPT = (
     "nothing found for this window.")
 
 
-def _news_cache_get(key: str) -> dict | None:
+def _news_cache_get(key: str, ttl: int | None = None) -> dict | None:
     try:
         _con.execute("CREATE TABLE IF NOT EXISTS news_cache ("
                      "key TEXT PRIMARY KEY, fetched_at INTEGER, "
@@ -4146,7 +4191,11 @@ def _news_cache_get(key: str) -> dict | None:
         return None
     fetched, recent, payload = row
     import time as _t
-    if recent and _t.time() - fetched > _NEWS_TTL_RECENT:
+    age = _t.time() - fetched
+    if ttl is not None:
+        if age > ttl:
+            return None
+    elif recent and age > _NEWS_TTL_RECENT:
         return None
     try:
         return json.loads(payload)
@@ -4164,34 +4213,9 @@ def _news_cache_put(key: str, recent: bool, data: dict) -> None:
         pass
 
 
-def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
-    """Dated outside events for a window — an isolated browse, cached.
-
-    Returns causes only: events with dates and source domains. Quantities
-    never come from here.
-    """
-    if not AZURE_ENDPOINT or not AZURE_KEY:
-        return {"error": "web lookup unavailable (no LLM credentials)"}
-    t0 = _parse_ist(frm) if frm else None
-    t1 = _parse_ist(to) if to else t0
-    if t0 is None:
-        return {"error": "give the window, e.g. frm='21 Jul 2026' "
-                         "to='22 Jul 2026'"}
-    if t1 is None:
-        t1 = t0
-    d0, d1 = _iso_day(t0), _iso_day(t1)
-    window = d0 if d0 == d1 else f"{d0} to {d1}"
-
-    key = f"{_sym()}|{d0}|{d1}"
-    cached = _news_cache_get(key)
-    if cached:
-        return {**cached, "cached": True}
-
-    import time as _t
-    recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
-    prompt = _NEWS_PROMPT.format(
-        symbol=_sym(), window=window,
-        focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
+def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
+    """One isolated clerk browse. Returns (body, sources, searched) or an
+    error dict — the caller decides how a dead leg degrades."""
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": [{"role": "user", "content": prompt}],
@@ -4210,10 +4234,7 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
         with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
             data = json.loads(r.read())
     except Exception as exc:  # noqa: BLE001 — a dead browse must not kill the turn
-        return {"error": f"web lookup failed: {exc}",
-                "_note": "Answer from the local evidence and say the web "
-                         "lookup was unavailable — do not guess at news."}
-
+        return {"error": f"web lookup failed: {exc}"}
     text, sources, searched = [], [], 0
     for item in data.get("output", []):
         if item.get("type") == "web_search_call":
@@ -4225,21 +4246,126 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
                     for a in c.get("annotations") or []:
                         if a.get("type") == "url_citation" and a.get("url"):
                             sources.append(a["url"])
-    body = "".join(text).strip()
-    out = {
-        "window": window,
-        "events": body or "nothing found for this window",
-        "sources": sorted(set(sources))[:6],
-        "_note": ("These are candidate CAUSES only — events with dates. "
-                  "Every quantity (price, %, volume, level) must come from "
-                  "the chart tools; if a headline implies a number, use the "
-                  "tool's number. An event here explains the move only if "
-                  "its timing fits the anatomy (a mid-session move is not "
-                  "explained by overnight news)."),
-    }
+    return "".join(text).strip(), sources, searched
+
+
+def _news_leg(key: str, ttl: int, prompt: str, empty: str,
+              field: str) -> tuple[str, list, bool]:
+    """(text, sources, cached) for one cached clerk leg; degrades honestly."""
+    hit = _news_cache_get(key, ttl)
+    if hit:
+        return hit.get(field, empty), hit.get("sources", []), True
+    got = _news_browse(prompt)
+    if isinstance(got, dict):
+        return f"web lookup unavailable for this section ({got['error']})", [], False
+    body, sources, searched = got
+    text = body or empty
     if searched and body:
-        _news_cache_put(key, recent, out)
-    return out
+        _news_cache_put(key, True, {field: text, "sources": sources})
+    return text, sources, False
+
+
+def tool_search_news(frm: str = "", to: str = "", focus: str = "",
+                     scope: str = "events") -> dict:
+    """Outside causes for a window — an isolated browse, cached.
+
+    scope='events': dated happenings in the window (point catalysts).
+    scope='full': three differently-shaped questions asked CONCURRENTLY —
+    dated events, OPEN unresolved company situations, and scheduled
+    upcoming events — merged into one result. One tool call, one hop;
+    wall time is the slowest leg, not the sum.
+    """
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        return {"error": "web lookup unavailable (no LLM credentials)"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else t0
+    if t0 is None:
+        return {"error": "give the window, e.g. frm='21 Jul 2026' "
+                         "to='22 Jul 2026'"}
+    if t1 is None:
+        t1 = t0
+    d0, d1 = _iso_day(t0), _iso_day(t1)
+    window = d0 if d0 == d1 else f"{d0} to {d1}"
+    sym = _sym()
+
+    import time as _t
+    recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
+    ev_key = f"{sym}|{d0}|{d1}"
+    ev_prompt = _NEWS_PROMPT.format(
+        symbol=sym, window=window,
+        focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
+
+    base_note = ("These are candidate CAUSES only — events with dates. "
+                 "Every quantity (price, %, volume, level) must come from "
+                 "the chart tools; if a headline implies a number, use the "
+                 "tool's number. An event here explains the move only if "
+                 "its timing fits the anatomy (a mid-session move is not "
+                 "explained by overnight news).")
+
+    if scope != "full":
+        cached = _news_cache_get(ev_key)
+        if cached:
+            return {**cached, "cached": True}
+        got = _news_browse(ev_prompt)
+        if isinstance(got, dict):
+            return {**got, "_note": "Answer from the local evidence and say "
+                    "the web lookup was unavailable — do not guess at news."}
+        body, sources, searched = got
+        out = {"window": window,
+               "events": body or "nothing found for this window",
+               "sources": sorted(set(sources))[:6], "_note": base_note}
+        if searched and body:
+            _news_cache_put(ev_key, recent, out)
+        return out
+
+    # full scope: three legs, concurrent, each with its own cache and its
+    # own honest failure line — a dead leg never sinks the others
+    from concurrent.futures import ThreadPoolExecutor
+
+    def ev_leg() -> tuple[str, list, bool]:
+        hit = _news_cache_get(ev_key)
+        if hit:
+            return hit.get("events", ""), hit.get("sources", []), True
+        got = _news_browse(ev_prompt)
+        if isinstance(got, dict):
+            return (f"web lookup unavailable for this section "
+                    f"({got['error']})", [], False)
+        body, sources, searched = got
+        text = body or "nothing found for this window"
+        if searched and body:
+            _news_cache_put(ev_key, recent, {
+                "window": window, "events": text,
+                "sources": sorted(set(sources))[:6], "_note": base_note})
+        return text, sources, False
+
+    with ThreadPoolExecutor(3) as ex:
+        f_ev = ex.submit(ev_leg)
+        f_oh = ex.submit(_news_leg, f"{sym}|overhangs", _NEWS_TTL_OVERHANG,
+                         _NEWS_OVERHANG_PROMPT.format(symbol=sym, window=window),
+                         "no open overhangs found", "open_overhangs")
+        f_up = ex.submit(_news_leg, f"{sym}|upcoming", _NEWS_TTL_UPCOMING,
+                         _NEWS_UPCOMING_PROMPT.format(symbol=sym, window=window),
+                         "nothing scheduled", "upcoming")
+    ev_t, ev_s, ev_c = f_ev.result()
+    oh_t, oh_s, oh_c = f_oh.result()
+    up_t, up_s, up_c = f_up.result()
+
+    return {
+        "window": window,
+        "events": ev_t,
+        "open_overhangs": oh_t,
+        "upcoming": up_t,
+        "sources": sorted(set(ev_s + oh_s + up_s))[:8],
+        "cached_legs": [n for n, c in
+                        (("events", ev_c), ("overhangs", oh_c),
+                         ("upcoming", up_c)) if c],
+        "_note": base_note + (
+            " Open overhangs are CONDITIONS, not events: they explain "
+            "multi-day drift, persistent weakness and levels — never a "
+            "sharp intraday move; quote each with its origin date. "
+            "Upcoming items explain positioning ahead of them, not past "
+            "moves. Say which shape of cause fits what the chart shows."),
+    }
 
 
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
@@ -4627,11 +4753,13 @@ TOOLS = [
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "search_news",
-     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search per turn. Returns events with dates and sources, never numbers.",
+     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search_news call per turn. Returns events with dates and sources, never numbers.",
      "parameters": {"type": "object", "properties": {
          "frm": {"type": "string", "description": "window start, e.g. '21 Jul 2026'"},
          "to": {"type": "string", "description": "window end; omit for one day"},
-         "focus": {"type": "string", "description": "optional angle, e.g. 'market-wide selloff cause' or 'company filings'"}},
+         "focus": {"type": "string", "description": "optional angle, e.g. 'market-wide selloff cause' or 'company filings'"},
+         "scope": {"type": "string", "enum": ["events", "full"],
+                   "description": "'events' (default): dated happenings in the window. 'full': ALSO scans for open unresolved company situations (leadership, regulatory, legal, deals) and scheduled upcoming events, concurrently at no extra latency — use it for open-ended asks ('what does the news suggest', 'why is it weak lately') and whenever the day's events fail to explain the move."}},
       "required": ["frm"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
