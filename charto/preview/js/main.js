@@ -1280,6 +1280,11 @@
     };
     const render = (query) => {
       const q = query.trim().toUpperCase();
+      if (all === null) {   // first open: the universe is still in flight, and
+        list.innerHTML =    // "no match" would read as "your query found none"
+          '<div class="item" style="color:var(--faint)">loading companies…</div>';
+        return;
+      }
       const pool = all || [];
       // the whole universe renders — 500 rows is nothing, and a cap made
       // the list look like it "couldn't load more" past the B's
@@ -1312,6 +1317,11 @@
       window.__chartoCloseMenus && window.__chartoCloseMenus();
       menu.classList.toggle("open", opening);
       if (!opening) return;
+      // Focus FIRST, and never clear after the fetch. This used to sit after
+      // `await`, so the first open ate every keystroke typed while the 500
+      // symbols were in flight — you clicked, typed, watched the box empty
+      // itself, and only the third attempt (data cached) worked.
+      input.value = ""; render(""); input.focus();
       if (!all) {
         try {
           const d = await fetch(`${API}/symbols`).then((r) => r.json());
@@ -1321,8 +1331,9 @@
           names = { ...(d.names || {}), ...(d.long || {}) };
           shortNames = d.names || {}; logos = d.logos || {};
         } catch { all = []; }
+        // re-render against whatever is in the box NOW, not against ""
+        if (menu.classList.contains("open")) render(input.value);
       }
-      input.value = ""; render(""); input.focus();
     });
     input.addEventListener("input", () => render(input.value));
     input.addEventListener("keydown", (e) => {
@@ -1335,7 +1346,13 @@
       if (it) go(it.dataset.sym);
     });
     document.addEventListener("click", (e) => {
-      if (!menu.contains(e.target) && e.target !== pill) menu.classList.remove("open");
+      // closest(), not `e.target !== pill`: the pill has children (the symbol
+      // text, the exchange tag), so clicking its MIDDLE made this handler
+      // close the menu the pill had just opened — the click looked ignored
+      // and only a hit on the pill's bare padding worked.
+      if (!menu.contains(e.target) && !e.target.closest("#symbolPill")) {
+        menu.classList.remove("open");
+      }
     });
   })();
 

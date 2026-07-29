@@ -49,9 +49,13 @@ export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElem
   };
   const chart = (path: string): string => `${CHART}${path}`;
 
+  // globals.css locks the DOCUMENT scroll (`html, body { overflow: hidden }`)
+  // because Pivot scrolls inside AppShell's main pane. Dropping AppShell
+  // dropped that pane, so the page could not scroll at all below the fold and
+  // lost its gutters. This is AppShell's own children container, verbatim.
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex h-[52px] items-center gap-3 border-b border-border/40 px-6">
+    <div className="flex h-screen min-h-0 flex-col bg-background">
+      <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border/40 px-6">
         <a href={chart("")} className="text-[15px] font-semibold tracking-tight">
           Charto<span style={{ color: "#2962ff" }}>.</span>
         </a>
@@ -72,7 +76,14 @@ export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElem
           Open chart →
         </a>
       </div>
-      <StockDetailPage symbol={symbol} />
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-6 pb-8 sm:px-5 lg:px-8">
+        {/* In Pivot the sidebar eats ~260px of a wide screen. Without it the
+            page ran edge to edge on a 2000px display and read oversized, so
+            the content keeps a comparable measure instead. */}
+        <div className="mx-auto w-full max-w-[1600px]">
+          <StockDetailPage symbol={symbol} />
+        </div>
+      </div>
     </div>
   );
 }

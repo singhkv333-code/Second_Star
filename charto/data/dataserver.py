@@ -5874,41 +5874,67 @@ SESSION_OPEN_MIN = 9 * 60 + 15  # 09:15 IST, minutes past midnight
 
 INTRADAY_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 
+# A bucket anchor is (session-open minute-of-day, tz offset from UTC). NSE is
+# the default everywhere; the others exist because backfill_crypto.py and
+# backfill_macro.py put non-NSE instruments in the same `bars` table. Anchoring
+# a 24/7 series to 09:15 IST would collapse every bar from midnight to the open
+# into one bucket, so crypto/FX days start at UTC midnight instead.
+NSE_SESSION = (SESSION_OPEN_MIN, IST_OFF)
+UTC_SESSION = (0, 0)                 # 24/7 crypto, 24/5 FX
+MCX_SESSION = (9 * 60, IST_OFF)      # MCX opens 09:00 IST, runs to 23:30
+
+_MCX_SYMBOLS = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
+                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"}
+
+
+def session_for(symbol: str) -> tuple[int, int]:
+    """Bucket anchor for a symbol. Unknown symbols stay on the NSE clock."""
+    if symbol.endswith("USDT") or symbol.endswith("-USD"):
+        return UTC_SESSION
+    if symbol in _MCX_SYMBOLS:
+        return MCX_SESSION
+    return NSE_SESSION
+
+
 _con = sqlite3.connect(DB_PATH, check_same_thread=False)
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 
 
-def _ist_day(ts: int) -> int:
-    return (ts + IST_OFF) // 86400
+def _ist_day(ts: int, tz_off: int = IST_OFF) -> int:
+    return (ts + tz_off) // 86400
 
 
-def _bucket_stamp(ts: int, minutes: int) -> tuple[tuple[int, int], int]:
+def _bucket_stamp(ts: int, minutes: int,
+                  session: tuple[int, int] = NSE_SESSION) -> tuple[tuple[int, int], int]:
     """(day, bucket) identity and the stamped bar-open ts a 1-min row falls in.
 
     The single source of bucket arithmetic: the historical resampler and the
     live bar builder both call it, so a forming bar can never land on a
     different stamp than the same minute would get after it is closed.
     """
-    ist = ts + IST_OFF
-    day = ist // 86400
-    mod = (ist % 86400) // 60
-    bucket = max(0, mod - SESSION_OPEN_MIN) // minutes
-    return (day, bucket), day * 86400 + (SESSION_OPEN_MIN + bucket * minutes) * 60 - IST_OFF
+    open_min, tz_off = session
+    local = ts + tz_off
+    day = local // 86400
+    mod = (local % 86400) // 60
+    bucket = max(0, mod - open_min) // minutes
+    return (day, bucket), day * 86400 + (open_min + bucket * minutes) * 60 - tz_off
 
 
-def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
+def _resample_intraday(rows: list[tuple], minutes: int,
+                       session: tuple[int, int] = NSE_SESSION) -> list[list]:
     """rows = ascending (ts,o,h,l,c,v) 1-min bars → bucketed bars.
 
     Buckets anchor to each session's minute-of-day relative to 09:15 IST so
     every trading day starts a fresh, aligned bucket (evening specials like
     Muhurat land in later buckets of the same day — still consistent).
+    Pass `session` for instruments on another clock (see session_for).
     """
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in rows:
         if not (o and h and l and c):
             continue   # all-zero placeholder minutes are no-data, not prices
-        key, bts = _bucket_stamp(ts, minutes)
+        key, bts = _bucket_stamp(ts, minutes, session)
         if key != cur_key:
             out.append([bts, o, h, l, c, v])
             cur_key = key
@@ -5921,16 +5947,18 @@ def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     return out
 
 
-def _fold_daily(rows: list[tuple]) -> list[list]:
-    """ascending 1-min rows → one bar per IST trade date."""
+def _fold_daily(rows: list[tuple],
+                session: tuple[int, int] = NSE_SESSION) -> list[list]:
+    """ascending 1-min rows → one bar per trade date on the symbol's clock."""
+    tz_off = session[1]
     out: list[list] = []
     cur_day = None
     for ts, o, h, l, c, v in rows:
         if not (o and h and l and c):
             continue   # zero placeholder minutes: same rule as _resample_intraday
-        day = _ist_day(ts)
+        day = _ist_day(ts, tz_off)
         if day != cur_day:
-            out.append([day * 86400 - IST_OFF, o, h, l, c, v])
+            out.append([day * 86400 - tz_off, o, h, l, c, v])
             cur_day = day
         else:
             b = out[-1]
@@ -5947,7 +5975,7 @@ def _daily(symbol: str) -> list[list]:
         return cached
     out = _fold_daily(_con.execute(
         "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (symbol,)
-    ).fetchall())
+    ).fetchall(), session_for(symbol))
     _daily_cache[symbol] = out
     return out
 
@@ -6227,14 +6255,14 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
         rows.reverse()
         if form is not None and (to is None or form[0] < to):
             _merge_form_intraday(rows, form)
-        bars = _resample_intraday(rows, mins)[-limit:]
+        bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
         has_more = bool(rows) and _con.execute(
             "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
             (symbol, rows[0][0])).fetchone() is not None
     else:
         daily = _daily(symbol) if horizon is None else _fold_daily(_con.execute(
             "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? ORDER BY ts",
-            (symbol, horizon)).fetchall())
+            (symbol, horizon)).fetchall(), session_for(symbol))
         if form is not None:
             daily = _merge_form_daily(daily, form)
         series = daily if interval == "1d" \
