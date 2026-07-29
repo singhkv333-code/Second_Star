@@ -46,6 +46,21 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap"
           rel="stylesheet"
         />
+        {/* charto: apply the theme BEFORE first paint. Without this the page
+            paints light, then flips to dark a frame later — a white flash
+            every time you open a company from a dark chart. Same source of
+            truth as view.tsx: ?theme= from the chart, else the remembered
+            choice, else the OS. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var u=new URLSearchParams(location.search).get('theme');" +
+              "var m=(u==='dark'||u==='light')?u:localStorage.getItem('charto_theme');" +
+              "if(m!=='dark'&&m!=='light')m=matchMedia('(prefers-color-scheme: dark)')" +
+              ".matches?'dark':'light';" +
+              "document.documentElement.classList.toggle('dark',m==='dark');}catch(e){}",
+          }}
+        />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AppBootstrap>{children}</AppBootstrap>

@@ -1301,7 +1301,7 @@
         (hyd.has(s) ? "" : '<span class="cold">~6s</span>') +
         // the row opens the chart; this opens the company page, so a search
         // can end in either surface without a second search
-        `<a class="open-co" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}"
+        `<a class="open-co" target="_blank" rel="noopener" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
             title="${s} — company page">↗</a>` +
         "</div>").join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';

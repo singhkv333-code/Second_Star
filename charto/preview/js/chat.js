@@ -15,6 +15,11 @@
   // Pivot's stock page, copied into charto/web and served by `next dev`
   // there (see charto/web/README). Company links open it directly.
   const COMPANY_PAGE = "http://localhost:5175";
+  // The page is a different ORIGIN, so it cannot read charto's stored
+  // theme — carry it in the URL or a dark chart opens a white page.
+  const companyHref = (sym) =>
+    `${COMPANY_PAGE}/stock/${encodeURIComponent(sym)}?theme=`
+    + (document.documentElement.getAttribute("data-theme") || "dark");
 
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
@@ -392,7 +397,11 @@
         }
         const a = document.createElement("a");
         a.className = "sym-link";
-        a.href = `${COMPANY_PAGE}/stock/${encodeURIComponent(sym)}`;
+        a.href = companyHref(sym);
+        // a new tab: following a link must not tear down the chart the
+        // answer is about
+        a.target = "_blank";
+        a.rel = "noopener";
         a.title = `${sym} — company page`;
         if (LOGOS[sym]) {
           const img = document.createElement("img");
