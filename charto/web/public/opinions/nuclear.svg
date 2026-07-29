@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Atom over cooling towers">
+  <rect width="200" height="200" fill="#1b2a3a"/>
+  <!-- cooling towers -->
+  <path d="M28 190l10-58c0-6 4-10 10-10h18c6 0 10 4 10 10l10 58Z" fill="#98a9bb"/>
+  <path d="M112 190l8-44c0-5 3-8 8-8h14c5 0 8 3 8 8l8 44Z" fill="#7d8fa3"/>
+  <path d="M0 188h200v12H0Z" fill="#0f1b26"/>
+  <!-- atom -->
+  <g fill="none" stroke="#63d2a4" stroke-width="6">
+    <ellipse cx="100" cy="76" rx="46" ry="19"/>
+    <ellipse cx="100" cy="76" rx="46" ry="19" transform="rotate(60 100 76)"/>
+    <ellipse cx="100" cy="76" rx="46" ry="19" transform="rotate(-60 100 76)"/>
+  </g>
+  <circle cx="100" cy="76" r="12" fill="#f2c14e"/>
+</svg>

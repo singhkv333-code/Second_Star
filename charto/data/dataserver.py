@@ -28,10 +28,10 @@ import sqlite3
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import indicators   # sibling module: the indicator registry
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -2484,6 +2484,275 @@ def _classification_row(sym: str):
             (sym,)).fetchone()
     except sqlite3.Error:
         return None
+
+
+_PROFILE_COLS = ("sc_id", "name", "long_name", "industry_slug", "sector",
+                 "industry", "market_cap", "summary", "website", "employees",
+                 "city", "country", "logo_url", "eps", "eps_basis",
+                 "eps_period", "ceo", "pb", "ev_sales", "ev_ebitda")
+
+# The range buttons, in the same set the Pivot stock page offers. Each maps to
+# an interval this store actually holds, so the page's chart is the chart's
+# bars — not a second, differently-sourced series.
+# bar counts are one window exactly: an NSE session is 375 minutes, so 75 5m
+# bars is one day, 125 15m bars is five sessions, 7 hourly bars is a session.
+_RANGE_SPEC = {"1D": ("5m", 75), "1W": ("15m", 125), "1M": ("1h", 154),
+               "6M": ("1d", 126), "1Y": ("1d", 252), "5Y": ("1d", 1260)}
+
+
+def company_history(sym: str, rng: str) -> dict:
+    """Close series for one range button, read through get_bars so the page
+    sees the same (live-merged) bars the chart draws."""
+    rng = (rng or "5Y").upper()
+    interval, want = _RANGE_SPEC.get(rng, _RANGE_SPEC["5Y"])
+    bars = get_bars(sym, interval, None, want)["bars"]
+    note = None
+    if bars and interval != "1d":
+        # trim to whole sessions: the last stored session can be partial, so a
+        # fixed bar count spills into the previous day and "1D" would show two.
+        sessions = {"1D": 1, "1W": 5}.get(rng, 22)
+        days = sorted({(b["t"] + IST_OFF) // 86400 for b in bars})[-sessions:]
+        bars = [b for b in bars if (b["t"] + IST_OFF) // 86400 >= days[0]]
+    if not bars and interval != "1d":
+        # intraday is stored per hydrated symbol; a cold one has daily only.
+        # Say which series is on screen rather than drawing a shorter window
+        # and calling it the intraday one.
+        interval, bars = "1d", get_bars(sym, "1d", None, 126)["bars"]
+        note = f"no intraday history stored for {sym} — showing daily closes"
+    # keep the line light without lying: every Nth real close, and ALWAYS the
+    # newest bar — a decimated tail would end the line on a stale price while
+    # the header quotes the last close.
+    step = max(1, len(bars) // 420)
+    keep = bars[::step]
+    if bars and keep[-1] is not bars[-1]:
+        keep.append(bars[-1])
+    out = {"range": rng, "interval": interval,
+           "points": [{"t": b["t"], "c": b["c"]} for b in keep]}
+    if note:
+        out["note"] = note
+    return out
+
+
+def company_page(sym: str, rng: str = "5Y") -> dict:
+    """Everything the company page shows, in one read.
+
+    The profile half is synced prose and identity (sync_company_profile.py);
+    the price half is computed from THIS store's bars, so the page and the
+    chart can never quote different numbers for the same session.
+    """
+    sym = sym.upper().strip()
+    prof: dict = {}
+    try:
+        row = _con.execute(
+            f"SELECT {','.join(_PROFILE_COLS)} FROM company_profile "
+            "WHERE symbol=?", (sym,)).fetchone()
+        if row:
+            prof = {k: v for k, v in zip(_PROFILE_COLS, row) if v is not None}
+    except sqlite3.Error:
+        prof = {}
+    cls = _classification_row(sym)
+    if cls and "name" not in prof:
+        prof["name"] = cls[0]
+    if cls and "industry_slug" not in prof:
+        prof["industry_slug"] = cls[1]
+
+    daily = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars_1d WHERE symbol=? ORDER BY ts",
+        (sym,)).fetchall()
+    out: dict = {"symbol": sym, "exchange": "NSE", **prof}
+    if not daily:
+        out["_unavailable"] = ("no stored price history for this symbol — "
+                               "the profile is shown without market data")
+        return out
+
+    last, prev = daily[-1], (daily[-2] if len(daily) > 1 else daily[-1])
+    win = daily[-252:]
+    out["price"] = {
+        "last": round(last[4], 2), "open": round(last[1], 2),
+        "high": round(last[2], 2), "low": round(last[3], 2),
+        "prev_close": round(prev[4], 2), "volume": int(last[5] or 0),
+        "change": round(last[4] - prev[4], 2),
+        "change_pct": round((last[4] - prev[4]) / prev[4] * 100, 2)
+        if prev[4] else None,
+        "as_of": _ist(last[0], False),
+        "sessions_stored": len(daily),
+    }
+    out["range_52w"] = {
+        "high": round(max(r[2] for r in win), 2),
+        "low": round(min(r[3] for r in win), 2),
+        "sessions": len(win),
+        "full_year": len(win) >= 252,
+    }
+    eps = prof.get("eps")
+    if eps and eps > 0:
+        out["valuation"] = {
+            "pe": round(last[4] / eps, 1), "eps": round(eps, 2),
+            "basis": prof.get("eps_basis"), "period": prof.get("eps_period")}
+    # P/B and the EV multiples are the enrichment DB's own trailing figures —
+    # kept separate from the P/E we compute here, because they are as of the
+    # enrichment run, not as of this store's last close.
+    ratios = {k: round(prof[k], 2) for k in ("pb", "ev_sales", "ev_ebitda")
+              if isinstance(prof.get(k), (int, float))}
+    if ratios:
+        out["ratios"] = ratios
+    feats = (_screen_features() or {}).get(sym) or {}
+    out["metrics"] = {k: feats[k] for k in (
+        "ret_1w", "ret_1m", "ret_3m", "ret_1y", "rsi14", "atr_pct",
+        "sma50_rel", "sma200_rel", "turnover_20d_cr", "dist_52w_high")
+        if feats.get(k) is not None}
+    ind = prof.get("industry_slug")
+    if ind:
+        peers = _con.execute(
+            "SELECT c.symbol, c.name, p.market_cap, p.logo_url FROM classification c "
+            "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+            "WHERE c.industry=? AND c.symbol!=? ORDER BY "
+            "COALESCE(p.market_cap, 0) DESC LIMIT 8", (ind, sym)).fetchall()
+        out["peers"] = [{"symbol": s, "name": n, "market_cap": m, "logo_url": lo}
+                        for s, n, m, lo in peers]
+    out["history"] = company_history(sym, rng)
+    return out
+
+
+# ── Pivot-shaped API ────────────────────────────────────────────────────────
+# charto/web is Pivot's stock page, copied file-for-file. Rather than edit that
+# page to speak charto's protocol, this answers the endpoints it already calls
+# (`/api/markets/quote`, `/sparkline`, `/ohlc`, `/financials/…`) in Pivot's own
+# response shapes — out of charto's store, so the page and the chart quote the
+# same bars. Anything charto genuinely has no source for is returned as the
+# honest empty state the page already knows how to render (`available: false`,
+# null fields), never as a filler number.
+
+def _iso(ts: int) -> str:
+    return datetime.fromtimestamp(
+        ts, tz=timezone(timedelta(seconds=IST_OFF))).isoformat()
+
+
+def _api_quote(sym: str) -> tuple[int, dict]:
+    d = company_page(sym, "1D")
+    p = d.get("price")
+    if not p:
+        return 404, {"detail": f"no quote available for {sym}"}
+    r = d.get("range_52w") or {}
+    return 200, {
+        "symbol": sym, "name": d.get("long_name") or d.get("name") or sym,
+        "exchange": "NSE", "sector": d.get("sector"),
+        "industry": d.get("industry"),
+        "ltp": p["last"], "change": p["change"], "change_pct": p["change_pct"],
+        "open": p["open"], "high": p["high"], "low": p["low"],
+        "prev_close": p["prev_close"], "volume": p["volume"],
+        "w52_high": r.get("high"), "w52_low": r.get("low"),
+        "market_cap": d.get("market_cap"),
+        "pe_ratio": (d.get("valuation") or {}).get("pe"),
+        "last_updated": _iso(_con.execute(
+            "SELECT MAX(ts) FROM bars_1d WHERE symbol=?", (sym,)).fetchone()[0]),
+        "logo_url": d.get("logo_url"),
+        # the store is Kite 1-minute history, replayed from disk — not a live
+        # feed, so `live` stays false and the page keeps its delayed styling
+        "live": False, "source": "kite_rest", "is_index": False,
+    }
+
+
+def _api_financials(sym: str) -> tuple[int, dict]:
+    row = _con.execute(
+        f"SELECT {','.join(_PROFILE_COLS)} FROM company_profile WHERE symbol=?",
+        (sym,)).fetchone()
+    prof = dict(zip(_PROFILE_COLS, row)) if row else {}
+    if not prof:
+        return 200, {"available": False, "company": None, "latest": {},
+                     "history": {}, "profile": None, "source": "charto"}
+    def latest(key, item, unit=None):
+        v = prof.get(key)
+        return None if v is None else {
+            "value": v, "period_end": None, "period_label": "TTM",
+            "line_item": item, "unit": unit, "basis": "consolidated",
+            "source": "yfinance"}
+    return 200, {
+        "available": True,
+        "company": {"sc_id": prof.get("sc_id") or "", "name": prof.get("name") or sym,
+                    "nse_symbol": sym, "bse_code": None, "ticker": sym,
+                    "sector": prof.get("sector"),
+                    "industry_slug": prof.get("industry_slug"),
+                    "market_cap": prof.get("market_cap"), "is_active": True},
+        "latest": {k: v for k, v in (
+            ("price_to_book", latest("pb", "Price to Book")),
+            ("ev_to_sales", latest("ev_sales", "EV to Sales")),
+            ("ev_to_ebitda", latest("ev_ebitda", "EV to EBITDA")),
+            ("eps", latest("eps", "Basic EPS (Rs.)", "Rs.")),
+        ) if v},
+        "history": {},
+        "profile": {"name": prof.get("long_name") or prof.get("name"),
+                    "blurb": prof.get("summary"), "sector": prof.get("sector"),
+                    "industry": prof.get("industry"),
+                    "website": prof.get("website"), "ceo": prof.get("ceo")},
+        "source": "moneycontrol+enrich",
+    }
+
+
+def _api_search(q: str, limit: int) -> dict:
+    q = (q or "").strip().upper()
+    if not q:
+        return {"results": []}
+    rows = _con.execute(
+        "SELECT c.symbol, c.name, p.sector, p.logo_url FROM classification c "
+        "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+        "WHERE c.symbol LIKE ? OR UPPER(c.name) LIKE ? "
+        "ORDER BY CASE WHEN c.symbol LIKE ? THEN 0 ELSE 1 END, c.symbol "
+        "LIMIT ?", (f"%{q}%", f"%{q}%", f"{q}%", max(1, min(limit, 25)))
+    ).fetchall()
+    return {"results": [{"symbol": s, "name": n or s, "sector": sec,
+                         "has_fundamentals": True, "logo_url": lo}
+                        for s, n, sec, lo in rows]}
+
+
+def api_route(path: str, q: dict) -> tuple[int, dict]:
+    """Dispatch one Pivot-shaped request. Returns (status, payload)."""
+    parts = [p for p in path.split("/") if p]        # ["api", "markets", …]
+    tail = parts[1:]
+    def sym_of(i):
+        return unquote(tail[i]).upper().strip() if len(tail) > i else ""
+
+    if tail[:2] == ["markets", "quote"]:
+        s = sym_of(2)
+        if s not in _known_symbols():
+            return 404, {"detail": f"no quote available for {s}"}
+        return _api_quote(s)
+    if tail[:2] in (["markets", "sparkline"], ["markets", "ohlc"]):
+        s = sym_of(2)
+        if s not in _known_symbols():
+            return 404, {"detail": f"no history available for {s}"}
+        rng = (q.get("range") or "1M").upper()
+        interval, want = _RANGE_SPEC.get(rng, _RANGE_SPEC["1M"])
+        bars = get_bars(s, interval, None, want)["bars"]
+        if not bars and interval != "1d":
+            interval, bars = "1d", get_bars(s, "1d", None, 126)["bars"]
+        if tail[1] == "sparkline":
+            return 200, {"symbol": s, "range": rng, "interval": interval,
+                         "points": [{"t": _iso(b["t"]), "v": b["c"]} for b in bars]}
+        return 200, {"symbol": s, "range": rng, "interval": interval,
+                     "source": "kite",
+                     "bars": [{"t": _iso(b["t"]), "o": b["o"], "h": b["h"],
+                               "l": b["l"], "c": b["c"], "v": int(b["v"] or 0)}
+                              for b in bars]}
+    if tail[:1] == ["financials"]:
+        s = sym_of(1)
+        if len(tail) > 2:      # /financials/{sym}/balance_sheet — charto holds
+            return 200, {     # no statements, and says so rather than faking
+                "available": False, "company": None, "basis": "consolidated",
+                "unit": None, "periods": [], "rows": [],
+                "source": "not stored in charto"}
+        return _api_financials(s)
+    if tail[:2] == ["markets", "metric-series"]:
+        return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
+                     "range": q.get("range", "1Y"), "available": False,
+                     "points": [], "source": "none"}
+    if tail[:2] == ["companies", "search"]:
+        return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
+    if tail[:2] == ["companies", "logos"]:
+        want = [x.strip().upper() for x in (q.get("symbols") or "").split(",") if x.strip()]
+        have = dict(_con.execute(
+            "SELECT symbol, logo_url FROM company_profile")) if want else {}
+        return 200, {"logos": {s: have.get(s) for s in want}}
+    return 404, {"detail": f"{path} is not served by charto"}
 
 
 def tool_get_peers(symbol: str = "") -> dict:
@@ -6062,11 +6331,39 @@ class Handler(BaseHTTPRequestHandler):
         symbol = q.get("symbol", "RELIANCE").upper()
         _req.symbol = symbol
         try:
+            if u.path.startswith("/api/"):
+                # Pivot's stock page, copied verbatim into charto/web, calls
+                # its own backend's routes — served here from charto's store.
+                code, payload = api_route(u.path, q)
+                return self._send(code, payload)
             if u.path == "/symbols":
                 have = {r[0] for r in _con.execute(
                     "SELECT DISTINCT symbol FROM bars")}
+                # names ride along so a reply that writes "Caplin Labs" can be
+                # linked to its company page as readily as one that writes the
+                # ticker — the model picks whichever reads better
+                try:
+                    names = dict(_con.execute(
+                        "SELECT symbol, name FROM classification"))
+                except sqlite3.Error:
+                    names = {}
+                try:
+                    logos = dict(_con.execute(
+                        "SELECT symbol, logo_url FROM company_profile "
+                        "WHERE logo_url IS NOT NULL"))
+                    # the Moneycontrol short name is wrong for a few rows
+                    # (TITAN reads "IAG Company"); the enrichment long name is
+                    # the one to SHOW, while the short one still has to match
+                    # what a reply writes, so both are sent
+                    longs = dict(_con.execute(
+                        "SELECT symbol, long_name FROM company_profile "
+                        "WHERE long_name IS NOT NULL"))
+                except sqlite3.Error:
+                    logos, longs = {}, {}
                 return self._send(200, {"symbols": _known_symbols(),
-                                        "hydrated": sorted(have)})
+                                        "hydrated": sorted(have),
+                                        "names": names, "long": longs,
+                                        "logos": logos})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
                 if interval not in (*INTRADAY_MIN, "1d", "1w", "1mo"):
@@ -6126,6 +6423,17 @@ class Handler(BaseHTTPRequestHandler):
                 if err:
                     return self._send(404, err)
                 return self._send_live(symbol)
+            if u.path == "/company":
+                if symbol not in _known_symbols():
+                    return self._send(404, {
+                        "error": f"{symbol} is not in the chart universe",
+                        "hint": "GET /symbols lists it"})
+                rng = q.get("range", "5Y")
+                # a range button re-reads the series only — the profile half
+                # never changes between clicks
+                if q.get("only") == "history":
+                    return self._send(200, company_history(symbol, rng))
+                return self._send(200, company_page(symbol, rng))
             if u.path == "/meta":
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",

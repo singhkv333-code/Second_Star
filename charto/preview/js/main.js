@@ -8,6 +8,10 @@
 (function () {
   const LWC = window.LightweightCharts;
   const API = "http://127.0.0.1:5174";
+  // Pivot's stock page, copied into charto/web and served by `next dev`
+  // there (see charto/web/README). Company links open it directly.
+  const COMPANY_PAGE = "http://localhost:5175";
+
   const IST = 19800;
   const SYMBOL = (new URLSearchParams(location.search).get("symbol")
                   || "RELIANCE").toUpperCase();
@@ -1268,7 +1272,7 @@
     document.title = `${SYMBOL} — Charto`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
-    let all = null, hyd = new Set();
+    let all = null, hyd = new Set(), names = {}, shortNames = {}, logos = {};
     const go = (s) => {
       if (!s || s === SYMBOL) { menu.classList.remove("open"); return; }
       pill.style.opacity = "0.6";
@@ -1279,16 +1283,26 @@
       const pool = all || [];
       // the whole universe renders — 500 rows is nothing, and a cap made
       // the list look like it "couldn't load more" past the B's
+      // a name search is how people actually look ("laurus", not LAURUSLABS)
       const hits = q
-        ? pool.filter((s) => s.includes(q))
+        ? pool.filter((s) => s.includes(q)
+                          || (names[s] || "").toUpperCase().includes(q)
+                          || (shortNames[s] || "").toUpperCase().includes(q))
             .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
                             || a.localeCompare(b))
         : pool;
       list.innerHTML = hits.map((s) =>
         `<div class="item" data-sym="${s}"><span class="lead">` +
+        (logos[s] ? `<img class="co-logo" src="${logos[s]}" alt="" loading="lazy"
+             onerror="this.remove()"/>` : "") +
         (hyd.has(s) ? '<span class="dot-h"></span>' : "") +
-        `${s}</span>` +
-        (hyd.has(s) ? "" : '<span class="cold">~6s first load</span>') +
+        `${s}${names[s] && names[s] !== s
+          ? `<span class="co-name">${names[s]}</span>` : ""}</span>` +
+        (hyd.has(s) ? "" : '<span class="cold">~6s</span>') +
+        // the row opens the chart; this opens the company page, so a search
+        // can end in either surface without a second search
+        `<a class="open-co" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}"
+            title="${s} — company page">↗</a>` +
         "</div>").join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';
     };
@@ -1302,6 +1316,10 @@
         try {
           const d = await fetch(`${API}/symbols`).then((r) => r.json());
           all = d.symbols || []; hyd = new Set(d.hydrated || []);
+          // show the enrichment long name (the Moneycontrol short name is
+          // wrong for a few rows); still search both
+          names = { ...(d.names || {}), ...(d.long || {}) };
+          shortNames = d.names || {}; logos = d.logos || {};
         } catch { all = []; }
       }
       input.value = ""; render(""); input.focus();
@@ -1312,6 +1330,7 @@
       if (e.key === "Escape") menu.classList.remove("open");
     });
     list.addEventListener("click", (e) => {
+      if (e.target.closest(".open-co")) { e.stopPropagation(); return; }
       const it = e.target.closest(".item[data-sym]");
       if (it) go(it.dataset.sym);
     });

@@ -116,6 +116,9 @@
     width: 100%; background: var(--input); border: 1px solid var(--border);
     border-radius: var(--radius-sm); color: var(--foreground);
     padding: 7px 9px; font-size: 12.5px; outline: none; margin-bottom: 5px;
+    /* body sets user-select:none so chart drags don't select text; an input
+       that inherits it takes three clicks before a caret lands */
+    user-select: text; -webkit-user-select: text;
   }
   #symbolMenu input:focus { border-color: var(--ring); }
   #symList { max-height: 340px; overflow-y: auto; }
@@ -124,6 +127,36 @@
     display: inline-block; flex: none;
   }
   #symList .item .cold { font-size: 10.5px; color: var(--faint); }
+  #symList .item .co-name {
+    font-size: 11px; color: var(--muted-foreground); font-weight: 500;
+    margin-left: 6px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 118px;
+  }
+  #symList .item .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  #symList .item .co-logo, .prose a.sym-link .co-logo {
+    width: 15px; height: 15px; border-radius: 3px; object-fit: contain;
+    background: var(--muted); flex: none;
+  }
+  .prose a.sym-link .co-logo {
+    width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px;
+    display: inline-block;
+  }
+  #symList .item .open-co {
+    margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 12px;
+    color: var(--faint); text-decoration: none; flex: none; opacity: 0;
+  }
+  #symList .item:hover .open-co { opacity: 1; }
+  #symList .item .open-co:hover { color: var(--primary); background: var(--accent); }
+
+  /* company links inside a reply */
+  .prose a.sym-link {
+    color: var(--primary); text-decoration: none;
+    border-bottom: 1px solid transparent; font-weight: 560;
+  }
+  .prose a.sym-link:hover {
+    border-bottom-color: var(--primary); background: var(--primary-soft);
+    border-radius: 3px;
+  }
 
   /* segmented control (intervals) */
   .seg { display: inline-flex; align-items: center; gap: 2px; }
@@ -789,7 +822,7 @@
   <script src="./js/tools.js?v=7"></script>
   <script src="./js/drawings.js?v=10"></script>
   <script src="./js/scene.js?v=19"></script>
-  <script src="./js/main.js?v=25"></script>
-  <script src="./js/chat.js?v=9"></script>
+  <script src="./js/main.js?v=29"></script>
+  <script src="./js/chat.js?v=15"></script>
 </body>
 </html>

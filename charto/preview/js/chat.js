@@ -12,6 +12,10 @@
 
 (function () {
   const API = "http://127.0.0.1:5174";
+  // Pivot's stock page, copied into charto/web and served by `next dev`
+  // there (see charto/web/README). Company links open it directly.
+  const COMPANY_PAGE = "http://localhost:5175";
+
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -334,9 +338,88 @@
     return done;
   }
 
+  // ── company links ────────────────────────────────────────
+  // A reply names companies constantly; each one is a page the user can open.
+  // Linking runs on the FINISHED turn over text nodes, never over the markdown
+  // string: a regex on HTML would eventually match inside a tag it wrote.
+  let SYMS = null, TO_SYM = null, SYM_RE = null, LOGOS = {};
+  fetch(`${API}/symbols`).then((r) => r.json()).then((d) => {
+    SYMS = new Set(d.symbols || []);
+    LOGOS = d.logos || {};
+    TO_SYM = new Map(SYMS.size ? [...SYMS].map((s) => [s, s]) : []);
+    // A reply names companies either way — "TCS" or "Caplin Labs" — so both
+    // resolve. Case-sensitive, so the word "reliance" in prose is not a link.
+    for (const src of [d.names || {}, d.long || {}]) {
+      for (const [sym, name] of Object.entries(src)) {
+        if (name && name.length > 3 && !TO_SYM.has(name)) TO_SYM.set(name, sym);
+      }
+    }
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const alts = [...TO_SYM.keys()].sort((a, b) => b.length - a.length).map(esc);
+    SYM_RE = new RegExp(`(?<![\\w&-])(${alts.join("|")})(?![\\w&-])`, "g");
+    // a restored session renders before this fetch lands — link it now that
+    // the map exists, or reopening a company would lose every link
+    document.querySelectorAll(".prose").forEach(linkCompanies);
+  }).catch(() => { SYMS = new Set(); });
+
+  /** Link company names to their page — in TABLES only. Prose names the same
+   *  company several times a paragraph, and linking each one turns the answer
+   *  into a field of blue; a table row is already a per-company row, so the
+   *  link belongs there and reads as navigation rather than decoration. */
+  function linkCompanies(root) {
+    if (!SYM_RE || !TO_SYM || !TO_SYM.size) return;
+    const jobs = [];
+    for (const table of root.querySelectorAll("table")) {
+      const walk = document.createTreeWalker(table, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => n.parentElement.closest("a, code, pre")
+          ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      });
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (SYM_RE.test(n.nodeValue)) jobs.push(n);
+        SYM_RE.lastIndex = 0;
+      }
+    }
+    for (const node of jobs) {
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
+      SYM_RE.lastIndex = 0;
+      while ((m = SYM_RE.exec(node.nodeValue))) {
+        const sym = TO_SYM.get(m[0]);
+        if (!sym) continue;
+        if (m.index > last) {
+          frag.appendChild(document.createTextNode(
+            node.nodeValue.slice(last, m.index)));
+        }
+        const a = document.createElement("a");
+        a.className = "sym-link";
+        a.href = `${COMPANY_PAGE}/stock/${encodeURIComponent(sym)}`;
+        a.title = `${sym} — company page`;
+        if (LOGOS[sym]) {
+          const img = document.createElement("img");
+          img.className = "co-logo";
+          img.src = LOGOS[sym];
+          img.alt = "";
+          img.loading = "lazy";
+          img.onerror = () => img.remove();   // a dead logo must not leave a box
+          a.appendChild(img);
+        }
+        a.appendChild(document.createTextNode(m[0]));
+        frag.appendChild(a);
+        last = m.index + m[0].length;
+      }
+      if (!frag.childNodes.length) continue;
+      if (last < node.nodeValue.length) {
+        frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+      }
+      node.parentNode.replaceChild(frag, node);
+    }
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
   function finishTurn(turn, text, bits) {
-    turn.querySelector(".prose").innerHTML = md(text);
+    const prose = turn.querySelector(".prose");
+    prose.innerHTML = md(text);
+    linkCompanies(prose);
     const meta = document.createElement("div");
     meta.className = "turn-meta";
     const copy = document.createElement("button");
