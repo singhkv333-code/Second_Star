@@ -309,13 +309,30 @@ def _drawing_for(ref: str, want: str) -> dict:
                           f"with drawing_id={d.get('ref') or d.get('id')}.")}
     return {"ok": d, "sub": sub, "points": _drawing_points(d)}
 
+def _tz_off() -> int:
+    """Offset for the symbol being served. `_ist` and `_parse_ist` MUST agree
+    on it — the model reads one and writes the other back, so a mismatch is
+    the same class of P0 as a rejected timestamp format."""
+    return session_for(_sym())[1]
+
+
+def _tzl() -> str:
+    """Clock label for the symbol being served, so a UTC-anchored crypto bar
+    is never stamped 'IST' next to a chart axis that reads UTC."""
+    return "IST" if _tz_off() else "UTC"
+
+
 def _ist(ts: int, with_time: bool = True) -> str:
-    d = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
+    d = datetime.fromtimestamp(ts + _tz_off(), tz=timezone.utc)
     return d.strftime("%d %b %Y %H:%M") if with_time else d.strftime("%d %b %Y")
 
 
 def _parse_ist(s: str | None) -> int | None:
-    """Tolerant IST timestamp parse → epoch seconds.
+    """Tolerant local-clock timestamp parse → epoch seconds.
+
+    The inverse of `_ist`, and it reads the same `_tz_off()` — for a crypto
+    symbol both sides run on UTC, so a timestamp the model copied out of a
+    tool result still round-trips to the second.
 
     It MUST accept the format `_ist` emits ("08 Jul 2026 15:25"), because that
     is the only time format the model ever sees — in tool results, in anchors,
@@ -333,7 +350,7 @@ def _parse_ist(s: str | None) -> int | None:
                 "%d-%m-%Y %H:%M", "%d/%m/%Y %H:%M", "%d-%m-%Y", "%d/%m/%Y"):
         try:
             d = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-            return int(d.timestamp()) - IST_OFF
+            return int(d.timestamp()) - _tz_off()
         except ValueError:
             continue
     return None
@@ -892,7 +909,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
                 f"±5-bar pivot window — 'broke' if a close cleared the level by "
                 f"more than the cluster tolerance, else 'held'"),
             "bars_scanned": len(rows), "interval": interval,
-            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST",
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}",
         },
         "_note": (
             "Lead with what happened, not how often it was tested: quote "
@@ -1373,7 +1390,7 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
         "around_fields": ["t", "open", "high", "low", "close", "volume"],
         "last_price": rows[-1][4],
         "provenance": {"interval": interval, "bars_scanned": n,
-                       "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST",
+                       "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}",
                        "method": "swing pivots (±5 bars), window extremes, session "
                                  "open/close, ATR-sized gaps"},
         "_note": ("Compose shapes from these ids with draw_shape — never type a "
@@ -1677,7 +1694,8 @@ def tool_evaluate_line(p1_time: str = "", p1_value: float = 0.0,
                           "drawing_id rather than copying its coordinates.")}
     t1, t2 = _parse_ist(p1_time), _parse_ist(p2_time)
     if t1 is None or t2 is None:
-        return {"error": "could not parse p1_time / p2_time (expect 'YYYY-MM-DD HH:MM' IST)"}
+        return {"error": "could not parse p1_time / p2_time "
+                         f"(expect 'YYYY-MM-DD HH:MM' {_tzl()})"}
     if t1 == t2:
         return {"error": "the two points share a timestamp — that is a vertical line"}
     rows = _rows(interval, max(120, min(int(lookback_bars or 500), 1500)))
@@ -1872,7 +1890,7 @@ def tool_evaluate_fib(p1_time: str = "", p1_value: float = 0.0,
                          f"{interval} bars, so there is no retracement to "
                          f"measure yet. Say that rather than reporting the "
                          f"levels as untouched."),
-                "scanned": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST"}
+                "scanned": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"}
     levels = []
     for r in _FIB_RATIOS:
         lvl = _fib_level(p1_value, p2_value, r)
@@ -2167,7 +2185,7 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
     tol, window, n = _tolerance(rows), 5, len(rows)
     last = rows[-1][4]
     prov = {"interval": interval, "bars_scanned": n, "tolerance": round(tol, 2),
-            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST"}
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"}
 
     if kind == "zone":
         lo, hi = sorted((pts[0]["v"], pts[1]["v"]))
@@ -2861,8 +2879,15 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
             "return_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
             "max_drawdown_pct": round(dd * 100, 2),
             "atr_pct_of_price": round(atr / closes[-1] * 100, 2) if atr else None,
-            "avg_daily_turnover_cr": round(
-                sum(r[3] * r[4] for r in rows) / len(rows) / 1e7, 1),
+            # Crore-rupees is the wrong unit AND the wrong scale for a
+            # dollar-quoted asset: BTC's ~$670M daily notional came back as
+            # "67.3 cr", which a reply would state as ₹67 crore. The key name
+            # carries the unit so a mixed basket cannot silently blend them.
+            **({"avg_daily_turnover_musd": round(
+                sum(r[3] * r[4] for r in rows) / len(rows) / 1e6, 1)}
+               if session_for(s) == UTC_SESSION else
+               {"avg_daily_turnover_cr": round(
+                   sum(r[3] * r[4] for r in rows) / len(rows) / 1e7, 1)}),
             "bars": len(rows),
         }
         rets[s] = {r[0]: r[3] for r in rows}
@@ -2884,7 +2909,7 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
                 for i, a in enumerate(syms) for b in syms[i + 1:]}
 
     wt = interval not in ("1d", "1w", "1mo")
-    res = {"window": f"{_ist(start, wt)} → {_ist(max(v[-1][0] for v in series.values()), wt)} IST",
+    res = {"window": f"{_ist(start, wt)} → {_ist(max(v[-1][0] for v in series.values()), wt)} {_tzl()}",
            "interval": interval,
            "metrics": out,
            "ranked_by_return": sorted(syms, key=lambda s: -out[s]["return_pct"]),
@@ -3480,7 +3505,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
 
     res["provenance"] = {
         "interval": interval, "bars_scanned": len(rows),
-        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}",
         "tolerance": round(tol, 2),
         "candlestick_thresholds": {
             "doji_body_max_pct_of_range": patterns._DOJI_BODY * 100,
@@ -3691,7 +3716,7 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                 res["avg_abs_move_pct"] = round(
                     sum(abs(e["fwd"]) for e in evals) / len(evals), 2)
     res["provenance"] = {
-        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}",
         "bars_scanned": n,
         "method": "forward close-to-close move measured from each instance's "
                   "completion bar (candles: the pattern bar; chart shapes: "
@@ -3942,7 +3967,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
                       f"next_{h}_bars_pct": round(s["after"], 2)}
                      for s in studied[:6]]
     res["provenance"] = {
-        "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} IST",
+        "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} {_tzl()}",
         "bars_scanned": n,
         "method": ("each event is the first session able to react to the "
                    "filing (after-market announcements roll to the next day); "
@@ -4147,7 +4172,7 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
         if i0 is None or i1 is None or i0 > i1:
             return {"error": "no sessions inside that window",
                     "data_spans": f"{_ist(rows[0][0], False)} → "
-                                  f"{_ist(rows[-1][0], False)} IST"}
+                                  f"{_ist(rows[-1][0], False)} {_tzl()}"}
     if i0 == 0:
         i0 = 1                                       # need a prior close
     n = i1 - i0 + 1
@@ -4876,7 +4901,7 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
             idx = next((i for i, r in enumerate(rows) if r[0] >= t), None)
             if idx is None:
                 return {"error": "anchor_time is after the last scanned bar",
-                        "scanned": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} IST"}
+                        "scanned": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} {_tzl()}"}
             extra["anchor_index"] = idx
 
     try:
@@ -5441,7 +5466,7 @@ def run_tool(name: str, args: dict) -> dict:
     if (form and isinstance(out, dict) and "error" not in out
             and ("bars" in out or "as_of" in out or "interval" in out)):
         out["_live_note"] = (
-            f"The last bar is still FORMING (as of {_hm_ist(form[0])} IST) — "
+            f"The last bar is still FORMING (as of {_hm_ist(form[0])} {_tzl()}) — "
             f"treat its values as provisional, not a closed candle.")
     # Geometry drawn on a timeframe the chart is not showing is invisible to
     # the user until they switch — a "drawn" claim with nothing on screen
@@ -5543,7 +5568,7 @@ def _render_context(ctx: dict) -> str:
     _st = _LIVE.get(str(ctx.get("symbol") or ""))
     _form = _st["form"] if _st else None
     if _form:
-        L.insert(2, f"live · forming bar {_hm_ist(_form[0])} IST")
+        L.insert(2, f"live · forming bar {_hm_ist(_form[0])} {_tzl()}")
     if ctx.get("session"):
         s = ctx["session"]
         L.append(f"Session {s['date']}: open {_n(s['open'])} → {_n(s['last'])} "
@@ -6063,7 +6088,7 @@ _LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
 
 
 def _hm_ist(ts: int) -> str:
-    t = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
+    t = datetime.fromtimestamp(ts + _tz_off(), tz=timezone.utc)
     return f"{t.hour:02d}:{t.minute:02d}"
 
 

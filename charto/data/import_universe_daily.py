@@ -59,8 +59,11 @@ def seed() -> None:
     t0 = time.time()
     for sym in syms:
         t1 = time.time()
+        # fold on the SYMBOL's clock: a crypto series folded on IST days would
+        # cut every candle at 05:30 and disagree with what the chart shows
         daily = dataserver._fold_daily(con.execute(
-            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (sym,)))
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (sym,)),
+            dataserver.session_for(sym))
         con.executemany("INSERT OR REPLACE INTO bars_1d VALUES (?,?,?,?,?,?,?)",
                         [(sym, *b) for b in daily])
         con.commit()

@@ -393,6 +393,21 @@ const Scene = (() => {
     // ── interaction ─────────────────────────────────────
     // Resolved against the pane the pointer is in, never the chart as one
     // surface: an annotation in the RSI pane is only hittable from there.
+    /** True when the pointer is over the PLOT, not the price or time axis.
+     *  A level, a zone or a position leg spans the full plot width, so a
+     *  press on the price scale — the rescale gesture — landed on whichever
+     *  line shared that y and dragged it, silently re-writing a plan's stop
+     *  and target and stamping it "user-adjusted". The axes belong to the
+     *  chart; only the plot belongs to the annotations. */
+    function inPlot(e) {
+      const r = env.container.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      let axisW = 0, axisH = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* pre-layout */ }
+      try { axisH = chart.timeScale().height(); } catch { /* pre-layout */ }
+      return x >= 0 && x < r.width - axisW && y >= 0 && y < r.height - axisH;
+    }
+
     const pointIn = (e) => {
       const key = env.paneAt ? env.paneAt(e.clientY) : "price";
       const r = env.container.getBoundingClientRect();
@@ -401,7 +416,7 @@ const Scene = (() => {
 
     env.container.addEventListener("mousemove", (e) => {
       const p = pointIn(e);
-      const a = hitAt(p.y, p.key, p.x);
+      const a = inPlot(e) ? hitAt(p.y, p.key, p.x) : null;
       const id = a ? a.id : null;
       if (id !== state.hover) {
         state.hover = id;
@@ -478,6 +493,7 @@ const Scene = (() => {
     env.container.addEventListener("mousedown", (e) => {
       if (e.button !== 0 || !env.isCursorMode()) return;
       if (env.userBusy && env.userBusy()) return;  // a user drawing took this press
+      if (!inPlot(e)) return;      // an axis drag is a rescale, not a move
       const p = pointIn(e);
       const a = hitAt(p.y, p.key, p.x);
       if (!a || a.kind === "markers") return;
@@ -514,6 +530,7 @@ const Scene = (() => {
     env.container.addEventListener("click", (e) => {
       if (!env.isCursorMode()) return;
       if (swallowClick) { swallowClick = false; return; }
+      if (!inPlot(e)) return;      // nor does an axis click select a shape
       const p = pointIn(e);
       const hit = hitAt(p.y, p.key, p.x);
       if (hit) {
