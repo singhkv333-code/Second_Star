@@ -344,8 +344,16 @@
     }
     Promise.resolve(ind.toggle(id, state.bars))
       .then(() => { renderIndMenu(); renderChips(); })
-      .catch((err) => status(`could not add ${def.label}: ${err.message}`));
-    renderIndMenu(); renderChips();
+      // the failure path MUST re-render too. The optimistic pass below draws
+      // the chip and the tick while the fetch is still in flight; without a
+      // re-render here a refused indicator (a volume study on an index, which
+      // has no volume to compute from) stayed checked in the menu and kept a
+      // chip in the toolbar, reading as active over a pane that never drew.
+      .catch((err) => {
+        renderIndMenu(); renderChips();
+        status(`could not add ${def.label}: ${err.message}`);
+      });
+    renderIndMenu(); renderChips();   // optimistic: chip appears immediately
   });
   el("indChips").addEventListener("click", (e) => {
     const ed = e.target.closest("[data-edit]");

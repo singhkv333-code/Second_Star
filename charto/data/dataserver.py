@@ -2944,8 +2944,18 @@ SCREEN_FEATURES = (
     "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
     "sma20_rel", "sma50_rel", "sma200_rel",
     "sma50_cross_ago", "sma200_cross_ago",
-    "range_20d_pct", "vol_z20", "turnover_20d_cr",
+    "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
 )
+
+# Features that are arithmetic on VOLUME. The universe now holds instruments
+# with no volume at all: an index prints no traded quantity, so bars_1d
+# carries v=0 on 100% of its days (all 24 indices and India VIX). Computing
+# these anyway does not fail loudly — it fabricates. Measured on NIFTY 50:
+# turnover came out 0.0 (a real zero, and the DEFAULT sort key), OBV and A/D
+# flat 0.0, and MFI(14) reported 100.0 — a maximally-overbought reading
+# manufactured out of no data. A feature whose input does not exist is None.
+_VOLUME_FEATURES = frozenset(
+    {"vol_z20", "turnover_20d_cr", "turnover_20d_musd"})
 
 # Spelled out because an error that only lists names tells the model which
 # words are legal, not which one it meant.
@@ -2972,8 +2982,14 @@ SCREEN_FEATURE_HELP = {
                         "(either direction — pair with sma200_rel's sign); "
                         "null if no cross within ~120 sessions",
     "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
-    "vol_z20": "last session's volume in σ of the prior 20 sessions",
-    "turnover_20d_cr": "avg daily close*volume over 20 sessions, rupees crore",
+    "vol_z20": "last session's volume in σ of the prior 20 sessions. Null for "
+               "instruments that print no volume (indices, India VIX)",
+    "turnover_20d_cr": "avg daily close*volume over 20 sessions, RUPEES CRORE "
+                       "— INR-quoted instruments only. Null for dollar-quoted "
+                       "ones (use turnover_20d_musd) and for indices",
+    "turnover_20d_musd": "avg daily close*volume over 20 sessions, MILLIONS "
+                         "OF US DOLLARS — dollar-quoted instruments (spot "
+                         "crypto) only. Null for INR-quoted ones",
 }
 
 SCREEN_OPS = ("lt", "gt")
@@ -3005,13 +3021,18 @@ def _squash(s: str, sep: str = "") -> str:
     return sep.join("".join(ch if ch.isalnum() else " " for ch in s).lower().split())
 
 
-def _screen_row_features(rows: list[tuple]) -> dict:
+def _screen_row_features(rows: list[tuple], ccy: str = "INR") -> dict:
     """ascending daily (ts,o,h,l,c,v) for ONE symbol → its feature dict.
 
     Every feature whose window the symbol cannot cover is None. Falling back
     to a shorter window would rank a six-month listing against a ten-year one
     and call both a 1-year return; a null is the honest answer and the filter
     simply excludes it.
+
+    The same rule now covers the INPUT, not just the window: a symbol that
+    prints no volume gets None for every volume feature rather than the zero
+    the arithmetic would produce, and turnover lands in the feature that
+    carries its own currency.
     """
     n = len(rows)
     closes = [r[4] for r in rows]
@@ -3053,9 +3074,16 @@ def _screen_row_features(rows: list[tuple]) -> dict:
         w = rows[-20:]
         f["range_20d_pct"] = round(
             (max(r[2] for r in w) - min(r[3] for r in w)) / c * 100, 2) if c else None
-        f["turnover_20d_cr"] = round(
-            sum(r[4] * r[5] for r in w) / len(w) / 1e7, 2)
-    if n >= 21:
+    # `has_vol` is read off the data, not off a symbol list: an instrument
+    # that starts printing volume tomorrow simply starts screening on it, and
+    # nothing here has to be edited to stop being wrong.
+    has_vol = any(r[5] for r in rows[-60:])
+    if has_vol and n >= 20:
+        w = rows[-20:]
+        notional = sum(r[4] * r[5] for r in w) / len(w)
+        key = "turnover_20d_musd" if ccy == "USD" else "turnover_20d_cr"
+        f[key] = round(notional / (1e6 if ccy == "USD" else 1e7), 2)
+    if has_vol and n >= 21:
         vols = [r[5] for r in rows[-21:-1]]
         m = sum(vols) / len(vols)
         sd = (sum((x - m) ** 2 for x in vols) / len(vols)) ** 0.5
@@ -3083,7 +3111,8 @@ def _screen_features() -> dict:
     # deepest lookback is 252 sessions of ret_1y + warmup; the pattern path
     # reads [-300:] — retaining full history would hold ~370 MB at 500 symbols
     by_sym = {s: r[-560:] for s, r in by_sym.items()}
-    feats = {s: _screen_row_features(r) for s, r in by_sym.items() if len(r) >= 2}
+    feats = {s: _screen_row_features(r, quote_ccy(s))
+             for s, r in by_sym.items() if len(r) >= 2}
     last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
     days = list(last_day.values())
     mode_day = max(set(days), key=days.count) if days else None
@@ -3172,11 +3201,6 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     sort_by = str(sort or "").strip()
     if sort_by and sort_by not in SCREEN_FEATURES:
         return _screen_vocab(f"cannot sort by '{sort_by}'")
-    if not sort_by:
-        sort_by = parsed[0][0] if parsed else "turnover_20d_cr"
-    # Descending unless the screen itself asked for small values of this
-    # feature — "RSI under 30" wants the most oversold first, not the least.
-    desc = not any(nm == sort_by and op == "lt" for nm, op, _ in parsed)
 
     kind = str(pattern or "").lower().strip()
     if kind and kind not in patterns.CHART_KINDS + patterns.CANDLE_KINDS:
@@ -3198,6 +3222,21 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         else:
             survivors.append({"symbol": sym, "name": name, "industry": ind,
                               "_f": f})
+
+    # The default sort is picked AFTER the survivors are known, because
+    # turnover no longer exists for every instrument: an all-crypto screen has
+    # None in turnover_20d_cr for every row, and sorting on it would order the
+    # result arbitrarily while reporting `sorted_by: turnover_20d_cr`. Falls
+    # through to the first key any survivor actually carries.
+    if not sort_by:
+        sort_by = parsed[0][0] if parsed else next(
+            (k for k in ("turnover_20d_cr", "turnover_20d_musd", "ret_1m",
+                         "close")
+             if any(r["_f"].get(k) is not None for r in survivors)),
+            "close")
+    # Descending unless the screen itself asked for small values of this
+    # feature — "RSI under 30" wants the most oversold first, not the least.
+    desc = not any(nm == sort_by and op == "lt" for nm, op, _ in parsed)
     survivors.sort(key=lambda r: (r["_f"].get(sort_by) is None,
                                   -(r["_f"].get(sort_by) or 0) if desc
                                   else (r["_f"].get(sort_by) or 0)))
@@ -3213,7 +3252,12 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
             if len(bars) < 60:
                 continue
             scanned += 1
-            ist = lambda ts: _ist(ts, False)  # noqa: E731 — daily bars
+            # each scanned symbol dates its own bars: `_ist` reads the CHART's
+            # timezone, which would stamp a UTC-anchored crypto day with the
+            # IST calendar of whatever symbol happens to be open
+            off = session_for(r["symbol"])[1]
+            ist = (lambda ts, _o=off: datetime.fromtimestamp(  # noqa: E731
+                ts + _o, tz=timezone.utc).strftime("%d %b %Y"))
             found = patterns.candlesticks(
                 bars, _atr(bars, 14), ist, {kind}, limit=8) \
                 if kind in patterns.CANDLE_KINDS else patterns.chart_patterns(
@@ -3237,30 +3281,46 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     # further (or holding a partial day) must not stamp the whole universe
     mode_day = _screen_cache.get("mode_day")
     last_day = _screen_cache.get("last_day") or {}
-    as_of = _ist(mode_day * 86400 - IST_OFF, False) if mode_day else "unknown"
+    # `_ist` renders in the CHART symbol's timezone, but a screen day is a
+    # universe-wide IST calendar date built with _ist_day/IST_OFF. Rendering
+    # it through the chart's clock moved every date a day back whenever the
+    # open chart was a crypto pair. Pinned to the offset it was computed with.
+    def _day_str(day: int) -> str:
+        return datetime.fromtimestamp(day * 86400, tz=timezone.utc).strftime(
+            "%d %b %Y")
+
+    as_of = _day_str(mode_day) if mode_day else "unknown"
     stale_shown = 0
-    # One read for the whole screen — every hit row is the same kind on the
-    # same daily interval, so the pooled record is identical across rows.
-    uni = _pattern_universe_stats(kind, "1d", 10) if kind else None
-    uni_rate = None
-    if uni and uni.get("with_direction_rate_pct") is not None:
-        uni_rate = {"with_direction_rate_pct": uni["with_direction_rate_pct"],
-                    "n": uni.get("n")}
+    # One read per scope present in the shown rows — the pooled record is
+    # identical for every row of the same market, and a screen that mixes
+    # NSE stocks with crypto must not stamp one market's rate on both.
+    uni_by_scope: dict[str, dict] = {}
+    if kind:
+        for r in shown:
+            sc = scope_for(r["symbol"])
+            if sc not in uni_by_scope:
+                uni_by_scope[sc] = _pattern_universe_stats(
+                    kind, "1d", 10, sc) or {}
+    uni = next((u for u in uni_by_scope.values() if u), None)
     rows = []
     for r in shown:
         out = {"symbol": r["symbol"], "name": r["name"],
                "industry": r["industry"]}
         d = last_day.get(r["symbol"])
         if d is not None and d != mode_day:
-            out["as_of"] = _ist(d * 86400 - IST_OFF, False)
+            out["as_of"] = _day_str(d)
             stale_shown += 1
         for k in keep:
             if k not in out:
                 out[k] = r["_f"].get(k)
         if "pattern" in r:
             out["pattern"] = r["pattern"]
-            if uni_rate:
-                out["universe_rate"] = uni_rate
+            u = uni_by_scope.get(scope_for(r["symbol"])) or {}
+            if u.get("with_direction_rate_pct") is not None:
+                out["universe_rate"] = {
+                    "with_direction_rate_pct": u["with_direction_rate_pct"],
+                    "n": u.get("n"), "scope": u.get("scope"),
+                    "scope_label": u.get("scope_label")}
         rows.append(out)
     universe = len(feats)
     res = {"universe": universe, "matched": len(survivors),
@@ -3304,12 +3364,15 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
                        f"{within} sessions — say the window, and quote each "
                        f"hit's own bars_ago rather than implying it printed "
                        f"today.")
-    if uni_rate:
+    if uni:
         note.insert(1, f"`universe_rate` is the same 10-session forward "
-                       f"reliability pooled across the stored universe as of "
-                       f"{uni.get('as_of') or 'the pooled run'} — it "
-                       f"describes the shape, not these rows, so never "
-                       f"present it as each stock's own record.")
+                       f"reliability pooled on DAILY bars as of "
+                       f"{uni.get('as_of') or 'the pooled run'}, and each row "
+                       f"carries the rate for ITS OWN market (see its "
+                       f"`scope_label`) — it describes the shape in that "
+                       f"market, not these rows, so never present it as a "
+                       f"stock's own record and never quote one row's rate "
+                       f"for a row in another scope.")
     if unscanned:
         note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
                        f"so {unscanned} matching symbols were never checked "
@@ -3555,21 +3618,43 @@ _UNIVERSE_HORIZONS = (5, 10, 20)
 # compares like with like instead of two vocabularies.
 _UNIVERSE_FIELDS = ("n", "n_symbols", "with_direction_rate_pct",
                     "with_direction_rate_pct_withheld",
-                    "control_base_rate_pct", "edge_pp", "avg_move_pct")
+                    "control_base_rate_pct", "edge_pp", "edge_se_pp",
+                    "avg_move_pct")
 
 
-def _pattern_universe_stats(kind: str, interval: str, h: int) -> dict | None:
+def _pattern_universe_stats(kind: str, interval: str, h: int,
+                            scope: str = "") -> dict | None:
     """The same evaluation pooled across the stored universe, if it exists.
 
     Precomputed by an offline artifact into `pattern_stats`; this only
     reads it. The table is tiny and usually absent, so a missing table is
     a plain None (house pattern) and every caller degrades to the
     single-chart answer it already had.
+
+    Scoped to the served symbol's own market. Serving Bitcoin the pooled
+    record of 500 NSE stocks would be a fabricated comparison — a shape's
+    reliability is a property of the market it was measured in, and there is
+    no such thing as "the" base rate across a 375-minute session and a 24/7
+    one. A scope with no swept rows returns None, and the caller falls back
+    to this chart's own record.
     """
+    sc = scope or scope_for(_sym())
     try:
-        cur = _con.execute(
-            "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
-            "AND horizon=?", (kind, interval, int(h)))
+        has_scope = any(r[1] == "scope" for r in
+                        _con.execute("PRAGMA table_info(pattern_stats)"))
+        if has_scope:
+            cur = _con.execute(
+                "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
+                "AND horizon=? AND scope=?", (kind, interval, int(h), sc))
+        else:
+            # pre-migration table: its only content is the equity sweep, so
+            # answering a crypto chart from it would be the exact mix this
+            # scope column exists to prevent
+            if sc != "equity_in":
+                return None
+            cur = _con.execute(
+                "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
+                "AND horizon=?", (kind, interval, int(h)))
         cols = [d[0] for d in cur.description]
         row = cur.fetchone()
         if not row:
@@ -3577,7 +3662,12 @@ def _pattern_universe_stats(kind: str, interval: str, h: int) -> dict | None:
         rec = dict(zip(cols, row))
         as_of = None
         try:
-            m = _con.execute("SELECT value FROM pattern_stats_meta "
+            meta_scoped = any(r[1] == "scope" for r in _con.execute(
+                "PRAGMA table_info(pattern_stats_meta)"))
+            m = _con.execute(
+                "SELECT value FROM pattern_stats_meta WHERE key='as_of' "
+                "AND scope=?", (sc,)).fetchone() if meta_scoped else \
+                _con.execute("SELECT value FROM pattern_stats_meta "
                              "WHERE key='as_of'").fetchone()
             as_of = m[0] if m else None
         except sqlite3.Error:
@@ -3594,6 +3684,12 @@ def _pattern_universe_stats(kind: str, interval: str, h: int) -> dict | None:
             "the pooled run graded no instance at this horizon — say the "
             "universe record is unavailable, not that the rate is zero")
     out["horizon_bars"] = int(h)
+    out["interval"] = interval
+    # The scope is not decoration: it is the only thing that says what
+    # "across the universe" meant, and the model must name it rather than
+    # implying one market's record covers another.
+    out["scope"] = sc
+    out["scope_label"] = SCOPE_LABEL.get(sc, sc)
     if as_of:
         out["as_of"] = as_of
     return out
@@ -3736,10 +3832,15 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         # so shape counts legitimately differ from this single-pass scan.
         same_method = k in patterns.CANDLE_KINDS
         res["_note"] += (
-            f" The `universe` block pools ~500 stored stocks as of "
+            f" The `universe` block pools {uni.get('n_symbols') or 'the'} "
+            f"{uni.get('scope_label', 'stored instruments')} on the same "
+            f"{interval} interval, as of "
             f"{uni.get('as_of') or 'the pooled run'}"
             + (f" at a {uh}-bar horizon, the nearest graded to this call's "
                f"{h}" if uh != h else "") + ". "
+            + "It covers ONLY that market and that interval — never present "
+              "it as the shape's record everywhere, and never carry a rate "
+              "measured on one interval across to another. "
             + ("For candlestick kinds it is the SAME method as this chart's "
                "number — quote both scopes and, when they disagree, say so "
                "plainly; the pooled record does not override what this "
@@ -3752,7 +3853,19 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                "it as its own scope; never reconcile the counts.")
             + " Each rate must be quoted next to its OWN control (the pooled "
               "control is full-history, this chart's is its window). "
-              "Edge-fitted shapes have no universe record at all.")
+              "Edge-fitted shapes have no universe record at all."
+            + (f" `edge_se_pp` is the sampling error on that rate: this "
+               f"edge of {uni.get('edge_pp')}pp is "
+               + ("WITHIN it, so call the shape indistinguishable from its "
+                  "base rate — do not report it as an edge in either "
+                  "direction"
+                  if uni.get("edge_pp") is not None
+                  and uni.get("edge_se_pp")
+                  and abs(uni["edge_pp"]) <= 2 * uni["edge_se_pp"]
+                  else f"more than twice it ({uni.get('edge_se_pp')}pp), so "
+                       f"it is a real difference — still a small one, and "
+                       f"not a forecast")
+               + "." if uni.get("edge_se_pp") is not None else ""))
     return res
 
 
@@ -4907,7 +5020,15 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
     try:
         res = indicators.compute(name, rows, period, source, **extra)
     except ValueError as exc:
-        return {"error": str(exc)}
+        err: dict = {"error": str(exc)}
+        if indicators.SPECS.get(name, {}).get("group") == "volume":
+            err["_note"] = (
+                "Nothing was computed. Say plainly that this instrument "
+                "publishes no traded volume so the study has no input — do "
+                "NOT report a number, and do not substitute a different "
+                "indicator without saying you switched. Offer a price-only "
+                "one by name instead.")
+        return err
 
     wt = interval not in ("1d", "1w", "1mo")
     out: dict = {
@@ -5963,6 +6084,80 @@ def session_for(symbol: str) -> tuple[int, int]:
     if symbol in _MCX_SYMBOLS:
         return MCX_SESSION
     return NSE_SESSION
+
+
+# ── asset scope ───────────────────────────────────────────────────
+# A pooled pattern rate is a property of a MARKET, not of a shape. 500 NSE
+# stocks trade 375 minutes a day with a gap every night; Bitcoin trades 1440
+# with no gap and no circuit limits. Averaging a hammer's forward return over
+# both produces a number that describes neither, so scope is a stored
+# dimension of the ledger (PRIMARY KEY carries it) rather than a filter
+# applied afterwards. Interval stays a separate dimension for the same reason:
+# a 10-bar horizon is two weeks on 1d and 2.5 hours on 15m.
+SCOPES = ("equity_in", "index_in", "volatility_in", "crypto",
+          "commodity_in", "fx_in")
+
+_SCOPE_BY_INDUSTRY = {
+    "indexbroad": "index_in", "indexsector": "index_in",
+    "volatility": "volatility_in", "cryptocurrency": "crypto",
+    "commoditypreciousmetals": "commodity_in",
+    "commoditybasemetals": "commodity_in",
+    "commodityenergy": "commodity_in", "currency": "fx_in",
+}
+
+# India VIX started out pooled with the indices — it is quoted by the same
+# exchange on the same session. The swept controls said otherwise: at h=10 on
+# daily bars it rises 46.9% of the time against the 23 indices' 57.2%, and its
+# average absolute 10-bar move is 11.21% against their 4.81%. A mean-reverting
+# volatility series is not a price index, and pooling it would have pulled the
+# index base rate down and handed every bearish shape a manufactured edge.
+SCOPE_LABEL = {
+    "equity_in": "NSE-listed stocks",
+    "index_in": "Indian equity indices",
+    "volatility_in": "India VIX",
+    "crypto": "spot crypto (24/7)",
+    "commodity_in": "MCX commodity futures",
+    "fx_in": "INR currency futures",
+}
+
+
+def quote_ccy(symbol: str) -> str:
+    """The currency a symbol's PRICE is quoted in — "INR" or "USD".
+
+    Distinct from session_for on purpose. They happen to agree today, but one
+    is about when a bar opens and the other about what its numbers mean; a
+    turnover figure that inherits its unit from a timezone is one listing away
+    from being wrong.
+    """
+    return "USD" if (symbol.endswith("USDT")
+                     or symbol.endswith("-USD")) else "INR"
+
+
+_scope_cache: dict[str, str] = {}
+
+
+def scope_for(symbol: str) -> str:
+    """Which pooled universe a symbol's evidence belongs to.
+
+    Classification-first so adding an instrument to classify_macro.py is
+    enough; the symbol-shape fallback keeps a freshly backfilled crypto pair
+    out of the equity pool during the window before it is classified.
+    """
+    hit = _scope_cache.get(symbol)
+    if hit:
+        return hit
+    row = _classification_row(symbol)          # (name, industry) or None
+    ind = (row[1] if row else "") or ""
+    if ind in _SCOPE_BY_INDUSTRY:
+        sc = _SCOPE_BY_INDUSTRY[ind]
+    elif symbol.endswith("USDT") or symbol.endswith("-USD"):
+        sc = "crypto"
+    elif symbol in _MCX_SYMBOLS:
+        sc = "commodity_in"
+    else:
+        sc = "equity_in"
+    _scope_cache[symbol] = sc
+    return sc
 
 
 _con = sqlite3.connect(DB_PATH, check_same_thread=False)

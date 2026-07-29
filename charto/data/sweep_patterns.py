@@ -52,6 +52,7 @@ import sys
 import time
 import traceback
 from bisect import bisect_left
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -104,6 +105,11 @@ def _series(con: sqlite3.Connection, sym: str,
             intervals: list[str]) -> tuple[dict[str, list[tuple]], int]:
     """Read the symbol's 1-min rows ONCE, ascending → resampled series.
 
+    Bucketed on the SYMBOL's own session, not on NSE's. The store now holds
+    24/7 crypto and 09:00-open MCX futures alongside the 09:15 equities, and
+    the default anchor would fold every crypto bar from 00:00 to 09:15 IST
+    into a single candle — mining shapes off a series the chart never draws.
+
     Zero-priced minutes are dropped before resampling, and the count comes
     back so it can be disclosed. The store carries all-zero placeholder
     minutes for some symbols (INFY alone has 4500 of them, twelve whole
@@ -115,6 +121,7 @@ def _series(con: sqlite3.Connection, sym: str,
     """
     acc: dict[str, list] = {iv: [] for iv in intervals}
     dropped = 0
+    session = ds.session_for(sym)
     cur = con.execute(
         "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (sym,))
     while True:
@@ -126,8 +133,9 @@ def _series(con: sqlite3.Connection, sym: str,
         if not chunk:
             continue
         for iv in intervals:
-            part = (ds._fold_daily(chunk) if iv == "1d"
-                    else ds._resample_intraday(chunk, ds.INTRADAY_MIN[iv]))
+            part = (ds._fold_daily(chunk, session) if iv == "1d"
+                    else ds._resample_intraday(
+                        chunk, ds.INTRADAY_MIN[iv], session))
             _merge_tail(acc[iv], part)
     return ({iv: [tuple(b) for b in bars] for iv, bars in acc.items()}, dropped)
 
@@ -299,7 +307,12 @@ def _sweep(sym: str) -> dict:
                 continue
             spans[interval] = (len(rows), rows[0][0], rows[-1][0])
             wt = interval not in _DAILY
-            ist = (lambda ts, _wt=wt: ds._ist(ts, _wt))
+            # dated on the SYMBOL's clock — ds._ist reads the serving
+            # process's chart symbol, which in a worker is always the default
+            fmt = "%d %b %Y %H:%M" if wt else "%d %b %Y"
+            off = ds.session_for(sym)[1]
+            ist = (lambda ts, _f=fmt, _o=off: datetime.fromtimestamp(
+                ts + _o, tz=timezone.utc).strftime(_f))
 
             cstart = 0
             years = _CFG["candle_years"]
@@ -545,11 +558,29 @@ def main(argv: list[str] | None = None) -> int:
             "matching how the live tool sees a chart. A break landing more "
             "than a window past its formation is therefore not counted."),
     }
+    # One offset for the whole span line, chosen from what was actually swept.
+    # A mixed run gets UTC and says so rather than stamping "IST" on a series
+    # that never ran on that clock.
+    offs = {ds.session_for(s)[1] for s in syms}
+    span_off = offs.pop() if len(offs) == 1 else 0
+    span_lbl = "IST" if span_off == ds.IST_OFF else "UTC"
+    _fmt = (lambda ts: datetime.fromtimestamp(
+        ts + span_off, tz=timezone.utc).strftime("%d %b %Y"))
+    scopes = sorted({ds.scope_for(s) for s in syms})
+    meta["scopes"] = ",".join(scopes)
+    meta["scope_caveat"] = (
+        "aggregates are keyed by scope: a pooled rate describes the market it "
+        "was measured in and the interval it was measured on, and transfers "
+        "to neither another market nor another interval."
+        + ("" if len(scopes) == 1 else
+           f" This run mixed {len(scopes)} scopes; load_pattern_ledger "
+           "separates them."))
     for iv in intervals:
         if iv in span_bars:
             meta[f"span_{iv}"] = (
-                f"{ds._ist(span_lo[iv], False)} → {ds._ist(span_hi[iv], False)} "
-                f"IST, {span_bars[iv]} bars across {len(syms) - len(failures)} symbols")
+                f"{_fmt(span_lo[iv])} → {_fmt(span_hi[iv])} "
+                f"{span_lbl}, {span_bars[iv]} bars across "
+                f"{len(syms) - len(failures)} symbols")
     con.executemany("INSERT OR REPLACE INTO meta VALUES (?,?)",
                     sorted(meta.items()))
     con.commit()

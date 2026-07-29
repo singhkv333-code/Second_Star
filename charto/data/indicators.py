@@ -528,6 +528,22 @@ def compute(name: str, rows: list[tuple], period: int = 0,
         raise ValueError("period must be between 1 and 500")
     if len(rows) < n + 2:
         raise ValueError(f"{name}({n}) needs at least {n + 2} bars, got {len(rows)}")
+    # An instrument that prints no traded quantity cannot have a volume
+    # indicator computed on it, and the arithmetic does not say so: measured
+    # on NIFTY 50 daily bars, OBV and A/D come back a flat 0.0, VWAP quietly
+    # degenerates to an unweighted typical-price mean, and MFI(14) returns
+    # 100.0 — a maximally-overbought reading manufactured from nothing. That
+    # is a fabricated number on the index users ask about most, so it is
+    # refused here, at the one place every caller goes through.
+    if spec["group"] == "volume" and not any(r[5] for r in rows):
+        # One short factual sentence, because this string is read by BOTH a
+        # person (the chart's status bar) and the model (the tool's error).
+        # Guidance on how to phrase a reply belongs in the tool's `_note`
+        # alongside every other model instruction, not in a UI toast.
+        raise ValueError(
+            f"{name} needs volume and this instrument prints none — every bar "
+            f"in the window has v=0, as indices and India VIX are quoted. "
+            f"Price-only indicators (RSI, MACD, ATR, Bollinger) work here.")
     kw = {k: v for k, v in extra.items() if v is not None}
     lines = spec["fn"](rows, n, source, **kw)
     return {"lines": lines,

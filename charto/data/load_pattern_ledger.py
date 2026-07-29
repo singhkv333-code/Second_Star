@@ -13,6 +13,15 @@ Two subcommands, deliberately separable because they have different owners:
                         named. Parallel COPY streams (one per worker) because
                         ~40M rows over WAN single-streamed is an hour.
 
+Aggregates are keyed (scope, kind, interval, horizon). Scope is the market the
+evidence came from — 500 NSE stocks trade 375 minutes a day with a gap every
+night, Bitcoin trades 1440 with none, and an index prints no volume at all.
+Pooling a hammer's forward return across those produces a number describing no
+market in particular, so `stats` writes ONLY the scopes present in the
+artifact and leaves every other scope's rows untouched. Interval is a separate
+key for the same reason: a 10-bar horizon is two weeks on 1d and 2.5 hours on
+15m, and a rate measured on one never transfers to the other.
+
 Aggregation semantics (mirrors tool_evaluate_pattern, pooled):
 - graded instance = keep_h10=1 AND fwd_ret_h IS NOT NULL
 - directional instance counts as with-direction when sign(fwd_ret_h) matches
@@ -36,6 +45,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dataserver as ds   # noqa: E402  — scope_for only; it serves under __main__
+
 HERE = Path(__file__).parent
 LOCAL_DB = HERE / "charto_bars.db"
 HORIZONS = (5, 10, 20)
@@ -46,15 +58,21 @@ PG_WORKERS = 3
 # ── aggregation (shared by both subcommands) ──────────────────────
 
 def build_aggregates(art: sqlite3.Connection) -> list[tuple]:
-    """[(kind, interval, horizon, family, n_raw, n, n_symbols,
+    """[(scope, kind, interval, horizon, family, n_raw, n, n_symbols,
          with_direction_rate_pct|None, withheld|None, control_base_rate_pct,
-         edge_pp, avg_move_pct)]"""
+         edge_pp, avg_move_pct)]
+
+    Scope is resolved from the symbol rather than stored in the artifact, so
+    a sweep produced before scopes existed aggregates correctly and no
+    artifact has to be re-run to gain the dimension.
+    """
     controls: dict[tuple, tuple] = {}
     for sym, iv, h, n, up, down, avg_abs in art.execute(
             "SELECT symbol, interval, h, n, up_rate_pct, down_rate_pct, "
             "avg_abs_move_pct FROM controls"):
         controls[(sym, iv, h)] = (up, down, avg_abs)
 
+    scope_of: dict[str, str] = {}
     out = []
     for h in HORIZONS:
         col = f"fwd_ret_{h}"
@@ -64,28 +82,42 @@ def build_aggregates(art: sqlite3.Connection) -> list[tuple]:
         by_key: dict[tuple, list] = {}
         raw = {}
         for kind, iv, fam, sym, direction, fwd in rows:
-            raw[(kind, iv)] = raw.get((kind, iv), 0) + 1
+            sc = scope_of.get(sym)
+            if sc is None:
+                sc = scope_of[sym] = ds.scope_for(sym)
+            raw[(sc, kind, iv)] = raw.get((sc, kind, iv), 0) + 1
             if fwd is None:
                 continue
-            by_key.setdefault((kind, iv, fam), []).append((sym, direction, fwd))
-        for (kind, iv, fam), inst in by_key.items():
+            by_key.setdefault((sc, kind, iv, fam), []).append(
+                (sym, direction, fwd))
+        for (sc, kind, iv, fam), inst in by_key.items():
             n = len(inst)
             syms = {s for s, _, _ in inst}
             directional = [(s, d, f) for s, d, f in inst
                            if d in ("bullish", "bearish")]
-            rate = withheld = ctrl = edge = None
+            rate = withheld = ctrl = edge = se = None
             if directional and n >= MIN_N:
                 hits = sum(1 for _, d, f in directional
                            if (f > 0) == (d == "bullish"))
                 rate = round(hits / len(directional) * 100, 1)
+                # Binomial standard error of the rate, in the same points the
+                # edge is quoted in. Scoping made this necessary: pooling 500
+                # stocks put n in the tens of thousands, where sampling noise
+                # was under a tenth of a point and could be ignored. A scope
+                # can now be one symbol — India VIX averages 47 graded
+                # instances per kind — and there a 6-point "edge" is roughly
+                # one SE, i.e. nothing. Stored so the reply can say which.
+                p = hits / len(directional)
+                se = round((p * (1 - p) / len(directional)) ** 0.5 * 100, 1)
                 cs = [controls[(s, iv, h)][0 if d == "bullish" else 1]
                       for s, d, _ in directional if (s, iv, h) in controls]
                 if cs:
                     ctrl = round(sum(cs) / len(cs), 1)
                     edge = round(rate - ctrl, 1)
             elif directional:
-                withheld = (f"only {n} graded instances across the universe — "
-                            f"below the {MIN_N}-sample floor, so no rate is "
+                withheld = (f"only {n} graded instances across "
+                            f"{ds.SCOPE_LABEL.get(sc, sc)} on {iv} — below "
+                            f"the {MIN_N}-sample floor, so no rate is "
                             f"claimed; say the record is too thin, not weak")
             else:
                 withheld = ("a neutral-direction pattern has no directional "
@@ -96,9 +128,87 @@ def build_aggregates(art: sqlite3.Connection) -> list[tuple]:
             else:
                 moves = [abs(f) for _, _, f in inst]
             avg_move = round(sum(moves) / len(moves), 2) if moves else None
-            out.append((kind, iv, h, fam, raw.get((kind, iv), 0), n,
-                        len(syms), rate, withheld, ctrl, edge, avg_move))
+            out.append((sc, kind, iv, h, fam, raw.get((sc, kind, iv), 0), n,
+                        len(syms), rate, withheld, ctrl, edge, se, avg_move))
     return out
+
+
+_STATS_DDL = """
+CREATE TABLE IF NOT EXISTS pattern_stats (
+  scope TEXT NOT NULL DEFAULT 'equity_in',
+  kind TEXT, interval TEXT, horizon INTEGER, family TEXT,
+  n_raw INTEGER, n INTEGER, n_symbols INTEGER,
+  with_direction_rate_pct REAL, with_direction_rate_pct_withheld TEXT,
+  control_base_rate_pct REAL, edge_pp REAL, edge_se_pp REAL,
+  avg_move_pct REAL,
+  PRIMARY KEY (scope, kind, interval, horizon));
+CREATE TABLE IF NOT EXISTS pattern_stats_meta (
+  scope TEXT NOT NULL DEFAULT 'equity_in', key TEXT, value TEXT,
+  PRIMARY KEY (scope, key));
+"""
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    """Give the stats tables the scope dimension, keeping what is there.
+
+    The existing rows are the 500-stock equity sweep — ~40M events over 413M
+    1-min bars on the VM, an artifact that no longer exists locally and is not
+    cheap to reproduce. So the migration RELABELS them rather than rebuilding:
+    `equity_in` is not a guess, it is what that run measured.
+
+    Done by copy-into-a-new-table rather than ALTER TABLE ADD COLUMN, because
+    the column is only half the change: the PRIMARY KEY has to widen to
+    (scope, kind, interval, horizon) too. Added as a bare column, the old
+    3-part key survives and the FIRST index or crypto row carrying a kind the
+    equity sweep already measured fails on a uniqueness violation — the
+    migration would look successful right up to the moment it blocked the
+    thing it exists to enable.
+    """
+    old = {"pattern_stats": ("kind, interval, horizon, family, n_raw, n, "
+                             "n_symbols, with_direction_rate_pct, "
+                             "with_direction_rate_pct_withheld, "
+                             "control_base_rate_pct, edge_pp, "
+                             # exact from the columns already stored: the
+                             # pre-scope artifact is gone, but SE is a closed
+                             # form in (rate, n), so nothing is re-derived
+                             "CASE WHEN with_direction_rate_pct IS NULL "
+                             "  OR n IS NULL OR n < 1 THEN NULL ELSE "
+                             "  ROUND(SQRT(with_direction_rate_pct/100.0 * "
+                             "  (1 - with_direction_rate_pct/100.0) / n)"
+                             "  * 100, 1) END, avg_move_pct"),
+           "pattern_stats_meta": "key, value"}
+    # The target shape, taken by BUILDING the schema in a scratch database and
+    # asking SQLite what it made. Parsing the DDL text for column names is how
+    # this went wrong once already — a split on the wrong separator reported 7
+    # columns instead of 14, so the "already migrated" test never passed and
+    # every call silently rebuilt both tables. sqlite3 is the only thing that
+    # reads its own DDL correctly, so it does the reading.
+    probe = sqlite3.connect(":memory:")
+    probe.executescript(_STATS_DDL)
+    want = {t: {r[1] for r in probe.execute(f"PRAGMA table_info({t})")}
+            for t in ("pattern_stats", "pattern_stats_meta")}
+    probe.close()
+    for tbl, cols in old.items():
+        info = list(con.execute(f"PRAGMA table_info({tbl})"))
+        if not info:
+            continue
+        have = [r[1] for r in info]
+        in_key = any(r[1] == "scope" and r[5] for r in info)
+        # gated on the KEY and on the full column set, not on `scope` alone:
+        # a table carrying a bare scope column still needs the key widened,
+        # and one with the right key can still be missing a later column
+        if in_key and not want[tbl] - set(have):
+            continue
+        n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        con.execute(f"ALTER TABLE {tbl} RENAME TO {tbl}_pre_scope")
+        con.executescript(_STATS_DDL)
+        sc = "COALESCE(scope,'equity_in')" if "scope" in have else "'equity_in'"
+        con.execute(f"INSERT INTO {tbl} SELECT {sc}, {cols} "
+                    f"FROM {tbl}_pre_scope")
+        con.execute(f"DROP TABLE {tbl}_pre_scope")
+        print(f"  migrated {tbl}: {n} row(s) rebuilt onto "
+              f"(scope, …) key, {len(want[tbl])} columns")
+    con.commit()
 
 
 def stats(path: str) -> None:
@@ -106,36 +216,62 @@ def stats(path: str) -> None:
     t0 = time.time()
     rows = build_aggregates(art)
     meta = dict(art.execute("SELECT key, value FROM meta"))
-    # span_1d looks like "02 Feb 2015 → 22 Jul 2026 IST, ..." — the sweep's
-    # end date is the honest as_of for every pooled number
-    span = meta.get("span_1d") or meta.get("span_15m") or ""
-    as_of = span.split("→")[-1].split("IST")[0].strip() if "→" in span else ""
     policy = meta.get("detector_policy", "")
     n_events = art.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    # as_of PER SCOPE, read off the events themselves: one artifact can hold
+    # markets whose data ends on different days (crypto trades the day an
+    # index is shut), and a single sweep-wide date would misdate one of them.
+    latest: dict[str, tuple[int, int]] = {}   # scope -> (max ts, tz offset)
+    ev_by_scope: dict[str, int] = {}
+    for sym, mx, cnt in art.execute(
+            "SELECT symbol, MAX(ts_completion), COUNT(*) FROM events "
+            "GROUP BY symbol"):
+        sc = ds.scope_for(sym)
+        ev_by_scope[sc] = ev_by_scope.get(sc, 0) + int(cnt)
+        if not mx:
+            continue
+        off = ds.session_for(sym)[1]
+        prev = latest.get(sc)
+        if prev is None or int(mx) > prev[0]:
+            latest[sc] = (int(mx), off)
+    # rendered on each market's OWN clock — a crypto completion bar dated by
+    # the IST calendar is the same off-by-one the read path already fixed
+    as_of = {sc: time.strftime("%d %b %Y", time.gmtime(ts + off))
+             for sc, (ts, off) in latest.items()}
     art.close()
 
     con = sqlite3.connect(LOCAL_DB)
     con.execute("PRAGMA journal_mode=WAL")
-    con.executescript("""
-      DROP TABLE IF EXISTS pattern_stats;
-      CREATE TABLE pattern_stats (
-        kind TEXT, interval TEXT, horizon INTEGER, family TEXT,
-        n_raw INTEGER, n INTEGER, n_symbols INTEGER,
-        with_direction_rate_pct REAL, with_direction_rate_pct_withheld TEXT,
-        control_base_rate_pct REAL, edge_pp REAL, avg_move_pct REAL,
-        PRIMARY KEY (kind, interval, horizon));
-      DROP TABLE IF EXISTS pattern_stats_meta;
-      CREATE TABLE pattern_stats_meta (key TEXT PRIMARY KEY, value TEXT);
-    """)
-    con.executemany("INSERT INTO pattern_stats VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    rows)
-    con.executemany("INSERT INTO pattern_stats_meta VALUES (?,?)", [
-        ("as_of", as_of), ("n_events", str(n_events)), ("policy", policy)])
+    con.executescript(_STATS_DDL)
+    _migrate(con)
+    scopes = sorted({r[0] for r in rows})
+    # Replace only what this artifact actually measured. A DROP here would
+    # silently delete the scopes it says nothing about.
+    for sc in scopes:
+        con.execute("DELETE FROM pattern_stats WHERE scope=?", (sc,))
+        con.execute("DELETE FROM pattern_stats_meta WHERE scope=?", (sc,))
+    con.executemany(
+        "INSERT INTO pattern_stats VALUES "
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT INTO pattern_stats_meta VALUES (?,?,?)", [
+        (sc, k, v) for sc in scopes for k, v in (
+            ("as_of", as_of.get(sc, "")),
+            ("n_events", str(ev_by_scope.get(sc, 0))),
+            ("policy", policy))])
     con.commit()
-    n = con.execute("SELECT COUNT(*) FROM pattern_stats").fetchone()[0]
+    for sc in scopes:
+        n, nsym = con.execute(
+            "SELECT COUNT(*), MAX(n_symbols) FROM pattern_stats WHERE scope=?",
+            (sc,)).fetchone()
+        print(f"  {sc:<14} {n:>4} aggregate rows, {nsym} symbols, "
+              f"as_of {as_of.get(sc) or 'unknown'}")
+    total = con.execute("SELECT COUNT(*) FROM pattern_stats").fetchone()[0]
+    kept = con.execute(
+        "SELECT COUNT(*) FROM pattern_stats WHERE scope NOT IN "
+        f"({','.join('?' * len(scopes))})", scopes).fetchone()[0] if scopes else 0
     con.close()
-    print(f"pattern_stats: {n} aggregate rows from {n_events:,} events "
-          f"in {time.time()-t0:.1f}s (as_of {as_of or 'unknown'})")
+    print(f"pattern_stats: {total} rows total from {n_events:,} events in "
+          f"{time.time()-t0:.1f}s ({kept} row(s) in untouched scopes kept)")
 
 
 # ── PG ledger ─────────────────────────────────────────────────────
@@ -153,10 +289,11 @@ CREATE TABLE IF NOT EXISTS charto.pattern_controls (
   symbol TEXT, interval TEXT, h SMALLINT, n INTEGER,
   up_rate_pct REAL, down_rate_pct REAL, avg_abs_move_pct REAL);
 CREATE TABLE IF NOT EXISTS charto.pattern_aggregates (
-  kind TEXT, interval TEXT, horizon SMALLINT, family TEXT,
+  scope TEXT, kind TEXT, interval TEXT, horizon SMALLINT, family TEXT,
   n_raw INTEGER, n INTEGER, n_symbols INTEGER,
   with_direction_rate_pct REAL, with_direction_rate_pct_withheld TEXT,
-  control_base_rate_pct REAL, edge_pp REAL, avg_move_pct REAL);
+  control_base_rate_pct REAL, edge_pp REAL, edge_se_pp REAL,
+  avg_move_pct REAL);
 CREATE TABLE IF NOT EXISTS charto.pattern_meta (key TEXT, value TEXT);
 """
 
@@ -212,10 +349,10 @@ def pg(path: str) -> None:
     try:
         loc = sqlite3.connect(f"file:{LOCAL_DB}?mode=ro", uri=True)
         aggregates = loc.execute(
-            "SELECT kind, interval, horizon, family, n_raw, n, n_symbols, "
-            "with_direction_rate_pct, with_direction_rate_pct_withheld, "
-            "control_base_rate_pct, edge_pp, avg_move_pct "
-            "FROM pattern_stats").fetchall()
+            "SELECT scope, kind, interval, horizon, family, n_raw, n, "
+            "n_symbols, with_direction_rate_pct, "
+            "with_direction_rate_pct_withheld, control_base_rate_pct, "
+            "edge_pp, edge_se_pp, avg_move_pct FROM pattern_stats").fetchall()
         loc.close()
     except sqlite3.Error:
         aggregates = []
@@ -263,7 +400,24 @@ def pg(path: str) -> None:
           f"{time.time()-t0:.0f}s with {PG_WORKERS} COPY streams")
 
 
+def migrate() -> None:
+    """Add the scope dimension to an existing pattern_stats without an
+    artifact — so the read path becomes scope-aware before any new sweep."""
+    con = sqlite3.connect(LOCAL_DB)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.executescript(_STATS_DDL)
+    _migrate(con)
+    for sc, n in con.execute("SELECT scope, COUNT(*) FROM pattern_stats "
+                             "GROUP BY scope ORDER BY 2 DESC"):
+        print(f"  {sc:<14} {n} aggregate rows")
+    con.close()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("stats", "pg"):
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "migrate" and len(sys.argv) == 2:
+        migrate()
+    elif len(sys.argv) == 3 and cmd in ("stats", "pg"):
+        (stats if cmd == "stats" else pg)(sys.argv[2])
+    else:
         sys.exit(__doc__)
-    (stats if sys.argv[1] == "stats" else pg)(sys.argv[2])
