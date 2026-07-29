@@ -70,7 +70,7 @@ def build_aggregates(art: sqlite3.Connection) -> list[tuple]:
     for sym, iv, h, n, up, down, avg_abs in art.execute(
             "SELECT symbol, interval, h, n, up_rate_pct, down_rate_pct, "
             "avg_abs_move_pct FROM controls"):
-        controls[(sym, iv, h)] = (up, down, avg_abs)
+        controls[(sym, iv, h)] = (up, down, avg_abs, n)
 
     scope_of: dict[str, str] = {}
     out = []
@@ -100,20 +100,34 @@ def build_aggregates(art: sqlite3.Connection) -> list[tuple]:
                 hits = sum(1 for _, d, f in directional
                            if (f > 0) == (d == "bullish"))
                 rate = round(hits / len(directional) * 100, 1)
-                # Binomial standard error of the rate, in the same points the
-                # edge is quoted in. Scoping made this necessary: pooling 500
-                # stocks put n in the tens of thousands, where sampling noise
-                # was under a tenth of a point and could be ignored. A scope
-                # can now be one symbol — India VIX averages 47 graded
-                # instances per kind — and there a 6-point "edge" is roughly
-                # one SE, i.e. nothing. Stored so the reply can say which.
+                # Standard error of the EDGE — the difference of two measured
+                # rates, so both contribute. Scoping made this necessary:
+                # pooling 500 stocks put both counts in the tens of thousands,
+                # where sampling noise was under a tenth of a point and could
+                # be ignored. Neither holds now. A scope can be one symbol
+                # (India VIX averages 47 graded instances per kind, where a
+                # 6-point "edge" is one SE), and the CONTROL can be thin too:
+                # fx daily rests on 88-165 unconditional windows, so the base
+                # rate a pattern is judged against is itself +/- several
+                # points. Quoting only the pattern's error there would dress a
+                # coin flip as a measurement.
                 p = hits / len(directional)
-                se = round((p * (1 - p) / len(directional)) ** 0.5 * 100, 1)
+                se_rate = (p * (1 - p) / len(directional)) ** 0.5 * 100
                 cs = [controls[(s, iv, h)][0 if d == "bullish" else 1]
                       for s, d, _ in directional if (s, iv, h) in controls]
+                # control windows behind it, counted once per contributing
+                # symbol — a symbol's control spans its whole series, so
+                # summing per instance would inflate it by the instance count
+                cn = sum(controls[(s, iv, h)][3] for s in
+                         {s for s, _, _ in directional} if (s, iv, h) in controls)
+                se = round(se_rate, 1)
                 if cs:
                     ctrl = round(sum(cs) / len(cs), 1)
                     edge = round(rate - ctrl, 1)
+                    if cn:
+                        pc = ctrl / 100
+                        se_ctrl = (pc * (1 - pc) / cn) ** 0.5 * 100
+                        se = round((se_rate ** 2 + se_ctrl ** 2) ** 0.5, 1)
             elif directional:
                 withheld = (f"only {n} graded instances across "
                             f"{ds.SCOPE_LABEL.get(sc, sc)} on {iv} — below "
