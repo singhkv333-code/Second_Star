@@ -348,7 +348,10 @@
     // A reply names companies either way — "TCS" or "Caplin Labs". Only the
     // NAME spellings carry a logo; a bare ticker is left exactly as written.
     NAME_KEYS = new Set();
-    for (const src of [d.names || {}, d.long || {}]) {
+    // `alias` carries the plain asset name behind a venue-qualified listing
+    // ("Bitcoin" for "Bitcoin / USDT (Bybit)") — the spelling a reply actually
+    // uses. Last in the list so a real company name always wins a collision.
+    for (const src of [d.names || {}, d.long || {}, d.alias || {}]) {
       for (const [sym, name] of Object.entries(src)) {
         if (name && name.length > 3 && !TO_SYM.has(name)) {
           TO_SYM.set(name, sym);

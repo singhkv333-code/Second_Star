@@ -82,11 +82,18 @@ def _domain(website: str | None) -> str | None:
     return host if "." in host else None
 
 
+# 256 with retina is 512 real pixels — logo.dev tops out at 800, and 128 was
+# soft on a hidpi screen at the 32px the chat and company page draw a mark.
+# Kept identical to sync_instrument_logos.LOGO_FMT so a company logo and a
+# crypto logo are never two different qualities in the same list.
+LOGO_QUERY = f"token={LOGO_TOKEN}&size=256&retina=true&format=png"
+
+
 def _logo(sym: str, website: str | None, precomputed: str | None,
           overrides: dict) -> str | None:
     dom = overrides.get(sym.upper()) or _domain(website)
     if dom:
-        return f"https://img.logo.dev/{dom}?token={LOGO_TOKEN}&size=128&format=png"
+        return f"https://img.logo.dev/{dom}?{LOGO_QUERY}"
     return precomputed or None
 
 

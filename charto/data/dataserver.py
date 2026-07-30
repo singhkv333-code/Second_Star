@@ -2514,6 +2514,32 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
         "is analysis, not a recommendation, and must close as such.")}
 
 
+def _logo_map() -> dict[str, str]:
+    """symbol -> logo URL, across BOTH sources.
+
+    Companies get theirs from company_profile (logo.dev, resolved by domain);
+    everything else from instrument_logo (sync_instrument_logos.py) — crypto
+    through the same logo.dev ladder, FX as composited circular flags, indices
+    and commodities as generated badges.
+
+    Two tables rather than one because they state different facts: a row in
+    company_profile means "a company stands behind this symbol", which is not
+    true of Bitcoin or of NIFTY IT, and /company would then answer for them.
+    company_profile wins a collision — a real listed company outranks any
+    generated mark.
+    """
+    out: dict[str, str] = {}
+    for table, col in (("instrument_logo", "logo_url"),
+                       ("company_profile", "logo_url")):
+        try:
+            out.update({s: u for s, u in _con.execute(
+                f"SELECT symbol, {col} FROM {table} "
+                f"WHERE {col} IS NOT NULL AND {col} != ''")})
+        except sqlite3.Error:
+            pass          # table absent — the other source still answers
+    return out
+
+
 def _classification_row(sym: str):
     try:
         return _con.execute(
@@ -2822,8 +2848,7 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
         return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
     if tail[:2] == ["companies", "logos"]:
         want = [x.strip().upper() for x in (q.get("symbols") or "").split(",") if x.strip()]
-        have = dict(_con.execute(
-            "SELECT symbol, logo_url FROM company_profile")) if want else {}
+        have = _logo_map() if want else {}
         return 200, {"logos": {s: have.get(s) for s in want}}
     return 404, {"detail": f"{path} is not served by charto"}
 
@@ -6709,10 +6734,8 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT symbol, name FROM classification"))
                 except sqlite3.Error:
                     names = {}
+                logos = _logo_map()
                 try:
-                    logos = dict(_con.execute(
-                        "SELECT symbol, logo_url FROM company_profile "
-                        "WHERE logo_url IS NOT NULL"))
                     # the Moneycontrol short name is wrong for a few rows
                     # (TITAN reads "IAG Company"); the enrichment long name is
                     # the one to SHOW, while the short one still has to match
@@ -6721,17 +6744,30 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT symbol, long_name FROM company_profile "
                         "WHERE long_name IS NOT NULL"))
                 except sqlite3.Error:
-                    logos, longs = {}, {}
+                    # only the long-name lookup is guarded here; _logo_map
+                    # handles its own failures, and clearing it on this error
+                    # would drop every mark because one name column was absent
+                    longs = {}
                 # Anything already in the store is searchable even when it is
                 # absent from the NSE universe file: indices, India VIX, MCX
                 # futures, INR pairs and crypto arrive via backfill_macro.py /
                 # backfill_crypto.py rather than through hydration, so keying
                 # the picker off the universe alone made them unreachable
                 # except by typing ?symbol= into the URL.
+                # A crypto listing is stored venue-qualified — "Bitcoin / USDT
+                # (Bybit)" — so BTCUSDT and BTC-USD stay distinguishable in a
+                # peer table. A reply writes "Bitcoin". The chat marks names by
+                # exact spelling, so without the plain name every crypto row
+                # went unmarked while all 500 companies carried a logo.
+                # Both listings of an asset alias to the same word on purpose:
+                # they are one asset and one mark, and the alias is only ever
+                # used to choose a logo.
+                alias = {sym: n.split(" / ")[0].strip()
+                         for sym, n in names.items() if " / " in n}
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,
-                                        "logos": logos})
+                                        "alias": alias, "logos": logos})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
                 if interval not in (*INTRADAY_MIN, "1d", "1w", "1mo"):
