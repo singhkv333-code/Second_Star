@@ -558,24 +558,93 @@
 
   // ── pinned bars: clicked candles shown above the composer ──
   // They only ground the next message; they never send one on their own.
+  //
+  // A chip has to answer three things on sight, or it is just a number
+  // floating above the composer: WHICH bar (its size and its timestamp),
+  // WHAT it did (close, and the move across the bar), and WHY it is sitting
+  // there (the row's caption). The glyph is the bar drawn to scale — body
+  // and wicks in their real proportions — so the chip is recognisable as the
+  // candle you clicked before you read a word of it.
   const pinRow = el("pinRow");
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const IV_LABEL = { "1m": "1-min", "5m": "5-min", "15m": "15-min", "30m": "30-min",
+                     "1h": "1-hour", "1d": "Daily", "1w": "Weekly", "1mo": "Monthly" };
+  const DAILY_IV = new Set(["1d", "1w", "1mo"]);
+  // Routed through Sym, not hardcoded en-IN: the same pin chip renders a
+  // Bitcoin candle, where "12,34,567.5" is the wrong grouping and the wrong
+  // currency. Sym owns locale and symbol per instrument.
+  const num = (n) => Sym.num(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function pinChip(p) {
+    // Chart time is IST-shifted, so the UTC getters render IST wall clock.
+    const t = new Date(p.time * 1000), pad = (n) => String(n).padStart(2, "0");
+    const iv = p.interval || "";
+    // Year always: the store reaches back to 2015, so a bare "28 Jul" is
+    // ambiguous by a decade the moment you scroll back.
+    const date = `${t.getUTCDate()} ${MON[t.getUTCMonth()]} ${t.getUTCFullYear()}`;
+    const when = DAILY_IV.has(iv) ? date : `${date}, ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}`;
+    const size = IV_LABEL[iv] ? `${IV_LABEL[iv]} candle` : "candle";
+
+    const up = p.close >= p.open;
+    const pct = p.open ? (p.close - p.open) / p.open * 100 : 0;
+    const move = `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
+
+    // Body position and height as a share of the high-low span: the chip's
+    // miniature is the same shape as the bar on the chart.
+    const span = Math.max(p.high - p.low, 1e-9);
+    const top = (p.high - Math.max(p.open, p.close)) / span * 100;
+    const body = Math.max(Math.abs(p.close - p.open) / span * 100, 7);
+
+    const full = [
+      `${size} · ${when}`,
+      `O ${num(p.open)}   H ${num(p.high)}   L ${num(p.low)}   C ${num(p.close)}`,
+      p.volume ? `V ${Sym.num(p.volume)}` : "",
+      "Click to find it on the chart · × to unpin",
+    ].filter(Boolean).join("\n");
+
+    return `<span class="pin ${up ? "up" : "down"}" data-find="${p.time}" `
+      + `role="button" tabindex="0" title="${full}" aria-label="Pinned ${size}, ${when}, close ${num(p.close)}, ${move}">`
+      + `<span class="pin-bar" aria-hidden="true"><i class="wick"></i>`
+      + `<i class="body" style="top:${top.toFixed(1)}%;height:${body.toFixed(1)}%"></i></span>`
+      + `<span class="pin-txt">`
+      + `<span class="pin-top">${Sym.price(p.close, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<b class="pin-move">${move}</b></span>`
+      + `<span class="pin-sub">${size} · ${when}</span>`
+      + `</span>`
+      + `<span class="x" data-unpin="${p.time}" title="Unpin this candle">${Icons.svg("x", "xs")}</span>`
+      + `</span>`;
+  }
+
   document.addEventListener("charto:pins", (e) => {
-    pinRow.innerHTML = e.detail.map((p) => {
-      const t = new Date(p.time * 1000);
-      const label = `${t.getUTCDate()} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][t.getUTCMonth()]} `
-        + `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
-      return `<span class="pin"><span class="t">${label}</span>`
-        + `${Sym.num(p.close, { minimumFractionDigits: 2 })}`
-        + `<span class="x" data-unpin="${p.time}">${Icons.svg("x", "xs")}</span></span>`;
-    }).join("");
-    if (e.detail.length) input.focus();
+    const n = e.detail.length;
+    // The caption is the whole point of the row: a pin is context for the
+    // NEXT message, not an action, and nothing else on screen says that.
+    pinRow.innerHTML = n
+      ? `<span class="pins-lead">${Icons.svg("pin", "xs")}`
+        + `${n} candle${n === 1 ? "" : "s"} pinned — sent with your next message</span>`
+        + e.detail.map(pinChip).join("")
+      : "";
+    if (n) input.focus();
   });
   pinRow.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-unpin]")?.dataset.unpin;
-    if (t) document.dispatchEvent(new CustomEvent("charto:unpin", { detail: Number(t) }));
+    const un = e.target.closest("[data-unpin]");
+    if (un) {
+      document.dispatchEvent(new CustomEvent("charto:unpin", { detail: Number(un.dataset.unpin) }));
+      return;
+    }
+    const find = e.target.closest("[data-find]");
+    if (find) {
+      document.dispatchEvent(new CustomEvent("charto:reveal-pin", { detail: Number(find.dataset.find) }));
+    }
+  });
+  pinRow.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const chip = e.target.closest("[data-find]");
+    if (!chip) return;
+    e.preventDefault();
+    document.dispatchEvent(new CustomEvent("charto:reveal-pin", { detail: Number(chip.dataset.find) }));
   });
 
-  // "Ask about this" on a provenance card seeds the composer, never sends
+  // Seed the composer from elsewhere in the app — text only, never a send.
   document.addEventListener("charto:compose", (e) => {
     input.value = (input.value ? input.value.replace(/\s*$/, " ") : "") + e.detail;
     input.focus();

@@ -240,31 +240,97 @@ const Scene = (() => {
      *  together by nature, and three chips stacked on the same pixel row is
      *  unreadable — the whole point of showing the record is that you can
      *  read it. */
-    function placeChips(ctx, chips) {
-      const H = 15;
-      const placed = [];
-      for (const c of chips.slice().sort((a, b) => a.y - b.y)) {
-        c.w = ctx.measureText(c.text).width + 12;
-        let y = c.y;
-        let guard = 0;
-        while (guard++ < 40 && placed.some((p) =>
-          c.x < p.x + p.w && p.x < c.x + c.w && Math.abs(y - p.y) < H + 2)) {
-          y += H + 2;
-        }
-        c.y = y;
-        placed.push(c);
-        ctx.fillStyle = Theme.c("chipBg");
-        ctx.fillRect(c.x, y - H, c.w, H);
-        ctx.fillStyle = c.col;
-        ctx.fillText(c.text, c.x + 6, y - 4);
+    /** Labels live in an HTML overlay, not on the canvas.
+     *
+     *  Painted into the pane canvas they lost to the candlestick series: the
+     *  chip's border survived but its interior was overpainted, so a label
+     *  crossing price action ("double top · neckline 1,271.00 · confirmed")
+     *  was shredded exactly where you needed to read it. An overlay is above
+     *  every canvas by construction, and the browser measures its own text —
+     *  which also retires a whole class of bug where a hand-measured width
+     *  disagreed with the drawn glyphs and the tail spilled out of the box.
+     */
+    const overlays = new Map();   // paneKey -> host div
+    const chipPool = new Map();   // paneKey -> [el]
+
+    function overlayFor(key) {
+      const cached = overlays.get(key);
+      if (cached && cached.isConnected) return cached;
+      const p = paneFor(key);
+      const host = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+      if (!host) return null;
+      const div = document.createElement("div");
+      div.className = "scene-chips";
+      host.appendChild(div);
+      overlays.set(key, div);
+      return div;
+    }
+
+    function paintChips(key, chips) {
+      const host = overlayFor(key);
+      if (!host) return;
+      const pool = chipPool.get(key) || [];
+      chipPool.set(key, pool);
+      while (pool.length < chips.length) {
+        const el = document.createElement("span");
+        el.className = "scene-chip";
+        host.appendChild(el);
+        pool.push(el);
       }
+      for (let i = chips.length; i < pool.length; i++) pool[i].style.display = "none";
+
+      /* A LEGEND, stacked top-right — not labels pinned to their shapes.
+       *
+       * Anchored to the geometry they described themselves twice over: the
+       * shape is already on the chart, and a name floating beside it buries
+       * the price action it is naming. Three patterns and five levels put
+       * eight boxes across the candles. Collected into a corner they read as
+       * a list of what is drawn, the chart stays legible, and hovering an
+       * entry lights up the shape it belongs to — which is what the label
+       * beside the shape was trying to do by being adjacent. */
+      /* The overlay host spans the pane INCLUDING its price axis, so a plain
+       * right:8px parked the legend on top of the price labels. Inset by the
+       * scale's own measured width instead of guessing at a constant. */
+      let axis = 0;
+      try { axis = chart.priceScale("right").width() || 0; } catch { axis = 0; }
+      chips.forEach((c, i) => {
+        const el = pool[i];
+        el.style.display = "";
+        el.style.right = `${axis + 8}px`;
+        if (el.textContent !== c.text) el.textContent = c.text;
+        el.style.color = c.col;
+        el.classList.toggle("hot", !!c.hot);
+        el.style.top = `${8 + i * 17}px`;   // the indicator legend's own step
+        el.dataset.ann = c.id || "";
+        el.onmouseenter = () => {
+          const a = state.items.find((q) => q.id === c.id);
+          if (!a || state.hover === c.id) return;
+          state.hover = c.id;
+          _ru();
+          env.onHover(a, cardY(a) ?? 0);
+        };
+        el.onmouseleave = () => {
+          if (state.hover !== c.id) return;
+          state.hover = null;
+          _ru();
+          env.onHover(null, 0);
+        };
+      });
+    }
+
+    function dropOverlay(key) {
+      const d = overlays.get(key);
+      if (d) d.remove();
+      overlays.delete(key); chipPool.delete(key);
     }
 
     function render(ctx, w, h, key) {
       ctx.save();
+      const clearGlow = () => { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; };
       ctx.font = `11px ${FONT}`;
       const chips = [];
-      const chip = (text, x, y, col) => chips.push({ text, x, y, col });
+      let curHot = false, curId = null;   // set per annotation, read by chip()
+      const chip = (text, x, y, col) => chips.push({ text, col, hot: curHot, id: curId });
       for (const a of state.items) {
         if (!mine(a, key)) continue;
         const col = COL(a.role);
@@ -272,9 +338,15 @@ const Scene = (() => {
         const hot = state.hover && (state.hover === a.id
           || (a.link && state.hover === a.link)
           || (a.link && state.items.some((q) => q.id === state.hover && q.link === a.link)));
+        curHot = hot; curId = a.id;
         ctx.strokeStyle = col;
         ctx.fillStyle = col;
         ctx.lineWidth = hot ? 2 : 1.5;
+        // Hover reads as a HALO rather than a half-pixel of extra weight —
+        // at 1.5px a width bump is invisible on a busy chart, and the whole
+        // point of the hover is to answer "which one am I pointing at?".
+        ctx.shadowColor = hot ? rgba(col, 0.55) : "transparent";
+        ctx.shadowBlur = hot ? 9 : 0;
 
         if (a.kind === "level") {
           const y = vToY(a.price, a.pane);
@@ -345,8 +417,11 @@ const Scene = (() => {
           }
         }
       }
-      placeChips(ctx, chips);
+      clearGlow();
       ctx.restore();
+      // Chips are DOM, so they are positioned after the canvas pass rather
+      // than drawn during it.
+      paintChips(key, chips);
     }
 
     function makePrimitive(key) {
@@ -378,7 +453,7 @@ const Scene = (() => {
         const lp = live.find((p) => p.key === key);
         if (lp && lp.pane === rec.pane) continue;
         try { rec.pane.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
-        attached.delete(key); rus.delete(key);
+        attached.delete(key); rus.delete(key); dropOverlay(key);
       }
       for (const p of live) {
         if (attached.has(p.key)) continue;
@@ -414,13 +489,31 @@ const Scene = (() => {
       return { key, x: e.clientX - r.left, y: env.yIn ? env.yIn(e.clientY, key) : e.clientY - r.top };
     };
 
+    /** Where a card pointing at this annotation should sit. Same maths the
+     *  click path uses, so hovering and clicking never disagree by a pixel. */
+    // eslint-disable-next-line no-inner-declarations
+    function cardY(a) {
+      if (!a) return null;
+      if (a.kind === "segment") {
+        const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
+        return y1 === null || y2 === null ? null : (y1 + y2) / 2;
+      }
+      return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
+    }
+
     env.container.addEventListener("mousemove", (e) => {
+      // The legend lives inside the chart container, so pointing at an entry
+      // also bubbles a mousemove here — and this handler, finding no shape
+      // under the pointer in the top-right corner, immediately cleared the
+      // hover the entry had just set. Whoever the pointer is actually on owns
+      // the hover.
+      if (e.target && e.target.closest && e.target.closest(".scene-chip")) return;
       const p = pointIn(e);
       const a = inPlot(e) ? hitAt(p.y, p.key, p.x) : null;
       const id = a ? a.id : null;
       if (id !== state.hover) {
         state.hover = id;
-        env.onHover(a);
+        env.onHover(a, cardY(a) ?? p.y);
         _ru();
       }
     });
@@ -535,10 +628,7 @@ const Scene = (() => {
       const hit = hitAt(p.y, p.key, p.x);
       if (hit) {
         e.stopPropagation();
-        const y = hit.kind === "segment"
-          ? (vToY(hit.p1.v, hit.pane) + vToY(hit.p2.v, hit.pane)) / 2
-          : vToY(hit.kind === "zone" ? hit.hi : hit.price, hit.pane);
-        env.onSelect(hit, y);
+        env.onSelect(hit, cardY(hit) ?? p.y);
       }
     });
 
@@ -547,6 +637,15 @@ const Scene = (() => {
     return {
       state,
       hitAt: (y, key, x) => hitAt(y, key, x),
+      /** Drive the hover highlight from outside the canvas — the chat pane
+       *  hovers a mention, the annotation lights up. Presentation only: it
+       *  moves no meaning, it just points at what is already drawn. */
+      setHover(id) {
+        if (state.hover === id) return;
+        state.hover = id || null;
+        _ru();
+      },
+      cardY: (id) => cardY(state.items.find((a) => a.id === id)),
       syncPanes,
       remove(id) {
         // removing one leg of a linked pair removes the pair

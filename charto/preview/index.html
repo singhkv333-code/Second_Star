@@ -4,107 +4,1470 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Charto — preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
 <style>
-  /* ══════════════════════════════════════════════════════════════════
-     Design tokens — shadcn/ui naming, two themes.
-     Everything below styles against these; nothing hardcodes a colour.
-     The canvas side reads the same values from js/theme.js.
-     ══════════════════════════════════════════════════════════════════ */
-  :root {
-    --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter",
-            "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    --radius: 8px;
-    --radius-sm: 6px;
-    --radius-lg: 12px;
-    --up: #089981;
-    --down: #f23645;
-    --ann-res: #f5a524;
-    --ann-sup: #22d3ee;
-    --primary: #2962ff;
-    --primary-foreground: #ffffff;
-  }
+/* ══════════════════════════════════════════════════════════════════════════
+   CHARTO — stylesheet
+   ──────────────────────────────────────────────────────────────────────────
+   Organised the way shadcn/ui organises itself: tokens, then base, then
+   PRIMITIVES (button, badge, input, select, checkbox, tooltip, close),
+   then SURFACES (card, popover, dropdown-menu, dialog), then the app's
+   own composed components. Every value that repeats is a token; nothing
+   below the token block hardcodes a colour, a radius, or a duration.
 
-  :root[data-theme="dark"] {
-    --background: #0d0e12;
-    --foreground: #e6e8eb;
-    --card: #111318;
-    --popover: #15171e;
-    --muted: #171a21;
-    --muted-foreground: #8b8f9a;
-    --faint: #5d616b;
-    --accent: #1c1f27;
-    --border: #23262e;
-    --border-soft: #1a1d24;
-    --input: #1a1d24;
-    --ring: rgba(41, 98, 255, .5);
-    --primary-soft: rgba(41, 98, 255, .16);
-    --chart-bg: #0d0e12;
-    --up-soft: rgba(8, 153, 129, .16);
-    --down-soft: rgba(242, 54, 69, .16);
-    --shadow: 0 12px 32px -12px rgba(0, 0, 0, .75), 0 2px 8px rgba(0, 0, 0, .45);
-    --scroll-thumb: #2a2e37;
-  }
+   Tokens mirror the PIVOT design system (the Quartr palette in
+   pivot-next/app/globals.css) on the shadcn names this file speaks.
+   Values are copied from Pivot, not re-invented: change them there
+   first, then mirror here.
 
-  :root[data-theme="light"] {
-    --ann-res: #b45309;
-    --ann-sup: #0e7490;
-    --background: #ffffff;
-    --foreground: #101418;
-    --card: #ffffff;
-    --popover: #ffffff;
-    --muted: #f4f5f7;
-    --muted-foreground: #656d78;
-    --faint: #949ba5;
-    --accent: #f1f3f5;
-    --border: #e4e7eb;
-    --border-soft: #eef0f3;
-    --input: #f7f8fa;
-    --ring: rgba(41, 98, 255, .35);
-    --primary-soft: rgba(41, 98, 255, .10);
-    --chart-bg: #ffffff;
-    --up-soft: rgba(8, 153, 129, .12);
-    --down-soft: rgba(242, 54, 69, .12);
-    --shadow: 0 12px 28px -14px rgba(16, 24, 40, .22), 0 2px 6px rgba(16, 24, 40, .06);
-    --scroll-thumb: #d3d7dd;
-  }
+   Deliberately NOT mirrored: the chart canvas palette in js/theme.js
+   (candle up/down, grid, axis, crosshair). That surface is
+   TradingView-conventional and stays as it is — the chrome around it is
+   what wears Pivot's clothes.
 
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    background: var(--background); color: var(--foreground); font-family: var(--font);
-    font-size: 13px; display: flex; flex-direction: column; height: 100vh;
-    overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased;
-    transition: background .16s ease, color .16s ease;
-  }
-  button, textarea, input { font-family: inherit; }
-  svg.icon {
-    width: 18px; height: 18px; stroke: currentColor; fill: none;
-    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;
-  }
-  svg.icon.sm { width: 15px; height: 15px; stroke-width: 1.9; }
-  svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
-  .spacer { flex: 1; }
+     1  Tokens
+     2  Base
+     3  Primitives      button · badge · input · select · checkbox ·
+                        swatch · tooltip · close
+     4  Surfaces        card · popover · dropdown-menu · dialog
+     5  Header          brand · symbol · segmented · chips
+     6  Rail            tools
+     7  Stage           chart · readout · overlays · provenance · scene
+     8  Chat            thread · prose · composer · attachments · pins
+     9  Scrollbars
+   ══════════════════════════════════════════════════════════════════════════ */
 
-  /* ── header ───────────────────────────────────────────── */
-  header {
-    display: flex; align-items: center; gap: 8px; height: 48px;
-    padding: 0 10px 0 12px; border-bottom: 1px solid var(--border);
-    background: var(--background); z-index: 20; flex: none;
-  }
-  .brand {
-    font-weight: 650; font-size: 14.5px; letter-spacing: -.02em;
-    white-space: nowrap; margin-right: 2px;
-  }
-  .brand .dot { color: var(--primary); }
-  .vsep { width: 1px; height: 20px; background: var(--border); flex: none; margin: 0 2px; }
+/* ─── 1 · TOKENS ────────────────────────────────────────────────────────── */
 
-  /* symbol pill — TradingView's ticker chip, shadcn secondary button */
-  .symbol {
-    display: inline-flex; align-items: center; gap: 7px; height: 30px;
-    padding: 0 12px; border-radius: 999px; background: var(--muted);
-    font-size: 13px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
-  }
+:root {
+  /* Typography — Inter for UI, JetBrains Mono for every numeral,
+     Newsreader for the wordmark (Pivot's --font-experiment slot). */
+  --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+
+  /* Type scale. Every size in the app is one of these twelve steps —
+     previously fourteen ad-hoc values, which is what made a menu item and
+     a dialog label disagree by a quarter-pixel for no reason. The .5px
+     steps are deliberate: at 11–14px a full pixel is a large jump, and
+     these are the sizes Pivot's own surfaces are tuned to.
+     --text-2xs is the uppercase micro-label spec (11px / medium /
+     tertiary ink) and is load-bearing — do not fold it into --text-xs. */
+  --text-3xs:  10.5px;   /* composer hint, mono refs                   */
+  --text-2xs:  11px;     /* UPPERCASE MICRO-LABEL — Pivot spec         */
+  --text-xs:   11.5px;   /* chips, legends, tooltips                   */
+  --text-sm:   12px;     /* dense controls, footnotes                  */
+  --text-base: 12.5px;   /* menu items, card body                      */
+  --text-md:   13px;     /* default UI                                 */
+  --text-lg:   13.5px;   /* dialog labels + controls                   */
+  --text-xl:   14px;     /* chat input, user turn                      */
+  --text-2xl:  14.5px;   /* assistant prose                            */
+  --text-h3:   15px;
+  --text-h2:   17px;     /* wordmark, prose h2                         */
+  --text-h1:   19px;     /* dialog title, prose h1                     */
+
+  --weight-display: 550;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
+
+  /* Quartr radii */
+  --radius-2xs: 3px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-2xl: 20px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+
+  /* Motion. Three durations, not six. --dur is the default for every
+     colour/background transition; --dur-fast is for transforms that
+     should feel instant; --dur-slow is for surfaces entering. */
+  --dur-fast: .1s;
+  --dur: .12s;
+  --dur-slow: .16s;
+  --tip-delay: .25s;
+  --ease-quartr: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-tw: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Candle semantics — these agree with js/theme.js on purpose, so the
+     OHLC readout can never disagree with the bars it is reading. */
+  --up: #089981;
+  --down: #f23645;
+  --ann-res: #f5a524;
+  --ann-sup: #22d3ee;
+}
+
+:root[data-theme="dark"] {
+  /* Pivot dark: --bg-base is true black, cards/popovers step up from it */
+  --background: #000000;
+  --foreground: #fbfcfc;
+  --card: #1c1c1d;
+  --popover: #111212;
+  --muted: #1c1c1d;
+  --muted-foreground: #8f98a1;
+  --faint: #6b7280;
+  --accent: rgba(255, 255, 255, .04);
+  --border: #242424;
+  --border-soft: #1a1a1a;
+  --input: #1c1c1d;
+  /* Pivot's single quiet accent thread is the teal, not a blue */
+  --primary: #2bb3d1;
+  --primary-foreground: #0d0d0e;
+  --ring: rgba(43, 179, 209, .5);
+  --primary-soft: color-mix(in srgb, #2bb3d1 14%, transparent);
+  --chart-bg: #0d0e12;
+  --up-soft: rgba(8, 153, 129, .16);
+  --down-soft: rgba(242, 54, 69, .16);
+  --shadow:
+    rgba(0, 0, 0, .01) 0 13px 5px 0, rgba(0, 0, 0, .03) 0 7px 4px 0,
+    rgba(0, 0, 0, .05) 0 3px 3px 0, rgba(0, 0, 0, .06) 0 1px 2px 0,
+    0 16px 40px -20px rgba(0, 0, 0, .9);
+  --scrim: rgba(0, 0, 0, .38);
+  --scroll-thumb: #34353b;
+  /* The swatch ring must read on both a white chip and a black one, so it
+     is neutral by design — but it was a raw grey that ignored the theme.
+     Now it steps with the theme like everything else. */
+  --swatch-ring: rgba(255, 255, 255, .22);
+  --swatch-ring-strong: rgba(255, 255, 255, .42);
+  /* A var can hold a whole url(), which is the only way to theme a data
+     URI — CSS does not interpolate custom properties inside url(). The
+     stroke is --muted-foreground for this theme, spelled %23 for #. */
+  --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%238f98a1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  /* the tick sits on an INK box, so it is drawn in the page's background */
+  --tick: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>");
+  /* the tab strip's rail — TradingView's 4px track under the tabs */
+  --rail: #2a2a2b;
+}
+
+:root[data-theme="light"] {
+  --ann-res: #b45309;
+  --ann-sup: #0e7490;
+  --background: #ffffff;
+  --foreground: #0d0d0e;
+  --card: #fbfbfc;
+  --popover: #ffffff;
+  --muted: #f5f5f5;
+  --muted-foreground: #4d555c;
+  --faint: #6b7280;
+  --accent: rgba(15, 18, 22, .06);
+  --border: #e6e6e6;
+  --border-soft: #ececee;
+  --input: #fbfbfc;
+  --primary: #219ebc;
+  --primary-foreground: #ffffff;
+  --ring: rgba(33, 158, 188, .35);
+  --primary-soft: color-mix(in srgb, #219ebc 8%, transparent);
+  --chart-bg: #ffffff;
+  --up-soft: rgba(8, 153, 129, .12);
+  --down-soft: rgba(242, 54, 69, .12);
+  --shadow:
+    rgba(0, 0, 0, .02) 0 13px 5px 0, rgba(0, 0, 0, .04) 0 7px 4px 0,
+    rgba(0, 0, 0, .06) 0 3px 3px 0, rgba(0, 0, 0, .08) 0 1px 2px 0;
+  /* a neutral scrim, not a tint of the page: on the light theme a 55%
+     white wash left the chart looking bleached rather than dimmed */
+  --scrim: rgba(0, 0, 0, .38);
+  --scroll-thumb: #e4e5e9;
+  --swatch-ring: rgba(15, 18, 22, .2);
+  --swatch-ring-strong: rgba(15, 18, 22, .4);
+  /* stroke = this theme's --muted-foreground (#4d555c). Previously the
+     dark theme's grey was hardcoded here, so the chevron on light was a
+     visibly wrong, washed-out grey. */
+  --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%234d555c' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  --tick: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>");
+  /* TradingView's measured rail colour on light */
+  --rail: #f2f2f2;
+}
+
+/* ─── 2 · BASE ─────────────────────────────────────────────────────────── */
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--background); color: var(--foreground); font-family: var(--font);
+  font-size: var(--text-md); display: flex; flex-direction: column; height: 100vh;
+  overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased;
+  transition: background var(--dur-slow) var(--ease-quartr),
+              color var(--dur-slow) var(--ease-quartr);
+}
+button, textarea, input, select { font-family: inherit; }
+svg.icon {
+  width: 18px; height: 18px; stroke: currentColor; fill: none;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;
+}
+svg.icon.sm { width: 15px; height: 15px; stroke-width: 1.9; }
+svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
+.spacer { flex: 1; }
+
+/* Shared entrance for every surface that appears over the page. */
+@keyframes pop { from { opacity: 0; transform: translateY(-3px) scale(.985); } }
+@keyframes fade { from { opacity: 0; } }
+
+/* The uppercase micro-label — Pivot's spec, used by the dropdown header,
+   the exchange suffix, the provenance role, the auto-pill and the table
+   head. It was written out five times; it is one rule now. */
+.micro,
+.symbol .ex,
+.readout .ex,
+.dropdown .head,
+.prov .role,
+.auto-pill,
+.prose thead th,
+.dlg-formula span {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+
+/* ─── 3 · PRIMITIVES ───────────────────────────────────────────────────── */
+
+/* button — ghost (default) / outline / cta / danger / icon / on */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px;
+  padding: 0 11px; border-radius: var(--radius); cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--foreground);
+  font-size: var(--text-base); font-weight: var(--weight-medium); white-space: nowrap;
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.btn:hover { background: var(--accent); }
+/* The focus ring answers Tab, not a click. A clicked menu button keeps
+   focus while its dropdown is open, and the teal ring then reads as a
+   stuck blue border — so gate it on the keyboard-modality flag main.js sets. */
+:root[data-nav="kbd"] .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.btn.outline { border-color: var(--border); }
+.btn.outline:hover { border-color: var(--border); background: var(--accent); }
+/* chat toggle rides borderless — the pill reads as a label, not a control */
+#chatToggle, #chatToggle:hover { border-color: transparent; }
+.btn.icon { width: 30px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+.btn.icon:hover { color: var(--foreground); }
+.btn.on { color: var(--primary); background: var(--primary-soft); }
+.btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
+
+/* Pivot's CTA is INK ON PAPER — the near-black fill in light, the off-white
+   fill in dark. The teal is Pivot's quiet accent thread, reserved for hover
+   and focal moments; globals.css is explicit that it is "never a card fill",
+   and a filled teal button is exactly that. */
+.btn.cta {
+  background: var(--foreground); color: var(--background);
+  border-color: transparent;
+}
+.btn.cta:hover { background: color-mix(in srgb, var(--foreground) 88%, var(--background)); }
+.btn.cta svg { color: currentColor; }
+.btn.danger { color: var(--muted-foreground); }
+.btn.danger:hover { color: var(--down); background: var(--down-soft); }
+
+/* badge */
+.badge {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium); border: 0;
+  border-radius: var(--radius-pill); padding: 3px 10px; color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.badge.accent { color: var(--primary); background: var(--primary-soft); }
+
+/* close — ONE circular ×, used by every chip, tag, pin and attachment.
+   It was written out four times at three different sizes (16/16/16/18),
+   which is why a pin's × sat a pixel proud of a chip's. The wash follows
+   the glyph, not a box around it: a square behind a 12px icon reads as a
+   button that isn't there. */
+.x-btn,
+.chip .x, .draw-tag .x, .attach-chip .x, .pin .x {
+  cursor: pointer; color: var(--faint); display: inline-flex;
+  width: 17px; height: 17px; align-items: center; justify-content: center;
+  border-radius: 50%; flex: none;
+  transition: color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.x-btn:hover,
+.chip .x:hover, .draw-tag .x:hover, .attach-chip .x:hover, .pin .x:hover {
+  color: var(--down); background: var(--down-soft);
+}
+/* the attachment's × is a literal glyph, not an icon, so it needs a size */
+.attach-chip .x { font-size: var(--text-md); }
+
+/* input / select / checkbox / swatch.
+   These were only ever defined scoped to the settings dialog (.dlg-input,
+   .dlg-select, …), so there was no such thing as "an input" in this app —
+   only "an input inside that one modal". They are primitives now; the
+   .dlg-* names stay as aliases so the existing markup and indsettings.js
+   keep working untouched.
+
+   Geometry is TradingView's, measured: a 100×34 box, 6px radius, hairline
+   border, value left-aligned at 14px. */
+.input, .select,
+.dlg-input, .dlg-select {
+  width: 100px; height: 34px; padding: 0 8px; text-align: left;
+  background: var(--input); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--foreground);
+  font: 14px var(--font); font-variant-numeric: tabular-nums;
+}
+.select, .dlg-select { width: auto; min-width: 100px; }
+.input, .dlg-input { -moz-appearance: textfield; }
+.input::-webkit-outer-spin-button, .input::-webkit-inner-spin-button,
+.dlg-input::-webkit-outer-spin-button,
+.dlg-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.select, .dlg-select {
+  padding-right: 26px; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-repeat: no-repeat; background-position: right 9px center;
+  background-image: var(--chevron);
+}
+/* A dressed <select> keeps holding the value and firing its events; only its
+   painting moves to the button beside it. */
+select.is-dressed { display: none; }
+.select-btn {
+  display: inline-flex; align-items: center; justify-content: space-between;
+  gap: 6px; width: 100px; height: 34px; padding: 0 8px; cursor: pointer;
+  background: var(--input); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--foreground);
+  font: 14px var(--font); text-align: left;
+  transition: border-color var(--dur) var(--ease-quartr);
+}
+.select-btn .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-btn svg { color: var(--muted-foreground); }
+.select-btn:hover { border-color: var(--faint); }
+:root[data-nav="kbd"] .select-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* The option list is the app's menu, not the OS's. Two classes deep so it
+   outranks .dropdown's own `position: absolute; top: calc(100% + 6px)` —
+   this one is placed in viewport coordinates by indsettings.js. */
+.dropdown.select-menu {
+  position: fixed; top: auto; left: auto; z-index: 220; padding: 4px;
+  border-radius: 6px; box-shadow: none; max-height: 280px; min-width: 132px;
+}
+.dropdown.select-menu .item { padding: 7px 9px; font-size: 14px; border-radius: var(--radius-xs); }
+/* Focus darkens the field's own edge instead of painting a teal ring around
+   it. A 2px accent halo on every click made typing a number look like an
+   error state, and it sat outside the box, nudging the row. */
+.input:focus, .select:focus,
+.dlg-input:focus, .dlg-select:focus {
+  outline: none; border-color: var(--faint);
+}
+/* the keyboard still gets a real ring — it is the only affordance Tab has */
+:root[data-nav="kbd"] .input:focus-visible, :root[data-nav="kbd"] .select:focus-visible,
+:root[data-nav="kbd"] .dlg-input:focus-visible, :root[data-nav="kbd"] .dlg-select:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 1px;
+}
+
+.checkbox, .dlg-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.checkbox span, .dlg-check span { font-size: 14px; color: var(--foreground); }
+/* TradingView's box: 18px, 4px radius, a hairline when off and INK when on —
+   not the accent. The teal is this app's quiet thread; a checked row is a
+   statement of fact, and TradingView fills it with the same near-black its
+   commit button uses. */
+.checkbox input, .dlg-check input {
+  appearance: none; -webkit-appearance: none; margin: 0; cursor: pointer;
+  width: 18px; height: 18px; flex: none;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--input);
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
+}
+.checkbox input:checked, .dlg-check input:checked {
+  background: var(--foreground) var(--tick) center / 12px 12px no-repeat;
+  border-color: var(--foreground);
+}
+:root[data-nav="kbd"] .checkbox input:focus-visible,
+:root[data-nav="kbd"] .dlg-check input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* the swatch is a control in the same row as the selects, so it stands the
+   same 32px tall and shares their radius */
+.swatch, .dlg-swatch {
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
+  background: var(--input); border: 1px solid var(--border);
+  border-radius: var(--radius-xs); display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.swatch:hover, .dlg-swatch:hover { border-color: var(--faint); }
+/* the chip inside shows the colour over a checker so an alpha reads as one */
+.swatch span, .dlg-swatch span {
+  width: 15px; height: 15px; border-radius: var(--radius-2xs); background: var(--sw);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring);
+}
+
+/* tooltip — the rail's flyout label */
+.tool .tip {
+  position: absolute; left: 42px; top: 50%; transform: translateY(-50%);
+  background: var(--popover); color: var(--foreground); font-size: var(--text-xs);
+  padding: 5px 9px; border-radius: var(--radius-sm); white-space: nowrap;
+  border: 1px solid var(--border); box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none; z-index: 70;
+  transition: opacity var(--dur-fast) ease var(--tip-delay);
+  font-weight: var(--weight-medium);
+}
+.tool:hover .tip { opacity: 1; }
+/* A group button owns BOTH a tooltip and a flyout, and the two open into the
+   same slot — left: 42px against left: calc(100% + 8px) — with the tooltip on
+   the higher layer. So hovering the position tool printed the word "Position"
+   on top of the Position menu that had just opened behind it. The menu's own
+   head already says it, and says it better; the tooltip stands down while the
+   menu is up. */
+.tool-wrap.menu-open .tool .tip { opacity: 0; }
+
+/* ─── 4 · SURFACES ─────────────────────────────────────────────────────── */
+
+/* ONE floating surface, everywhere: the card paper, a hairline, Quartr's
+   large radius, the layered shadow. Menus used to sit on --popover, a full
+   step darker than the cards in the same window, so two things that are both
+   "a panel floating over the chart" did not look related. */
+.surface,
+.dropdown, .dlg, .prov, .shot-pop {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+}
+
+/* dropdown-menu */
+.menu-wrap { position: relative; }
+.dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  min-width: 224px; padding: 5px; display: none;
+  /* a long menu (Indicators is 20 items) must scroll inside itself rather
+     than run off the viewport — 48px header + the 6px gap + breathing room */
+  max-height: calc(100vh - 72px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+/* The global 9px scrollbar runs corner to corner, so inside a 16px-radius
+   popover the thumb spills over the rounded ends and reads as overflowing.
+   Give the menu a thinner bar and inset the track past both corners. */
+.dropdown::-webkit-scrollbar { width: 6px; }
+.dropdown::-webkit-scrollbar-track { background: transparent; margin: 12px 0; }
+.dropdown::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: var(--radius-2xs);
+  border: 0; background-clip: border-box;
+}
+.dropdown::-webkit-scrollbar-thumb:hover { background: var(--faint); border: 0; }
+.dropdown.right { left: auto; right: 0; }
+.dropdown.up { top: auto; bottom: calc(100% + 8px); }
+.dropdown.open { display: block; animation: pop var(--dur) ease-out; }
+.dropdown .item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: var(--text-base); color: var(--foreground);
+}
+.dropdown .item:hover { background: var(--accent); }
+.dropdown .item.on { color: var(--primary); }
+.dropdown .item .lead { display: flex; align-items: center; gap: 9px; }
+.dropdown .item .lead svg { color: var(--muted-foreground); }
+.dropdown .item.on .lead svg { color: var(--primary); }
+.dropdown .item.danger:hover { color: var(--down); }
+.dropdown .item.danger:hover svg { color: var(--down); }
+.dropdown .sep { height: 1px; background: var(--border-soft); margin: 5px 4px; }
+/* The menu's header: the micro-label over a full-bleed hairline. Negative
+   margins pull it out to the panel's edges past the 5px item padding. */
+.dropdown .head {
+  margin: -5px -5px 5px; padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* layout picker — a grid of glyphs grouped by pane count, not a list of
+   names. Forty-two layouts described in prose would be four screens of
+   text about shapes you can read at a glance; the count leads each row in
+   the gutter so "I want four charts" is one downward scan. */
+.layout-menu { min-width: 0; width: max-content; max-width: min(560px, calc(100vw - 24px)); }
+.lay-group {
+  display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.lay-group:last-child { border-bottom: 0; }
+/* the count sits in its own gutter, aligned with the first row of glyphs */
+.lay-n {
+  flex: none; width: 14px; text-align: center; padding-top: 7px;
+  font-size: var(--text-sm); color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.lay-opts { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.lay-opt {
+  width: 30px; height: 30px; flex: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-sm); color: var(--muted-foreground);
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
+}
+.lay-opt:hover { background: var(--accent); color: var(--foreground); }
+:root[data-nav="kbd"] .lay-opt:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+/* the current layout is filled, not merely tinted — at 30px a colour-only
+   state is easy to miss in a field of forty-two near-identical glyphs */
+.lay-opt.on {
+  color: var(--primary); background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+}
+.lay-opt svg { width: 20px; height: 20px; stroke-width: 1.6; }
+
+/* dialog — TradingView's Inputs / Style / Visibility modal on Pivot's tokens */
+.dlg-wrap {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center;
+  background: var(--scrim); backdrop-filter: blur(2px);
+}
+.dlg-wrap.open { display: flex; animation: pop var(--dur-slow) var(--ease-quartr); }
+/* Every number in this block was READ OFF TradingView's own indicator
+   dialog (NSE:TCS → Vol → Settings, light theme, Chrome via CDP), not
+   guessed: 380 wide, 6px radius, 17/20 header, a 20px/600 title, 16px/600
+   tabs 24px apart over a 4px #f2f2f2 rail, a 16/20 body, 50px rows, 100×34
+   fields at 6px radius, an 18px checkbox, and a 34px footer row. Colours
+   stay on Pivot's tokens — TradingView's own light-theme ink (#0f0f0f text,
+   rgb(46,46,46) commit button) is what --foreground already is. */
+/* Width is content-driven, like TradingView's: 380 is the floor (Inputs),
+   and a tab that needs more — Style's four controls in one row — widens the
+   dialog instead of scrolling sideways inside it. */
+.dlg {
+  width: max-content; min-width: 380px;
+  max-width: min(560px, calc(100vw - 24px)); max-height: min(700px, 88vh);
+  display: flex; flex-direction: column;
+  border-radius: 6px; overflow: hidden;
+}
+.dlg-head {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 17px 20px; cursor: grab; touch-action: none;
+}
+.dlg-head:active { cursor: grabbing; }
+.dlg-title {
+  flex: 1; min-width: 0; font-size: 20px; font-weight: var(--weight-semi);
+  line-height: 28px; letter-spacing: normal; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* The tab strip rides on a 4px rounded rail that runs the width of the tabs;
+   the active tab paints its own segment over it. It is not a 1px hairline —
+   at 4px the rail is a track, and the active segment reads as a position on
+   that track rather than as an underline. */
+.dlg-tabs {
+  display: flex; gap: 24px; flex: none; padding: 0 20px;
+  position: relative;
+}
+.dlg-tabs::after {
+  content: ""; position: absolute; left: 20px; right: 20px; bottom: 0;
+  height: 4px; border-radius: 2px; background: var(--rail);
+}
+.dlg-tab {
+  /* above the rail: both are positioned, and the parent's ::after paints
+     last, so without this the track covers the active segment */
+  position: relative; z-index: 1;
+  background: none; border: 0; cursor: pointer;
+  height: 32px; padding: 0 0 8px;
+  font-size: 16px; font-weight: var(--weight-semi); color: var(--muted-foreground);
+  transition: color var(--dur) var(--ease-quartr);
+}
+/* clicking a tab must not leave a black focus box around the word */
+.dlg-tab:focus { outline: none; }
+:root[data-nav="kbd"] .dlg-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.dlg-tab:hover { color: var(--foreground); }
+.dlg-tab.active { color: var(--foreground); }
+.dlg-tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 4px; border-radius: 2px; background: var(--foreground);
+}
+/* Two columns, TradingView's table: labels size themselves to the widest one
+   and every control starts at that same x. The controls are NOT flush right —
+   a value 200px away from the word naming it is a form, and this is a
+   settings list. `display: contents` on the row lets each row's label and
+   control fall into the shared grid. */
+.dlg-body {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 16px 20px;
+  display: grid; grid-template-columns: max-content 1fr;
+  align-items: center; column-gap: 14px;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.dlg-body::-webkit-scrollbar { width: 6px; }
+.dlg-body::-webkit-scrollbar-track { background: transparent; }
+.dlg-body::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-2xs); }
+
+/* A row is two cells in that grid. The LABEL cell carries the 50px height
+   (TradingView's 34px control + 8px above and below); the control keeps its
+   own size and is centred in that height — give the control cell the height
+   too and a 34px field grows to 50, and a `1fr` column stretches a 100px
+   select across the dialog. */
+.dlg-row { display: contents; }
+.dlg-row > label {
+  min-height: 50px; display: flex; align-items: center; padding: 8px 0;
+  font-size: 14px; font-weight: 400; color: var(--foreground);
+}
+.dlg-row > :not(label) { justify-self: start; align-self: center; }
+/* a checkbox row has no second cell, so it spans both columns */
+.dlg-row > label.dlg-check:only-child { grid-column: 1 / -1; }
+.dlg-ctl { display: flex; align-items: center; gap: 6px; }
+/* block-level children of the body sit across both columns */
+.dlg-sep, .dlg-note, .dlg-empty, .dlg-formula {
+  grid-column: 1 / -1;
+}
+.dlg-sep { height: 1px; background: var(--border-soft); margin: 8px -20px; }
+.dlg-hint { font-size: var(--text-sm); color: var(--faint); font-variant-numeric: tabular-nums; }
+/* prose does not get a vote on how wide the dialog is */
+.dlg-note, .dlg-empty {
+  font-size: var(--text-base); color: var(--muted-foreground); line-height: 1.65;
+  margin: 0 0 8px; max-width: 340px;
+}
+.dlg-formula {
+  font-size: var(--text-xs); color: var(--faint); line-height: 1.6;
+  margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border-soft);
+  max-width: 340px;
+}
+.dlg-formula span { display: block; font-size: var(--text-3xs); margin-bottom: 4px; }
+/* the Style tab packs four controls into one row, so those shrink */
+.dlg-ctl .dlg-select { width: 92px; min-width: 0; height: 34px; font-size: var(--text-md); padding: 0 24px 0 9px; }
+.dlg-ctl .dlg-select.tight { width: 74px; }
+.dlg-row.plot .dlg-check span { font-size: 14px; }
+
+/* TradingView's footer: Defaults on the left, Cancel and the commit on the
+   right, all on one 32px line over a hairline. */
+.dlg-foot {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: 16px 20px; border-top: 1px solid var(--border-soft);
+}
+.dlg-def { position: relative; }
+/* Inside a 6px dialog, a 16px menu with the full card shadow read as a
+   second window. It sits on the dialog, so it borrows the dialog's corner
+   and carries a hairline instead of a lift. */
+.dlg-def-menu {
+  left: 0; right: auto; min-width: 200px;
+  border-radius: 6px; box-shadow: none;
+}
+.dlg-foot .btn { height: 34px; border-radius: 6px; font-size: 14px; padding: 0 11px; font-weight: 400; }
+/* the Defaults control is a 100px field, the same box as an input */
+.dlg-foot .dlg-def .btn { width: 100px; justify-content: space-between; }
+
+/* popover — the colour picker. --popover paper (not the card paper: this
+   floats OVER the dialog, so it needs its own step), a hairline, the medium
+   radius, the layered shadow. Ten columns wide so a COLUMN is a hue and a
+   row is a shade — picking "the same green, darker" is one move down. */
+.dlg-swatch-pop {
+  position: fixed; z-index: 210; width: 276px; padding: 14px;
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow);
+  animation: pop var(--dur) var(--ease-quartr);
+}
+.dlg-swatch-pop .grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+/* No ring around a colour: the chip IS the colour, and a hairline on each of
+   sixty of them turned the grid into a lattice. */
+.dlg-swatch-pop .sw {
+  aspect-ratio: 1; border: 0; padding: 0; cursor: pointer;
+  border-radius: var(--radius-xs); background: var(--sw);
+  transition: transform var(--dur-fast) var(--ease-quartr),
+              box-shadow var(--dur-fast) var(--ease-quartr);
+}
+.dlg-swatch-pop .sw:hover { transform: scale(1.14); }
+/* the selected chip wears a ring in the page's ink, offset so it reads on
+   both a white swatch and a black one */
+.dlg-swatch-pop .sw.sel { box-shadow: 0 0 0 2px var(--popover), 0 0 0 4px var(--foreground); }
+.dlg-swatch-pop .pop-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.dlg-swatch-pop .pop-label { font-size: var(--text-sm); color: var(--muted-foreground); flex: none; }
+.dlg-swatch-pop .pop-sep { height: 1px; background: var(--border-soft); margin: 12px -14px 0; }
+/* a dashed "+" tile in the grid's own idiom, with the native picker laid
+   invisibly over it — the raw <input type=color> read as a stray blob */
+.dlg-swatch-pop .custom-tile {
+  position: relative; width: 26px; height: 26px; flex: none; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; cursor: pointer; color: var(--muted-foreground);
+  border: 1px dashed var(--border); border-radius: var(--radius-xs);
+  transition: color var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.dlg-swatch-pop .custom-tile:hover {
+  color: var(--foreground); border-color: var(--faint); background: var(--accent);
+}
+.dlg-swatch-pop .custom-tile svg { width: 14px; height: 14px; stroke-width: 2.2; }
+.dlg-swatch-pop.picking .custom-tile {
+  color: var(--foreground); border-style: solid; border-color: var(--faint);
+}
+
+/* ── custom picker: a saturation/value field under a hue rail ──────────
+   Chrome's native colour panel (eyedropper, R/G/B spinners, system type)
+   was the last OS surface left inside this dialog. This is the same job in
+   the page's own materials: one square, one rail, one hex field. */
+.dlg-swatch-pop .pk { margin-top: 12px; }
+.dlg-swatch-pop .pk-area {
+  position: relative; height: 132px; border-radius: var(--radius-sm);
+  cursor: crosshair; touch-action: none;
+  background:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
+}
+.dlg-swatch-pop .pk-dot {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%); pointer-events: none;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.dlg-swatch-pop .pk-hue {
+  width: 100%; margin: 12px 0 0; height: 14px; appearance: none;
+  -webkit-appearance: none; background: transparent; cursor: pointer;
+}
+.dlg-swatch-pop .pk-hue::-webkit-slider-runnable-track {
+  height: 8px; border-radius: var(--radius-pill);
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.dlg-swatch-pop .pk-hue::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -3px;
+  border-radius: 50%; background: var(--card);
+  border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+.dlg-swatch-pop .pk-foot { margin-top: 12px; }
+.dlg-swatch-pop .pk-preview {
+  width: 26px; height: 26px; flex: none; border-radius: var(--radius-xs);
+}
+.dlg-swatch-pop .pk-hex {
+  flex: 1; min-width: 0; height: 30px; font-family: var(--mono);
+  font-size: var(--text-sm); text-transform: lowercase;
+}
+.dlg-swatch-pop .opacity input[type="range"] {
+  flex: 1; min-width: 0; accent-color: var(--foreground); height: 18px;
+}
+.dlg-swatch-pop .opacity output {
+  font-size: var(--text-sm); color: var(--foreground); font-variant-numeric: tabular-nums;
+  width: 38px; text-align: right; flex: none;
+}
+
+/* ─── 5 · HEADER ───────────────────────────────────────────────────────── */
+
+/* `body >` matters: the settings dialog's head is a <header> too, and this
+   rule was painting it white with a hairline under it — a second surface
+   colour inside one card, and a line TradingView does not draw. */
+body > header {
+  display: flex; align-items: center; gap: 8px; height: 48px;
+  padding: 0 10px 0 12px; border-bottom: 1px solid var(--border);
+  background: var(--background); z-index: 20; flex: none;
+}
+/* Wordmark sits in Pivot's display serif — the same --font-experiment
+   slot the Pivot topbar wordmark and chat greeting use. */
+.brand {
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: var(--text-h2); letter-spacing: -.03em;
+  white-space: nowrap; margin-right: 2px;
+}
+.brand .dot { color: var(--primary); }
+.vsep { width: 1px; height: 20px; background: var(--border); flex: none; margin: 0 2px; }
+
+/* symbol pill — TradingView's ticker chip, shadcn secondary button */
+.symbol {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px;
+  padding: 0 12px; border-radius: var(--radius-pill); background: var(--muted);
+  border: 0;
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.01em; white-space: nowrap;
+}
+
+/* segmented control (intervals) */
+.seg { display: inline-flex; align-items: center; gap: 2px; }
+.seg button {
+  background: transparent; color: var(--muted-foreground); border: 0; cursor: pointer;
+  font-size: var(--text-sm); font-weight: var(--weight-semi); padding: 0 9px; height: 28px;
+  border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.seg button:hover { background: var(--accent); color: var(--foreground); }
+.seg button.active { color: var(--primary); background: var(--primary-soft); }
+
+/* Indicators accumulate; the header does not. Every OTHER header item is
+   fixed-size, so the chip strip is the single thing that flexes — it takes
+   all the leftover width and absorbs all the squeeze, instead of the flex
+   algorithm shrinking whichever item happens to have the largest basis
+   (which was the chips, down to zero, and a strip of zero width is why
+   "scroll sideways" had nothing to scroll). */
+header > .brand, header > .symbol, header > .seg, header > .menu-wrap,
+header > .btn, header > .badge { flex: none; }
+header > .spacer { flex: none; }
+.chips-wrap { display: flex; align-items: center; gap: 2px; flex: 1 1 0; min-width: 0; }
+.chips {
+  display: flex; gap: 5px; align-items: center; flex-wrap: nowrap;
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  overscroll-behavior-x: contain; scroll-behavior: smooth;
+  /* Land on a chip, not through one. Paging by 70% of the strip used to stop
+     wherever the arithmetic fell, which left a chip sliced down the middle
+     at rest. Proximity, not mandatory: a deliberate drag still goes where
+     you put it. */
+  scroll-snap-type: x proximity; scroll-padding: 0 6px;
+}
+/* no scrollbar: a 9px bar inside a 48px header is more chrome than the
+   chips it would be measuring. The affordances are the arrows below, a
+   wheel, and dragging the strip — all wired in main.js. */
+.chips::-webkit-scrollbar { display: none; }
+.chips.dragging { scroll-behavior: auto; cursor: grabbing; }
+.chips > .chip { flex: none; scroll-snap-align: start; }
+/* The overflowing edge FADES. A hard vertical cut through a glyph reads as
+   a rendering bug — a fade reads as "there is more this way". Only the
+   side that actually has somewhere to go fades, so a strip resting at its
+   end never dims a chip for nothing. */
+.chips.can-left {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+  mask-image: linear-gradient(90deg, transparent 0, #000 20px);
+}
+.chips.can-right {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 20px), transparent 100%);
+}
+.chips.can-left.can-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px,
+                      #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 20px,
+              #000 calc(100% - 20px), transparent 100%);
+}
+
+/* Overflow arrows. They sit BESIDE the strip, not over it: an overlaid
+   arrow covers the chip at that end, and a chip you cannot click because
+   the scroll control is on top of it is a worse trade than 22px of width.
+   Both slots appear together the moment the strip overflows — reserving
+   the space means arriving at an end does not shift every chip sideways. */
+.chips-arrow {
+  flex: none; width: 22px; align-self: stretch; display: none;
+  align-items: center; justify-content: center;
+  background: transparent; border: 0; padding: 0; cursor: pointer;
+  color: var(--muted-foreground); border-radius: var(--radius-xs);
+  transition: color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
+}
+.chips-wrap.scrollable > .chips-arrow { display: flex; }
+.chips-arrow.off { visibility: hidden; pointer-events: none; }
+.chips-arrow:hover { color: var(--foreground); background: var(--accent); }
+.chips-arrow svg { width: 15px; height: 15px; stroke-width: 2.2; }
+
+/* Borderless, like the symbol pill next to it: the fill is the shape. On
+   --muted rather than --card so the light theme still has an edge. */
+.chip {
+  display: inline-flex; gap: 5px; align-items: center; height: 24px;
+  font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--foreground);
+  border: 0; border-radius: var(--radius-pill); padding: 0 5px 0 10px;
+  background: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chip .lbl { border-radius: var(--radius-xs); padding: 1px 4px; margin: 0 -2px 0 -4px; }
+/* An indicator switched off for this timeframe (Visibility tab) still has a
+   chip — it just isn't drawing. Say that, rather than looking broken. */
+.chip.muted .lbl, .chip.off .lbl { color: var(--faint); text-decoration: line-through; }
+.chip.off .lbl { text-decoration: none; opacity: .6; }
+/* TradingView's legend controls: eye, gear, ×, revealed on hover — but the
+   SPACE for them is always reserved. They used to collapse to zero width
+   and grow back under the cursor, which made a chip's width depend on
+   where the pointer was: the strip only overflowed while you hovered, so
+   the arrows had nothing to scroll by the time you reached them, and the
+   revealed controls could sit past the right edge with no way to bring
+   them into view. Fixed geometry, fading ink. */
+.chip .acts { display: inline-flex; align-items: center; gap: 1px; }
+.chip .act {
+  cursor: pointer; color: var(--faint); display: inline-flex;
+  width: 17px; height: 17px; align-items: center; justify-content: center;
+  border-radius: 50%; flex: none;
+  /* invisible must also mean unclickable — a 17px target you cannot see is
+     worse than no target at all */
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.chip:hover .act, .chip .act.pinned { opacity: 1; pointer-events: auto; }
+/* a hidden indicator keeps its eye showing, so the state is legible from
+   the header without hunting for the chip */
+.chip.muted .act[data-eye] { opacity: 1; pointer-events: auto; }
+/* No red on the remove action. Removing an indicator is undone by adding
+   it back — colouring it like a destructive act overstates it, and the
+   alarm sat right next to two neutral controls on the same chip. */
+.chip .act:hover { color: var(--foreground); background: var(--accent); }
+.chip .act svg { width: 12px; height: 12px; }
+
+/* ─── 6 · RAIL ─────────────────────────────────────────────────────────── */
+
+.rail {
+  width: 46px; background: var(--background); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 7px 0; gap: 1px; z-index: 10; flex: none;
+}
+.tool {
+  width: 32px; height: 32px; border-radius: var(--radius); border: 0; cursor: pointer;
+  background: transparent; color: var(--muted-foreground);
+  display: flex; align-items: center; justify-content: center; position: relative;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.tool:hover { background: var(--accent); color: var(--foreground); }
+.tool.active { background: var(--primary-soft); color: var(--primary); }
+.tool.toggled { color: var(--primary); }
+.rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
+.rail-spacer { flex: 1; }
+/* a rail button that owns a group opens its flyout to the right */
+.tool-wrap { position: relative; display: flex; }
+.tool-wrap > .dropdown.side { left: calc(100% + 8px); top: -6px; right: auto; min-width: 178px; }
+.tool.has-group::after {
+  content: ""; position: absolute; right: 3px; bottom: 3px;
+  border-left: 4px solid transparent; border-bottom: 4px solid currentColor;
+  opacity: .45;
+}
+.tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
+
+/* ─── 7 · STAGE ────────────────────────────────────────────────────────── */
+
+.main { display: flex; flex: 1; min-height: 0; }
+
+/* The grid wraps the stage; #stage itself is untouched so main.js's
+   overlays (readout, provenance card, capture rect) keep their frame. */
+/* The grid TEMPLATE is set inline by panes.js from the layout's own spec —
+   forty-two `[data-layout="…"]` rules here would be forty-two chances for
+   the stylesheet and the pane count to disagree. This is only the frame the
+   template lands in; the single-pane values are the fallback for the moment
+   before the first apply(). The 1px gap IS the divider: the grid's own
+   background shows through between panes. */
+.charts {
+  flex: 1; min-width: 0; min-height: 0; display: grid; gap: 1px;
+  background: var(--border);
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+}
+.stage { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
+
+/* Secondary chart. Same chrome as the primary — an in-chart legend and
+   nothing else — so a split reads as one chart shown twice. */
+.subchart { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
+.sub-canvas { position: absolute; inset: 0; }
+.sub-legend { z-index: 4; }
+
+/* The selected pane — the one the single toolbar drives. Drawn as an inset
+   ring so selecting a pane never nudges the layout by a pixel. */
+.stage.pane-active, .subchart.pane-active { box-shadow: inset 0 0 0 1.5px var(--primary); }
+/* nothing to choose between when there is only one pane */
+.charts[data-layout="s1"] .stage.pane-active { box-shadow: none; }
+
+/* Layout glyphs are generated by Icons.layoutSvg() from each layout's own
+   grid spec; main.js builds the whole picker from the Panes catalogue. */
+#chart { position: absolute; inset: 0; cursor: crosshair; }
+/* TradingView cursors: crosshair to place, grabbing hand while panning */
+.stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
+.stage.overdraw #chart { cursor: move; }
+
+.readout {
+  position: absolute; top: 10px; left: 12px; z-index: 5;
+  font-size: var(--text-sm); color: var(--muted-foreground);
+  pointer-events: none; line-height: 1.55; font-variant-numeric: tabular-nums;
+}
+.readout .title {
+  color: var(--foreground); font-size: var(--text-lg);
+  font-weight: var(--weight-semi); letter-spacing: -.01em;
+}
+.readout .row { font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.01em; }
+.readout .row span { margin-right: 9px; }
+.readout .sep { margin: 0 5px; color: var(--faint); font-weight: 400; }
+.readout b { font-weight: var(--weight-medium); }
+.readout b.up { color: var(--up); }
+.readout b.down { color: var(--down); }
+
+/* TradingView's "auto" affordance — appears once you've moved the price
+   scale by hand, clicking it re-fits to the visible bars. */
+.auto-pill {
+  position: absolute; right: 8px; bottom: 36px; z-index: 6; display: none;
+  background: var(--popover); border: 1px solid var(--border); color: var(--muted-foreground);
+  padding: 3px 9px; border-radius: var(--radius-pill); cursor: pointer; box-shadow: var(--shadow);
+  transition: color var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr);
+}
+.auto-pill.show { display: block; }
+.auto-pill:hover { color: var(--primary); border-color: var(--primary); }
+
+.overlay-msg {
+  position: absolute; inset: 0; z-index: 8; display: none;
+  align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--chart-bg) 78%, transparent);
+  color: var(--muted-foreground); font-size: var(--text-md);
+}
+.overlay-msg.show { display: flex; }
+.overlay-msg .err { color: var(--down); }
+
+/* split divider */
+.splitter {
+  width: 1px; flex: none; cursor: col-resize; background: var(--border);
+  position: relative; transition: background var(--dur) var(--ease-quartr);
+}
+.splitter::after { content: ""; position: absolute; inset: 0 -5px; }
+.splitter:hover, .splitter.dragging { background: var(--primary); }
+.splitter.hidden { display: none; }
+
+/* The app status strip. Scoped to the page's own footer — as a bare
+   element selector it also claimed the cards' footers, forcing them to
+   26px in the mono face and spilling their buttons out of a box the card
+   then clipped. */
+body > footer {
+  height: 26px; padding: 0 12px; border-top: 1px solid var(--border);
+  background: var(--background); font-size: var(--text-2xs); color: var(--faint);
+  display: flex; gap: 14px; align-items: center; flex: none;
+  font-family: var(--font-numeric); letter-spacing: -.01em;
+}
+body > footer .dotsep { color: var(--border); }
+
+/* provenance card — why a drawn level is on the chart.
+   DOCKED, not floating over the candles. The card used to track the
+   annotation's y, which put it in the middle of the chart — right where you
+   were looking. It parks bottom-left, under the readout and clear of the
+   price axis, so its position is predictable and the area around the
+   pointer stays visible. The legend holds the top-right, so the two never
+   argue over the same space. */
+.prov {
+  position: absolute; left: 12px; bottom: 12px; z-index: 40; width: 282px;
+  display: none; overflow: hidden;
+  transition: opacity var(--dur) var(--ease-quartr);
+}
+.prov.open { display: block; animation: pop var(--dur-slow) var(--ease-quartr); }
+/* ONE card, and it belongs to the hover. There is no pinned twin: a second
+   card that appeared on click meant two ways to see the same facts and a
+   mode you had to notice you were in. The card takes the pointer so you can
+   travel to it (main.js holds it open across the gap); it leaves when you
+   do. The peek drops the close button — nothing to close that moving away
+   does not already handle.
+   Every row shows: with no pinned card to defer to, a truncated hover card
+   would put Method and Scanned somewhere you could never reach. */
+/* Wide enough for a same-day span — "28 Jul 2026 · 10:35 → 15:30" — to sit
+   on one line, which is the longest row any of these cards carries. */
+.prov.peek { width: 268px; }
+.prov.peek header { padding: 12px 8px 0 13px; }
+.prov.peek header .btn.icon { display: none; }
+.prov.peek dl { padding: 9px 13px 2px; font-size: var(--text-xs); gap: 7px 12px; }
+.prov.peek footer { padding: 6px 4px 9px; }
+/* ONE surface, like the settings dialog. The card used to be three banded
+   strips — a ruled header, a ruled footer and the rows between them — which
+   made a 250px hover card look like a form. Rhythm separates the parts now;
+   nothing is ruled off. */
+.prov header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 13px 8px 0 14px;
+}
+/* annotation colours, never the candle red/green */
+.prov .role.resistance { color: var(--ann-res); }
+.prov .role.support { color: var(--ann-sup); }
+.prov .price {
+  font-family: var(--font-numeric); font-size: var(--text-md); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; margin-left: auto; margin-right: 2px;
+}
+/* The label column sizes to the longest label IN THIS CARD rather than to a
+   fixed 68px. Every label here is short — Bias, Spans, Width, Status — and
+   reserving a column for the longest one any card might ever have was
+   spending 30px of a 250px card on air, which pushed values into a second
+   line. minmax(0,1fr) lets the value column actually shrink instead of
+   overflowing its track. */
+.prov dl {
+  margin: 0; padding: 10px 14px 2px; display: grid;
+  grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px;
+  font-size: var(--text-sm); line-height: 1.45;
+}
+.prov dt {
+  color: var(--faint); font-weight: var(--weight-medium); white-space: nowrap;
+}
+.prov dd { margin: 0; color: var(--foreground); overflow-wrap: break-word; }
+.prov dl:empty { display: none; }
+/* Ghost buttons carry their own padding, so the footer's own inset is that
+   much smaller — the action text then starts on the same 14px line as the
+   rows above it instead of hanging one step to the right. */
+.prov footer {
+  display: flex; align-items: center; gap: 2px;
+  height: auto; padding: 7px 5px 10px;
+  font-family: var(--font); background: transparent;
+}
+.prov footer .btn {
+  height: 28px; padding: 0 9px; gap: 6px;
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm); color: var(--muted-foreground);
+}
+.prov footer .btn:hover { background: var(--accent); color: var(--foreground); }
+/* An INK-filled button is Pivot's commit gesture — the weight belongs on
+   "place this order", not on a hover card's "tell me more". A black slab
+   across a 250px evidence card outweighed the evidence it was attached to,
+   so the ask drops to a soft fill and Remove stays quiet text beside it.
+   The fill is mixed FROM the ink rather than taken from --muted: in dark
+   --muted and --card are the same #1c1c1d, so a muted button on a card
+   disappeared entirely and the two actions became indistinguishable. */
+.prov footer .btn.cta {
+  flex: none; color: var(--foreground); border-color: transparent;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+.prov footer .btn.cta:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 13%, transparent);
+}
+/* Constructive left, destructive right — the gap between them is the
+   safeguard, and no red is needed to say "careful" at this size. */
+.prov footer .btn.danger { margin-left: auto; }
+.prov footer .btn.danger:hover { background: var(--accent); color: var(--foreground); }
+/* A drawing's REF is a handle, not its identity — the name leads on the
+   left in the micro-label a pattern card uses, and the ref rides quietly on
+   the right where a level card puts its price. */
+.prov .draw-ref {
+  margin-left: auto; margin-right: 2px;
+  font: var(--text-3xs) var(--mono); font-weight: var(--weight-semi); letter-spacing: .02em;
+  color: var(--primary); background: var(--primary-soft);
+  border-radius: var(--radius-pill); padding: 2px 7px;
+}
+
+/* Scene labels — HTML, so they always sit above the chart canvases and the
+   browser owns the text metrics. The scene legend lists what the chat has
+   drawn, top-right, mirroring the symbol/OHLC legend top-left and leaving
+   the candles alone. Set exactly like the indicator legend on the left —
+   the series' own colour, no chrome. A bordered chip announced itself as a
+   control; these are readings, and the two legends should be one voice. */
+.scene-chips { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.scene-chip {
+  position: absolute; right: 8px; display: inline-block; white-space: nowrap;
+  line-height: 16px;
+  font: var(--text-xs) var(--font); letter-spacing: -.005em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto; cursor: default;
+}
+.scene-chip.hot { font-weight: var(--weight-semi); }
+
+/* chart ⇄ chat cross-highlight. A mention of something drawn on the chart,
+   quiet until it matters. A real text-decoration, not a bottom border: a
+   border is an edge of a BOX, so border-radius curled its ends upward and
+   the mention looked like it was sitting in a tray. */
+.ann-ref {
+  text-decoration: underline dotted var(--foreground);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: default;
+  /* No transition. Crossing in and out of a small inline target fades the
+     state in and out repeatedly, which reads as jitter — it should be
+     binary and instant. */
+}
+/* The hover state is the UNDERLINE changing colour — nothing else. A filled
+   patch has to be as tall as the line box to look deliberate, and at that
+   size it crowds the line above and below. Recolouring the rule marks the
+   same word, occupies no space of its own, and so cannot collide. */
+.ann-ref:hover, .ann-ref.hot {
+  text-decoration-color: var(--primary);
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+}
+
+/* ─── 8 · CHAT ─────────────────────────────────────────────────────────── */
+/* A document-style LLM conversation, not a messenger. No header chrome;
+   every control lives in the composer. */
+
+.chatpanel {
+  width: 46%; min-width: 320px; flex: none; background: var(--background);
+  display: flex; flex-direction: column; min-height: 0; position: relative;
+}
+.chatpanel.hidden { display: none; }
+
+.thread {
+  flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
+  padding: 26px 0 8px; scroll-behavior: smooth;
+}
+.thread-inner {
+  max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
+  display: flex; flex-direction: column; gap: 26px;
+}
+
+/* user turn — a quiet rounded block, right-weighted (Claude-style) */
+.turn.user { display: flex; justify-content: flex-end; }
+.turn.user .bubble {
+  background: var(--muted); border-radius: var(--radius-lg); padding: 11px 16px;
+  max-width: 88%; font-size: var(--text-xl); line-height: 1.55; color: var(--foreground);
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+.bubble img.shot {
+  display: block; max-width: min(260px, 100%); border-radius: var(--radius-sm);
+  border: 1px solid var(--border); margin-bottom: 6px;
+}
+
+/* assistant turn — bare prose, full measure, no container */
+.turn.assistant { display: block; }
+.turn.error .prose { color: var(--down); }
+.prose {
+  font-size: var(--text-2xl); line-height: 1.72; color: var(--foreground);
+  user-select: text; word-break: break-word;
+}
+.prose > *:first-child { margin-top: 0; }
+.prose > *:last-child { margin-bottom: 0; }
+.prose p { margin: 0 0 14px; }
+.prose h1, .prose h2, .prose h3 {
+  margin: 22px 0 10px; font-weight: var(--weight-semi);
+  letter-spacing: -.025em; line-height: 1.35;
+}
+.prose h1 { font-size: var(--text-h1); }
+.prose h2 { font-size: var(--text-h2); }
+.prose h3 { font-size: var(--text-h3); }
+.prose ul, .prose ol { margin: 0 0 14px; padding-left: 22px; }
+.prose li { margin: 0 0 7px; }
+.prose li > ul, .prose li > ol { margin: 7px 0 0; }
+.prose li::marker { color: var(--faint); }
+.prose strong { font-weight: 650; }
+.prose em { font-style: italic; }
+.prose code {
+  font-family: var(--mono); font-size: var(--text-base); background: var(--muted);
+  border-radius: var(--radius-xs); padding: 1.5px 5px;
+}
+.prose pre {
+  background: var(--muted); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); padding: 11px 13px; overflow-x: auto;
+  margin: 0 0 14px; font-size: var(--text-base); line-height: 1.6;
+}
+.prose pre code { background: none; padding: 0; }
+.prose hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+/* tables: the pane is narrow, so a wide table scrolls inside its own box
+   rather than stretching the thread */
+.tablewrap { overflow-x: auto; margin: 0 0 16px; }
+.prose table { border-collapse: collapse; width: 100%; font-size: var(--text-base); }
+.prose th, .prose td {
+  padding: 7px 10px; white-space: nowrap;
+  border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.prose thead th {
+  white-space: nowrap; border-bottom: 1px solid var(--border); padding-bottom: 5px;
+}
+.prose tbody tr:last-child td { border-bottom: 0; }
+.prose tbody tr:hover td { background: var(--muted); }
+.prose td:first-child, .prose th:first-child { padding-left: 0; }
+.prose td:last-child, .prose th:last-child { padding-right: 0; }
+/* Prices and counts must not jitter as they change. Pivot sets PRICES in
+   the machine face, not all emphasis — prose here is mixed ("Close: 1,264.8",
+   "Session low; not re-tested"), so the mono face would swallow labels and
+   evidence text along with the numbers. Tables and bold stay in Inter with
+   tabular figures; the mono face is reserved for the surfaces that are
+   numeric all the way through — the OHLC readout, the status strip, and the
+   indicator chips. */
+.prose strong, .prose code, .prose td, .turn-meta { font-variant-numeric: tabular-nums; }
+
+/* per-turn footnotes: provenance + timing, quiet until hovered */
+.turn-meta {
+  margin-top: 10px; font-size: var(--text-2xs); color: var(--faint);
+  display: flex; align-items: center; gap: 8px; opacity: .65;
+  transition: opacity var(--dur) ease; user-select: text;
+}
+.turn.assistant:hover .turn-meta { opacity: 1; }
+.turn-meta .copy {
+  background: none; border: 0; color: var(--faint); cursor: pointer;
+  display: inline-flex; padding: 3px; border-radius: var(--radius-xs);
+  transition: color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
+}
+.turn-meta .copy:hover { color: var(--foreground); background: var(--accent); }
+
+.thinking {
+  color: var(--muted-foreground); font-size: var(--text-xl);
+  display: flex; align-items: center; gap: 9px;
+}
+.thinking .pulse {
+  width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+  animation: breathe 1.1s ease-in-out infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+
+/* Streaming cursor. `inline-block` with a nudged vertical-align keeps it on
+   the text baseline even when the last node is a table or list, where a
+   bare inline element would sit at the block edge. */
+.caret {
+  display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  vertical-align: -0.15em; background: var(--muted-foreground);
+  animation: caretBlink 1s steps(2, start) infinite;
+}
+@keyframes caretBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+.chat-empty {
+  color: var(--faint); font-size: var(--text-lg); text-align: center;
+  margin-top: 22vh; line-height: 1.7;
+}
+.chat-empty b { color: var(--muted-foreground); font-weight: var(--weight-display); }
+
+/* scroll-to-latest, Claude's floating pill */
+.to-bottom {
+  position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%);
+  width: 30px; height: 30px; border-radius: 50%; background: var(--popover);
+  border: 1px solid var(--border); color: var(--muted-foreground);
+  display: none; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: var(--shadow); z-index: 12;
+  transition: color var(--dur) var(--ease-quartr);
+}
+.to-bottom.show { display: flex; }
+.to-bottom:hover { color: var(--foreground); }
+
+/* composer */
+.composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
+.composer-inner { max-width: 720px; margin: 0 auto; }
+.composer {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-2xl); padding: 10px 10px 8px 14px;
+  transition: border-color var(--dur-slow) var(--ease-quartr);
+}
+.composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.composer textarea {
+  width: 100%; resize: none; background: transparent; color: var(--foreground);
+  border: 0; outline: none; font-size: var(--text-xl); line-height: 1.55;
+  max-height: 190px; min-height: 24px; padding: 2px 4px 4px 0; display: block;
+}
+.composer textarea::placeholder { color: var(--faint); }
+.composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.cbtn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
+  background: transparent; color: var(--muted-foreground); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.cbtn:hover { background: var(--accent); color: var(--foreground); }
+.ctx-flag {
+  font-size: var(--text-2xs); color: var(--muted-foreground); border: 0;
+  border-radius: var(--radius-pill);
+  padding: 4px 10px; background: var(--muted); white-space: nowrap; cursor: pointer;
+  line-height: 1; transition: color var(--dur) var(--ease-quartr);
+}
+.ctx-flag:hover { color: var(--foreground); }
+.ctx-flag.off { color: var(--faint); }
+.ctx-flag .dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--up); margin-right: 5px; vertical-align: middle;
+}
+.ctx-flag.off .dot { background: var(--faint); }
+.model-label {
+  font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap;
+  margin-right: 2px; font-weight: var(--weight-medium);
+}
+.model-label .lvl { color: var(--faint); font-weight: 400; }
+.send {
+  width: 30px; height: 30px; border-radius: 50%; border: 0; flex: none;
+  background: var(--primary); color: var(--primary-foreground); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity var(--dur) ease, transform var(--dur-fast) ease;
+}
+.send:hover { transform: scale(1.05); }
+.send:disabled { opacity: .3; cursor: default; transform: none; }
+.composer-hint {
+  text-align: center; font-size: var(--text-3xs); color: var(--faint);
+  margin-top: 8px; letter-spacing: .01em;
+}
+
+/* screenshot capture + attachment */
+.shot-pop {
+  display: flex; gap: 12px; align-items: center; margin-bottom: 8px;
+  padding: 10px; animation: pop var(--dur-slow) ease-out;
+}
+.shot-pop img {
+  width: 96px; height: auto; max-height: 64px; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+.shot-pop-title { font-size: var(--text-base); font-weight: var(--weight-semi); }
+.shot-pop-sub { font-size: var(--text-xs); color: var(--muted-foreground); margin: 2px 0 7px; }
+.shot-pop-actions { display: flex; gap: 6px; }
+.shot-pop-actions .btn { height: 26px; font-size: var(--text-sm); }
+.shot-overlay { position: absolute; inset: 0; z-index: 40; cursor: crosshair; background: transparent; }
+.shot-marquee {
+  position: absolute; border: 1.5px dashed var(--primary);
+  background: var(--primary-soft); border-radius: var(--radius-2xs);
+  box-shadow: 0 0 0 9999px var(--scrim); pointer-events: none;
+}
+.shot-hint {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-pill); padding: 5px 14px; font-size: var(--text-xs);
+  color: var(--muted-foreground); box-shadow: var(--shadow);
+  pointer-events: none; white-space: nowrap;
+}
+.attach-row { margin-bottom: 6px; }
+.attach-chip {
+  display: inline-flex; gap: 7px; align-items: center; height: 28px;
+  font-size: var(--text-xs); color: var(--muted-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 0 6px 0 4px; background: var(--card);
+}
+.attach-chip img {
+  width: 34px; height: 20px; object-fit: cover;
+  border-radius: var(--radius-pill) var(--radius-xs) var(--radius-xs) var(--radius-pill);
+}
+
+/* drawing references carried into the composer */
+.draw-tag-row { margin-bottom: 6px; }
+.draw-tag {
+  display: inline-flex; gap: 6px; align-items: center; height: 26px;
+  font-size: var(--text-xs); color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: var(--primary-soft); border-radius: var(--radius-pill);
+  padding: 0 5px;
+}
+.draw-tag .ref {
+  font: var(--text-3xs) var(--mono); font-weight: var(--weight-semi); color: var(--primary);
+  background: var(--background); border-radius: var(--radius-pill); padding: 2px 6px;
+  letter-spacing: .02em;
+}
+.bubble-tag {
+  display: inline-block; font: var(--text-3xs) var(--mono); letter-spacing: .02em;
+  color: var(--primary); background: var(--background);
+  border-radius: var(--radius-pill); padding: 2px 8px; margin-bottom: 6px;
+}
+
+/* pinned bars — clicked candles, shown above the composer.
+   Two lines, the composer-attachment idiom used across Pivot: what the bar
+   did on top, which bar it is underneath, led by a to-scale miniature of
+   the candle itself. A pill reading "28 Jul 09:35  1,273.40" named a bar
+   without saying what it was, what it did, or why it was there. */
+.pins { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 7px; }
+.pins:empty { display: none; }
+.pins-lead {
+  flex-basis: 100%; display: flex; align-items: center; gap: 5px;
+  padding-left: 2px; font-size: var(--text-3xs); color: var(--faint);
+}
+.pins-lead svg { color: var(--muted-foreground); }
+/* Borderless: the fill alone separates the chip from the composer. It is
+   --muted rather than --card because --card is a hair off white in the
+   light theme, and without a border that chip would have no edge at all. */
+.pin {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 4px 4px 7px; border-radius: var(--radius);
+  border: 0; background: var(--muted);
+  color: var(--foreground); white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-slow) ease;
+}
+.pin:hover { background: color-mix(in srgb, var(--primary) 12%, var(--muted)); }
+.pin:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+/* the bar itself: wick across the high-low span, body sized and placed
+   from the real OHLC (inline styles), tinted by direction */
+.pin-bar { position: relative; width: 9px; height: 21px; flex: none; }
+.pin.up .pin-bar { color: var(--up); }
+.pin.down .pin-bar { color: var(--down); }
+.pin-bar .wick {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 1.5px;
+  margin-left: -.75px; background: currentColor; opacity: .5;
+}
+.pin-bar .body {
+  position: absolute; left: 0; right: 0; min-height: 2px;
+  background: currentColor; border-radius: 1.5px;
+}
+.pin-txt { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.pin-top { font-family: var(--font-numeric); font-size: var(--text-sm); letter-spacing: -.01em; }
+.pin-move { font-weight: var(--weight-medium); margin-left: 6px; }
+.pin.up .pin-move { color: var(--up); }
+.pin.down .pin-move { color: var(--down); }
+.pin-sub { font-size: var(--text-3xs); color: var(--muted-foreground); }
+
+/* context inspector — slide-over inside the chat pane */
+.ctx-peek {
+  display: none; position: absolute; inset: 0; z-index: 30;
+  background: var(--background); flex-direction: column;
+}
+.ctx-peek.open { display: flex; animation: fade var(--dur-slow) ease-out; }
+.ctx-peek-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-size: var(--text-base); color: var(--muted-foreground); font-weight: var(--weight-display);
+}
+.ctx-peek pre {
+  margin: 0; padding: 16px; overflow: auto; flex: 1;
+  font-family: var(--mono); font-size: var(--text-xs); line-height: 1.6;
+  color: var(--muted-foreground); white-space: pre-wrap; word-break: break-word;
+  user-select: text;
+}
+
+/* ─── 9 · SCROLLBARS ───────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: var(--radius-xs);
+  border: 2px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--faint); background-clip: padding-box; border: 2px solid transparent;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── carried over from the pre-merge chart ─────────────────────────
+     Rules for elements this branch's stylesheet never had: the symbol
+     search pill/menu/list, the venue badge, the chat drawing-tag and
+     chip affordances, and the provenance role badges. Appended rather
+     than interleaved so the incoming design system stays one block.
+     (#periodPop's rules are deliberately NOT carried: the settings
+      dialog replaced that popup and main.js no longer references it.)
+     ─────────────────────────────────────────────────────────────── */
   .symbol .ex {
     font-size: 11px; font-weight: 500; color: var(--muted-foreground);
     letter-spacing: 0;
@@ -147,502 +1510,24 @@
   }
   #symList .item:hover .open-co { opacity: 1; }
   #symList .item .open-co:hover { color: var(--primary); background: var(--accent); }
-
-  /* a company's mark, inline before its name in a reply's table */
-
-  /* segmented control (intervals) */
-  .seg { display: inline-flex; align-items: center; gap: 2px; }
-  .seg button {
-    background: transparent; color: var(--muted-foreground); border: 0; cursor: pointer;
-    font-size: 12px; font-weight: 600; padding: 0 9px; height: 28px;
-    border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
-    transition: background .12s ease, color .12s ease;
-  }
-  .seg button:hover { background: var(--accent); color: var(--foreground); }
-  .seg button.active { color: var(--primary); background: var(--primary-soft); }
-
-  /* shadcn button — ghost / outline / icon variants */
-  .btn {
-    display: inline-flex; align-items: center; gap: 7px; height: 30px;
-    padding: 0 11px; border-radius: var(--radius); cursor: pointer;
-    background: transparent; border: 1px solid transparent; color: var(--foreground);
-    font-size: 12.5px; font-weight: 500; white-space: nowrap;
-    transition: background .12s ease, border-color .12s ease, color .12s ease;
-  }
-  .btn:hover { background: var(--accent); }
   .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-  .btn.outline { border-color: var(--border); }
-  .btn.outline:hover { border-color: var(--border); background: var(--accent); }
-  .btn.icon { width: 30px; padding: 0; justify-content: center; color: var(--muted-foreground); }
-  .btn.icon:hover { color: var(--foreground); }
-  .btn.on { color: var(--primary); background: var(--primary-soft); }
-  .btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
-
-  /* shadcn dropdown-menu */
-  .menu-wrap { position: relative; }
-  .dropdown {
-    position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
-    background: var(--popover); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); min-width: 224px; padding: 5px;
-    display: none; box-shadow: var(--shadow);
-  }
-  .dropdown.right { left: auto; right: 0; }
-  .dropdown.up { top: auto; bottom: calc(100% + 8px); }
-  .dropdown.open { display: block; animation: pop .12s ease-out; }
-  @keyframes pop { from { opacity: 0; transform: translateY(-3px) scale(.985); } }
-  .dropdown .item {
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer;
-    font-size: 12.5px; color: var(--foreground);
-  }
-  .dropdown .item:hover { background: var(--accent); }
-  .dropdown .item.on { color: var(--primary); }
-  .dropdown .item .lead { display: flex; align-items: center; gap: 9px; }
-  .dropdown .item .lead svg { color: var(--muted-foreground); }
-  .dropdown .item.on .lead svg { color: var(--primary); }
-  .dropdown .item.danger:hover { color: var(--down); }
-  .dropdown .item.danger:hover svg { color: var(--down); }
-  .dropdown .sep { height: 1px; background: var(--border); margin: 5px 4px; }
-  .dropdown .head {
-    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--faint); padding: 6px 9px 4px; font-weight: 600;
-  }
-
-  /* shadcn badge — indicator chips */
-  .chips { display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; overflow: hidden; }
-  .chip {
-    display: inline-flex; gap: 5px; align-items: center; height: 24px;
-    font-size: 11.5px; font-weight: 500; color: var(--foreground);
-    border: 1px solid var(--border); border-radius: 999px; padding: 0 5px 0 10px;
-    background: var(--card); white-space: nowrap;
-  }
   .chip .x {
     cursor: pointer; color: var(--faint); display: inline-flex;
     width: 16px; height: 16px; align-items: center; justify-content: center;
     border-radius: 50%;
   }
   .chip .x:hover { color: var(--down); background: var(--down-soft); }
-  .chip .lbl { cursor: pointer; border-radius: 4px; padding: 1px 4px; margin: 0 -2px 0 -4px; }
   .chip .lbl:hover { background: var(--accent); }
-  #periodPop { position: fixed; min-width: 208px; z-index: 70; }
-  #periodPop .period-row { display: flex; gap: 6px; align-items: center; padding: 5px 4px 3px; }
-  #periodPop input {
-    width: 76px; height: 27px; padding: 0 9px; text-align: right;
-    background: var(--muted); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--foreground);
-    font: 12.5px var(--mono); -moz-appearance: textfield;
-  }
-  #periodPop input:focus { outline: 2px solid var(--ring); outline-offset: 1px; }
-  #periodPop .btn { height: 27px; font-size: 12px; }
-  #periodPop .hint {
-    font-size: 10.5px; color: var(--faint); line-height: 1.5;
-    padding: 3px 5px 4px; max-width: 240px;
-  }
-  .badge {
-    font-size: 11px; font-weight: 500; border: 1px solid var(--border);
-    border-radius: 999px; padding: 3px 10px; color: var(--muted-foreground);
-    white-space: nowrap;
-  }
-  .badge.accent { color: var(--primary); border-color: var(--primary-soft); background: var(--primary-soft); }
-
-  /* ── body: rail + chart + chat ─────────────────────────── */
-  .main { display: flex; flex: 1; min-height: 0; }
-
-  .rail {
-    width: 46px; background: var(--background); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; align-items: center;
-    padding: 7px 0; gap: 1px; z-index: 10; flex: none;
-  }
-  .tool {
-    width: 32px; height: 32px; border-radius: var(--radius); border: 0; cursor: pointer;
-    background: transparent; color: var(--muted-foreground);
-    display: flex; align-items: center; justify-content: center; position: relative;
-    transition: background .12s ease, color .12s ease;
-  }
-  .tool:hover { background: var(--accent); color: var(--foreground); }
-  .tool.active { background: var(--primary-soft); color: var(--primary); }
-  .tool.toggled { color: var(--primary); }
-  .tool .tip {
-    position: absolute; left: 42px; top: 50%; transform: translateY(-50%);
-    background: var(--popover); color: var(--foreground); font-size: 11.5px;
-    padding: 5px 9px; border-radius: var(--radius-sm); white-space: nowrap;
-    border: 1px solid var(--border); box-shadow: var(--shadow);
-    opacity: 0; pointer-events: none; z-index: 70; transition: opacity .1s ease .25s;
-    font-weight: 500;
-  }
-  .tool:hover .tip { opacity: 1; }
-  .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
-  .rail-spacer { flex: 1; }
-  /* a rail button that owns a group opens its flyout to the right */
-  .tool-wrap { position: relative; display: flex; }
-  .tool-wrap > .dropdown.side {
-    left: calc(100% + 8px); top: -6px; right: auto; min-width: 178px;
-  }
-  .tool.has-group::after {
-    content: ""; position: absolute; right: 3px; bottom: 3px;
-    border-left: 4px solid transparent; border-bottom: 4px solid currentColor;
-    opacity: .45;
-  }
-  .tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
-
-  /* ── chart stage ───────────────────────────────────────── */
-  .stage { position: relative; flex: 1; min-height: 0; background: var(--chart-bg); }
-  #chart { position: absolute; inset: 0; cursor: crosshair; }
-  /* TradingView cursors: crosshair to place, grabbing hand while panning */
-  .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-  .stage.overdraw #chart { cursor: move; }
-
-  .readout {
-    position: absolute; top: 10px; left: 12px; z-index: 5;
-    font-size: 12px; color: var(--muted-foreground);
-    pointer-events: none; line-height: 1.55;
-  }
-  .readout .title { color: var(--foreground); font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
-  .readout .row span { margin-right: 9px; }
-  .readout b { font-weight: 600; }
-  .readout b.up { color: var(--up); }
-  .readout b.down { color: var(--down); }
-
-  /* TradingView's "auto" affordance — appears once you've moved the price
-     scale by hand, clicking it re-fits to the visible bars. */
-  .auto-pill {
-    position: absolute; right: 8px; bottom: 36px; z-index: 6; display: none;
-    background: var(--popover); border: 1px solid var(--border); color: var(--muted-foreground);
-    font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-    padding: 3px 9px; border-radius: 999px; cursor: pointer; box-shadow: var(--shadow);
-  }
-  .auto-pill.show { display: block; }
-  .auto-pill:hover { color: var(--primary); border-color: var(--primary); }
-
-  .overlay-msg {
-    position: absolute; inset: 0; z-index: 8; display: none;
-    align-items: center; justify-content: center;
-    background: color-mix(in srgb, var(--chart-bg) 78%, transparent);
-    color: var(--muted-foreground); font-size: 13px;
-  }
-  .overlay-msg.show { display: flex; }
-  .overlay-msg .err { color: var(--down); }
-
-  footer {
-    height: 26px; padding: 0 12px; border-top: 1px solid var(--border);
-    background: var(--background); font-size: 11px; color: var(--faint);
-    display: flex; gap: 14px; align-items: center; flex: none;
-  }
-  footer .dotsep { color: var(--border); }
-
-  /* ── split divider ─────────────────────────────────────── */
-  .splitter {
-    width: 1px; flex: none; cursor: col-resize; background: var(--border);
-    position: relative; transition: background .12s ease;
-  }
-  .splitter::after { content: ""; position: absolute; inset: 0 -5px; }
-  .splitter:hover, .splitter.dragging { background: var(--primary); }
-  .splitter.hidden { display: none; }
-
-  /* ══════════════════════════════════════════════════════════════════
-     Chat — a document-style LLM conversation, not a messenger.
-     No header chrome; every control lives in the composer.
-     ══════════════════════════════════════════════════════════════════ */
-  .chatpanel {
-    width: 46%; min-width: 320px; flex: none; background: var(--background);
-    display: flex; flex-direction: column; min-height: 0; position: relative;
-  }
-  .chatpanel.hidden { display: none; }
-
-  .thread {
-    flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
-    padding: 26px 0 8px; scroll-behavior: smooth;
-  }
-  .thread-inner {
-    max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
-    display: flex; flex-direction: column; gap: 26px;
-  }
-
-  /* user turn — a quiet rounded block, right-weighted (Claude-style) */
-  .turn.user { display: flex; justify-content: flex-end; }
-  .turn.user .bubble {
-    background: var(--muted); border-radius: 16px; padding: 11px 16px;
-    max-width: 88%; font-size: 14px; line-height: 1.55; color: var(--foreground);
-    white-space: pre-wrap; word-break: break-word; user-select: text;
-  }
-
-  /* assistant turn — bare prose, full measure, no container */
-  .turn.assistant { display: block; }
-  .prose {
-    font-size: 14.5px; line-height: 1.72; color: var(--foreground);
-    user-select: text; word-break: break-word;
-  }
-  .prose > *:first-child { margin-top: 0; }
-  .prose > *:last-child { margin-bottom: 0; }
-  .prose p { margin: 0 0 14px; }
-  .prose h1, .prose h2, .prose h3 {
-    margin: 22px 0 10px; font-weight: 650; letter-spacing: -.015em; line-height: 1.35;
-  }
-  .prose h1 { font-size: 19px; }
-  .prose h2 { font-size: 16.5px; }
-  .prose h3 { font-size: 15px; }
-  .prose ul, .prose ol { margin: 0 0 14px; padding-left: 22px; }
-  .prose li { margin: 0 0 7px; }
-  .prose li > ul, .prose li > ol { margin: 7px 0 0; }
-  .prose li::marker { color: var(--faint); }
-  .prose strong { font-weight: 650; }
-  .prose em { font-style: italic; }
-  .prose code {
-    font-family: var(--mono); font-size: 12.5px; background: var(--muted);
-    border-radius: 5px; padding: 1.5px 5px;
-  }
-  .prose pre {
-    background: var(--muted); border: 1px solid var(--border-soft);
-    border-radius: var(--radius); padding: 11px 13px; overflow-x: auto;
-    margin: 0 0 14px; font-size: 12.5px; line-height: 1.6;
-  }
-  .prose pre code { background: none; padding: 0; }
-  .prose hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
-  /* tables: the pane is narrow, so a wide table scrolls inside its own box
-     rather than stretching the thread */
-  .tablewrap { overflow-x: auto; margin: 0 0 16px; }
-  .prose table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-  .prose th, .prose td {
-    padding: 7px 10px; white-space: nowrap;
-    border-bottom: 1px solid var(--border-soft);
-    font-variant-numeric: tabular-nums;
-  }
-  .prose thead th {
-    font-size: 10.5px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--muted-foreground); white-space: nowrap;
-    border-bottom: 1px solid var(--border); padding-bottom: 5px;
-  }
-  .prose tbody tr:last-child td { border-bottom: 0; }
-  .prose tbody tr:hover td { background: var(--muted); }
-  .prose td:first-child, .prose th:first-child { padding-left: 0; }
-  .prose td:last-child, .prose th:last-child { padding-right: 0; }
-  /* prices and counts must not jitter as they change */
-  .prose strong, .prose code, .readout, .turn-meta { font-variant-numeric: tabular-nums; }
-
-  /* per-turn footnotes: provenance + timing, quiet until hovered */
-  .turn-meta {
-    margin-top: 10px; font-size: 11px; color: var(--faint);
-    display: flex; align-items: center; gap: 8px; opacity: .65;
-    transition: opacity .12s ease; user-select: text;
-  }
-  .turn.assistant:hover .turn-meta { opacity: 1; }
-  .turn-meta .copy {
-    background: none; border: 0; color: var(--faint); cursor: pointer;
-    display: inline-flex; padding: 3px; border-radius: 5px;
-  }
-  .turn-meta .copy:hover { color: var(--foreground); background: var(--accent); }
-
-  .thinking { color: var(--muted-foreground); font-size: 14px; display: flex; align-items: center; gap: 9px; }
-  .thinking .pulse {
-    width: 7px; height: 7px; border-radius: 50%; background: currentColor;
-    animation: breathe 1.1s ease-in-out infinite;
-  }
-  @keyframes breathe { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
-
-  /* Streaming cursor. `inline-block` with a nudged vertical-align keeps it on
-     the text baseline even when the last node is a table or list, where a
-     bare inline element would sit at the block edge. */
-  .caret {
-    display: inline-block; width: 2px; height: 1em; margin-left: 2px;
-    vertical-align: -0.15em; background: var(--muted-foreground);
-    animation: caretBlink 1s steps(2, start) infinite;
-  }
-  @keyframes caretBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-  .turn.error .prose { color: var(--down); }
-
-  .chat-empty {
-    color: var(--faint); font-size: 13.5px; text-align: center;
-    margin-top: 22vh; line-height: 1.7;
-  }
-  .chat-empty b { color: var(--muted-foreground); font-weight: 550; }
-
-  /* scroll-to-latest, Claude's floating pill */
-  .to-bottom {
-    position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%);
-    width: 30px; height: 30px; border-radius: 50%; background: var(--popover);
-    border: 1px solid var(--border); color: var(--muted-foreground);
-    display: none; align-items: center; justify-content: center; cursor: pointer;
-    box-shadow: var(--shadow); z-index: 12;
-  }
-  .to-bottom.show { display: flex; }
-  .to-bottom:hover { color: var(--foreground); }
-
-  /* ── composer ──────────────────────────────────────────── */
-  .composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
-  .shot-pop {
-    display: flex; gap: 12px; align-items: center; margin-bottom: 8px;
-    background: var(--popover); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); padding: 10px; box-shadow: var(--shadow);
-    animation: pop .14s ease-out;
-  }
-  .shot-pop img {
-    width: 96px; height: auto; max-height: 64px; object-fit: cover;
-    border-radius: var(--radius-sm); border: 1px solid var(--border);
-  }
-  .shot-pop-title { font-size: 12.5px; font-weight: 600; }
-  .shot-pop-sub { font-size: 11.5px; color: var(--muted-foreground); margin: 2px 0 7px; }
-  .shot-pop-actions { display: flex; gap: 6px; }
-  .shot-pop-actions .btn { height: 26px; font-size: 12px; }
-  .prov .role.draw-ref {
-    font: 10.5px var(--mono); font-weight: 600; letter-spacing: .02em;
-    color: var(--primary); background: var(--primary-soft);
-  }
-  .draw-tag-row { margin-bottom: 6px; }
-  .draw-tag {
-    display: inline-flex; gap: 6px; align-items: center; height: 26px;
-    font-size: 11.5px; color: var(--foreground);
-    border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
-    background: var(--primary-soft); border-radius: 999px;
-    padding: 0 5px 0 5px;
-  }
-  .draw-tag .ref {
-    font: 10.5px var(--mono); font-weight: 600; color: var(--primary);
-    background: var(--background); border-radius: 999px; padding: 2px 6px;
-    letter-spacing: .02em;
-  }
   .draw-tag .x {
     cursor: pointer; color: var(--faint); width: 16px; height: 16px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 50%;
   }
   .draw-tag .x:hover { color: var(--down); background: var(--down-soft); }
-  .bubble-tag {
-    display: inline-block; font: 10.5px var(--mono); letter-spacing: .02em;
-    color: var(--primary); background: var(--background);
-    border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;
-  }
-  .attach-row { margin-bottom: 6px; }
-  .shot-overlay {
-    position: absolute; inset: 0; z-index: 40; cursor: crosshair;
-    background: transparent;
-  }
-  .shot-marquee {
-    position: absolute; border: 1.5px dashed var(--primary);
-    background: var(--primary-soft); border-radius: 3px;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); pointer-events: none;
-  }
-  .shot-hint {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: var(--popover); border: 1px solid var(--border);
-    border-radius: 999px; padding: 5px 14px; font-size: 11.5px;
-    color: var(--muted-foreground); box-shadow: var(--shadow);
-    pointer-events: none; white-space: nowrap;
-  }
-  .attach-chip {
-    display: inline-flex; gap: 7px; align-items: center; height: 28px;
-    font-size: 11.5px; color: var(--muted-foreground);
-    border: 1px solid var(--border); border-radius: 999px;
-    padding: 0 6px 0 4px; background: var(--card);
-  }
-  .attach-chip img {
-    width: 34px; height: 20px; object-fit: cover;
-    border-radius: 999px 4px 4px 999px;
-  }
-  .attach-chip .x {
-    cursor: pointer; color: var(--faint); width: 16px; height: 16px;
-    display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 50%; font-size: 13px;
-  }
   .attach-chip .x:hover { color: var(--down); background: var(--down-soft); }
-  .bubble img.shot {
-    display: block; max-width: min(260px, 100%); border-radius: var(--radius-sm);
-    border: 1px solid var(--border); margin-bottom: 6px;
-  }
-  .composer-inner { max-width: 720px; margin: 0 auto; }
-  .composer {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 20px; padding: 10px 10px 8px 14px;
-    box-shadow: var(--shadow); transition: border-color .14s ease;
-  }
-  .composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
-  .composer textarea {
-    width: 100%; resize: none; background: transparent; color: var(--foreground);
-    border: 0; outline: none; font-size: 14px; line-height: 1.55;
-    max-height: 190px; min-height: 24px; padding: 2px 4px 4px 0; display: block;
-  }
-  .composer textarea::placeholder { color: var(--faint); }
-  .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-  .cbtn {
-    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
-    background: transparent; color: var(--muted-foreground); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; flex: none;
-    transition: background .12s ease, color .12s ease;
-  }
-  .cbtn:hover { background: var(--accent); color: var(--foreground); }
-  .ctx-flag {
-    font-size: 11px; color: var(--muted-foreground); border: 0; border-radius: 999px;
-    padding: 4px 10px; background: var(--muted); white-space: nowrap; cursor: pointer;
-    line-height: 1;
-  }
-  .ctx-flag:hover { color: var(--foreground); }
-  .ctx-flag.off { color: var(--faint); }
-  .ctx-flag .dot {
-    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-    background: var(--up); margin-right: 5px; vertical-align: middle;
-  }
-  .ctx-flag.off .dot { background: var(--faint); }
-  .model-label {
-    font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap;
-    margin-right: 2px; font-weight: 500;
-  }
-  .model-label .lvl { color: var(--faint); font-weight: 400; }
-  .send {
-    width: 30px; height: 30px; border-radius: 50%; border: 0; flex: none;
-    background: var(--primary); color: var(--primary-foreground); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: opacity .12s ease, transform .1s ease;
-  }
-  .send:hover { transform: scale(1.05); }
-  .send:disabled { opacity: .3; cursor: default; transform: none; }
-  .composer-hint {
-    text-align: center; font-size: 10.5px; color: var(--faint);
-    margin-top: 8px; letter-spacing: .01em;
-  }
-
-  /* context inspector — slide-over inside the chat pane */
-  /* provenance card — why a drawn level is on the chart */
-  .prov {
-    position: absolute; right: 78px; z-index: 40; width: 268px;
-    background: var(--popover); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); box-shadow: var(--shadow);
-    display: none; overflow: hidden;
-  }
-  .prov.open { display: block; animation: pop .12s ease-out; }
-  .prov header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 8px 10px 12px; border-bottom: 1px solid var(--border-soft);
-  }
   .prov .role {
     font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
     text-transform: uppercase;
-  }
-  /* annotation colours, never the candle red/green */
-  .prov .role.resistance { color: var(--ann-res); }
-  .prov .role.support { color: var(--ann-sup); }
-  .prov .price {
-    font-family: var(--mono); font-size: 13px; font-weight: 600;
-    margin-left: auto; margin-right: 2px;
-  }
-  .prov dl {
-    margin: 0; padding: 10px 12px; display: grid;
-    grid-template-columns: 66px 1fr; gap: 6px 10px; font-size: 11.5px;
-  }
-  .prov dt { color: var(--faint); }
-  .prov dd { margin: 0; color: var(--foreground); }
-  .prov footer {
-    display: flex; gap: 6px; padding: 8px 10px;
-    border-top: 1px solid var(--border-soft);
-  }
-  .prov footer .btn { flex: 1; height: 28px; font-size: 11.5px; justify-content: center; gap: 5px; }
-
-  /* pinned bars — clicked candles, shown above the composer */
-  .pins { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 2px 7px; }
-  .pins:empty { display: none; }
-  .pin {
-    display: inline-flex; align-items: center; gap: 6px; height: 24px;
-    padding: 0 5px 0 9px; border-radius: 999px;
-    border: 1px solid var(--border); background: var(--card);
-    font-size: 11.5px; color: var(--foreground); white-space: nowrap;
   }
   .pin .t { color: var(--muted-foreground); }
   .pin .x {
@@ -651,29 +1536,6 @@
     border-radius: 50%;
   }
   .pin .x:hover { color: var(--down); background: var(--down-soft); }
-
-  .ctx-peek {
-    display: none; position: absolute; inset: 0; z-index: 30;
-    background: var(--background); flex-direction: column;
-  }
-  .ctx-peek.open { display: flex; animation: fade .14s ease-out; }
-  @keyframes fade { from { opacity: 0; } }
-  .ctx-peek-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px; border-bottom: 1px solid var(--border);
-    font-size: 12.5px; color: var(--muted-foreground); font-weight: 550;
-  }
-  .ctx-peek pre {
-    margin: 0; padding: 16px; overflow: auto; flex: 1;
-    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
-    color: var(--muted-foreground); white-space: pre-wrap; word-break: break-word;
-    user-select: text;
-  }
-
-  ::-webkit-scrollbar { width: 9px; height: 9px; }
-  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; border: 2px solid transparent; }
-  ::-webkit-scrollbar-track { background: transparent; }
 </style>
 </head>
 <body>
@@ -707,12 +1569,21 @@
       <button class="btn" id="indBtn"></button>
       <div class="dropdown" id="indMenu"></div>
     </div>
-    <div class="chips" id="indChips"></div>
+    <div class="chips-wrap">
+      <button class="chips-arrow left" id="chipsLeft" title="Scroll indicators left"></button>
+      <div class="chips" id="indChips"></div>
+      <button class="chips-arrow right" id="chipsRight" title="Scroll indicators right"></button>
+    </div>
 
     <div class="spacer"></div>
 
     <span class="badge accent" id="sceneCount" style="display:none"></span>
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
+    <div class="menu-wrap">
+      <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
+      <!-- filled by main.js from the Panes catalogue -->
+      <div class="dropdown right layout-menu" id="layoutMenu"></div>
+    </div>
     <div class="menu-wrap">
       <button class="btn icon" id="shotBtn" title="Screenshot the chart for the chat"></button>
       <div class="dropdown right" id="shotMenu">
@@ -756,7 +1627,7 @@
               <div class="shot-pop-title">Chart screenshot captured</div>
               <div class="shot-pop-sub">Attach it to your next message?</div>
               <div class="shot-pop-actions">
-                <button type="button" class="btn outline" id="shotAttach">Attach</button>
+                <button type="button" class="btn cta" id="shotAttach">Attach</button>
                 <button type="button" class="btn" id="shotDismiss">Dismiss</button>
               </div>
             </div>
@@ -805,16 +1676,17 @@
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <div id="periodPop" class="dropdown"></div>
-  <script src="./js/store.js?v=7"></script>
-  <script src="./js/theme.js?v=5"></script>
-  <script src="./js/icons.js?v=6"></script>
-  <script src="./js/indicators.js?v=13"></script>
-  <script src="./js/geometry.js?v=7"></script>
-  <script src="./js/tools.js?v=7"></script>
-  <script src="./js/drawings.js?v=11"></script>
-  <script src="./js/scene.js?v=20"></script>
-  <script src="./js/main.js?v=35"></script>
-  <script src="./js/chat.js?v=19"></script>
+  <script src="./js/store.js?v=8"></script>
+  <script src="./js/theme.js?v=6"></script>
+  <script src="./js/icons.js?v=10"></script>
+  <script src="./js/indicators.js?v=15"></script>
+  <script src="./js/indsettings.js?v=6"></script>
+  <script src="./js/geometry.js?v=8"></script>
+  <script src="./js/tools.js?v=8"></script>
+  <script src="./js/drawings.js?v=12"></script>
+  <script src="./js/scene.js?v=21"></script>
+  <script src="./js/panes.js?v=3"></script>
+  <script src="./js/main.js?v=37"></script>
+  <script src="./js/chat.js?v=20"></script>
 </body>
 </html>

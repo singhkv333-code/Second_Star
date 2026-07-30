@@ -42,28 +42,47 @@ PORT = 5174
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
 # Read from pivot/.env so the key never lands in browser-served files.
 _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
-LLM_DEPLOYMENT = "gpt-5.6-luna"
+# Deployment name is overridable via CHARTO_LLM_MODEL in pivot/.env. It is
+# deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
+# (gpt-5.4-mini) and Charto should not drag it onto a different model.
+LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
 LLM_EFFORT = "medium"
 # Azure priority processing — premium-billed, lower/steadier latency. The
 # response echoes the tier actually served; verify there, not here.
 LLM_SERVICE_TIER = "priority"
 
 
-def _load_azure_creds() -> tuple[str, str]:
-    endpoint = key = ""
+def _env_values(*keys: str) -> dict[str, str]:
+    """Read bare KEY=value lines out of pivot/.env (no python-dotenv here)."""
+    found = {k: "" for k in keys}
     try:
-        for line in _ENV_PATH.read_text().splitlines():
+        for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line.startswith("AZURE_OPENAI_ENDPOINT="):
-                endpoint = line.split("=", 1)[1].strip()
-            elif line.startswith("AZURE_KEY="):
-                key = line.split("=", 1)[1].strip()
+            if line.startswith("#"):
+                continue
+            for k in keys:
+                if line.startswith(f"{k}="):
+                    found[k] = line.split("=", 1)[1].strip().strip('"').strip("'")
     except OSError:
         pass
-    return endpoint.rstrip("/"), key
+    return found
+
+
+def _load_azure_creds() -> tuple[str, str]:
+    v = _env_values("AZURE_OPENAI_ENDPOINT", "AZURE_KEY")
+    return v["AZURE_OPENAI_ENDPOINT"].rstrip("/"), v["AZURE_KEY"]
 
 
 AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
+LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
+
+
+def _creds_error() -> str:
+    """Name the key that is actually missing, not just 'creds not found'."""
+    missing = [n for n, v in (("AZURE_OPENAI_ENDPOINT", AZURE_ENDPOINT),
+                              ("AZURE_KEY", AZURE_KEY)) if not v]
+    return (f"chat disabled — {' and '.join(missing)} empty in pivot/.env "
+            f"(model {LLM_DEPLOYMENT}); fill them in and restart the dataserver")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -4955,7 +4974,7 @@ _FE_RENDERABLE = {"sma", "ema", "bbands", "keltner", "donchian", "supertrend",
 
 def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        lookback_bars: int = 400, draw: bool = False,
-                       source: str = "close", mult: float = 0,
+                       source: str = "", mult: float = 0,
                        fast: int = 0, slow: int = 0, signal: int = 0,
                        series_points: int = 0, anchor_time: str = "",
                        at: list | None = None, frm: str = "",
@@ -4984,7 +5003,9 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                           "and if the user asked for something genuinely absent "
                           "here, say it is not available rather than "
                           "substituting a different indicator for it.")}
-    if source not in indicators.SOURCES:
+    # "" means the indicator's own default column (hlc3 for CCI and MFI), so
+    # a call that simply omits the argument still gets the textbook formula
+    if source and source not in indicators.SOURCES:
         return {"error": f"unknown source '{source}'",
                 "available": list(indicators.SOURCES)}
     if remove:
@@ -5939,7 +5960,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     envelope is rebuilt each turn and never accumulated.
     """
     if not AZURE_ENDPOINT or not AZURE_KEY:
-        return {"error": "Azure creds not found in pivot/.env"}
+        return {"error": _creds_error()}
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
@@ -6015,7 +6036,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
       {"type":"done",  ...}         the same payload llm_chat returns
     """
     if not AZURE_ENDPOINT or not AZURE_KEY:
-        yield {"type": "done", "error": "Azure creds not found in pivot/.env"}
+        yield {"type": "done", "error": _creds_error()}
         return
     block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES, CAUSAL_RULES) if x)
     wire: list[dict] = []
@@ -6728,6 +6749,9 @@ class Handler(BaseHTTPRequestHandler):
                     {"name": k, "period": v["period"], "pane": v["pane"],
                      "group": v["group"], "formula": v["formula"],
                      "lines": _INDICATOR_LINES.get(k, ["value"]),
+                     # the settings dialog's Inputs tab is built from this, so
+                     # the knobs on screen are exactly the knobs the math has
+                     "inputs": indicators.inputs(k),
                      **({"bounds": list(v["bounds"])} if "bounds" in v else {})}
                     for k, v in sorted(indicators.SPECS.items())]})
             if u.path == "/indicator":
@@ -6740,13 +6764,33 @@ class Handler(BaseHTTPRequestHandler):
                 if not rows:
                     return self._send(400, {"error": "no bars"})
                 extra = {}
-                if q.get("mult"):
-                    extra["mult"] = float(q["mult"])
+                # every knob the dialog can show, forwarded by the schema that
+                # produced it — one list, so a new parameter on a function
+                # reaches the chart without a second edit here
+                for field in indicators.inputs(name):
+                    k, t = field["key"], field["type"]
+                    if k in ("period", "source") or q.get(k) in (None, ""):
+                        continue
+                    raw = q[k]
+                    try:
+                        if t == "bool":
+                            extra[k] = raw.lower() in ("1", "true", "yes", "on")
+                        elif t == "enum":
+                            allowed = [o["value"] for o in field["options"]]
+                            if raw not in allowed:
+                                return self._send(400, {
+                                    "error": f"bad {k} '{raw}'", "allowed": allowed})
+                            extra[k] = raw
+                        else:
+                            extra[k] = float(raw) if t == "float" else int(raw)
+                    except ValueError:
+                        return self._send(400, {"error": f"bad {k} '{raw}'"})
                 if q.get("anchor_index"):
                     extra["anchor_index"] = int(q["anchor_index"])
                 try:
+                    # empty source -> the indicator's own default column
                     res = indicators.compute(name, rows, int(q.get("period", 0)),
-                                             q.get("source", "close"), **extra)
+                                             q.get("source", ""), **extra)
                 except ValueError as exc:
                     return self._send(400, {"error": str(exc)})
                 # emitted as {time, value} pairs, nulls dropped — the chart

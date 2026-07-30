@@ -35,6 +35,11 @@ const Icons = (() => {
     candles: '<path d="M9 5v4"/><path d="M9 15v4"/><rect x="6.5" y="9" width="5" height="6" rx="1"/><path d="M17 3v6"/><path d="M17 15v6"/><rect x="14.5" y="9" width="5" height="6" rx="1"/>',
     indicators: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
     chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    chevronUp: '<path d="m18 15-6-6-6 6"/>',
+    chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    // lucide "settings" — the gear TradingView puts on an indicator's legend
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
@@ -49,8 +54,66 @@ const Icons = (() => {
     fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     eraser: '<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/>',
     copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
     panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
   };
+
+  /* ── chart layout glyphs, generated ─────────────────────────────────────
+   * One frame, split: the set reads as a family because only the divider
+   * changes — same 18×16 frame, same radius, and the split drawn at the
+   * icon's own stroke weight (the CSS glyphs these replace used a flat
+   * 1.5px block that sat heavier than the border it crossed, and their
+   * 15×13 box was a different aspect from every other icon in the header).
+   *
+   * With forty-two layouts these are DERIVED rather than drawn. Hand-drawing
+   * them would mean forty-two chances for a glyph to disagree with the grid
+   * it claims to describe; instead the glyph is read off the same
+   * grid-of-letters the layout is defined by, drawing a divider wherever two
+   * neighbouring cells belong to different panes and nowhere else. A layout
+   * and its icon cannot drift apart because there is only one of them.
+   */
+  const FX = 3, FY = 4, FW = 18, FH = 16;
+  const r2 = (n) => Math.round(n * 100) / 100;
+
+  /** layoutSvg(["ab","ac"]) → an <svg> string drawn from that grid. */
+  function layoutSvg(spec, cls = "") {
+    const rows = spec.length, cols = spec[0].length;
+    const cw = FW / cols, ch = FH / rows;
+    const paths = [];
+
+    // vertical dividers — merge consecutive rows into one stroke so a full
+    // -height split is one path, not four stacked segments meeting end to end
+    for (let c = 1; c < cols; c++) {
+      let run = null;
+      for (let r = 0; r <= rows; r++) {
+        const split = r < rows && spec[r][c - 1] !== spec[r][c];
+        if (split && run === null) run = r;
+        if (!split && run !== null) {
+          const x = r2(FX + c * cw);
+          paths.push(`<path d="M${x} ${r2(FY + run * ch)}V${r2(FY + r * ch)}"/>`);
+          run = null;
+        }
+      }
+    }
+    // horizontal dividers — same, merged across columns
+    for (let r = 1; r < rows; r++) {
+      let run = null;
+      for (let c = 0; c <= cols; c++) {
+        const split = c < cols && spec[r - 1][c] !== spec[r][c];
+        if (split && run === null) run = c;
+        if (!split && run !== null) {
+          const y = r2(FY + r * ch);
+          paths.push(`<path d="M${r2(FX + run * cw)} ${y}H${r2(FX + c * cw)}"/>`);
+          run = null;
+        }
+      }
+    }
+
+    const klass = cls ? `icon ${cls}` : "icon";
+    return `<svg class="${klass}" viewBox="0 0 24 24" aria-hidden="true">`
+      + `<rect x="${FX}" y="${FY}" width="${FW}" height="${FH}" rx="2"/>`
+      + paths.join("") + `</svg>`;
+  }
 
   /** svg(name, extraClass) → an <svg class="icon …"> string. */
   function svg(name, cls = "") {
@@ -60,5 +123,5 @@ const Icons = (() => {
     return `<svg class="${klass}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   }
 
-  return { svg, paths: P };
+  return { svg, layoutSvg, paths: P };
 })();
