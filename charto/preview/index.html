@@ -130,6 +130,7 @@
   --muted-foreground: #8f98a1;
   --faint: #6b7280;
   --accent: rgba(255, 255, 255, .04);
+  --hover-fill: rgba(255, 255, 255, .09);
   --border: #242424;
   --border-soft: #1a1a1a;
   --input: #1c1c1d;
@@ -173,6 +174,7 @@
   --muted-foreground: #4d555c;
   --faint: #6b7280;
   --accent: rgba(15, 18, 22, .06);
+  --hover-fill: rgba(15, 18, 22, .075);
   --border: #e6e6e6;
   --border-soft: #ececee;
   --input: #fbfbfc;
@@ -775,14 +777,27 @@ body > header {
 
 /* segmented control (intervals) */
 .seg { display: inline-flex; align-items: center; gap: 2px; }
+/* Intervals and drawing tools are the two things on this screen you reach
+   for constantly, and both sat at --muted-foreground: legible, but reading
+   as disabled next to the chart they drive. They rest at full foreground
+   now, and the hover carries the state change instead of the colour having
+   to hold it.
+   The lift is one property — a 1.06 scale on press-sized targets — because
+   a hover that moves the label is harder to aim at than one that doesn't.
+   Pressing scales BACK past rest, which is the whole tactile trick: the
+   control appears to take the click. */
 .seg button {
-  background: transparent; color: var(--muted-foreground); border: 0; cursor: pointer;
+  background: transparent; color: var(--foreground); border: 0; cursor: pointer;
   font-size: var(--text-sm); font-weight: var(--weight-semi); padding: 0 9px; height: 28px;
   border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
-  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              transform var(--dur-fast) var(--ease-quartr);
 }
-.seg button:hover { background: var(--accent); color: var(--foreground); }
+.seg button:hover { background: var(--hover-fill); color: var(--foreground); transform: scale(1.06); }
+.seg button:active { transform: scale(.95); }
 .seg button.active { color: var(--primary); background: var(--primary-soft); }
+.seg button.active:hover { transform: none; }
 
 /* Indicators accumulate; the header does not. Every OTHER header item is
    fixed-size, so the chip strip is the single thing that flexes — it takes
@@ -913,14 +928,19 @@ header > .spacer { flex: none; }
 }
 .tool {
   width: 34px; height: 34px; border-radius: var(--radius); border: 0; cursor: pointer;
-  background: transparent; color: var(--muted-foreground);
+  background: transparent; color: var(--foreground);
   display: flex; align-items: center; justify-content: center; position: relative;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
+/* the glyph lifts, not the 34px button — a moving hit target is worse to
+   aim at than a still one, and the fill already says which button is hot */
+.tool svg.icon { transition: transform var(--dur-fast) var(--ease-quartr); }
+.tool:hover svg.icon { transform: scale(1.12); }
+.tool:active svg.icon { transform: scale(.94); }
 /* the rail's own glyph size — a drawing tool is the thing you aim at most
    often on this screen, and it was the smallest target on it */
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
-.tool:hover { background: var(--accent); color: var(--foreground); }
+.tool:hover { background: var(--hover-fill); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
