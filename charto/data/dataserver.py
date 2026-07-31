@@ -6862,6 +6862,13 @@ def scope_for(symbol: str) -> str:
 
 
 _con = sqlite3.connect(DB_PATH, check_same_thread=False)
+# The store is 9.7 GB and 89M minute rows; SQLite's default 2 MB page cache
+# means a 180k-row read for an hourly chart re-reads pages it just evicted.
+# Measured on the 1h path: 250ms -> 185ms, and a full-symbol minute scan
+# 1548ms -> 867ms. mmap lets the OS page cache do the work instead of
+# copying every page through SQLite's own buffer.
+_con.execute("PRAGMA cache_size=-262144")      # 256 MB, negative = KiB
+_con.execute("PRAGMA mmap_size=4294967296")    # 4 GB window
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 
 
@@ -6938,9 +6945,33 @@ def _daily(symbol: str) -> list[list]:
     cached = _daily_cache.get(symbol)   # one atomic read — the tick thread pops
     if cached is not None:
         return cached
-    out = _fold_daily(_con.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (symbol,)
-    ).fetchall(), session_for(symbol))
+    # Folding the whole minute history to get daily bars re-derives, every
+    # time a symbol is first opened, something bars_1d already stores: 1.06M
+    # rows read and folded (1548ms) to reproduce 2837 rows that read in 5ms.
+    #
+    # So read the stored dailies and fold ONLY the minutes newer than the last
+    # one. bars_1d is written by the universe import on its own schedule and
+    # the minute table is topped up on another, so trusting it wholesale would
+    # show a stale last candle the moment the two diverge — the tail fold is
+    # what keeps this a speed change rather than a freshness regression.
+    session = session_for(symbol)
+    stored = [list(r) for r in _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars_1d WHERE symbol=? ORDER BY ts",
+        (symbol,))]
+    if stored:
+        # re-fold the last stored day too: it may have been written while the
+        # session was still open, so its high/low/close can still move
+        cut = stored[-1][0]
+        tail = _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? ORDER BY ts",
+            (symbol, cut)).fetchall(), session)
+        by_day = {r[0]: r for r in tail}
+        out = [by_day.pop(r[0], r) for r in stored]
+        out.extend(by_day[k] for k in sorted(by_day))
+    else:
+        out = _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts",
+            (symbol,)).fetchall(), session)
     _daily_cache[symbol] = out
     return out
 
