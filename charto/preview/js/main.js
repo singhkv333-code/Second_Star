@@ -1992,6 +1992,11 @@
         time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
       })));
       ind.retheme(state.bars);
+      // retheme repaints the LINES; the chips carry their own copy of the
+      // colour, baked in at render time. Without this the swatch kept the
+      // other theme's palette — dark goldenrod on a near-black chip, which
+      // reads as a dead grey dash rather than "this is the gold line".
+      renderChips();
     }
     draw.requestUpdate();
     scene.requestUpdate();

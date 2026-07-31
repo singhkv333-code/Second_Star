@@ -22,7 +22,7 @@ const Theme = (() => {
                                   // costs legibility for no calm
       crosshairLabel: "#434651",  // LWC picks contrasting label text itself
       border: "#22252d",
-      separator: "#22252d",
+      separator: "#3a3f4a",
       crosshair: "#9598a1",
       up: "#089981",
       down: "#f23645",
@@ -49,7 +49,7 @@ const Theme = (() => {
       axisText: "#26292e",
       crosshairLabel: "#3a3f4a",
       border: "#e3e6ea",
-      separator: "#e3e6ea",
+      separator: "#c8ced6",
       crosshair: "#787b86",
       up: "#089981",
       down: "#f23645",

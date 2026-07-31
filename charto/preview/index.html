@@ -86,6 +86,22 @@
   --radius-xl: 24px;
   --radius-pill: 9999px;
 
+  /* ── seams ──────────────────────────────────────────────────────────
+     Every boundary between two panels is the SAME line: the rail against
+     the chart, the header against everything, the footer, the chat panel,
+     the gap between split charts, and the separator between a price pane
+     and its oscillators. They were each drawing their own — some with
+     --border, some with --border-soft, and the chat panel with nothing at
+     all, so the price axis ran straight into the reply text with no edge
+     between them.
+     One token, so a panel added later cannot invent a fourth kind of
+     edge, and one place to change if the whole shell wants a heavier
+     frame. --seam-strong is for the seam a POINTER can grab (the pane
+     resize handle), which has to be findable rather than merely tidy. */
+  --seam-w: 1px;
+  --seam: var(--border);
+  --seam-strong: var(--muted-foreground);
+
   /* Motion. Three durations, not six. --dur is the default for every
      colour/background transition; --dur-fast is for transforms that
      should feel instant; --dur-slow is for surfaces entering. */
@@ -735,7 +751,7 @@ select.is-dressed { display: none; }
    colour inside one card, and a line TradingView does not draw. */
 body > header {
   display: flex; align-items: center; gap: 8px; height: 48px;
-  padding: 0 10px 0 12px; border-bottom: 1px solid var(--border);
+  padding: 0 10px 0 12px; border-bottom: var(--seam-w) solid var(--seam);
   background: var(--background); z-index: 20; flex: none;
 }
 /* Wordmark sits in Pivot's display serif — the same --font-experiment
@@ -891,7 +907,7 @@ header > .spacer { flex: none; }
 /* ─── 6 · RAIL ─────────────────────────────────────────────────────────── */
 
 .rail {
-  width: 46px; background: var(--background); border-right: 1px solid var(--border);
+  width: 46px; background: var(--background); border-right: var(--seam-w) solid var(--seam);
   display: flex; flex-direction: column; align-items: center;
   padding: 7px 0; gap: 1px; z-index: 10; flex: none;
 }
@@ -932,8 +948,8 @@ header > .spacer { flex: none; }
    before the first apply(). The 1px gap IS the divider: the grid's own
    background shows through between panes. */
 .charts {
-  flex: 1; min-width: 0; min-height: 0; display: grid; gap: 1px;
-  background: var(--border);
+  flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--seam-w);
+  background: var(--seam);
   grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
 }
 .stage { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
@@ -1039,7 +1055,7 @@ header > .spacer { flex: none; }
    26px in the mono face and spilling their buttons out of a box the card
    then clipped. */
 body > footer {
-  height: 26px; padding: 0 12px; border-top: 1px solid var(--border);
+  height: 26px; padding: 0 12px; border-top: var(--seam-w) solid var(--seam);
   background: var(--background); font-size: var(--text-2xs); color: var(--faint);
   display: flex; gap: 14px; align-items: center; flex: none;
   font-family: var(--font-numeric); letter-spacing: -.01em;
@@ -1194,6 +1210,8 @@ body > footer .dotsep { color: var(--border); }
 .chatpanel {
   width: 46%; min-width: 320px; flex: none; background: var(--background);
   display: flex; flex-direction: column; min-height: 0; position: relative;
+  /* the chart's price axis used to run straight into the reply text */
+  border-left: var(--seam-w) solid var(--seam);
 }
 .chatpanel.hidden { display: none; }
 
@@ -1768,7 +1786,7 @@ body > footer .dotsep { color: var(--border); }
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
   <script src="./js/store.js?v=10"></script>
-  <script src="./js/theme.js?v=6"></script>
+  <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
   <script src="./js/icons.js?v=10"></script>
   <script src="./js/indicators.js?v=17"></script>
@@ -1778,7 +1796,7 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=22"></script>
   <script src="./js/panes.js?v=7"></script>
-  <script src="./js/main.js?v=48"></script>
+  <script src="./js/main.js?v=49"></script>
   <script src="./js/chat.js?v=25"></script>
 </body>
 </html>
