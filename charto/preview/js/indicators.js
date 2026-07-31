@@ -295,16 +295,18 @@ const Indicators = (() => {
 
   const clone = (v) => JSON.parse(JSON.stringify(v));
 
-  function plotDefaults(def, slot = 0) {
+  function plotDefaults(def, slot) {
+    const off = Number.isInteger(slot) ? slot : 0;
     const out = {};
     (def.lines || []).forEach((n, i) => {
       const hist = n === "histogram";
       out[n] = {
         visible: true,
-        color: hist ? Theme.c("histUp") : roleColor(n, i + slot),
+        color: hist ? Theme.c("histUp") : roleColor(n, i + off),
         colorDown: hist ? Theme.c("histDown") : undefined,
         custom: false,          // a theme switch repaints only untouched plots
-        width: n === "middle" || (def.lines || []).length === 1 ? 2 : 1,
+        width: def.kind === "overlay" ? 1
+          : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
         lineStyle: 0,
         plotType: hist ? "columns" : "line",
       };
@@ -312,7 +314,7 @@ const Indicators = (() => {
     return out;
   }
 
-  function factorySettings(def, slot = 0) {
+  function factorySettings(def, slot) {
     const params = {};
     for (const f of def.inputs || []) {
       if (f.key !== "period") params[f.key] = f.default;
@@ -323,7 +325,7 @@ const Indicators = (() => {
       params,
       style: {
         plots: plotDefaults(def, slot),
-        slot,
+        slot,          // null on pane indicators — they do not rotate
         precision: "default",
         statusLine: true,
         priceLabel: false,
@@ -354,6 +356,7 @@ const Indicators = (() => {
    *  session saved in dark comes back wearing dark's line colours on white. */
   function refreshThemeColors(def, s) {
     const slot = Number.isInteger(s.style && s.style.slot) ? s.style.slot : 0;
+    const paneKind = def.kind !== "overlay";
     (def.lines || []).forEach((n, i) => {
       const plot = s.style.plots[n];
       if (!plot || plot.custom) return;
@@ -361,7 +364,7 @@ const Indicators = (() => {
         plot.color = Theme.c("histUp");
         plot.colorDown = Theme.c("histDown");
       } else {
-        plot.color = roleColor(n, i + slot);
+        plot.color = roleColor(n, i + (paneKind ? 0 : slot));
       }
     });
   }
@@ -376,11 +379,13 @@ const Indicators = (() => {
     // allocated BEFORE the merges so a saved slot still wins, and the
     // entry is parked in LIVE first so two indicators added in the same
     // tick cannot both be handed the same one
-    let s = factorySettings(def, allocSlot());
+    const rotates = def.kind === "overlay";
+    let s = factorySettings(def, rotates ? allocSlot() : null);
     LIVE.set(id, s);
     if (FACTORY[def.name]) s = merge(s, FACTORY[def.name]);
     if (SAVED[id]) s = merge(s, SAVED[id]);
-    if (!Number.isInteger(s.style.slot)) s.style.slot = allocSlot();
+    if (rotates && !Number.isInteger(s.style.slot)) s.style.slot = allocSlot();
+    if (!rotates) s.style.slot = null;
     refreshThemeColors(def, s);
     LIVE.set(id, s);
     return s;
