@@ -158,6 +158,35 @@ const Panes = (() => {
   let gridEl = null;
   let stage = null;       // the PRIMARY pane's element (main.js owns its chart)
   let layout = "s1";
+
+  /* ── track sizes ─────────────────────────────────────────────────────────
+   *
+   * A layout used to be `repeat(N, 1fr)`: every pane the same size, with no
+   * way to give the chart you are actually reading more room. Tracks are now
+   * a list of fractions the user can drag, stored PER LAYOUT — c2 and r2 keep
+   * their own proportions, so switching away and back does not reset the
+   * split you set.
+   *
+   * They stay FRACTIONS rather than pixels on purpose: the grid is inside a
+   * flex column that changes height with the window, and a pixel split would
+   * stop meaning the same thing the moment the browser is resized.
+   */
+  const FR_KEY = "pane_fr";
+  const FR_MIN = 0.12;    // a pane can be squeezed, never collapsed to nothing
+  let frAll = Store.get(FR_KEY, {}) || {};
+
+  function frOf(L) {
+    const saved = frAll[L.id] || {};
+    const fix = (arr, n) => (Array.isArray(arr) && arr.length === n
+      && arr.every((x) => Number.isFinite(x) && x > 0) ? arr.slice()
+      : Array(n).fill(1));
+    return { cols: fix(saved.cols, L.cols), rows: fix(saved.rows, L.rows) };
+  }
+
+  function saveFr(id, fr) {
+    frAll = { ...frAll, [id]: fr };
+    Store.set(FR_KEY, frAll);
+  }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
 
@@ -377,6 +406,94 @@ const Panes = (() => {
    * with the same hour candles. */
   const SUB_LADDER = ["1h", "D", "15m", "W", "30m", "M", "5m"];
 
+  /** Write the fractions onto the grid. minmax(0,…) so a chart's own minimum
+   *  width can never push a track wider than the fraction asked for. */
+  function sizeTracks(L, fr) {
+    gridEl.style.gridTemplateColumns =
+      fr.cols.map((f) => `minmax(0, ${f}fr)`).join(" ");
+    gridEl.style.gridTemplateRows =
+      fr.rows.map((f) => `minmax(0, ${f}fr)`).join(" ");
+    gridEl._fr = fr;
+    requestAnimationFrame(mountSplitters);
+  }
+
+  /** A handle per INTERNAL grid line, laid over the seam that is already
+   *  drawn there — the gap between panes IS the divider, so the thing you
+   *  grab and the thing you see are the same edge rather than two that have
+   *  to be kept in sync. */
+  function mountSplitters() {
+    if (!gridEl) return;
+    for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
+    const L = LAYOUTS[layout];
+    if (!L || (L.cols < 2 && L.rows < 2)) return;
+    const cs = getComputedStyle(gridEl);
+    const px = (s) => s.split(" ").map(parseFloat);
+    const cols = px(cs.gridTemplateColumns);
+    const rows = px(cs.gridTemplateRows);
+    const gapX = parseFloat(cs.columnGap) || 0;
+    const gapY = parseFloat(cs.rowGap) || 0;
+    const add = (cls, style, axis, i) => {
+      const d = document.createElement("div");
+      d.className = `pane-split ${cls}`;
+      Object.assign(d.style, style);
+      d.dataset.axis = axis;
+      d.dataset.i = String(i);
+      gridEl.appendChild(d);
+    };
+    let x = 0;
+    for (let i = 0; i < cols.length - 1; i++) {
+      x += cols[i];
+      add("v", { left: `${x + gapX / 2}px` }, "c", i);
+      x += gapX;
+    }
+    let y = 0;
+    for (let i = 0; i < rows.length - 1; i++) {
+      y += rows[i];
+      add("h", { top: `${y + gapY / 2}px` }, "r", i);
+      y += gapY;
+    }
+  }
+
+  /** Drag one boundary. Only the two tracks it sits between change, so the
+   *  rest of the layout holds still instead of every pane shifting. */
+  function beginDrag(e) {
+    const h = e.target.closest(".pane-split");
+    if (!h || !gridEl._fr) return;
+    e.preventDefault();
+    const axis = h.dataset.axis;
+    const i = Number(h.dataset.i);
+    const vert = axis === "c";
+    const cs = getComputedStyle(gridEl);
+    const sizes = (vert ? cs.gridTemplateColumns : cs.gridTemplateRows)
+      .split(" ").map(parseFloat);
+    const fr = vert ? gridEl._fr.cols : gridEl._fr.rows;
+    const a0 = sizes[i], b0 = sizes[i + 1];
+    const fa = fr[i], fb = fr[i + 1];
+    const span = a0 + b0, sumFr = fa + fb;
+    const start = vert ? e.clientX : e.clientY;
+    h.classList.add("dragging");
+    document.body.style.cursor = vert ? "col-resize" : "row-resize";
+
+    const move = (ev) => {
+      const d = (vert ? ev.clientX : ev.clientY) - start;
+      let a = a0 + d;
+      const min = span * FR_MIN;
+      a = Math.max(min, Math.min(span - min, a));
+      fr[i] = sumFr * (a / span);
+      fr[i + 1] = sumFr - fr[i];
+      sizeTracks(LAYOUTS[layout], gridEl._fr);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      h.classList.remove("dragging");
+      document.body.style.cursor = "";
+      saveFr(layout, gridEl._fr);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   function apply(next) {
     if (!gridEl) return;
     /* A persisted id from an older build (or a typo) must not leave the grid
@@ -389,8 +506,7 @@ const Panes = (() => {
      * Forty-two `.charts[data-layout="…"]` blocks would be forty-two chances
      * for the CSS and the pane count to disagree; this cannot disagree. */
     gridEl.style.gridTemplateAreas = L.template;
-    gridEl.style.gridTemplateColumns = `repeat(${L.cols}, minmax(0, 1fr))`;
-    gridEl.style.gridTemplateRows = `repeat(${L.rows}, minmax(0, 1fr))`;
+    sizeTracks(L, frOf(L));
     clearSubs();
     // the primary always holds the first area a reader meets
     if (stage) stage.style.gridArea = L.areas[0];
@@ -425,6 +541,12 @@ const Panes = (() => {
     gridEl.dataset.layout = "s1";
     stageEl.parentNode.insertBefore(gridEl, stageEl);
     gridEl.appendChild(stageEl);
+    // delegated: apply() rebuilds the handles on every layout change, and a
+    // listener per handle would leak one set per switch
+    gridEl.addEventListener("pointerdown", beginDrag);
+    // the handles are positioned in px off resolved track sizes, so they have
+    // to be re-laid whenever the grid's own box changes
+    if (window.ResizeObserver) new ResizeObserver(mountSplitters).observe(gridEl);
     Theme.onChange(() => { for (const s of subs) s.retheme(); });
   }
 

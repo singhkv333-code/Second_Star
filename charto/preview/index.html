@@ -218,10 +218,10 @@ button, textarea, input, select { font-family: inherit; }
    chrome icons inside them are drawn LARGER within the same boxes, with the
    stroke easing off as they grow so the weight on screen stays constant. */
 svg.icon {
-  width: 20px; height: 20px; stroke: currentColor; fill: none;
+  width: 22px; height: 22px; stroke: currentColor; fill: none;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none;
 }
-svg.icon.sm { width: 17px; height: 17px; stroke-width: 1.8; }
+svg.icon.sm { width: 19px; height: 19px; stroke-width: 1.8; }
 svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .spacer { flex: 1; }
 
@@ -269,7 +269,7 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .btn.icon svg.icon { width: 19px; height: 19px; }
 .btn.icon:hover { color: var(--foreground); }
 .btn.on { color: var(--primary); background: var(--primary-soft); }
-.btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
+.btn .chev { width: 14px; height: 14px; color: var(--muted-foreground); }
 
 /* Pivot's CTA is INK ON PAPER — the near-black fill in light, the off-white
    fill in dark. The teal is Pivot's quiet accent thread, reserved for hover
@@ -948,11 +948,24 @@ header > .spacer { flex: none; }
    before the first apply(). The 1px gap IS the divider: the grid's own
    background shows through between panes. */
 .charts {
+  position: relative;
   flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--seam-w);
   background: var(--seam);
   grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
 }
 .stage { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
+
+/* Pane splitters. One per internal grid line, laid over the seam already
+   drawn there, so the edge you see and the edge you grab are the same one.
+   The hit area is deliberately wider than the seam — a 2px drag target is
+   findable only by accident — but it stays transparent until hovered. */
+.pane-split {
+  position: absolute; z-index: 6; background: transparent;
+  transition: background var(--dur-fast);
+}
+.pane-split.v { top: 0; bottom: 0; width: 9px; margin-left: -4.5px; cursor: col-resize; }
+.pane-split.h { left: 0; right: 0; height: 9px; margin-top: -4.5px; cursor: row-resize; }
+.pane-split:hover, .pane-split.dragging { background: var(--seam-strong); }
 
 /* Secondary chart. Same chrome as the primary — an in-chart legend and
    nothing else — so a split reads as one chart shown twice. */
@@ -974,7 +987,11 @@ header > .spacer { flex: none; }
 .stage.overdraw #chart { cursor: move; }
 
 .readout {
-  position: absolute; top: 10px; left: 12px; z-index: 5;
+  /* The OHLC row is not allowed to reach the price scale. It used to be
+     left-anchored only, so on a narrow pane the volume figure ran under the
+     axis labels and the two sets of numbers overlapped. Bounded on the right
+     by the same inset the axis occupies, and wrapped rather than clipped. */
+  position: absolute; top: 10px; left: 12px; right: 76px; z-index: 5;
   font-size: var(--text-sm); color: var(--muted-foreground);
   pointer-events: none; line-height: 1.55; font-variant-numeric: tabular-nums;
 }
