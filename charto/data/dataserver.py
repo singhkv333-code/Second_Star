@@ -3683,8 +3683,16 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     # 54 rows as a ranking of 549.
     vp_used = any(nm in _VP_FEATURES for nm, _, _ in parsed) \
         or sort_by in _VP_FEATURES
-    vp_scored = sum(1 for f in feats.values()
-                    if f.get("vp20_pos") is not None) if vp_used else 0
+    # Counted over the set actually being screened. Reported universe-wide,
+    # "54 of 549" next to an industry-filtered table read as "54 of 549
+    # cryptocurrency instruments" — the model localised a global number to
+    # the filter, and the sentence was wrong in a way only the screener could
+    # see. When an industry narrows the pool, the pool is what gets counted.
+    def _in_pool(sym: str) -> bool:
+        return not want_inds or cls.get(sym, (sym, None))[1] in want_inds
+
+    vp_pool = [f for s, f in feats.items() if _in_pool(s)] if vp_used else []
+    vp_scored = sum(1 for f in vp_pool if f.get("vp20_pos") is not None)
 
     survivors = []
     for sym, f in feats.items():
@@ -3810,17 +3818,21 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
                                for n, o, v in parsed],
            "rows": rows}
     if vp_used:
+        pool_n = len(vp_pool)
+        pool_label = (f"instruments in {'/'.join(sorted(want_inds))}"
+                      if want_inds else "stored instruments")
         res["volume_profile_coverage"] = {
-            "scored": vp_scored, "universe": universe,
+            "scored": vp_scored, "pool": pool_n, "universe": universe,
             "window_sessions": 20,
             "_note": (f"Volume-profile features are built from 1-MINUTE bars, "
-                      f"which only {vp_scored} of the {universe} stored "
-                      f"instruments currently have — the rest hold daily bars "
-                      f"only and were scored as null, so they are absent from "
-                      f"this ranking rather than ranked last. Say the result "
-                      f"covers {vp_scored} instruments, NOT the whole "
-                      f"universe. Indices and India VIX print no volume and "
-                      f"can never be scored here."),
+                      f"which only {vp_scored} of the {pool_n} {pool_label} "
+                      f"currently have — the rest hold daily bars only and "
+                      f"were scored as null, so they are absent from this "
+                      f"ranking rather than ranked last. Say '{vp_scored} of "
+                      f"{pool_n}' and describe the pool exactly as written "
+                      f"here; do not restate it against the whole "
+                      f"{universe}-instrument universe. Indices and India VIX "
+                      f"print no volume and can never be scored."),
         }
     if want_inds:
         res["industry_matched"] = sorted(want_inds)
@@ -6065,7 +6077,7 @@ TOOLS = [
          "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
     {"type": "function", "name": "volume_profile",
-     "description": "How much volume traded at each PRICE over a window, built from 1-minute bars: the point of control (most-traded price), the value area (where 70% of volume changed hands, with its high and low), high- and low-volume nodes, and the total. Use for 'volume profile', 'point of control', 'value area', 'where has most volume traded', 'which levels has price accepted or rejected', and for finding acceptance/imbalance zones. The row height is chosen FROM THE DATA — each bar's volume is spread uniformly across its high-low, so rows can never be finer than that smear; ask for fewer rows if you want it coarser, and a finer request will be reduced and reported. This is volume at price, the same construction TradingView uses. It is NOT order flow: delta, cumulative delta, footprint and bid/ask imbalance need the aggressor side of each trade and no Indian retail feed carries it — never present it as buying versus selling. Indices and India VIX print no volume and the tool will say so.",
+     "description": "How much volume traded at each PRICE over a window, built from 1-minute bars: the point of control (most-traded price), the value area (where 70% of volume changed hands, with its high and low), high- and low-volume nodes, and the total. Use for 'volume profile', 'point of control', 'value area', 'where has most volume traded', 'which levels has price accepted or rejected', and for finding acceptance/imbalance zones. The row height is chosen FROM THE DATA — each bar's volume is spread uniformly across its high-low, so rows can never be finer than that smear; ask for fewer rows if you want it coarser, and a finer request will be reduced and reported. This is volume at price, the same construction TradingView uses. It is NOT order flow: delta, cumulative delta, footprint and bid/ask imbalance need the aggressor side of each trade and no Indian retail feed carries it — never present it as buying versus selling. Indices and India VIX print no volume and the tool will say so. THIS TOOL IS ONE SYMBOL AT A TIME. For a question about MANY instruments — 'all cryptos', 'which stocks', 'compare across the sector', 'who is above value' — do NOT say it cannot be done and do NOT loop this tool over a list you guessed: call screen_universe with the vp20_* features (optionally industry='cryptocurrency' or any other industry), which reads the same 20-session profiles for every scored instrument in one call and returns each one's POC and value area. Loop THIS tool only for a handful of symbols the user actually named.",
      "parameters": {"type": "object", "properties": {
          "frm": {"type": "string", "description": "window start in the chart's format, e.g. '21 Jul 2026'; omit to use lookback_sessions"},
          "to": {"type": "string", "description": "window end; omit for a single day"},
