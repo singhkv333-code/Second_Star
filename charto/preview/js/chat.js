@@ -935,16 +935,28 @@
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
 
+  /* Below the breakpoint the shell is a COLUMN: the chat sits under the
+   * chart at full width, and a horizontal split has nothing to divide. The
+   * saved desktop width is an inline style, so it beat the stylesheet and
+   * pinned a phone's chat panel to 340px with the chart's own width beside
+   * it — the split survived the layout that removed it. */
+  const stacked = () => window.matchMedia("(max-width: 820px)").matches;
+
   function setChatWidth(px, persist = true) {
+    if (stacked()) { panel.style.width = ""; return; }
     const total = main.clientWidth;
     const w = Math.round(Math.max(MIN_CHAT, Math.min(px, total - MIN_CHART)));
     panel.style.width = w + "px";
     if (persist) localStorage.setItem(WKEY, String(w));
   }
-  requestAnimationFrame(() => {
+  function applySavedWidth() {
     const saved = parseInt(localStorage.getItem(WKEY) || "0", 10);
     setChatWidth(saved || main.clientWidth * 0.44, false);
-  });
+  }
+  requestAnimationFrame(applySavedWidth);
+  // rotating a phone, or dragging a desktop window across the breakpoint,
+  // has to re-decide this — the width is only meaningful on one side of it
+  window.matchMedia("(max-width: 820px)").addEventListener("change", applySavedWidth);
 
   let dragging = false;
   splitter.addEventListener("mousedown", (e) => {
