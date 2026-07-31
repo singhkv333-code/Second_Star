@@ -32,6 +32,9 @@ const Scene = (() => {
   };
   const FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
   const HIT = 6;
+  // How much of the pane the volume histogram may claim. Wide enough to read
+  // the shape, narrow enough that the candles stay the subject.
+  const vpBand = (w) => Math.max(40, Math.min(150, w * 0.22));
 
   function create(chart, candle, env) {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
@@ -212,7 +215,20 @@ const Scene = (() => {
       for (let i = state.items.length - 1; i >= 0; i--) {
         const a = state.items[i];
         if (!mine(a, key)) continue;
-        if (a.kind === "level") {
+        if (a.kind === "vprofile") {
+          // the histogram answers for itself; its POC/VAH/VAL lines answer
+          // anywhere along their length
+          const w = plotW();
+          if (x != null && w && x > w - vpBand(w)) {
+            const y1 = vToY(a.rows[a.rows.length - 1].hi, a.pane);
+            const y2 = vToY(a.rows[0].lo, a.pane);
+            if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
+          }
+          for (const v of [a.poc, a.vah, a.val]) {
+            const ly = vToY(v, a.pane);
+            if (ly !== null && Math.abs(y - ly) < HIT) return a;
+          }
+        } else if (a.kind === "level") {
           const ly = vToY(a.price, a.pane);
           if (ly !== null && Math.abs(y - ly) < HIT) return a;
         } else if (a.kind === "zone") {
@@ -348,7 +364,41 @@ const Scene = (() => {
         ctx.shadowColor = hot ? rgba(col, 0.55) : "transparent";
         ctx.shadowBlur = hot ? 9 : 0;
 
-        if (a.kind === "level") {
+        if (a.kind === "vprofile") {
+          // Volume at price: a histogram hanging off the right edge, so it
+          // reads against the axis it shares rather than over the candles.
+          // The value area is the assertion, the rest is context — so the
+          // fill carries the emphasis and only POC/VAH/VAL get a line.
+          const band = vpBand(w);
+          const rs = a.rows || [];
+          if (!rs.length) continue;
+          clearGlow();
+          for (const r of rs) {
+            const y1 = vToY(r.hi, a.pane), y2 = vToY(r.lo, a.pane);
+            if (y1 === null || y2 === null) continue;
+            const bh = Math.max(1, y2 - y1 - 1);
+            const bw = Math.max(1, band * (r.share || 0));
+            const inVA = r.lo >= a.val - 1e-9 && r.hi <= a.vah + 1e-9;
+            const isPoc = a.poc >= r.lo && a.poc < r.hi;
+            ctx.fillStyle = rgba(col, isPoc ? (hot ? 0.92 : 0.8)
+              : inVA ? (hot ? 0.5 : 0.4) : (hot ? 0.24 : 0.17));
+            ctx.fillRect(w - bw, y1 + 0.5, bw, bh);
+          }
+          // the three numbers a profile actually asserts
+          ctx.lineWidth = hot ? 2 : 1.5;
+          for (const [v, dash, tag] of [[a.poc, [], "POC"],
+                                        [a.vah, [5, 4], "VAH"],
+                                        [a.val, [5, 4], "VAL"]]) {
+            const y = vToY(v, a.pane);
+            if (y === null) continue;
+            ctx.globalAlpha = tag === "POC" ? 1 : 0.62;
+            ctx.setLineDash(dash);
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - band, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+            chip(`${tag} ${fmt(v)}`, 8, y, col);
+          }
+        } else if (a.kind === "level") {
           const y = vToY(a.price, a.pane);
           if (y === null) continue;
           ctx.setLineDash(a.strength === "weak" ? [2, 4] : [7, 4]);
@@ -474,6 +524,15 @@ const Scene = (() => {
      *  line shared that y and dragged it, silently re-writing a plan's stop
      *  and target and stamping it "user-adjusted". The axes belong to the
      *  chart; only the plot belongs to the annotations. */
+    /** Plot width in pane-local pixels — what render() is handed as `w`.
+     *  hitAt needs the same number to know where the volume histogram is. */
+    function plotW() {
+      const r = env.container.getBoundingClientRect();
+      let axisW = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* pre-layout */ }
+      return r.width - axisW;
+    }
+
     function inPlot(e) {
       const r = env.container.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
@@ -498,6 +557,7 @@ const Scene = (() => {
         const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
         return y1 === null || y2 === null ? null : (y1 + y2) / 2;
       }
+      if (a.kind === "vprofile") return vToY(a.poc, a.pane);
       return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
     }
 
@@ -589,7 +649,10 @@ const Scene = (() => {
       if (!inPlot(e)) return;      // an axis drag is a rescale, not a move
       const p = pointIn(e);
       const a = hitAt(p.y, p.key, p.x);
-      if (!a || a.kind === "markers") return;
+      // A computed profile has no geometry the user owns — dragging it would
+      // mean nothing and would stamp it "adjusted", so it is hoverable but
+      // not movable, like markers.
+      if (!a || a.kind === "markers" || a.kind === "vprofile") return;
       const l0 = chart.timeScale().coordinateToLogical(p.x);
       drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
                orig: JSON.parse(JSON.stringify(a)),
@@ -632,7 +695,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile"]);
 
     return {
       state,

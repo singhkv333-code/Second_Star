@@ -184,7 +184,7 @@ def _scene_add(annotation: dict) -> None:
     # turn would otherwise report "exactly these are drawn" while three more
     # from the first call are still sitting on screen.
     kind = annotation.get("kind")
-    if kind in ("level", "zone", "segment"):
+    if kind in ("level", "zone", "segment", "vprofile"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
@@ -2851,6 +2851,307 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
         have = _logo_map() if want else {}
         return 200, {"logos": {s: have.get(s) for s in want}}
     return 404, {"detail": f"{path} is not served by charto"}
+
+
+# ── volume at price ─────────────────────────────────────────────────────────
+#
+# Volume profile, built the only way an Indian retail feed permits: from the
+# stored 1-minute bars, each bar's volume spread UNIFORMLY across its own
+# high-low. That assumption is the entire error budget, so this tool measures
+# it rather than hiding it — the volume-weighted mean bar span — and refuses
+# to draw rows finer than the smear it is built from.
+#
+# Measured on NSE large caps, a 1-minute bar spans a median of 18 ticks and
+# ZERO bars are single-price. So a 120-row profile on a stock whose bars smear
+# over 20 ticks is 6x more resolution than the input carries: it looks precise
+# and most of that detail is manufactured. The row count is therefore derived
+# from the data and the caller may only ask for COARSER, never finer.
+#
+# What this is NOT, and must never be labelled as: order flow. Delta,
+# cumulative delta, footprint and bid/ask imbalance all need the aggressor
+# side of each trade — whether it hit the bid or lifted the ask — which
+# requires true tick-by-tick. Kite throttles to ~1 snapshot/second, so that
+# data does not exist on any Indian retail feed at any price. The optional
+# up/down split here is a BAR-DIRECTION heuristic (close >= open), the same
+# one TradingView uses, and it is labelled as such in the payload so the
+# model cannot narrate it as buying versus selling.
+#
+# The construction is otherwise identical to TradingView's, which also builds
+# from 1-minute bars — so POC and value area agree with what the user sees
+# elsewhere. The edge we have is depth: composites over years, off the local
+# archive, which no free tier will build.
+
+_VP_MAX_ROWS = 60          # beyond this the histogram is thinner than a pixel
+_VP_MIN_ROWS = 6
+_VP_MAX_SESSIONS = 250     # ~1 trading year of 1-min bars, ~94k rows
+
+
+def _infer_tick(mins: list[tuple]) -> float | None:
+    """Smallest price increment actually observed. Reported, never assumed —
+    an instrument's tick is a listing fact and we only have its prints."""
+    seen: set[float] = set()
+    for b in mins[:4000]:
+        seen.update((b[1], b[2], b[3], b[4]))
+    xs = sorted(x for x in seen if x)
+    if len(xs) < 32:
+        return None
+    gap = min((b - a for a, b in zip(xs, xs[1:]) if b - a > 1e-9), default=None)
+    if gap is None or gap < xs[-1] * 1e-7:
+        return None
+    return round(gap, 6)
+
+
+def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
+                        rows: int = 0, value_area_pct: float = 70.0,
+                        split: bool = False, draw: bool = True,
+                        draw_mode: str = "replace") -> dict:
+    """Volume traded at each price over a window, from 1-minute bars.
+
+    Returns the point of control, the value area, and the high/low volume
+    nodes — plus the measured smear that bounds how finely any of it can
+    honestly be resolved.
+    """
+    if str(draw_mode or "").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "vprofile",
+                    "owner": "volume_profile"})
+        return {"cleared": True, "_note": "Volume profile removed."}
+
+    # ── resolve the window to a raw-bar time range ──
+    daily = _rows("1d", 4000)
+    if not daily:
+        return {"error": "no daily history to locate a window in"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else None
+    if (frm and t0 is None) or (to and t1 is None):
+        return {"error": "could not read the date(s)",
+                "hint": "use the chart's format, e.g. '22 Jul 2026'"}
+    if t0 is None and t1 is None:
+        n_sess = max(1, min(int(lookback_sessions or 1), _VP_MAX_SESSIONS))
+        window = daily[-n_sess:]
+        lo_ts, hi_ts = window[0][0], window[-1][0] + 86400
+    else:
+        if t0 is None:
+            t0 = t1
+        if t1 is None:
+            t1 = t0
+        if t1 < t0:
+            t0, t1 = t1, t0
+        lo_ts, hi_ts = t0, t1 + 86400
+        n_sess = sum(1 for r in daily if lo_ts <= r[0] < hi_ts)
+        if n_sess > _VP_MAX_SESSIONS:
+            return {"error": f"window is {n_sess} sessions — a profile reads "
+                             f"1-minute bars, so it is capped at "
+                             f"{_VP_MAX_SESSIONS}",
+                    "hint": "narrow the window, or ask for a daily-bar study"}
+
+    live = _live_view(_sym())
+    if live and live[1] is not None:
+        hi_ts = min(hi_ts, live[1])   # replay clock hides the session's future
+    mins = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+        "ORDER BY ts", (_sym(), lo_ts, hi_ts)).fetchall()
+    if live and live[0] is not None and lo_ts <= live[0][0] < hi_ts:
+        _merge_form_intraday(mins, live[0])
+    if not mins:
+        return {"error": "no 1-minute bars in that window",
+                "data_spans": f"{_ist(daily[0][0], False)} → "
+                              f"{_ist(daily[-1][0], False)} {_tzl()}"}
+
+    total_v = sum(b[5] or 0 for b in mins)
+    if not total_v:
+        # Same boundary the indicator engine enforces: an instrument that
+        # prints no volume has no volume to profile, and a flat histogram
+        # would read as "no interest" rather than "not quoted".
+        return {"error": "this instrument prints no volume",
+                "_note": ("Every bar in the window has v=0 — indices and "
+                          "India VIX are quoted as levels, not traded "
+                          "instruments, so there is no volume at price to "
+                          "build. Say that plainly. A profile on the index "
+                          "FUTURES or on a constituent stock is the nearest "
+                          "real thing.")}
+
+    lo = min(b[3] for b in mins)
+    hi = max(b[2] for b in mins)
+    rng = hi - lo
+    if rng <= 0:
+        return {"error": "price did not move in that window"}
+
+    # ── the measurement that bounds everything below ──
+    vw_span = sum((b[2] - b[3]) * (b[5] or 0) for b in mins) / total_v
+    tick = _infer_tick(mins)
+    ceiling = int(rng / vw_span) if vw_span > 0 else _VP_MAX_ROWS
+    ceiling = max(_VP_MIN_ROWS, min(_VP_MAX_ROWS, ceiling))
+    asked = int(rows or 0)
+    n = min(asked, ceiling) if asked > 0 else ceiling
+    n = max(_VP_MIN_ROWS, n)
+    capped = asked > ceiling
+
+    row_h = rng / n
+    vol = [0.0] * n
+    up = [0.0] * n
+    dn = [0.0] * n
+    for _t, o, h, l, c, v in mins:
+        if not v:
+            continue
+        side = up if c >= o else dn
+        i0 = max(0, min(n - 1, int((l - lo) / row_h)))
+        i1 = max(0, min(n - 1, int((h - lo) / row_h)))
+        if i1 <= i0:
+            vol[i0] += v
+            side[i0] += v
+            continue
+        span = h - l
+        for i in range(i0, i1 + 1):
+            r_lo = lo + i * row_h
+            ov = min(h, r_lo + row_h) - max(l, r_lo)
+            if ov <= 0:
+                continue
+            share = v * ov / span
+            vol[i] += share
+            side[i] += share
+
+    # ── point of control and value area (classic two-row expansion) ──
+    poc = max(range(n), key=lambda i: vol[i])
+    target = total_v * max(50.0, min(90.0, float(value_area_pct))) / 100.0
+    a = b = poc
+    acc = vol[poc]
+    while acc < target and (a > 0 or b < n - 1):
+        upper = (vol[b + 1] + (vol[b + 2] if b + 2 < n else 0.0)
+                 if b < n - 1 else -1.0)
+        lower = (vol[a - 1] + (vol[a - 2] if a - 2 >= 0 else 0.0)
+                 if a > 0 else -1.0)
+        if upper >= lower:
+            for _ in range(2):
+                if b < n - 1 and acc < target:
+                    b += 1
+                    acc += vol[b]
+        else:
+            for _ in range(2):
+                if a > 0 and acc < target:
+                    a -= 1
+                    acc += vol[a]
+
+    mean_v = total_v / n
+    price_of = lambda i: lo + (i + 0.5) * row_h          # noqa: E731
+    hvn = [round(price_of(i), 2) for i in range(1, n - 1)
+           if vol[i] >= 1.3 * mean_v
+           and vol[i] > vol[i - 1] and vol[i] >= vol[i + 1]]
+    lvn = [round(price_of(i), 2) for i in range(1, n - 1)
+           if vol[i] <= 0.6 * mean_v
+           and vol[i] < vol[i - 1] and vol[i] <= vol[i + 1]]
+
+    peak = max(vol) or 1.0
+    out_rows = []
+    for i in range(n):
+        # Both denominators, both named. One un-suffixed "share" got read as
+        # a share of total volume and printed as a column of percentages
+        # summing to 400% — a row's height on the chart is its share of the
+        # BUSIEST row, which is a different number from its share of the day.
+        r = {"lo": round(lo + i * row_h, 2),
+             "hi": round(lo + (i + 1) * row_h, 2),
+             "volume": int(vol[i]),
+             "pct_of_total": round(vol[i] / total_v * 100, 1),
+             "pct_of_busiest_row": round(vol[i] / peak * 100, 1)}
+        if split:
+            r["up_bar_volume"] = int(up[i])
+            r["down_bar_volume"] = int(dn[i])
+        out_rows.append(r)
+
+    poc_price = round(price_of(poc), 2)
+    val, vah = round(lo + a * row_h, 2), round(lo + (b + 1) * row_h, 2)
+    ccy = quote_ccy(_sym())
+    unit = "₹" if ccy == "INR" else "$"
+
+    if draw:
+        if str(draw_mode or "replace").lower() == "replace":
+            _scene_add({"kind": "clear", "scope": "vprofile",
+                        "owner": "volume_profile"})
+        _scene_add({
+            "kind": "vprofile", "id": "VP", "pane": "price", "role": "neutral",
+            "rows": [{"lo": r["lo"], "hi": r["hi"],
+                      "share": round(vol[i] / peak, 3)}
+                     for i, r in enumerate(out_rows)],
+            "poc": poc_price, "val": val, "vah": vah,
+            "label": f"POC {unit}{poc_price} · VA {unit}{val}–{unit}{vah}",
+            "source": {"tool": "volume_profile", "interval": "1m",
+                       "bars_scanned": len(mins),
+                       "method": (f"volume at price, {n} rows of "
+                                  f"{unit}{row_h:.2f}")}})
+
+    note = (f"Volume at price from {len(mins):,} one-minute bars over "
+            f"{n_sess} session(s), in {n} rows of {unit}{row_h:.2f}. Each "
+            f"bar's volume is spread uniformly across its own high-low; the "
+            f"volume-weighted mean bar span is {unit}{vw_span:.2f}"
+            + (f" (~{vw_span / tick:.0f} ticks)" if tick else "")
+            + f", which is why the row height is what it is. "
+              f"Quote the levels; describe this as volume at price built from "
+              f"1-minute bars — the same construction TradingView uses. It is "
+              f"NOT order flow: never call it delta, footprint, or buying vs "
+              f"selling pressure.")
+    if capped:
+        note += (f" The requested {asked} rows was reduced to {n}: a single "
+                 f"1-minute bar already smears its volume across "
+                 f"{unit}{vw_span:.2f} of price, so rows finer than that would "
+                 f"be invented detail, not measured detail. Say that — give "
+                 f"the reason and the number, not just the cap.")
+    if split:
+        note += (" The up/down split is a bar-direction heuristic (close >= "
+                 "open), not the aggressor side of trades. Present it that "
+                 "way or not at all.")
+    # A 3-month composite spans a price range an intraday chart never shows,
+    # so most of the histogram renders above or below the visible window.
+    # Nothing is wrong with the profile — the user just cannot see it. This
+    # rides in its OWN key: appended to the end of _note it competed with
+    # four other instructions and the model dropped it every time.
+    view = ""
+    if n_sess >= 10:
+        view = (f"The profile spans {unit}{lo:,.0f}–{unit}{hi:,.0f}, which is "
+                f"wider than an intraday chart shows — most of it is off "
+                f"screen right now. Tell the user to switch to the D or W "
+                f"timeframe to see the whole thing. This tool cannot change "
+                f"the timeframe itself.")
+
+    return {
+        "window": {"from": _ist(mins[0][0], False), "to": _ist(mins[-1][0], False),
+                   "sessions": n_sess, "minute_bars": len(mins), "tz": _tzl()},
+        "point_of_control": poc_price,
+        # Coarse rows cannot land exactly on 70%: the area grows a whole row
+        # at a time, so the achieved share is the tightest one that CLEARS
+        # the target. Both numbers are named so a 84% value area is reported
+        # as what it is rather than asserted to be the 70% convention.
+        "value_area": {"low": val, "high": vah,
+                       "pct_achieved": round(acc / total_v * 100, 1),
+                       "pct_requested": round(float(value_area_pct), 1)},
+        "range": {"low": round(lo, 2), "high": round(hi, 2)},
+        "total_volume": int(total_v),
+        "high_volume_nodes": hvn, "low_volume_nodes": lvn,
+        "rows": out_rows,
+        "resolution": {
+            "row_height": round(row_h, 2),
+            "rows": n, "max_rows_supported": ceiling,
+            "requested_rows": asked or None, "capped": capped,
+            "volume_weighted_bar_span": round(vw_span, 2),
+            "tick_size": tick,
+            "why": ("A row cannot be finer than the smear it is built from. "
+                    "Each 1-minute bar's volume is spread uniformly across "
+                    "its high-low, so the volume-weighted mean span is the "
+                    "floor on row height."),
+        },
+        "method": {
+            "built_from": "1-minute bars (the stored granularity)",
+            "distribution": "uniform across each bar's high-low",
+            "value_area": f"{value_area_pct:.0f}% of volume, classic two-row "
+                          f"expansion outward from the point of control",
+            "hvn_lvn": "local maxima >= 1.3x mean row volume / local minima "
+                       "<= 0.6x mean row volume",
+            "not_available": ("delta, cumulative delta, footprint and bid/ask "
+                              "imbalance — all require the aggressor side of "
+                              "each trade, which needs true tick-by-tick. No "
+                              "Indian retail feed carries it."),
+        },
+        **({"to_see_it_all": view} if view else {}),
+        "_note": note,
+    }
 
 
 def tool_get_peers(symbol: str = "") -> dict:
@@ -5619,6 +5920,19 @@ TOOLS = [
          "remove": {"type": "boolean", "description": "remove this indicator AND its pane from the chart — period targets one variant, omitted removes every variant of the name"},
          "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
+    {"type": "function", "name": "volume_profile",
+     "description": "How much volume traded at each PRICE over a window, built from 1-minute bars: the point of control (most-traded price), the value area (where 70% of volume changed hands, with its high and low), high- and low-volume nodes, and the total. Use for 'volume profile', 'point of control', 'value area', 'where has most volume traded', 'which levels has price accepted or rejected', and for finding acceptance/imbalance zones. The row height is chosen FROM THE DATA — each bar's volume is spread uniformly across its high-low, so rows can never be finer than that smear; ask for fewer rows if you want it coarser, and a finer request will be reduced and reported. This is volume at price, the same construction TradingView uses. It is NOT order flow: delta, cumulative delta, footprint and bid/ask imbalance need the aggressor side of each trade and no Indian retail feed carries it — never present it as buying versus selling. Indices and India VIX print no volume and the tool will say so.",
+     "parameters": {"type": "object", "properties": {
+         "frm": {"type": "string", "description": "window start in the chart's format, e.g. '21 Jul 2026'; omit to use lookback_sessions"},
+         "to": {"type": "string", "description": "window end; omit for a single day"},
+         "lookback_sessions": {"type": "integer", "description": "used when no dates are given — the last N sessions, default 1 (today's profile), max 250. Multi-session builds a COMPOSITE profile, which is the right call for 'where has volume built up over the last month/quarter'."},
+         "rows": {"type": "integer", "description": "how many price rows. Omit to let the data decide, which is almost always right. A value finer than the bars support is capped and reported; only pass this to make the profile COARSER."},
+         "value_area_pct": {"type": "number", "description": "share of volume in the value area, default 70 (the convention)"},
+         "split": {"type": "boolean", "description": "also return each row split by bar direction (close >= open). This is a heuristic, NOT the aggressor side — only ask for it if the user wants it, and label it as bar direction."},
+         "draw": {"type": "boolean", "description": "draw the histogram with POC and value-area lines on the chart, default true"},
+         "draw_mode": {"type": "string", "enum": ["replace", "add", "clear"],
+                       "description": "'replace' (default) swaps any existing profile, 'clear' removes it"}},
+      "required": []}},
 ]
 
 _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
@@ -5632,6 +5946,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
              "plan_position": tool_plan_position,
+             "volume_profile": tool_volume_profile,
              "get_peers": tool_get_peers,
              "compare_symbols": tool_compare_symbols,
              "screen_universe": tool_screen_universe,
@@ -5663,7 +5978,7 @@ _CHART_SCOPED = frozenset({
     "get_levels", "get_bars", "get_indicator", "get_trendlines",
     "get_divergences", "get_anchors", "get_gaps", "get_patterns",
     "evaluate_pattern", "get_results", "evaluate_results", "explain_move",
-    "search_news", "get_flows",
+    "search_news", "get_flows", "volume_profile",
 })
 
 _SYMBOL_ARG = {
