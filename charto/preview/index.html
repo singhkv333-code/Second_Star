@@ -197,12 +197,16 @@ body {
               color var(--dur-slow) var(--ease-quartr);
 }
 button, textarea, input, select { font-family: inherit; }
+/* Glyphs carry the meaning; the boxes around them only place it. The rail and
+   the header keep their measured widths (46 / 48) — the drawing tools and the
+   chrome icons inside them are drawn LARGER within the same boxes, with the
+   stroke easing off as they grow so the weight on screen stays constant. */
 svg.icon {
-  width: 18px; height: 18px; stroke: currentColor; fill: none;
-  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;
+  width: 20px; height: 20px; stroke: currentColor; fill: none;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none;
 }
-svg.icon.sm { width: 15px; height: 15px; stroke-width: 1.9; }
-svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
+svg.icon.sm { width: 17px; height: 17px; stroke-width: 1.8; }
+svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .spacer { flex: 1; }
 
 /* Shared entrance for every surface that appears over the page. */
@@ -245,7 +249,8 @@ svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
 .btn.outline:hover { border-color: var(--border); background: var(--accent); }
 /* chat toggle rides borderless — the pill reads as a label, not a control */
 #chatToggle, #chatToggle:hover { border-color: transparent; }
-.btn.icon { width: 30px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+.btn.icon { width: 32px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+.btn.icon svg.icon { width: 19px; height: 19px; }
 .btn.icon:hover { color: var(--foreground); }
 .btn.on { color: var(--primary); background: var(--primary-soft); }
 .btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
@@ -498,7 +503,7 @@ select.is-dressed { display: none; }
   color: var(--primary); background: var(--primary-soft);
   border-color: color-mix(in srgb, var(--primary) 32%, transparent);
 }
-.lay-opt svg { width: 20px; height: 20px; stroke-width: 1.6; }
+.lay-opt svg { width: 22px; height: 22px; stroke-width: 1.55; }
 
 /* dialog — TradingView's Inputs / Style / Visibility modal on Pivot's tokens */
 .dlg-wrap {
@@ -824,16 +829,21 @@ header > .spacer { flex: none; }
 .chips-wrap.scrollable > .chips-arrow { display: flex; }
 .chips-arrow.off { visibility: hidden; pointer-events: none; }
 .chips-arrow:hover { color: var(--foreground); background: var(--accent); }
-.chips-arrow svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.chips-arrow svg { width: 17px; height: 17px; stroke-width: 2.1; }
 
-/* Borderless, like the symbol pill next to it: the fill is the shape. On
-   --muted rather than --card so the light theme still has an edge. */
+/* TradingView's legend row: an indicator READS as a label and only becomes a
+   container under the pointer. A permanent fill on every chip turned the
+   header into a row of pills competing with the symbol and the intervals for
+   the same attention — the ink is the name, and the plate arrives when you
+   reach for it. Geometry is unchanged either way, so nothing reflows. */
 .chip {
   display: inline-flex; gap: 5px; align-items: center; height: 24px;
   font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--foreground);
   border: 0; border-radius: var(--radius-pill); padding: 0 5px 0 10px;
-  background: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
+  background: transparent; white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: background var(--dur) var(--ease-quartr);
 }
+.chip:hover { background: var(--muted); }
 .chip .lbl { border-radius: var(--radius-xs); padding: 1px 4px; margin: 0 -2px 0 -4px; }
 /* An indicator switched off for this timeframe (Visibility tab) still has a
    chip — it just isn't drawing. Say that, rather than looking broken. */
@@ -849,7 +859,7 @@ header > .spacer { flex: none; }
 .chip .acts { display: inline-flex; align-items: center; gap: 1px; }
 .chip .act {
   cursor: pointer; color: var(--faint); display: inline-flex;
-  width: 17px; height: 17px; align-items: center; justify-content: center;
+  width: 19px; height: 19px; align-items: center; justify-content: center;
   border-radius: 50%; flex: none;
   /* invisible must also mean unclickable — a 17px target you cannot see is
      worse than no target at all */
@@ -864,9 +874,15 @@ header > .spacer { flex: none; }
 .chip.muted .act[data-eye] { opacity: 1; pointer-events: auto; }
 /* No red on the remove action. Removing an indicator is undone by adding
    it back — colouring it like a destructive act overstates it, and the
-   alarm sat right next to two neutral controls on the same chip. */
-.chip .act:hover { color: var(--foreground); background: var(--accent); }
-.chip .act svg { width: 12px; height: 12px; }
+   alarm sat right next to two neutral controls on the same chip.
+   A button's own hover has to read as a SECOND step inside the chip's plate,
+   so it takes the page's paper and a hairline rather than a slightly
+   different grey — one tint on another tint is not a state change. */
+.chip .act:hover {
+  color: var(--foreground); background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.chip .act svg { width: 13.5px; height: 13.5px; }
 
 /* ─── 6 · RAIL ─────────────────────────────────────────────────────────── */
 
@@ -876,11 +892,14 @@ header > .spacer { flex: none; }
   padding: 7px 0; gap: 1px; z-index: 10; flex: none;
 }
 .tool {
-  width: 32px; height: 32px; border-radius: var(--radius); border: 0; cursor: pointer;
+  width: 34px; height: 34px; border-radius: var(--radius); border: 0; cursor: pointer;
   background: transparent; color: var(--muted-foreground);
   display: flex; align-items: center; justify-content: center; position: relative;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
+/* the rail's own glyph size — a drawing tool is the thing you aim at most
+   often on this screen, and it was the smallest target on it */
+.tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
 .tool:hover { background: var(--accent); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
 .tool.toggled { color: var(--primary); }
@@ -942,7 +961,23 @@ header > .spacer { flex: none; }
 .readout .title {
   color: var(--foreground); font-size: var(--text-lg);
   font-weight: var(--weight-semi); letter-spacing: -.01em;
+  /* the legend is inert except for the ticker, which is a control */
+  pointer-events: none;
 }
+/* The ticker in the legend IS the instrument switch. TradingView's affordance:
+   nothing until the pointer arrives, then a plate under the word — the legend
+   stays a label right up to the moment it is reached for. */
+.readout .sym-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 1px 6px; margin-left: -6px; border-radius: var(--radius-xs);
+  cursor: pointer; pointer-events: auto;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.readout .sym-btn:hover { background: var(--accent); color: var(--primary); }
+.readout .co-logo {
+  width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: none;
+}
+.readout .co-logo.lg { width: 17px; height: 17px; }
 .readout .row { font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.01em; }
 .readout .row span { margin-right: 9px; }
 .readout .sep { margin: 0 5px; color: var(--faint); font-weight: 400; }
@@ -1297,24 +1332,36 @@ body > footer .dotsep { color: var(--border); }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
+/* The subject chip: which instrument this conversation is about. It carries
+   the mark, the ticker and the interval of the chart the model reads, so the
+   composer says WHAT is in context rather than merely that something is. */
 .ctx-flag {
+  display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-2xs); color: var(--muted-foreground); border: 0;
   border-radius: var(--radius-pill);
-  padding: 4px 10px; background: var(--muted); white-space: nowrap; cursor: pointer;
-  line-height: 1; transition: color var(--dur) var(--ease-quartr);
+  padding: 4px 10px 4px 8px; background: var(--muted);
+  white-space: nowrap; cursor: pointer;
+  line-height: 1; transition: color var(--dur) var(--ease-quartr),
+                              background var(--dur) var(--ease-quartr);
 }
-.ctx-flag:hover { color: var(--foreground); }
+.ctx-flag:hover { color: var(--foreground); background: var(--accent); }
 .ctx-flag.off { color: var(--faint); }
 .ctx-flag .dot {
   display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--up); margin-right: 5px; vertical-align: middle;
+  background: var(--up); flex: none;
 }
 .ctx-flag.off .dot { background: var(--faint); }
-.model-label {
-  font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap;
-  margin-right: 2px; font-weight: var(--weight-medium);
+.ctx-flag .co-logo { width: 13px; height: 13px; border-radius: 3px; object-fit: contain; flex: none; }
+.ctx-flag .sym { font-weight: var(--weight-semi); color: var(--foreground); letter-spacing: -.01em; }
+.ctx-flag.off .sym { color: var(--muted-foreground); }
+.ctx-flag .iv, .ctx-flag .more { color: var(--faint); }
+.subj-menu { min-width: 268px; max-width: 320px; }
+.subj-menu .cold { font-size: 10.5px; color: var(--faint); }
+/* The honest footnote under a control that can be given more than it sends. */
+.pick-note {
+  font-size: 11px; color: var(--faint); line-height: 1.45;
+  padding: 7px 9px 3px; border-top: 1px solid var(--border-soft); margin-top: 4px;
 }
-.model-label .lvl { color: var(--faint); font-weight: 400; }
 .send {
   width: 30px; height: 30px; border-radius: 50%; border: 0; flex: none;
   background: var(--primary); color: var(--primary-foreground); cursor: pointer;
@@ -1475,30 +1522,46 @@ body > footer .dotsep { color: var(--border); }
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 270px; }
-  #symbolMenu input {
+  /* Rectangular by request, and it reads better for it: a search field is a
+     text box, and the pill radius made it look like another button in a menu
+     of buttons. The app's smallest radius, not zero — a hard corner inside a
+     16px card is a different design language. */
+  #symbolMenu input, .sym-picker .pick-search {
     width: 100%; background: var(--input); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--foreground);
+    border-radius: var(--radius-2xs); color: var(--foreground);
     padding: 7px 9px; font-size: 12.5px; outline: none; margin-bottom: 5px;
     /* body sets user-select:none so chart drags don't select text; an input
        that inherits it takes three clicks before a caret lands */
     user-select: text; -webkit-user-select: text;
   }
-  #symbolMenu input:focus { border-color: var(--ring); }
-  #symList { max-height: 340px; overflow-y: auto; }
-  #symList .item .dot-h {
+  #symbolMenu input:focus, .sym-picker .pick-search:focus { border-color: var(--ring); }
+  /* The floating picker is the same list, opened from a legend or the chat
+     chip instead of the header pill — appended to <body> so a chart pane's
+     overflow cannot clip it. */
+  .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
+  #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
+  #symList .item .dot-h, .sym-picker .item .dot-h {
     width: 6px; height: 6px; border-radius: 50%; background: var(--up);
     display: inline-block; flex: none;
   }
-  #symList .item .cold { font-size: 10.5px; color: var(--faint); }
-  #symList .item .co-name {
+  #symList .item .cold, .sym-picker .item .cold { font-size: 10.5px; color: var(--faint); }
+  #symList .item .co-name, .sym-picker .item .co-name {
     font-size: 11px; color: var(--muted-foreground); font-weight: 500;
     margin-left: 6px; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; max-width: 118px;
   }
-  #symList .item .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
-  #symList .item .co-logo, .prose .co-logo {
+  #symList .item .lead, .sym-picker .item .lead,
+  .subj-menu .item .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  #symList .item .co-logo, .sym-picker .item .co-logo,
+  .subj-menu .item .co-logo, .prose .co-logo {
     width: 15px; height: 15px; border-radius: 3px; object-fit: contain;
     background: var(--muted); flex: none;
+  }
+  /* the pill wears the instrument's mark, before the ticker — the same order
+     the search rows, the legend and the chat's tables use */
+  #symbolPill .co-logo {
+    width: 16px; height: 16px; border-radius: 3px; object-fit: contain;
+    background: var(--card); flex: none; margin-right: -1px;
   }
   .prose .co-logo {
     width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px;
@@ -1517,7 +1580,8 @@ body > footer .dotsep { color: var(--border); }
     border-radius: 50%;
   }
   .chip .x:hover { color: var(--down); background: var(--down-soft); }
-  .chip .lbl:hover { background: var(--accent); }
+  /* the chip's own hover IS the label's — a second plate inside the first
+     read as two overlapping buttons */
   .draw-tag .x {
     cursor: pointer; color: var(--faint); width: 16px; height: 16px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -1646,9 +1710,8 @@ body > footer .dotsep { color: var(--border); }
                 <button type="button" class="cbtn" id="plusBtn" title="Conversation options"></button>
                 <div class="dropdown up" id="plusMenu"></div>
               </div>
-              <button type="button" class="ctx-flag" id="ctxFlag" title="Toggle whether the model sees the chart"></button>
+              <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
-              <span class="model-label">gpt-5.6-luna <span class="lvl">medium</span></span>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
@@ -1676,17 +1739,18 @@ body > footer .dotsep { color: var(--border); }
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/store.js?v=8"></script>
+  <script src="./js/store.js?v=9"></script>
   <script src="./js/theme.js?v=6"></script>
+  <script src="./js/universe.js?v=1"></script>
   <script src="./js/icons.js?v=10"></script>
-  <script src="./js/indicators.js?v=15"></script>
+  <script src="./js/indicators.js?v=16"></script>
   <script src="./js/indsettings.js?v=6"></script>
   <script src="./js/geometry.js?v=8"></script>
   <script src="./js/tools.js?v=8"></script>
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=21"></script>
-  <script src="./js/panes.js?v=3"></script>
-  <script src="./js/main.js?v=37"></script>
-  <script src="./js/chat.js?v=21"></script>
+  <script src="./js/panes.js?v=6"></script>
+  <script src="./js/main.js?v=41"></script>
+  <script src="./js/chat.js?v=23"></script>
 </body>
 </html>

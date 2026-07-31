@@ -173,10 +173,15 @@ const Indicators = (() => {
   // the display shift stays in the data client, applied once, here and there.
   const IST = Sym.tz;
 
-  async function fetchSeries(def, interval, limit, params) {
+  async function fetchSeries(def, interval, limit, params, symbol) {
+    // A secondary pane can hold a different instrument, so the SHIFT is read
+    // off the symbol actually being fetched — a crypto pane's series folded on
+    // the page symbol's +05:30 would land 5.5 h off its own candles.
+    const sym = symbol || SYM;
+    const shift = symbol ? Sym.of(symbol).tz : IST;
     const q = new URLSearchParams({
       name: def.name, interval, limit: String(limit),
-      ...(SYM ? { symbol: SYM } : {}),
+      ...(sym ? { symbol: sym } : {}),
       ...(def.period ? { period: String(def.period) } : {}),
     });
     for (const f of def.inputs || []) {
@@ -188,7 +193,7 @@ const Indicators = (() => {
     if (!r.ok) throw new Error((await r.json()).error || "indicator failed");
     const lines = (await r.json()).lines;
     for (const k of Object.keys(lines)) {
-      lines[k] = lines[k].map((p) => ({ time: p.time + IST, value: p.value }));
+      lines[k] = lines[k].map((p) => ({ time: p.time + shift, value: p.value }));
     }
     return lines;
   }
@@ -560,7 +565,7 @@ const Indicators = (() => {
       active.set(id, { pending: true, def, series: [], data: [], legendLines: [] });
       let lines;
       try {
-        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params);
+        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params, ctx.symbol);
       } catch (e) {
         active.delete(id);
         throw e;                       // caller surfaces it; never a silent no-op
@@ -673,7 +678,7 @@ const Indicators = (() => {
       const a = active.get(id);
       if (!a || a.pending) return;
       const lines = await fetchSeries(a.def, ctx.interval, ctx.limit,
-                                      settings(id).params);
+                                      settings(id).params, ctx.symbol);
       if (!active.has(id)) return;
       a.raw = lines;
       restyle(id);
@@ -811,6 +816,9 @@ const Indicators = (() => {
       setScaleExtras(fn) { scaleExtras = fn; },
       setContext(next) { ctx = { ...ctx, ...next }; },
       get interval() { return ctx.interval; },
+      /** The instrument this manager computes on — the page symbol on the
+       *  primary, the pane's own on a secondary chart. */
+      get symbol() { return ctx.symbol || SYM; },
       toggle(id, _bars) { return active.has(id) ? (remove(id), Promise.resolve()) : add(id); },
       remove, recomputeAll, retheme, restyle,
       isActive: (id) => active.has(id),

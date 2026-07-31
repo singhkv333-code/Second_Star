@@ -240,9 +240,32 @@
     // The venue comes from Sym, not a literal: this legend sits directly under
     // a badge that already reads BYBIT on a Bitcoin chart, and the two saying
     // different exchanges about the same instrument is worse than either.
-    el("roTitle").innerHTML = `${SYMBOL}<span class="sep">·</span>${state.interval}`
+    // The ticker carries the instrument's mark and IS the instrument switch —
+    // the legend is where a chart says what it is, so it is also where a
+    // reader reaches to change it.
+    el("roTitle").innerHTML =
+      `<span class="sym-btn" data-sym-btn title="Change instrument">`
+      + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${SYMBOL}</span>`
+      + `<span class="sep">·</span>${state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
   }
+  // Delegated once: paintTitle rewrites its own children on every interval
+  // change, and a listener per repaint leaks one per switch.
+  el("roTitle").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sym-btn]");
+    if (!btn) return;
+    e.stopPropagation();
+    Panes.setActive(0);
+    Universe.open({
+      anchor: btn, current: SYMBOL,
+      // A symbol change is a new session — chart, chat, drawings and scene all
+      // re-init against it — so it goes through the same reload the header
+      // pill uses rather than swapping bars under a live conversation.
+      onPick: (s) => { if (s !== SYMBOL) location.search = "?symbol=" + encodeURIComponent(s); },
+    });
+  });
+  // the mark lands after the universe does; repaint once it is known
+  Universe.load().then(() => { if (state.bars.length) paintTitle(); });
 
   function paintReadout(b) {
     if (!b) { el("roOhlc").innerHTML = ""; return; }
@@ -273,16 +296,25 @@
   const ind = Indicators.createManager(chart);
   const menu = el("indMenu");
 
+  /* ONE toolbar, aimed at whichever pane is selected — the same rule the
+   * interval strip already follows. `ind` stays the PRIMARY chart's manager
+   * (the scene layer, the chat envelope and the drawing panes are all bound
+   * to it); everything the header operates goes through IND(), which is the
+   * selected pane's own manager when a secondary chart holds the selection.
+   * A gear opened on a secondary pane therefore edits that pane's copy. */
+  const IND = () => Panes.activeInd() || ind;
+
   el("indBtn").innerHTML =
     Icons.svg("indicators", "sm") + "Indicators" + Icons.svg("chevronDown", "chev");
 
   function renderIndMenu() {
+    const m = IND();
     menu.innerHTML = '<div class="head">Overlays</div>' +
-      ind.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
+      m.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
       '<div class="sep"></div><div class="head">Panes</div>' +
-      ind.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("");
+      m.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("");
     function itemHTML(c) {
-      const on = ind.isActive(c.id);
+      const on = m.isActive(c.id);
       return `<div class="item ${on ? "on" : ""}" data-ind="${c.id}">` +
         `<span>${c.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
     }
@@ -292,10 +324,11 @@
    *  about an indicator is behind the gear now — the old click-the-label
    *  period box could change one number out of the eight the dialog owns. */
   function renderChips() {
-    el("indChips").innerHTML = [...ind.active.keys()].map((id) => {
-      const c = ind.CATALOG.find((q) => q.id === id);
-      const hidden = ind.isHidden(id);
-      const off = !hidden && ind.offInterval(id);
+    const m = IND();
+    el("indChips").innerHTML = [...m.active.keys()].map((id) => {
+      const c = m.CATALOG.find((q) => q.id === id);
+      const hidden = m.isHidden(id);
+      const off = !hidden && m.offInterval(id);
       const cls = hidden ? " muted" : (off ? " off" : "");
       return `<span class="chip${cls}" data-ind-chip="${id}">` +
         `<span class="lbl">${c.label}</span>` +
@@ -307,16 +340,22 @@
         `</span></span>`;
     }).join("");
     // the chips ARE the active set, so this is the one honest save point —
-    // it catches the menu, the chip's x, and anything the chat adds
-    Store.set("indicators", [...ind.active.keys()]);
+    // it catches the menu, the chip's x, and anything the chat adds. Only the
+    // PRIMARY's set is persisted: a secondary pane is created by the layout
+    // and dies with it, so restoring indicators onto one would be restoring
+    // them onto a different chart than the one they were added to.
+    if (Panes.primaryActive) Store.set("indicators", [...ind.active.keys()]);
     if (window.__chartoSyncChips) window.__chartoSyncChips();
   }
 
   /** Open the settings dialog on one indicator. Every edit inside it applies
    *  live and persists itself; all this has to do is keep the chips honest. */
   function openIndSettings(id) {
-    IndSettings.open(ind, id, {
-      subtitle: `${SYMBOL} · ${state.interval}`,
+    const m = IND();
+    IndSettings.open(m, id, {
+      // the subtitle names the chart being edited, which on a split is not
+      // necessarily the page's own symbol or interval
+      subtitle: `${m.symbol} · ${m.interval}`,
       onChange: () => {
         renderChips();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
@@ -334,12 +373,14 @@
     const it = e.target.closest("[data-ind]");
     if (!it) return;
     const id = it.dataset.ind;
-    const def = ind.CATALOG.find((q) => q.id === id);
-    if (def.intradayOnly && ["1d", "1w", "1mo"].includes(state.interval) && !ind.isActive(id)) {
+    const m = IND();
+    const def = m.CATALOG.find((q) => q.id === id);
+    const iv = Panes.primaryActive ? state.interval : m.interval;
+    if (def.intradayOnly && ["1d", "1w", "1mo", "D", "W", "M"].includes(iv) && !m.isActive(id)) {
       status("VWAP is session-anchored — switch to an intraday interval");
       return;
     }
-    Promise.resolve(ind.toggle(id, state.bars))
+    Promise.resolve(m.toggle(id, state.bars))
       .then(() => { renderIndMenu(); renderChips(); })
       // the failure path MUST re-render too. The optimistic pass below draws
       // the chip and the tick while the fetch is still in flight; without a
@@ -435,10 +476,11 @@
   })();
 
   el("indChips").addEventListener("click", (e) => {
+    const m = IND();
     const eye = e.target.closest("[data-eye]");
     if (eye) {
       e.stopPropagation();
-      ind.setHidden(eye.dataset.eye, !ind.isHidden(eye.dataset.eye));
+      m.setHidden(eye.dataset.eye, !m.isHidden(eye.dataset.eye));
       renderChips();
       return;
     }
@@ -450,7 +492,7 @@
     }
     const x = e.target.closest("[data-rm]");
     if (x) {
-      ind.remove(x.dataset.rm);
+      m.remove(x.dataset.rm);
       renderChips();
       // the shared signal every other removal path sends — without it the
       // orphan purge and pane sync never hear about the chip's ×
@@ -495,6 +537,11 @@
     if (Panes.setIntervalOnActive(b.dataset.iv)) return markInterval(b.dataset.iv);
     selectInterval(b.dataset.iv);
     loadInterval(b.dataset.iv);
+    // the chat's subject chip carries the interval too, and this is the one
+    // path that changes the primary's without a pane selection
+    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+      detail: { pane: 0, symbol: SYMBOL, interval: b.dataset.iv },
+    }));
   });
 
   /** Paint the segmented control without claiming it as the primary's state. */
@@ -802,17 +849,24 @@
   }
   const r2 = (n) => Math.round(n * 100) / 100;
 
-  function getChartContext() {
-    const bars = state.bars;
-    if (!bars.length) return { status: "loading", symbol: SYMBOL, interval: state.interval };
-    const withTime = !DAILY.has(state.interval);
+  /** Everything in the envelope that is true of ANY chart: the instrument,
+   *  what is visible, the last bar and the window's own statistics. The
+   *  primary adds its drawings, indicators and pins on top of this; a
+   *  secondary pane has none of those and must not borrow the primary's.
+   *  Returns null when there is nothing loaded yet to describe. */
+  function windowEnvelope(bars, chartObj, symName, interval, hasMore) {
+    if (!bars.length) return null;
+    const d = Sym.of(symName);
+    // a secondary pane spells daily intervals D/W/M; both vocabularies mean
+    // "no wall clock on this bar"
+    const withTime = !DAILY.has(interval) && !["D", "W", "M"].includes(interval);
     const T = (t) => fmtIST(t, withTime);
 
-    const lr = chart.timeScale().getVisibleLogicalRange();
+    const lr = chartObj.timeScale().getVisibleLogicalRange();
     const lo = Math.max(0, Math.floor(lr ? lr.from : 0));
     const hi = Math.min(bars.length - 1, Math.ceil(lr ? lr.to : bars.length - 1));
     const vis = bars.slice(lo, hi + 1);
-    if (!vis.length) return { status: "loading", symbol: SYMBOL, interval: state.interval };
+    if (!vis.length) return null;
 
     let hp = -Infinity, ht = 0, lp = Infinity, lt = 0, vsum = 0;
     for (const b of vis) {
@@ -842,6 +896,63 @@
         };
       }
     }
+
+    return { T, withTime, vis, first, last, env: {
+      symbol: d.name, exchange: d.venue,
+      source: `local 1-min store (${d.feed})`,
+      interval,
+      view: {
+        from: T(first.time), to: T(last.time),
+        bars_visible: vis.length, bars_loaded: bars.length,
+        history_from: "2015-02-02", more_history: !!hasMore,
+      },
+      last_bar: {
+        t: T(last.time), o: r2(last.open), h: r2(last.high),
+        l: r2(last.low), c: r2(last.close), v: last.volume,
+      },
+      session,
+      window: {
+        open: r2(first.open), close: r2(last.close),
+        change_pct: r2((last.close - first.open) / first.open * 100),
+        high: { p: r2(hp), t: T(ht) }, low: { p: r2(lp), t: T(lt) },
+        avg_volume: Math.round(vsum / vis.length),
+        trajectory: traj,
+      },
+    } };
+  }
+
+  /** `pane` is optional: omit it and the envelope describes whichever chart is
+   *  selected; pass an index and it describes that one (the chat pins a pane
+   *  so the subject it NAMES and the chart it SENDS cannot drift apart). An
+   *  index the layout no longer has falls back to the primary. */
+  function getChartContext(pane) {
+    /* The chart the user last clicked is the chart being discussed. A
+     * secondary pane carries its own instrument, interval and indicators, so
+     * it can answer for itself — but it holds no drawings, no scene and no
+     * pins, and the envelope says which chart this is instead of quietly
+     * sending the primary's annotations attached to another pane's prices. */
+    const sub = pane == null ? Panes.activeSub() : Panes.paneAt(pane);
+    if (sub) {
+      const w = windowEnvelope(sub.bars, sub.chart, sub.symbol, sub.interval, false);
+      if (!w) return { status: "loading", symbol: sub.symbol, interval: sub.interval };
+      return {
+        ...w.env,
+        // The backend renders `source` verbatim on the envelope's header line,
+        // so the pane's nature is said where the model will actually read it —
+        // a key it does not render would have been a note to nobody.
+        source: `${w.env.source} · secondary pane (selected); drawings and `
+          + `pinned bars live on the main chart`,
+        indicators: sub.ind.snapshot(w.first.time).map((x) => ({
+          label: x.label, now: r2(x.now),
+          at_window_start: x.at === null ? null : r2(x.at),
+        })),
+      };
+    }
+
+    const bars = state.bars;
+    const w0 = windowEnvelope(bars, chart, SYMBOL, state.interval, state.hasMore);
+    if (!w0) return { status: "loading", symbol: SYMBOL, interval: state.interval };
+    const { T, first } = w0;
 
     // A drawing's numbers only mean "rupees" on the price pane. On an
     // indicator pane they are that indicator's units, so the pane has to
@@ -880,26 +991,7 @@
     }).filter(Boolean);
 
     return {
-      symbol: SYMBOL, exchange: Sym.venue,
-      source: `local 1-min store (${Sym.feed})`,
-      interval: state.interval,
-      view: {
-        from: T(first.time), to: T(last.time),
-        bars_visible: vis.length, bars_loaded: bars.length,
-        history_from: "2015-02-02", more_history: state.hasMore,
-      },
-      last_bar: {
-        t: T(last.time), o: r2(last.open), h: r2(last.high),
-        l: r2(last.low), c: r2(last.close), v: last.volume,
-      },
-      session,
-      window: {
-        open: r2(first.open), close: r2(last.close),
-        change_pct: r2((last.close - first.open) / first.open * 100),
-        high: { p: r2(hp), t: T(ht) }, low: { p: r2(lp), t: T(lt) },
-        avg_volume: Math.round(vsum / vis.length),
-        trajectory: traj,
-      },
+      ...w0.env,
       indicators: ind.snapshot(first.time).map((x) => ({
         label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
       })),
@@ -1697,9 +1789,19 @@
     paintLayoutBtn();
     Store.set("layout", Panes.layout);
   });
-  // Selecting a pane re-aims the toolbar: the segmented control shows that
-  // pane's interval, so the control never claims a value it isn't driving.
-  Panes.onActive((_i, iv) => markInterval(iv || state.interval));
+  // Selecting a pane re-aims the WHOLE toolbar: the segmented control shows
+  // that pane's interval and the indicator menu and chips show what that pane
+  // is carrying, so neither ever claims a value it isn't driving. The chat is
+  // told too — `charto:pane-active` is what moves its subject to the chart you
+  // just clicked (unless you have pinned one yourself).
+  Panes.onActive((i, iv, sym) => {
+    markInterval(iv || state.interval);
+    renderChips();
+    if (menu.classList.contains("open")) renderIndMenu();
+    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+      detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
+    }));
+  });
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
 
@@ -1804,11 +1906,22 @@
     el("symbolName").textContent = SYMBOL;
     el("symbolVenue").textContent = Sym.venue;
     el("srcLine").textContent = `local store · ${Sym.feed}`;
-    el("roTitle").textContent = SYMBOL;
+    paintTitle();
     document.title = `${SYMBOL} — Charto`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
     let all = null, hyd = new Set(), names = {}, shortNames = {}, logos = {};
+    /** The instrument's own mark, on the pill. It sits BEFORE the ticker, the
+     *  same order the search rows and the chat's tables use — one instrument,
+     *  one mark, in one position wherever it is named. */
+    Universe.load().then(() => {
+      const src = Universe.logo(SYMBOL);
+      if (!src || pill.querySelector(".co-logo")) return;
+      const img = document.createElement("img");
+      img.className = "co-logo"; img.src = src; img.alt = ""; img.loading = "lazy";
+      img.onerror = () => img.remove();
+      pill.insertBefore(img, pill.firstChild);
+    });
     const go = (s) => {
       if (!s || s === SYMBOL) { menu.classList.remove("open"); return; }
       pill.style.opacity = "0.6";
@@ -1859,14 +1972,13 @@
       // itself, and only the third attempt (data cached) worked.
       input.value = ""; render(""); input.focus();
       if (!all) {
-        try {
-          const d = await fetch(`${API}/symbols`).then((r) => r.json());
-          all = d.symbols || []; hyd = new Set(d.hydrated || []);
-          // show the enrichment long name (the Moneycontrol short name is
-          // wrong for a few rows); still search both
-          names = { ...(d.names || {}), ...(d.long || {}) };
-          shortNames = d.names || {}; logos = d.logos || {};
-        } catch { all = []; }
+        // one cache for the whole app — the legend, the pane pickers and the
+        // chat's logo marker all read the same payload
+        const d = await Universe.load();
+        all = d.symbols; hyd = d.hydrated;
+        // show the enrichment long name (the Moneycontrol short name is
+        // wrong for a few rows); still search both
+        names = d.names; shortNames = d.short; logos = d.logos;
         // re-render against whatever is in the box NOW, not against ""
         if (menu.classList.contains("open")) render(input.value);
       }

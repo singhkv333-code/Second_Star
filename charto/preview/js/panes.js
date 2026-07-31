@@ -25,11 +25,15 @@
 const Panes = (() => {
   const LWC = window.LightweightCharts;
   const API = "http://127.0.0.1:5174";
-  const IST = 19800;
-  const SYMBOL = "RELIANCE";
+  // The page's instrument is the DEFAULT a new pane opens on, not a constant:
+  // this file used to hard-code RELIANCE, so a split on any other company drew
+  // — and labelled — Reliance beside it. A pane can now be pointed at its own
+  // instrument from its legend, and everything about it (clock, currency,
+  // venue, indicator series) follows that symbol rather than the page's.
   const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "D", "W", "M"];
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
+  const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
   const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
 
   /* ── the layout catalogue ────────────────────────────────────────────────
@@ -179,20 +183,23 @@ const Panes = (() => {
     };
   }
 
-  async function fetchBars(interval, limit) {
+  async function fetchBars(symbol, interval, limit) {
     const qs = new URLSearchParams({
-      symbol: SYMBOL, interval: WIRE[interval] || interval, limit: String(limit),
+      symbol, interval: WIRE[interval] || interval, limit: String(limit),
     });
     const res = await fetch(`${API}/bars?${qs}`);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
+    // the axis shift belongs to the SYMBOL — crypto folds on UTC, NSE on IST
+    const shift = Sym.of(symbol).tz;
     return d.bars.map((b) => ({
-      time: b.t + IST, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+      time: b.t + shift, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
     }));
   }
 
-  /** One secondary chart: its own element, instance, interval and data. */
-  function makeSub(interval) {
+  /** One secondary chart: its own element, instance, interval, symbol, data
+   *  and indicators. */
+  function makeSub(interval, symbol) {
     const root = document.createElement("div");
     root.className = "subchart";
     // No per-pane toolbar. Every pane wears the same in-chart legend and the
@@ -220,12 +227,22 @@ const Panes = (() => {
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
 
-    const sub = { root, chart, candle, volume, interval, destroyed: false, bars: [] };
+    const sub = { root, chart, candle, volume, interval, destroyed: false,
+                  bars: [], symbol: (symbol || Sym.name).toUpperCase() };
+    // Indicators are a property of the CHART, not of the app: the one toolbar
+    // adds to whichever pane is selected, and each pane keeps what it was
+    // given. Settings still live in one place per indicator, so an EMA styled
+    // in one pane is the same EMA everywhere — only membership is per-pane.
+    sub.ind = Indicators.createManager(chart);
 
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.of(sub.symbol).num(n);
     function paintLegend(b) {
-      titleEl.innerHTML = `${SYMBOL}<span class="sep">·</span>${sub.interval}`
-        + `<span class="sep">·</span><span class="ex">NSE</span>`;
+      const d = Sym.of(sub.symbol);
+      titleEl.innerHTML =
+        `<span class="sym-btn" data-sym-btn>${Universe.logoHTML(sub.symbol, "co-logo lg")}`
+        + `${sub.symbol}</span>`
+        + `<span class="sep">·</span>${sub.interval}`
+        + `<span class="sep">·</span><span class="ex">${d.venue}</span>`;
       if (!b) { ohlcEl.innerHTML = ""; return; }
       const cls = b.close >= b.open ? "up" : "down";
       ohlcEl.innerHTML =
@@ -242,11 +259,15 @@ const Panes = (() => {
                     : sub.bars[sub.bars.length - 1]);
     });
 
-    async function load(iv) {
+    async function load(rawIv) {
+      // The toolbar speaks the server's ids (1d/1w/1mo), this pane's ladder and
+      // legend speak D/W/M. Normalising here is why a daily pane picked from
+      // the header still gets a daily PAGE size and a date-only axis.
+      const iv = DISP[rawIv] || rawIv;
       sub.interval = iv;
       paintLegend(null);
       try {
-        const bars = await fetchBars(iv, PAGE[iv] || 2000);
+        const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
         if (sub.destroyed) return;
         sub.bars = bars;
         candle.setData(bars.map(({ time, open, high, low, close }) =>
@@ -260,11 +281,37 @@ const Panes = (() => {
         chart.timeScale().setVisibleLogicalRange(
           { from: Math.max(0, bars.length - 140), to: bars.length + 4 });
         paintLegend(bars[bars.length - 1]);
+        // this pane's own indicators recompute on ITS symbol and interval
+        sub.ind.recomputeAll(bars, {
+          interval: WIRE[iv] || iv, limit: bars.length, symbol: sub.symbol,
+        }).catch(() => {});
       } catch (e) {
         if (!sub.destroyed) titleEl.textContent = String(e.message || e);
       }
     }
     sub.load = load;
+
+    /** Point this pane at another instrument. A cold symbol hydrates server
+     *  side (~6 s), so the legend says what it is doing rather than sitting
+     *  on the old company's bars while the new ones are in flight. */
+    sub.setSymbol = (s) => {
+      const next = String(s || "").toUpperCase();
+      if (!next || next === sub.symbol) return;
+      sub.symbol = next;
+      titleEl.innerHTML = `${next}<span class="sep">·</span>loading…`;
+      ohlcEl.innerHTML = "";
+      if (subs[active - 1] === sub) emitActive();
+      return load(sub.interval);
+    };
+
+    // the ticker in the legend IS the instrument switch
+    titleEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-sym-btn]");
+      if (!btn) return;
+      e.stopPropagation();
+      setActive(subs.indexOf(sub) + 1);
+      Universe.open({ anchor: btn, current: sub.symbol, onPick: (s) => sub.setSymbol(s) });
+    });
 
     sub.retheme = () => {
       chart.applyOptions(chartOpts());
@@ -272,6 +319,7 @@ const Panes = (() => {
         upColor: Theme.c("up"), downColor: Theme.c("down"),
         wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
       });
+      sub.ind.retheme(sub.bars);
       load(sub.interval);   // volume bar colours are per-point, so repaint
     };
     sub.destroy = () => {
@@ -297,15 +345,30 @@ const Panes = (() => {
    *  selection is a property of the pane, not of the toolbar. */
   function setActive(i) {
     const n = Math.max(0, Math.min(i, subs.length));
+    const same = n === active;
     active = n;
     if (stage) stage.classList.toggle("pane-active", n === 0 && subs.length > 0);
     subs.forEach((s, k) => s.root.classList.toggle("pane-active", n === k + 1));
-    for (const fn of onActiveSubs) { try { fn(n, intervalOf(n)); } catch (e) { console.error(e); } }
+    if (same) return;   // a click inside the already-selected pane is not news
+    emitActive();
+  }
+  /** Tell everyone aimed at "the selected pane" what it now holds. Selection
+   *  is not the only thing that changes it — pointing the selected pane at
+   *  another instrument changes it too, and the chat's subject chip has to
+   *  hear about that or it keeps naming the company you just navigated away
+   *  from. */
+  function emitActive() {
+    for (const fn of onActiveSubs) {
+      try { fn(active, intervalOf(active), symbolOf(active)); } catch (e) { console.error(e); }
+    }
   }
   const onActiveSubs = [];
 
   function intervalOf(i) {
     return i === 0 ? null : (subs[i - 1] || {}).interval || null;
+  }
+  function symbolOf(i) {
+    return i === 0 ? Sym.name : (subs[i - 1] || {}).symbol || Sym.name;
   }
 
   /* A second pane defaults to a SLOWER interval — the reason to open one is
@@ -332,7 +395,7 @@ const Panes = (() => {
     // the primary always holds the first area a reader meets
     if (stage) stage.style.gridArea = L.areas[0];
     for (let i = 1; i < L.panes; i++) {
-      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length]);
+      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length], Sym.name);
       s.root.style.gridArea = L.areas[i];
       subs.push(s);
       gridEl.appendChild(s.root);
@@ -381,12 +444,26 @@ const Panes = (() => {
     /** true when the toolbar should drive main.js's own chart. */
     get primaryActive() { return active === 0; },
     get activeInterval() { return intervalOf(active); },
+    get activeSymbol() { return symbolOf(active); },
+    /** The selected secondary pane, or null when the primary has it. Callers
+     *  that must act on "the chart the user is working in" ask for this and
+     *  fall back to their own primary — there is no null-object stand-in,
+     *  because a silent no-op on the wrong chart is worse than a branch. */
+    activeSub() { return active === 0 ? null : subs[active - 1] || null; },
+    /** A pane BY INDEX — 0 is the primary (null: main.js owns it), 1..n the
+     *  secondaries. Null for an index the current layout no longer has, so a
+     *  caller holding a stale pane falls back to the primary instead of
+     *  answering from a chart that is gone. */
+    paneAt(i) { return i > 0 ? (subs[i - 1] || null) : null; },
+    hasPane(i) { return i === 0 || !!subs[i - 1]; },
+    /** The indicator manager the one toolbar drives. */
+    activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
     /** Route an interval choice to the selected pane. Returns false when the
      *  primary is selected, so main.js keeps ownership of its own chart. */
     setIntervalOnActive(iv) {
       if (active === 0) return false;
       const s = subs[active - 1];
-      if (s) s.load(iv);
+      if (s) { s.load(iv); emitActive(); }   // the chat's subject moved with it
       return true;
     },
     onChange(fn) { onChangeSubs.push(fn); },

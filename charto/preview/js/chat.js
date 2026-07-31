@@ -341,7 +341,9 @@
   // over text nodes, never over the markdown string: a regex on HTML would
   // eventually match inside a tag it wrote.
   let SYMS = null, TO_SYM = null, SYM_RE = null, LOGOS = {}, NAME_KEYS = null;
-  fetch(`${API}/symbols`).then((r) => r.json()).then((d) => {
+  // one universe cache for the whole app — the pill, the legends, the pane
+  // pickers and this marker all read the same payload
+  Universe.load().then((d) => {
     SYMS = new Set(d.symbols || []);
     LOGOS = d.logos || {};
     TO_SYM = new Map(SYMS.size ? [...SYMS].map((s) => [s, s]) : []);
@@ -509,8 +511,19 @@
     const t0 = performance.now();
 
     try {
-      // snapshot the chart at send time — what you were looking at when you asked
-      const context = ctxOn && window.__charto ? window.__charto.getChartContext() : null;
+      // Snapshot the chart at send time — what you were looking at when you
+      // asked. A PINNED subject names a specific pane, so the envelope is
+      // taken from that pane rather than from whatever is selected now; the
+      // chip is then repainted from what was actually sent, so the two cannot
+      // drift (a layout change can retire a pinned pane, and the fallback has
+      // to be visible rather than silent).
+      const context = ctxOn && window.__charto
+        ? window.__charto.getChartContext(pinned ? subject.pane : undefined) : null;
+      if (context && context.symbol) {
+        subject = { symbol: context.symbol, interval: context.interval,
+                    pane: subject.pane };
+        paintCtxFlag();
+      }
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -675,13 +688,112 @@
     ].join("");
   }
 
+  /* ── what the conversation is about ──────────────────────────────────────
+   *
+   * The chip names the INSTRUMENT the model is reading, not the fact that it
+   * is reading something: "sees chart" told you the switch was on and nothing
+   * about which chart. It follows the pane you last clicked, so on a split the
+   * chat and the selection can never disagree — unless you have chosen the
+   * subject yourself here, which pins it (a deliberate choice outranks a
+   * click somewhere else on screen).
+   *
+   * The dot keeps its old meaning: lit = the chart rides with each message,
+   * dim = it does not. The switch itself lives in the + menu.
+   */
+  let subject = { symbol: Sym.name, interval: null, pane: 0 };
+  let pinned = false;                 // set by choosing a ticker in this menu
+  const extras = [];                  // tickers added for context, not yet wired
+
   function paintCtxFlag() {
     ctxFlag.classList.toggle("off", !ctxOn);
-    ctxFlag.innerHTML = `<span class="dot"></span>${ctxOn ? "sees chart" : "chart hidden"}`;
-    ctxFlag.title = ctxOn
-      ? "The visible chart is attached to each message — click to detach"
-      : "The model gets no chart state — click to attach";
+    // before any pane has been clicked the subject IS the primary chart, so
+    // its interval is read live rather than cached as null
+    const ivNow = subject.interval
+      || (window.__charto && window.__charto.state.interval) || "";
+    const iv = ivNow ? ` <span class="iv">${ivNow}</span>` : "";
+    const more = extras.length ? ` <span class="more">+${extras.length}</span>` : "";
+    ctxFlag.innerHTML = `<span class="dot"></span>`
+      + Universe.logoHTML(subject.symbol, "co-logo")
+      + `<span class="sym">${subject.symbol}</span>${iv}${more}`;
+    ctxFlag.title = (ctxOn
+      ? `The model reads this chart — ${subject.symbol}`
+      : "The chart is detached; the model reads none of it")
+      + " · click to choose what is in context";
   }
+
+  /** The menu behind the chip: what is in context now, and a search to add
+   *  more. Added tickers are shown as PENDING because that is what they are —
+   *  nothing but the selected chart is sent to the model yet, and a chip that
+   *  implies otherwise would be the interface lying about its own state. */
+  function openSubjectMenu() {
+    const rows = [
+      `<div class="head">In context</div>`,
+      `<div class="item on" data-subj="chart"><span class="lead">`
+      + Universe.logoHTML(subject.symbol, "co-logo")
+      + `${subject.symbol}${subject.interval ? ` · ${subject.interval}` : ""}`
+      + `</span><span class="cold">${ctxOn ? "chart" : "detached"}</span></div>`,
+      ...extras.map((s) => `<div class="item" data-drop="${s}"><span class="lead">`
+        + Universe.logoHTML(s, "co-logo") + `${s}</span>`
+        + `<span class="cold">pending ×</span></div>`),
+      `<div class="sep"></div>`,
+      `<div class="item" data-subj="add"><span class="lead">`
+      + `${Icons.svg("plus", "sm")}Add a ticker to the conversation</span></div>`,
+      pinned ? `<div class="item" data-subj="unpin"><span class="lead">`
+        + `${Icons.svg("check", "sm")}Following your choice — click to follow the chart`
+        + `</span></div>` : "",
+      `<div class="pick-note">Only the selected chart is sent to the model today;`
+      + ` added tickers are held here until that is wired.</div>`,
+    ].join("");
+
+    const pop = document.createElement("div");
+    pop.className = "dropdown floating subj-menu open";
+    pop.innerHTML = rows;
+    document.body.appendChild(pop);
+    const r = ctxFlag.getBoundingClientRect();
+    pop.style.left = Math.max(8, r.left) + "px";
+    pop.style.bottom = (innerHeight - r.top + 8) + "px";
+
+    const close = () => { pop.remove(); document.removeEventListener("mousedown", out, true); };
+    const out = (e) => { if (!pop.contains(e.target) && !ctxFlag.contains(e.target)) close(); };
+    setTimeout(() => document.addEventListener("mousedown", out, true), 0);
+
+    pop.addEventListener("click", (e) => {
+      const drop = e.target.closest("[data-drop]");
+      if (drop) {
+        const i = extras.indexOf(drop.dataset.drop);
+        if (i >= 0) extras.splice(i, 1);
+        close(); paintCtxFlag(); openSubjectMenu();
+        return;
+      }
+      const it = e.target.closest("[data-subj]");
+      if (!it) return;
+      if (it.dataset.subj === "unpin") {
+        pinned = false; close(); paintCtxFlag();
+        return;
+      }
+      if (it.dataset.subj === "add") {
+        close();
+        Universe.open({
+          anchor: ctxFlag, current: subject.symbol,
+          onPick: (s) => {
+            if (s !== subject.symbol && !extras.includes(s)) extras.push(s);
+            pinned = true;                 // a choice made here outranks a click
+            paintCtxFlag();
+          },
+        });
+      }
+    });
+  }
+
+  // The selected chart is the subject — the same signal that re-aims the
+  // toolbar. A pinned subject ignores it.
+  document.addEventListener("charto:pane-active", (e) => {
+    if (pinned) return;
+    subject = { symbol: e.detail.symbol, interval: e.detail.interval,
+                pane: e.detail.pane };
+    paintCtxFlag();
+  });
+  Universe.load().then(paintCtxFlag);   // the mark lands after the fetch
 
   function clearConversation() {
     turns.length = 0;
@@ -709,7 +821,8 @@
     }
     if (act === "clear") clearConversation();
   });
-  ctxFlag.addEventListener("click", () => { ctxOn = !ctxOn; paintCtxFlag(); });
+  // the chip opens the subject menu; the see-the-chart switch is in "+"
+  ctxFlag.addEventListener("click", (e) => { e.stopPropagation(); openSubjectMenu(); });
   el("ctxPeekClose").addEventListener("click", () => el("ctxPeek").classList.remove("open"));
   paintCtxFlag();
 
