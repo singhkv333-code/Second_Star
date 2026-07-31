@@ -1058,6 +1058,27 @@ header > .spacer { flex: none; }
 .readout .chg.up { color: var(--up); }
 .readout .chg.down { color: var(--down); }
 
+/* The chart-actions disclosure: same row, same type and colour as the
+   latency and token counts, because it is the same kind of fact. Closed by
+   default — it answers "what did it touch" only when asked. */
+.acts-toggle {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: transparent; border: 0; padding: 0 2px; cursor: pointer;
+  font: inherit; color: inherit; opacity: .85;
+  transition: opacity var(--dur) var(--ease-quartr);
+}
+.acts-toggle::before { content: "·"; margin-right: 5px; opacity: .7; }
+.acts-toggle:hover { opacity: 1; }
+.acts-toggle svg { transition: transform var(--dur) var(--ease-quartr); }
+.turn-meta.acts-open .acts-toggle svg { transform: rotate(180deg); }
+.acts-list { display: none; margin: 5px 0 2px; padding-left: 2px; }
+.turn-meta.acts-open + .acts-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.act-row {
+  font-size: var(--text-2xs); color: var(--muted-foreground);
+  background: var(--muted); border-radius: var(--radius-sm);
+  padding: 2px 7px; font-variant-numeric: tabular-nums;
+}
+
 /* TradingView's "auto" affordance — appears once you've moved the price
    scale by hand, clicking it re-fits to the visible bars. */
 .auto-pill {
@@ -1834,6 +1855,6 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/scene.js?v=22"></script>
   <script src="./js/panes.js?v=7"></script>
   <script src="./js/main.js?v=49"></script>
-  <script src="./js/chat.js?v=25"></script>
+  <script src="./js/chat.js?v=100"></script>
 </body>
 </html>

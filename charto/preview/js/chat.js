@@ -419,8 +419,58 @@
     }
   }
 
+
+  /* ── what this turn put on the chart ─────────────────────────────────────
+   *
+   * The footer used to read "computed via get_indicator" — a backend
+   * function name, and a misleading count: one get_indicator call can plot
+   * three moving averages, and it read as a single thing.
+   *
+   * The scene patch is already the honest ledger, because it is literally
+   * the list of objects that landed on the chart. One entry per VISUAL
+   * thing: three indicators are three, a level and a zone are two, a
+   * volume profile is one. Names are the ones the chart itself shows, so
+   * nothing here leaks a tool id.
+   */
+  const SHAPE_WORD = {
+    segment: "Trendline", zone: "Zone", box: "Box", vline: "Vertical line",
+    point: "Point", poly: "Shape", fib: "Fib retracement",
+    position: "Trade plan", markers: "Markers", vprofile: "Volume profile",
+    level: "Level",
+  };
+
+  function chartActions(patch) {
+    const out = [];
+    const items = (patch || []).filter((a) => a && a.kind);
+    // A clear that is FOLLOWED by drawings is draw_mode:"replace" doing its
+    // bookkeeping, not something the reader saw happen — counting it made
+    // three levels and a profile read as eight actions. A clear on its own
+    // is a real removal and does count.
+    const onlyClears = items.every(
+      (a) => a.kind === "clear" || a.kind === "clear_levels");
+    for (const a of items) {
+      if (a.kind === "clear" || a.kind === "clear_levels") {
+        if (onlyClears) out.push("Cleared the chart");
+        continue;
+      }
+      if (a.kind === "indicator_remove") {
+        out.push(`Removed ${String(a.name || "an indicator").toUpperCase()}`);
+        continue;
+      }
+      if (a.kind === "indicator") {
+        const nm = String(a.name || "").split("@")[0].toUpperCase();
+        out.push(`${nm}${a.period ? " " + a.period : ""}`.trim() || "Indicator");
+        continue;
+      }
+      const word = SHAPE_WORD[a.kind] || "Drawing";
+      // a level's own label is the price, which is more use than the word
+      out.push(a.label ? `${word} · ${a.label}` : word);
+    }
+    return out;
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
-  function finishTurn(turn, text, bits) {
+  function finishTurn(turn, text, bits, acts) {
     const prose = turn.querySelector(".prose");
     prose.innerHTML = md(text);
     linkCompanies(prose);
@@ -439,6 +489,28 @@
     const label = document.createElement("span");
     label.textContent = bits.filter(Boolean).join("  ·  ");
     meta.append(copy, label);
+    // The chart-actions disclosure rides in the same row, in the same type —
+    // it is provenance, the same as the latency and the token count.
+    const acts2 = acts || [];
+    if (acts2.length) {
+      const tog = document.createElement("button");
+      tog.className = "acts-toggle";
+      tog.innerHTML = `<span>${acts2.length} on chart</span>`
+        + Icons.svg("chevronDown", "xs");
+      const list = document.createElement("div");
+      list.className = "acts-list";
+      list.innerHTML = acts2.map((t) =>
+        `<span class="act-row">${esc(t)}</span>`).join("");
+      tog.addEventListener("click", () => {
+        const open = meta.classList.toggle("acts-open");
+        tog.setAttribute("aria-expanded", String(open));
+      });
+      meta.append(tog);
+      turn.appendChild(meta);
+      turn.appendChild(list);
+      toBottom();
+      return;
+    }
     turn.appendChild(meta);
     toBottom();
   }
@@ -486,7 +558,7 @@
     if (!turns.length) return;
     for (const t of turns) {
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing); continue; }
-      finishTurn(addAssistantTurn(), t.content, t.meta || []);
+      finishTurn(addAssistantTurn(), t.content, t.meta || [], t.acts || []);
     }
     toBottom();
   })();
@@ -544,15 +616,14 @@
 
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       const u = d.usage || {};
-      const tools = (d.tools_used || []).map((t) => t.name + (t.ok ? "" : " (failed)"));
       const meta = [
         `${secs}s`,
         u.input_tokens != null ? `${u.input_tokens.toLocaleString()} in / ${(u.output_tokens ?? 0).toLocaleString()} out` : null,
-        tools.length ? `computed via ${[...new Set(tools)].join(", ")}` : null,
       ].filter(Boolean);
-      turns.push({ role: "assistant", content: d.text, meta });
+      const acts = chartActions(d.scene_patch);
+      turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();
-      finishTurn(turn, d.text, meta);
+      finishTurn(turn, d.text, meta, acts);
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
       saveTurns();
