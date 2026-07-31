@@ -697,8 +697,10 @@
    * subject yourself here, which pins it (a deliberate choice outranks a
    * click somewhere else on screen).
    *
-   * The dot keeps its old meaning: lit = the chart rides with each message,
-   * dim = it does not. The switch itself lives in the + menu.
+   * Whether the chart rides along is carried by the chip's own ink — attached
+   * reads at full strength, detached goes faint and the tooltip says so. A
+   * status dot beside a logo was a second indicator light on a control that
+   * already had one, and it read as a live-connection lamp.
    */
   let subject = { symbol: Sym.name, interval: null, pane: 0 };
   let pinned = false;                 // set by choosing a ticker in this menu
@@ -712,8 +714,7 @@
       || (window.__charto && window.__charto.state.interval) || "";
     const iv = ivNow ? ` <span class="iv">${ivNow}</span>` : "";
     const more = extras.length ? ` <span class="more">+${extras.length}</span>` : "";
-    ctxFlag.innerHTML = `<span class="dot"></span>`
-      + Universe.logoHTML(subject.symbol, "co-logo")
+    ctxFlag.innerHTML = Universe.logoHTML(subject.symbol, "co-logo")
       + `<span class="sym">${subject.symbol}</span>${iv}${more}`;
     ctxFlag.title = (ctxOn
       ? `The model reads this chart — ${subject.symbol}`
