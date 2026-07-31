@@ -25,6 +25,7 @@ import json
 import logging
 import queue
 import sqlite3
+from os import environ
 import threading
 import time
 import urllib.request
@@ -46,7 +47,7 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 # deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
 # (gpt-5.4-mini) and Charto should not drag it onto a different model.
 LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
-LLM_EFFORT = "medium"
+LLM_EFFORT_DEFAULT = "medium"
 # Azure priority processing — premium-billed, lower/steadier latency. The
 # response echoes the tier actually served; verify there, not here.
 LLM_SERVICE_TIER = "priority"
@@ -75,6 +76,12 @@ def _load_azure_creds() -> tuple[str, str]:
 
 AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
+# Overridable the same way, so an A/B between efforts is a restart rather than
+# an edit — a benchmark needing a code change between its arms is one nobody
+# re-runs. Env wins over .env so a single run can be pinned from the shell.
+LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
+              or _env_values("CHARTO_LLM_EFFORT")["CHARTO_LLM_EFFORT"]
+              or LLM_EFFORT_DEFAULT)
 
 
 def _creds_error() -> str:
@@ -7546,8 +7553,12 @@ class Handler(BaseHTTPRequestHandler):
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",
                     (symbol,)).fetchone()
+                # the LLM arm is reported by the SERVER, not assumed by the
+                # caller — an A/B whose two arms cannot be told apart from
+                # outside is an A/A nobody notices
                 return self._send(200, {
-                    "symbol": symbol, "count": n, "earliest": lo, "latest": hi})
+                    "symbol": symbol, "count": n, "earliest": lo, "latest": hi,
+                    "model": LLM_DEPLOYMENT, "effort": LLM_EFFORT})
             return self._send(404, {"error": "not found"})
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
