@@ -2963,6 +2963,9 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
         # prints no volume has no volume to profile, and a flat histogram
         # would read as "no interest" rather than "not quoted".
         return {"error": "this instrument prints no volume",
+                # human-facing: the status line shows this one verbatim
+                "hint": ("indices and India VIX are quoted as levels, not "
+                         "traded — try a constituent stock"),
                 "_note": ("Every bar in the window has v=0 — indices and "
                           "India VIX are quoted as levels, not traded "
                           "instruments, so there is no volume at price to "
@@ -7309,6 +7312,28 @@ class Handler(BaseHTTPRequestHandler):
                                    for i, v in enumerate(series) if v is not None]
                               for ln, series in res["lines"].items()},
                 })
+            if u.path == "/volume_profile":
+                # The manual path into the same tool chat calls. It returns
+                # the SCENE annotation alongside the numbers so the menu and
+                # the model put an identical object on the chart — a second
+                # renderer here is how the two would drift.
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                _scene.items = []
+                res = tool_volume_profile(
+                    frm=q.get("frm", ""), to=q.get("to", ""),
+                    lookback_sessions=int(q.get("lookback_sessions", 1) or 1),
+                    rows=int(q.get("rows", 0) or 0),
+                    value_area_pct=float(q.get("value_area_pct", 70) or 70),
+                    split=q.get("split") in ("1", "true", "yes"),
+                    draw=True, draw_mode="replace")
+                patch = list(getattr(_scene, "items", []))
+                _scene.items = []
+                if "error" in res:
+                    return self._send(400, res)
+                res["scene"] = patch
+                return self._send(200, res)
             if u.path == "/replay":
                 err = _ensure_symbol(symbol)
                 if err:

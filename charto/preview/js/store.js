@@ -66,7 +66,10 @@ const Store = (() => {
   // returning to one restores it. RELIANCE keeps the legacy unscoped keys.
   const SYM = (new URLSearchParams(location.search).get("symbol")
                || "RELIANCE").toUpperCase();
-  const SCOPED = new Set(["chat", "scene"]);
+  // "vp" rides with "scene" because it IS scene state: a volume profile is a
+  // window over one instrument's own bars. Left unscoped it followed the user
+  // from symbol to symbol and drew an uninvited profile on the next chart.
+  const SCOPED = new Set(["chat", "scene", "vp"]);
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
 

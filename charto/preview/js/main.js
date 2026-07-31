@@ -34,6 +34,7 @@
     hasMore: true,
     loadingOlder: false,
     switching: false,  // interval switch in flight — stream events wait it out
+    vp: null,          // active volume-profile window, in sessions
   };
 
   // ── chart ─────────────────────────────────────────────
@@ -307,12 +308,29 @@
   el("indBtn").innerHTML =
     Icons.svg("indicators", "sm") + "Indicators" + Icons.svg("chevronDown", "chev");
 
+  /* Volume profile is a STUDY, not a line series: it has no per-bar value to
+   * plot, so it never enters the indicator CATALOG and gets its own section.
+   * The only knob offered is the WINDOW. Row height is deliberately not a
+   * user setting — it is derived from the measured smear of the 1-minute
+   * bars, and letting someone dial it finer is exactly the fake precision
+   * the tool exists to refuse. */
+  const VP_WINDOWS = [
+    { n: 1, label: "Session" }, { n: 5, label: "5 sessions" },
+    { n: 20, label: "20 sessions" }, { n: 60, label: "60 sessions" },
+  ];
+
   function renderIndMenu() {
     const m = IND();
     menu.innerHTML = '<div class="head">Overlays</div>' +
       m.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
       '<div class="sep"></div><div class="head">Panes</div>' +
-      m.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("");
+      m.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("") +
+      '<div class="sep"></div><div class="head">Volume profile</div>' +
+      VP_WINDOWS.map((v) => {
+        const on = state.vp === v.n;
+        return `<div class="item ${on ? "on" : ""}" data-vp="${v.n}">` +
+          `<span>${v.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
+      }).join("");
     function itemHTML(c) {
       const on = m.isActive(c.id);
       return `<div class="item ${on ? "on" : ""}" data-ind="${c.id}">` +
@@ -368,8 +386,53 @@
     closeMenus(menu);
     menu.classList.toggle("open");
   });
+  /** Add, re-window or remove the profile. One at a time: a second window
+   *  over the same prices is two histograms in one strip, unreadable and
+   *  meaningless — so picking a new window REPLACES, and picking the active
+   *  one clears. */
+  async function setVolumeProfile(n) {
+    if (!n) {
+      state.vp = null;
+      Store.set("vp", null);
+      scene.apply([{ kind: "clear", scope: "vprofile", owner: "volume_profile" }]);
+      renderIndMenu();
+      status("volume profile removed");
+      return;
+    }
+    status(`volume profile · ${n} session${n > 1 ? "s" : ""}…`);
+    const r = await fetch(`${API}/volume_profile?symbol=${encodeURIComponent(SYMBOL)}`
+      + `&lookback_sessions=${n}`);
+    const d = await r.json();
+    if (!r.ok) {
+      // an instrument with no volume is a REFUSAL, not a failure: leave the
+      // menu unticked and say why, the same way a volume indicator does
+      state.vp = null; renderIndMenu();
+      status((d.error || "volume profile unavailable")
+        + (d.hint ? ` — ${d.hint}` : ""));
+      return;
+    }
+    state.vp = n;
+    Store.set("vp", n);
+    // provenance, so the badge can tell who put this here
+    scene.apply(d.scene.map((a) => (a.kind === "vprofile"
+      ? { ...a, manual: true } : a)));
+    renderIndMenu();
+    const q = d.resolution;
+    status(`volume profile · ${d.window.sessions} session(s), `
+      + `${d.window.minute_bars.toLocaleString()} 1-min bars · `
+      + `${q.rows} rows of ${q.row_height} · POC ${d.point_of_control}`
+      + (q.capped ? ` · capped from ${q.requested_rows}` : ""));
+  }
+
   menu.addEventListener("click", (e) => {
     e.stopPropagation(); // keep the dropdown open for multi-select
+    const vp = e.target.closest("[data-vp]");
+    if (vp) {
+      const n = Number(vp.dataset.vp);
+      setVolumeProfile(state.vp === n ? null : n)
+        .catch((err) => status(`volume profile failed: ${err.message}`));
+      return;
+    }
     const it = e.target.closest("[data-ind]");
     if (!it) return;
     const id = it.dataset.ind;
@@ -1078,7 +1141,21 @@
     toChartTime: (t) => t + IST,
     onChange: (n) => {
       const badge = el("sceneCount"), clear = el("sceneClear");
-      badge.textContent = n ? `${n} drawn by chat` : "";
+      // The scene is no longer chat's alone — the Indicators menu puts a
+      // volume profile on it too. Crediting chat for something the user
+      // added themselves is a small lie the badge does not need to tell.
+      const manual = (scene.state.items || []).some((x) => x.manual);
+      badge.textContent = n ? `${n} ${manual ? "on chart" : "drawn by chat"}` : "";
+      // Chat owns the same overlay the menu does, and it can replace or clear
+      // a profile the menu put there. Whichever window the menu last ticked is
+      // then a claim about a histogram that is no longer on screen, so the
+      // tick is dropped the moment the drawn profile stops being the menu's.
+      if (state.vp) {
+        const vp = (scene.state.items || []).find((x) => x.kind === "vprofile");
+        if (!vp || !vp.manual) {
+          state.vp = null; Store.set("vp", null); renderIndMenu();
+        }
+      }
       badge.style.display = n ? "" : "none";
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
@@ -1930,6 +2007,17 @@
       // the indicators-changed dispatch above ran BEFORE this restore,
       // so the orphan purge saw an empty scene — signal once more now
       document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+    }
+
+    // A profile is RE-FETCHED rather than restored from the saved scene: a
+    // session that ran since the last visit changes what "20 sessions" means,
+    // and a stale histogram under a fresh tick is the one failure a persisted
+    // overlay can hide. Runs after the scene restore so it replaces, not
+    // duplicates, whatever that put back.
+    const vp = Store.get("vp", null);
+    if (vp) {
+      await setVolumeProfile(Number(vp))
+        .catch((err) => console.error("[charto] volume profile restore", err));
     }
 
     openStream();   // only once history is on the chart, so ticks extend it
