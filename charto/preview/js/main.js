@@ -268,16 +268,44 @@
   // the mark lands after the universe does; repaint once it is known
   Universe.load().then(() => { if (state.bars.length) paintTitle(); });
 
+  /** Index of the bar at this chart time. Binary search because the readout
+   *  runs on every crosshair move and a linear scan of 4,000 bars per
+   *  mousemove is a scroll stutter nobody can name the cause of. */
+  function barIndexAt(t) {
+    const a = state.bars;
+    let lo = 0, hi = a.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (a[m].time === t) return m;
+      if (a[m].time < t) lo = m + 1; else hi = m - 1;
+    }
+    return -1;
+  }
+
   function paintReadout(b) {
     if (!b) { el("roOhlc").innerHTML = ""; return; }
     const cls = b.close >= b.open ? "up" : "down";
     const f = (n) => Sym.num(n);
+    // What the candle DID, which is the thing a reader is actually after and
+    // the one number five OHLC figures never quite say. Measured against the
+    // PREVIOUS bar's close — the same base every terminal means by a bar's
+    // change — so it accounts for the gap, unlike close-minus-open.
+    let chg = "";
+    const i = barIndexAt(b.time);
+    const prev = i > 0 ? state.bars[i - 1] : null;
+    if (prev && prev.close) {
+      const d = b.close - prev.close;
+      const sign = d >= 0 ? "+" : "-";
+      chg = `<span class="chg ${d >= 0 ? "up" : "down"}">`
+        + `${sign}${f(Math.abs(d))} (${sign}${Math.abs(d / prev.close * 100)
+          .toFixed(2)}%)</span>`;
+    }
     el("roOhlc").innerHTML =
       `<span>O <b class="${cls}">${f(b.open)}</b></span>` +
       `<span>H <b class="${cls}">${f(b.high)}</b></span>` +
       `<span>L <b class="${cls}">${f(b.low)}</b></span>` +
       `<span>C <b class="${cls}">${f(b.close)}</b></span>` +
-      `<span>V <b class="${cls}">${f(b.volume)}</b></span>`;
+      `<span>V <b class="${cls}">${f(b.volume)}</b></span>` + chg;
   }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
@@ -348,8 +376,18 @@
       const hidden = m.isHidden(id);
       const off = !hidden && m.offInterval(id);
       const cls = hidden ? " muted" : (off ? " off" : "");
+      // The chip's own colour, as a short LINE rather than a dot: it stands
+      // for a line on the chart, and now that two SMAs no longer share a
+      // colour the swatch is what maps a chip to the curve it drew.
+      const st = m.settings(id);
+      const plots = (st && st.style && st.style.plots) || {};
+      const swatch = Object.entries(plots)
+        .find(([k, v]) => v && v.visible !== false && k !== "histogram")
+        || Object.entries(plots)[0];
+      const dash = swatch
+        ? `<i class="swatch" style="background:${swatch[1].color}"></i>` : "";
       return `<span class="chip${cls}" data-ind-chip="${id}">` +
-        `<span class="lbl">${c.label}</span>` +
+        `${dash}<span class="lbl">${c.label}</span>` +
         `<span class="acts">` +
         `<span class="act${hidden ? " pinned" : ""}" data-eye="${id}" ` +
           `title="${hidden ? "Show" : "Hide"}">${Icons.svg(hidden ? "eyeOff" : "eye")}</span>` +

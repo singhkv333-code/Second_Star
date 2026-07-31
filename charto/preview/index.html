@@ -842,6 +842,13 @@ header > .spacer { flex: none; }
   background: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .chip .lbl { border-radius: var(--radius-xs); padding: 1px 4px; margin: 0 -2px 0 -4px; }
+/* A LINE, not a dot — it stands for a line on the chart. Sized so it reads
+   as a stroke at 11px next to the label rather than a coloured pill. */
+.chip .swatch {
+  flex: none; width: 12px; height: 2px; border-radius: 1px;
+  margin-right: -1px;
+}
+.chip.muted .swatch, .chip.off .swatch { opacity: .45; }
 /* An indicator switched off for this timeframe (Visibility tab) still has a
    chip — it just isn't drawing. Say that, rather than looking broken. */
 .chip.muted .lbl, .chip.off .lbl { color: var(--faint); text-decoration: line-through; }
@@ -992,6 +999,11 @@ header > .spacer { flex: none; }
 .readout b { font-weight: var(--weight-medium); }
 .readout b.up { color: var(--up); }
 .readout b.down { color: var(--down); }
+/* The candle's own change, set apart from the five OHLC figures it is
+   derived from — same weight as the numbers, its own colour by direction. */
+.readout .chg { font-weight: var(--weight-medium); }
+.readout .chg.up { color: var(--up); }
+.readout .chg.down { color: var(--down); }
 
 /* TradingView's "auto" affordance — appears once you've moved the price
    scale by hand, clicking it re-fits to the visible bars. */
@@ -1766,7 +1778,7 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=22"></script>
   <script src="./js/panes.js?v=7"></script>
-  <script src="./js/main.js?v=47"></script>
+  <script src="./js/main.js?v=48"></script>
   <script src="./js/chat.js?v=25"></script>
 </body>
 </html>
