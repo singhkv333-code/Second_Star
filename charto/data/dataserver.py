@@ -6570,7 +6570,17 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
                 continue
 
 
-_MAX_TOOL_ROUNDS = 3  # bounds latency; 1 round answers almost everything
+_MAX_TOOL_ROUNDS = 4  # bounds latency; 1 round answers almost everything
+# Why 4 and not 3. Every detector that can DRAW does it in its own call
+# (get_levels, volume_profile, get_indicator), so those finish inside two
+# rounds and drew reliably. get_anchors is the exception by design — it mints
+# ids that draw_shape composes — which makes "mark the range" a THREE-round
+# path: explain, anchor, draw. On a compound turn ("why is it stuck in a
+# range, and mark the boundaries") the causal half spent the first round and
+# the turn ended on get_anchors with the drawing never made. Measured over
+# the why-set: every zero-draw case that had asked for one ended on either
+# get_anchors or a get_levels called with draw=false, with no round left to
+# correct it.
 
 
 def _wire_messages(messages: list[dict]) -> list[dict]:
