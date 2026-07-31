@@ -211,8 +211,33 @@ const Indicators = (() => {
     supertrend_up: "s4", supertrend_down: "s5",
     psar: "s6", vwap: "s6", anchored_vwap: "s6",
   };
+  const SERIES = ["s1", "s2", "s3", "s4", "s5", "s6"];
   const roleColor = (line, i) =>
-    Theme.c(ROLE[line] || ["s1", "s2", "s3", "s4", "s5", "s6"][i % 6]);
+    Theme.c(ROLE[line] || SERIES[((i % SERIES.length) + SERIES.length)
+                                 % SERIES.length]);
+
+  /* A line's index WITHIN its indicator was the whole palette key, so every
+   * single-line overlay was line 0 and every single-line overlay was s1:
+   * SMA 20 and SMA 200 came out the same gold, on the chart and in the
+   * legend, with nothing to tell them apart. The index is now offset by a
+   * per-INSTANCE slot, so the second SMA lands on the next colour.
+   *
+   * Named lines are untouched — a Bollinger band's upper/lower are a pair on
+   * purpose, and MACD's signal is meant to contrast with MACD. Only the
+   * unnamed fallback rotates.
+   *
+   * The slot is stored in the instance's own style, so it survives a reload
+   * and a recolour, and the lowest free one is reused after a removal
+   * rather than drifting up forever. */
+  function allocSlot() {
+    const used = new Set();
+    for (const s of LIVE.values()) {
+      const v = s && s.style && s.style.slot;
+      if (Number.isInteger(v)) used.add(v);
+    }
+    for (let i = 0; i < 64; i++) if (!used.has(i)) return i;
+    return 0;
+  }
 
   /** Human names for the Style tab's rows. */
   const LINE_LABEL = {
@@ -270,13 +295,13 @@ const Indicators = (() => {
 
   const clone = (v) => JSON.parse(JSON.stringify(v));
 
-  function plotDefaults(def) {
+  function plotDefaults(def, slot = 0) {
     const out = {};
     (def.lines || []).forEach((n, i) => {
       const hist = n === "histogram";
       out[n] = {
         visible: true,
-        color: hist ? Theme.c("histUp") : roleColor(n, i),
+        color: hist ? Theme.c("histUp") : roleColor(n, i + slot),
         colorDown: hist ? Theme.c("histDown") : undefined,
         custom: false,          // a theme switch repaints only untouched plots
         width: n === "middle" || (def.lines || []).length === 1 ? 2 : 1,
@@ -287,7 +312,7 @@ const Indicators = (() => {
     return out;
   }
 
-  function factorySettings(def) {
+  function factorySettings(def, slot = 0) {
     const params = {};
     for (const f of def.inputs || []) {
       if (f.key !== "period") params[f.key] = f.default;
@@ -297,7 +322,8 @@ const Indicators = (() => {
     return {
       params,
       style: {
-        plots: plotDefaults(def),
+        plots: plotDefaults(def, slot),
+        slot,
         precision: "default",
         statusLine: true,
         priceLabel: false,
@@ -327,6 +353,7 @@ const Indicators = (() => {
    *  in, so this runs at load as well as on a theme toggle — otherwise a
    *  session saved in dark comes back wearing dark's line colours on white. */
   function refreshThemeColors(def, s) {
+    const slot = Number.isInteger(s.style && s.style.slot) ? s.style.slot : 0;
     (def.lines || []).forEach((n, i) => {
       const plot = s.style.plots[n];
       if (!plot || plot.custom) return;
@@ -334,7 +361,7 @@ const Indicators = (() => {
         plot.color = Theme.c("histUp");
         plot.colorDown = Theme.c("histDown");
       } else {
-        plot.color = roleColor(n, i);
+        plot.color = roleColor(n, i + slot);
       }
     });
   }
@@ -346,9 +373,14 @@ const Indicators = (() => {
     if (LIVE.has(id)) return LIVE.get(id);
     const def = CATALOG.find((c) => c.id === id);
     if (!def) return null;
-    let s = factorySettings(def);
+    // allocated BEFORE the merges so a saved slot still wins, and the
+    // entry is parked in LIVE first so two indicators added in the same
+    // tick cannot both be handed the same one
+    let s = factorySettings(def, allocSlot());
+    LIVE.set(id, s);
     if (FACTORY[def.name]) s = merge(s, FACTORY[def.name]);
     if (SAVED[id]) s = merge(s, SAVED[id]);
+    if (!Number.isInteger(s.style.slot)) s.style.slot = allocSlot();
     refreshThemeColors(def, s);
     LIVE.set(id, s);
     return s;
