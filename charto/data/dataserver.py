@@ -2901,6 +2901,104 @@ def _infer_tick(mins: list[tuple]) -> float | None:
     return round(gap, 6)
 
 
+def _px(v: float, ref: float) -> float:
+    """Round a price to a precision its own magnitude can carry.
+
+    A flat round(…, 2) is an equity habit. On DOGEUSDT at $0.07 it collapsed
+    every row bound, the value area and the row height to the same two
+    digits: a 45-row profile reported a value area of 0.07–0.07 and a width
+    of 0.0%, which then ranked it top of a "tightest value area" screen. The
+    precision has to follow the instrument, not the rupee.
+    """
+    a = abs(ref)
+    d = (2 if a >= 100 else 3 if a >= 10 else 4 if a >= 1
+         else 6 if a >= 0.01 else 8)
+    return round(v, d)
+
+
+def _profile(mins: list[tuple], rows: int = 0,
+             value_area_pct: float = 70.0) -> dict | None:
+    """The volume-at-price arithmetic, and the ONLY copy of it.
+
+    The chart tool, the HTTP route and the universe sweep all come through
+    here. A screener that disagreed with the chart about where the point of
+    control sits would be worse than no screener, and two implementations
+    drift the moment one is tuned.
+
+    None when there is nothing to profile — no volume, or no range.
+    """
+    total_v = sum(b[5] or 0 for b in mins)
+    if not total_v:
+        return None
+    lo = min(b[3] for b in mins)
+    hi = max(b[2] for b in mins)
+    rng = hi - lo
+    if rng <= 0:
+        return None
+
+    # the measurement that bounds everything below: a row can never be finer
+    # than the price span a single bar smears its volume across
+    vw_span = sum((b[2] - b[3]) * (b[5] or 0) for b in mins) / total_v
+    ceiling = int(rng / vw_span) if vw_span > 0 else _VP_MAX_ROWS
+    ceiling = max(_VP_MIN_ROWS, min(_VP_MAX_ROWS, ceiling))
+    asked = int(rows or 0)
+    n = max(_VP_MIN_ROWS, min(asked, ceiling) if asked > 0 else ceiling)
+    capped = asked > ceiling
+
+    row_h = rng / n
+    vol = [0.0] * n
+    up = [0.0] * n
+    dn = [0.0] * n
+    for _t, o, h, l, c, v in mins:
+        if not v:
+            continue
+        side = up if c >= o else dn
+        i0 = max(0, min(n - 1, int((l - lo) / row_h)))
+        i1 = max(0, min(n - 1, int((h - lo) / row_h)))
+        if i1 <= i0:
+            vol[i0] += v
+            side[i0] += v
+            continue
+        span = h - l
+        for i in range(i0, i1 + 1):
+            r_lo = lo + i * row_h
+            ov = min(h, r_lo + row_h) - max(l, r_lo)
+            if ov <= 0:
+                continue
+            share = v * ov / span
+            vol[i] += share
+            side[i] += share
+
+    # ── point of control and value area (classic two-row expansion) ──
+    poc = max(range(n), key=lambda i: vol[i])
+    target = total_v * max(50.0, min(90.0, float(value_area_pct))) / 100.0
+    a = b = poc
+    acc = vol[poc]
+    while acc < target and (a > 0 or b < n - 1):
+        upper = (vol[b + 1] + (vol[b + 2] if b + 2 < n else 0.0)
+                 if b < n - 1 else -1.0)
+        lower = (vol[a - 1] + (vol[a - 2] if a - 2 >= 0 else 0.0)
+                 if a > 0 else -1.0)
+        if upper >= lower:
+            for _ in range(2):
+                if b < n - 1 and acc < target:
+                    b += 1
+                    acc += vol[b]
+        else:
+            for _ in range(2):
+                if a > 0 and acc < target:
+                    a -= 1
+                    acc += vol[a]
+
+    return {"lo": lo, "hi": hi, "rng": rng, "total_v": total_v,
+            "vw_span": vw_span, "ceiling": ceiling, "capped": capped,
+            "asked": asked, "n": n, "row_h": row_h, "vol": vol,
+            "up": up, "dn": dn, "poc_i": poc, "a": a, "b": b, "acc": acc,
+            "poc": _px(lo + (poc + 0.5) * row_h, hi),
+            "val": _px(lo + a * row_h, hi),
+            "vah": _px(lo + (b + 1) * row_h, hi)}
+
+
 def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
                         rows: int = 0, value_area_pct: float = 70.0,
                         split: bool = False, draw: bool = True,
@@ -2957,89 +3055,38 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
                 "data_spans": f"{_ist(daily[0][0], False)} → "
                               f"{_ist(daily[-1][0], False)} {_tzl()}"}
 
-    total_v = sum(b[5] or 0 for b in mins)
-    if not total_v:
+    prof = _profile(mins, rows, value_area_pct)
+    if prof is None:
         # Same boundary the indicator engine enforces: an instrument that
         # prints no volume has no volume to profile, and a flat histogram
         # would read as "no interest" rather than "not quoted".
-        return {"error": "this instrument prints no volume",
-                # human-facing: the status line shows this one verbatim
-                "hint": ("indices and India VIX are quoted as levels, not "
-                         "traded — try a constituent stock"),
-                "_note": ("Every bar in the window has v=0 — indices and "
-                          "India VIX are quoted as levels, not traded "
-                          "instruments, so there is no volume at price to "
-                          "build. Say that plainly. A profile on the index "
-                          "FUTURES or on a constituent stock is the nearest "
-                          "real thing.")}
-
-    lo = min(b[3] for b in mins)
-    hi = max(b[2] for b in mins)
-    rng = hi - lo
-    if rng <= 0:
+        if not sum(b[5] or 0 for b in mins):
+            return {"error": "this instrument prints no volume",
+                    # human-facing: the status line shows this one verbatim
+                    "hint": ("indices and India VIX are quoted as levels, not "
+                             "traded — try a constituent stock"),
+                    "_note": ("Every bar in the window has v=0 — indices and "
+                              "India VIX are quoted as levels, not traded "
+                              "instruments, so there is no volume at price to "
+                              "build. Say that plainly. A profile on the index "
+                              "FUTURES or on a constituent stock is the nearest "
+                              "real thing.")}
         return {"error": "price did not move in that window"}
 
-    # ── the measurement that bounds everything below ──
-    vw_span = sum((b[2] - b[3]) * (b[5] or 0) for b in mins) / total_v
+    lo, hi, rng = prof["lo"], prof["hi"], prof["rng"]
+    total_v, vw_span = prof["total_v"], prof["vw_span"]
+    n, row_h, vol = prof["n"], prof["row_h"], prof["vol"]
+    up, dn = prof["up"], prof["dn"]
+    poc, a, b, acc = prof["poc_i"], prof["a"], prof["b"], prof["acc"]
+    ceiling, capped, asked = prof["ceiling"], prof["capped"], prof["asked"]
     tick = _infer_tick(mins)
-    ceiling = int(rng / vw_span) if vw_span > 0 else _VP_MAX_ROWS
-    ceiling = max(_VP_MIN_ROWS, min(_VP_MAX_ROWS, ceiling))
-    asked = int(rows or 0)
-    n = min(asked, ceiling) if asked > 0 else ceiling
-    n = max(_VP_MIN_ROWS, n)
-    capped = asked > ceiling
-
-    row_h = rng / n
-    vol = [0.0] * n
-    up = [0.0] * n
-    dn = [0.0] * n
-    for _t, o, h, l, c, v in mins:
-        if not v:
-            continue
-        side = up if c >= o else dn
-        i0 = max(0, min(n - 1, int((l - lo) / row_h)))
-        i1 = max(0, min(n - 1, int((h - lo) / row_h)))
-        if i1 <= i0:
-            vol[i0] += v
-            side[i0] += v
-            continue
-        span = h - l
-        for i in range(i0, i1 + 1):
-            r_lo = lo + i * row_h
-            ov = min(h, r_lo + row_h) - max(l, r_lo)
-            if ov <= 0:
-                continue
-            share = v * ov / span
-            vol[i] += share
-            side[i] += share
-
-    # ── point of control and value area (classic two-row expansion) ──
-    poc = max(range(n), key=lambda i: vol[i])
-    target = total_v * max(50.0, min(90.0, float(value_area_pct))) / 100.0
-    a = b = poc
-    acc = vol[poc]
-    while acc < target and (a > 0 or b < n - 1):
-        upper = (vol[b + 1] + (vol[b + 2] if b + 2 < n else 0.0)
-                 if b < n - 1 else -1.0)
-        lower = (vol[a - 1] + (vol[a - 2] if a - 2 >= 0 else 0.0)
-                 if a > 0 else -1.0)
-        if upper >= lower:
-            for _ in range(2):
-                if b < n - 1 and acc < target:
-                    b += 1
-                    acc += vol[b]
-        else:
-            for _ in range(2):
-                if a > 0 and acc < target:
-                    a -= 1
-                    acc += vol[a]
 
     mean_v = total_v / n
     price_of = lambda i: lo + (i + 0.5) * row_h          # noqa: E731
-    hvn = [round(price_of(i), 2) for i in range(1, n - 1)
+    hvn = [_px(price_of(i), hi) for i in range(1, n - 1)
            if vol[i] >= 1.3 * mean_v
            and vol[i] > vol[i - 1] and vol[i] >= vol[i + 1]]
-    lvn = [round(price_of(i), 2) for i in range(1, n - 1)
+    lvn = [_px(price_of(i), hi) for i in range(1, n - 1)
            if vol[i] <= 0.6 * mean_v
            and vol[i] < vol[i - 1] and vol[i] <= vol[i + 1]]
 
@@ -3050,8 +3097,8 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
         # a share of total volume and printed as a column of percentages
         # summing to 400% — a row's height on the chart is its share of the
         # BUSIEST row, which is a different number from its share of the day.
-        r = {"lo": round(lo + i * row_h, 2),
-             "hi": round(lo + (i + 1) * row_h, 2),
+        r = {"lo": _px(lo + i * row_h, hi),
+             "hi": _px(lo + (i + 1) * row_h, hi),
              "volume": int(vol[i]),
              "pct_of_total": round(vol[i] / total_v * 100, 1),
              "pct_of_busiest_row": round(vol[i] / peak * 100, 1)}
@@ -3060,8 +3107,7 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
             r["down_bar_volume"] = int(dn[i])
         out_rows.append(r)
 
-    poc_price = round(price_of(poc), 2)
-    val, vah = round(lo + a * row_h, 2), round(lo + (b + 1) * row_h, 2)
+    poc_price, val, vah = prof["poc"], prof["val"], prof["vah"]
     ccy = quote_ccy(_sym())
     unit = "₹" if ccy == "INR" else "$"
 
@@ -3079,12 +3125,12 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
             "source": {"tool": "volume_profile", "interval": "1m",
                        "bars_scanned": len(mins),
                        "method": (f"volume at price, {n} rows of "
-                                  f"{unit}{row_h:.2f}")}})
+                                  f"{unit}{_px(row_h, hi)}")}})
 
     note = (f"Volume at price from {len(mins):,} one-minute bars over "
-            f"{n_sess} session(s), in {n} rows of {unit}{row_h:.2f}. Each "
+            f"{n_sess} session(s), in {n} rows of {unit}{_px(row_h, hi)}. Each "
             f"bar's volume is spread uniformly across its own high-low; the "
-            f"volume-weighted mean bar span is {unit}{vw_span:.2f}"
+            f"volume-weighted mean bar span is {unit}{_px(vw_span, hi)}"
             + (f" (~{vw_span / tick:.0f} ticks)" if tick else "")
             + f", which is why the row height is what it is. "
               f"Quote the levels; describe this as volume at price built from "
@@ -3094,7 +3140,7 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
     if capped:
         note += (f" The requested {asked} rows was reduced to {n}: a single "
                  f"1-minute bar already smears its volume across "
-                 f"{unit}{vw_span:.2f} of price, so rows finer than that would "
+                 f"{unit}{_px(vw_span, hi)} of price, so rows finer than that would "
                  f"be invented detail, not measured detail. Say that — give "
                  f"the reason and the number, not just the cap.")
     if split:
@@ -3108,7 +3154,7 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
     # four other instructions and the model dropped it every time.
     view = ""
     if n_sess >= 10:
-        view = (f"The profile spans {unit}{lo:,.0f}–{unit}{hi:,.0f}, which is "
+        view = (f"The profile spans {unit}{_px(lo, hi)}–{unit}{_px(hi, hi)}, which is "
                 f"wider than an intraday chart shows — most of it is off "
                 f"screen right now. Tell the user to switch to the D or W "
                 f"timeframe to see the whole thing. This tool cannot change "
@@ -3125,15 +3171,15 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
         "value_area": {"low": val, "high": vah,
                        "pct_achieved": round(acc / total_v * 100, 1),
                        "pct_requested": round(float(value_area_pct), 1)},
-        "range": {"low": round(lo, 2), "high": round(hi, 2)},
+        "range": {"low": _px(lo, hi), "high": _px(hi, hi)},
         "total_volume": int(total_v),
         "high_volume_nodes": hvn, "low_volume_nodes": lvn,
         "rows": out_rows,
         "resolution": {
-            "row_height": round(row_h, 2),
+            "row_height": _px(row_h, hi),
             "rows": n, "max_rows_supported": ceiling,
             "requested_rows": asked or None, "capped": capped,
-            "volume_weighted_bar_span": round(vw_span, 2),
+            "volume_weighted_bar_span": _px(vw_span, hi),
             "tick_size": tick,
             "why": ("A row cannot be finer than the smear it is built from. "
                     "Each 1-minute bar's volume is spread uniformly across "
@@ -3304,7 +3350,18 @@ SCREEN_FEATURES = (
     "sma20_rel", "sma50_rel", "sma200_rel",
     "sma50_cross_ago", "sma200_cross_ago",
     "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
+    "vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct",
 )
+
+# Volume-profile features come from the swept vp_screen table, not from
+# bars_1d — they need 1-MINUTE bars, which only the hydrated symbols have.
+# That makes their coverage a fraction of the universe's, and a screen that
+# quietly ranked 54 rows as though they were 549 would be the same lie as
+# computing MFI on an index. Every screen that filters or sorts on one of
+# these reports how many instruments could be scored at all.
+_VP_FEATURES = frozenset(
+    {"vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct",
+     "vp20_poc_shift_pct"})
 
 # Features that are arithmetic on VOLUME. The universe now holds instruments
 # with no volume at all: an index prints no traded quantity, so bars_1d
@@ -3349,6 +3406,20 @@ SCREEN_FEATURE_HELP = {
     "turnover_20d_musd": "avg daily close*volume over 20 sessions, MILLIONS "
                          "OF US DOLLARS — dollar-quoted instruments (spot "
                          "crypto) only. Null for INR-quoted ones",
+    "vp20_pos": "where the close sits inside the 20-session VALUE AREA, as % "
+                "of that area's width: 0 = at the value-area low, 100 = at "
+                "the high, gt 100 = trading ABOVE accepted value, lt 0 = "
+                "below it. 'above value' = gt 100; 'back inside value' = "
+                "gt 0 plus lt 100",
+    "vp20_va_width_pct": "the 20-session value area as % of its point of "
+                         "control — how tightly volume agreed on price. Low "
+                         "= coiled/balanced, high = distributed",
+    "vp20_poc_dist_pct": "% the close sits above (+) or below (-) the "
+                         "20-session point of control (the most-traded price)",
+    "vp20_poc_shift_pct": "% this 20-session POC moved against the PRIOR 20 "
+                          "sessions' POC — value migration, the profile's "
+                          "own trend measure. Positive = value building "
+                          "higher",
 }
 
 SCREEN_OPS = ("lt", "gt")
@@ -3367,13 +3438,43 @@ def _screen_stamp() -> tuple | None:
                         ).fetchone():
             ver = _con.execute(
                 "SELECT MAX(version) FROM screen_meta").fetchone()[0] or 0
-        return (cnt, mx, ver)
+        # vp_screen is swept on its OWN schedule, so it has to enter the
+        # stamp too — otherwise a fresh sweep sits unread behind a matrix
+        # cached against unchanged daily bars
+        vp = 0
+        if _con.execute("SELECT 1 FROM sqlite_master WHERE name='vp_screen'"
+                        ).fetchone():
+            vp = _con.execute(
+                "SELECT MAX(built_at) FROM vp_screen").fetchone()[0] or 0
+        return (cnt, mx, ver, vp)
     except sqlite3.Error:
         return None
 
 
 def _rel(a: float, b) -> float | None:
     return None if not b else round((a - b) / b * 100, 2)
+
+
+def _vp_screen_rows() -> dict:
+    """The swept volume-profile features, keyed by symbol.
+
+    Absent table or absent row both mean "not scored here" rather than zero:
+    the profile needs 1-minute bars and most of the universe is stored daily
+    until something hydrates it. Built by sweep_vp.py.
+    """
+    try:
+        cur = _con.execute(
+            "SELECT symbol, pos, va_width_pct, poc_dist_pct, poc_shift_pct, "
+            "poc, val, vah, n_rows, row_h FROM vp_screen")
+    except sqlite3.Error:
+        return {}          # never swept on this box
+    out = {}
+    for (s, pos, w, d, sh, poc, val, vah, n, rh) in cur:
+        out[s] = {"vp20_pos": pos, "vp20_va_width_pct": w,
+                  "vp20_poc_dist_pct": d, "vp20_poc_shift_pct": sh,
+                  "_vp": {"poc": poc, "value_area": [val, vah],
+                          "rows": n, "row_height": rh}}
+    return out
 
 
 def _squash(s: str, sep: str = "") -> str:
@@ -3472,6 +3573,13 @@ def _screen_features() -> dict:
     by_sym = {s: r[-560:] for s, r in by_sym.items()}
     feats = {s: _screen_row_features(r, quote_ccy(s))
              for s, r in by_sym.items() if len(r) >= 2}
+    # volume-profile features ride in from their own swept table; a symbol
+    # with no 1-minute bars simply keeps the Nones it was initialised with
+    vp = _vp_screen_rows()
+    for s, f in feats.items():
+        row = vp.get(s)
+        if row:
+            f.update(row)
     last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
     days = list(last_day.values())
     mode_day = max(set(days), key=days.count) if days else None
@@ -3568,6 +3676,15 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
                               "candlestick": list(patterns.CANDLE_KINDS)},
                 "_note": ("Nothing was screened. Re-call with one exact name "
                           "from this list, or drop `pattern`.")}
+
+    # A volume profile needs 1-MINUTE bars and most of the universe is stored
+    # daily until something hydrates it, so these features score a subset. The
+    # screen says how big that subset is rather than presenting a ranking of
+    # 54 rows as a ranking of 549.
+    vp_used = any(nm in _VP_FEATURES for nm, _, _ in parsed) \
+        or sort_by in _VP_FEATURES
+    vp_scored = sum(1 for f in feats.values()
+                    if f.get("vp20_pos") is not None) if vp_used else 0
 
     survivors = []
     for sym, f in feats.items():
@@ -3672,6 +3789,9 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         for k in keep:
             if k not in out:
                 out[k] = r["_f"].get(k)
+        # a value-area screen is unreadable without the area it screened on
+        if vp_used and r["_f"].get("_vp"):
+            out["volume_profile"] = r["_f"]["_vp"]
         if "pattern" in r:
             out["pattern"] = r["pattern"]
             u = uni_by_scope.get(scope_for(r["symbol"])) or {}
@@ -3689,6 +3809,19 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
            "filters_applied": [{"feature": n, "op": o, "value": v}
                                for n, o, v in parsed],
            "rows": rows}
+    if vp_used:
+        res["volume_profile_coverage"] = {
+            "scored": vp_scored, "universe": universe,
+            "window_sessions": 20,
+            "_note": (f"Volume-profile features are built from 1-MINUTE bars, "
+                      f"which only {vp_scored} of the {universe} stored "
+                      f"instruments currently have — the rest hold daily bars "
+                      f"only and were scored as null, so they are absent from "
+                      f"this ranking rather than ranked last. Say the result "
+                      f"covers {vp_scored} instruments, NOT the whole "
+                      f"universe. Indices and India VIX print no volume and "
+                      f"can never be scored here."),
+        }
     if want_inds:
         res["industry_matched"] = sorted(want_inds)
     if kind:
@@ -5801,7 +5934,15 @@ TOOLS = [
          "just to learn it wastes a full hop) and fresh crossovers "
          "(smaX_cross_ago lt N with smaX_rel's sign for the direction). "
          "Results are end-of-day and carry their own as-of date and "
-         "universe size — quote both."),
+         "universe size — quote both. The vp20_* features screen on the "
+         "20-session VOLUME PROFILE: vp20_pos places the close inside the "
+         "value area (gt 100 = trading above accepted value, lt 0 = below), "
+         "vp20_va_width_pct finds coiled vs distributed names, and "
+         "vp20_poc_shift_pct finds value migrating up or down. Use them for "
+         "'above/below value', 'accepted', 'balanced', 'value migrating' "
+         "asks. They need 1-minute bars, so they score a SUBSET of the "
+         "universe — the result reports how many and you must say so rather "
+         "than implying full coverage."),
      "parameters": {"type": "object", "properties": {
          "filters": {"type": "array", "description": "all must pass",
                      "items": {"type": "object", "properties": {
