@@ -511,17 +511,20 @@
     const t0 = performance.now();
 
     try {
-      // Snapshot the chart at send time — what you were looking at when you
-      // asked. A PINNED subject names a specific pane, so the envelope is
-      // taken from that pane rather than from whatever is selected now; the
-      // chip is then repainted from what was actually sent, so the two cannot
-      // drift (a layout change can retire a pinned pane, and the fallback has
-      // to be visible rather than silent).
+      // Snapshot the charts at send time — what you were looking at when you
+      // asked. The chip names panes, so the envelope is built from those panes
+      // rather than from whatever happens to be selected now, and what came
+      // back is recorded: a layout change can retire a chosen pane, and the
+      // fallback has to be visible rather than silent.
       const context = ctxOn && window.__charto
-        ? window.__charto.getChartContext(pinned ? subject.pane : undefined) : null;
+        ? window.__charto.getChartContext(chosen) : null;
       if (context && context.symbol) {
-        subject = { symbol: context.symbol, interval: context.interval,
-                    pane: subject.pane };
+        // A chart still loading its bars has no envelope, so it is not in the
+        // conversation — and the chip must stop implying it is.
+        sent = new Set((context.charts || [context]).map((c) => c.symbol));
+        const open = new Map(openCharts().map((c) => [c.pane, c.symbol]));
+        const kept = chosen.filter((p) => sent.has(open.get(p)));
+        if (kept.length && kept.length !== chosen.length) chosen = kept;
         paintCtxFlag();
       }
       const res = await fetch(`${API}/chat`, {
@@ -690,60 +693,85 @@
 
   /* ── what the conversation is about ──────────────────────────────────────
    *
-   * The chip names the INSTRUMENT the model is reading, not the fact that it
-   * is reading something: "sees chart" told you the switch was on and nothing
+   * The chip names the CHARTS the model is reading, not the fact that it is
+   * reading something: "sees chart" told you the switch was on and nothing
    * about which chart. It follows the pane you last clicked, so on a split the
-   * chat and the selection can never disagree — unless you have chosen the
-   * subject yourself here, which pins it (a deliberate choice outranks a
-   * click somewhere else on screen).
+   * chat and the selection can never disagree — unless you have chosen the set
+   * yourself in the menu, which pins it (a deliberate choice outranks a click
+   * somewhere else on screen).
    *
-   * Whether the chart rides along is carried by the chip's own ink — attached
-   * reads at full strength, detached goes faint and the tooltip says so. A
-   * status dot beside a logo was a second indicator light on a control that
-   * already had one, and it read as a live-connection lamp.
+   * The menu offers exactly the charts that are OPEN. Not the universe: a
+   * ticker with no pane has no visible chart to talk about, and the whole
+   * premise here is that the conversation is about what is on screen. Opening
+   * a chart is a layout away.
+   *
+   * Whether the charts ride along is carried by the chip's own ink — attached
+   * reads at full strength, detached goes faint and the tooltip says so.
    */
-  let subject = { symbol: Sym.name, interval: null, pane: 0 };
-  let pinned = false;                 // set by choosing a ticker in this menu
-  const extras = [];                  // tickers added for context, not yet wired
+  let chosen = [0];                   // pane indices, in the order they were added
+  let pinned = false;                 // set by choosing in this menu
+  let sent = null;                    // what the last turn actually carried
+
+  /** The open charts, primary first. Before main.js has finished booting there
+   *  is exactly one and it is the page's own symbol. */
+  const openCharts = () => (window.__charto && window.__charto.charts)
+    ? window.__charto.charts()
+    : [{ pane: 0, symbol: Sym.name, interval: "", primary: true }];
+
+  /** The chosen panes as chart records, dropping any the layout has retired. */
+  function chosenCharts() {
+    const open = openCharts();
+    const byPane = new Map(open.map((c) => [c.pane, c]));
+    const list = chosen.map((p) => byPane.get(p)).filter(Boolean);
+    return list.length ? list : [open[0]];
+  }
 
   function paintCtxFlag() {
     ctxFlag.classList.toggle("off", !ctxOn);
-    // before any pane has been clicked the subject IS the primary chart, so
-    // its interval is read live rather than cached as null
-    const ivNow = subject.interval
-      || (window.__charto && window.__charto.state.interval) || "";
-    const iv = ivNow ? ` <span class="iv">${ivNow}</span>` : "";
-    const more = extras.length ? ` <span class="more">+${extras.length}</span>` : "";
-    ctxFlag.innerHTML = Universe.logoHTML(subject.symbol, "co-logo")
-      + `<span class="sym">${subject.symbol}</span>${iv}${more}`;
+    const list = chosenCharts();
+    ctxFlag.classList.toggle("multi", list.length > 1);
+    /* One chart is named. SEVERAL are just their marks: the row would run to
+     * three or four names beside a text box that is itself the width of the
+     * pane, and the names are one click away in the menu. No interval either —
+     * it belongs to the chart, and the chip answers "about what", not
+     * "at what resolution". */
+    ctxFlag.innerHTML = list.length === 1
+      ? Universe.logoHTML(list[0].symbol, "co-logo")
+        + `<span class="sym">${list[0].symbol}</span>`
+      : list.map((c) => Universe.logoHTML(c.symbol, "co-logo")
+          || `<span class="sym">${c.symbol}</span>`).join("");
+    const names = list.map((c) => `${c.symbol} ${c.interval || ""}`.trim()).join(" · ");
     ctxFlag.title = (ctxOn
-      ? `The model reads this chart — ${subject.symbol}`
-      : "The chart is detached; the model reads none of it")
+      ? `The model reads ${list.length > 1 ? "these charts" : "this chart"} — ${names}`
+      : "The charts are detached; the model reads none of them")
       + " · click to choose what is in context";
   }
 
-  /** The menu behind the chip: what is in context now, and a search to add
-   *  more. Added tickers are shown as PENDING because that is what they are —
-   *  nothing but the selected chart is sent to the model yet, and a chip that
-   *  implies otherwise would be the interface lying about its own state. */
+  /** The menu behind the chip: every open chart, ticked or not. Ticking one
+   *  puts it in the turn; unticking takes it out. The last one cannot be
+   *  removed — a conversation about no chart is the detach switch, which
+   *  lives in "+" and says so in its own words. */
   function openSubjectMenu() {
+    const open = openCharts();
+    const picked = new Set(chosenCharts().map((c) => c.pane));
     const rows = [
-      `<div class="head">In context</div>`,
-      `<div class="item on" data-subj="chart"><span class="lead">`
-      + Universe.logoHTML(subject.symbol, "co-logo")
-      + `${subject.symbol}${subject.interval ? ` · ${subject.interval}` : ""}`
-      + `</span><span class="cold">${ctxOn ? "chart" : "detached"}</span></div>`,
-      ...extras.map((s) => `<div class="item" data-drop="${s}"><span class="lead">`
-        + Universe.logoHTML(s, "co-logo") + `${s}</span>`
-        + `<span class="cold">pending ×</span></div>`),
-      `<div class="sep"></div>`,
-      `<div class="item" data-subj="add"><span class="lead">`
-      + `${Icons.svg("plus", "sm")}Add a ticker to the conversation</span></div>`,
-      pinned ? `<div class="item" data-subj="unpin"><span class="lead">`
-        + `${Icons.svg("check", "sm")}Following your choice — click to follow the chart`
-        + `</span></div>` : "",
-      `<div class="pick-note">Only the selected chart is sent to the model today;`
-      + ` added tickers are held here until that is wired.</div>`,
+      `<div class="head">Charts in this conversation</div>`,
+      ...open.map((c) => {
+        const on = picked.has(c.pane);
+        return `<div class="item ${on ? "on" : ""}" data-pane="${c.pane}">`
+          + `<span class="lead">${Universe.logoHTML(c.symbol, "co-logo")}`
+          + `${c.symbol}<span class="co-name">${c.interval || ""}`
+          + `${c.primary ? " · main" : ""}</span></span>`
+          + (on ? Icons.svg("check", "xs") : "") + `</div>`;
+      }),
+      pinned ? `<div class="sep"></div><div class="item" data-pane="follow">`
+        + `<span class="lead">${Icons.svg("check", "sm")}`
+        + `Your choice — click to follow the selected chart again</span></div>` : "",
+      open.length === 1
+        ? `<div class="pick-note">Split the layout to put a second chart on `
+          + `screen; anything open can join the conversation.</div>`
+        : `<div class="pick-note">Every ticked chart is sent with each message, `
+          + `and the model can read any of them.</div>`,
     ].join("");
 
     const pop = document.createElement("div");
@@ -759,39 +787,43 @@
     setTimeout(() => document.addEventListener("mousedown", out, true), 0);
 
     pop.addEventListener("click", (e) => {
-      const drop = e.target.closest("[data-drop]");
-      if (drop) {
-        const i = extras.indexOf(drop.dataset.drop);
-        if (i >= 0) extras.splice(i, 1);
-        close(); paintCtxFlag(); openSubjectMenu();
-        return;
-      }
-      const it = e.target.closest("[data-subj]");
+      const it = e.target.closest("[data-pane]");
       if (!it) return;
-      if (it.dataset.subj === "unpin") {
-        pinned = false; close(); paintCtxFlag();
+      e.stopPropagation();
+      if (it.dataset.pane === "follow") {
+        pinned = false;
+        chosen = [(window.__chartoActivePane || 0)];
+        close(); paintCtxFlag();
         return;
       }
-      if (it.dataset.subj === "add") {
-        close();
-        Universe.open({
-          anchor: ctxFlag, current: subject.symbol,
-          onPick: (s) => {
-            if (s !== subject.symbol && !extras.includes(s)) extras.push(s);
-            pinned = true;                 // a choice made here outranks a click
-            paintCtxFlag();
-          },
-        });
+      const p = Number(it.dataset.pane);
+      const i = chosen.indexOf(p);
+      if (i >= 0) {
+        if (chosen.length === 1) return;   // never leave the turn with nothing
+        chosen.splice(i, 1);
+      } else {
+        chosen.push(p);
       }
+      pinned = true;                        // an explicit set outranks a click
+      paintCtxFlag();
+      close(); openSubjectMenu();           // stays open for a second choice
     });
   }
 
   // The selected chart is the subject — the same signal that re-aims the
-  // toolbar. A pinned subject ignores it.
+  // toolbar. A pinned set ignores it.
   document.addEventListener("charto:pane-active", (e) => {
+    window.__chartoActivePane = e.detail.pane;
     if (pinned) return;
-    subject = { symbol: e.detail.symbol, interval: e.detail.interval,
-                pane: e.detail.pane };
+    chosen = [e.detail.pane];
+    paintCtxFlag();
+  });
+  // A layout change retires panes; the chip must stop naming charts that are
+  // no longer on screen.
+  document.addEventListener("charto:panes-changed", () => {
+    const open = new Set(openCharts().map((c) => c.pane));
+    const keep = chosen.filter((p) => open.has(p));
+    chosen = keep.length ? keep : [0];
     paintCtxFlag();
   });
   Universe.load().then(paintCtxFlag);   // the mark lands after the fetch

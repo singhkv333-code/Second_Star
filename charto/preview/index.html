@@ -1360,9 +1360,20 @@ body > footer .dotsep { color: var(--border); }
 .ctx-flag .co-logo { width: 13px; height: 13px; border-radius: 3px; object-fit: contain; flex: none; }
 .ctx-flag .sym { font-weight: var(--weight-semi); color: var(--foreground); letter-spacing: -.01em; }
 .ctx-flag.off .sym { color: var(--muted-foreground); }
-.ctx-flag .iv, .ctx-flag .more { color: var(--faint); }
+/* Several charts read as a row of marks — the names would run the width of the
+   composer. They overlap slightly, the way a stack of avatars does, so the
+   group reads as ONE subject rather than as separate chips. */
+.ctx-flag.multi { gap: 0; padding: 4px 9px; }
+.ctx-flag.multi .co-logo {
+  width: 15px; height: 15px; margin-right: -3px;
+  box-shadow: 0 0 0 1.5px var(--muted);
+}
+.ctx-flag.multi:hover .co-logo { box-shadow: 0 0 0 1.5px var(--accent); }
+.ctx-flag.multi .co-logo:last-child { margin-right: 0; }
 .subj-menu { min-width: 268px; max-width: 320px; }
 .subj-menu .cold { font-size: 10.5px; color: var(--faint); }
+.subj-menu .co-name { margin-left: 6px; font-size: 11px; color: var(--faint); }
+.subj-menu .item.on .lead { color: var(--foreground); }
 /* The honest footnote under a control that can be given more than it sends. */
 .pick-note {
   font-size: 11px; color: var(--faint); line-height: 1.45;
@@ -1754,8 +1765,8 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/tools.js?v=8"></script>
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=21"></script>
-  <script src="./js/panes.js?v=6"></script>
-  <script src="./js/main.js?v=41"></script>
-  <script src="./js/chat.js?v=24"></script>
+  <script src="./js/panes.js?v=7"></script>
+  <script src="./js/main.js?v=43"></script>
+  <script src="./js/chat.js?v=25"></script>
 </body>
 </html>

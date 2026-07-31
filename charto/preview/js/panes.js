@@ -456,6 +456,13 @@ const Panes = (() => {
      *  answering from a chart that is gone. */
     paneAt(i) { return i > 0 ? (subs[i - 1] || null) : null; },
     hasPane(i) { return i === 0 || !!subs[i - 1]; },
+    /** What the secondary panes are showing, in screen order. main.js puts the
+     *  primary at the head of this list — it is the only one that knows what
+     *  the primary chart is on. */
+    subsInfo() {
+      return subs.map((s, i) => ({ pane: i + 1, symbol: s.symbol,
+                                   interval: s.interval, bars: s.bars.length }));
+    },
     /** The indicator manager the one toolbar drives. */
     activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
     /** Route an interval choice to the selected pane. Returns false when the

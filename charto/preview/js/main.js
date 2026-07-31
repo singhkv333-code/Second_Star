@@ -921,11 +921,41 @@
     } };
   }
 
+  /** Every chart on screen, primary first — the choices the chat offers and
+   *  what it sends when more than one is chosen. */
+  function chartList() {
+    return [{ pane: 0, symbol: SYMBOL, interval: state.interval,
+              bars: state.bars.length, primary: true }]
+      .concat(Panes.subsInfo());
+  }
+
   /** `pane` is optional: omit it and the envelope describes whichever chart is
    *  selected; pass an index and it describes that one (the chat pins a pane
-   *  so the subject it NAMES and the chart it SENDS cannot drift apart). An
-   *  index the layout no longer has falls back to the primary. */
+   *  so the subject it NAMES and the chart it SENDS cannot drift apart); pass
+   *  an ARRAY and the envelope carries all of them — the first that resolves
+   *  is the focused chart and the rest ride in `charts[]`.
+   *
+   *  Several charts are not a different kind of envelope: each entry is built
+   *  by exactly the same code that builds a lone one, so nothing downstream
+   *  needs a comparison mode to read them. An index the layout no longer has
+   *  falls back to the primary. */
   function getChartContext(pane) {
+    if (Array.isArray(pane)) {
+      /* The FOCUSED chart is the primary whenever it is among the chosen: it
+       * is the only one carrying drawings, the chat's own annotations and the
+       * pinned bars, so making anything else the head would silently drop
+       * them from the turn. */
+      const idx = [...new Set(pane)].filter((i) => Panes.hasPane(i));
+      if (!idx.length) return getChartContext();
+      const head = idx.includes(0) ? 0 : idx[0];
+      const built = [head, ...idx.filter((i) => i !== head)]
+        .map((i) => getChartContext(i))
+        .filter((c) => c && c.symbol && !c.status);
+      if (!built.length) return getChartContext(head);
+      // one chart chosen is one chart sent — the envelope stays exactly what
+      // it has always been rather than growing a one-element list
+      return built.length === 1 ? built[0] : { ...built[0], charts: built };
+    }
     /* The chart the user last clicked is the chart being discussed. A
      * secondary pane carries its own instrument, interval and indicators, so
      * it can answer for itself — but it holds no drawings, no scene and no
@@ -940,8 +970,11 @@
         // The backend renders `source` verbatim on the envelope's header line,
         // so the pane's nature is said where the model will actually read it —
         // a key it does not render would have been a note to nobody.
-        source: `${w.env.source} · secondary pane (selected); drawings and `
-          + `pinned bars live on the main chart`,
+        source: `${w.env.source} · secondary pane — drawings, chat annotations `
+          + `and pinned bars live on the main chart, not this one`,
+        // and the tools enforce it: a reference pane has no drawing layer, so
+        // "drawn" must never be said about one
+        drawable: false,
         indicators: sub.ind.snapshot(w.first.time).map((x) => ({
           label: x.label, now: r2(x.now),
           at_window_start: x.at === null ? null : r2(x.at),
@@ -1801,7 +1834,13 @@
     document.dispatchEvent(new CustomEvent("charto:pane-active", {
       detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
     }));
+    // a pane's symbol or interval may have moved with the selection
+    document.dispatchEvent(new CustomEvent("charto:panes-changed"));
   });
+  // A layout change creates and destroys charts, so anything holding a pane
+  // index — the chat's chosen set above all — has to be told the screen is
+  // different now.
+  Panes.onChange(() => document.dispatchEvent(new CustomEvent("charto:panes-changed")));
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
 
@@ -2004,5 +2043,6 @@
     });
   })();
 
-  window.__charto = { chart, candle, state, draw, ind, scene, pins, getChartContext };
+  window.__charto = { chart, candle, state, draw, ind, scene, pins,
+                      getChartContext, charts: chartList };
 })();

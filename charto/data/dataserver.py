@@ -5644,10 +5644,125 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_flows": tool_get_flows}
 
 
+# ── which chart a tool reads ────────────────────────────────────────────────
+#
+# The screen can hold several charts, and the model can now aim ANY chart-
+# scoped tool at any of them with `symbol=` — the same tool, pointed somewhere
+# else. That is the whole of the multi-chart capability: there is no compare
+# mode, no comparison tool set, no branch that detects "this is a comparison".
+# Whatever the model can establish about one chart it establishes about the
+# others by calling the same tools again, and composes the answer itself.
+#
+# Two exclusions, and both are about honesty rather than plumbing:
+#   · the tools that DRAW (draw_shape, plan_position) or score a shape the user
+#     drew (evaluate_*) act on the chart the drawings actually live on. Aiming
+#     them elsewhere would compute against one instrument and draw on another.
+#   · get_peers / compare_symbols / screen_universe already name their own
+#     symbols — they were never single-chart tools.
+_CHART_SCOPED = frozenset({
+    "get_levels", "get_bars", "get_indicator", "get_trendlines",
+    "get_divergences", "get_anchors", "get_gaps", "get_patterns",
+    "evaluate_pattern", "get_results", "evaluate_results", "explain_move",
+    "search_news", "get_flows",
+})
+
+_SYMBOL_ARG = {
+    "type": "string",
+    "description": ("which chart on screen to read — a ticker listed in the "
+                    "chart context. Omit for the chart in focus. Reading a "
+                    "second chart is this argument, not a different tool."),
+}
+for _t in TOOLS:
+    if _t.get("name") in _CHART_SCOPED:
+        _t["parameters"]["properties"].setdefault("symbol", dict(_SYMBOL_ARG))
+
+
+_INK_ARGS = ("draw", "mark_points", "connect", "mark_levels", "remove",
+             "clear_marks")
+
+
+def _wants_ink(args: dict) -> list:
+    """Which arguments of this call would put something on the user's chart."""
+    return [k for k in _INK_ARGS if args.get(k)]
+
+
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
+    # draw_shape / plan_position exist only to draw — the whole call is ink.
+    if name in ("draw_shape", "plan_position") and not getattr(_req, "drawable", True):
+        return {"error": "this chart cannot be drawn on",
+                "_note": ("The selected pane is a reference chart; only the "
+                          "main chart carries drawings. Give the geometry in "
+                          "the reply, and say the user can click the main "
+                          "chart to have it drawn.")}
+    # `symbol` is routing, not a parameter of the computation: the tools that
+    # take it in their own signature (get_peers) keep it, and for everything
+    # else it swaps the request's working chart for the length of this one
+    # call. Doing it here means a tool never has to know that more than one
+    # chart exists — and a tool added tomorrow inherits this for free.
+    args = dict(args or {})
+    want = str(args.pop("symbol", "") or "").upper().strip() \
+        if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
+    prev = getattr(_req, "symbol", "RELIANCE")
+    # The chart in focus may itself be a secondary pane, which has no drawing
+    # layer at all. Anything that would put ink on the screen is refused with
+    # the reason — the alternative is a reply that says "drawn" while the line
+    # appears on a different chart than the one it was computed from.
+    if not getattr(_req, "drawable", True) and _wants_ink(args):
+        return {"error": "this chart cannot be drawn on",
+                "_note": ("The selected pane is a reference chart — drawings, "
+                          "marks and indicator panes only exist on the main "
+                          "chart. Quote the values instead, and say the user "
+                          "can click the main chart if they want it drawn.")}
+    if want and want != prev:
+        # An unloaded chart must say so. Answering from the focused chart
+        # under another chart's name is the one failure that cannot be caught
+        # downstream — every number would look right and belong to the wrong
+        # company.
+        if not _symbol_ready(want):
+            open_now = ", ".join(getattr(_req, "charts", []) or [prev])
+            return {"error": f"no local bars for {want}",
+                    "_note": (f"Nothing is stored for that symbol. The charts in "
+                              f"this conversation are: {open_now}. Say which ones "
+                              f"you can read rather than answering for one you "
+                              f"cannot.")}
+        # Reading another chart is free; DRAWING on one is not. The scene layer
+        # and the indicator panes belong to the chart in focus, so a request to
+        # draw while aimed elsewhere would compute on one instrument and put
+        # the line on another. Refused with the reason, never silently dropped.
+        drawing = _wants_ink(args)
+        if drawing:
+            return {"error": f"cannot draw on {want} from here",
+                    "_note": (f"{prev} is the chart in focus and the only one "
+                              f"that can be drawn on. Reading {want} works — "
+                              f"drop {', '.join(drawing)} and quote the values, "
+                              f"or tell the user to click the {want} pane first "
+                              f"if they want it drawn there.")}
+        _req.symbol = want
+    try:
+        out = _run_tool(name, fn, args)
+    finally:
+        # every stamp below reads the working chart, so it is restored only
+        # once the whole result is built
+        _req.symbol = prev
+    # A result that came from another chart must carry that chart's name, or
+    # two tool results in the same turn are indistinguishable in the reply.
+    if want and isinstance(out, dict):
+        out.setdefault("symbol", want)
+    return out
+
+
+def _fn_params(fn) -> set:
+    import inspect
+    try:
+        return set(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):
+        return set()
+
+
+def _run_tool(name: str, fn, args: dict) -> dict:
     try:
         out = fn(**args)
     except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
@@ -5755,9 +5870,41 @@ def build_context_block(ctx: dict | None) -> str:
 
 
 def _render_context(ctx: dict) -> str:
+    """The focused chart, then any others the user has put in the conversation.
+
+    Several charts are ONE list of the same block, not a comparison mode: each
+    is described exactly as a lone chart would be, and the model reads across
+    them itself. The focused chart is the one the drawings, the chat's own
+    annotations and the pinned bars belong to — those sections only appear
+    there, because that is the only chart they exist on.
+    """
+    # A chart is identified by symbol AND interval: the same company on two
+    # timeframes is two charts, and matching on the ticker alone would silently
+    # drop the second one from a conversation that is explicitly about both.
+    me = (ctx.get("symbol"), ctx.get("interval"))
+    others = [c for c in (ctx.get("charts") or [])
+              if isinstance(c, dict) and (c.get("symbol"), c.get("interval")) != me
+              and c.get("view") and c.get("window") and c.get("last_bar")]
+    block = _render_chart(ctx, focused=True)
+    if others:
+        block += "\n\n" + "\n\n".join(_render_chart(c, focused=False) for c in others)
+        names = ", ".join(f"{c['symbol']} ({c['interval']})"
+                          for c in [ctx] + others)
+        block += (
+            f"\n\nThe user has {len(others) + 1} charts in this conversation: {names}. "
+            f"Every chart-reading tool takes `symbol` — pass one of these to aim it at "
+            f"that chart, and call it once per chart when a question spans them. "
+            f"{ctx.get('symbol')} is the one in focus and the only one carrying "
+            f"drawings, chat annotations and pinned bars; a bare 'this chart' means it. "
+            f"Attribute every number to the chart it came from.")
+    return block + "\n" + _CONTEXT_CONTRACT
+
+
+def _render_chart(ctx: dict, focused: bool = True) -> str:
     v, w, lb = ctx["view"], ctx["window"], ctx["last_bar"]
     L = [
-        "## Chart the user is viewing",
+        "## Chart the user is viewing" if focused
+        else f"## Also in this conversation — {ctx['symbol']}",
         f"{ctx['symbol']} · {ctx['exchange']} · {ctx['interval']} · {ctx['source']}",
         f"Visible: {v['from']} → {v['to']} IST · {v['bars_visible']} bars on screen "
         f"· {v['bars_loaded']:,} loaded · history back to {v['history_from']}",
@@ -5790,6 +5937,12 @@ def _render_context(ctx: dict) -> str:
         L.append("Indicators on chart: " + " · ".join(parts))
     else:
         L.append("Indicators on chart: none")
+
+    # Drawings, chat annotations and pinned bars exist on ONE chart. A second
+    # chart in the conversation has none of them, and listing "none" under it
+    # would invite the model to reason about their absence.
+    if not focused:
+        return "\n".join(L)
 
     if ctx.get("pins"):
         for p in ctx["pins"]:
@@ -5848,8 +6001,13 @@ def _render_context(ctx: dict) -> str:
                  "drawing_id; a moved plan re-prices via plan_position with "
                  "drawing_id alone (its targets and sizing carry over).")
 
-    L.append(
-        "\nThese facts describe the visible chart. For anything they don't contain "
+    return "\n".join(L)
+
+
+# The contract that closes the envelope — one copy, after the last chart,
+# because it governs every number in it rather than any one chart.
+_CONTEXT_CONTRACT = (
+        "\nThese facts describe the chart(s) above. For anything they don't contain "
         "— a specific bar or date, a level, an indicator not listed — call a tool; "
         "never guess and never estimate. The trajectory points describe shape only: "
         "never quote one as a level, zone, or target. Support and resistance come "
@@ -5861,8 +6019,7 @@ def _render_context(ctx: dict) -> str:
         "direction the user hasn't stated. If asked for a target or stop, give "
         "the levels and what would invalidate them, and say plainly that this is "
         "analysis, not advice. Be concise and concrete."
-    )
-    return "\n".join(L)
+)
 
 
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
@@ -6888,15 +7045,36 @@ class Handler(BaseHTTPRequestHandler):
             messages = body.get("messages") or []
             if not isinstance(messages, list) or not messages:
                 return self._send(400, {"error": "messages[] required"})
-            sym = str((body.get("context") or {}).get("symbol")
-                      or "RELIANCE").upper()
+            ctx = body.get("context") or {}
+            sym = str(ctx.get("symbol") or "RELIANCE").upper()
             _req.symbol = sym
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
+            # Every chart the user put in the conversation has to be loadable
+            # before the turn starts — a tool aimed at one of them mid-round
+            # cannot wait ~6 s for a cold hydrate. One that will not load is
+            # dropped from the envelope rather than named to the model as
+            # something it can read.
+            charts, keep = [sym], []
+            for c in (ctx.get("charts") or []):
+                s = str((c or {}).get("symbol") or "").upper()
+                if not s or s in charts:
+                    keep.append(c)
+                    continue
+                if _ensure_symbol(s):
+                    logging.warning("charto: chart %s unavailable, dropped", s)
+                    continue
+                charts.append(s)
+                keep.append(c)
+            ctx["charts"] = keep
+            _req.charts = charts
+            # a reference pane has no drawing layer; the envelope says which
+            # kind of chart is in focus and the tools honour it
+            _req.drawable = ctx.get("drawable") is not False
             if body.get("stream"):
-                return self._send_stream(messages, body.get("context"))
-            return self._send(200, llm_chat(messages, body.get("context")))
+                return self._send_stream(messages, ctx)
+            return self._send(200, llm_chat(messages, ctx))
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
 
