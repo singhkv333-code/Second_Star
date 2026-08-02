@@ -4203,7 +4203,50 @@ def _pattern_universe_stats(kind: str, interval: str, h: int,
     out["scope_label"] = SCOPE_LABEL.get(sc, sc)
     if as_of:
         out["as_of"] = as_of
+        lag = _evidence_lag(as_of)
+        if lag:
+            out["as_of_note"] = lag
     return out
+
+
+def _evidence_lag(as_of: str | None, symbol: str = "") -> str | None:
+    """A note when a DERIVED table's evidence stops before the chart does.
+
+    pattern_stats, vp_screen and the universe screen are SWEPT, not computed
+    per request, so each carries its own as_of while the bar store moves
+    underneath it independently. Measured 2026-08-02: the equity pattern ledger
+    was mined to 22 Jul and the charts had been topped up to 31 Jul, so a
+    pooled rate covering neither of the last seven sessions was being shown
+    beside a chart that drew all of them, with nothing saying so.
+
+    Stating the lag costs one line. Letting the model imply the evidence covers
+    the visible chart is a fabrication, and it is the kind that survives review
+    because every individual number in it is true.
+    """
+    at = _parse_ist(as_of)
+    if at is None:
+        return None
+    sym = symbol or _sym()
+    if not sym:
+        return None
+    try:
+        last = _con.execute("SELECT MAX(ts) FROM bars_1d WHERE symbol=?",
+                            (sym,)).fetchone()[0]
+        if last is None:
+            return None
+        tz_off = session_for(sym)[1]
+        if _ist_day(last, tz_off) <= _ist_day(at, tz_off):
+            return None
+        behind = _con.execute(
+            "SELECT COUNT(*) FROM bars_1d WHERE symbol=? AND ts>?",
+            (sym, at)).fetchone()[0]
+    except sqlite3.Error:
+        return None
+    if behind <= 0:
+        return None
+    return (f"this evidence was mined up to {as_of}; {sym} has traded "
+            f"{behind} session(s) since, to {_ist(last, False)}. Say so rather "
+            f"than implying the record covers the chart on screen.")
 
 
 def tool_evaluate_pattern(kind: str = "", interval: str = "1d",

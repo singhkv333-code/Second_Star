@@ -34,10 +34,60 @@ DDL = ("CREATE TABLE IF NOT EXISTS bars_1d ("
 
 
 def _open() -> sqlite3.Connection:
-    con = sqlite3.connect(dataserver.DB_PATH)
+    con = sqlite3.connect(dataserver.DB_PATH, timeout=60)
     con.execute("PRAGMA journal_mode=WAL")
+    # a backfill or the live tick writer may hold the write lock; without this
+    # a concurrent run dies on SQLITE_BUSY the instant it tries to commit
+    con.execute("PRAGMA busy_timeout=60000")
     con.execute(DDL)
     return con
+
+
+def _bump_screen_version(con: sqlite3.Connection) -> None:
+    """The dataserver caches screening off this counter. seed/tail used to
+    leave it alone, so a running server kept serving pre-top-up daily values
+    with nothing saying so."""
+    con.execute("CREATE TABLE IF NOT EXISTS screen_meta (version INTEGER)")
+    cur = con.execute("SELECT MAX(version) FROM screen_meta").fetchone()[0] or 0
+    con.execute("DELETE FROM screen_meta")
+    con.execute("INSERT INTO screen_meta VALUES (?)", (cur + 1,))
+
+
+def tail() -> None:
+    """Fold only the sessions bars_1d is MISSING, per symbol.
+
+    seed() re-folds every stored minute — 100M rows to recompute a handful of
+    new days. This reads each symbol's newest daily stamp and folds only the
+    minutes at or after it, which is the same shape dataserver._daily() already
+    uses to merge the live tail. The overlapping day is re-folded rather than
+    skipped: it may have been incomplete when it was first written.
+    """
+    con = _open()
+    syms = [r[0] for r in con.execute(
+        "SELECT DISTINCT symbol FROM bars ORDER BY symbol")]
+    t0 = time.time()
+    touched = 0
+    for sym in syms:
+        sess = dataserver.session_for(sym)
+        newest = con.execute("SELECT MAX(ts) FROM bars_1d WHERE symbol=?",
+                             (sym,)).fetchone()[0]
+        cut = newest + sess[1] if newest else 0   # day epoch -> that day's open
+        rows = con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? ORDER BY ts",
+            (sym, cut)).fetchall()
+        if not rows:
+            continue
+        daily = dataserver._fold_daily(rows, sess)
+        con.executemany("INSERT OR REPLACE INTO bars_1d VALUES (?,?,?,?,?,?,?)",
+                        [(sym, *b) for b in daily])
+        con.commit()
+        touched += 1
+        print(f"  {sym:<12} +{len(daily):>4} day(s) from {len(rows):>8,} minutes"
+              f"  {time.time() - t0:5.1f}s")
+    _bump_screen_version(con)
+    con.commit()
+    print(f"tail-folded {touched}/{len(syms)} symbols in {time.time() - t0:.1f}s")
+    _report(con)
 
 
 def _report(con: sqlite3.Connection) -> None:
@@ -107,6 +157,8 @@ if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if arg == "seed":
         seed()
+    elif arg == "tail":
+        tail()
     elif arg:
         absorb(arg)
     else:
