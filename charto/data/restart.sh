@@ -22,7 +22,12 @@ PY="$(cd ../../pivot && pwd)/.venv/bin/python"
 [ -x "$PY" ] || PY=python3
 OLD=$(lsof -ti tcp:$PORT || true)
 [ -n "$OLD" ] && kill -9 $OLD 2>/dev/null && sleep 1
-nohup "$PY" dataserver.py > /tmp/charto_ds.log 2>&1 &
+# -u is load-bearing, not a nicety: stdout is a FILE here, so Python
+# block-buffers it and every print the server makes — driver start-up,
+# gap-fill reports, refusal reasons — sits in a buffer that is never flushed
+# while the process runs. The log read as empty for a whole debugging session,
+# which is indistinguishable from "the code never ran".
+nohup "$PY" -u dataserver.py > /tmp/charto_ds.log 2>&1 &
 sleep 3
 NEW=$(lsof -ti tcp:$PORT || true)
 if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then

@@ -140,6 +140,8 @@ DEFAULT_MAX_GAP_MIN = 120   # 24/7 wall-clock hole tolerated before refusing
 # Past this the hole is a backfill job, not a handoff: filling it inside a
 # driver start is what hung the stream on a symbol 3.7 years behind.
 MAX_FILL_MIN = 1440
+# how close to `now` a successful gap fill must land
+_FILL_TOLERANCE_MIN = 5
 _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
 _STATUS_EVERY = 30.0
@@ -982,11 +984,18 @@ class CryptoStream:
                 # behind right after a "successful" fill of 0 rows.
                 still = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
                                     (sym,)).fetchone()[0] or 0
-                if (now - still) // 60 > DEFAULT_MAX_GAP_MIN:
+                left = (now - still) // 60
+                # Judge against what fill_gap is FOR — closing the hole to
+                # roughly now — not against the streaming limit. Checking
+                # against DEFAULT_MAX_GAP_MIN meant a fill that fetched nothing
+                # and left a 32-minute hole passed silently, because 32 < 120.
+                # A hole under the limit is still a hole the chart draws over.
+                if left > _FILL_TOLERANCE_MIN:
                     out.setdefault("unfilled", {})[sym] = (
-                        f"still {(now - still) // 60} min behind after fetching "
-                        f"{len(rows)} row(s) — the venue REST call is failing "
-                        f"or throttling, not the store")
+                        f"still {left} min behind after fetching {len(rows)} "
+                        f"row(s) — the venue REST call returned nothing for "
+                        f"that window (throttled or not yet published), so the "
+                        f"socket will open at the right edge of a {left}-min hole")
         finally:
             con.close()
         return out

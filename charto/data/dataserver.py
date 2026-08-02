@@ -7113,7 +7113,13 @@ _LIVE: dict[str, dict] = {}
 _LIVE_GUARD = threading.Lock()
 # Writes go on their own connection (WAL is on) so a tick can never land
 # mid-read on the shared reader.
-_live_writer = sqlite3.connect(DB_PATH, check_same_thread=False)
+_live_writer = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=60)
+# A closing minute gets ONE chance: it is written the instant the bar closes
+# and the forming state is then reset, so a SQLITE_BUSY here loses that minute
+# permanently rather than deferring it. The default busy timeout is 0, which
+# means any concurrent backfill holding the write lock — and a crypto refetch
+# holds it for minutes at a time — would silently punch holes in live data.
+_live_writer.execute("PRAGMA busy_timeout=60000")
 _LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
 
 
