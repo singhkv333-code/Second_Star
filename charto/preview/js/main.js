@@ -57,8 +57,29 @@
   }
 
   const T0 = chartTheme();
+  /* The price axis sizes itself to its WIDEST label, so a six-figure
+   * instrument spends ~90px of a 414px phone on "80000.00" — a fifth of the
+   * chart, to say a number nobody reads to the last paisa at that scale.
+   * Narrow screens get a compact label: 80.0k, 1.24M. Desktop keeps the full
+   * figure, because there the width costs nothing and precision is free.
+   * The crosshair label and the OHLC readout are untouched — the exact price
+   * is still one tap away, it just stops paying rent on the axis. */
+  const compactPrice = (v) => {
+    const a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (a >= 1e4) return (v / 1e3).toFixed(1) + "k";
+    if (a >= 100) return v.toFixed(0);
+    if (a >= 1) return v.toFixed(2);
+    return v.toPrecision(3);
+  };
+  const SMALL = "(max-width: 820px), (max-height: 520px)";
+  const narrow = () => window.matchMedia(SMALL).matches;
+  const priceLocale = () => (narrow()
+    ? { priceFormatter: compactPrice } : {});
+
   const chart = LWC.createChart(chartEl, {
     ...T0,
+    localization: { ...(T0.localization || {}), ...priceLocale() },
     layout: { ...T0.layout, fontFamily: CHART_FONT, fontSize: 12 },
     rightPriceScale: { ...T0.rightPriceScale, scaleMargins: { top: 0.06, bottom: 0.22 } },
     timeScale: { ...T0.timeScale, timeVisible: true, secondsVisible: false, rightOffset: 5 },
@@ -2026,6 +2047,10 @@
     scene.requestUpdate();
   });
   paintThemeBtn();
+
+  window.matchMedia(SMALL).addEventListener("change", () => {
+    chart.applyOptions({ localization: { priceFormatter: narrow() ? compactPrice : undefined } });
+  });
 
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "Chat";
 
