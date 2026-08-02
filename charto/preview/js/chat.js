@@ -942,8 +942,27 @@
    * it — the split survived the layout that removed it. */
   const stacked = () => window.matchMedia("(max-width: 820px)").matches;
 
+  const HKEY = "charto_chat_height";
+  const MIN_CHAT_H = 160, MIN_CHART_H = 200;
+
+  /** Stacked layout: the same divider drags HEIGHT. Kept on its own key so
+   *  a phone split and a desktop split do not overwrite each other every
+   *  time the window crosses the breakpoint. */
+  function setChatHeight(px, persist = true) {
+    const total = main.clientHeight;
+    const h = Math.round(Math.max(MIN_CHAT_H, Math.min(px, total - MIN_CHART_H)));
+    panel.style.height = h + "px";
+    if (persist) localStorage.setItem(HKEY, String(h));
+  }
+
   function setChatWidth(px, persist = true) {
-    if (stacked()) { panel.style.width = ""; return; }
+    if (stacked()) {
+      panel.style.width = "";
+      const savedH = parseInt(localStorage.getItem(HKEY) || "0", 10);
+      if (savedH) setChatHeight(savedH, false);
+      return;
+    }
+    panel.style.height = "";
     const total = main.clientWidth;
     const w = Math.round(Math.max(MIN_CHAT, Math.min(px, total - MIN_CHART)));
     panel.style.width = w + "px";
@@ -968,8 +987,21 @@
     e.preventDefault();
   });
   window.addEventListener("mousemove", (e) => {
-    if (dragging) setChatWidth(main.getBoundingClientRect().right - e.clientX);
+    if (!dragging) return;
+    const r = main.getBoundingClientRect();
+    if (stacked()) setChatHeight(r.bottom - e.clientY);
+    else setChatWidth(r.right - e.clientX);
   });
+  // the divider has to be draggable by a finger too, or the phone split is
+  // decorative
+  splitter.addEventListener("touchmove", (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const r = main.getBoundingClientRect();
+    if (stacked()) setChatHeight(r.bottom - t.clientY);
+    else setChatWidth(r.right - t.clientX);
+    e.preventDefault();
+  }, { passive: false });
   window.addEventListener("mouseup", () => {
     if (!dragging) return;
     dragging = false;

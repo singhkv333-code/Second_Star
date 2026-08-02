@@ -235,6 +235,29 @@
 
   // ── readout ───────────────────────────────────────────
   let lastBar = null;
+
+  /* The phone's annotation disclosure. The labels are hidden by CSS at this
+   * width; this is the count that brings them back. Built once and updated,
+   * rather than rebuilt per scene change, so tapping it mid-answer does not
+   * lose the open state. */
+  let chipsBtn = null;
+  function syncChipsBtn(n) {
+    const stage = el("stage");
+    if (!stage) return;
+    if (!chipsBtn) {
+      chipsBtn = document.createElement("button");
+      chipsBtn.className = "chips-btn";
+      chipsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        stage.classList.toggle("chips-on");
+      });
+      stage.appendChild(chipsBtn);
+    }
+    chipsBtn.innerHTML = `<span>${n}</span>` + Icons.svg("chevronDown", "xs");
+    chipsBtn.style.display = n ? "" : "none";
+    if (!n) stage.classList.remove("chips-on");
+  }
+
   /** Same legend shape the secondary panes use, so a split shows one chart
    *  twice rather than two differently-labelled ones. */
   function paintTitle() {
@@ -1178,6 +1201,7 @@
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     onChange: (n) => {
+      syncChipsBtn(n);
       const badge = el("sceneCount"), clear = el("sceneClear");
       // The scene is no longer chat's alone — the Indicators menu puts a
       // volume profile on it too. Crediting chat for something the user

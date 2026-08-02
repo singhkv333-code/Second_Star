@@ -1748,11 +1748,62 @@ body > footer .dotsep { color: var(--border); }
    costs more than the tools are worth at this width. */
 @media (max-width: 560px) {
   .rail { display: none; }
-  .chatpanel { height: 50vh; }
   /* the OHLC row wrapped onto a second line and sat over the candles; at
      this width it earns its space only if it stays one line */
   .readout .row { font-size: var(--text-2xs); }
   .readout .row span { margin-right: 6px; }
+  /* the change chip is the one figure the five OHLC numbers cannot give you,
+     so when the row has to lose something it keeps that and drops volume */
+  .readout .row span:nth-child(5) { display: none; }
+
+  /* The status bar is three groups on one 26px line; at this width it wrapped
+     and doubled the footer's height, eating the composer's room. It scrolls
+     sideways instead — the leftmost group is the one you actually read. */
+  body > footer {
+    overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+    gap: 10px;
+  }
+  body > footer::-webkit-scrollbar { display: none; }
+  body > footer > * { flex: none; }
+
+  /* Annotation labels are written INTO the chart. On a desktop pane there is
+     room beside the candles; on a phone three pattern labels covered the
+     price entirely — the chart stopped being readable at exactly the moment
+     it had the most to say. They are hidden behind a count instead, and the
+     drawings themselves stay on the chart untouched. */
+  .scene-chips { display: none; }
+  .stage.chips-on .scene-chips { display: block; }
+  .chips-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 6;
+    display: inline-flex; align-items: center; gap: 3px;
+    height: 24px; padding: 0 8px; border: 0; cursor: pointer;
+    border-radius: var(--radius-pill); background: var(--muted);
+    color: var(--foreground); font-size: var(--text-2xs);
+    font-weight: var(--weight-medium); font-variant-numeric: tabular-nums;
+  }
+  .chips-btn svg { transition: transform var(--dur) var(--ease-quartr); }
+  .stage.chips-on .chips-btn svg { transform: rotate(180deg); }
+  .stage.chips-on .scene-chips { background: color-mix(in srgb, var(--background) 82%, transparent); }
+}
+/* desktop keeps the labels on the chart; the button is a phone affordance.
+   Scoped by min-width rather than a bare rule — an unscoped `display:none`
+   sits later in the sheet than the media block that shows it, and won. */
+@media (min-width: 561px) { .chips-btn { display: none !important; } }
+
+/* Touch panning. lightweight-charts only receives a touch drag when the
+   element declines the browser's own gesture — at touch-action:auto the pan
+   is claimed as page scroll, and since body is overflow:hidden it went
+   nowhere and the chart simply did not move. Desktop was unaffected, which
+   is why this survived: a mouse drag never asks the browser for a gesture. */
+#chart, .sub-canvas, .charts canvas { touch-action: none; }
+
+/* The mobile split is HORIZONTAL: the same divider, turned, dragging the
+   chat's height instead of its width. */
+@media (max-width: 820px) {
+  .splitter {
+    width: auto; height: 1px; cursor: row-resize;
+  }
+  .splitter::after { inset: -7px 0; }
 }
 
 </style>
@@ -1905,7 +1956,7 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=22"></script>
   <script src="./js/panes.js?v=7"></script>
-  <script src="./js/main.js?v=49"></script>
-  <script src="./js/chat.js?v=101"></script>
+  <script src="./js/main.js?v=51"></script>
+  <script src="./js/chat.js?v=102"></script>
 </body>
 </html>
