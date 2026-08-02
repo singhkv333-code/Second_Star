@@ -24,6 +24,7 @@ Run:  cd pivot && source .venv/bin/activate
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 import threading
@@ -74,9 +75,21 @@ def get_token() -> str:
     return tok
 
 
+# A MONTHLY contract ends in a three-letter month (USDINR26AUGFUT); a WEEKLY
+# ends in the expiry date (USDINR26807FUT). The distinction is not cosmetic:
+# the CDS segment lists weeklies that carry NO minute history at all, so
+# "nearest expiry" silently resolves to a dead contract and every top-up
+# afterwards fetches zero rows while reporting success. Measured 2026-08-02
+# over 20-31 Jul: USDINR26807FUT / 26814FUT / 26821FUT returned 0 bars each,
+# USDINR26AUGFUT returned 4,789 across 10 full sessions. MCX never showed the
+# bug only because its nearest contract happens to be the liquid one.
+_MONTHLY_FUT = re.compile(r"[A-Z]{3}FUT$")
+
+
 def resolve(kite, wanted: set[str]) -> list[tuple[str, int, bool]]:
-    """-> [(symbol, instrument_token, is_future)]. Futures pick front month —
-    the deepest-listed contract, since expired ones are unreachable."""
+    """-> [(symbol, instrument_token, is_future)]. Futures pick the nearest
+    MONTHLY contract, falling back to nearest expiry when a name lists no
+    monthly at all."""
     inst = kite.instruments()
     out: list[tuple[str, int, bool]] = []
     for name in INDICES:
@@ -95,8 +108,14 @@ def resolve(kite, wanted: set[str]) -> list[tuple[str, int, bool]]:
             contracts = [i for i in inst
                          if i["segment"] == seg and i["name"] == name and i.get("expiry")]
             if contracts:
-                front = sorted(contracts, key=lambda x: str(x["expiry"]))[0]
+                monthly = [i for i in contracts
+                           if _MONTHLY_FUT.search(i["tradingsymbol"].upper())]
+                front = sorted(monthly or contracts,
+                               key=lambda x: str(x["expiry"]))[0]
                 out.append((name, front["instrument_token"], True))
+                if not monthly:
+                    print(f"  ! {name}: no monthly contract listed, using "
+                          f"{front['tradingsymbol']} — verify it carries bars")
             else:
                 print(f"  ! {seg} not found: {name}")
     return out
