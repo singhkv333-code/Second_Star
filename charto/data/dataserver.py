@@ -7120,6 +7120,14 @@ _live_writer = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=60)
 # means any concurrent backfill holding the write lock — and a crypto refetch
 # holds it for minutes at a time — would silently punch holes in live data.
 _live_writer.execute("PRAGMA busy_timeout=60000")
+# Every use of _live_writer goes through this. sqlite3 allows the connection to
+# be shared across threads, but NOT interleaved transactions on it — and with a
+# venue driver per socket there are now several tick threads. Measured
+# 2026-08-02 with Coinbase and Bybit live together: thread A's INSERT opened a
+# transaction, thread B's commit closed it, and A's commit then raised
+# "cannot commit - no transaction is active", which surfaced as
+# "trade dropped for ADAUSDT". That is a lost minute, not a cosmetic warning.
+_WRITER_LOCK = threading.Lock()
 _LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
 
 
@@ -7176,9 +7184,10 @@ def _live_snapshot(sym: str, form: list) -> dict:
     """
     sess = session_for(sym)
     day0 = _ist_day(form[0], sess[1]) * 86400 - sess[1]
-    mins = _live_writer.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
-        "ORDER BY ts", (sym, day0, form[0])).fetchall()
+    with _WRITER_LOCK:
+        mins = _live_writer.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+            "ORDER BY ts", (sym, day0, form[0])).fetchall()
     tail = tuple(form)
     out = {}
     for name, m in INTRADAY_MIN.items():
@@ -7240,10 +7249,11 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
             f[5] += vol
         else:
             if f is not None:
-                _live_writer.execute(
-                    "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
-                    (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
-                _live_writer.commit()
+                with _WRITER_LOCK:
+                    _live_writer.execute(
+                        "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                        (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
+                    _live_writer.commit()
                 _daily_cache.pop(sym, None)
                 closed_bar = list(f)
             st["form"] = [bts, price, price, price, price, vol]
@@ -7308,10 +7318,11 @@ def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
             f = st["form"]
             if not st["replay_stop"]:
                 if f is not None:
-                    _live_writer.execute(
-                        "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
-                        (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
-                    _live_writer.commit()
+                    with _WRITER_LOCK:
+                        _live_writer.execute(
+                            "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                            (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
+                        _live_writer.commit()
                     _daily_cache.pop(sym, None)
                 st["form"] = None
                 # the replayed rows are all back in the store, so plain history

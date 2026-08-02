@@ -99,7 +99,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _resume_from(con: sqlite3.Connection, symbol: str, inception: str,
-                 refetch: bool = False) -> int:
+                 refetch: bool = False, since_days: int = 0) -> int:
     """Start one span before the newest stored bar so the tail bar is re-filled.
 
     `refetch` ignores what is stored and starts at inception. It exists because
@@ -111,6 +111,16 @@ def _resume_from(con: sqlite3.Connection, symbol: str, inception: str,
     """
     floor = int(datetime.strptime(inception, "%Y-%m-%d")
                 .replace(tzinfo=timezone.utc).timestamp())
+    if since_days:
+        # Coinbase is a TOKEN BUCKET, not a concurrency problem: measured
+        # 2026-08-02, the same 8-worker fetch ran at 17,947 bars/s on a fresh
+        # bucket and 3,310 bars/s moments later, and 8/16/24/32/48/64 workers
+        # all land in the same 2-4k sustained band while 64 starts DROPPING
+        # windows. Throwing more requests at it cannot help, so the only real
+        # lever is fetching less. Recent history is what the volume profile,
+        # the screener and the default chart window actually read, so repair
+        # that first and let the deep history run behind it.
+        return max(floor, int(time.time()) - since_days * 86400)
     if refetch:
         return floor
     row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?", (symbol,)).fetchone()
@@ -162,11 +172,11 @@ def _by_fetch(args) -> list[tuple]:
 
 
 def run_symbol(con, symbol: str, inception: str, venue: str,
-               refetch: bool = False) -> None:
+               refetch: bool = False, since_days: int = 0) -> None:
     fetch, span, workers = ((_cb_fetch, CB_SPAN, CB_WORKERS) if venue == "coinbase"
                             else (_by_fetch, BY_SPAN, BY_WORKERS))
     t0 = time.time()
-    start = _resume_from(con, symbol, inception, refetch)
+    start = _resume_from(con, symbol, inception, refetch, since_days)
     now = int(time.time())
     if start >= now - 60:
         print(f"  {symbol:10s} already current", flush=True)
@@ -205,6 +215,10 @@ def run_symbol(con, symbol: str, inception: str, venue: str,
 def main(argv: list[str]) -> None:
     venues = {"coinbase": COINBASE, "bybit": BYBIT}
     refetch = "--refetch" in argv
+    since_days = 0
+    for a in argv:
+        if a.startswith("--since="):
+            since_days = int(a.split("=", 1)[1])
     argv = [a for a in argv if not a.startswith("--")]
     which = [a.lower() for a in argv if a.lower() in venues] or list(venues)
     picked = [a.upper() for a in argv if a.upper() not in ("COINBASE", "BYBIT")]
@@ -220,7 +234,7 @@ def main(argv: list[str]) -> None:
             continue
         print(f"\n=== {venue}: {len(pairs)} symbols ===", flush=True)
         for symbol, inception in pairs:
-            run_symbol(con, symbol, inception, venue, refetch)
+            run_symbol(con, symbol, inception, venue, refetch, since_days)
     print(f"\nALL DONE: {_written['n']:,} bars written in {time.time() - t0:.0f}s", flush=True)
     con.close()
 
