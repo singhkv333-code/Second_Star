@@ -6816,6 +6816,36 @@ def session_for(symbol: str) -> tuple[int, int]:
     return NSE_SESSION
 
 
+# The last 1-min bar of a FULL session, as a minute-of-day on the symbol's own
+# clock (NSE closes 15:30, so its final minute OPENS at 15:29). Every value here
+# is MEASURED off complete stored sessions, not read off an exchange brochure:
+#   NSE 09:15->15:29 = 375 bars   MCX 09:00->23:29 = 870   CDS 09:00->16:59 = 480
+_FX_SYMBOLS = {"USDINR", "EURINR", "GBPINR", "JPYINR"}
+_FX_CLOSE_MIN = 16 * 60 + 59
+_SESSION_CLOSE_MIN = {NSE_SESSION: 15 * 60 + 29,
+                      MCX_SESSION: 23 * 60 + 29,
+                      UTC_SESSION: 23 * 60 + 59}
+
+
+def session_close_for(symbol: str) -> int:
+    """Minute-of-day of the last bar of a COMPLETE session.
+
+    Freshness cannot be read off MAX(ts): it cannot tell "the market closed at
+    15:29" from "the fetcher died at 14:29". RELIANCE is stored to 23 Jul 14:29
+    while its 40 peers stop at 22 Jul 15:29 — by MAX(ts) it looks the freshest
+    of the lot and it is the only truncated one. Everything that judges a
+    session complete measures against this instead.
+
+    The INR pairs need their own entry rather than inheriting the NSE close:
+    session_for() puts them on the NSE anchor, but the currency segment trades
+    09:00-17:00, so a 15:29 bar would mark the day complete and every top-up
+    would silently skip 15:30-16:59 forever.
+    """
+    if symbol in _FX_SYMBOLS:
+        return _FX_CLOSE_MIN
+    return _SESSION_CLOSE_MIN.get(session_for(symbol), 15 * 60 + 29)
+
+
 # ── asset scope ───────────────────────────────────────────────────
 # A pooled pattern rate is a property of a MARKET, not of a shape. 500 NSE
 # stocks trade 375 minutes a day with a gap every night; Bitcoin trades 1440
