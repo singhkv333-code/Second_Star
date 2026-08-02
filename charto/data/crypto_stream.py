@@ -117,6 +117,7 @@ import os
 import socket
 import sqlite3
 import ssl
+from concurrent.futures import ThreadPoolExecutor
 import struct
 import threading
 import time
@@ -135,7 +136,10 @@ UTC = timezone.utc
 IST = timezone(timedelta(seconds=ds.IST_OFF))
 
 DEFAULT_MAX_STALE_SESSIONS = ks.DEFAULT_MAX_STALE_SESSIONS
-DEFAULT_MAX_GAP_MIN = 120       # 24/7 wall-clock hole tolerated before refusing
+DEFAULT_MAX_GAP_MIN = 120   # 24/7 wall-clock hole tolerated before refusing
+# Past this the hole is a backfill job, not a handoff: filling it inside a
+# driver start is what hung the stream on a symbol 3.7 years behind.
+MAX_FILL_MIN = 1440
 _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
 _STATUS_EVERY = 30.0
@@ -934,15 +938,35 @@ class CryptoStream:
                                    (sym,)).fetchone()[0]
                 if not last or now - last < 120:
                     continue                      # nothing meaningful to close
-                fetch, span = ((bc._cb_fetch, bc.CB_SPAN)
-                               if v.name == "coinbase"
-                               else (bc._by_fetch, bc.BY_SPAN))
+                gap_min = (now - int(last)) // 60
+                if gap_min > MAX_FILL_MIN:
+                    # A handoff is not a backfill. DOT-USD sat 1,949,380
+                    # minutes behind after an interrupted backfill, and the
+                    # sequential loop below would have issued ~6,500 requests
+                    # inside a driver start, hanging the stream with syms=0 and
+                    # no error. Past this bound the right tool is
+                    # backfill_crypto, and saying so beats silently grinding.
+                    out["symbols"][sym] = 0
+                    out.setdefault("too_wide", {})[sym] = (
+                        f"{gap_min:,} min behind (limit {MAX_FILL_MIN:,}) — "
+                        f"run backfill_crypto for this symbol first")
+                    continue
+                fetch, span, workers = (
+                    (bc._cb_fetch, bc.CB_SPAN, bc.CB_WORKERS)
+                    if v.name == "coinbase"
+                    else (bc._by_fetch, bc.BY_SPAN, bc.BY_WORKERS))
                 # re-request the newest stored minute too: it may have been
                 # written from a partial minute when the last socket died
-                start = int(last)
+                windows = [(sym, s, min(s + span, now))
+                           for s in range(int(last), now, span)]
                 rows: list[tuple] = []
-                for s in range(start, now, span):
-                    rows.extend(fetch((sym, s, min(s + span, now))) or [])
+                if windows:
+                    # batched and parallel, same worker counts backfill_crypto
+                    # measured — a serial loop here is what made a 4-hour gap
+                    # feel like a hang
+                    with ThreadPoolExecutor(min(workers, len(windows))) as ex:
+                        for got in ex.map(fetch, windows):
+                            rows.extend(got or [])
                 if rows:
                     con.executemany(
                         "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
@@ -950,6 +974,19 @@ class CryptoStream:
                     con.commit()
                 out["symbols"][sym] = len(rows)
                 out["filled"] += len(rows)
+                # Verify the hole actually closed. `_get` swallows a 429 after
+                # its retries and returns None, so a rate-limited fill writes
+                # zero rows and says nothing — the symbol is then refused for
+                # being stale, which blames the store for a fetch that failed.
+                # Measured: LINK-USD and ADA-USD were refused at ~250 min
+                # behind right after a "successful" fill of 0 rows.
+                still = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
+                                    (sym,)).fetchone()[0] or 0
+                if (now - still) // 60 > DEFAULT_MAX_GAP_MIN:
+                    out.setdefault("unfilled", {})[sym] = (
+                        f"still {(now - still) // 60} min behind after fetching "
+                        f"{len(rows)} row(s) — the venue REST call is failing "
+                        f"or throttling, not the store")
         finally:
             con.close()
         return out
@@ -964,6 +1001,10 @@ class CryptoStream:
                 print("  gap filled over REST before opening the socket: "
                       + ", ".join(f"{s} +{n}" for s, n in got["symbols"].items()
                                   if n))
+            for s, why in (got.get("too_wide") or {}).items():
+                print(f"  gap too wide to hand off: {s} — {why}")
+            for s, why in (got.get("unfilled") or {}).items():
+                print(f"  gap fill INCOMPLETE: {s} — {why}")
         verdicts = self.plan()
         for v in verdicts:
             mark = "stream" if v["ok"] else "REFUSE"

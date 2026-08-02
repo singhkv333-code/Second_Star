@@ -7386,6 +7386,23 @@ _VENUES = {"coinbase": ("crypto_stream", "CryptoStream"),
            "kite": ("kite_stream", "KiteStream")}
 
 
+def _venue_symbols(venue: str) -> list[str]:
+    """The pairs a venue owns that this store actually has history for.
+
+    Taken from backfill_crypto's own lists rather than a second hardcoded copy,
+    then intersected with `bars` — subscribing to a pair with no local history
+    writes today's minutes onto nothing and draws a chart that looks live and
+    is one minute long.
+    """
+    try:
+        import backfill_crypto as bc
+        listed = {"coinbase": bc.COINBASE, "bybit": bc.BYBIT}.get(venue, [])
+    except Exception:                                 # noqa: BLE001
+        return []
+    have = {r[0] for r in _con.execute("SELECT DISTINCT symbol FROM bars")}
+    return [s for s, _ in listed if s in have]
+
+
 def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]:
     venue = (venue or "").lower()
     with _DRIVER_GUARD:
@@ -7403,9 +7420,14 @@ def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]
                                   f"want one of {', '.join(sorted(_VENUES))}"}
         if venue in _DRIVERS:
             return 409, {"error": f"{venue} is already streaming"}
-        if not symbols:
-            return 400, {"error": "symbols is required"}
         mod_name, cls_name = _VENUES[venue]
+        if not symbols or symbols == ["ALL"]:
+            # "every pair this venue owns" is the normal ask once the store is
+            # current, and typing ten tickers by hand is how one gets dropped.
+            symbols = _venue_symbols(venue)
+            if not symbols:
+                return 400, {"error": f"symbols is required — could not derive "
+                                      f"the {venue} pair list"}
         try:
             mod = __import__(mod_name)
             cls = getattr(mod, cls_name)
@@ -7416,41 +7438,50 @@ def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]
                                   f"({mod_name}.{cls_name}: {exc})"}
         try:
             drv = cls(symbols)
-            ok = drv.start()
         except Exception as exc:                      # noqa: BLE001
-            return 500, {"error": f"{venue} start failed: {exc}"}
-        if ok is False:
-            return 400, {"error": f"{venue} refused every requested symbol — "
-                                  f"see /live?status=1 or top the store up first"}
-        # The two drivers have different lifecycles and assuming one shape
-        # cost a silent no-op: KiteStream.start() spawns its own reader, while
-        # CryptoStream.start() only RESOLVES symbols and returns a bool — its
-        # socket loop is a blocking run(). Calling start() alone left it
-        # reporting connected=false with zero messages and no error anywhere,
-        # which reads exactly like a dead venue. Thread whichever half blocks.
-        runner = getattr(drv, "run", None)
-        if callable(runner):
-            threading.Thread(target=_driver_run, args=(venue, runner),
-                             name=f"live-{venue}", daemon=True).start()
+            return 500, {"error": f"{venue} construct failed: {exc}"}
         _DRIVERS[venue] = drv
+        # start() must NOT run in the request. CryptoStream.start() fills each
+        # symbol's gap over REST first, and with a venue's full pair list that
+        # is minutes of fetching — the /live call simply hung, and an HTTP
+        # request that blocks on market data is a request that times out under
+        # any real client. The whole lifecycle goes on the thread and the
+        # caller polls /live?status=1, which is where refusals already live.
+        threading.Thread(target=_driver_run, args=(venue, drv),
+                         name=f"live-{venue}", daemon=True).start()
     # Proof the driver pushes into THIS module's _LIVE rather than a second
     # copy of it. False means closed bars still reach SQLite while /stream
     # delivers nothing — a failure that looks like a dead venue, so it is
     # reported rather than left to be rediscovered.
     shares = getattr(mod, "ds", None) is sys.modules[__name__]
-    return 200, {"streaming": venue, "symbols": symbols,
-                 "shares_live_state": shares}
+    return 202, {"starting": venue, "symbols": symbols,
+                 "shares_live_state": shares,
+                 "note": "gap-fill then connect; poll /live?status=1"}
 
 
-def _driver_run(venue: str, runner) -> None:
-    """A driver that dies must not leave a live-looking entry behind."""
+def _driver_run(venue: str, drv) -> None:
+    """Own the driver's whole lifecycle off the request thread.
+
+    The two adapters differ: KiteStream.start() spawns its own reader and has
+    no run(); CryptoStream.start() only resolves symbols and returns a bool,
+    with the socket loop in a blocking run(). Assuming one shape cost a silent
+    no-op once already — connected=false, zero messages, no error anywhere,
+    which reads exactly like a dead venue.
+    """
     try:
-        runner()
+        ok = drv.start()
+        if ok is False:
+            logging.warning("charto live %s: every symbol refused", venue)
+            return
+        runner = getattr(drv, "run", None)
+        if callable(runner):
+            runner()
     except Exception as exc:                          # noqa: BLE001
         logging.warning("charto live driver %s stopped: %s", venue, exc)
     finally:
         with _DRIVER_GUARD:
-            _DRIVERS.pop(venue, None)
+            if _DRIVERS.get(venue) is drv:
+                _DRIVERS.pop(venue, None)
 
 
 def _live_status() -> dict:

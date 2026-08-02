@@ -98,11 +98,22 @@ def _connect() -> sqlite3.Connection:
     return con
 
 
-def _resume_from(con: sqlite3.Connection, symbol: str, inception: str) -> int:
-    """Start one span before the newest stored bar so the tail bar is re-filled."""
-    row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?", (symbol,)).fetchone()
+def _resume_from(con: sqlite3.Connection, symbol: str, inception: str,
+                 refetch: bool = False) -> int:
+    """Start one span before the newest stored bar so the tail bar is re-filled.
+
+    `refetch` ignores what is stored and starts at inception. It exists because
+    a stored bar can be WRONG rather than missing, and resume-from-MAX(ts) can
+    never repair that: every crypto minute written before the _vol fix had its
+    volume truncated toward zero, which zeroed 17.3% of BTC-USD's minutes
+    outright. Rewriting is INSERT OR REPLACE on (symbol, ts), so a refetch is
+    idempotent — it costs bandwidth, never correctness.
+    """
     floor = int(datetime.strptime(inception, "%Y-%m-%d")
                 .replace(tzinfo=timezone.utc).timestamp())
+    if refetch:
+        return floor
+    row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?", (symbol,)).fetchone()
     if row and row[0]:
         return max(floor, int(row[0]) - BY_SPAN)
     return floor
@@ -150,11 +161,12 @@ def _by_fetch(args) -> list[tuple]:
              float(r[3]), float(r[4]), _vol(r[5])) for r in rows]
 
 
-def run_symbol(con, symbol: str, inception: str, venue: str) -> None:
+def run_symbol(con, symbol: str, inception: str, venue: str,
+               refetch: bool = False) -> None:
     fetch, span, workers = ((_cb_fetch, CB_SPAN, CB_WORKERS) if venue == "coinbase"
                             else (_by_fetch, BY_SPAN, BY_WORKERS))
     t0 = time.time()
-    start = _resume_from(con, symbol, inception)
+    start = _resume_from(con, symbol, inception, refetch)
     now = int(time.time())
     if start >= now - 60:
         print(f"  {symbol:10s} already current", flush=True)
@@ -192,8 +204,13 @@ def run_symbol(con, symbol: str, inception: str, venue: str) -> None:
 
 def main(argv: list[str]) -> None:
     venues = {"coinbase": COINBASE, "bybit": BYBIT}
+    refetch = "--refetch" in argv
+    argv = [a for a in argv if not a.startswith("--")]
     which = [a.lower() for a in argv if a.lower() in venues] or list(venues)
     picked = [a.upper() for a in argv if a.upper() not in ("COINBASE", "BYBIT")]
+    if refetch:
+        print("REFETCH: starting from inception, rewriting stored bars "
+              "(volume was truncated before the _vol fix)", flush=True)
 
     con = _connect()
     t0 = time.time()
@@ -203,7 +220,7 @@ def main(argv: list[str]) -> None:
             continue
         print(f"\n=== {venue}: {len(pairs)} symbols ===", flush=True)
         for symbol, inception in pairs:
-            run_symbol(con, symbol, inception, venue)
+            run_symbol(con, symbol, inception, venue, refetch)
     print(f"\nALL DONE: {_written['n']:,} bars written in {time.time() - t0:.0f}s", flush=True)
     con.close()
 
