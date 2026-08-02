@@ -146,6 +146,42 @@ def _known_symbols() -> list[str]:
     return _symbols_cache
 
 
+_bar_symbols_cache: tuple[float, set[str]] | None = None
+_BAR_SYMBOLS_TTL = 300.0
+
+
+def _symbols_with_bars() -> set[str]:
+    """Which symbols have 1-minute bars — WITHOUT scanning `bars`.
+
+    `SELECT DISTINCT symbol FROM bars` is a full table scan: SQLite has no
+    index skip-scan, so both DISTINCT and GROUP BY plan as SCAN. Measured on
+    the 413M-row universe store that is 124.71s, which made /symbols time out
+    and left the chart stuck on "Loading..." — the symbol picker asks for this
+    on every page load. It was survivable at 118M rows locally and is not at
+    413M, which is exactly the kind of thing only deploying finds.
+
+    Ask a small table instead: sync_state carries one row per symbol (0.00s),
+    bars_1d GROUP BY is 0.06s over 1.1M rows. The scan stays as a last resort
+    so a store with neither table still answers, slowly, rather than failing.
+    """
+    global _bar_symbols_cache
+    now = time.monotonic()
+    if _bar_symbols_cache and now - _bar_symbols_cache[0] < _BAR_SYMBOLS_TTL:
+        return _bar_symbols_cache[1]
+    out: set[str] = set()
+    for sql in ("SELECT symbol FROM sync_state",
+                "SELECT symbol FROM bars_1d GROUP BY symbol",
+                "SELECT symbol FROM bars GROUP BY symbol"):
+        try:
+            out = {r[0] for r in _con.execute(sql)}
+        except sqlite3.Error:
+            continue
+        if out:
+            break
+    _bar_symbols_cache = (now, out)
+    return out
+
+
 def _symbol_ready(sym: str) -> bool:
     return bool(_con.execute(
         "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
@@ -3221,7 +3257,7 @@ def tool_get_peers(symbol: str = "") -> dict:
                 "_note": ("Say the classification is unavailable rather than "
                           "guessing peers from the name.")}
     name, ind = row
-    have = {r[0] for r in _con.execute("SELECT DISTINCT symbol FROM bars")}
+    have = _symbols_with_bars()
     peers = [{"symbol": p, "name": n, **({} if p in have else {"cold": True})}
              for p, n in _con.execute(
                  "SELECT symbol, name FROM classification "
@@ -7416,7 +7452,7 @@ def _venue_symbols(venue: str) -> list[str]:
         listed = {"coinbase": bc.COINBASE, "bybit": bc.BYBIT}.get(venue, [])
     except Exception:                                 # noqa: BLE001
         return []
-    have = {r[0] for r in _con.execute("SELECT DISTINCT symbol FROM bars")}
+    have = _symbols_with_bars()
     return [s for s, _ in listed if s in have]
 
 
@@ -7643,8 +7679,7 @@ class Handler(BaseHTTPRequestHandler):
                 code, payload = api_route(u.path, q)
                 return self._send(code, payload)
             if u.path == "/symbols":
-                have = {r[0] for r in _con.execute(
-                    "SELECT DISTINCT symbol FROM bars")}
+                have = _symbols_with_bars()
                 # names ride along so a reply that writes "Caplin Labs" can be
                 # linked to its company page as readily as one that writes the
                 # ticker — the model picks whichever reads better

@@ -7,7 +7,12 @@
 
 (function () {
   const LWC = window.LightweightCharts;
-  const API = "http://127.0.0.1:5174";
+  // Same-origin when deployed behind a proxy, explicit port in local dev.
+  // A hardcoded 127.0.0.1 works on a laptop and breaks the moment the page is
+  // served from anywhere else — the browser dials the VIEWER's machine, so
+  // every request fails with a connection error that looks like a dead server.
+  const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
+  const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
   // Pivot's stock page, copied into charto/web and served by `next dev`
   // there (see charto/web/README). Company links open it directly.
   const COMPANY_PAGE = "http://localhost:5175";

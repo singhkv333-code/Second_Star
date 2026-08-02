@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Pivot — the analyst at your chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #080b0f; }
+      body { font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+      :root {
+        --accent: #4cc4e0;      /* the product's #219ebc, lifted to read on dark */
+        --paper: #f2f6f9;
+      }
+
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+
+      /* ── the desktop behind the window ──────────────────────────────
+         One static field, shared by the browser scenes AND the text cards,
+         so a card reads as the window stepping aside rather than a cut to
+         somewhere else. Painted on a full-bleed CHILD, never the root's own
+         background — the producer can drop a root background and render the
+         frame black. */
+      .bg { position: absolute; inset: 0; background: #080b0f; }
+      .bg-glow {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(52% 46% at 22% 20%, rgba(33,158,188,.30), transparent 62%),
+          radial-gradient(46% 44% at 82% 74%, rgba(64,110,180,.26), transparent 64%),
+          radial-gradient(38% 40% at 60% 8%,  rgba(120,160,200,.13), transparent 66%);
+      }
+      /* a fine vignette so the window's shadow has something to sit in */
+      .bg-vig {
+        position: absolute; inset: 0;
+        background: radial-gradient(72% 62% at 50% 50%, transparent 42%, rgba(0,0,0,.55) 100%);
+      }
+
+      /* ── the browser window ─────────────────────────────────────────
+         Geometry is pinned to the capture: the recording is 3024×1800 and the
+         content box is 1720×967, a 1.76× downscale of a retina capture. The
+         window fills the frame so the UI reads at true 100%, which is the
+         whole point — an inset window shrinks the product back down. */
+      .win-shadow {
+        position: absolute; left: 130px; top: 38px; width: 1660px; height: 1004px;
+        border-radius: 18px; background: #0a0e13;
+        box-shadow: 0 46px 110px rgba(0,0,0,.62), 0 14px 34px rgba(0,0,0,.45);
+      }
+      .chrome {
+        position: absolute; left: 130px; top: 38px; width: 1660px; height: 44px;
+        border-radius: 18px 18px 0 0;
+        background: linear-gradient(#fbfbfc, #f1f2f4);
+        border-bottom: 1px solid #dfe2e6;
+        display: flex; align-items: center; padding: 0 16px;
+      }
+      .lights { display: flex; gap: 8px; align-items: center; }
+      .light { display: block; width: 12px; height: 12px; border-radius: 50%; }
+      .l1 { background: #ff5f57; } .l2 { background: #febc2e; } .l3 { background: #28c840; }
+      .omni {
+        position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        width: 360px; height: 26px; border-radius: 13px; background: #e8eaed;
+        display: flex; align-items: center; justify-content: center; gap: 7px;
+      }
+      .omni-lock {
+        display: block; width: 9px; height: 10px; border-radius: 1px;
+        border: 1.6px solid #7b838d; border-top-width: 4px;
+      }
+      .omni-txt { font-size: 13px; color: #5f666e; }
+      /* the window's own top highlight — the thing that sells it as glass */
+      .win-edge {
+        position: absolute; left: 130px; top: 38px; width: 1660px; height: 1004px;
+        border-radius: 18px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 0 0 1px rgba(255,255,255,.09);
+      }
+
+      video.shot {
+        position: absolute; left: 130px; top: 82px; width: 1660px; height: 960px;
+        border-radius: 0 0 18px 18px; object-fit: cover; object-position: top center; background: #fff;
+      }
+
+      /* ── the statement cards ────────────────────────────────────────── */
+      .card { position: absolute; inset: 0; display: grid; place-items: center; }
+      .card-in { position: relative; width: 1480px; text-align: center; }
+      .card-txt {
+        font-size: 82px; line-height: 1.24; font-weight: 400;
+        letter-spacing: -.022em; color: var(--paper);
+      }
+      .card-txt em { font-style: normal; color: var(--accent); }
+      .card-kicker {
+        font-size: 19px; letter-spacing: .26em; text-transform: uppercase;
+        color: #8c9dad; margin-bottom: 34px;
+      }
+
+      /* ── end card ───────────────────────────────────────────────────── */
+      .end-mark { font-family: "EB Garamond", serif; font-size: 150px; letter-spacing: -.03em; color: #fff; line-height: 1; }
+      .end-rule { width: 116px; height: 2px; background: var(--accent); margin: 40px auto 32px; transform-origin: 50% 50%; }
+      .end-tag { font-size: 36px; color: #c2cedb; }
+      .end-foot {
+        position: absolute; left: 0; bottom: 78px; width: 1920px; text-align: center;
+        font-size: 19px; letter-spacing: .22em; text-transform: uppercase; color: #93a3b2;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0"
+         data-width="1920" data-height="1080" data-duration="57" data-fps="30"
+         data-layout-allow-overflow="true">
+
+      <audio id="soundtrack" src="assets/track.mp3" data-start="0" data-duration="57" data-track-index="0"></audio>
+
+      <!-- desktop ------------------------------------------------------ -->
+      <div id="bg" class="bg clip" data-start="0" data-duration="57" data-track-index="1" style="z-index:0">
+        <div class="bg-glow"></div>
+        <div class="bg-vig"></div>
+      </div>
+
+      <!-- window chrome — spans every browser beat; the cards cover it --- -->
+      <div id="winshadow" class="win-shadow clip" data-start="0" data-duration="47.2" data-track-index="2" style="z-index:1"></div>
+      <div id="chrome" class="chrome clip" data-start="0" data-duration="47.2" data-track-index="3" style="z-index:3">
+        <div class="lights"><span class="light l1"></span><span class="light l2"></span><span class="light l3"></span></div>
+        <div class="omni"><span class="omni-lock"></span><span class="omni-txt">127.0.0.1:5173/?symbol=BTC-USD</span></div>
+      </div>
+      <div id="winedge" class="win-edge clip" data-start="0" data-duration="47.2" data-track-index="4" style="z-index:4"></div>
+
+      <!-- the recorded session, cut to the beats that matter ------------
+           One source file; each clip seeks into it with data-media-start.
+           The model's 9-36s thinking pauses live between these windows and
+           never reach the film. -->
+      <video id="ui1" class="shot" src="assets/session.mp4" muted
+             data-start="0"    data-duration="6.9" data-media-start="10.6"  data-track-index="5" style="z-index:2;opacity:0"></video>
+      <video id="ui2" class="shot" src="assets/session.mp4" muted
+             data-start="9.2"  data-duration="2.6" data-media-start="3.0"   data-track-index="6" style="z-index:2;opacity:0"></video>
+      <video id="ui3a" class="shot" src="assets/session.mp4" muted
+             data-start="11.6" data-duration="2.6" data-media-start="16.0"  data-track-index="5" style="z-index:2;opacity:0"></video>
+      <video id="ui3b" class="shot" src="assets/session.mp4" muted
+             data-start="14.0" data-duration="10.1" data-media-start="40.3"  data-track-index="6" style="z-index:2;opacity:0"></video>
+      <video id="ui4" class="shot" src="assets/session.mp4" muted
+             data-start="28.0" data-duration="7.1" data-media-start="62.2"  data-track-index="5" style="z-index:2;opacity:0"></video>
+      <video id="ui5" class="shot" src="assets/session.mp4" muted
+             data-start="38.0" data-duration="9.1" data-media-start="108.0" data-track-index="6" style="z-index:2;opacity:0"></video>
+
+      <!-- statement cards ---------------------------------------------- -->
+      <div id="card1" class="card clip" data-start="6.4" data-duration="3.2" data-track-index="7" style="z-index:8">
+        <div class="bg"></div><div class="bg-glow"></div><div class="bg-vig"></div>
+        <div class="card-in"><div class="card-txt" id="c1t">Pivot <em>measures</em> instead.</div></div>
+      </div>
+
+      <div id="card2" class="card clip" data-start="23.6" data-duration="4.8" data-track-index="7" style="z-index:8">
+        <div class="bg"></div><div class="bg-glow"></div><div class="bg-vig"></div>
+        <div class="card-in">
+          <div class="card-kicker" id="c2k">The harder question</div>
+          <div class="card-txt" id="c2t">Has this pattern <em>ever actually worked?</em></div>
+        </div>
+      </div>
+
+      <div id="card3" class="card clip" data-start="34.6" data-duration="3.8" data-track-index="7" style="z-index:8">
+        <div class="bg"></div><div class="bg-glow"></div><div class="bg-vig"></div>
+        <div class="card-in"><div class="card-txt" id="c3t">It will not validate <em>its own drawing.</em></div></div>
+      </div>
+
+      <div id="card4" class="card clip" data-start="46.6" data-duration="4.4" data-track-index="7" style="z-index:8">
+        <div class="bg"></div><div class="bg-glow"></div><div class="bg-vig"></div>
+        <div class="card-in"><div class="card-txt" id="c4t">Nothing is drawn that <em>wasn't computed.</em></div></div>
+      </div>
+
+      <!-- end ----------------------------------------------------------- -->
+      <div id="endcard" class="card clip" data-start="50.6" data-duration="6.4" data-track-index="8" style="z-index:9">
+        <div class="bg"></div><div class="bg-glow"></div><div class="bg-vig"></div>
+        <div class="card-in">
+          <div class="end-mark" id="wordmark">Pivot.</div>
+          <div class="end-rule" id="endrule"></div>
+          <div class="end-tag" id="tagline">The analyst at your chart.</div>
+        </div>
+        <div class="end-foot" id="endfoot">NSE &amp; BSE &amp; MCX · Register, not execute</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Narration timings (the ElevenLabs word map, +0.6s lead) drive every
+         cue below — the film is cut to the voice, not the other way round. */
+
+      // The window settles in once, then holds. A product film should not
+      // fidget; the motion budget belongs to the UI inside it.
+      gsap.set(["#winshadow", "#chrome", "#winedge", "#ui1"], { scale: 0.988, opacity: 0 });
+      tl.to(["#winshadow", "#chrome", "#winedge", "#ui1"],
+            { scale: 1, opacity: 1, duration: 1.0, ease: "power3.out" }, 0.15);
+
+      /* Every later browser beat cross-dissolves its video under the same
+         chrome, so the window never blinks — it reads as the app updating. */
+      const dissolve = (sel, at) => {
+        gsap.set(sel, { opacity: 0 });
+        tl.to(sel, { opacity: 1, duration: 0.45, ease: "power1.inOut" }, at);
+      };
+      dissolve("#ui2", 9.2);
+      dissolve("#ui3a", 11.6);
+      dissolve("#ui3b", 14.0);
+      dissolve("#ui4", 28.0);
+      dissolve("#ui5", 38.0);
+
+      // the chrome and its shadow leave with the last browser beat
+      tl.to(["#winshadow", "#chrome", "#winedge"],
+            { opacity: 0, duration: 0.5, ease: "power1.in" }, 46.6);
+      tl.set(["#winshadow", "#chrome", "#winedge"], { opacity: 0 }, 47.2);
+
+      /* ── statement cards ─────────────────────────────────────────────
+         Minimal by design: the card dissolves, the line inside rises a few
+         pixels. Nothing spins, nothing bounces. */
+      const card = (id, at, dur, parts) => {
+        gsap.set("#" + id, { opacity: 0 });
+        tl.to("#" + id, { opacity: 1, duration: 0.45, ease: "power1.inOut" }, at);
+        parts.forEach(([sel, delay]) => {
+          gsap.set(sel, { opacity: 0, y: 22 });
+          tl.to(sel, { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, at + delay);
+        });
+        tl.to("#" + id, { opacity: 0, duration: 0.45, ease: "power1.inOut" }, at + dur - 0.45);
+        tl.set("#" + id, { opacity: 0 }, at + dur);
+      };
+
+      card("card1", 6.4, 3.2, [["#c1t", 0.30]]);                    // spoken 6.76
+      card("card2", 23.6, 4.8, [["#c2k", 0.35], ["#c2t", 0.62]]);   // spoken 24.66
+      card("card3", 34.6, 3.8, [["#c3t", 0.32]]);                   // spoken 34.82
+      card("card4", 46.6, 4.4, [["#c4t", 0.34]]);                   // spoken 46.91
+
+      // ── end card — "Pivot." 50.6 · "The analyst at your chart." 52.0 ──
+      gsap.set("#endcard", { opacity: 0 });
+      gsap.set("#wordmark", { opacity: 0, y: 26 });
+      gsap.set("#endrule", { scaleX: 0 });
+      gsap.set("#tagline", { opacity: 0, y: 16 });
+      gsap.set("#endfoot", { opacity: 0 });
+      tl.to("#endcard", { opacity: 1, duration: 0.5, ease: "power1.inOut" }, 50.6);
+      tl.to("#wordmark", { opacity: 1, y: 0, duration: 1.0, ease: "power3.out" }, 50.75);
+      tl.to("#endrule", { scaleX: 1, duration: 0.75, ease: "power2.out" }, 51.5);
+      tl.to("#tagline", { opacity: 1, y: 0, duration: 0.85, ease: "power3.out" }, 51.95);
+      tl.to("#endfoot", { opacity: 1, duration: 0.9, ease: "power2.out" }, 53.1);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

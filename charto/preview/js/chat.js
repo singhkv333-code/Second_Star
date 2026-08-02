@@ -11,7 +11,9 @@
 "use strict";
 
 (function () {
-  const API = "http://127.0.0.1:5174";
+  // same-origin behind a proxy, explicit port in local dev (see main.js)
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");

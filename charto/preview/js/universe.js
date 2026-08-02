@@ -15,7 +15,9 @@
 "use strict";
 
 const Universe = (() => {
-  const API = "http://127.0.0.1:5174";
+  // same-origin behind a proxy, explicit port in local dev (see main.js)
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
 
   let data = null;          // resolved payload, or null until the fetch lands
   let inflight = null;

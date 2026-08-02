@@ -24,7 +24,9 @@
 
 const Panes = (() => {
   const LWC = window.LightweightCharts;
-  const API = "http://127.0.0.1:5174";
+  // same-origin behind a proxy, explicit port in local dev (see main.js)
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
   // The page's instrument is the DEFAULT a new pane opens on, not a constant:
   // this file used to hard-code RELIANCE, so a split on any other company drew
   // — and labelled — Reliance beside it. A pane can now be pointed at its own
