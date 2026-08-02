@@ -1755,6 +1755,44 @@ body > footer .dotsep { color: var(--border); }
   /* the change chip is the one figure the five OHLC numbers cannot give you,
      so when the row has to lose something it keeps that and drops volume */
   .readout .row span:nth-child(5) { display: none; }
+  /* the change is one figure, not two — it must not break between the
+     rupees and the percent */
+  .readout .row { white-space: nowrap; }
+  .readout .chg { white-space: nowrap; }
+
+  /* ── the composer, on one line ──────────────────────────────────────────
+     Three stacked rows — textarea, then a control row, then a keyboard hint —
+     cost roughly a fifth of the viewport before a single word was typed. On a
+     phone it collapses to one: plus, the instrument's MARK, the field, send.
+     `display: contents` flattens the control row into the composer's own flex
+     line rather than nesting a second one.
+     The ticker text goes because the logo already says which instrument this
+     is, and it is the same mark the chart header and the search rows use. The
+     keyboard hint goes because there is no Shift+Enter on a phone — it was
+     advice about a key the reader does not have. */
+  .composer-hint { display: none; }
+  .composer-wrap { padding: 4px 10px 8px; }
+  .composer {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 6px 5px 12px; border-radius: var(--radius-pill);
+  }
+  .composer-row { display: contents; }
+  .composer textarea {
+    order: 3; flex: 1 1 auto; width: auto;
+    font-size: var(--text-base); line-height: 1.35;
+    min-height: 22px; max-height: 92px; padding: 0;
+  }
+  .composer-row .menu-wrap { order: 1; }
+  .composer-row .spacer { display: none; }
+  .cbtn { width: 26px; height: 26px; }
+  /* mark only: the chip keeps its tap target and loses its words */
+  .ctx-flag {
+    order: 2; padding: 2px; gap: 0; background: transparent;
+    max-width: 26px; overflow: hidden;
+  }
+  .ctx-flag > *:not(img) { display: none; }
+  .ctx-flag img { width: 18px; height: 18px; }
+  .send { order: 4; width: 32px; height: 32px; }
 
   /* The status bar is three groups on one 26px line; at this width it wrapped
      and doubled the footer's height, eating the composer's room. It scrolls
