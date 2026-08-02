@@ -82,7 +82,12 @@ def _connect() -> sqlite3.Connection:
     con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=60)
     con.execute("PRAGMA journal_mode=WAL")    # readers keep working mid-insert
     con.execute("PRAGMA synchronous=OFF")     # derived data — re-fetchable
-    con.execute("PRAGMA busy_timeout=30000")
+    # 30s was not enough: a concurrent daily tail-fold plus a queued DELETE
+    # held the write lock past it on 2026-08-02 and this run died mid-symbol
+    # with "database is locked", after 8 minutes of fetching. The job is
+    # resume-safe so nothing was lost but the time — and a long backfill is
+    # exactly the process that should out-wait a short one, not the reverse.
+    con.execute("PRAGMA busy_timeout=180000")
     con.execute(
         "CREATE TABLE IF NOT EXISTS bars ("
         " symbol TEXT NOT NULL, ts INTEGER NOT NULL,"

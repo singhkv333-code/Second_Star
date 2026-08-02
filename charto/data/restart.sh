@@ -7,12 +7,22 @@
 # 200 — so a passing health check meant "a server is up", not "your code is
 # live". Two rounds of testing ran against stale code before anyone read the
 # log. Kill by PORT, then verify the PID changed.
+#
+# Runs under PIVOT's venv, not bare python3. The live venue drivers start
+# inside this process (a stream in a separate process writes minutes to SQLite
+# but its forming bar never reaches a chart), and the Kite driver needs
+# kiteconnect + sqlalchemy to read the session. Measured: bare python3 has
+# none of numpy/pandas/kiteconnect/sqlalchemy/certifi, pivot's venv has all of
+# them AND imports dataserver unchanged — it is a strict superset, so this
+# costs nothing and unblocks /live?venue=kite.
 set -e
 cd "$(dirname "$0")"
 PORT=5174
+PY="$(cd ../../pivot && pwd)/.venv/bin/python"
+[ -x "$PY" ] || PY=python3
 OLD=$(lsof -ti tcp:$PORT || true)
 [ -n "$OLD" ] && kill -9 $OLD 2>/dev/null && sleep 1
-nohup python3 dataserver.py > /tmp/charto_ds.log 2>&1 &
+nohup "$PY" dataserver.py > /tmp/charto_ds.log 2>&1 &
 sleep 3
 NEW=$(lsof -ti tcp:$PORT || true)
 if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then

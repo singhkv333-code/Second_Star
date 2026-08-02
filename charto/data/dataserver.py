@@ -7193,10 +7193,19 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
     """The one seam every tick source calls. ts = the tick's epoch second."""
     sess = session_for(sym)
     open_min, tz_off = sess
-    if price <= 0 or ((ts + tz_off) % 86400) // 60 < open_min:
-        return    # zero-price / pre-open prints must not enter any candle
-    # ^ gated on the SYMBOL's clock: a 09:15-IST gate would have dropped every
-    # crypto tick between UTC midnight and 03:45 UTC as "pre-open".
+    if price <= 0:
+        return    # a zero print is not a trade and must not enter any candle
+    mod = ((ts + tz_off) % 86400) // 60
+    if mod < open_min or mod > session_close_for(sym):
+        return
+    # ^ gated on the SYMBOL's clock at BOTH ends: a 09:15-IST gate would have
+    # dropped every crypto tick between UTC midnight and 03:45 UTC as
+    # "pre-open", and an open-only gate accepted after-hours prints. Measured
+    # 2026-08-02 (a Sunday): connecting the Kite ticker to a shut market still
+    # delivered one snapshot at ~17:50 IST with no exchange timestamp, so the
+    # wall-clock fallback bucketed it into a 17:50 minute. It survived only
+    # because a forming bar needs a second tick to flush — two would have
+    # written a Sunday candle into RELIANCE that no session ever traded.
     _, bts = _bucket_stamp(ts, 1, sess)
     st = _live_state(sym)
     closed_bar = None
@@ -7340,6 +7349,69 @@ def _replay(sym: str, date: str | None, speed: float, stop: bool) -> tuple[int, 
     st["thread"].start()
     return 200, {"replaying": sym, "date": _iso_day(day0),
                  "bars": len(rows), "speed": speed}
+
+
+# ── live venue drivers, IN THIS PROCESS ───────────────────────────
+# _LIVE and the SSE subscriber lists are module state. A stream started as a
+# separate CLI process therefore writes closed minutes to SQLite correctly and
+# still never moves a chart: its forming bar lives in that process's memory, and
+# the browser is subscribed to this one. Only a driver running here completes
+# the path tick -> forming bar -> SSE -> chart, which is exactly why _replay_run
+# is a thread rather than a script.
+_DRIVERS: dict[str, object] = {}
+_DRIVER_GUARD = threading.Lock()
+
+_VENUES = {"coinbase": ("crypto_stream", "CoinbaseStream"),
+           "bybit": ("crypto_stream", "BybitStream"),
+           "kite": ("kite_stream", "KiteStream")}
+
+
+def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]:
+    venue = (venue or "").lower()
+    with _DRIVER_GUARD:
+        if stop:
+            drv = _DRIVERS.pop(venue, None)
+            if drv is None:
+                return 404, {"error": f"no {venue} stream is running"}
+            try:
+                drv.stop()
+            except Exception as exc:                  # noqa: BLE001
+                return 500, {"error": f"{venue} stop failed: {exc}"}
+            return 200, {"streaming": None, "venue": venue}
+        if venue not in _VENUES:
+            return 400, {"error": f"unknown venue {venue!r} — "
+                                  f"want one of {', '.join(sorted(_VENUES))}"}
+        if venue in _DRIVERS:
+            return 409, {"error": f"{venue} is already streaming"}
+        if not symbols:
+            return 400, {"error": "symbols is required"}
+        mod_name, cls_name = _VENUES[venue]
+        try:
+            mod = __import__(mod_name)
+            cls = getattr(mod, cls_name)
+        except Exception as exc:                      # noqa: BLE001
+            # an honest boundary beats a 500: the adapter may simply not be
+            # built yet, and the caller should be told which one is missing
+            return 501, {"error": f"{venue} driver unavailable "
+                                  f"({mod_name}.{cls_name}: {exc})"}
+        try:
+            drv = cls(symbols)
+            drv.start()
+        except Exception as exc:                      # noqa: BLE001
+            return 500, {"error": f"{venue} start failed: {exc}"}
+        _DRIVERS[venue] = drv
+    return 200, {"streaming": venue, "symbols": symbols}
+
+
+def _live_status() -> dict:
+    with _DRIVER_GUARD:
+        out = {}
+        for venue, drv in _DRIVERS.items():
+            try:
+                out[venue] = drv.status()
+            except Exception as exc:                  # noqa: BLE001
+                out[venue] = {"error": str(exc)}
+        return out
 
 
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
@@ -7608,6 +7680,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, res)
                 res["scene"] = patch
                 return self._send(200, res)
+            if u.path == "/live":
+                # start/stop a venue driver inside this process — see the
+                # _DRIVERS comment for why a CLI process cannot move a chart
+                if q.get("status") in ("1", "true", "yes"):
+                    return self._send(200, {"streams": _live_status()})
+                syms = [s.strip() for s in (q.get("symbols") or "").split(",")
+                        if s.strip()]
+                code, payload = _live_stream(
+                    q.get("venue", ""), syms,
+                    q.get("stop") in ("1", "true", "yes"))
+                return self._send(code, payload)
             if u.path == "/replay":
                 err = _ensure_symbol(symbol)
                 if err:
