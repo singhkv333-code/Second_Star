@@ -25,6 +25,7 @@ import json
 import logging
 import queue
 import sqlite3
+import sys
 from os import environ
 import threading
 import time
@@ -7116,6 +7117,21 @@ _live_writer = sqlite3.connect(DB_PATH, check_same_thread=False)
 _LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
 
 
+def _exact_vol(x) -> int | float:
+    """Volume, exactly — integral when it is, fractional when it is not.
+
+    The closed-bar write used to be `int(f[5])`, which truncates toward zero.
+    On NSE that is free (volume is a share count) but a fraction of a coin is a
+    normal crypto minute: measured 2026-08-02, 990,989 of BTC-USD's 5,731,677
+    stored minutes (17.3%) carried v=0 for minutes that really traded, and the
+    volume profile reads exactly these bars. `v INTEGER` is an AFFINITY, not a
+    constraint — SQLite stores a REAL that cannot be narrowed losslessly as a
+    REAL — so keeping the fraction needs no migration and NSE rows stay ints.
+    """
+    f = float(x or 0)
+    return int(f) if f.is_integer() else round(f, 8)
+
+
 def _hm_ist(ts: int) -> str:
     t = datetime.fromtimestamp(ts + _tz_off(), tz=timezone.utc)
     return f"{t.hour:02d}:{t.minute:02d}"
@@ -7220,7 +7236,7 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
             if f is not None:
                 _live_writer.execute(
                     "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
-                    (sym, f[0], f[1], f[2], f[3], f[4], int(f[5])))
+                    (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
                 _live_writer.commit()
                 _daily_cache.pop(sym, None)
                 closed_bar = list(f)
@@ -7288,7 +7304,7 @@ def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
                 if f is not None:
                     _live_writer.execute(
                         "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
-                        (sym, f[0], f[1], f[2], f[3], f[4], int(f[5])))
+                        (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
                     _live_writer.commit()
                     _daily_cache.pop(sym, None)
                 st["form"] = None
@@ -7361,8 +7377,12 @@ def _replay(sym: str, date: str | None, speed: float, stop: bool) -> tuple[int, 
 _DRIVERS: dict[str, object] = {}
 _DRIVER_GUARD = threading.Lock()
 
-_VENUES = {"coinbase": ("crypto_stream", "CoinbaseStream"),
-           "bybit": ("crypto_stream", "BybitStream"),
+# crypto_stream routes by symbol (venue_for: "-USD" -> coinbase, "USDT" ->
+# bybit), so one class serves both venues and the venue name here only selects
+# the module. Mixing families in one call is refused by the driver itself
+# rather than silently opening two sockets.
+_VENUES = {"coinbase": ("crypto_stream", "CryptoStream"),
+           "bybit": ("crypto_stream", "CryptoStream"),
            "kite": ("kite_stream", "KiteStream")}
 
 
@@ -7396,11 +7416,41 @@ def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]
                                   f"({mod_name}.{cls_name}: {exc})"}
         try:
             drv = cls(symbols)
-            drv.start()
+            ok = drv.start()
         except Exception as exc:                      # noqa: BLE001
             return 500, {"error": f"{venue} start failed: {exc}"}
+        if ok is False:
+            return 400, {"error": f"{venue} refused every requested symbol — "
+                                  f"see /live?status=1 or top the store up first"}
+        # The two drivers have different lifecycles and assuming one shape
+        # cost a silent no-op: KiteStream.start() spawns its own reader, while
+        # CryptoStream.start() only RESOLVES symbols and returns a bool — its
+        # socket loop is a blocking run(). Calling start() alone left it
+        # reporting connected=false with zero messages and no error anywhere,
+        # which reads exactly like a dead venue. Thread whichever half blocks.
+        runner = getattr(drv, "run", None)
+        if callable(runner):
+            threading.Thread(target=_driver_run, args=(venue, runner),
+                             name=f"live-{venue}", daemon=True).start()
         _DRIVERS[venue] = drv
-    return 200, {"streaming": venue, "symbols": symbols}
+    # Proof the driver pushes into THIS module's _LIVE rather than a second
+    # copy of it. False means closed bars still reach SQLite while /stream
+    # delivers nothing — a failure that looks like a dead venue, so it is
+    # reported rather than left to be rediscovered.
+    shares = getattr(mod, "ds", None) is sys.modules[__name__]
+    return 200, {"streaming": venue, "symbols": symbols,
+                 "shares_live_state": shares}
+
+
+def _driver_run(venue: str, runner) -> None:
+    """A driver that dies must not leave a live-looking entry behind."""
+    try:
+        runner()
+    except Exception as exc:                          # noqa: BLE001
+        logging.warning("charto live driver %s stopped: %s", venue, exc)
+    finally:
+        with _DRIVER_GUARD:
+            _DRIVERS.pop(venue, None)
 
 
 def _live_status() -> dict:
@@ -7784,5 +7834,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # Serving this file as a script names it `__main__`. Every helper module
+    # here does `import dataserver`, which would then load this file a SECOND
+    # time as a separate module object with its own _LIVE, its own subscriber
+    # lists and its own connections. Closed bars still reach the chart because
+    # SQLite is shared, so the split is invisible in /bars — but the live path
+    # dead-ends: measured 2026-08-02, the in-process Coinbase driver took 612
+    # trades and closed 2 minutes while /stream delivered zero events and only
+    # its 15s keepalive ping, because the driver was pushing forming bars into
+    # one _LIVE and the SSE handler was reading another.
+    #
+    # Aliasing the name to this module makes `import dataserver` return the
+    # running server, so a driver started through /live shares its state.
+    sys.modules.setdefault("dataserver", sys.modules[__name__])
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

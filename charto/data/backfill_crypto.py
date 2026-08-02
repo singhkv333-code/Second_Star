@@ -120,7 +120,22 @@ def _cb_fetch(args) -> list[tuple]:
         return []
     # Coinbase row order is [time, LOW, HIGH, OPEN, CLOSE, volume] — not OHLC.
     return [(symbol, int(r[0]), float(r[3]), float(r[2]),
-             float(r[1]), float(r[4]), int(float(r[5]))) for r in d]
+             float(r[1]), float(r[4]), _vol(r[5])) for r in d]
+
+
+def _vol(x) -> int | float:
+    """Volume, exactly — integral when it is, fractional when it is not.
+
+    `int(float(v))` truncated every crypto minute toward zero, and a fraction
+    of a coin is a normal minute's turnover: measured 2026-08-02, 990,989 of
+    BTC-USD's 5,731,677 stored minutes (17.3%) carried v=0 for minutes that
+    really traded, and the volume profile reads these bars. The `v INTEGER`
+    column is not a constraint — SQLite column types are AFFINITY, so a REAL
+    that cannot be losslessly narrowed is stored as a REAL — so this needs no
+    migration. NSE share counts stay ints and the file stays compact.
+    """
+    f = float(x or 0)
+    return int(f) if f.is_integer() else round(f, 8)
 
 
 def _by_fetch(args) -> list[tuple]:
@@ -132,7 +147,7 @@ def _by_fetch(args) -> list[tuple]:
     except (TypeError, KeyError):
         return []
     return [(symbol, int(r[0]) // 1000, float(r[1]), float(r[2]),
-             float(r[3]), float(r[4]), int(float(r[5]))) for r in rows]
+             float(r[3]), float(r[4]), _vol(r[5])) for r in rows]
 
 
 def run_symbol(con, symbol: str, inception: str, venue: str) -> None:
