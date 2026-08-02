@@ -375,7 +375,8 @@ def _state_last_bar(con: sqlite3.Connection, symbol: str) -> int | None:
 # ── freshness: the refusal that keeps holes off the chart ─────────
 
 def freshness(con: sqlite3.Connection, symbol: str,
-              max_stale_sessions: int = DEFAULT_MAX_STALE_SESSIONS) -> dict:
+              max_stale_sessions: int = DEFAULT_MAX_STALE_SESSIONS,
+              now: int | None = None) -> dict:
     """Is this symbol's 1-min history current enough to stream onto?
 
     Measured in SESSIONS, not days, and against the symbol's OWN daily series
@@ -405,6 +406,30 @@ def freshness(con: sqlite3.Connection, symbol: str,
     if not days:
         out["reason"] = ("no rows in `bars_1d` — there is no session calendar "
                          "to measure 1-minute staleness against")
+        return out
+
+    # The daily series is the yardstick, so a STALE yardstick certifies nothing:
+    # when both series stop on the same old day, `stale` is 0 and a symbol four
+    # days behind reads as current — the exact hole this function exists to
+    # catch. Measured 2026-08-02: BTCUSDT's minutes ended 29 Jul and bars_1d
+    # ended with them, so it reported "0 sessions behind" and would have been
+    # streamed onto a four-day gap.
+    #
+    # The threshold follows the symbol's own cadence rather than one constant:
+    # a 24/7 symbol trades every calendar day, so two days of silence is already
+    # definitive, while an NSE name can legitimately sit five days behind across
+    # a long weekend without anything being wrong.
+    # `now` is injectable so this stays testable: the self-test's fixture is
+    # anchored to fixed synthetic dates, and a hardcoded wall clock would make
+    # the whole fixture rot into a failure a few days after it was written.
+    ref_age_days = ((int(time.time()) if now is None else now) - days[0]) // 86400
+    ref_limit = 2 if ds.session_for(symbol) == ds.UTC_SESSION else 5
+    if ref_age_days > ref_limit:
+        out["reason"] = (
+            f"the daily series itself ends {_ist_str(days[0])}, {ref_age_days} "
+            f"calendar day(s) ago — there is no current reference to measure "
+            f"1-minute staleness against, so freshness cannot be certified. "
+            f"Top up before streaming.")
         return out
 
     last_min_day = ds._ist_day(last_min, tz_off)
@@ -894,9 +919,20 @@ def self_test() -> int:
                         (name, d * 86400 - ds.IST_OFF, 1, 1, 1, 1, 1))
     mem.execute("INSERT INTO bars_1d VALUES ('NOMINUTES',?,1,1,1,1,1)",
                 (day0 * 86400 - ds.IST_OFF,))
+    # STALEREF: minutes and daily stop on the SAME old day, so stale_sessions
+    # is 0 and the symbol reads as current unless the yardstick's own age is
+    # checked. This is the real BTCUSDT case from 2026-08-02, where minutes and
+    # bars_1d both ended 29 Jul and it reported "0 sessions behind".
+    mem.execute("INSERT INTO bars VALUES ('STALEREF',?,1,1,1,1,1)",
+                ((day0 - 9) * 86400 - ds.IST_OFF + 10 * 3600,))
+    for d in range(day0 - 29, day0 - 8):
+        mem.execute("INSERT INTO bars_1d VALUES ('STALEREF',?,1,1,1,1,1)",
+                    (d * 86400 - ds.IST_OFF,))
+    # the fixture's clock, not the wall clock — see freshness(now=...)
+    synthetic_now = day0 * 86400 - ds.IST_OFF + 16 * 3600
     for name, want_ok in (("HOLEY", False), ("CURRENT", True),
-                          ("NOMINUTES", False)):
-        v = freshness(mem, name, DEFAULT_MAX_STALE_SESSIONS)
+                          ("NOMINUTES", False), ("STALEREF", False)):
+        v = freshness(mem, name, DEFAULT_MAX_STALE_SESSIONS, now=synthetic_now)
         print(f"  {'stream' if v['ok'] else 'REFUSE':>6}  {name:<10} "
               f"stale={v['stale_sessions']}  {v['reason'][:78]}")
         if v["ok"] is not want_ok:
