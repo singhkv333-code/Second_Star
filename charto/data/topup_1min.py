@@ -70,6 +70,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dtime, timedelta, timezone
+from os import environ
 from pathlib import Path
 from statistics import fmean, pstdev
 
@@ -77,12 +78,33 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))                          # sibling dataserver
 sys.path.insert(0, str(_HERE.parents[1] / "pivot"))     # pivot backend
 
-DB_PATH = _HERE / "charto_bars.db"
+# CHARTO_DB retargets the store. The catch-up a REMOTE host needs is not the
+# one this laptop needs, and copying 13 GB across to find out is absurd — so we
+# seed a throwaway DB with the remote's watermarks (one anchor row per symbol),
+# run this script against THAT, and ship only the rows it fetched. plan_symbol
+# reads MAX(ts)/sync_state and nothing else, so a seeded DB plans exactly the
+# windows the remote is missing. Measured 2026-08-03: 500 NSE names, 22 Jul ->
+# 03 Aug, 1.5M bars fetched locally and shipped as 20 MB instead of 13 GB.
+DB_PATH = Path(environ.get("CHARTO_DB") or (_HERE / "charto_bars.db"))
 IST = timezone(timedelta(hours=5, minutes=30))
 
 WINDOW_DAYS = 55        # measured cap is 60; stay safe (same as the backfills)
 WORKERS = 3             # measured sweet spot — 3 req/s is where Kite stops 429ing
 PACE = 0.35             # per-thread pacing -> ~3 req/s across 3 workers
+# WORKERS/PACE above are tuned for backfill_1min.py's shape: ~70 windows of 55
+# DAYS per symbol, where each response is megabytes and Kite does throttle.
+# A top-up's window is a handful of sessions, and there the ceiling is far
+# higher. Measured 2026-08-03 against the live session, higher-concurrency
+# config run FIRST each time so a drained bucket cannot flatter it:
+#     workers=3  pace=0.35 ->  4.96 req/s   0 failures
+#     workers=6  pace=0    -> 10.14 req/s   0 failures
+#     workers=8  pace=0    -> 13.41 req/s   0 failures
+#     workers=16 pace=0    -> 10.10 req/s   0 failures  (no better, just noisier)
+# So the plateau is ~13 req/s at 8 workers and MORE THREADS DO NOT HELP past
+# that. Pass --workers 8 --pace 0 for a catch-up; leave the defaults alone for
+# a cold backfill, where the request shape is different and untested at speed.
+MAX_ATTEMPTS = 4        # a 429'd window is retried, never dropped (see worker)
+BACKOFF_BASE = 0.5      # 0.5s, 1s, 2s — Kite's historical throttle is per-second
 
 # How far back to look for a cleanly-closed session before widening. Ten
 # trading days of holidays and a long weekend still fit inside 21 calendar days.
@@ -512,7 +534,8 @@ def _ca_check(folded: list[list], kite, symbol: str, instrument: int,
 
 # ── run ───────────────────────────────────────────────────────────
 
-def run(plans: list[Plan], workers: int, reconcile: bool) -> None:
+def run(plans: list[Plan], workers: int, reconcile: bool,
+        pace: float = PACE) -> None:
     token = get_token()
     from backend.kite.auth import get_authenticated_kite
 
@@ -553,15 +576,31 @@ def run(plans: list[Plan], workers: int, reconcile: bool) -> None:
 
             added = 0
             for frm, to in p.windows:
-                try:
-                    candles = kite.historical_data(
-                        instrument_token=instrument, from_date=frm, to_date=to,
-                        interval="minute", continuous=False, oi=False,
-                    )
-                except Exception as exc:                     # noqa: BLE001
-                    with lock:
-                        errors.append(f"{p.symbol} {frm:%Y-%m-%d}: {str(exc)[:70]}")
-                    time.sleep(1.0)
+                # RETRY, never drop. This loop used to `continue` on any
+                # exception, which discards the window and leaves the symbol
+                # permanently short of exactly the sessions the run existed to
+                # fetch — while still printing DONE. It never showed at
+                # WORKERS=3 because that pace does not 429; it is precisely the
+                # failure that appears the moment concurrency is raised, so the
+                # retry has to land BEFORE the worker count does.
+                candles = None
+                for attempt in range(MAX_ATTEMPTS):
+                    try:
+                        candles = kite.historical_data(
+                            instrument_token=instrument, from_date=frm, to_date=to,
+                            interval="minute", continuous=False, oi=False,
+                        )
+                        break
+                    except Exception as exc:                 # noqa: BLE001
+                        last = str(exc)[:70]
+                        if attempt == MAX_ATTEMPTS - 1:
+                            with lock:
+                                errors.append(
+                                    f"{p.symbol} {frm:%Y-%m-%d}: gave up after "
+                                    f"{MAX_ATTEMPTS} attempts: {last}")
+                        else:
+                            time.sleep(BACKOFF_BASE * (2 ** attempt))
+                if candles is None:
                     continue
                 rows = [
                     (p.symbol, int(c["date"].timestamp()),
@@ -577,7 +616,7 @@ def run(plans: list[Plan], workers: int, reconcile: bool) -> None:
                             "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)", rows)
                         con.commit()
                     added += len(rows)
-                time.sleep(PACE)
+                time.sleep(pace)
 
             verdict = Verdict("skipped")
             if reconcile and added:
@@ -595,7 +634,7 @@ def run(plans: list[Plan], workers: int, reconcile: bool) -> None:
                     verdict = Verdict("error", detail=str(exc)[:70])
                     with lock:
                         errors.append(f"{p.symbol}: CA check failed: {str(exc)[:70]}")
-                time.sleep(PACE)
+                time.sleep(pace)
 
             with lock:
                 row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
@@ -702,6 +741,8 @@ def main(argv: list[str]) -> None:
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan; touches neither Kite nor the DB")
     ap.add_argument("--workers", type=int, default=WORKERS)
+    ap.add_argument("--pace", type=float, default=PACE,
+                    help="per-thread sleep between requests (see PACE)")
     ap.add_argument("--no-reconcile", action="store_true",
                     help="skip the corporate-action check (1 fewer request/symbol)")
     ap.add_argument("--self-test", action="store_true",
@@ -753,7 +794,7 @@ def main(argv: list[str]) -> None:
     if not todo:
         print("nothing to do")
         return
-    run(todo, args.workers, reconcile=not args.no_reconcile)
+    run(todo, args.workers, reconcile=not args.no_reconcile, pace=args.pace)
 
 
 if __name__ == "__main__":

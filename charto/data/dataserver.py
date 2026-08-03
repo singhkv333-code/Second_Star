@@ -7943,5 +7943,29 @@ if __name__ == "__main__":
     # Aliasing the name to this module makes `import dataserver` return the
     # running server, so a driver started through /live shares its state.
     sys.modules.setdefault("dataserver", sys.modules[__name__])
+
+    # CHARTO_LIVE_VENUES="bybit,coinbase" arms those feeds at boot.
+    #
+    # Without this a stream only exists because somebody curled /live, and the
+    # unit is Restart=always — so any crash, deploy or reboot silently returns
+    # the box to a state where it serves charts and records NOTHING. Crypto
+    # trades 24/7, so there is no daily open to notice it at; the hole is only
+    # found later as missing bars. The venue drivers are already idempotent
+    # (_live_stream refuses a second driver for a live venue) and each one
+    # gap-fills before it connects, so a restart repairs the minutes it missed
+    # while down instead of streaming on top of them.
+    #
+    # Deliberately opt-in and deliberately NOT defaulted to every venue: a
+    # laptop running this file should not open sockets nobody asked for.
+    for _v in (environ.get("CHARTO_LIVE_VENUES") or "").replace(" ", "").split(","):
+        if not _v:
+            continue
+        try:
+            _code, _body = _live_stream(_v, _venue_symbols(_v), stop=False)
+            print(f"charto live autostart {_v}: {_code} {_body.get('note') or _body}")
+        except Exception as _exc:                              # noqa: BLE001
+            # Never let a venue keep the chart server down — data first.
+            print(f"charto live autostart {_v} FAILED: {_exc}")
+
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

@@ -69,8 +69,24 @@ behind it. `plan()` refuses any symbol whose 1-min history is more than
 `max_stale_sessions` sessions behind its own daily series, and names what is
 missing.
 
+AND A FIFTH, THE ONE SESSIONS CANNOT SEE
+----------------------------------------
+`freshness()` measures in whole SESSIONS, so a symbol whose minutes stop at
+11:00 on the CURRENT session is "0 sessions behind" and streams happily on top
+of a 331-minute hole. Measured 2026-08-03: ALUMINIUM/ZINC/SILVERM/USDINR all
+stored to 13:10 IST with the MCX/CDS sessions still running, and RELIANCE and
+25 other equities stopped at 15:14 with the session's last bar at 15:29. Every
+one of those passes the session gate. `minute_gap()` is the intraday half of
+the answer and `fill_gap()` closes what it finds, bounded by MAX_FILL_MIN so a
+handoff never turns into a backfill.
+
+The gap is counted in MINUTES THE MARKET WAS ACTUALLY OPEN, never wall clock:
+a stock that closed cleanly at 15:29 is not 1,000 minutes stale at 08:00 the
+next morning, it is zero. See `expected_minutes`.
+
     python3 charto/data/kite_stream.py --dry-run --symbols RELIANCE,INFY
     python3 charto/data/kite_stream.py --self-test
+    python3 charto/data/kite_stream.py --fill-only --symbols GOLD   # no socket
     python3 charto/data/kite_stream.py --symbols RELIANCE,INFY   # needs a session
 """
 from __future__ import annotations
@@ -81,6 +97,7 @@ import sqlite3
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -101,6 +118,29 @@ log = logging.getLogger("charto.kite_stream")
 IST = timezone(timedelta(seconds=ds.IST_OFF))
 DEFAULT_MAX_STALE_SESSIONS = 2         # yesterday's close is fine; a week is not
 _STATUS_EVERY = 30.0                   # seconds between live status lines
+
+# ── the intraday gap fill ─────────────────────────────────────────
+# A handoff, not a backfill. 1,440 open-market minutes is ~3.8 NSE sessions or
+# ~1.7 MCX ones — comfortably more than any hole a stream start should be
+# repairing, and far less than the multi-year holes backfill_1min.py /
+# backfill_macro.py exist for. Past this bound the honest move is to name the
+# hole and the script that fixes it; grinding through 6,500 sequential Kite
+# requests inside a stream start is how a driver hangs with syms=0 and no error
+# (crypto_stream.py hit exactly that with DOT-USD 1,949,380 minutes behind).
+MAX_FILL_MIN = 1440
+# Kite publishes the current session's minute bars with a lag of a minute or
+# two, so a fill that lands one minute short of `now` succeeded. Judged against
+# what fill_gap is FOR — closing the hole to roughly now — not against the
+# streaming gate, because a hole under the gate is still a hole the chart draws
+# over.
+FILL_TOLERANCE_MIN = 3
+FILL_WORKERS = 3                       # Kite historical is ~3 req/s
+FILL_PACE = 0.35                       # per-thread pacing -> ~3 req/s over 3
+_FILL_WINDOW_DAYS = 55                 # measured per-request cap is 60
+# The day walk in expected_minutes() is O(days). A symbol years behind is
+# backfill's problem anyway, so the walk stops here and reports a LOWER BOUND
+# rather than counting 900 sessions to reach the same refusal.
+_MAX_GAP_DAYS = 400
 
 
 # ── the cumulative-volume cursor ──────────────────────────────────
@@ -454,6 +494,426 @@ def _ist_str(ts: int | None) -> str:
     return datetime.fromtimestamp(ts, tz=IST).strftime("%Y-%m-%d %H:%M IST")
 
 
+# ── the intraday gap, in OPEN-MARKET minutes ──────────────────────
+# freshness() answers "how many SESSIONS of minutes are missing". This answers
+# "how many minutes inside a session are missing", which is the question a
+# symbol that stopped at 11:00 today fails and the session count cannot see.
+#
+# The session clock is not uniform and dataserver.py OWNS it — session_for()
+# gives (bucket-anchor minute, tz offset) and session_close_for() gives the
+# minute-of-day the last bar of a complete session OPENS, both measured off
+# complete stored sessions rather than an exchange brochure. They are imported,
+# not re-tabulated: topup_1min.py duplicates the family sets deliberately (its
+# --dry-run must run with no dataserver and no 13 GB mmap), but this module
+# already imports dataserver at the top for _live_on_tick, so a second copy of
+# NSE 15:29 / MCX 23:29 / CDS 16:59 here would buy nothing and drift.
+#
+# One correction is unavoidable. session_for() returns a BUCKET ANCHOR, not a
+# session open, and it puts the INR pairs on the NSE anchor (09:15) even though
+# the currency segment opens at 09:00 — the same trap session_close_for()'s
+# docstring describes at the other end of the day. Verified against the store
+# on 2026-08-03: USDINR's 2026-07-31 session holds 480 bars, 09:00 to 16:59;
+# GOLD holds 870, 09:00 to 23:29; RELIANCE holds 375, 09:15 to 15:29. Using the
+# 09:15 anchor for USDINR would under-count every morning gap by 15 minutes and
+# quietly leave 09:00-09:14 missing forever.
+
+
+def session_bounds(symbol: str) -> tuple[int, int, int]:
+    """(first bar minute-of-day, last bar minute-of-day, tz offset)."""
+    open_min, tz_off = ds.session_for(symbol)
+    close_min = ds.session_close_for(symbol)
+    if symbol in getattr(ds, "_FX_SYMBOLS", ()):
+        open_min = ds.MCX_SESSION[0]        # CDS opens 09:00, like MCX
+    return open_min, close_min, tz_off
+
+
+def _bar_ts(day: int, minute_of_day: int, tz_off: int) -> int:
+    """Epoch of the bar that OPENS at `minute_of_day` on session-day `day`."""
+    return day * 86400 + minute_of_day * 60 - tz_off
+
+
+def _is_weekend(day: int) -> bool:
+    """Epoch day 0 (1970-01-01) was a Thursday, so Monday==0 is (day+3) % 7."""
+    return (day + 3) % 7 >= 5
+
+
+def session_days(con: sqlite3.Connection, symbol: str, day_from: int,
+                 day_to: int, tz_off: int) -> set[int]:
+    """Which session-days in [day_from, day_to] the market was actually open.
+
+    A weekday test alone counts every exchange holiday as a missing session,
+    which turns one Diwali into a 375-minute phantom gap and a fill that
+    fetches nothing. The store already knows the real answer: `bars_1d` holds
+    one row per session the daily fold saw, and its dates carry the holidays
+    (measured: 25-26 Jul and 1-2 Aug are simply absent). Days PAST the end of
+    the daily series have no answer there yet — the fold lags the minute store
+    — so those fall back to weekday-not-weekend, which is right for every day
+    except a holiday inside the last session or two, where the fill just
+    returns nothing and the post-fill verification says so.
+    """
+    if ds.session_for(symbol) == ds.UTC_SESSION:
+        return set(range(day_from, day_to + 1))      # 24/7: every day trades
+    rows = con.execute(
+        "SELECT ts FROM bars_1d WHERE symbol=? AND ts>=? AND ts<?",
+        (symbol, day_from * 86400 - tz_off, (day_to + 1) * 86400 - tz_off)
+    ).fetchall()
+    days = {ds._ist_day(int(t), tz_off) for (t,) in rows}
+    top = con.execute("SELECT MAX(ts) FROM bars_1d WHERE symbol=?",
+                      (symbol,)).fetchone()[0]
+    top_day = ds._ist_day(int(top), tz_off) if top is not None else None
+    for d in range(day_from, day_to + 1):
+        if top_day is not None and d <= top_day:
+            continue                                 # the fold has an opinion
+        if not _is_weekend(d):
+            days.add(d)
+    return days
+
+
+def expected_minutes(con: sqlite3.Connection, symbol: str,
+                     from_ts: int, to_ts: int) -> int:
+    """How many 1-minute bars SHOULD exist with open stamps in [from, to].
+
+    This is the whole correctness property. Wall-clock minutes would call an
+    NSE stock that closed cleanly at 15:29 "1,006 minutes stale" at 08:15 the
+    next morning and send a fill after minutes that never existed; every night
+    and weekend would read as a hole. Only minutes between the symbol's own
+    open and close, on days its own market traded, are counted.
+    """
+    if to_ts < from_ts:
+        return 0
+    open_min, close_min, tz_off = session_bounds(symbol)
+    d0 = ds._ist_day(from_ts, tz_off)
+    d1 = ds._ist_day(to_ts, tz_off)
+    days = session_days(con, symbol, d0, d1, tz_off)
+    n = 0
+    for d in range(d0, d1 + 1):
+        if d not in days:
+            continue
+        lo = max(from_ts, _bar_ts(d, open_min, tz_off))
+        hi = min(to_ts, _bar_ts(d, close_min, tz_off))
+        if hi >= lo:
+            n += (hi - lo) // 60 + 1
+    return n
+
+
+def minute_gap(con: sqlite3.Connection, symbol: str,
+               now: int | None = None) -> dict:
+    """The hole between this symbol's newest stored minute and now.
+
+    Reads MAX(ts) from `bars` and nothing else — deliberately NOT sync_state's
+    watermark, which freshness() does consult. A watermark is a claim about
+    what was written; a gap is a question about what is actually there, and if
+    the two disagree the rows are the ones the chart draws.
+    """
+    ts_now = int(time.time() if now is None else now)
+    row = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
+                      (symbol,)).fetchone()
+    last = row[0] if row else None
+    out: dict[str, Any] = {"symbol": symbol, "last_1m": last, "gap_min": None,
+                           "wall_min": None, "first_missing": None,
+                           "last_expected": None, "capped": False, "note": ""}
+    if last is None:
+        out["note"] = ("no 1-minute history at all — a fill has no anchor; "
+                       "run the backfill for this symbol first")
+        return out
+
+    last = int(last)
+    first_missing = last + 60
+    # A bar stamped 15:29 covers 15:29:00-15:29:59, so it is not late until
+    # 15:31 — the minute now forming is not missing, it is forming.
+    last_expected = (ts_now // 60) * 60 - 60
+    out["first_missing"] = first_missing
+    if last_expected < first_missing:
+        out.update(gap_min=0, wall_min=0, last_expected=last_expected,
+                   note="stored up to the newest completed minute")
+        return out
+
+    open_min, close_min, tz_off = session_bounds(symbol)
+    d0 = ds._ist_day(first_missing, tz_off)
+    d1 = ds._ist_day(last_expected, tz_off)
+    if d1 - d0 > _MAX_GAP_DAYS:
+        d1 = d0 + _MAX_GAP_DAYS
+        last_expected = _bar_ts(d1, close_min, tz_off)
+        out["capped"] = True
+    out["last_expected"] = last_expected
+    out["wall_min"] = (last_expected - first_missing) // 60 + 1
+    out["gap_min"] = expected_minutes(con, symbol, first_missing, last_expected)
+    bound = ">=" if out["capped"] else ""
+    out["note"] = (
+        f"newest stored minute {_ist_str(last)}; {bound}{out['gap_min']:,} "
+        f"open-market minute(s) missing to {_ist_str(last_expected)} "
+        f"({out['wall_min']:,} wall-clock)")
+    return out
+
+
+def too_wide(gap: dict, max_fill_min: int = MAX_FILL_MIN) -> bool:
+    """Is this hole beyond what a stream start may close itself?
+
+    One predicate, called by fill_gaps and asserted by the self-test, so the
+    bound cannot be tested against a re-statement of itself. `capped` counts as
+    too wide by construction: a capped gap is a LOWER bound past _MAX_GAP_DAYS,
+    and something at least 400 sessions behind is a backfill either way.
+    """
+    return bool(gap.get("capped")) or (gap.get("gap_min") or 0) > max_fill_min
+
+
+def _owner_script(symbol: str) -> str:
+    """Which backfill owns a hole too wide for the streamer to close.
+
+    topup_1min.py owns the family -> script map; imported through a guard
+    because the lead is editing that file and a stream must not die of it.
+    """
+    try:
+        import topup_1min as tp                       # type: ignore
+        fam = tp.family(symbol)
+        return {"equity": "backfill_1min.py", **tp.OWNER}.get(
+            fam, "backfill_1min.py")
+    except Exception:                                 # noqa: BLE001
+        return "backfill_1min.py / backfill_macro.py"
+
+
+# ── the bounded, parallel Kite fill ───────────────────────────────
+
+def _fill_connection() -> sqlite3.Connection:
+    """Own writer connection. 60s busy_timeout because dataserver, the live
+    writer and a concurrent top-up all hold this file — `database is locked`
+    has bitten this store before and a 5s default is not enough for a 13 GB
+    WAL checkpoint to get out of the way."""
+    con = sqlite3.connect(ds.DB_PATH, check_same_thread=False, timeout=60)
+    con.execute("PRAGMA busy_timeout=60000")
+    return con
+
+
+def fill_windows(last_ts: int, last_expected: int) -> list[tuple[datetime, datetime]]:
+    """Kite request windows for one symbol's hole, as IST-AWARE datetimes.
+
+    THE trap, hit twice in this repo (see backfill_macro.IST_TZ): the Kite
+    python client formats a datetime as a bare "%Y-%m-%d %H:%M:%S" and DROPS
+    tzinfo, so the server reads whatever it is handed as IST. A UTC-aware `now`
+    therefore asks for "up to 13:13" and Kite hears 13:13 IST — silently
+    truncating 5:30 of the current session. Measured 2026-08-03 on GOLD: UTC
+    bound -> 254 bars ending 13:13, IST bound -> 584 ending 18:43. Every bound
+    below is built with `datetime.fromtimestamp(ts, IST)` so the wall-clock
+    string the client sends IS the IST the server assumes.
+
+    Starts at the newest STORED minute, not at the first missing one: the last
+    row may have been written from a truncated minute by a killed process, and
+    INSERT OR REPLACE rewrites it in place.
+    """
+    frm = datetime.fromtimestamp(int(last_ts), IST)
+    to = datetime.fromtimestamp(int(last_expected) + 60, IST)
+    out: list[tuple[datetime, datetime]] = []
+    cur = frm
+    while cur < to:
+        nxt = min(cur + timedelta(days=_FILL_WINDOW_DAYS), to)
+        out.append((cur, nxt))
+        cur = nxt
+    return out
+
+
+_THREAD_KITE = threading.local()
+
+
+def _kite_client(access_token: str) -> Any:
+    """One KiteConnect per worker thread, same as topup_1min's worker().
+
+    Keyed on the token as well as the thread: the daily session expires ~6 AM
+    IST, and a long-lived process that re-logs-in would otherwise keep handing
+    every fetch a client holding the dead token.
+    """
+    k = getattr(_THREAD_KITE, "kite", None)
+    if k is None or getattr(_THREAD_KITE, "token", None) != access_token:
+        from backend.kite.auth import get_authenticated_kite
+        k = _THREAD_KITE.kite = get_authenticated_kite(access_token)
+        _THREAD_KITE.token = access_token
+    return k
+
+
+def _fetch_window(job: tuple) -> tuple[str, list[tuple], str]:
+    symbol, token, frm, to, access_token = job
+    try:
+        candles = _kite_client(access_token).historical_data(
+            instrument_token=token, from_date=frm, to_date=to,
+            interval="minute", continuous=False, oi=False)
+    except Exception as exc:                          # noqa: BLE001
+        time.sleep(1.0)
+        return symbol, [], f"{frm:%Y-%m-%d %H:%M}: {str(exc)[:80]}"
+    rows = [
+        # kiteconnect returns `date` as an IST-AWARE datetime, so .timestamp()
+        # is correct here without the naive-datetime pinning _epoch() needs for
+        # the websocket payloads.
+        (symbol, int(c["date"].timestamp()),
+         float(c["open"]), float(c["high"]), float(c["low"]),
+         float(c["close"]),
+         # NOT int(): _exact_vol keeps a fractional volume fractional and only
+         # narrows when it is integral. `int()` truncation once zeroed 17.3% of
+         # BTC-USD's stored minutes. NSE/MCX volumes are integral, so this is
+         # free here and correct if this ever meets a venue that is not.
+         ds._exact_vol(c.get("volume", 0) or 0))
+        for c in (candles or [])
+    ]
+    time.sleep(FILL_PACE)
+    return symbol, rows, ""
+
+
+def resolve_tokens(symbols: Sequence[str], access_token: str,
+                   ) -> tuple[dict[str, int], dict[str, str]]:
+    """symbol -> instrument token, for every family.
+
+    Resolving everything against "NSE" silently dropped four of five MCX
+    metals: GOLD is not an NSE tradingsymbol, it is a rolling MCX future
+    (GOLD26AUGFUT), and an index lives in the INDICES segment. backfill_macro's
+    resolve() already does this properly — including the monthly-vs-weekly
+    contract rule a dead weekly would otherwise satisfy — so it is imported
+    rather than reimplemented; a second copy is how the streamer and the
+    backfill end up on different contracts for one symbol.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pivot"))
+    from backend.kite.historical import _resolve_instrument_token
+    import backfill_macro as bm
+
+    tokens: dict[str, int] = {}
+    failed: dict[str, str] = {}
+    wanted = [s for s in symbols]
+    macro = {s for s in wanted
+             if s in bm.INDICES or s in bm.METALS or s in bm.CURRENCY}
+    if macro:
+        from backend.kite.auth import get_authenticated_kite
+        try:
+            for sym, tok, _is_fut in bm.resolve(
+                    get_authenticated_kite(access_token), macro):
+                tokens[sym] = int(tok)
+        except Exception as exc:                      # noqa: BLE001
+            log.warning("macro instrument resolve failed: %s", exc)
+    for sym in wanted:
+        if sym in tokens:
+            continue
+        try:
+            tok = _resolve_instrument_token(sym, "NSE", access_token)
+        except Exception as exc:                      # noqa: BLE001
+            failed[sym] = f"instrument resolve raised: {str(exc)[:70]}"
+            continue
+        if tok is None:
+            failed[sym] = ("no Kite instrument token for this symbol on NSE, "
+                           "MCX-FUT, CDS-FUT or INDICES")
+            continue
+        tokens[sym] = int(tok)
+    return tokens, failed
+
+
+def fill_gaps(symbols: Sequence[str], access_token: str, *,
+              max_fill_min: int = MAX_FILL_MIN,
+              now: int | None = None,
+              con: sqlite3.Connection | None = None) -> dict:
+    """Measure each symbol's intraday hole and close it over Kite REST.
+
+    Runs BEFORE the socket opens. Refusing a stale symbol is only half an
+    answer when the hole is exactly what this process can close: measured
+    2026-08-03, 26 NSE equities sat at 15:14 against a 15:29 close and four
+    MCX/CDS names at 13:10 with their sessions still running, all of which the
+    session-level gate waves through and none of which any later run repairs.
+    """
+    out: dict[str, Any] = {"filled": 0, "symbols": {}, "skipped": {},
+                           "too_wide": {}, "unfilled": {}, "errors": []}
+    # `con` is injectable so the MAX_FILL_MIN bound can be proved against a
+    # synthetic store: the refusal must short-circuit before any Kite path, and
+    # the only honest way to show that is to run it with a store the test owns
+    # and a token that would fail if it were ever used.
+    owned = con is None
+    con = _fill_connection() if owned else con
+    try:
+        jobs: list[tuple[str, dict]] = []
+        for sym in symbols:
+            if ds.session_for(sym) == ds.UTC_SESSION:
+                # Kite does not carry crypto; crypto_stream.py owns those and
+                # has its own fill. Silently "filling" 0 rows would read as a
+                # closed hole.
+                out["skipped"][sym] = "24/7 symbol — crypto_stream.py owns it"
+                continue
+            g = minute_gap(con, sym, now=now)
+            if g["gap_min"] is None:
+                out["skipped"][sym] = g["note"]
+                continue
+            if g["gap_min"] == 0:
+                out["symbols"][sym] = 0
+                continue
+            if too_wide(g, max_fill_min):
+                msg = (f"{g['gap_min']:,}{'+' if g['capped'] else ''} "
+                       f"open-market minute(s) behind (limit {max_fill_min:,}) "
+                       f"— newest stored minute is {_ist_str(g['last_1m'])}; "
+                       f"run {_owner_script(sym)} for this symbol first")
+                out["too_wide"][sym] = msg
+                log.warning("%s: NOT filling and NOT streaming over it — %s",
+                            sym, msg)
+                continue
+            jobs.append((sym, g))
+        if not jobs:
+            return out
+
+        try:
+            tokens, failed = resolve_tokens([s for s, _ in jobs], access_token)
+        except Exception as exc:                      # noqa: BLE001
+            # A dead instrument master or a missing backend import must not
+            # take the stream start down; the session gate still runs and the
+            # unclosed hole is named rather than papered over.
+            out["errors"].append(f"instrument resolve failed: {str(exc)[:120]}")
+            return out
+        for sym, why in failed.items():
+            out["skipped"][sym] = why
+        work: list[tuple] = []
+        for sym, g in jobs:
+            tok = tokens.get(sym)
+            if tok is None:
+                continue
+            for frm, to in fill_windows(int(g["last_1m"]), int(g["last_expected"])):
+                work.append((sym, tok, frm, to, access_token))
+        if work:
+            got: dict[str, list[tuple]] = {}
+            # Parallel, not serial: three symbols each a few hundred minutes
+            # behind is a stream start that feels like a hang when the requests
+            # queue up one behind the other.
+            with ThreadPoolExecutor(min(FILL_WORKERS, len(work))) as ex:
+                for sym, rows, err in ex.map(_fetch_window, work):
+                    if err:
+                        out["errors"].append(f"{sym} {err}")
+                    if rows:
+                        got.setdefault(sym, []).extend(rows)
+            for sym, rows in got.items():
+                con.executemany(
+                    "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)", rows)
+                con.commit()
+                out["symbols"][sym] = len(rows)
+                out["filled"] += len(rows)
+                # The fold the chart reads is memoised per symbol; a fill that
+                # does not evict it is invisible until the process restarts.
+                try:
+                    ds._daily_cache.pop(sym, None)
+                except Exception:                     # noqa: BLE001
+                    pass
+
+        # VERIFY. A fill that fetched nothing must be reported, never assumed:
+        # a throttled or not-yet-published window returns an empty list with no
+        # exception, and the symbol then streams onto the same hole it was
+        # supposed to have closed.
+        for sym, _g in jobs:
+            if sym not in tokens:
+                continue
+            after = minute_gap(con, sym, now=now)
+            left = after["gap_min"] or 0
+            if left > FILL_TOLERANCE_MIN:
+                msg = (f"still {left:,} open-market minute(s) behind after "
+                       f"writing {out['symbols'].get(sym, 0)} row(s) — Kite "
+                       f"returned nothing for that window (throttled, or the "
+                       f"minutes are not published yet), so the socket would "
+                       f"open at the right edge of a {left:,}-minute hole")
+                out["unfilled"][sym] = msg
+                log.warning("%s: %s", sym, msg)
+    finally:
+        if owned:
+            con.close()
+    return out
+
+
 # ── the stream ────────────────────────────────────────────────────
 
 class KiteStream:
@@ -461,12 +921,16 @@ class KiteStream:
 
     def __init__(self, symbols: Sequence[str], *,
                  max_stale_sessions: int = DEFAULT_MAX_STALE_SESSIONS,
-                 dry_run: bool = False) -> None:
+                 dry_run: bool = False, fill_first: bool = True,
+                 max_fill_min: int = MAX_FILL_MIN) -> None:
         self.requested = [s.strip().upper() for s in symbols if s.strip()]
         self.max_stale_sessions = max_stale_sessions
         self.dry_run = dry_run
+        self.fill_first = fill_first
+        self.max_fill_min = max_fill_min
         self.symbols: list[str] = []
         self.refused: dict[str, str] = {}
+        self._access_token: str | None = None
         self._ticker: Any = None
         self._tok_to_sym: dict[int, str] = {}
         self._sym_to_tok: dict[str, int] = {}
@@ -477,12 +941,27 @@ class KiteStream:
 
     # -- planning ------------------------------------------------
     def plan(self) -> list[dict]:
-        """Freshness verdict per requested symbol. Populates the accept and
-        refuse lists; no socket, no Kite session, no writes."""
-        con = sqlite3.connect(ds.DB_PATH)
+        """Freshness verdict per requested symbol, plus the intraday gap.
+
+        Two independent measures, both reported: a symbol can be 0 sessions
+        behind and 331 minutes behind at the same time, which is precisely the
+        case the session count alone waves through. No socket, no Kite session,
+        no writes.
+        """
+        con = sqlite3.connect(ds.DB_PATH, timeout=60)
+        con.execute("PRAGMA busy_timeout=60000")   # a live writer holds this file
         try:
-            verdicts = [freshness(con, s, self.max_stale_sessions)
-                        for s in self.requested]
+            verdicts = []
+            for s in self.requested:
+                v = freshness(con, s, self.max_stale_sessions)
+                try:
+                    v["gap"] = minute_gap(con, s)
+                except Exception as exc:              # noqa: BLE001
+                    # A measure that raises must not take the plan down; the
+                    # session gate above still stands on its own.
+                    log.warning("minute_gap(%s) failed: %s", s, exc)
+                    v["gap"] = {"gap_min": None, "note": f"gap unmeasured: {exc}"}
+                verdicts.append(v)
         finally:
             con.close()
         with self._lock:
@@ -491,12 +970,48 @@ class KiteStream:
                             for v in verdicts if not v["ok"]}
         return verdicts
 
+    def token(self) -> str:
+        if self._access_token is None:
+            self._access_token = _kite_access_token()
+        return self._access_token
+
+    def fill_gap(self) -> dict:
+        """Close every requested symbol's intraday hole before subscribing."""
+        return fill_gaps(self.requested, self.token(),
+                         max_fill_min=self.max_fill_min)
+
     # -- lifecycle -----------------------------------------------
     def start(self) -> None:
+        # Fill BEFORE planning, not after: the fill is what makes a symbol
+        # fresh, and a symbol one session behind should be repaired and then
+        # streamed rather than refused with no way forward.
+        got: dict[str, Any] = {"too_wide": {}, "unfilled": {}, "symbols": {},
+                               "errors": []}
+        if self.fill_first and not self.dry_run:
+            got = self.fill_gap()
+            for sym, why in got["too_wide"].items():
+                print(f"  REFUSE  {sym:<14} {why}")
+            for sym, why in got["unfilled"].items():
+                print(f"  WARN    {sym:<14} {why}")
+            for sym, n in sorted(got["symbols"].items()):
+                if n:
+                    print(f"  filled  {sym:<14} {n:,} minute(s)")
+            for err in got["errors"][:5]:
+                print(f"  fetch error: {err}")
+
         verdicts = self.plan()
         for v in verdicts:
             mark = "stream" if v["ok"] else "REFUSE"
-            print(f"  {mark:>6}  {v['symbol']:<14} {v['reason']}")
+            gap = v.get("gap", {}).get("gap_min")
+            tail = f" [gap {gap:,}m]" if gap else ""
+            print(f"  {mark:>6}  {v['symbol']:<14} {v['reason']}{tail}")
+        # A symbol whose hole is too wide to close must not stream over it. The
+        # session gate cannot catch this one — an intraday hole is 0 sessions
+        # wide — so the refusal has to be applied here or not at all.
+        for sym in list(self.symbols):
+            if sym in got["too_wide"]:
+                self.symbols.remove(sym)
+                self.refused[sym] = got["too_wide"][sym]
         if not self.symbols:
             print("nothing to stream — every requested symbol was refused")
             return
@@ -506,7 +1021,7 @@ class KiteStream:
                   f"no socket opened, no rows written")
             return
 
-        token = _kite_access_token()
+        token = self.token()
         self._resolve_tokens(token)
         if not self._tok_to_sym:
             print("no instrument tokens resolved — refusing to open a socket")
@@ -569,43 +1084,17 @@ class KiteStream:
 
     # -- kite plumbing -------------------------------------------
     def _resolve_tokens(self, access_token: str) -> None:
-        """Resolve every family, not just NSE equities.
-
-        Resolving everything against "NSE" silently dropped four of five MCX
-        metals: GOLD is not an NSE tradingsymbol, it is a rolling MCX future
-        (GOLD26AUGFUT), and an index lives in the INDICES segment. The socket
-        opened with one symbol and reported success. backfill_macro.resolve
-        already does this properly — including the monthly-vs-weekly contract
-        rule that a dead weekly would otherwise satisfy — so it is imported
-        rather than reimplemented; a second copy is how the streamer and the
-        backfill end up subscribed to different contracts for one symbol.
-        """
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pivot"))
-        from backend.kite.historical import _resolve_instrument_token
-        import backfill_macro as bm
-
-        macro = {s for s in self.symbols
-                 if s in bm.INDICES or s in bm.METALS or s in bm.CURRENCY}
-        if macro:
-            from backend.kite.auth import get_authenticated_kite
-            try:
-                for sym, tok, _is_fut in bm.resolve(
-                        get_authenticated_kite(access_token), macro):
-                    self._tok_to_sym[int(tok)] = sym
-                    self._sym_to_tok[sym] = int(tok)
-            except Exception as exc:                  # noqa: BLE001
-                print(f"  macro instrument resolve failed: {exc}")
-        for sym in list(self.symbols):
-            if sym in self._sym_to_tok:
-                continue
-            tok = _resolve_instrument_token(sym, "NSE", access_token)
-            if tok is None:
-                self.refused[sym] = ("no Kite instrument token for this symbol "
-                                     "on NSE, MCX-FUT, CDS-FUT or INDICES")
+        """Instrument tokens for the accepted symbols, one map for both the
+        socket and the fill — see resolve_tokens() for why every family needs
+        its own segment."""
+        tokens, failed = resolve_tokens(self.symbols, access_token)
+        for sym, tok in tokens.items():
+            self._tok_to_sym[tok] = sym
+            self._sym_to_tok[sym] = tok
+        for sym, why in failed.items():
+            self.refused[sym] = why
+            if sym in self.symbols:
                 self.symbols.remove(sym)
-                continue
-            self._tok_to_sym[int(tok)] = sym
-            self._sym_to_tok[sym] = int(tok)
 
     def _build_ticker(self, access_token: str) -> Any:
         """Same construction as KiteTickerManager._build_ticker — mirrored,
@@ -974,7 +1463,143 @@ def self_test() -> int:
             fails.append(f"freshness({name}) ok={v['ok']}, want {want_ok}")
     mem.close()
 
-    # ---- 5. cleanup ------------------------------------------------
+    # ---- 5. the intraday gap, in open-market minutes ---------------
+    # The property under test: a night, a weekend and a holiday are NOT gaps,
+    # and a hole inside a session IS one — counted per instrument family, on
+    # that family's own clock. A synthetic store so the numbers are exact.
+    print("\nintraday gap (open-market minutes), on a synthetic store:")
+    gm = sqlite3.connect(":memory:")
+    gm.execute("CREATE TABLE bars (symbol TEXT, ts INTEGER, o REAL, h REAL,"
+               " l REAL, c REAL, v REAL, PRIMARY KEY (symbol, ts))")
+    gm.execute("CREATE TABLE bars_1d (symbol TEXT, ts INTEGER, o REAL, h REAL,"
+               " l REAL, c REAL, v REAL, PRIMARY KEY (symbol, ts))")
+
+    # 2026-06-15 is a Monday; 06-19 a Friday, 06-20/21 the weekend. 06-17 is
+    # declared a holiday by simply not existing in bars_1d, which is exactly
+    # how a real holiday appears in this store.
+    mon = ds._ist_day(int(datetime(2026, 6, 15, 12, 0, tzinfo=IST).timestamp()),
+                      ds.IST_OFF)
+    sessions = [mon, mon + 1, mon + 3, mon + 4]          # Mon Tue THU Fri
+    holiday = mon + 2                                    # Wednesday, no session
+
+    def _seed(sym: str, last_day: int, last_mod: int) -> None:
+        """Minutes up to (last_day, last_mod); a CURRENT daily series.
+
+        bars_1d covers every session including ones the minutes never reached,
+        which is the real shape of the store — the daily fold is imported for
+        the whole universe while the minute store is what falls behind. It is
+        also what makes the holiday assertion meaningful: Wednesday is absent
+        from bars_1d, so it must not be counted, while the days past the end of
+        bars_1d fall back to weekday-not-weekend.
+        """
+        open_min, close_min, tz = session_bounds(sym)
+        for d in sessions:
+            gm.execute("INSERT OR REPLACE INTO bars_1d VALUES (?,?,?,?,?,?,?)",
+                       (sym, d * 86400 - tz, 1, 1, 1, 1, 1))
+            if d > last_day:
+                continue
+            # two rows per day is enough: the gap reads MAX(ts) only
+            gm.execute("INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                       (sym, _bar_ts(d, open_min, tz), 1, 1, 1, 1, 1))
+            end = last_mod if d == last_day else close_min
+            gm.execute("INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                       (sym, _bar_ts(d, end, tz), 1, 1, 1, 1, 1))
+
+    def _at(day: int, mod: int, tz: int = ds.IST_OFF) -> int:
+        return _bar_ts(day, mod, tz)
+
+    # (symbol, last stored day/minute, "now", expected gap, what it proves)
+    cases = [
+        ("RELIANCE", mon, 15 * 60 + 29, _at(mon, 20 * 60), 0,
+         "closed cleanly 15:29, asked at 20:00 same day"),
+        ("RELIANCE", mon, 15 * 60 + 29, _at(mon + 1, 8 * 60), 0,
+         "closed cleanly, asked 08:00 NEXT morning — the night is not a gap"),
+        ("RELIANCE", mon, 15 * 60 + 29, _at(mon + 1, 10 * 60), 45,
+         "next day 10:00 -> 09:15..09:59 really are missing"),
+        ("RELIANCE", mon, 14 * 60 + 29, _at(mon, 20 * 60), 60,
+         "truncated at 14:29 -> the 60 minutes to 15:29"),
+        ("RELIANCE", mon, 11 * 60, _at(mon, 16 * 60, ), 269,
+         "the reported case: stops 11:00, asked 16:00 -> 11:01..15:29"),
+        ("RELIANCE", mon + 4, 15 * 60 + 29, _at(mon + 7, 8 * 60), 0,
+         "Friday close, Monday 08:00 — the weekend is not a gap"),
+        ("RELIANCE", mon + 1, 15 * 60 + 29, _at(mon + 3, 9 * 60), 0,
+         "Tue close, Thu pre-open — Wednesday was a holiday, not a hole"),
+        ("GOLD", mon, 13 * 60 + 10, _at(mon, 20 * 60), 409,
+         "MCX runs to 23:29, so 13:11..19:59 are all open minutes"),
+        ("USDINR", mon, 13 * 60 + 10, _at(mon, 20 * 60), 229,
+         "CDS closes 16:59, so only 13:11..16:59 count"),
+        ("USDINR", mon, 16 * 60 + 59, _at(mon + 1, 9 * 60 + 30), 30,
+         "CDS OPENS 09:00, not the 09:15 bucket anchor -> 30, not 15"),
+    ]
+    for sym, last_day, last_mod, now_ts, want, why in cases:
+        gm.execute("DELETE FROM bars WHERE symbol=?", (sym,))
+        gm.execute("DELETE FROM bars_1d WHERE symbol=?", (sym,))
+        _seed(sym, last_day, last_mod)
+        g = minute_gap(gm, sym, now=now_ts)
+        ok = g["gap_min"] == want
+        print(f"  {'OK ' if ok else 'BAD'} {sym:<9} gap={g['gap_min']:>5} "
+              f"want={want:<5} wall={g['wall_min']:>6}  {why}")
+        if not ok:
+            fails.append(f"minute_gap({sym}, {why}) = {g['gap_min']}, "
+                         f"want {want}")
+    # The control: the same two cases measured in WALL-CLOCK minutes, which is
+    # what this function replaces. If these two agreed with the open-market
+    # count there would be nothing to test.
+    gm.execute("DELETE FROM bars WHERE symbol=?", ("RELIANCE",))
+    gm.execute("DELETE FROM bars_1d WHERE symbol=?", ("RELIANCE",))
+    _seed("RELIANCE", mon + 4, 15 * 60 + 29)
+    over_weekend = minute_gap(gm, "RELIANCE", now=_at(mon + 7, 8 * 60))
+    print(f"  control: Friday close -> Monday 08:00 reads "
+          f"{over_weekend['wall_min']:,} wall-clock minutes and "
+          f"{over_weekend['gap_min']} open-market minutes")
+    if over_weekend["wall_min"] < 3000:
+        fails.append("the wall-clock control is not large enough to be a "
+                     "control — the assertions above prove nothing")
+    if over_weekend["gap_min"] != 0:
+        fails.append("a clean Friday close reads as a hole on Monday morning")
+
+    # ---- 5b. the MAX_FILL_MIN bound --------------------------------
+    # A hole wider than the bound must be REPORTED, not fetched. The token is
+    # deliberately invalid: if the refusal did not short-circuit ahead of every
+    # Kite path, the run would raise or record a fetch error, and both are
+    # asserted against below.
+    print("\nMAX_FILL_MIN bound:")
+    gm.execute("DELETE FROM bars WHERE symbol=?", ("RELIANCE",))
+    gm.execute("DELETE FROM bars_1d WHERE symbol=?", ("RELIANCE",))
+    _seed("RELIANCE", mon, 9 * 60 + 15)
+    wide_now = _at(mon + 4, 15 * 60 + 30)
+    wide = minute_gap(gm, "RELIANCE", now=wide_now)
+    got = fill_gaps(["RELIANCE"], "NOT-A-REAL-TOKEN", max_fill_min=MAX_FILL_MIN,
+                    now=wide_now, con=gm)
+    tripped = "RELIANCE" in got["too_wide"]
+    print(f"  gap={wide['gap_min']:,} min vs limit {MAX_FILL_MIN:,} -> "
+          f"{'REFUSED' if tripped else 'FILLED'}; wrote {got['filled']} row(s), "
+          f"{len(got['errors'])} fetch error(s)")
+    if tripped:
+        print(f"    {got['too_wide']['RELIANCE']}")
+    if wide["gap_min"] <= MAX_FILL_MIN:
+        fails.append(f"the bound fixture is only {wide['gap_min']} min wide; "
+                     f"it cannot trip a {MAX_FILL_MIN} min limit")
+    if not tripped:
+        fails.append("a hole wider than MAX_FILL_MIN was not refused")
+    if got["filled"] or got["errors"]:
+        fails.append("the too-wide refusal reached a Kite fetch — it must "
+                     "short-circuit before resolving an instrument")
+    # The other side of the bound, asserted through the same predicate
+    # fill_gaps calls — not through fill_gaps itself, because proceeding means
+    # resolving an instrument and --self-test must stay offline.
+    narrow_now = _at(mon + 1, 15 * 60 + 30)
+    narrow = minute_gap(gm, "RELIANCE", now=narrow_now)
+    print(f"  same symbol two sessions earlier: gap={narrow['gap_min']:,} min "
+          f"-> {'REFUSED' if too_wide(narrow) else 'would fill'}")
+    if too_wide(narrow):
+        fails.append("a hole INSIDE the bound was refused; the bound is not "
+                     "the thing being tested")
+    if not too_wide(wide):
+        fails.append("too_wide() disagrees with the refusal fill_gaps took")
+    gm.close()
+
+    # ---- 6. cleanup ------------------------------------------------
     _cleanup(_SCRATCH, _SCRATCH_RAW)
     left = sum(_read_minutes(s, 1) and 1 or 0
                for s in (_SCRATCH, _SCRATCH_RAW))
@@ -1005,18 +1630,51 @@ def main(argv: list[str] | None = None) -> int:
                    default=DEFAULT_MAX_STALE_SESSIONS,
                    help="how many sessions of missing 1-min history to "
                         "tolerate before refusing a symbol")
+    p.add_argument("--max-fill-min", type=int, default=MAX_FILL_MIN,
+                   help="widest intraday hole (in open-market minutes) the "
+                        "streamer will close itself before subscribing")
+    p.add_argument("--no-fill", action="store_true",
+                   help="do not close intraday holes before subscribing")
+    p.add_argument("--fill-only", action="store_true",
+                   help="measure and close intraday holes, then exit; "
+                        "no socket")
+    p.add_argument("--gaps", action="store_true",
+                   help="measure intraday gaps and exit; no Kite, no writes")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
 
     if a.self_test:
         return self_test()
-    syms = [s for s in a.symbols.split(",") if s.strip()]
+    syms = [s.strip().upper() for s in a.symbols.split(",") if s.strip()]
     if not syms:
         p.error("--symbols is required (or use --self-test)")
 
+    if a.gaps:
+        con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True)
+        try:
+            for s in syms:
+                g = minute_gap(con, s)
+                print(f"  {s:<16} gap={str(g['gap_min']):>8}  "
+                      f"wall={str(g['wall_min']):>8}  {g['note']}")
+        finally:
+            con.close()
+        return 0
+
     stream = KiteStream(syms, max_stale_sessions=a.max_stale_sessions,
-                        dry_run=a.dry_run)
+                        dry_run=a.dry_run, fill_first=not a.no_fill,
+                        max_fill_min=a.max_fill_min)
+    if a.fill_only:
+        got = stream.fill_gap()
+        for sym in sorted(set(syms)):
+            n = got["symbols"].get(sym)
+            why = (got["too_wide"].get(sym) or got["unfilled"].get(sym)
+                   or got["skipped"].get(sym) or "")
+            print(f"  {sym:<16} wrote={0 if n is None else n:>6}  {why}")
+        for err in got["errors"]:
+            print(f"  fetch error: {err}")
+        print(f"total {got['filled']:,} row(s) written")
+        return 0
     stream.start()
     if a.dry_run or not stream.symbols:
         return 0

@@ -119,6 +119,7 @@ import sqlite3
 import ssl
 from concurrent.futures import ThreadPoolExecutor
 import struct
+import sys
 import threading
 import time
 from collections import deque
@@ -144,6 +145,19 @@ MAX_FILL_MIN = 1440
 _FILL_TOLERANCE_MIN = 5
 _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
+# A connection has to actually WORK for this long before the backoff is allowed
+# to reset. Without it a venue that accepts the TCP handshake and then closes
+# immediately — maintenance, an IP rate-limit, a bad subscribe — is redialled
+# every second forever, because `_open()` returning counts as success. Measured
+# on both venues: connect + subscribe + first message is well under a second,
+# so a session that survives 30s is a real one and anything shorter is a flap.
+_HEALTHY_AFTER = 30.0
+# _VenueError used to stop the process permanently. On an unattended 24/7 run a
+# transient subscribe rejection (rate limit, momentary maintenance) then costs
+# the whole day. It is retried like any other drop, and only a venue that
+# refuses this many CONSECUTIVE times without ever delivering data is treated
+# as a genuine "this symbol does not exist" and allowed to stop the run.
+_VENUE_ERROR_LIMIT = 5
 _STATUS_EVERY = 30.0
 _DEDUPE_KEEP = 8192             # trade ids remembered per symbol
 _RECORD_CAP = 60_000            # observed trades kept per symbol for --seconds
@@ -154,7 +168,13 @@ _RECORD_CAP = 60_000            # observed trades kept per symbol for --seconds
 # grace. This is a runtime PRAGMA on a connection in OUR process, not an edit
 # to dataserver.py; without it a single lock collision drops a closed minute
 # on the floor with a traceback and no retry.
-_BUSY_MS = 30_000
+#
+# 60s, matching dataserver's own `PRAGMA busy_timeout=60000` on `_live_writer`.
+# A shorter timeout here is not "less patient", it is a different answer to the
+# same question on two connections writing the same table: a crypto refetch can
+# hold the write lock for minutes, and the connection that gives up first is the
+# one that loses a minute.
+_BUSY_MS = 60_000
 try:
     ds._live_writer.execute(f"PRAGMA busy_timeout={_BUSY_MS}")
 except Exception:                       # noqa: BLE001
@@ -565,6 +585,17 @@ _OP_CONT, _OP_TEXT, _OP_BIN, _OP_CLOSE, _OP_PING, _OP_PONG = 0, 1, 2, 8, 9, 10
 _SSL_CTX: ssl.SSLContext | None = None
 
 
+class _TrustStoreError(RuntimeError):
+    """No CA bundle — every TLS connect will fail identically, forever.
+
+    Its own type because it is the one connect failure that must NOT be
+    retried: the run loop retries a connect failure with backoff, and a
+    missing trust store retried with backoff is an infinite loop printing
+    CERTIFICATE_VERIFY_FAILED, which is exactly what it looked like the first
+    time (connected=false, messages=0, forever). Raised loudly at start().
+    """
+
+
 def _ssl_context() -> ssl.SSLContext:
     """A TLS context with a CA bundle that exists under BOTH interpreters.
 
@@ -577,15 +608,86 @@ def _ssl_context() -> ssl.SSLContext:
     dead venue rather than a local trust-store gap. certifi ships in that venv
     already; use it when it is importable and fall back otherwise, so neither
     interpreter is the special case.
+
+    The fallback used to be SILENT, which reintroduced the original bug in a
+    quieter form: if certifi is ever missing, `ssl.create_default_context()`
+    does not raise — it returns a perfectly valid context holding ZERO
+    certificates, and every connect then dies deep inside the handshake.
+    Measured 2026-08-03 in pivot's venv:
+
+        certifi bundle -> {'x509': 120, 'crl': 0, 'x509_ca': 120}
+        system default -> {'x509':   0, 'crl': 0, 'x509_ca':   0}
+
+    So the bundle is COUNTED, not merely loaded, and an empty store is a loud
+    fatal naming the interpreter and the fix rather than an unattended
+    reconnect loop that reads like a dead venue.
     """
     global _SSL_CTX
     if _SSL_CTX is None:
         try:
             import certifi
-            _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
-        except Exception:                                 # noqa: BLE001
-            _SSL_CTX = ssl.create_default_context()
+            where = certifi.where()
+            ctx = ssl.create_default_context(cafile=where)
+            src = f"certifi ({where})"
+        except Exception as exc:                          # noqa: BLE001
+            ctx = ssl.create_default_context()
+            src = f"system default (certifi unavailable: {exc})"
+        cas = ctx.cert_store_stats().get("x509_ca", 0)
+        if not cas:
+            raise _TrustStoreError(
+                f"TLS trust store is EMPTY (0 CA certificates) via {src}. "
+                f"Interpreter: {sys.executable}. Every wss:// connect will "
+                f"fail with CERTIFICATE_VERIFY_FAILED and no amount of "
+                f"reconnecting will help — install certifi into THIS "
+                f"interpreter (`pip install certifi`), or run under one that "
+                f"has a system trust store.")
+        log.info("TLS trust store: %d CA certificate(s) from %s", cas, src)
+        _SSL_CTX = ctx
     return _SSL_CTX
+
+
+_HTTPS_PATCHED = False
+
+
+def _ensure_https_trust() -> None:
+    """Give urllib the same CA bundle the websocket already has.
+
+    fill_gap()'s fetchers are backfill_crypto's, and they call
+    `urllib.request.urlopen()` with NO ssl context — which means they inherit
+    `ssl._create_default_https_context()`, i.e. the empty store. Under pivot's
+    venv every REST call therefore died with CERTIFICATE_VERIFY_FAILED, and
+    `_get()` swallows every exception and returns None, so the failure surfaced
+    as "fetched 0 rows" and fill_gap blamed the VENUE:
+
+        gap fill INCOMPLETE: BTC-USD — still 1041 min behind after fetching
+        0 row(s) — the venue REST call returned nothing for that window
+        (throttled or not yet published)
+
+    Measured 2026-08-03: nothing was throttled. Both venues returned that for
+    every window, and a direct urlopen of the same URL raised
+    CERTIFICATE_VERIFY_FAILED. So the whole gap-fill path — startup AND
+    reconnect — was a silent no-op under the interpreter it actually ships on,
+    which is the interpreter the VM will run.
+
+    Patched here rather than in backfill_crypto because that file is shared
+    with the standalone backfill job; this is a process-local default and it is
+    applied ONLY when the ambient store is empty, so an interpreter with a real
+    system trust store is left exactly as it was.
+    """
+    global _HTTPS_PATCHED
+    if _HTTPS_PATCHED:
+        return
+    try:
+        if ssl.create_default_context().cert_store_stats().get("x509_ca", 0):
+            _HTTPS_PATCHED = True       # ambient trust works; change nothing
+            return
+    except Exception:                                     # noqa: BLE001
+        pass
+    ssl._create_default_https_context = _ssl_context       # type: ignore[assignment]
+    _HTTPS_PATCHED = True
+    log.warning("this interpreter has an EMPTY system trust store; urllib "
+                "HTTPS now uses the same certifi bundle as the websocket "
+                "(without this every REST gap fill silently fetches 0 rows)")
 
 
 class WSClient:
@@ -609,6 +711,14 @@ class WSClient:
         self.closed = False
         self.close_code: int | None = None
         self.bytes_in = 0
+        # Control frames are counted but do NOT refresh the stream's liveness
+        # clock, and the difference is the whole diagnosis. A venue answering
+        # our pings while sending no data is a DEAD FEED on a live socket —
+        # precisely the failure the watchdog exists for — so a ping must never
+        # be allowed to satisfy it. Counting them anyway lets the reconnect log
+        # say "socket alive, feed silent" instead of "silent", which is the
+        # difference between suspecting the network and suspecting the venue.
+        self.ctrl_in = 0
 
     # -- lifecycle ------------------------------------------------
     def connect(self) -> None:
@@ -730,9 +840,11 @@ class WSClient:
                 return out
             fin, opcode, payload = frame
             if opcode == _OP_PING:
+                self.ctrl_in += 1
                 self._send_frame(_OP_PONG, payload)
                 continue
             if opcode == _OP_PONG:
+                self.ctrl_in += 1
                 continue
             if opcode == _OP_CLOSE:
                 self.close_code = (struct.unpack(">H", payload[:2])[0]
@@ -906,9 +1018,14 @@ class CryptoStream:
         return VENUES[vs.pop()]
 
     # -- the REST -> socket handoff ------------------------------
-    def fill_gap(self) -> dict:
+    def fill_gap(self, symbols: Sequence[str] | None = None) -> dict:
         """Fetch the minutes between each symbol's newest stored bar and now,
         over REST, BEFORE opening the socket.
+
+        `symbols` defaults to everything requested (the start() case, where
+        nothing has been planned yet). The RECONNECT case passes the symbols
+        actually being streamed, so a symbol that was refused at plan time is
+        not re-fetched on every drop for the life of the process.
 
         Without this the stream can only ever be started in the minutes right
         after a backfill. minute_gap() correctly refuses a symbol whose newest
@@ -928,11 +1045,16 @@ class CryptoStream:
             import backfill_crypto as bc
         except Exception as exc:                          # noqa: BLE001
             return {"filled": 0, "error": f"backfill_crypto unavailable: {exc}"}
+        # Before the first HTTPS call, not at import: bc's fetchers use bare
+        # urllib and would otherwise fetch 0 rows forever under an empty trust
+        # store, which is exactly how this path failed silently.
+        _ensure_https_trust()
         now = int(time.time())
-        out: dict[str, Any] = {"filled": 0, "symbols": {}}
+        out: dict[str, Any] = {"filled": 0, "symbols": {}, "before": {},
+                               "after": {}}
         con = _connect_store()
         try:
-            for sym in self.requested:
+            for sym in (self.requested if symbols is None else symbols):
                 v = self.venue or venue_for(sym)
                 if v is None:
                     continue
@@ -941,6 +1063,10 @@ class CryptoStream:
                 if not last or now - last < 120:
                     continue                      # nothing meaningful to close
                 gap_min = (now - int(last)) // 60
+                # Measured, not inferred. The reconnect log prints before/after
+                # per symbol, which is the only way "the hole was filled" is a
+                # claim and not an assumption about what the venue returned.
+                out["before"][sym] = gap_min
                 if gap_min > MAX_FILL_MIN:
                     # A handoff is not a backfill. DOT-USD sat 1,949,380
                     # minutes behind after an interrupted backfill, and the
@@ -985,6 +1111,7 @@ class CryptoStream:
                 still = con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
                                     (sym,)).fetchone()[0] or 0
                 left = (now - still) // 60
+                out["after"][sym] = int(left)
                 # Judge against what fill_gap is FOR — closing the hole to
                 # roughly now — not against the streaming limit. Checking
                 # against DEFAULT_MAX_GAP_MIN meant a fill that fetched nothing
@@ -1002,6 +1129,12 @@ class CryptoStream:
 
     # -- lifecycle -----------------------------------------------
     def start(self) -> bool:
+        if not self.dry_run:
+            # Built here, once, on purpose. Every wss:// connect needs it, and
+            # building it inside _open() means a missing trust store surfaces
+            # as a connect failure — which run() retries with backoff, forever.
+            # Failing at start() makes it a one-line fatal instead.
+            _ssl_context()
         if self.fill_first and not self.dry_run:
             got = self.fill_gap()
             if got.get("error"):
@@ -1031,31 +1164,80 @@ class CryptoStream:
         return True
 
     def run(self, seconds: float | None = None) -> None:
-        """Blocking. Reconnects with capped exponential backoff; a socket that
-        goes quiet is redialled rather than sat on."""
+        """Blocking. Reconnects with capped exponential backoff, fills the hole
+        the drop left, and redials a socket that goes quiet rather than sitting
+        on it.
+
+        The shape of one iteration, and every part of it is load-bearing for an
+        unattended run:
+
+            fill the hole (except the first pass, which start() already filled)
+              -> open + subscribe
+              -> pump until something goes wrong
+              -> snapshot, close, drop the straddling partial minute
+              -> log WHY with the venue and the attempt number
+              -> sleep backoff, double it
+
+        `reason` is threaded through so the reconnect log says what actually
+        happened. A reconnect loop that logs nothing but "reconnecting" is
+        indistinguishable from a healthy stream in a week-old log file, which
+        is how a day of data goes missing without anyone noticing.
+        """
         ven = self._venue()
         deadline = time.time() + seconds if seconds else None
         self._started_at = time.time()
         backoff = _BACKOFF_START
+        attempt = 0
+        venue_errors = 0
+        first = True
         while not self._stop and (deadline is None or time.time() < deadline):
+            attempt += 1
+            # ---- fill whatever hole the last drop left, BEFORE redialling --
+            # start() fills once before the first dial; every LATER pass is a
+            # gap this process itself opened, and filling only at startup was
+            # the whole bug: a 3am drop that reconnected at 3.05am left five
+            # minutes missing that nothing would ever go back for, and the
+            # chart drew straight through it.
+            if not first:
+                self._refill(ven, attempt)
+            first = False
             try:
                 self._open(ven)
-                backoff = _BACKOFF_START
+                opened_at = time.time()
+            except _TrustStoreError:
+                raise                       # never retryable; see _ssl_context
             except Exception as exc:                     # noqa: BLE001
                 self._connect_fails += 1
-                log.warning("connect failed (%s); retrying in %.0fs", exc, backoff)
+                log.warning("[%s] connect FAILED (attempt %d): %s — retrying "
+                            "in %.0fs", ven.name, attempt, exc, backoff)
                 self._nap(backoff, deadline)
                 backoff = min(backoff * 2, _BACKOFF_CAP)
                 continue
+            reason = "deadline reached"
             try:
                 self._pump(ven, deadline)
             except _Reconnect as exc:
-                log.warning("dropping socket: %s", exc)
+                reason = str(exc)
             except _VenueError as exc:
-                log.error("venue refused: %s", exc)
-                self._stop = True
-            except Exception:                            # noqa: BLE001
-                log.exception("unexpected error in the read loop")
+                venue_errors += 1
+                reason = f"venue refused: {exc}"
+                # Retried, not fatal. A subscribe rejection is usually a rate
+                # limit and clears on its own; only a venue that says no this
+                # many times IN A ROW without ever delivering data is treated
+                # as a permanent "this product does not exist".
+                if venue_errors >= _VENUE_ERROR_LIMIT:
+                    log.error("[%s] venue refused %d consecutive times, last: "
+                              "%s — giving up", ven.name, venue_errors, exc)
+                    self._stop = True
+                else:
+                    log.error("[%s] %s (%d/%d consecutive)", ven.name, reason,
+                              venue_errors, _VENUE_ERROR_LIMIT)
+            except Exception as exc:                     # noqa: BLE001
+                reason = f"unexpected error in the read loop: {exc}"
+                log.exception("[%s] unexpected error in the read loop",
+                              ven.name)
+            else:
+                venue_errors = 0
             finally:
                 self._connected = False
                 # Order matters: capture, THEN close, THEN drop. get_bars only
@@ -1068,9 +1250,64 @@ class CryptoStream:
                 self._drop_forming()
             if self._stop or (deadline is not None and time.time() >= deadline):
                 break
+            lived = time.time() - opened_at
             self._reconnects += 1
+            # Reset the backoff only for a connection that actually WORKED.
+            # `_open()` returning is not success: a venue in maintenance
+            # completes the handshake and closes immediately, and resetting on
+            # that alone redials once a second forever — a hot loop wearing the
+            # costume of exponential backoff.
+            if lived >= _HEALTHY_AFTER:
+                backoff = _BACKOFF_START
+            log.warning("[%s] DROPPED after %.0fs (attempt %d, reconnect #%d, "
+                        "%d msg so far): %s — reconnecting in %.0fs",
+                        ven.name, lived, attempt, self._reconnects, self._msgs,
+                        reason, backoff)
             self._nap(backoff, deadline)
             backoff = min(backoff * 2, _BACKOFF_CAP)
+
+    def _refill(self, ven: Venue, attempt: int) -> None:
+        """Close the hole the last disconnect left, before the socket reopens.
+
+        Bounded by fill_gap's own MAX_FILL_MIN and skipped entirely for gaps
+        under two minutes, so an ordinary blip costs one SELECT per symbol and
+        no HTTP at all. Never allowed to raise: a REST failure must degrade to
+        "the hole is still there and the log says so", not take down a stream
+        that is otherwise about to reconnect successfully.
+
+        Note what this does during a LONG venue outage, because it is a feature
+        and not an accident: it runs before EVERY redial, so once the backoff
+        has settled at its 30s cap the store keeps being topped up over REST
+        roughly every 30s for as long as the socket stays down. At 10 symbols
+        that is ~0.33 requests/second against venues that allow ~10, so it is
+        cheap — and it means a websocket outage degrades to slightly stale
+        minutes rather than to no minutes at all.
+        """
+        if not self.fill_first or self.dry_run or not self.symbols:
+            return
+        try:
+            got = self.fill_gap(self.symbols)
+        except Exception:                                # noqa: BLE001
+            log.exception("[%s] reconnect gap fill failed (attempt %d) — the "
+                          "socket will reopen at the right edge of the hole",
+                          ven.name, attempt)
+            return
+        if got.get("error"):
+            log.warning("[%s] reconnect gap fill skipped: %s", ven.name,
+                        got["error"])
+            return
+        if got.get("filled"):
+            detail = ", ".join(
+                f"{s} {got['before'].get(s, '?')}->{got['after'].get(s, '?')}min "
+                f"(+{n} rows)"
+                for s, n in got["symbols"].items() if n)
+            log.info("[%s] reconnect gap FILLED (attempt %d): %s", ven.name,
+                     attempt, detail or got["symbols"])
+        for s, why in (got.get("too_wide") or {}).items():
+            log.warning("[%s] gap too wide to hand off: %s — %s", ven.name,
+                        s, why)
+        for s, why in (got.get("unfilled") or {}).items():
+            log.warning("[%s] gap fill INCOMPLETE: %s — %s", ven.name, s, why)
 
     def _snapshot_get_bars(self) -> None:
         """get_bars through the ordinary public path, while the forming bar is
@@ -1168,13 +1405,26 @@ class CryptoStream:
                     self._ws.ping()
                 last_ping = now
             if now - self._last_msg > self.stale_after:
-                # The watchdog. Both venues emit at least once a second while
-                # healthy (Coinbase via the heartbeat channel, Bybit via the
-                # pong to our own ping), so silence this long is a wedged
-                # socket wearing the costume of a quiet market.
+                # The watchdog, and the threshold is MEASURED, not guessed.
+                # Over 180s live on 2026-08-03, the longest gap between any two
+                # messages was 0.82s on Coinbase (10 products, 27.2 msg/s) and
+                # 2.68s on Bybit (10 products, 6.7 msg/s) — because neither
+                # venue's traffic depends on trades: Coinbase's `heartbeat`
+                # channel emits ~1/s per product and Bybit pongs our 20s ping.
+                #
+                # The distinction that matters: per-SYMBOL trade silence is
+                # NOT staleness. The thinnest pair measured, DOT-USD, went
+                # 147.3s between real prints — so a watchdog armed on
+                # per-symbol trades would have torn down a perfectly healthy
+                # socket every few minutes. Venue-level silence is the only
+                # safe trigger, and 45s is ~17x the worst observed gap and
+                # >2 Bybit ping intervals.
+                stat = ("socket alive but feed SILENT"
+                        if self._ws.ctrl_in else "socket fully silent")
                 raise _Reconnect(
-                    f"no message for {now - self._last_msg:.0f}s "
-                    f"(watchdog {self.stale_after:.0f}s)")
+                    f"no data message for {now - self._last_msg:.0f}s "
+                    f"(watchdog {self.stale_after:.0f}s; {stat}, "
+                    f"{self._ws.ctrl_in} control frame(s) this session)")
             if now - last_status >= _STATUS_EVERY:
                 last_status = now
                 print(f"  .. {self.status()}")
@@ -1183,6 +1433,12 @@ class CryptoStream:
     def status(self) -> dict:
         with _CURSOR_GUARD:
             cs = {s: _CURSORS[s] for s in self.symbols if s in _CURSORS}
+        now_i = int(time.time())
+        # Oldest last print across the symbols that HAVE printed. A symbol that
+        # has never traded has no age to report and is listed separately rather
+        # than being folded in as "infinitely quiet".
+        traded = [(now_i - c.last_ts, s) for s, c in cs.items() if c.last_ts]
+        quietest = max(traded) if traded else None
         return {
             "connected": self._connected,
             "venue": self.venue.name if self.venue else (
@@ -1200,6 +1456,14 @@ class CryptoStream:
             "missing_exchange_ts": sum(c.no_ts for c in cs.values()),
             "last_message_age_s": (round(time.time() - self._last_msg, 1)
                                    if self._last_msg else None),
+            # Per-symbol quiet, reported but NEVER acted on: DOT-USD measured a
+            # legitimate 147s between prints, so this is a thing to look at in
+            # a status line, not a thing to reconnect on. A subscription that
+            # silently dies while the others flow shows up here as an age that
+            # keeps climbing past every other symbol's.
+            "quietest_symbol": (f"{quietest[1]} {quietest[0]}s ago"
+                                if quietest else None),
+            "never_printed": [s for s, c in cs.items() if not c.last_ts],
             "reconnects": self._reconnects,
             "connect_failures": self._connect_fails,
             "uptime_s": (round(time.time() - self._started_at, 1)
@@ -1269,12 +1533,16 @@ def verify_live(stream: CryptoStream) -> int:
                 _ts, o, h, l, c, v = got
                 ok_ohlc = (abs(o - exp[0]) < 1e-9 and abs(h - exp[1]) < 1e-9
                            and abs(l - exp[2]) < 1e-9 and abs(c - exp[3]) < 1e-9)
-                # int(sum-of-floats) can differ by one ulp from int(sum in a
-                # different order); one unit of tolerance, not more.
-                ok_vol = abs(v - int(exp[4])) <= 1
+                # The EXACT float sum of the individual prints, not int() of
+                # it. The old check was `abs(v - int(exp[4])) <= 1`, which on a
+                # BTC minute of 0.31 coins passed happily against a stored 0 —
+                # it tolerated precisely the truncation bug that put v=0 on
+                # 17.3% of BTC-USD's stored minutes. _exact_vol rounds to 8dp,
+                # so the tolerance is float noise and nothing else.
+                ok_vol = abs(float(v) - exp[4]) <= 1e-6
                 print(f"    {_utc_str(bts)}  o={o:<10.4f} h={h:<10.4f} "
-                      f"l={l:<10.4f} c={c:<10.4f} v={v:<6} "
-                      f"| {exp[5]} trades, sum={exp[4]:.6f} "
+                      f"l={l:<10.4f} c={c:<10.4f} v={v:<12} "
+                      f"| {exp[5]} trades, sum={exp[4]:.8f} "
                       f"{'OK' if ok_ohlc and ok_vol else 'MISMATCH'}")
                 if not ok_ohlc:
                     fails.append(f"{sym} {_utc_str(bts)}: stored OHLC "
@@ -1282,7 +1550,9 @@ def verify_live(stream: CryptoStream) -> int:
                                  f"{(exp[0], exp[1], exp[2], exp[3])}")
                 if not ok_vol:
                     fails.append(f"{sym} {_utc_str(bts)}: stored v={v} != "
-                                 f"int(sum of trade sizes)={int(exp[4])}")
+                                 f"exact sum of the {exp[5]} trade sizes that "
+                                 f"composed it ({exp[4]:.8f}) — a fractional "
+                                 f"volume was truncated or a size was dropped")
                 # the explicit invariants the brief asks for, stated separately
                 px_all = [p for t, p, s, b in recs if b == bts]
                 if h < max(px_all) - 1e-9 or l > min(px_all) + 1e-9:
@@ -1399,18 +1669,27 @@ _FEED: list[tuple[int, float, float, str]] = [
     (180, 108.0, 1.00, "t12"),
 ]
 
-# Intended, by construction. `v` is int(float sum) because that is exactly
-# what _live_on_tick writes and what backfill_crypto.py stored.
-#   m0 0.50+0.25+1.50+0.75 = 3.00 -> 3
-#   m1 1.50+2.25+0.25      = 4.00 -> 4   (the repeated t6 adds nothing)
-#   m2 1.00+2.00+0.50      = 3.50 -> 3   (t11 dropped, so 999.0 is not the high
-#                                         and 5.00 is not in the volume)
+# Intended, by construction. `v` is dataserver._exact_vol(float sum): integral
+# when the sum is integral, FRACTIONAL when it is not.
+#   m0 0.50+0.25+1.50+0.75 = 3.00 -> 3     (integral, narrows to int)
+#   m1 1.50+2.25+0.25      = 4.00 -> 4     (the repeated t6 adds nothing)
+#   m2 1.00+2.00+0.50      = 3.50 -> 3.5   (t11 dropped, so 999.0 is not the
+#                                           high and 5.00 is not in the volume)
+#
+# m2 is the one that matters and it changed on 2026-08-02. The engine used to
+# write int(f[5]) and m2 expected 3 — truncation, which on NSE is free (volume
+# is a share count) and on crypto destroys the number: 990,989 of BTC-USD's
+# 5,731,677 stored minutes (17.3%) carried v=0 for minutes that really traded,
+# because a sub-1-coin minute is ordinary. dataserver._exact_vol now keeps the
+# fraction, so m2 asserts 3.5 and a regression to int() fails HERE rather than
+# 17% of the way through a volume profile.
+#
 # m2's close is 109.0, not 110.0: t9 arrived last even though it is stamped
 # earlier, and within a bucket the engine takes the last price it is handed.
 _WANT = {
-    0: {"v": 3, "sum": 3.00, "o": 100.0, "h": 103.0, "l": 98.0,  "c": 101.0},
-    1: {"v": 4, "sum": 4.00, "o": 105.0, "h": 107.0, "l": 104.0, "c": 104.0},
-    2: {"v": 3, "sum": 3.50, "o": 104.5, "h": 110.0, "l": 104.5, "c": 109.0},
+    0: {"v": 3,   "sum": 3.00, "o": 100.0, "h": 103.0, "l": 98.0,  "c": 101.0},
+    1: {"v": 4,   "sum": 4.00, "o": 105.0, "h": 107.0, "l": 104.0, "c": 104.0},
+    2: {"v": 3.5, "sum": 3.50, "o": 104.5, "h": 110.0, "l": 104.5, "c": 109.0},
 }
 
 # The UTC-midnight tape. Base is 23:58:00 UTC, so the third closed minute is
@@ -1514,8 +1793,8 @@ def self_test() -> int:
     print("adapter (per-trade sizes SUMMED, as they must be):")
     for i, (ts, o, h, l, c, v) in enumerate(rows):
         w = _WANT.get(i)
-        ok = w and (v == w["v"] and o == w["o"] and h == w["h"]
-                    and l == w["l"] and c == w["c"])
+        ok = w and (abs(float(v) - float(w["v"])) < 1e-9 and o == w["o"]
+                    and h == w["h"] and l == w["l"] and c == w["c"])
         print(f"  m{i} {_utc_str(ts)[-9:]}  o={o:<7} h={h:<7} l={l:<7} "
               f"c={c:<7} v={v:<4} want v={w['v'] if w else '?':<4} "
               f"(sum {w['sum'] if w else '?'})  {'OK' if ok else 'MISMATCH'}")
@@ -1530,9 +1809,10 @@ def self_test() -> int:
         if ts != base + i * 60:
             fails.append(f"m{i} bucketed at {ts}, want {base + i * 60} "
                          f"(exchange-timestamp bucketing broken)")
-        if v != w["v"]:
-            fails.append(f"m{i} volume {v}, want {w['v']} "
-                         f"(per-trade sizes are not being summed correctly)")
+        if abs(float(v) - float(w["v"])) > 1e-9:
+            fails.append(f"m{i} volume {v}, want {w['v']} (per-trade sizes are "
+                         f"not being summed correctly, or a fractional volume "
+                         f"was truncated to int)")
         if (o, h, l, c) != (w["o"], w["h"], w["l"], w["c"]):
             fails.append(f"m{i} OHLC {(o, h, l, c)}, want "
                          f"{(w['o'], w['h'], w['l'], w['c'])}")
@@ -1571,7 +1851,13 @@ def self_test() -> int:
     print(f"  had each size been int()'d per trade: "
           f"{[per_trade_int.get(i, 0) for i in range(3)]} vs correct "
           f"{[_WANT[i]['v'] for i in range(3)]}  "
-          f"(m2 agrees by coincidence — 1.0+2.0+0.5 truncates to the same 3)")
+          f"(every minute wrong, and m2 loses the 0.5 twice over — once per "
+          f"trade, once at the close)")
+    if [per_trade_int.get(i, 0) for i in range(3)] == [_WANT[i]["v"]
+                                                       for i in range(3)]:
+        fails.append("per-trade int() gives the SAME answer as summing floats "
+                     "on this tape — the tape no longer discriminates between "
+                     "the correct and the broken construction")
 
     # get_bars is the path every chart tool takes.
     live = ds.get_bars(_SCRATCH, "1m", None, 10)["bars"]
@@ -1580,8 +1866,10 @@ def self_test() -> int:
     if len(live) != 4:
         fails.append(f"get_bars returned {len(live)} bars, want 4 "
                      f"(3 closed + 1 forming)")
-    elif [b["v"] for b in live[:3]] != [_WANT[i]["v"] for i in range(3)]:
-        fails.append("get_bars volumes disagree with the store")
+    elif any(abs(float(b["v"]) - float(_WANT[i]["v"])) > 1e-9
+             for i, b in enumerate(live[:3])):
+        fails.append(f"get_bars volumes {[b['v'] for b in live[:3]]} disagree "
+                     f"with the store {[_WANT[i]['v'] for i in range(3)]}")
 
     # ---- 2. the same tape with kite_stream's delta logic applied ---
     print("\ncontrol (kite_stream's CUMULATIVE-DELTA logic applied to "
@@ -1831,7 +2119,76 @@ def self_test() -> int:
         fails.append("a client frame went out unmasked; every venue would "
                      "close the connection with 1002")
 
-    # ---- 8. cleanup, verified by querying rather than asserted ----
+    # ---- 8. the watchdog and the backoff, without a venue ---------
+    # Both are unattended-survival behaviour, so both need a test that does not
+    # depend on a venue misbehaving on cue. _NullSock never delivers a byte,
+    # which is exactly the failure the watchdog is for: a socket that is open
+    # and silent.
+    print("\nstall detector and reconnect policy:")
+    st = CryptoStream([_SCRATCH], venue=COINBASE, stale_after=1.0,
+                      fill_first=False)
+    st.symbols = [_SCRATCH]
+    st.records = {_SCRATCH: []}
+    st._ws = WSClient("wss://example.invalid/x")
+    st._ws._sock = _NullSock()
+    st._last_msg = time.time()
+    t0 = time.time()
+    try:
+        st._pump(COINBASE, None)
+        fails.append("the watchdog did NOT fire on a socket that never "
+                     "delivered a message")
+        print("  watchdog             -> DID NOT FIRE")
+    except _Reconnect as exc:
+        waited = time.time() - t0
+        print(f"  watchdog             -> fired after {waited:.1f}s: {exc}")
+        if waited < 1.0 or waited > 4.0:
+            fails.append(f"the watchdog fired after {waited:.1f}s with "
+                         f"stale_after=1.0; want ~1-2s")
+        if "silent" not in str(exc):
+            fails.append(f"the watchdog reason does not say what was silent: "
+                         f"{exc}")
+
+    # The backoff schedule, driven through the REAL run loop with a connect
+    # that always fails. Asserted as a sequence because the property that
+    # matters is the shape (doubling, then capped), not any one value.
+    naps: list[float] = []
+    st2 = CryptoStream([_SCRATCH], venue=COINBASE, fill_first=False)
+    st2.symbols = [_SCRATCH]
+    st2._open = lambda ven: (_ for _ in ()).throw(OSError("no route to host"))
+    def _fake_nap(secs, deadline, _n=naps, _s=st2):
+        _n.append(secs)
+        if len(_n) >= 8:
+            _s._stop = True
+    st2._nap = _fake_nap
+    st2.run(None)
+    print(f"  backoff on hard fail -> {naps}")
+    if naps != [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]:
+        fails.append(f"connect-failure backoff was {naps}, want doubling from "
+                     f"{_BACKOFF_START} capped at {_BACKOFF_CAP}")
+
+    # A venue that accepts the socket and drops it instantly must NOT reset the
+    # backoff — that is the hot loop the _HEALTHY_AFTER gate exists to stop.
+    naps2: list[float] = []
+    st3 = CryptoStream([_SCRATCH], venue=COINBASE, fill_first=False)
+    st3.symbols = [_SCRATCH]
+    st3._open = lambda ven: None
+    st3._pump = lambda ven, dl: (_ for _ in ()).throw(_Reconnect("instant close"))
+    st3._snapshot_get_bars = lambda: None
+    st3._close_socket = lambda: None
+    st3._drop_forming = lambda: 0
+    def _fake_nap2(secs, deadline, _n=naps2, _s=st3):
+        _n.append(secs)
+        if len(_n) >= 6:
+            _s._stop = True
+    st3._nap = _fake_nap2
+    st3.run(None)
+    print(f"  flapping connection  -> {naps2}")
+    if naps2 != [1.0, 2.0, 4.0, 8.0, 16.0, 30.0]:
+        fails.append(f"a connection that opens and instantly drops backed off "
+                     f"{naps2}, want doubling — resetting on _open() alone is "
+                     f"a 1-second hot loop against a venue in maintenance")
+
+    # ---- 9. cleanup, verified by querying rather than asserted ----
     _cleanup(*_ALL_SCRATCH)
     con = _connect_store()
     try:
