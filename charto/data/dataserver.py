@@ -7006,8 +7006,14 @@ _con = sqlite3.connect(DB_PATH, check_same_thread=False)
 # Measured on the 1h path: 250ms -> 185ms, and a full-symbol minute scan
 # 1548ms -> 867ms. mmap lets the OS page cache do the work instead of
 # copying every page through SQLite's own buffer.
-_con.execute("PRAGMA cache_size=-262144")      # 256 MB, negative = KiB
-_con.execute("PRAGMA mmap_size=4294967296")    # 4 GB window
+# Tunable because the right value depends on the host, not the code: a laptop
+# store is 13 GB against plenty of RAM, the VM store is 23 GB against 8 GB, and
+# there a cold symbol costs 6.24s against 0.74s warm (measured 2026-08-03 on
+# SBIN, 1h/4000 through nginx). Negative = KiB.
+_CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
+_MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
+_con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
+_con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 
 
