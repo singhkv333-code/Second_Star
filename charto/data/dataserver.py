@@ -7521,20 +7521,27 @@ def _driver_run(venue: str, drv) -> None:
     no-op once already — connected=false, zero messages, no error anywhere,
     which reads exactly like a dead venue.
     """
+    runner = getattr(drv, "run", None)
     try:
         ok = drv.start()
         if ok is False:
             logging.warning("charto live %s: every symbol refused", venue)
-            return
-        runner = getattr(drv, "run", None)
-        if callable(runner):
+        elif callable(runner):
             runner()
     except Exception as exc:                          # noqa: BLE001
         logging.warning("charto live driver %s stopped: %s", venue, exc)
+        ok = False
     finally:
-        with _DRIVER_GUARD:
-            if _DRIVERS.get(venue) is drv:
-                _DRIVERS.pop(venue, None)
+        # Only a driver whose blocking run() returned has actually finished.
+        # KiteStream has no run() — start() spawns its own reader and returns —
+        # so unregistering on fall-through deleted a LIVE stream from the
+        # registry: /live?status=1 reported {} while the socket kept ticking,
+        # stop had nothing to stop, and a second start would have opened a
+        # SECOND socket against the same API key.
+        if callable(runner) or ok is False:
+            with _DRIVER_GUARD:
+                if _DRIVERS.get(venue) is drv:
+                    _DRIVERS.pop(venue, None)
 
 
 def _live_status() -> dict:

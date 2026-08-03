@@ -35,7 +35,7 @@ does not stop charto's candles, and this file cannot wedge pivot's WS clients.
 
 WHAT THIS FEED IS, AND WHAT IT IS NOT
 -------------------------------------
-MODE_QUOTE delivers roughly ONE SNAPSHOT PER SECOND, not every trade. That is
+MODE_FULL delivers roughly ONE SNAPSHOT PER SECOND, not every trade. That is
 adequate for 1-minute OHLC — the OHLC of per-second snapshots approximates
 the OHLC of the underlying trades at minute resolution, and volume is exact
 because it is read off a cumulative counter rather than summed per trade. It
@@ -43,8 +43,9 @@ is NOT tick-by-tick. There is no aggressor side, no per-trade size, no bid/ask
 attribution of any print. Order flow, footprint, delta and cumulative-delta
 are therefore IMPOSSIBLE to construct from this feed — not merely unbuilt.
 Nothing downstream of this file may present them, and this file must not
-create the impression that a richer mode would fix it: MODE_FULL adds market
-depth snapshots, which is still not the trade tape.
+create the impression that a richer mode would fix it: FULL is the richest
+mode Kite offers and it adds market depth, which is a book snapshot and still
+not the trade tape.
 
 THE THREE MISMATCHES
 --------------------
@@ -114,7 +115,7 @@ class TickCursor:
     ticks: int = 0
     reseeds: int = 0                   # deltas deliberately dropped
     stale_drops: int = 0               # out-of-order cumulative readings ignored
-    dups: int = 0                      # unchanged counter (MODE_QUOTE repeats)
+    dups: int = 0                      # unchanged last_trade_time (snapshot repeat)
     no_ts: int = 0                     # ticks with no exchange clock
     closes: int = 0                    # minutes this symbol closed
     last_ts: int = 0                   # epoch of the last accepted tick
@@ -501,7 +502,7 @@ class KiteStream:
             return
         if self.dry_run:
             print(f"\ndry run: would subscribe {len(self.symbols)} symbol(s) "
-                  f"in MODE_QUOTE ({', '.join(self.symbols)}); "
+                  f"in MODE_FULL ({', '.join(self.symbols)}); "
                   f"no socket opened, no rows written")
             return
 
@@ -516,7 +517,7 @@ class KiteStream:
         # connect(threaded=True) returns immediately; kiteconnect owns the
         # reader thread and the reconnect loop.
         self._ticker.connect(threaded=True, disable_ssl_verification=False)
-        print(f"connected: {len(self._tok_to_sym)} symbol(s) in MODE_QUOTE")
+        print(f"connected: {len(self._tok_to_sym)} symbol(s) in MODE_FULL")
 
     def stop(self) -> None:
         with self._lock:
@@ -568,12 +569,39 @@ class KiteStream:
 
     # -- kite plumbing -------------------------------------------
     def _resolve_tokens(self, access_token: str) -> None:
+        """Resolve every family, not just NSE equities.
+
+        Resolving everything against "NSE" silently dropped four of five MCX
+        metals: GOLD is not an NSE tradingsymbol, it is a rolling MCX future
+        (GOLD26AUGFUT), and an index lives in the INDICES segment. The socket
+        opened with one symbol and reported success. backfill_macro.resolve
+        already does this properly — including the monthly-vs-weekly contract
+        rule that a dead weekly would otherwise satisfy — so it is imported
+        rather than reimplemented; a second copy is how the streamer and the
+        backfill end up subscribed to different contracts for one symbol.
+        """
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pivot"))
         from backend.kite.historical import _resolve_instrument_token
+        import backfill_macro as bm
+
+        macro = {s for s in self.symbols
+                 if s in bm.INDICES or s in bm.METALS or s in bm.CURRENCY}
+        if macro:
+            from backend.kite.auth import get_authenticated_kite
+            try:
+                for sym, tok, _is_fut in bm.resolve(
+                        get_authenticated_kite(access_token), macro):
+                    self._tok_to_sym[int(tok)] = sym
+                    self._sym_to_tok[sym] = int(tok)
+            except Exception as exc:                  # noqa: BLE001
+                print(f"  macro instrument resolve failed: {exc}")
         for sym in list(self.symbols):
+            if sym in self._sym_to_tok:
+                continue
             tok = _resolve_instrument_token(sym, "NSE", access_token)
             if tok is None:
-                self.refused[sym] = "no Kite instrument token for this symbol"
+                self.refused[sym] = ("no Kite instrument token for this symbol "
+                                     "on NSE, MCX-FUT, CDS-FUT or INDICES")
                 self.symbols.remove(sym)
                 continue
             self._tok_to_sym[int(tok)] = sym
@@ -616,12 +644,19 @@ class KiteStream:
 
     def _on_connect(self, ws: Any, _response: Any) -> None:
         toks = list(self._tok_to_sym)
-        # MODE_QUOTE, not MODE_FULL: depth adds bytes and buys nothing a
-        # 1-min candle can use, and not MODE_LTP because that has no volume
-        # counter at all.
+        # MODE_FULL, not MODE_QUOTE. The depth half of FULL is indeed useless
+        # to a 1-min candle, but FULL is the ONLY mode that carries
+        # exchange_timestamp and last_trade_time, and both are load-bearing
+        # here. Measured against live MCX on 2026-08-03, a QUOTE-mode run
+        # logged missing_exchange_ts=552 out of 552 ticks: every single bar was
+        # bucketed by the receiver's wall clock, so a lagging connection files
+        # trades into the wrong minute. last_trade_time also turns dedup from a
+        # guess into a fact — the same run counted 454 duplicate snapshots out
+        # of 552, which QUOTE mode gives no way to tell from real prints.
+        # MODE_LTP remains wrong for a different reason: no volume counter.
         try:
             ws.subscribe(toks)
-            ws.set_mode(ws.MODE_QUOTE, toks)
+            ws.set_mode(ws.MODE_FULL, toks)
         except Exception:               # noqa: BLE001
             log.exception("subscribe failed on connect")
             return
