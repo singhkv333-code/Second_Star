@@ -209,7 +209,17 @@
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--background); color: var(--foreground); font-family: var(--font);
-  font-size: var(--text-md); display: flex; flex-direction: column; height: 100vh;
+  font-size: var(--text-md); display: flex; flex-direction: column;
+  /* 100vh is the LARGE viewport — the height the page would have if the
+     mobile browser's address bar were retracted. It is not retracted, so on
+     a phone the shell was ~90px taller than the screen, and because this
+     element is also overflow:hidden there was no way to reach the bottom of
+     it: the composer sat half off the display and the status strip was gone
+     entirely. Desktop never showed it, having no retractable chrome.
+     100dvh is the height that is actually VISIBLE, and it re-measures when
+     the bar or the on-screen keyboard moves. vh first, as the fallback for
+     anything that does not know the unit. */
+  height: 100vh; height: 100dvh;
   overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased;
   transition: background var(--dur-slow) var(--ease-quartr),
               color var(--dur-slow) var(--ease-quartr);
@@ -451,7 +461,8 @@ select.is-dressed { display: none; }
   min-width: 224px; padding: 5px; display: none;
   /* a long menu (Indicators is 20 items) must scroll inside itself rather
      than run off the viewport — 48px header + the 6px gap + breathing room */
-  max-height: calc(100vh - 72px); overflow-y: auto; overscroll-behavior: contain;
+  max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px);
+  overflow-y: auto; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
 }
 /* The global 9px scrollbar runs corner to corner, so inside a 16px-radius
@@ -542,7 +553,8 @@ select.is-dressed { display: none; }
    dialog instead of scrolling sideways inside it. */
 .dlg {
   width: max-content; min-width: 380px;
-  max-width: min(560px, calc(100vw - 24px)); max-height: min(700px, 88vh);
+  max-width: min(560px, calc(100vw - 24px));
+  max-height: min(700px, 88vh); max-height: min(700px, 88dvh);
   display: flex; flex-direction: column;
   border-radius: 6px; overflow: hidden;
 }
@@ -1402,7 +1414,7 @@ body > footer .dotsep { color: var(--border); }
 
 .chat-empty {
   color: var(--faint); font-size: var(--text-lg); text-align: center;
-  margin-top: 22vh; line-height: 1.7;
+  margin-top: 22vh; margin-top: 22dvh; line-height: 1.7;
 }
 .chat-empty b { color: var(--muted-foreground); font-weight: var(--weight-display); }
 
@@ -1728,10 +1740,10 @@ body > footer .dotsep { color: var(--border); }
    the reply ran. */
 @media (max-width: 820px) and (orientation: portrait) {
   .main { flex-direction: column; }
-  .charts { flex: 1 1 auto; min-height: 44vh; }
+  .charts { flex: 1 1 auto; min-height: 44vh; min-height: 44dvh; }
   .chatpanel {
     width: 100%; min-width: 0; flex: none;
-    height: 46vh; min-height: 210px;
+    height: 46vh; height: 46dvh; min-height: 210px;
     border-left: 0; border-top: var(--seam-w) solid var(--seam);
   }
   .chatpanel.hidden { display: none; }
@@ -1912,6 +1924,12 @@ body > footer .dotsep { color: var(--border); }
   overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
 }
 .mbar::-webkit-scrollbar { display: none; }
+/* A bar with nothing in it reserves nothing. js/mobile.js fills this
+   element, and if it never runs — a stale cached icons.js, a 404, a browser
+   that chokes on the file — the phone was left with a blank 46px band under
+   the chart and no way to read it as anything but breakage. Empty means
+   gone, and the chart takes the space back. */
+.mbar:empty { display: none !important; }
 .mbtn {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
   height: 34px; min-width: 36px; padding: 0 10px; justify-content: center;
@@ -1945,7 +1963,7 @@ body > footer .dotsep { color: var(--border); }
 }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; flex-direction: column; max-height: 84vh;
+  display: flex; flex-direction: column; max-height: 84vh; max-height: 84dvh;
   /* --popover, not --card: the tiles inside are --muted, which IS --card in
      the dark theme — a plate the same colour as the panel it sits on is not
      a plate. The sheet steps back so its contents can step forward. */
@@ -2438,17 +2456,17 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/store.js?v=10"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
-  <script src="./js/icons.js?v=10"></script>
+  <script src="./js/icons.js?v=11"></script>
   <script src="./js/indicators.js?v=18"></script>
   <script src="./js/indsettings.js?v=6"></script>
   <script src="./js/geometry.js?v=8"></script>
   <script src="./js/tools.js?v=8"></script>
-  <script src="./js/drawings.js?v=12"></script>
+  <script src="./js/drawings.js?v=13"></script>
   <script src="./js/scene.js?v=22"></script>
-  <script src="./js/panes.js?v=11"></script>
-  <script src="./js/main.js?v=54"></script>
-  <script src="./js/chat.js?v=103"></script>
+  <script src="./js/panes.js?v=12"></script>
+  <script src="./js/main.js?v=55"></script>
+  <script src="./js/chat.js?v=104"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=1"></script>
+  <script src="./js/mobile.js?v=2"></script>
 </body>
 </html>
