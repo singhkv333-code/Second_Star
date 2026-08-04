@@ -21,9 +21,12 @@ Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import queue
+import secrets
 import sqlite3
 import sys
 from os import environ
@@ -247,6 +250,24 @@ def _scene_take() -> list[dict]:
     items = getattr(_scene, "items", [])
     _scene.items = []
     return items
+
+
+# A SEPARATE channel from the scene patch, deliberately. A scene op's `pane`
+# means an INDICATOR pane (the RSI strip under the price), and scene.apply()
+# will open one on demand for any op that names it. A chart pane is a different
+# thing entirely, so reusing that key would have had a request for a second
+# CHART quietly open an indicator strip instead. View ops move the workspace —
+# which charts exist, what each is showing — and nothing else.
+def _view_add(op: dict) -> None:
+    if not hasattr(_scene, "views"):
+        _scene.views = []
+    _scene.views.append(op)
+
+
+def _view_take() -> list[dict]:
+    ops = getattr(_scene, "views", [])
+    _scene.views = []
+    return ops
 
 
 # ── the user's drawings, addressable by id ────────────────────────
@@ -5209,6 +5230,268 @@ def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> 
     return out
 
 
+# ── get_deals: the disclosure record, by client or by symbol ───────────────
+#
+# Bulk (>0.5% of equity in a day) and block (negotiated window) deals are the
+# only place the buyer is named by law. This tool's job is to hand that record
+# back FAITHFULLY — it does not score, rank, filter or conclude. Three things
+# had to be got right for "faithfully" to be true:
+#
+#   1. Coverage. Answered off the hydrated copy, "what has this client bought"
+#      returns the few symbols that happen to be local and reads as the whole
+#      truth. The market sweep is preferred wherever attached, and whichever
+#      store answered is stated in the reply.
+#   2. Corporate actions. A 2017 RELIANCE deal printed at 1270.25; that same
+#      session's adjusted close is 294.70. Dividing today's price by the
+#      PRINTED one returns +3% where the truth is +344%. So every return here
+#      is close-to-close on the adjusted series, the printed price is labelled
+#      as printed, and the gap between them is a field — a corporate action
+#      should be visible, not quietly smoothed away.
+#   3. Selection. The return is computed for every deal returned, buy and
+#      sell alike. Showing it only where it flatters is how a record turns
+#      into a track record.
+_BLOCK_MIN_CHANGED = "2025-12-07"   # SEBI raised the block floor 10cr -> 25cr
+
+
+def _deal_clients(query: str, tbl: str) -> list[str]:
+    """Raw client strings whose normalised form contains the asked one.
+
+    One legal entity prints under many spellings ("SBI MUTUAL FUND",
+    "SBI MUTUAL FUND A/C ..."). Matching the raw string alone silently drops
+    rows, and a dropped row is exactly the failure this tool exists to avoid.
+    """
+    norm = lambda s: "".join(ch for ch in (s or "").upper() if ch.isalnum())  # noqa: E731
+    want = norm(query)
+    if not want:
+        return []
+    try:
+        return sorted({c for (c,) in _con.execute(
+            f"SELECT DISTINCT client FROM {tbl}") if want in norm(c)})
+    except sqlite3.Error:
+        return []
+
+
+def tool_get_deals(client: str = "", symbol: str = "", frm: str = "",
+                   to: str = "", limit: int = 40) -> dict:
+    """The bulk/block deal record — who traded, when, how much, at what price."""
+    tbl = "mkt.deals" if _HAVE_MKT else "deals"
+    sym = (symbol or "").strip().upper()
+    where, args = [], []
+    out: dict = {}
+
+    if client:
+        names = _deal_clients(client, tbl)
+        if not names:
+            return {"error": f"no client matching {client!r} in the deal record",
+                    "_read": "Say no deal is recorded under that name — do not "
+                             "guess at who they are or what they hold."}
+        where.append(f"client IN ({','.join('?' * len(names))})")
+        args += names
+        out["matched_client_names"] = names[:25]
+        if len(names) > 25:
+            out["matched_client_names_note"] = f"{len(names) - 25} more folded in"
+    if sym or not client:
+        where.append("symbol=?")
+        args.append(sym or _sym())
+    d0 = _iso_day(t) if (t := _parse_ist(frm)) else ""
+    d1 = _iso_day(t) if (t := _parse_ist(to)) else ""
+    if (frm and not d0) or (to and not d1):
+        return {"error": "could not read the date(s)",
+                "hint": "chart format, e.g. '01 Jul 2026'"}
+    if d0:
+        where.append("d>=?")
+        args.append(d0)
+    if d1:
+        where.append("d<=?")
+        args.append(d1)
+
+    n = max(1, min(int(limit or 40), 200))
+    try:
+        # Two passes, and both earn their place.
+        #   DISTINCT first: `deals` carries no primary key and a handful of
+        #   rows are exact repeats; a double-counted deal is a wrong answer.
+        #   GROUP BY second: one disclosed purchase arrives as many legs (SBI
+        #   MF's 18-Jun ANTHEM buy is 7 rows at one price). Handed the legs,
+        #   the model added them up itself and published 2,894,500 against a
+        #   true 2,694,616 — a fabricated quantity on the one surface whose
+        #   entire purpose is fidelity. Legs are summed HERE, in SQL, and the
+        #   count rides along so nothing is hidden by the folding.
+        rows = _con.execute(
+            f"SELECT d, symbol, kind, client, side, SUM(qty), "
+            f"       SUM(qty*price)/NULLIF(SUM(qty),0), COUNT(*) "
+            f"FROM (SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+            f"      FROM {tbl} WHERE {' AND '.join(where)}) "
+            f"GROUP BY d, symbol, kind, client, side "
+            f"ORDER BY d DESC, SUM(qty*price) DESC LIMIT ?",
+            (*args, n + 1)).fetchall()
+    except sqlite3.Error as exc:
+        return {"error": f"deal record unreadable: {exc}"}
+    if not rows:
+        return {"error": "no deals on record for that scope",
+                "_read": "Say plainly that none is recorded — silence here "
+                         "means none was PRINTED, not that none happened. "
+                         "Only deals crossing the disclosure threshold appear."}
+    more, rows = len(rows) > n, rows[:n]
+
+    # closes come from the adjusted daily series, never from the printed price
+    closes: dict[str, dict] = {}
+    for s in {r[1] for r in rows}:
+        try:
+            closes[s] = {_iso_day(ts): c for ts, c in _con.execute(
+                "SELECT ts, c FROM bars_1d WHERE symbol=? ORDER BY ts", (s,))}
+        except sqlite3.Error:
+            closes[s] = {}
+
+    deals, blocks, days = [], [], []
+    for d, s, kind, cl, side, qty, px, legs in rows:
+        val = (qty or 0) * (px or 0)
+        rec = {"date": d, "symbol": s, "type": kind, "client": cl,
+               "side": side, "qty": qty, "price_as_printed": px,
+               "value_cr": round(val / 1e7, 2)}
+        if legs > 1:
+            rec["legs"] = legs
+            rec["price_as_printed"] = round(px, 2) if px else px
+            rec["_legs_note"] = (f"{legs} disclosed legs, already summed here; "
+                                 f"price is quantity-weighted. Do not re-add.")
+        by_day = closes.get(s) or {}
+        c0 = by_day.get(d)
+        if c0:
+            last_d = max(by_day)
+            rec["close_on_date_adjusted"] = round(c0, 2)
+            if px:
+                rec["printed_vs_close_pct"] = round((px / c0 - 1) * 100, 1)
+            if last_d > d:
+                rec["return_close_to_latest_pct"] = round(
+                    (by_day[last_d] / c0 - 1) * 100, 1)
+                rec["latest_close_on"] = last_d
+        else:
+            rec["close_withheld"] = ("no local daily bar for this symbol on "
+                                     "this date — no return can be quoted")
+        if kind == "block":
+            blocks.append(d)
+        days.append(d)
+        deals.append(rec)
+
+    out["deals"] = deals
+    out["scope"] = {
+        "client": client or "any", "symbol": sym or (None if client else _sym()),
+        "from": d0 or "earliest on record", "to": d1 or "latest on record",
+        "returned": len(deals), "more_exist": more,
+        "source": ("market-wide deal sweep" if _HAVE_MKT
+                   else "LOCAL deal copy — hydrated symbols only, so a "
+                        "client's record here is INCOMPLETE; say so")}
+
+    if client:
+        try:
+            tot, gross, net, syms, lo, hi = _con.execute(
+                f"SELECT COUNT(*), SUM(qty*price), "
+                f"SUM(CASE WHEN side='BUY' THEN qty*price ELSE -qty*price END), "
+                f"COUNT(DISTINCT symbol), MIN(d), MAX(d) FROM "
+                f"(SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+                f" FROM {tbl} WHERE client IN ({','.join('?' * len(names))}))",
+                names).fetchone()
+            # over the WHOLE record, never the returned page: this block reads
+            # as a property of everything the client has done, and a share
+            # measured on one page of it would be a quietly wrong number.
+            sd, both = _con.execute(
+                f"SELECT COUNT(*), SUM(CASE WHEN n>1 THEN 1 ELSE 0 END) FROM "
+                f"(SELECT COUNT(DISTINCT side) n FROM "
+                f" (SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+                f"  FROM {tbl} WHERE client IN ({','.join('?' * len(names))})) "
+                f" GROUP BY symbol, d)", names).fetchone()
+            rc = {"deals_on_record": tot, "distinct_symbols": syms,
+                  "first": lo, "last": hi,
+                  "gross_traded_cr": round((gross or 0) / 1e7),
+                  "net_cr": round((net or 0) / 1e7)}
+            if gross:
+                rc["net_as_pct_of_gross"] = round(abs(net or 0) / gross * 100, 1)
+            rc.update(_rate("both_sides_same_day_pct", both or 0,
+                            (sd or 0) - (both or 0), "symbol-day"))
+            rc["_read"] = (
+                "Properties of this client's OWN record, not a judgement on "
+                "it. A near-zero net against a large gross, with both sides "
+                "traded on most symbol-days, is what a market maker's record "
+                "looks like; a large net across few deals is what a "
+                "one-directional buyer's does. State the numbers and let the "
+                "reader draw that line — do not label the client, and do not "
+                "leave the numbers out, which would read as endorsement.")
+            out["client_record"] = rc
+        except sqlite3.Error:
+            pass
+
+    notes = []
+    # only a comparison ACROSS the change can be misled by it, so the warning
+    # rides on the returned block deals straddling that date — not on merely
+    # having one.
+    if blocks and min(days) < _BLOCK_MIN_CHANGED <= max(days):
+        notes.append(
+            f"SEBI raised the block-deal floor from Rs10cr to Rs25cr on "
+            f"{_BLOCK_MIN_CHANGED} (band +/-1% -> +/-3%). Block counts and "
+            f"sizes are NOT comparable across that date; flow also shifted "
+            f"into bulk. Say so before comparing periods that span it.")
+    notes.append(
+        "price_as_printed is the raw traded price, unadjusted for splits and "
+        "bonuses; close_on_date_adjusted is the same session on the adjusted "
+        "series. A large printed_vs_close_pct is a corporate action since the "
+        "deal, not an error — never divide today's price by the printed one.")
+    out["data_notes"] = notes
+    out["_read"] = (
+        "This is a DISCLOSURE record: report what was traded, by whom, when, "
+        "and at what price, and stop there. Deals are published after market "
+        "hours on the trade date, so the market had the session before anyone "
+        "could read them. Do NOT turn a deal into a recommendation, do not "
+        "call it accumulation or distribution, do not infer intent, conviction "
+        "or a view from it, and do not imply the reader should follow it. "
+        "Where return_close_to_latest_pct is present it is part of the record "
+        "and belongs in the answer — SHOW it, for every deal that has one, "
+        "winners and losers alike, and say 'not available' for the rest. "
+        "Withholding it wherever it looks unflattering is the one way this "
+        "table can lie while every number in it stays true. It is arithmetic "
+        "on public closes between two stated dates: not a track record, not a "
+        "forecast, and not a verdict on the client. Never add up qty or value "
+        "across rows yourself — a summed row already says so in `legs`, and "
+        "totals not present here must not be published. When more_exist is "
+        "true say these are the most recent N, not that they are all of them. "
+        "Only trades crossing the disclosure threshold appear at all, so this "
+        "is never the whole of what an investor did.")
+    return out
+
+
+# ── open_chart: the model arranges the workspace itself ────────────────────
+#
+# Every other tool READS a chart the user opened. This one puts one on screen.
+# It is deliberately the only tool that does, and it validates before it
+# promises: a symbol that will not hydrate must fail HERE, as a refusal the
+# model can relay, rather than as a pane that opens empty on the user's screen
+# while the reply says the chart is ready.
+_OPEN_INTERVALS = {"1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"}
+
+
+def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
+                    layout: str = "") -> dict:
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return {"error": "which symbol should the chart show?"}
+    iv = (interval or "").strip() or "1d"
+    if iv not in _OPEN_INTERVALS:
+        return {"error": f"unknown interval {interval!r}",
+                "allowed": sorted(_OPEN_INTERVALS)}
+    if err := _ensure_symbol(sym):
+        return err          # the pane is never opened on a symbol with no bars
+    op = {"kind": "open_chart", "symbol": sym, "interval": iv,
+          "replace": bool(replace)}
+    if layout:
+        op["layout"] = layout
+    _view_add(op)
+    return {"opened": sym, "interval": iv,
+            "placement": "replaced the focused chart" if replace
+                         else "added a pane; the layout grows to fit",
+            "_read": "The chart is now on screen. Say so in a few words and "
+                     "answer whatever was actually asked — do not describe the "
+                     "layout mechanics, and do not claim to see anything on it "
+                     "that you have not read with a tool."}
+
+
 # ── search_news: the outside world, behind a thin function tool ────────────
 #
 # The hosted web_search_preview costs ~4,300 input tokens merely to be
@@ -5858,6 +6141,22 @@ TOOLS = [
          "to": {"type": "string", "description": "window end; omit for one day"},
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
+    {"type": "function", "name": "open_chart",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
+         "replace": {"type": "boolean", "description": "true = swap the focused chart's symbol instead of adding a pane"}},
+      "required": ["symbol"]}},
+    {"type": "function", "name": "get_deals",
+     "description": "The bulk/block deal DISCLOSURE record — who traded a stock, on what date, how much, and at what price, as published by the exchange. Bulk and block deals are the only place the counterparty is named by law. Two axes: pass client to follow ONE named entity across every stock it has traded ('what has SBI Mutual Fund bought', 'has GQG been selling', 'show me Fidelity's deals'), or omit client to get the deals printed on the current chart's symbol ('any big deals in this name', 'who bought this stock'). Client names are matched loosely across spelling variants and every variant folded in is listed back. Returns each deal with its printed price, that session's split/bonus-adjusted close, and the close-to-latest return, computed for every deal shown, buys and sells alike. This tool REPORTS the record; it does not rank, score or filter it, and a deal is never a recommendation.",
+     "parameters": {"type": "object", "properties": {
+         "client": {"type": "string", "description": "name or fragment of the trading entity, e.g. 'SBI Mutual Fund', 'GQG', 'Fidelity'"},
+         "symbol": {"type": "string", "description": "restrict to one symbol; omit to use the current chart's symbol when no client is given"},
+         "frm": {"type": "string", "description": "window start, chart format e.g. '01 Jul 2026'"},
+         "to": {"type": "string", "description": "window end"},
+         "limit": {"type": "integer", "description": "deals returned, default 40, max 200"}},
+      "required": []}},
     {"type": "function", "name": "search_news",
      "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search_news call per turn. Returns events with dates and sources, never numbers.",
      "parameters": {"type": "object", "properties": {
@@ -6199,7 +6498,9 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_results": tool_evaluate_results,
              "explain_move": tool_explain_move,
              "search_news": tool_search_news,
-             "get_flows": tool_get_flows}
+             "get_flows": tool_get_flows,
+             "get_deals": tool_get_deals,
+             "open_chart": tool_open_chart}
 
 
 # ── which chart a tool reads ────────────────────────────────────────────────
@@ -6725,6 +7026,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
+    view_ops: list[dict] = []
     tok_in = tok_out = 0
     for _round in range(_MAX_TOOL_ROUNDS):
         # On the final round the tools are withdrawn, so the model must answer
@@ -6752,6 +7054,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 "context_preview": block,
                 "tools_used": tool_trace,
                 "scene_patch": scene_patch,
+                "view_ops": view_ops,
             }
 
         # execute every call this round, then feed results back
@@ -6763,6 +7066,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 args = {}
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
+            view_ops.extend(_view_take())
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
@@ -6799,6 +7103,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
+    view_ops: list[dict] = []
     tok_in = tok_out = 0
 
     for _round in range(_MAX_TOOL_ROUNDS):
@@ -6841,7 +7146,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
-                   "scene_patch": scene_patch}
+                   "scene_patch": scene_patch, "view_ops": view_ops}
             return
 
         for call in calls:
@@ -6852,6 +7157,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 args = {}
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
+            view_ops.extend(_view_take())
             ok = "error" not in result
             tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
             # tell the client immediately: a tool landing is the only progress
@@ -6866,7 +7172,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
            "text": "I couldn't finish that lookup — try narrowing the question.",
            "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
            "context_preview": block, "tools_used": tool_trace,
-           "scene_patch": scene_patch}
+           "scene_patch": scene_patch, "view_ops": view_ops}
 
 
 IST_OFF = 19800  # +05:30
@@ -7014,7 +7320,232 @@ _CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
 _MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
 _con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
 _con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
+
+# The served store carries deals only for symbols that have hydrated (41 of
+# them, 1.7k rows). The market-wide sweep is 153k rows over 3,446 symbols,
+# and the difference is not cosmetic: asked what one client has bought, the
+# hydrated copy answers with the handful that happen to be local and reads
+# as the whole truth. Under-disclosure is the one failure this surface
+# cannot have, so the sweep is attached read-only and preferred when there.
+#
+# Attached by PLAIN path, not by a `file:...?mode=ro` URI. URI filenames are a
+# compile-time option and this venv's SQLite (3.39.4) has them off — there the
+# URI is taken as a LITERAL filename, so the attach "succeeds" against a newly
+# created empty database and leaves a file called `file:flows_market.db?mode=ro`
+# on disk. A read-only flag that silently invents an empty store is worse than
+# no flag: what actually keeps this read-only is that nothing writes to `mkt.`.
+# Hence the probe below — an attach that cannot see `deals` is detached again
+# rather than left to answer questions with nothing in it.
+_MKT_PATH = Path(__file__).parent / "flows_market.db"
+_HAVE_MKT = False
+try:
+    if _MKT_PATH.exists():
+        _con.execute("ATTACH DATABASE ? AS mkt", (str(_MKT_PATH),))
+        _HAVE_MKT = bool(_con.execute("SELECT 1 FROM mkt.deals LIMIT 1").fetchone())
+        if not _HAVE_MKT:
+            _con.execute("DETACH DATABASE mkt")
+except sqlite3.Error as exc:  # noqa: BLE001 — absent sweep degrades, never kills
+    logging.warning("market flows attach failed: %s", exc)
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
+
+
+# ── accounts, sessions and saved work ──────────────────────────────────────
+#
+# A SEPARATE database, and that is the whole point. charto_bars.db is a 9.7 GB
+# derived store — rebuilt from the blob universe, re-synced, occasionally
+# dropped and re-imported. Accounts and a user's saved layouts are the only
+# data here that CANNOT be regenerated from an upstream source, so they must
+# not share a file with the one that gets thrown away and rebuilt.
+#
+# Auth is a bearer token, not a cookie. The chart is served from :5173 and this
+# API answers on :5174 — cross-origin, where a cookie needs SameSite=None plus
+# Secure plus an echoed origin plus Allow-Credentials, and still behaves
+# differently across browsers on plain http. A token in an Authorization
+# header needs none of that. The trade is honest: a bearer token in
+# localStorage is readable by any XSS on the page, where an HttpOnly cookie
+# would not be. For a locally-served analysis tool that is the right side of
+# the trade; if this is ever hosted for real, revisit it.
+_USERS_PATH = Path(__file__).parent / "charto_users.db"
+_users = sqlite3.connect(_USERS_PATH, check_same_thread=False)
+_users.execute("PRAGMA journal_mode=WAL")
+_users.executescript("""
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT,
+  pw_hash BLOB NOT NULL,
+  pw_salt BLOB NOT NULL,
+  created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+-- one row per (user, symbol, key): the chat transcript, the scene the chat
+-- drew, the drawings, the volume-profile window. Exactly the keys Store
+-- already scopes by symbol in localStorage, so the FE contract is unchanged.
+CREATE TABLE IF NOT EXISTS workspace_state (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  symbol TEXT NOT NULL,
+  key TEXT NOT NULL,
+  json TEXT NOT NULL,
+  updated INTEGER NOT NULL,
+  PRIMARY KEY (user_id, symbol, key));
+CREATE TABLE IF NOT EXISTS layouts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  spec TEXT NOT NULL,
+  updated INTEGER NOT NULL,
+  UNIQUE (user_id, name));
+""")
+_users_lock = threading.Lock()
+
+_SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
+_SESSION_TTL = 30 * 86400
+
+
+def _pw_hash(password: str, salt: bytes) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT, dklen=32)
+
+
+def _user_public(row: tuple) -> dict:
+    return {"id": row[0], "email": row[1], "name": row[2]}
+
+
+def _auth_user(headers) -> tuple | None:
+    """The user behind an Authorization: Bearer token, or None.
+
+    Touches last_seen so an active session does not expire under someone who
+    is plainly still using it.
+    """
+    raw = headers.get("Authorization") or ""
+    if not raw.startswith("Bearer "):
+        return None
+    tok, now = raw[7:].strip(), int(time.time())
+    with _users_lock:
+        row = _users.execute(
+            "SELECT u.id, u.email, u.name, s.created FROM sessions s "
+            "JOIN users u ON u.id = s.user_id WHERE s.token=?", (tok,)).fetchone()
+        if not row or now - row[3] > _SESSION_TTL:
+            if row:
+                _users.execute("DELETE FROM sessions WHERE token=?", (tok,))
+                _users.commit()
+            return None
+        _users.execute("UPDATE sessions SET last_seen=? WHERE token=?", (now, tok))
+        _users.commit()
+    return row[:3]
+
+
+def _issue_session(user_id: int) -> str:
+    tok, now = secrets.token_urlsafe(32), int(time.time())
+    with _users_lock:
+        _users.execute("INSERT INTO sessions VALUES (?,?,?,?)",
+                       (tok, user_id, now, now))
+        _users.commit()
+    return tok
+
+
+def _auth_signup(body: dict) -> tuple[int, dict]:
+    email = str(body.get("email") or "").strip().lower()
+    pw = str(body.get("password") or "")
+    name = (str(body.get("name") or "").strip() or None)
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return 400, {"error": "enter a valid email address"}
+    if len(pw) < 8:
+        return 400, {"error": "password must be at least 8 characters"}
+    salt = secrets.token_bytes(16)
+    now = int(time.time())
+    try:
+        with _users_lock:
+            cur = _users.execute(
+                "INSERT INTO users (email, name, pw_hash, pw_salt, created) "
+                "VALUES (?,?,?,?,?)",
+                (email, name, _pw_hash(pw, salt), salt, now))
+            _users.commit()
+            uid = cur.lastrowid
+    except sqlite3.IntegrityError:
+        return 409, {"error": "an account already exists for that email"}
+    return 200, {"token": _issue_session(uid),
+                 "user": {"id": uid, "email": email, "name": name}}
+
+
+def _auth_login(body: dict) -> tuple[int, dict]:
+    email = str(body.get("email") or "").strip().lower()
+    pw = str(body.get("password") or "")
+    with _users_lock:
+        row = _users.execute(
+            "SELECT id, email, name, pw_hash, pw_salt FROM users WHERE email=?",
+            (email,)).fetchone()
+    # The same reply and the same work either way: branching early on "no such
+    # user" tells an attacker which emails are registered, and skipping the
+    # hash makes that difference measurable on the clock as well.
+    salt = row[4] if row else secrets.token_bytes(16)
+    want = row[3] if row else b"\0" * 32
+    if not hmac.compare_digest(_pw_hash(pw, salt), want):
+        return 401, {"error": "email or password is incorrect"}
+    return 200, {"token": _issue_session(row[0]), "user": _user_public(row)}
+
+
+# ── saved work: per-symbol workspace state, and named layouts ──────────────
+#
+# workspace_state mirrors exactly what Store already keeps in localStorage
+# (chat / scene / vp / drawings, scoped by symbol) so signing in changes WHERE
+# the same shape is kept, not what it is. Logged out, the FE keeps using
+# localStorage and nothing here is reached.
+
+def _ws_get(uid: int, symbol: str) -> dict:
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT key, json FROM workspace_state WHERE user_id=? AND symbol=?",
+            (uid, symbol)).fetchall()
+    out = {}
+    for k, blob in rows:
+        try:
+            out[k] = json.loads(blob)
+        except ValueError:      # a corrupt blob must not take the workspace down
+            logging.warning("charto: unreadable workspace %s/%s/%s", uid, symbol, k)
+    return out
+
+
+def _ws_put(uid: int, symbol: str, state: dict) -> int:
+    now, n = int(time.time()), 0
+    with _users_lock:
+        for k, v in (state or {}).items():
+            _users.execute(
+                "INSERT INTO workspace_state VALUES (?,?,?,?,?) "
+                "ON CONFLICT(user_id, symbol, key) DO UPDATE SET "
+                "json=excluded.json, updated=excluded.updated",
+                (uid, symbol, str(k), json.dumps(v), now))
+            n += 1
+        _users.commit()
+    return n
+
+
+def _layouts_list(uid: int) -> list[dict]:
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT id, name, updated FROM layouts WHERE user_id=? "
+            "ORDER BY updated DESC", (uid,)).fetchall()
+    return [{"id": i, "name": nm, "updated": u} for i, nm, u in rows]
+
+
+def _layout_save(uid: int, name: str, spec: dict) -> tuple[int, dict]:
+    name = (name or "").strip()
+    if not name:
+        return 400, {"error": "a layout needs a name"}
+    now = int(time.time())
+    with _users_lock:
+        _users.execute(
+            "INSERT INTO layouts (user_id, name, spec, updated) VALUES (?,?,?,?) "
+            "ON CONFLICT(user_id, name) DO UPDATE SET "
+            "spec=excluded.spec, updated=excluded.updated",
+            (uid, name, json.dumps(spec or {}), now))
+        _users.commit()
+        lid = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
+                             (uid, name)).fetchone()[0]
+    return 200, {"id": lid, "name": name, "updated": now}
 
 
 def _ist_day(ts: int, tz_off: int = IST_OFF) -> int:
@@ -7621,6 +8152,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
+        """Accounts and saved work. Everything past /auth/* needs a session."""
+        if path == "/auth/signup":
+            return _auth_signup(body)
+        if path == "/auth/login":
+            return _auth_login(body)
+        if path == "/auth/logout":
+            raw = self.headers.get("Authorization") or ""
+            if raw.startswith("Bearer "):
+                with _users_lock:
+                    _users.execute("DELETE FROM sessions WHERE token=?",
+                                   (raw[7:].strip(),))
+                    _users.commit()
+            return 200, {"ok": True}          # logging out is never an error
+        me = _auth_user(self.headers)
+        if not me:
+            return 401, {"error": "sign in to save your work"}
+        if path == "/workspace":
+            sym = str(body.get("symbol") or "").upper()
+            if not sym:
+                return 400, {"error": "symbol required"}
+            return 200, {"saved": _ws_put(me[0], sym, body.get("state") or {})}
+        if path == "/layouts":
+            if body.get("delete"):
+                with _users_lock:
+                    _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
+                                   (me[0], str(body.get("name") or "")))
+                    _users.commit()
+                return 200, {"ok": True}
+            return _layout_save(me[0], str(body.get("name") or ""),
+                                body.get("spec") or {})
+        return 404, {"error": "not found"}
+
     def _send_stream(self, messages: list, context: dict | None) -> None:
         """SSE. No Content-Length and no buffering — the whole point is that
         the first token reaches the screen before the turn is finished."""
@@ -7861,6 +8425,35 @@ class Handler(BaseHTTPRequestHandler):
                 if q.get("only") == "history":
                     return self._send(200, company_history(symbol, rng))
                 return self._send(200, company_page(symbol, rng))
+            if u.path in ("/auth/me", "/workspace", "/layouts"):
+                me = _auth_user(self.headers)
+                if not me:
+                    # /auth/me answers "nobody" rather than failing: the FE asks
+                    # it on boot to decide which UI to paint, and a 401 there is
+                    # an answer, not a fault.
+                    return self._send(200 if u.path == "/auth/me" else 401,
+                                      {"user": None} if u.path == "/auth/me"
+                                      else {"error": "sign in to load your work"})
+                if u.path == "/auth/me":
+                    return self._send(200, {"user": _user_public(me)})
+                if u.path == "/layouts":
+                    q = parse_qs(u.query)
+                    name = (q.get("name") or [""])[0]
+                    if not name:
+                        return self._send(200, {"layouts": _layouts_list(me[0])})
+                    with _users_lock:
+                        row = _users.execute(
+                            "SELECT name, spec, updated FROM layouts "
+                            "WHERE user_id=? AND name=?", (me[0], name)).fetchone()
+                    if not row:
+                        return self._send(404, {"error": f"no layout named {name!r}"})
+                    return self._send(200, {"name": row[0], "updated": row[2],
+                                            "spec": json.loads(row[1])})
+                sym = (parse_qs(u.query).get("symbol") or [""])[0].upper()
+                if not sym:
+                    return self._send(400, {"error": "symbol required"})
+                return self._send(200, {"symbol": sym,
+                                        "state": _ws_get(me[0], sym)})
             if u.path == "/meta":
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",
@@ -7879,11 +8472,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, Authorization")
         self.end_headers()
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            return self._send(*self._account_post(u.path, body))
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:

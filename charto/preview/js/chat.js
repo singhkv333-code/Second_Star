@@ -611,6 +611,20 @@
       if (d.error) throw new Error(d.error);
       lastBlock = d.context_preview || "(no chart context sent)";
 
+      // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
+      // chart this same turn opened, and applying the patch first would draw
+      // it onto whatever pane happened to be there.
+      if (d.view_ops && d.view_ops.length && window.__charto?.panes) {
+        for (const op of d.view_ops) {
+          if (op.kind !== "open_chart") continue;
+          try {
+            window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
+          } catch (e) {
+            console.warn("[charto] open_chart failed", op, e);
+          }
+        }
+      }
+
       // apply anything the model chose to draw
       if (d.scene_patch && d.scene_patch.length && window.__charto) {
         window.__charto.scene.apply(d.scene_patch);

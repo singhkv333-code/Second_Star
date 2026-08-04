@@ -1871,9 +1871,147 @@ body > footer .dotsep { color: var(--border); }
   .splitter::after { inset: -7px 0; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   AUTH — shadcn's login-03 block, in this stylesheet's own vocabulary
+   ──────────────────────────────────────────────────────────────────────────
+   login-03 is the muted-background variant: the form centred in the viewport,
+   the wordmark above the card, one column. It is the block that survives the
+   translation out of React intact, because its whole structure is
+   Card > CardHeader(Title + Description) > CardContent(Field*) > CardFooter —
+   and .surface, .btn, .input and .checkbox here already ARE those primitives.
+   So nothing below invents a component; it composes the ones the app is
+   already built from, which is also why the login inherits both themes and
+   the focus ring for free.
+
+   .field / .label are added as GENERAL primitives rather than auth-only ones:
+   a labelled control is the one shadcn primitive this stylesheet had no name
+   for, and the indicator dialogs hand-roll it today.
+   ══════════════════════════════════════════════════════════════════════════ */
+.field { display: flex; flex-direction: column; gap: 7px; }
+/* `display: flex` outranks the UA stylesheet's `[hidden] { display: none }`,
+   so the Name field stayed on screen through sign-in mode with the attribute
+   dutifully set. Any component given a display here has to say this itself. */
+.field[hidden] { display: none; }
+.label {
+  font-size: 13.5px; font-weight: 550; color: var(--foreground);
+  letter-spacing: -0.005em;
+}
+.label .hint { font-weight: 400; color: var(--muted-foreground); }
+
+.auth-screen {
+  position: fixed; inset: 0; z-index: 200;
+  display: none; place-items: center;
+  padding: 24px; overflow-y: auto;
+  background: var(--background);
+}
+.auth-screen.open { display: grid; }
+/* The muted wash that names the variant. Kept as a soft radial rather than a
+   flat --muted fill: on the true-black dark theme a flat panel behind a
+   --card panel reads as a seam, not as depth. */
+.auth-screen::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%,
+              var(--primary-soft), transparent 70%);
+}
+.auth-wrap {
+  position: relative; width: 100%; max-width: 384px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+.auth-brand {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.03em;
+  color: var(--foreground);
+}
+.auth-brand .dot { color: var(--primary); }
+.auth-card { padding: 26px 26px 24px; }
+.auth-head { display: flex; flex-direction: column; gap: 5px; margin-bottom: 20px; }
+.auth-title { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.auth-desc { font-size: 13.5px; color: var(--muted-foreground); line-height: 1.45; }
+.auth-body { display: flex; flex-direction: column; gap: 15px; }
+.auth-card .input { width: 100%; height: 38px; }
+.auth-foot { display: flex; flex-direction: column; gap: 13px; margin-top: 21px; }
+.auth-foot .btn.cta { width: 100%; height: 38px; justify-content: center; }
+.auth-alt {
+  text-align: center; font-size: 13px; color: var(--muted-foreground);
+}
+.auth-alt button {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: var(--foreground); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--faint);
+}
+.auth-alt button:hover { text-decoration-color: var(--foreground); }
+/* The error is a REGION, announced, and it reserves no space when empty —
+   a form that jumps by a line the first time you get the password wrong is
+   the same bug as a chart that reflows when a tooltip opens. */
+.auth-error {
+  display: none; font-size: 13px; line-height: 1.4;
+  color: var(--down); background: var(--down-soft);
+  border: 1px solid color-mix(in srgb, var(--down) 30%, transparent);
+  border-radius: var(--radius-sm); padding: 9px 11px;
+}
+.auth-error.show { display: block; }
+.auth-note {
+  position: relative; text-align: center; font-size: 12.5px;
+  color: var(--muted-foreground); line-height: 1.5;
+}
+/* A skipped sign-in is a real choice here: charto works fully signed out, it
+   just keeps your work in this browser instead of your account. */
+.auth-skip { margin-top: -4px; }
+
 </style>
 </head>
 <body>
+  <!-- Auth. One card, two modes: the fields that differ are hidden rather
+       than rebuilt, so switching between sign-in and sign-up keeps whatever
+       you have already typed. -->
+  <div class="auth-screen" id="authScreen" role="dialog" aria-modal="true"
+       aria-labelledby="authTitle">
+    <div class="auth-wrap">
+      <div class="auth-brand">Charto<span class="dot">.</span></div>
+      <div class="surface auth-card">
+        <form id="authForm" novalidate>
+          <div class="auth-head">
+            <div class="auth-title" id="authTitle">Sign in</div>
+            <div class="auth-desc" id="authDesc">
+              Your charts, drawings and conversations, on every device.
+            </div>
+          </div>
+          <div class="auth-body">
+            <div class="auth-error" id="authError" role="alert" aria-live="polite"></div>
+            <div class="field" id="authNameField" hidden>
+              <label class="label" for="authName">Name <span class="hint">(optional)</span></label>
+              <input class="input" id="authName" type="text" autocomplete="name" />
+            </div>
+            <div class="field">
+              <label class="label" for="authEmail">Email</label>
+              <input class="input" id="authEmail" type="email" required
+                     autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div class="field">
+              <label class="label" for="authPassword">Password</label>
+              <input class="input" id="authPassword" type="password" required
+                     autocomplete="current-password" placeholder="••••••••" />
+            </div>
+          </div>
+          <div class="auth-foot">
+            <button class="btn cta" id="authSubmit" type="submit">Sign in</button>
+            <div class="auth-alt">
+              <span id="authAltText">New to Charto?</span>
+              <button type="button" id="authToggle">Create an account</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="auth-note auth-skip">
+        <button type="button" id="authSkip"
+                style="background:none;border:0;padding:0;cursor:pointer;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:3px;">
+          Continue without an account
+        </button>
+        — your work stays in this browser only.
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="brand">Charto<span class="dot">.</span></div>
     <div class="menu-wrap">
@@ -2010,6 +2148,7 @@ body > footer .dotsep { color: var(--border); }
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="./js/auth.js?v=1"></script>
   <script src="./js/store.js?v=10"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
@@ -2020,8 +2159,8 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/tools.js?v=8"></script>
   <script src="./js/drawings.js?v=12"></script>
   <script src="./js/scene.js?v=22"></script>
-  <script src="./js/panes.js?v=7"></script>
-  <script src="./js/main.js?v=53"></script>
-  <script src="./js/chat.js?v=102"></script>
+  <script src="./js/panes.js?v=11"></script>
+  <script src="./js/main.js?v=54"></script>
+  <script src="./js/chat.js?v=103"></script>
 </body>
 </html>

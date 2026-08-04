@@ -2229,5 +2229,5 @@
   })();
 
   window.__charto = { chart, candle, state, draw, ind, scene, pins,
-                      getChartContext, charts: chartList };
+                      getChartContext, charts: chartList, panes: Panes };
 })();

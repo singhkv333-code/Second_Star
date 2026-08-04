@@ -496,6 +496,22 @@ const Panes = (() => {
     window.addEventListener("pointerup", up);
   }
 
+  /** Point a pane at (symbol, interval) — both, in an order that survives.
+   *
+   *  Doing it as `s.load(iv); s.setSymbol(sym)` looks right and is not:
+   *  setSymbol fires its OWN load at whatever `sub.interval` still says, and
+   *  because neither call is awaited that second load races the first and
+   *  usually wins. Asked for TCS on the daily, the pane opened on 1h — the
+   *  ladder default for pane 1. The interval is therefore applied only once
+   *  the symbol's own load has settled.
+   */
+  function retarget(sub, symbol, interval) {
+    const done = sub.setSymbol(symbol);
+    if (!interval) return done;
+    return Promise.resolve(done).then(
+      () => (sub.interval === interval ? undefined : sub.load(interval)));
+  }
+
   function apply(next) {
     if (!gridEl) return;
     /* A persisted id from an older build (or a typo) must not leave the grid
@@ -599,5 +615,54 @@ const Panes = (() => {
     },
     onChange(fn) { onChangeSubs.push(fn); },
     onActive(fn) { onActiveSubs.push(fn); },
+
+    /** Open an instrument in a pane — the chat's own hands on the workspace.
+     *
+     *  Growing means moving to the first catalogue layout with one more pane
+     *  (2 → "c2", 3 → "c3", 4 → "g22"), because SPECS is already ordered by
+     *  pane count and the first of each group is the one a person would have
+     *  picked from the menu. At the catalogue's ceiling the newest chart
+     *  replaces the focused pane instead of silently doing nothing.
+     *
+     *  `apply` rebuilds every secondary from scratch, so the symbols already
+     *  on screen are captured BEFORE the rebuild and restored after it —
+     *  without that, opening a third chart reset the second one to the page's
+     *  own ticker.
+     */
+    openChart(symbol, interval, replace) {
+      const sym = String(symbol || "").toUpperCase();
+      if (!sym) return null;
+      const iv = String(interval || "") || "1d";
+      if (replace) {
+        const s = this.activeSub();
+        // The primary chart's symbol is the PAGE's symbol (?symbol=…), and
+        // charto treats opening a company as a fresh session. Faking it in
+        // place would leave the URL, the store scope and the chart disagreeing.
+        if (!s) { location.search = `?symbol=${encodeURIComponent(sym)}`; return sym; }
+        retarget(s, sym, iv);
+        return sym;
+      }
+      const want = LAYOUTS[layout].panes + 1;
+      const grown = (SPECS.find(([id]) => LAYOUTS[id].panes === want) || [])[0];
+      if (!grown) {                       // at the ceiling: reuse the focused pane
+        return this.openChart(sym, iv, true);
+      }
+      const keep = subs.map((s) => ({ symbol: s.symbol, interval: s.interval }));
+      apply(grown);
+      // Same sequencing rule as the new pane, and for the same reason: these
+      // restores raced each other and swapped the two panes' intervals.
+      keep.forEach((k, i) => {
+        if (subs[i] && k.symbol) retarget(subs[i], k.symbol, k.interval);
+      });
+      const fresh = subs[subs.length - 1];
+      if (fresh) {
+        // Selection FIRST. setActive re-syncs the toolbar onto the pane it
+        // selects, so running it after the interval load put the pane back on
+        // its ladder default — INFY asked for 1h and opened on D.
+        setActive(subs.length);           // the new chart is what you're now on
+        retarget(fresh, sym, iv);
+      }
+      return sym;
+    },
   };
 })();
