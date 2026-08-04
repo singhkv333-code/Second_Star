@@ -428,6 +428,57 @@ const Drawings = (() => {
       }
     });
 
+    /* ── touch, for the phone ────────────────────────────────────────────
+     * The three handlers above are mouse-only, which was fine while the
+     * drawing rail was a desktop affordance. The phone toolbar can arm a
+     * tool now, so a finger has to be able to place it — otherwise the
+     * toolbar offers something the chart will not honour, which is worse
+     * than not offering it.
+     *
+     * Bridged, not reimplemented: a touch is replayed as the same mouse
+     * event on the same element, so there is one placement state machine
+     * and a phone cannot drift from a desktop.
+     *
+     * CAPTURE phase, and only while a tool is armed or a draft is open.
+     * lightweight-charts binds its own touch handlers on the canvas below —
+     * taking the gesture before they see it is what stops the chart panning
+     * out from under an anchor. In cursor mode nothing is intercepted at
+     * all, so a finger pans and pinches exactly as it did.
+     */
+    (function touchToMouse() {
+      let live = false;
+      const armed = () => state.tool !== "cursor" || !!state.draft;
+      const relay = (type, touch) => {
+        if (!touch) return;
+        el.dispatchEvent(new MouseEvent(type, {
+          clientX: touch.clientX, clientY: touch.clientY,
+          bubbles: false, cancelable: true, button: 0,
+        }));
+      };
+      const opts = { capture: true, passive: false };
+      el.addEventListener("touchstart", (e2) => {
+        live = armed() && e2.touches.length === 1;   // a pinch is never a draw
+        if (!live) return;
+        e2.preventDefault(); e2.stopPropagation();
+        relay("mousedown", e2.touches[0]);
+      }, opts);
+      el.addEventListener("touchmove", (e2) => {
+        if (!live) return;
+        e2.preventDefault(); e2.stopPropagation();
+        relay("mousemove", e2.touches[0]);
+      }, opts);
+      const end = (e2) => {
+        if (!live) return;
+        e2.preventDefault(); e2.stopPropagation();
+        // the drag-draw test in mouseup reads the draft's own anchors, which
+        // the last move already placed — so this is just the release
+        relay("mouseup", e2.changedTouches[0]);
+        live = false;
+      };
+      el.addEventListener("touchend", end, opts);
+      el.addEventListener("touchcancel", end, opts);
+    })();
+
     function commit() {
       const d = state.draft;
       state.draft = null;

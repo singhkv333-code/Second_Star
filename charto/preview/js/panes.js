@@ -276,12 +276,14 @@ const Panes = (() => {
         + `<span class="sep">·</span><span class="ex">${d.venue}</span>`;
       if (!b) { ohlcEl.innerHTML = ""; return; }
       const cls = b.close >= b.open ? "up" : "down";
+      // same per-figure classes the primary legend uses — a phone hides the
+      // same four figures here, or a split would keep the row this width
       ohlcEl.innerHTML =
-        `<span>O <b class="${cls}">${fmt(b.open)}</b></span>` +
-        `<span>H <b class="${cls}">${fmt(b.high)}</b></span>` +
-        `<span>L <b class="${cls}">${fmt(b.low)}</b></span>` +
-        `<span>C <b class="${cls}">${fmt(b.close)}</b></span>` +
-        `<span>V <b class="${cls}">${fmt(b.volume)}</b></span>`;
+        `<span class="ro-o"><i>O</i> <b class="${cls}">${fmt(b.open)}</b></span>` +
+        `<span class="ro-h"><i>H</i> <b class="${cls}">${fmt(b.high)}</b></span>` +
+        `<span class="ro-l"><i>L</i> <b class="${cls}">${fmt(b.low)}</b></span>` +
+        `<span class="ro-c"><i>C</i> <b class="${cls}">${fmt(b.close)}</b></span>` +
+        `<span class="ro-v"><i>V</i> <b class="${cls}">${fmt(b.volume)}</b></span>`;
     }
     chart.subscribeCrosshairMove((p) => {
       if (!p || !p.time) return paintLegend(sub.bars[sub.bars.length - 1]);

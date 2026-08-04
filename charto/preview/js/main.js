@@ -349,12 +349,16 @@
         + `${sign}${f(Math.abs(d))} (${sign}${Math.abs(d / prev.close * 100)
           .toFixed(2)}%)</span>`;
     }
+    // Each figure is named by its own class and its LETTER is its own element:
+    // a phone drops four of the five figures and every letter, and what is
+    // left — the close and the change — is the pair a small screen can read.
+    // A nth-child rule could not have said that; a nested tag can.
     el("roOhlc").innerHTML =
-      `<span>O <b class="${cls}">${f(b.open)}</b></span>` +
-      `<span>H <b class="${cls}">${f(b.high)}</b></span>` +
-      `<span>L <b class="${cls}">${f(b.low)}</b></span>` +
-      `<span>C <b class="${cls}">${f(b.close)}</b></span>` +
-      `<span>V <b class="${cls}">${f(b.volume)}</b></span>` + chg;
+      `<span class="ro-o"><i>O</i> <b class="${cls}">${f(b.open)}</b></span>` +
+      `<span class="ro-h"><i>H</i> <b class="${cls}">${f(b.high)}</b></span>` +
+      `<span class="ro-l"><i>L</i> <b class="${cls}">${f(b.low)}</b></span>` +
+      `<span class="ro-c"><i>C</i> <b class="${cls}">${f(b.close)}</b></span>` +
+      `<span class="ro-v"><i>V</i> <b class="${cls}">${f(b.volume)}</b></span>` + chg;
   }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;

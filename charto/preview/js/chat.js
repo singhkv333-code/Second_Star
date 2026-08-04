@@ -1008,16 +1008,44 @@
     if (stacked()) setChatHeight(r.bottom - e.clientY);
     else setChatWidth(r.right - e.clientX);
   });
-  // the divider has to be draggable by a finger too, or the phone split is
-  // decorative
+  /* The divider has to be draggable by a finger too, or the phone split is
+   * decorative. Two things the mouse path does not need:
+   *
+   *  · the GRAB OFFSET. This used to set the panel straight from the touch
+   *    y, which centres the divider under the finger on the first move —
+   *    invisible on a 1px line, a visible jump now that the phone divider
+   *    is a 20px bar you aim at. Where you took hold of it is where it
+   *    stays.
+   *  · a start and an end. Touch has no hover, so `dragging` is the only
+   *    feedback that the bar is live, and nothing else would ever clear it.
+   */
+  let grab = null;
+  splitter.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const s = splitter.getBoundingClientRect();
+    grab = stacked() ? t.clientY - s.top : t.clientX - s.left;
+    splitter.classList.add("dragging");
+    el("chart").style.pointerEvents = "none";   // as the mouse path does
+    e.preventDefault();
+  }, { passive: false });
   splitter.addEventListener("touchmove", (e) => {
     const t = e.touches[0];
     if (!t) return;
     const r = main.getBoundingClientRect();
-    if (stacked()) setChatHeight(r.bottom - t.clientY);
-    else setChatWidth(r.right - t.clientX);
+    const off = grab === null ? 0 : grab;
+    if (stacked()) setChatHeight(r.bottom - (t.clientY - off) - splitter.offsetHeight);
+    else setChatWidth(r.right - (t.clientX - off) - splitter.offsetWidth);
     e.preventDefault();
   }, { passive: false });
+  const endTouch = () => {
+    if (grab === null) return;
+    grab = null;
+    splitter.classList.remove("dragging");
+    el("chart").style.pointerEvents = "";
+  };
+  splitter.addEventListener("touchend", endTouch);
+  splitter.addEventListener("touchcancel", endTouch);
   window.addEventListener("mouseup", () => {
     if (!dragging) return;
     dragging = false;
@@ -1025,7 +1053,14 @@
     document.body.style.cursor = "";
     el("chart").style.pointerEvents = "";
   });
-  splitter.addEventListener("dblclick", () => setChatWidth(main.clientWidth * 0.44));
+  // Reset. setChatWidth is a no-op when the shell is a COLUMN — it restores
+  // the saved height instead — so a stacked layout has to name its own
+  // default, or the divider's one documented gesture does nothing on the
+  // only layout where the divider is a visible control.
+  splitter.addEventListener("dblclick", () => {
+    if (stacked()) setChatHeight(main.clientHeight * 0.46);
+    else setChatWidth(main.clientWidth * 0.44);
+  });
 
   const chatToggle = el("chatToggle");
   chatToggle.addEventListener("click", () => {
