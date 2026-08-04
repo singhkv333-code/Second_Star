@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Zerodha Kite">
+  <title>Zerodha Kite</title>
+  <!-- Authentic Kite mark (source geometry: kite-demo.zerodha.com/static/images/kite-logo.svg,
+       outer kite + inner triangle, reds #F6461A / #DB342C) on a soft tile so it fills the
+       broker-list icon slot and stays crisp at 28-40px. Original 90x60 mark scaled x0.40 (-> 36x24)
+       and centred inside the 48 tile (x 6..42, y 12..36). -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#FFF1ED"/>
+  <g transform="translate(6,12) scale(0.4)">
+    <polygon fill="#F6461A" points="30 0 0 30 30 60 60 30 90 0 30 0"/>
+    <polygon fill="#DB342C" points="30 60 60 30 90 60 30 60"/>
+  </g>
+</svg>

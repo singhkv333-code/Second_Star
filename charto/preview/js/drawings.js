@@ -13,7 +13,8 @@
 "use strict";
 
 const Drawings = (() => {
-  const STORE_KEY = "charto_drawings_v2_RELIANCE";
+  const STORE_KEY = "charto_drawings_v2_" +
+    ((new URLSearchParams(location.search).get("symbol") || "RELIANCE").toUpperCase());
   const USAGE_KEY = "charto_tool_usage_v1";
   const HIT = 7;
   const G = Geo;
@@ -152,7 +153,7 @@ const Drawings = (() => {
     const envFor = (key, w, h) => ({ tToX, vToY: (v) => vToY(v, key), w, h });
 
     // ── tool build context ──────────────────────────────
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.num(n);
     const buildCtx = {
       fmt,
       fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,
@@ -304,12 +305,28 @@ const Drawings = (() => {
     }
 
     // ── interaction ─────────────────────────────────────
+    /** True when the pointer is over the PLOT, not the price or time axis.
+     *  A level, a zone or a position leg spans the full plot width, so
+     *  without this test a drag on the price scale — the rescale gesture —
+     *  hit the nearest horizontal line and moved it instead of rescaling,
+     *  quietly re-writing a plan's stop and target. main.js guards its pan
+     *  the same way (isPaneMouse); this is the drawing half of it. */
+    function inPlot(e2) {
+      const r = el.getBoundingClientRect();
+      const x = e2.clientX - r.left, y = e2.clientY - r.top;
+      let axisW = 0, axisH = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* pre-layout */ }
+      try { axisH = chart.timeScale().height(); } catch { /* pre-layout */ }
+      return x >= 0 && x < r.width - axisW && y >= 0 && y < r.height - axisH;
+    }
+
     const setScroll = (on) => chart.applyOptions({ handleScroll: on, handleScale: on });
     const newId = () => "d" + Date.now().toString(36) + Math.floor(Math.random() * 999);
 
     el.addEventListener("mousedown", (e2) => {
       if (e2.button !== 0) return;
       state.consumedDown = false;
+      if (!inPlot(e2)) return;   // the axes belong to the chart, not to shapes
       const a = anchorAt(e2);
       if (!a) return;
       const r = el.getBoundingClientRect();
@@ -369,7 +386,8 @@ const Drawings = (() => {
       state.mouse = [e2.clientX - r.left, yInPane(e2.clientY, a.key)];
 
       if (env.stage && state.tool === "cursor" && !state.drag && !state.draft) {
-        env.stage.classList.toggle("overdraw",
+        // over an axis the cursor must not promise a grab it won't honour
+        env.stage.classList.toggle("overdraw", inPlot(e2) &&
           hitTest(state.mouse[0], state.mouse[1], a.key) !== null);
       }
 

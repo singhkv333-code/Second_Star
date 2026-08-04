@@ -24,12 +24,18 @@
 
 const Panes = (() => {
   const LWC = window.LightweightCharts;
-  const API = "http://127.0.0.1:5174";
-  const IST = 19800;
-  const SYMBOL = "RELIANCE";
+  // same-origin behind a proxy, explicit port in local dev (see main.js)
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
+  // The page's instrument is the DEFAULT a new pane opens on, not a constant:
+  // this file used to hard-code RELIANCE, so a split on any other company drew
+  // — and labelled — Reliance beside it. A pane can now be pointed at its own
+  // instrument from its legend, and everything about it (clock, currency,
+  // venue, indicator series) follows that symbol rather than the page's.
   const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "D", "W", "M"];
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
+  const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
   const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
 
   /* ── the layout catalogue ────────────────────────────────────────────────
@@ -154,6 +160,35 @@ const Panes = (() => {
   let gridEl = null;
   let stage = null;       // the PRIMARY pane's element (main.js owns its chart)
   let layout = "s1";
+
+  /* ── track sizes ─────────────────────────────────────────────────────────
+   *
+   * A layout used to be `repeat(N, 1fr)`: every pane the same size, with no
+   * way to give the chart you are actually reading more room. Tracks are now
+   * a list of fractions the user can drag, stored PER LAYOUT — c2 and r2 keep
+   * their own proportions, so switching away and back does not reset the
+   * split you set.
+   *
+   * They stay FRACTIONS rather than pixels on purpose: the grid is inside a
+   * flex column that changes height with the window, and a pixel split would
+   * stop meaning the same thing the moment the browser is resized.
+   */
+  const FR_KEY = "pane_fr";
+  const FR_MIN = 0.12;    // a pane can be squeezed, never collapsed to nothing
+  let frAll = Store.get(FR_KEY, {}) || {};
+
+  function frOf(L) {
+    const saved = frAll[L.id] || {};
+    const fix = (arr, n) => (Array.isArray(arr) && arr.length === n
+      && arr.every((x) => Number.isFinite(x) && x > 0) ? arr.slice()
+      : Array(n).fill(1));
+    return { cols: fix(saved.cols, L.cols), rows: fix(saved.rows, L.rows) };
+  }
+
+  function saveFr(id, fr) {
+    frAll = { ...frAll, [id]: fr };
+    Store.set(FR_KEY, frAll);
+  }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
 
@@ -179,20 +214,23 @@ const Panes = (() => {
     };
   }
 
-  async function fetchBars(interval, limit) {
+  async function fetchBars(symbol, interval, limit) {
     const qs = new URLSearchParams({
-      symbol: SYMBOL, interval: WIRE[interval] || interval, limit: String(limit),
+      symbol, interval: WIRE[interval] || interval, limit: String(limit),
     });
     const res = await fetch(`${API}/bars?${qs}`);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
+    // the axis shift belongs to the SYMBOL — crypto folds on UTC, NSE on IST
+    const shift = Sym.of(symbol).tz;
     return d.bars.map((b) => ({
-      time: b.t + IST, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+      time: b.t + shift, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
     }));
   }
 
-  /** One secondary chart: its own element, instance, interval and data. */
-  function makeSub(interval) {
+  /** One secondary chart: its own element, instance, interval, symbol, data
+   *  and indicators. */
+  function makeSub(interval, symbol) {
     const root = document.createElement("div");
     root.className = "subchart";
     // No per-pane toolbar. Every pane wears the same in-chart legend and the
@@ -220,12 +258,22 @@ const Panes = (() => {
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
 
-    const sub = { root, chart, candle, volume, interval, destroyed: false, bars: [] };
+    const sub = { root, chart, candle, volume, interval, destroyed: false,
+                  bars: [], symbol: (symbol || Sym.name).toUpperCase() };
+    // Indicators are a property of the CHART, not of the app: the one toolbar
+    // adds to whichever pane is selected, and each pane keeps what it was
+    // given. Settings still live in one place per indicator, so an EMA styled
+    // in one pane is the same EMA everywhere — only membership is per-pane.
+    sub.ind = Indicators.createManager(chart);
 
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.of(sub.symbol).num(n);
     function paintLegend(b) {
-      titleEl.innerHTML = `${SYMBOL}<span class="sep">·</span>${sub.interval}`
-        + `<span class="sep">·</span><span class="ex">NSE</span>`;
+      const d = Sym.of(sub.symbol);
+      titleEl.innerHTML =
+        `<span class="sym-btn" data-sym-btn>${Universe.logoHTML(sub.symbol, "co-logo lg")}`
+        + `${sub.symbol}</span>`
+        + `<span class="sep">·</span>${sub.interval}`
+        + `<span class="sep">·</span><span class="ex">${d.venue}</span>`;
       if (!b) { ohlcEl.innerHTML = ""; return; }
       const cls = b.close >= b.open ? "up" : "down";
       ohlcEl.innerHTML =
@@ -242,11 +290,15 @@ const Panes = (() => {
                     : sub.bars[sub.bars.length - 1]);
     });
 
-    async function load(iv) {
+    async function load(rawIv) {
+      // The toolbar speaks the server's ids (1d/1w/1mo), this pane's ladder and
+      // legend speak D/W/M. Normalising here is why a daily pane picked from
+      // the header still gets a daily PAGE size and a date-only axis.
+      const iv = DISP[rawIv] || rawIv;
       sub.interval = iv;
       paintLegend(null);
       try {
-        const bars = await fetchBars(iv, PAGE[iv] || 2000);
+        const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
         if (sub.destroyed) return;
         sub.bars = bars;
         candle.setData(bars.map(({ time, open, high, low, close }) =>
@@ -260,11 +312,37 @@ const Panes = (() => {
         chart.timeScale().setVisibleLogicalRange(
           { from: Math.max(0, bars.length - 140), to: bars.length + 4 });
         paintLegend(bars[bars.length - 1]);
+        // this pane's own indicators recompute on ITS symbol and interval
+        sub.ind.recomputeAll(bars, {
+          interval: WIRE[iv] || iv, limit: bars.length, symbol: sub.symbol,
+        }).catch(() => {});
       } catch (e) {
         if (!sub.destroyed) titleEl.textContent = String(e.message || e);
       }
     }
     sub.load = load;
+
+    /** Point this pane at another instrument. A cold symbol hydrates server
+     *  side (~6 s), so the legend says what it is doing rather than sitting
+     *  on the old company's bars while the new ones are in flight. */
+    sub.setSymbol = (s) => {
+      const next = String(s || "").toUpperCase();
+      if (!next || next === sub.symbol) return;
+      sub.symbol = next;
+      titleEl.innerHTML = `${next}<span class="sep">·</span>loading…`;
+      ohlcEl.innerHTML = "";
+      if (subs[active - 1] === sub) emitActive();
+      return load(sub.interval);
+    };
+
+    // the ticker in the legend IS the instrument switch
+    titleEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-sym-btn]");
+      if (!btn) return;
+      e.stopPropagation();
+      setActive(subs.indexOf(sub) + 1);
+      Universe.open({ anchor: btn, current: sub.symbol, onPick: (s) => sub.setSymbol(s) });
+    });
 
     sub.retheme = () => {
       chart.applyOptions(chartOpts());
@@ -272,6 +350,7 @@ const Panes = (() => {
         upColor: Theme.c("up"), downColor: Theme.c("down"),
         wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
       });
+      sub.ind.retheme(sub.bars);
       load(sub.interval);   // volume bar colours are per-point, so repaint
     };
     sub.destroy = () => {
@@ -297,15 +376,30 @@ const Panes = (() => {
    *  selection is a property of the pane, not of the toolbar. */
   function setActive(i) {
     const n = Math.max(0, Math.min(i, subs.length));
+    const same = n === active;
     active = n;
     if (stage) stage.classList.toggle("pane-active", n === 0 && subs.length > 0);
     subs.forEach((s, k) => s.root.classList.toggle("pane-active", n === k + 1));
-    for (const fn of onActiveSubs) { try { fn(n, intervalOf(n)); } catch (e) { console.error(e); } }
+    if (same) return;   // a click inside the already-selected pane is not news
+    emitActive();
+  }
+  /** Tell everyone aimed at "the selected pane" what it now holds. Selection
+   *  is not the only thing that changes it — pointing the selected pane at
+   *  another instrument changes it too, and the chat's subject chip has to
+   *  hear about that or it keeps naming the company you just navigated away
+   *  from. */
+  function emitActive() {
+    for (const fn of onActiveSubs) {
+      try { fn(active, intervalOf(active), symbolOf(active)); } catch (e) { console.error(e); }
+    }
   }
   const onActiveSubs = [];
 
   function intervalOf(i) {
     return i === 0 ? null : (subs[i - 1] || {}).interval || null;
+  }
+  function symbolOf(i) {
+    return i === 0 ? Sym.name : (subs[i - 1] || {}).symbol || Sym.name;
   }
 
   /* A second pane defaults to a SLOWER interval — the reason to open one is
@@ -313,6 +407,110 @@ const Panes = (() => {
    * the first couple the ladder keeps climbing rather than filling six panes
    * with the same hour candles. */
   const SUB_LADDER = ["1h", "D", "15m", "W", "30m", "M", "5m"];
+
+  /** Write the fractions onto the grid. minmax(0,…) so a chart's own minimum
+   *  width can never push a track wider than the fraction asked for. */
+  function sizeTracks(L, fr) {
+    gridEl.style.gridTemplateColumns =
+      fr.cols.map((f) => `minmax(0, ${f}fr)`).join(" ");
+    gridEl.style.gridTemplateRows =
+      fr.rows.map((f) => `minmax(0, ${f}fr)`).join(" ");
+    gridEl._fr = fr;
+    requestAnimationFrame(mountSplitters);
+  }
+
+  /** A handle per INTERNAL grid line, laid over the seam that is already
+   *  drawn there — the gap between panes IS the divider, so the thing you
+   *  grab and the thing you see are the same edge rather than two that have
+   *  to be kept in sync. */
+  function mountSplitters() {
+    if (!gridEl) return;
+    for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
+    const L = LAYOUTS[layout];
+    if (!L || (L.cols < 2 && L.rows < 2)) return;
+    const cs = getComputedStyle(gridEl);
+    const px = (s) => s.split(" ").map(parseFloat);
+    const cols = px(cs.gridTemplateColumns);
+    const rows = px(cs.gridTemplateRows);
+    const gapX = parseFloat(cs.columnGap) || 0;
+    const gapY = parseFloat(cs.rowGap) || 0;
+    const add = (cls, style, axis, i) => {
+      const d = document.createElement("div");
+      d.className = `pane-split ${cls}`;
+      Object.assign(d.style, style);
+      d.dataset.axis = axis;
+      d.dataset.i = String(i);
+      gridEl.appendChild(d);
+    };
+    let x = 0;
+    for (let i = 0; i < cols.length - 1; i++) {
+      x += cols[i];
+      add("v", { left: `${x + gapX / 2}px` }, "c", i);
+      x += gapX;
+    }
+    let y = 0;
+    for (let i = 0; i < rows.length - 1; i++) {
+      y += rows[i];
+      add("h", { top: `${y + gapY / 2}px` }, "r", i);
+      y += gapY;
+    }
+  }
+
+  /** Drag one boundary. Only the two tracks it sits between change, so the
+   *  rest of the layout holds still instead of every pane shifting. */
+  function beginDrag(e) {
+    const h = e.target.closest(".pane-split");
+    if (!h || !gridEl._fr) return;
+    e.preventDefault();
+    const axis = h.dataset.axis;
+    const i = Number(h.dataset.i);
+    const vert = axis === "c";
+    const cs = getComputedStyle(gridEl);
+    const sizes = (vert ? cs.gridTemplateColumns : cs.gridTemplateRows)
+      .split(" ").map(parseFloat);
+    const fr = vert ? gridEl._fr.cols : gridEl._fr.rows;
+    const a0 = sizes[i], b0 = sizes[i + 1];
+    const fa = fr[i], fb = fr[i + 1];
+    const span = a0 + b0, sumFr = fa + fb;
+    const start = vert ? e.clientX : e.clientY;
+    h.classList.add("dragging");
+    document.body.style.cursor = vert ? "col-resize" : "row-resize";
+
+    const move = (ev) => {
+      const d = (vert ? ev.clientX : ev.clientY) - start;
+      let a = a0 + d;
+      const min = span * FR_MIN;
+      a = Math.max(min, Math.min(span - min, a));
+      fr[i] = sumFr * (a / span);
+      fr[i + 1] = sumFr - fr[i];
+      sizeTracks(LAYOUTS[layout], gridEl._fr);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      h.classList.remove("dragging");
+      document.body.style.cursor = "";
+      saveFr(layout, gridEl._fr);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  /** Point a pane at (symbol, interval) — both, in an order that survives.
+   *
+   *  Doing it as `s.load(iv); s.setSymbol(sym)` looks right and is not:
+   *  setSymbol fires its OWN load at whatever `sub.interval` still says, and
+   *  because neither call is awaited that second load races the first and
+   *  usually wins. Asked for TCS on the daily, the pane opened on 1h — the
+   *  ladder default for pane 1. The interval is therefore applied only once
+   *  the symbol's own load has settled.
+   */
+  function retarget(sub, symbol, interval) {
+    const done = sub.setSymbol(symbol);
+    if (!interval) return done;
+    return Promise.resolve(done).then(
+      () => (sub.interval === interval ? undefined : sub.load(interval)));
+  }
 
   function apply(next) {
     if (!gridEl) return;
@@ -326,13 +524,12 @@ const Panes = (() => {
      * Forty-two `.charts[data-layout="…"]` blocks would be forty-two chances
      * for the CSS and the pane count to disagree; this cannot disagree. */
     gridEl.style.gridTemplateAreas = L.template;
-    gridEl.style.gridTemplateColumns = `repeat(${L.cols}, minmax(0, 1fr))`;
-    gridEl.style.gridTemplateRows = `repeat(${L.rows}, minmax(0, 1fr))`;
+    sizeTracks(L, frOf(L));
     clearSubs();
     // the primary always holds the first area a reader meets
     if (stage) stage.style.gridArea = L.areas[0];
     for (let i = 1; i < L.panes; i++) {
-      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length]);
+      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length], Sym.name);
       s.root.style.gridArea = L.areas[i];
       subs.push(s);
       gridEl.appendChild(s.root);
@@ -362,6 +559,12 @@ const Panes = (() => {
     gridEl.dataset.layout = "s1";
     stageEl.parentNode.insertBefore(gridEl, stageEl);
     gridEl.appendChild(stageEl);
+    // delegated: apply() rebuilds the handles on every layout change, and a
+    // listener per handle would leak one set per switch
+    gridEl.addEventListener("pointerdown", beginDrag);
+    // the handles are positioned in px off resolved track sizes, so they have
+    // to be re-laid whenever the grid's own box changes
+    if (window.ResizeObserver) new ResizeObserver(mountSplitters).observe(gridEl);
     Theme.onChange(() => { for (const s of subs) s.retheme(); });
   }
 
@@ -381,15 +584,85 @@ const Panes = (() => {
     /** true when the toolbar should drive main.js's own chart. */
     get primaryActive() { return active === 0; },
     get activeInterval() { return intervalOf(active); },
+    get activeSymbol() { return symbolOf(active); },
+    /** The selected secondary pane, or null when the primary has it. Callers
+     *  that must act on "the chart the user is working in" ask for this and
+     *  fall back to their own primary — there is no null-object stand-in,
+     *  because a silent no-op on the wrong chart is worse than a branch. */
+    activeSub() { return active === 0 ? null : subs[active - 1] || null; },
+    /** A pane BY INDEX — 0 is the primary (null: main.js owns it), 1..n the
+     *  secondaries. Null for an index the current layout no longer has, so a
+     *  caller holding a stale pane falls back to the primary instead of
+     *  answering from a chart that is gone. */
+    paneAt(i) { return i > 0 ? (subs[i - 1] || null) : null; },
+    hasPane(i) { return i === 0 || !!subs[i - 1]; },
+    /** What the secondary panes are showing, in screen order. main.js puts the
+     *  primary at the head of this list — it is the only one that knows what
+     *  the primary chart is on. */
+    subsInfo() {
+      return subs.map((s, i) => ({ pane: i + 1, symbol: s.symbol,
+                                   interval: s.interval, bars: s.bars.length }));
+    },
+    /** The indicator manager the one toolbar drives. */
+    activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
     /** Route an interval choice to the selected pane. Returns false when the
      *  primary is selected, so main.js keeps ownership of its own chart. */
     setIntervalOnActive(iv) {
       if (active === 0) return false;
       const s = subs[active - 1];
-      if (s) s.load(iv);
+      if (s) { s.load(iv); emitActive(); }   // the chat's subject moved with it
       return true;
     },
     onChange(fn) { onChangeSubs.push(fn); },
     onActive(fn) { onActiveSubs.push(fn); },
+
+    /** Open an instrument in a pane — the chat's own hands on the workspace.
+     *
+     *  Growing means moving to the first catalogue layout with one more pane
+     *  (2 → "c2", 3 → "c3", 4 → "g22"), because SPECS is already ordered by
+     *  pane count and the first of each group is the one a person would have
+     *  picked from the menu. At the catalogue's ceiling the newest chart
+     *  replaces the focused pane instead of silently doing nothing.
+     *
+     *  `apply` rebuilds every secondary from scratch, so the symbols already
+     *  on screen are captured BEFORE the rebuild and restored after it —
+     *  without that, opening a third chart reset the second one to the page's
+     *  own ticker.
+     */
+    openChart(symbol, interval, replace) {
+      const sym = String(symbol || "").toUpperCase();
+      if (!sym) return null;
+      const iv = String(interval || "") || "1d";
+      if (replace) {
+        const s = this.activeSub();
+        // The primary chart's symbol is the PAGE's symbol (?symbol=…), and
+        // charto treats opening a company as a fresh session. Faking it in
+        // place would leave the URL, the store scope and the chart disagreeing.
+        if (!s) { location.search = `?symbol=${encodeURIComponent(sym)}`; return sym; }
+        retarget(s, sym, iv);
+        return sym;
+      }
+      const want = LAYOUTS[layout].panes + 1;
+      const grown = (SPECS.find(([id]) => LAYOUTS[id].panes === want) || [])[0];
+      if (!grown) {                       // at the ceiling: reuse the focused pane
+        return this.openChart(sym, iv, true);
+      }
+      const keep = subs.map((s) => ({ symbol: s.symbol, interval: s.interval }));
+      apply(grown);
+      // Same sequencing rule as the new pane, and for the same reason: these
+      // restores raced each other and swapped the two panes' intervals.
+      keep.forEach((k, i) => {
+        if (subs[i] && k.symbol) retarget(subs[i], k.symbol, k.interval);
+      });
+      const fresh = subs[subs.length - 1];
+      if (fresh) {
+        // Selection FIRST. setActive re-syncs the toolbar onto the pane it
+        // selects, so running it after the interval load put the pane back on
+        // its ladder default — INFY asked for 1h and opened on D.
+        setActive(subs.length);           // the new chart is what you're now on
+        retarget(fresh, sym, iv);
+      }
+      return sym;
+    },
   };
 })();

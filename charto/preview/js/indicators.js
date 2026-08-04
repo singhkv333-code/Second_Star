@@ -34,6 +34,9 @@
 
 const Indicators = (() => {
   const LWC = window.LightweightCharts;
+  // (the module-level number formatter that used to live here is gone: the
+  // legend now builds one per indicator via formatter(st), which honours the
+  // settings dialog's precision as well as the symbol's locale)
 
   // ── catalogue, loaded from the backend ────────────────
   // Presets are the friendly names on the menu; any indicator/period the
@@ -69,6 +72,7 @@ const Indicators = (() => {
   let CATALOG = [];          // presets joined with what the backend reports
   let KNOWN = {};            // the backend's own catalogue, kept for minting
   let BASE = "";
+  let SYM = "";              // without it every series computes on the default symbol
 
   // ── labels ────────────────────────────────────────────
   const trimNum = (v) => {
@@ -107,8 +111,9 @@ const Indicators = (() => {
     return def;
   }
 
-  async function loadCatalogue(base) {
+  async function loadCatalogue(base, symbol) {
     BASE = base;
+    SYM = symbol || "";
     let known = {};
     try {
       const r = await fetch(`${base}/indicators`);
@@ -166,11 +171,17 @@ const Indicators = (() => {
   // its points land 5.5 hours off every candle, which silently stretches the
   // time axis instead of erroring. The backend speaks raw epoch throughout;
   // the display shift stays in the data client, applied once, here and there.
-  const IST = 19800;
+  const IST = Sym.tz;
 
-  async function fetchSeries(def, interval, limit, params) {
+  async function fetchSeries(def, interval, limit, params, symbol) {
+    // A secondary pane can hold a different instrument, so the SHIFT is read
+    // off the symbol actually being fetched — a crypto pane's series folded on
+    // the page symbol's +05:30 would land 5.5 h off its own candles.
+    const sym = symbol || SYM;
+    const shift = symbol ? Sym.of(symbol).tz : IST;
     const q = new URLSearchParams({
       name: def.name, interval, limit: String(limit),
+      ...(sym ? { symbol: sym } : {}),
       ...(def.period ? { period: String(def.period) } : {}),
     });
     for (const f of def.inputs || []) {
@@ -182,7 +193,7 @@ const Indicators = (() => {
     if (!r.ok) throw new Error((await r.json()).error || "indicator failed");
     const lines = (await r.json()).lines;
     for (const k of Object.keys(lines)) {
-      lines[k] = lines[k].map((p) => ({ time: p.time + IST, value: p.value }));
+      lines[k] = lines[k].map((p) => ({ time: p.time + shift, value: p.value }));
     }
     return lines;
   }
@@ -200,8 +211,33 @@ const Indicators = (() => {
     supertrend_up: "s4", supertrend_down: "s5",
     psar: "s6", vwap: "s6", anchored_vwap: "s6",
   };
+  const SERIES = ["s1", "s2", "s3", "s4", "s5", "s6"];
   const roleColor = (line, i) =>
-    Theme.c(ROLE[line] || ["s1", "s2", "s3", "s4", "s5", "s6"][i % 6]);
+    Theme.c(ROLE[line] || SERIES[((i % SERIES.length) + SERIES.length)
+                                 % SERIES.length]);
+
+  /* A line's index WITHIN its indicator was the whole palette key, so every
+   * single-line overlay was line 0 and every single-line overlay was s1:
+   * SMA 20 and SMA 200 came out the same gold, on the chart and in the
+   * legend, with nothing to tell them apart. The index is now offset by a
+   * per-INSTANCE slot, so the second SMA lands on the next colour.
+   *
+   * Named lines are untouched — a Bollinger band's upper/lower are a pair on
+   * purpose, and MACD's signal is meant to contrast with MACD. Only the
+   * unnamed fallback rotates.
+   *
+   * The slot is stored in the instance's own style, so it survives a reload
+   * and a recolour, and the lowest free one is reused after a removal
+   * rather than drifting up forever. */
+  function allocSlot() {
+    const used = new Set();
+    for (const s of LIVE.values()) {
+      const v = s && s.style && s.style.slot;
+      if (Number.isInteger(v)) used.add(v);
+    }
+    for (let i = 0; i < 64; i++) if (!used.has(i)) return i;
+    return 0;
+  }
 
   /** Human names for the Style tab's rows. */
   const LINE_LABEL = {
@@ -259,16 +295,18 @@ const Indicators = (() => {
 
   const clone = (v) => JSON.parse(JSON.stringify(v));
 
-  function plotDefaults(def) {
+  function plotDefaults(def, slot) {
+    const off = Number.isInteger(slot) ? slot : 0;
     const out = {};
     (def.lines || []).forEach((n, i) => {
       const hist = n === "histogram";
       out[n] = {
         visible: true,
-        color: hist ? Theme.c("histUp") : roleColor(n, i),
+        color: hist ? Theme.c("histUp") : roleColor(n, i + off),
         colorDown: hist ? Theme.c("histDown") : undefined,
         custom: false,          // a theme switch repaints only untouched plots
-        width: n === "middle" || (def.lines || []).length === 1 ? 2 : 1,
+        width: def.kind === "overlay" ? 1
+          : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
         lineStyle: 0,
         plotType: hist ? "columns" : "line",
       };
@@ -276,7 +314,7 @@ const Indicators = (() => {
     return out;
   }
 
-  function factorySettings(def) {
+  function factorySettings(def, slot) {
     const params = {};
     for (const f of def.inputs || []) {
       if (f.key !== "period") params[f.key] = f.default;
@@ -286,7 +324,8 @@ const Indicators = (() => {
     return {
       params,
       style: {
-        plots: plotDefaults(def),
+        plots: plotDefaults(def, slot),
+        slot,          // null on pane indicators — they do not rotate
         precision: "default",
         statusLine: true,
         priceLabel: false,
@@ -316,6 +355,8 @@ const Indicators = (() => {
    *  in, so this runs at load as well as on a theme toggle — otherwise a
    *  session saved in dark comes back wearing dark's line colours on white. */
   function refreshThemeColors(def, s) {
+    const slot = Number.isInteger(s.style && s.style.slot) ? s.style.slot : 0;
+    const paneKind = def.kind !== "overlay";
     (def.lines || []).forEach((n, i) => {
       const plot = s.style.plots[n];
       if (!plot || plot.custom) return;
@@ -323,7 +364,7 @@ const Indicators = (() => {
         plot.color = Theme.c("histUp");
         plot.colorDown = Theme.c("histDown");
       } else {
-        plot.color = roleColor(n, i);
+        plot.color = roleColor(n, i + (paneKind ? 0 : slot));
       }
     });
   }
@@ -335,9 +376,16 @@ const Indicators = (() => {
     if (LIVE.has(id)) return LIVE.get(id);
     const def = CATALOG.find((c) => c.id === id);
     if (!def) return null;
-    let s = factorySettings(def);
+    // allocated BEFORE the merges so a saved slot still wins, and the
+    // entry is parked in LIVE first so two indicators added in the same
+    // tick cannot both be handed the same one
+    const rotates = def.kind === "overlay";
+    let s = factorySettings(def, rotates ? allocSlot() : null);
+    LIVE.set(id, s);
     if (FACTORY[def.name]) s = merge(s, FACTORY[def.name]);
     if (SAVED[id]) s = merge(s, SAVED[id]);
+    if (rotates && !Number.isInteger(s.style.slot)) s.style.slot = allocSlot();
+    if (!rotates) s.style.slot = null;
     refreshThemeColors(def, s);
     LIVE.set(id, s);
     return s;
@@ -424,15 +472,19 @@ const Indicators = (() => {
 
     /** Value formatting follows the Precision setting, so the status line
      *  never claims more digits than the user asked to see. */
+    // Precision comes from the settings dialog; the LOCALE comes from Sym.
+    // Both matter and they are independent: a user can ask for 4 decimals on
+    // any instrument, but "12,34,567.5" is only right for an INR-quoted one —
+    // a Bitcoin legend has to read 1,234,567.5.
     function formatter(st) {
       const p = st.style.precision;
       if (p === "default") {
         return (n) => n == null ? "—"
-          : Math.abs(n) >= 1000 ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+          : Math.abs(n) >= 1000 ? Sym.num(n, { maximumFractionDigits: 2 })
           : n.toFixed(2);
       }
       return (n) => n == null ? "—"
-        : n.toLocaleString("en-IN", { minimumFractionDigits: p, maximumFractionDigits: p });
+        : Sym.num(n, { minimumFractionDigits: p, maximumFractionDigits: p });
     }
 
     function priceFormat(st) {
@@ -550,7 +602,7 @@ const Indicators = (() => {
       active.set(id, { pending: true, def, series: [], data: [], legendLines: [] });
       let lines;
       try {
-        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params);
+        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params, ctx.symbol);
       } catch (e) {
         active.delete(id);
         throw e;                       // caller surfaces it; never a silent no-op
@@ -663,7 +715,7 @@ const Indicators = (() => {
       const a = active.get(id);
       if (!a || a.pending) return;
       const lines = await fetchSeries(a.def, ctx.interval, ctx.limit,
-                                      settings(id).params);
+                                      settings(id).params, ctx.symbol);
       if (!active.has(id)) return;
       a.raw = lines;
       restyle(id);
@@ -801,6 +853,9 @@ const Indicators = (() => {
       setScaleExtras(fn) { scaleExtras = fn; },
       setContext(next) { ctx = { ...ctx, ...next }; },
       get interval() { return ctx.interval; },
+      /** The instrument this manager computes on — the page symbol on the
+       *  primary, the pane's own on a secondary chart. */
+      get symbol() { return ctx.symbol || SYM; },
       toggle(id, _bars) { return active.has(id) ? (remove(id), Promise.resolve()) : add(id); },
       remove, recomputeAll, retheme, restyle,
       isActive: (id) => active.has(id),

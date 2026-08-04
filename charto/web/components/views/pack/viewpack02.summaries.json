@@ -1,0 +1,1993 @@
+[
+ {
+  "id": "btc_ath",
+  "view_type": "event",
+  "title": "Will Bitcoin make a fresh all-time high?",
+  "thesis": "When Bitcoin prints a new all-time high, risk-on flows rotate into the #2 coin \u2014 Ethereum has historically outrun BTC itself in the month after.",
+  "category": "Crypto \u00b7 Event",
+  "time_horizon": "Within 6 months",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "btc_ath-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 18.89,
+   "excess_return_pct": 18.89,
+   "plain_label": "Own the two majors \u2014 BTC + ETH",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 30,
+   "pct_episodes_beat": 80,
+   "worst_drop_pct": -15.79,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 98981.25,
+     "benchmark": 100140.94
+    },
+    {
+     "t": "2",
+     "strategy": 100745.61,
+     "benchmark": 100198.41
+    },
+    {
+     "t": "3",
+     "strategy": 100640.03,
+     "benchmark": 100173.52
+    },
+    {
+     "t": "4",
+     "strategy": 101062.39,
+     "benchmark": 100113.15
+    },
+    {
+     "t": "5",
+     "strategy": 102673.06,
+     "benchmark": 100295.98
+    },
+    {
+     "t": "6",
+     "strategy": 102453.43,
+     "benchmark": 100313.49
+    },
+    {
+     "t": "7",
+     "strategy": 103077.03,
+     "benchmark": 100363.61
+    },
+    {
+     "t": "8",
+     "strategy": 102984.26,
+     "benchmark": 100202.6
+    },
+    {
+     "t": "9",
+     "strategy": 105683.56,
+     "benchmark": 100217.33
+    },
+    {
+     "t": "10",
+     "strategy": 107063.83,
+     "benchmark": 100438.29
+    },
+    {
+     "t": "11",
+     "strategy": 107605.75,
+     "benchmark": 100692.11
+    },
+    {
+     "t": "12",
+     "strategy": 107292.34,
+     "benchmark": 100721.87
+    },
+    {
+     "t": "13",
+     "strategy": 109864.15,
+     "benchmark": 100690.35
+    },
+    {
+     "t": "14",
+     "strategy": 111826.19,
+     "benchmark": 100759.61
+    },
+    {
+     "t": "15",
+     "strategy": 116450.1,
+     "benchmark": 100733.19
+    },
+    {
+     "t": "16",
+     "strategy": 116079.64,
+     "benchmark": 100655.44
+    },
+    {
+     "t": "17",
+     "strategy": 116974.81,
+     "benchmark": 100741.7
+    },
+    {
+     "t": "18",
+     "strategy": 118182.58,
+     "benchmark": 100859.92
+    },
+    {
+     "t": "19",
+     "strategy": 118729.73,
+     "benchmark": 100866.47
+    },
+    {
+     "t": "20",
+     "strategy": 116859.82,
+     "benchmark": 100782.92
+    },
+    {
+     "t": "21",
+     "strategy": 118891.68,
+     "benchmark": 100898.62
+    }
+   ],
+   "pct_positive": 80,
+   "n_positive": 24,
+   "gain_loss": {
+    "avg_gain_pct": 25.4,
+    "avg_loss_pct": -7.15,
+    "max_gain_pct": 79.33,
+    "max_loss_pct": -15.79,
+    "n_gain": 24,
+    "n_loss": 6,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 3,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will Bitcoin make a fresh all-time high?",
+  "plain_summary": "After each of 30 fresh BTC all-time highs since 2013, Ethereum rose +26.6% on average over the next month (77% of the time).",
+  "short_title": "Will Bitcoin make a fresh all-time high?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  },
+  "best_episode_pct": 79.3,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 6 months"
+  ]
+ },
+ {
+  "id": "elon_crypto",
+  "view_type": "event",
+  "title": "Will Elon Musk post bullishly about crypto again?",
+  "thesis": "Across six real Musk pro-Dogecoin posts, the durable one-month winners were the Bitcoin miners and Solana \u2014 leveraged proxies that outran DOGE itself.",
+  "category": "Crypto \u00b7 Event",
+  "time_horizon": "Within 3 months",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "elon_crypto-balanced",
+   "tier": "balanced",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 54.2,
+   "excess_return_pct": 54.2,
+   "plain_label": "Solana + a miner",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 6,
+   "pct_episodes_beat": 50,
+   "worst_drop_pct": -17.52,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 103834.49,
+     "benchmark": 99823.62
+    },
+    {
+     "t": "2",
+     "strategy": 103654.49,
+     "benchmark": 99623.85
+    },
+    {
+     "t": "3",
+     "strategy": 105035.4,
+     "benchmark": 99715.65
+    },
+    {
+     "t": "4",
+     "strategy": 110064.15,
+     "benchmark": 100006.92
+    },
+    {
+     "t": "5",
+     "strategy": 114946.47,
+     "benchmark": 100502.9
+    },
+    {
+     "t": "6",
+     "strategy": 120563.93,
+     "benchmark": 100707.23
+    },
+    {
+     "t": "7",
+     "strategy": 130089.16,
+     "benchmark": 101052.24
+    },
+    {
+     "t": "8",
+     "strategy": 141921.91,
+     "benchmark": 101282.08
+    },
+    {
+     "t": "9",
+     "strategy": 135359.68,
+     "benchmark": 101346.35
+    },
+    {
+     "t": "10",
+     "strategy": 144439.46,
+     "benchmark": 101722.77
+    },
+    {
+     "t": "11",
+     "strategy": 146790.25,
+     "benchmark": 101794.39
+    },
+    {
+     "t": "12",
+     "strategy": 151516.0,
+     "benchmark": 101991.19
+    },
+    {
+     "t": "13",
+     "strategy": 158001.81,
+     "benchmark": 102201.18
+    },
+    {
+     "t": "14",
+     "strategy": 151099.13,
+     "benchmark": 101755.66
+    },
+    {
+     "t": "15",
+     "strategy": 157990.41,
+     "benchmark": 101445.36
+    },
+    {
+     "t": "16",
+     "strategy": 158506.2,
+     "benchmark": 101633.11
+    },
+    {
+     "t": "17",
+     "strategy": 147751.0,
+     "benchmark": 101300.75
+    },
+    {
+     "t": "18",
+     "strategy": 156315.61,
+     "benchmark": 101446.29
+    },
+    {
+     "t": "19",
+     "strategy": 153301.41,
+     "benchmark": 101147.57
+    },
+    {
+     "t": "20",
+     "strategy": 150943.69,
+     "benchmark": 101555.1
+    },
+    {
+     "t": "21",
+     "strategy": 154200.5,
+     "benchmark": 101471.2
+    }
+   ],
+   "pct_positive": 50,
+   "n_positive": 3,
+   "gain_loss": {
+    "avg_gain_pct": 116.57,
+    "avg_loss_pct": -8.17,
+    "max_gain_pct": 151.95,
+    "max_loss_pct": -17.52,
+    "n_gain": 3,
+    "n_loss": 3,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 3,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will Elon Musk post bullishly about crypto again?",
+  "plain_summary": "After six Musk crypto posts (2020-2024), Solana +58.6% and miner RIOT +49.8% one month later \u2014 DOGE itself round-tripped.",
+  "short_title": "Will Elon Musk post bullishly about crypto again?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  },
+  "best_episode_pct": 151.9,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 3 months"
+  ]
+ },
+ {
+  "id": "microstrategy_btc",
+  "view_type": "event",
+  "title": "Will MicroStrategy announce another big Bitcoin buy?",
+  "thesis": "Saylor's BTC-treasury buys reliably lift the listed Bitcoin proxies; MSTR itself is the cleanest one-month reactor.",
+  "category": "Crypto \u00b7 Event",
+  "time_horizon": "Within 3 months",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "microstrategy_btc-balanced",
+   "tier": "balanced",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 12.93,
+   "excess_return_pct": 12.93,
+   "plain_label": "MSTR + a miner",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 5,
+   "pct_episodes_beat": 40,
+   "worst_drop_pct": -15.95,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 100209.12,
+     "benchmark": 99968.7
+    },
+    {
+     "t": "2",
+     "strategy": 103147.83,
+     "benchmark": 99708.72
+    },
+    {
+     "t": "3",
+     "strategy": 104676.14,
+     "benchmark": 100206.17
+    },
+    {
+     "t": "4",
+     "strategy": 107249.14,
+     "benchmark": 100095.32
+    },
+    {
+     "t": "5",
+     "strategy": 105723.89,
+     "benchmark": 99630.25
+    },
+    {
+     "t": "6",
+     "strategy": 106296.79,
+     "benchmark": 99656.45
+    },
+    {
+     "t": "7",
+     "strategy": 103425.63,
+     "benchmark": 99688.17
+    },
+    {
+     "t": "8",
+     "strategy": 104129.84,
+     "benchmark": 99475.55
+    },
+    {
+     "t": "9",
+     "strategy": 107420.23,
+     "benchmark": 100304.13
+    },
+    {
+     "t": "10",
+     "strategy": 111689.28,
+     "benchmark": 100880.97
+    },
+    {
+     "t": "11",
+     "strategy": 119229.4,
+     "benchmark": 101639.68
+    },
+    {
+     "t": "12",
+     "strategy": 121766.12,
+     "benchmark": 101874.6
+    },
+    {
+     "t": "13",
+     "strategy": 118574.69,
+     "benchmark": 102113.6
+    },
+    {
+     "t": "14",
+     "strategy": 118893.31,
+     "benchmark": 101912.6
+    },
+    {
+     "t": "15",
+     "strategy": 121547.84,
+     "benchmark": 102502.24
+    },
+    {
+     "t": "16",
+     "strategy": 124713.71,
+     "benchmark": 101551.98
+    },
+    {
+     "t": "17",
+     "strategy": 118996.51,
+     "benchmark": 100965.02
+    },
+    {
+     "t": "18",
+     "strategy": 119982.54,
+     "benchmark": 101530.01
+    },
+    {
+     "t": "19",
+     "strategy": 112464.99,
+     "benchmark": 101395.16
+    },
+    {
+     "t": "20",
+     "strategy": 110689.74,
+     "benchmark": 102261.26
+    },
+    {
+     "t": "21",
+     "strategy": 112926.92,
+     "benchmark": 101809.28
+    }
+   ],
+   "pct_positive": 40,
+   "n_positive": 2,
+   "gain_loss": {
+    "avg_gain_pct": 49.92,
+    "avg_loss_pct": -11.73,
+    "max_gain_pct": 85.82,
+    "max_loss_pct": -15.95,
+    "n_gain": 2,
+    "n_loss": 3,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 2,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will MicroStrategy announce another big Bitcoin buy?",
+  "plain_summary": "After five MicroStrategy Bitcoin-purchase announcements, MSTR rose +12.4% on average a month later (60% hit).",
+  "short_title": "Will MicroStrategy announce another big Bitcoin buy?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  },
+  "best_episode_pct": 85.8,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 3 months"
+  ]
+ },
+ {
+  "id": "tiktok_ban",
+  "view_type": "event",
+  "title": "Will a major foreign app get banned?",
+  "thesis": "Every time a TikTok-style ban loomed, Snap picked up the displaced users and ad dollars \u2014 the proven beneficiary of the ban mechanism.",
+  "category": "Tech \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "tiktok_ban-aggressive",
+   "tier": "aggressive",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 14.93,
+   "excess_return_pct": 14.93,
+   "plain_label": "Snap + Pinterest",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 3,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 0.44,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 100507.54,
+     "benchmark": 100202.42
+    },
+    {
+     "t": "2",
+     "strategy": 106279.33,
+     "benchmark": 100805.82
+    },
+    {
+     "t": "3",
+     "strategy": 105925.87,
+     "benchmark": 100832.99
+    },
+    {
+     "t": "4",
+     "strategy": 107842.34,
+     "benchmark": 100663.42
+    },
+    {
+     "t": "5",
+     "strategy": 112602.88,
+     "benchmark": 100015.38
+    },
+    {
+     "t": "6",
+     "strategy": 113232.55,
+     "benchmark": 100612.31
+    },
+    {
+     "t": "7",
+     "strategy": 114192.9,
+     "benchmark": 100980.69
+    },
+    {
+     "t": "8",
+     "strategy": 115419.21,
+     "benchmark": 101581.87
+    },
+    {
+     "t": "9",
+     "strategy": 115502.52,
+     "benchmark": 101299.28
+    },
+    {
+     "t": "10",
+     "strategy": 115073.44,
+     "benchmark": 101181.35
+    },
+    {
+     "t": "11",
+     "strategy": 115298.39,
+     "benchmark": 101721.21
+    },
+    {
+     "t": "12",
+     "strategy": 111449.81,
+     "benchmark": 102244.48
+    },
+    {
+     "t": "13",
+     "strategy": 111986.38,
+     "benchmark": 102485.89
+    },
+    {
+     "t": "14",
+     "strategy": 116013.09,
+     "benchmark": 102677.89
+    },
+    {
+     "t": "15",
+     "strategy": 116975.06,
+     "benchmark": 103408.64
+    },
+    {
+     "t": "16",
+     "strategy": 117903.6,
+     "benchmark": 103586.72
+    },
+    {
+     "t": "17",
+     "strategy": 118374.11,
+     "benchmark": 103401.45
+    },
+    {
+     "t": "18",
+     "strategy": 120255.62,
+     "benchmark": 104125.03
+    },
+    {
+     "t": "19",
+     "strategy": 118828.2,
+     "benchmark": 104717.59
+    },
+    {
+     "t": "20",
+     "strategy": 118126.01,
+     "benchmark": 103489.19
+    },
+    {
+     "t": "21",
+     "strategy": 114931.53,
+     "benchmark": 103033.11
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 3,
+   "gain_loss": {
+    "avg_gain_pct": 14.93,
+    "avg_loss_pct": null,
+    "max_gain_pct": 31.36,
+    "max_loss_pct": 0.44,
+    "n_gain": 3,
+    "n_loss": 0,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 3,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a major foreign app get banned?",
+  "plain_summary": "Across three TikTok-ban milestones, Snap rose +13.8% a month later (67% hit); Meta +5.3%.",
+  "short_title": "Will a major foreign app get banned?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  },
+  "best_episode_pct": 31.4,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ },
+ {
+  "id": "hurricane",
+  "view_type": "event",
+  "title": "Will a major hurricane make US landfall?",
+  "thesis": "Insurers \u2014 not homebuilders \u2014 are the real post-hurricane winners: damage comes in less bad than feared and pricing power rises. Homebuilders actually fell.",
+  "category": "Weather \u00b7 Event",
+  "time_horizon": "This hurricane season",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "hurricane-aggressive",
+   "tier": "aggressive",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 6.82,
+   "excess_return_pct": 6.82,
+   "plain_label": "Travelers + Progressive",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 3,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 4.7,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 99412.83,
+     "benchmark": 98511.14
+    },
+    {
+     "t": "2",
+     "strategy": 99230.65,
+     "benchmark": 98658.46
+    },
+    {
+     "t": "3",
+     "strategy": 100176.42,
+     "benchmark": 99594.9
+    },
+    {
+     "t": "4",
+     "strategy": 102330.78,
+     "benchmark": 101073.31
+    },
+    {
+     "t": "5",
+     "strategy": 102712.37,
+     "benchmark": 101145.67
+    },
+    {
+     "t": "6",
+     "strategy": 103942.8,
+     "benchmark": 100313.52
+    },
+    {
+     "t": "7",
+     "strategy": 103544.28,
+     "benchmark": 99488.43
+    },
+    {
+     "t": "8",
+     "strategy": 103087.77,
+     "benchmark": 99035.28
+    },
+    {
+     "t": "9",
+     "strategy": 102829.72,
+     "benchmark": 98644.56
+    },
+    {
+     "t": "10",
+     "strategy": 101603.9,
+     "benchmark": 97237.65
+    },
+    {
+     "t": "11",
+     "strategy": 102601.81,
+     "benchmark": 98726.51
+    },
+    {
+     "t": "12",
+     "strategy": 100614.13,
+     "benchmark": 97395.74
+    },
+    {
+     "t": "13",
+     "strategy": 101784.69,
+     "benchmark": 98149.81
+    },
+    {
+     "t": "14",
+     "strategy": 102337.48,
+     "benchmark": 99060.15
+    },
+    {
+     "t": "15",
+     "strategy": 103347.55,
+     "benchmark": 99064.45
+    },
+    {
+     "t": "16",
+     "strategy": 102198.48,
+     "benchmark": 98474.75
+    },
+    {
+     "t": "17",
+     "strategy": 103057.2,
+     "benchmark": 99218.18
+    },
+    {
+     "t": "18",
+     "strategy": 103812.84,
+     "benchmark": 99738.81
+    },
+    {
+     "t": "19",
+     "strategy": 104113.96,
+     "benchmark": 100888.22
+    },
+    {
+     "t": "20",
+     "strategy": 106659.3,
+     "benchmark": 102161.04
+    },
+    {
+     "t": "21",
+     "strategy": 106816.74,
+     "benchmark": 102180.39
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 3,
+   "gain_loss": {
+    "avg_gain_pct": 6.82,
+    "avg_loss_pct": null,
+    "max_gain_pct": 10.35,
+    "max_loss_pct": 4.7,
+    "n_gain": 3,
+    "n_loss": 0,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 3,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a major hurricane make US landfall?",
+  "plain_summary": "After Michael, Ian and Milton, Travelers rose +9.1% a month later (3/3); homebuilders LEN/DHI fell.",
+  "short_title": "Will a major hurricane make US landfall?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the AI/IT winners",
+    "summary": "If AI adoption keeps lifting demand for India's IT and software firms, owning that bundle directly captures it."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in the index",
+    "summary": "If AI doesn't clearly separate IT from the rest of the market, a concentrated bundle adds risk without a real edge \u2014 the index is the calmer default."
+   }
+  },
+  "best_episode_pct": 10.3,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "This hurricane season"
+  ]
+ },
+ {
+  "id": "google_antitrust",
+  "view_type": "event",
+  "title": "Will a court rule against Big Tech?",
+  "thesis": "Counter-intuitively, Google rallied after 'guilty' antitrust rulings \u2014 because the market had priced a forced break-up, and every ruling that stopped short was a relief.",
+  "category": "Tech \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "google_antitrust-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 9.59,
+   "excess_return_pct": 9.59,
+   "plain_label": "Alphabet + Meta",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 3,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 3.01,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 101165.67,
+     "benchmark": 99694.55
+    },
+    {
+     "t": "2",
+     "strategy": 102383.02,
+     "benchmark": 100596.4
+    },
+    {
+     "t": "3",
+     "strategy": 104823.2,
+     "benchmark": 101788.35
+    },
+    {
+     "t": "4",
+     "strategy": 106078.79,
+     "benchmark": 102735.53
+    },
+    {
+     "t": "5",
+     "strategy": 107380.39,
+     "benchmark": 103081.79
+    },
+    {
+     "t": "6",
+     "strategy": 107603.05,
+     "benchmark": 103757.98
+    },
+    {
+     "t": "7",
+     "strategy": 107320.86,
+     "benchmark": 104370.05
+    },
+    {
+     "t": "8",
+     "strategy": 107598.02,
+     "benchmark": 104972.99
+    },
+    {
+     "t": "9",
+     "strategy": 109531.36,
+     "benchmark": 105483.94
+    },
+    {
+     "t": "10",
+     "strategy": 111399.06,
+     "benchmark": 106302.97
+    },
+    {
+     "t": "11",
+     "strategy": 111254.7,
+     "benchmark": 105995.86
+    },
+    {
+     "t": "12",
+     "strategy": 111205.33,
+     "benchmark": 105981.67
+    },
+    {
+     "t": "13",
+     "strategy": 110056.71,
+     "benchmark": 106017.76
+    },
+    {
+     "t": "14",
+     "strategy": 110008.27,
+     "benchmark": 106810.04
+    },
+    {
+     "t": "15",
+     "strategy": 109181.5,
+     "benchmark": 106488.6
+    },
+    {
+     "t": "16",
+     "strategy": 110908.03,
+     "benchmark": 107609.02
+    },
+    {
+     "t": "17",
+     "strategy": 110931.78,
+     "benchmark": 107483.55
+    },
+    {
+     "t": "18",
+     "strategy": 111566.95,
+     "benchmark": 107731.08
+    },
+    {
+     "t": "19",
+     "strategy": 110968.25,
+     "benchmark": 108353.31
+    },
+    {
+     "t": "20",
+     "strategy": 109852.24,
+     "benchmark": 107973.29
+    },
+    {
+     "t": "21",
+     "strategy": 109588.39,
+     "benchmark": 108060.15
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 3,
+   "gain_loss": {
+    "avg_gain_pct": 9.59,
+    "avg_loss_pct": null,
+    "max_gain_pct": 18.94,
+    "max_loss_pct": 3.01,
+    "n_gain": 3,
+    "n_loss": 0,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 2,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a court rule against Big Tech?",
+  "plain_summary": "After three adverse Google rulings, GOOGL was +8.1% a month later \u2014 the relief-rally when a break-up was avoided.",
+  "short_title": "Will a court rule against Big Tech?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 18.9,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ },
+ {
+  "id": "geo_conflict",
+  "view_type": "event",
+  "title": "Will a major geopolitical conflict flare up?",
+  "thesis": "Defence primes are the consistent reactor when conflict erupts \u2014 Raytheon, Lockheed, General Dynamics and Northrop rise on order-flow expectations.",
+  "category": "Geopolitics \u00b7 Event",
+  "time_horizon": "Within 6 months",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "geo_conflict-aggressive",
+   "tier": "aggressive",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 6.79,
+   "excess_return_pct": 6.79,
+   "plain_label": "Raytheon + General Dynamics",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 2,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 6.05,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 99323.54,
+     "benchmark": 100430.93
+    },
+    {
+     "t": "2",
+     "strategy": 99547.12,
+     "benchmark": 100630.72
+    },
+    {
+     "t": "3",
+     "strategy": 99511.63,
+     "benchmark": 100264.13
+    },
+    {
+     "t": "4",
+     "strategy": 100415.43,
+     "benchmark": 100548.71
+    },
+    {
+     "t": "5",
+     "strategy": 100529.79,
+     "benchmark": 101244.53
+    },
+    {
+     "t": "6",
+     "strategy": 100155.18,
+     "benchmark": 101266.59
+    },
+    {
+     "t": "7",
+     "strategy": 100863.06,
+     "benchmark": 100578.35
+    },
+    {
+     "t": "8",
+     "strategy": 100615.22,
+     "benchmark": 100209.53
+    },
+    {
+     "t": "9",
+     "strategy": 100262.89,
+     "benchmark": 99711.69
+    },
+    {
+     "t": "10",
+     "strategy": 100596.27,
+     "benchmark": 99678.32
+    },
+    {
+     "t": "11",
+     "strategy": 102618.27,
+     "benchmark": 100063.34
+    },
+    {
+     "t": "12",
+     "strategy": 103886.29,
+     "benchmark": 99223.28
+    },
+    {
+     "t": "13",
+     "strategy": 104021.45,
+     "benchmark": 98655.18
+    },
+    {
+     "t": "14",
+     "strategy": 103553.98,
+     "benchmark": 98334.76
+    },
+    {
+     "t": "15",
+     "strategy": 103582.97,
+     "benchmark": 98933.29
+    },
+    {
+     "t": "16",
+     "strategy": 105531.04,
+     "benchmark": 99433.25
+    },
+    {
+     "t": "17",
+     "strategy": 105413.16,
+     "benchmark": 100010.38
+    },
+    {
+     "t": "18",
+     "strategy": 105889.41,
+     "benchmark": 101126.95
+    },
+    {
+     "t": "19",
+     "strategy": 106517.2,
+     "benchmark": 101804.1
+    },
+    {
+     "t": "20",
+     "strategy": 106740.0,
+     "benchmark": 102030.02
+    },
+    {
+     "t": "21",
+     "strategy": 106785.56,
+     "benchmark": 102234.73
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 2,
+   "gain_loss": {
+    "avg_gain_pct": 6.79,
+    "avg_loss_pct": null,
+    "max_gain_pct": 7.52,
+    "max_loss_pct": 6.05,
+    "n_gain": 2,
+    "n_loss": 0,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 2,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a major geopolitical conflict flare up?",
+  "plain_summary": "After the Oct-2023 war and the 2017 North Korea test, the defence basket rose (RTX +13.3% in 2023); n=2, an edge not a law.",
+  "short_title": "Will a major geopolitical conflict flare up?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 7.5,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 6 months"
+  ]
+ },
+ {
+  "id": "adani_foreign",
+  "view_type": "event",
+  "title": "Will Adani win a new project abroad?",
+  "thesis": "Adani's overseas port/energy wins accrue straight to the group itself \u2014 Adani Ports is the direct, clean expression of the belief.",
+  "category": "Infrastructure \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "adani_foreign-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "promising",
+   "total_return_pct": 2.12,
+   "excess_return_pct": 2.12,
+   "plain_label": "Adani Ports + Adani Power",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 3,
+   "pct_episodes_beat": 33,
+   "worst_drop_pct": -7.07,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 104565.63,
+     "benchmark": 101656.12
+    },
+    {
+     "t": "2",
+     "strategy": 97283.52,
+     "benchmark": 100302.09
+    },
+    {
+     "t": "3",
+     "strategy": 98996.41,
+     "benchmark": 100912.91
+    },
+    {
+     "t": "4",
+     "strategy": 100413.61,
+     "benchmark": 101575.11
+    },
+    {
+     "t": "5",
+     "strategy": 101734.05,
+     "benchmark": 102536.75
+    },
+    {
+     "t": "6",
+     "strategy": 101827.45,
+     "benchmark": 102965.84
+    },
+    {
+     "t": "7",
+     "strategy": 101738.53,
+     "benchmark": 103154.81
+    },
+    {
+     "t": "8",
+     "strategy": 101333.13,
+     "benchmark": 103223.75
+    },
+    {
+     "t": "9",
+     "strategy": 102162.13,
+     "benchmark": 103465.37
+    },
+    {
+     "t": "10",
+     "strategy": 101477.51,
+     "benchmark": 103199.27
+    },
+    {
+     "t": "11",
+     "strategy": 100707.1,
+     "benchmark": 103187.79
+    },
+    {
+     "t": "12",
+     "strategy": 100991.45,
+     "benchmark": 103795.22
+    },
+    {
+     "t": "13",
+     "strategy": 101574.81,
+     "benchmark": 103670.66
+    },
+    {
+     "t": "14",
+     "strategy": 100784.56,
+     "benchmark": 103386.77
+    },
+    {
+     "t": "15",
+     "strategy": 101450.03,
+     "benchmark": 103462.18
+    },
+    {
+     "t": "16",
+     "strategy": 102500.14,
+     "benchmark": 103809.41
+    },
+    {
+     "t": "17",
+     "strategy": 101698.55,
+     "benchmark": 104035.81
+    },
+    {
+     "t": "18",
+     "strategy": 102753.69,
+     "benchmark": 104691.85
+    },
+    {
+     "t": "19",
+     "strategy": 101638.86,
+     "benchmark": 104144.12
+    },
+    {
+     "t": "20",
+     "strategy": 100731.58,
+     "benchmark": 103831.59
+    },
+    {
+     "t": "21",
+     "strategy": 102122.3,
+     "benchmark": 105318.48
+    }
+   ],
+   "pct_positive": 33,
+   "n_positive": 1,
+   "gain_loss": {
+    "avg_gain_pct": 14.91,
+    "avg_loss_pct": -4.27,
+    "max_gain_pct": 14.91,
+    "max_loss_pct": -7.07,
+    "n_gain": 1,
+    "n_loss": 2,
+    "basis": "episodes"
+   }
+  },
+  "expression_count": 1,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will Adani win a new project abroad?",
+  "plain_summary": "After three overseas Adani project announcements, Adani Ports rose +7.1% a month later (2/3).",
+  "short_title": "Will Adani win a new project abroad?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 14.9,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ },
+ {
+  "id": "exchange_regulator",
+  "view_type": "event",
+  "title": "Will a major crypto exchange be hit by regulators?",
+  "thesis": "When a rival exchange is taken down, the surviving listed exchange inherits the flow \u2014 Coinbase jumped when Binance's CZ pleaded guilty.",
+  "category": "Crypto \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "exchange_regulator-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "single_obs",
+   "total_return_pct": 59.29,
+   "excess_return_pct": 59.29,
+   "plain_label": "The surviving exchange",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 1,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 59.29,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 103564.32,
+     "benchmark": 100386.1
+    },
+    {
+     "t": "2",
+     "strategy": 109526.97,
+     "benchmark": 100447.86
+    },
+    {
+     "t": "3",
+     "strategy": 113536.83,
+     "benchmark": 100266.96
+    },
+    {
+     "t": "4",
+     "strategy": 121594.47,
+     "benchmark": 100366.24
+    },
+    {
+     "t": "5",
+     "strategy": 121167.89,
+     "benchmark": 100295.64
+    },
+    {
+     "t": "6",
+     "strategy": 118229.22,
+     "benchmark": 100690.56
+    },
+    {
+     "t": "7",
+     "strategy": 126798.75,
+     "benchmark": 101286.23
+    },
+    {
+     "t": "8",
+     "strategy": 133747.27,
+     "benchmark": 100754.53
+    },
+    {
+     "t": "9",
+     "strategy": 132903.59,
+     "benchmark": 100734.67
+    },
+    {
+     "t": "10",
+     "strategy": 127623.48,
+     "benchmark": 100328.73
+    },
+    {
+     "t": "11",
+     "strategy": 129102.29,
+     "benchmark": 101094.29
+    },
+    {
+     "t": "12",
+     "strategy": 138989.48,
+     "benchmark": 101528.89
+    },
+    {
+     "t": "13",
+     "strategy": 130837.05,
+     "benchmark": 101923.82
+    },
+    {
+     "t": "14",
+     "strategy": 132353.78,
+     "benchmark": 102389.32
+    },
+    {
+     "t": "15",
+     "strategy": 142629.64,
+     "benchmark": 103801.29
+    },
+    {
+     "t": "16",
+     "strategy": 145634.66,
+     "benchmark": 104134.42
+    },
+    {
+     "t": "17",
+     "strategy": 140202.86,
+     "benchmark": 103962.96
+    },
+    {
+     "t": "18",
+     "strategy": 145445.06,
+     "benchmark": 104547.76
+    },
+    {
+     "t": "19",
+     "strategy": 152772.78,
+     "benchmark": 105183.5
+    },
+    {
+     "t": "20",
+     "strategy": 153436.35,
+     "benchmark": 103725.94
+    },
+    {
+     "t": "21",
+     "strategy": 159285.24,
+     "benchmark": 104709.45
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 1,
+   "gain_loss": {
+    "avg_gain_pct": 59.29,
+    "avg_loss_pct": null,
+    "max_gain_pct": 59.29,
+    "max_loss_pct": 59.29,
+    "n_gain": 1,
+    "n_loss": 0,
+    "basis": "single_occurrence"
+   }
+  },
+  "expression_count": 1,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a major crypto exchange be hit by regulators?",
+  "plain_summary": "After the Nov-2023 Binance/CZ settlement, Coinbase rose +59% over the next month (single occurrence \u2014 a lead, not an edge).",
+  "short_title": "Will a major crypto exchange be hit by regulators?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 59.3,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ },
+ {
+  "id": "china_ai_surprise",
+  "view_type": "event",
+  "title": "Will a Chinese lab ship a surprise AI model?",
+  "thesis": "A Chinese AI breakthrough re-rates the Chinese tech leaders \u2014 Alibaba, the listed China-AI proxy, jumped after DeepSeek.",
+  "category": "AI \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "china_ai_surprise-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "single_obs",
+   "total_return_pct": 54.55,
+   "excess_return_pct": 54.55,
+   "plain_label": "The Chinese AI leader",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 1,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 54.55,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 106711.86,
+     "benchmark": 100859.24
+    },
+    {
+     "t": "2",
+     "strategy": 107478.61,
+     "benchmark": 100407.09
+    },
+    {
+     "t": "3",
+     "strategy": 114168.24,
+     "benchmark": 100946.0
+    },
+    {
+     "t": "4",
+     "strategy": 109834.42,
+     "benchmark": 100408.76
+    },
+    {
+     "t": "5",
+     "strategy": 109578.85,
+     "benchmark": 99733.07
+    },
+    {
+     "t": "6",
+     "strategy": 113734.87,
+     "benchmark": 100402.1
+    },
+    {
+     "t": "7",
+     "strategy": 110323.38,
+     "benchmark": 100809.17
+    },
+    {
+     "t": "8",
+     "strategy": 111545.72,
+     "benchmark": 101159.55
+    },
+    {
+     "t": "9",
+     "strategy": 115023.89,
+     "benchmark": 100233.58
+    },
+    {
+     "t": "10",
+     "strategy": 123702.64,
+     "benchmark": 100914.3
+    },
+    {
+     "t": "11",
+     "strategy": 125325.03,
+     "benchmark": 100991.04
+    },
+    {
+     "t": "12",
+     "strategy": 131492.38,
+     "benchmark": 100665.7
+    },
+    {
+     "t": "13",
+     "strategy": 132836.98,
+     "benchmark": 101728.47
+    },
+    {
+     "t": "14",
+     "strategy": 138604.29,
+     "benchmark": 101723.49
+    },
+    {
+     "t": "15",
+     "strategy": 141015.67,
+     "benchmark": 102022.13
+    },
+    {
+     "t": "16",
+     "strategy": 139782.21,
+     "benchmark": 102262.37
+    },
+    {
+     "t": "17",
+     "strategy": 151094.57,
+     "benchmark": 101836.93
+    },
+    {
+     "t": "18",
+     "strategy": 159739.98,
+     "benchmark": 100095.09
+    },
+    {
+     "t": "19",
+     "strategy": 143393.7,
+     "benchmark": 99639.63
+    },
+    {
+     "t": "20",
+     "strategy": 148916.55,
+     "benchmark": 99144.1
+    },
+    {
+     "t": "21",
+     "strategy": 154550.5,
+     "benchmark": 99194.16
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 1,
+   "gain_loss": {
+    "avg_gain_pct": 54.55,
+    "avg_loss_pct": null,
+    "max_gain_pct": 54.55,
+    "max_loss_pct": 54.55,
+    "n_gain": 1,
+    "n_loss": 0,
+    "basis": "single_occurrence"
+   }
+  },
+  "expression_count": 1,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a Chinese lab ship a surprise AI model?",
+  "plain_summary": "After the Jan-2025 DeepSeek shock, Alibaba rose +54.6% over the next month (single occurrence).",
+  "short_title": "Will a Chinese lab ship a surprise AI model?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 54.5,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ },
+ {
+  "id": "bank_rescue",
+  "view_type": "event",
+  "title": "Will a major bank need a rescue?",
+  "thesis": "The acquirer/survivor of a forced bank rescue takes share on favourable terms \u2014 UBS rose after absorbing Credit Suisse.",
+  "category": "Financials \u00b7 Event",
+  "time_horizon": "Within 1 year",
+  "status": "open",
+  "resolution_date": null,
+  "created_at": "2026-06-29T18:21:39.487863Z",
+  "published_at": "2026-06-29T18:21:39.965318Z",
+  "outcome_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "expression_confidence": {
+   "score": null,
+   "letter": null
+  },
+  "best_expression": {
+   "id": "bank_rescue-conservative",
+   "tier": "conservative",
+   "expression_kind": "basket",
+   "grade": null,
+   "trust_verdict": "single_obs",
+   "total_return_pct": 13.65,
+   "excess_return_pct": 13.65,
+   "plain_label": "The surviving bank",
+   "nifty_total_pct": 0.0,
+   "n_episodes": 1,
+   "pct_episodes_beat": 100,
+   "worst_drop_pct": 13.65,
+   "equity_curve": [
+    {
+     "t": "0",
+     "strategy": 100000.0,
+     "benchmark": 100000.0
+    },
+    {
+     "t": "1",
+     "strategy": 111968.09,
+     "benchmark": 101313.06
+    },
+    {
+     "t": "2",
+     "strategy": 108510.64,
+     "benchmark": 99586.02
+    },
+    {
+     "t": "3",
+     "strategy": 101968.09,
+     "benchmark": 99855.23
+    },
+    {
+     "t": "4",
+     "strategy": 101010.63,
+     "benchmark": 100510.5
+    },
+    {
+     "t": "5",
+     "strategy": 103191.49,
+     "benchmark": 100698.43
+    },
+    {
+     "t": "6",
+     "strategy": 102500.0,
+     "benchmark": 100472.39
+    },
+    {
+     "t": "7",
+     "strategy": 106914.9,
+     "benchmark": 101932.74
+    },
+    {
+     "t": "8",
+     "strategy": 109095.74,
+     "benchmark": 102529.58
+    },
+    {
+     "t": "9",
+     "strategy": 113510.65,
+     "benchmark": 103974.71
+    },
+    {
+     "t": "10",
+     "strategy": 110106.39,
+     "benchmark": 104370.9
+    },
+    {
+     "t": "11",
+     "strategy": 111702.13,
+     "benchmark": 103791.85
+    },
+    {
+     "t": "12",
+     "strategy": 110585.11,
+     "benchmark": 103520.08
+    },
+    {
+     "t": "13",
+     "strategy": 110425.52,
+     "benchmark": 103923.89
+    },
+    {
+     "t": "14",
+     "strategy": 110106.39,
+     "benchmark": 104030.58
+    },
+    {
+     "t": "15",
+     "strategy": 114361.71,
+     "benchmark": 104058.52
+    },
+    {
+     "t": "16",
+     "strategy": 116108.53,
+     "benchmark": 103634.36
+    },
+    {
+     "t": "17",
+     "strategy": 118073.68,
+     "benchmark": 105010.92
+    },
+    {
+     "t": "18",
+     "strategy": 119602.14,
+     "benchmark": 104754.41
+    },
+    {
+     "t": "19",
+     "strategy": 115071.34,
+     "benchmark": 105130.28
+    },
+    {
+     "t": "20",
+     "strategy": 114689.22,
+     "benchmark": 105198.84
+    },
+    {
+     "t": "21",
+     "strategy": 113652.06,
+     "benchmark": 105181.08
+    }
+   ],
+   "pct_positive": 100,
+   "n_positive": 1,
+   "gain_loss": {
+    "avg_gain_pct": 13.65,
+    "avg_loss_pct": null,
+    "max_gain_pct": 13.65,
+    "max_loss_pct": 13.65,
+    "n_gain": 1,
+    "n_loss": 0,
+    "basis": "single_occurrence"
+   }
+  },
+  "expression_count": 1,
+  "transmission_count": 0,
+  "follower_count": 0,
+  "is_following": false,
+  "is_developing": false,
+  "plain_one_liner": "Will a major bank need a rescue?",
+  "plain_summary": "After UBS agreed to rescue Credit Suisse (Mar-2023), UBS rose +13.7% over the next month (single occurrence).",
+  "short_title": "Will a major bank need a rescue?",
+  "stance": {
+   "yes": {
+    "verdict": "Own the gold beneficiaries",
+    "summary": "If gold keeps printing new highs, jewellers, gold-loan financiers and gold itself tend to rise together."
+   },
+   "no": {
+    "has_trade": true,
+    "verdict": "Stay in equities",
+    "summary": "If gold stalls instead, gold-linked stocks likely just tread water \u2014 broad equity exposure is the steadier bet."
+   }
+  },
+  "best_episode_pct": 13.7,
+  "best_episode_label": "best occurrence",
+  "available_horizons": [
+   "Within 1 year"
+  ]
+ }
+]

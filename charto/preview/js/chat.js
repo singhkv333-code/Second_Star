@@ -11,7 +11,9 @@
 "use strict";
 
 (function () {
-  const API = "http://127.0.0.1:5174";
+  // same-origin behind a proxy, explicit port in local dev (see main.js)
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -334,9 +336,146 @@
     return done;
   }
 
+  // ── company logos ────────────────────────────────────────
+  // A reply's table rows are per-company, so the company's mark belongs next
+  // to its NAME — the ticker column stays plain text. Nothing is linked: the
+  // page is reached from the search dropdown. This runs on the FINISHED turn
+  // over text nodes, never over the markdown string: a regex on HTML would
+  // eventually match inside a tag it wrote.
+  let SYMS = null, TO_SYM = null, SYM_RE = null, LOGOS = {}, NAME_KEYS = null;
+  // one universe cache for the whole app — the pill, the legends, the pane
+  // pickers and this marker all read the same payload
+  Universe.load().then((d) => {
+    SYMS = new Set(d.symbols || []);
+    LOGOS = d.logos || {};
+    TO_SYM = new Map(SYMS.size ? [...SYMS].map((s) => [s, s]) : []);
+    // A reply names companies either way — "TCS" or "Caplin Labs". Only the
+    // NAME spellings carry a logo; a bare ticker is left exactly as written.
+    NAME_KEYS = new Set();
+    // `alias` carries the plain asset name behind a venue-qualified listing
+    // ("Bitcoin" for "Bitcoin / USDT (Bybit)") — the spelling a reply actually
+    // uses. Last in the list so a real company name always wins a collision.
+    for (const src of [d.names || {}, d.long || {}, d.alias || {}]) {
+      for (const [sym, name] of Object.entries(src)) {
+        if (name && name.length > 3 && !TO_SYM.has(name)) {
+          TO_SYM.set(name, sym);
+          NAME_KEYS.add(name);
+        }
+      }
+    }
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const alts = [...TO_SYM.keys()].sort((a, b) => b.length - a.length).map(esc);
+    SYM_RE = new RegExp(`(?<![\\w&-])(${alts.join("|")})(?![\\w&-])`, "g");
+    // a restored session renders before this fetch lands — mark it now that
+    // the map exists, or a reopened conversation would lose every logo
+    document.querySelectorAll(".prose").forEach((p) => {
+      try { linkCompanies(p); } catch (e) { console.warn("[charto] mark failed", e); }
+    });
+  }).catch((e) => { console.warn("[charto] symbols fetch failed", e); SYMS = new Set(); });
+
+  /** Put each company's logo before its NAME — in TABLES only. Prose names the
+   *  same company several times a paragraph, and a mark on each one is
+   *  decoration; a table row is already a per-company row. Tickers and
+   *  companies with no known logo are left untouched. */
+  function linkCompanies(root) {
+    if (!SYM_RE || !TO_SYM || !TO_SYM.size) return;
+    const jobs = [];
+    for (const table of root.querySelectorAll("table")) {
+      const walk = document.createTreeWalker(table, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => n.parentElement.closest("a, code, pre")
+          ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      });
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (SYM_RE.test(n.nodeValue)) jobs.push(n);
+        SYM_RE.lastIndex = 0;
+      }
+    }
+    for (const node of jobs) {
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
+      SYM_RE.lastIndex = 0;
+      while ((m = SYM_RE.exec(node.nodeValue))) {
+        const sym = TO_SYM.get(m[0]);
+        // a ticker is not a name, and a company with no stored logo has
+        // nothing to add — both are left as the model wrote them
+        if (!sym || !NAME_KEYS.has(m[0]) || !LOGOS[sym]) continue;
+        if (m.index > last) {
+          frag.appendChild(document.createTextNode(
+            node.nodeValue.slice(last, m.index)));
+        }
+        const img = document.createElement("img");
+        img.className = "co-logo";
+        img.src = LOGOS[sym];
+        img.alt = "";
+        img.loading = "lazy";
+        img.onerror = () => img.remove();   // a dead logo must not leave a box
+        frag.appendChild(img);
+        frag.appendChild(document.createTextNode(m[0]));
+        last = m.index + m[0].length;
+      }
+      if (!frag.childNodes.length) continue;
+      if (last < node.nodeValue.length) {
+        frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+      }
+      node.parentNode.replaceChild(frag, node);
+    }
+  }
+
+
+  /* ── what this turn put on the chart ─────────────────────────────────────
+   *
+   * The footer used to read "computed via get_indicator" — a backend
+   * function name, and a misleading count: one get_indicator call can plot
+   * three moving averages, and it read as a single thing.
+   *
+   * The scene patch is already the honest ledger, because it is literally
+   * the list of objects that landed on the chart. One entry per VISUAL
+   * thing: three indicators are three, a level and a zone are two, a
+   * volume profile is one. Names are the ones the chart itself shows, so
+   * nothing here leaks a tool id.
+   */
+  const SHAPE_WORD = {
+    segment: "Trendline", zone: "Zone", box: "Box", vline: "Vertical line",
+    point: "Point", poly: "Shape", fib: "Fib retracement",
+    position: "Trade plan", markers: "Markers", vprofile: "Volume profile",
+    level: "Level",
+  };
+
+  function chartActions(patch) {
+    const out = [];
+    const items = (patch || []).filter((a) => a && a.kind);
+    // A clear that is FOLLOWED by drawings is draw_mode:"replace" doing its
+    // bookkeeping, not something the reader saw happen — counting it made
+    // three levels and a profile read as eight actions. A clear on its own
+    // is a real removal and does count.
+    const onlyClears = items.every(
+      (a) => a.kind === "clear" || a.kind === "clear_levels");
+    for (const a of items) {
+      if (a.kind === "clear" || a.kind === "clear_levels") {
+        if (onlyClears) out.push("Cleared the chart");
+        continue;
+      }
+      if (a.kind === "indicator_remove") {
+        out.push(`Removed ${String(a.name || "an indicator").toUpperCase()}`);
+        continue;
+      }
+      if (a.kind === "indicator") {
+        const nm = String(a.name || "").split("@")[0].toUpperCase();
+        out.push(`${nm}${a.period ? " " + a.period : ""}`.trim() || "Indicator");
+        continue;
+      }
+      const word = SHAPE_WORD[a.kind] || "Drawing";
+      // a level's own label is the price, which is more use than the word
+      out.push(a.label ? `${word} · ${a.label}` : word);
+    }
+    return out;
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
-  function finishTurn(turn, text, bits) {
-    turn.querySelector(".prose").innerHTML = md(text);
+  function finishTurn(turn, text, bits, acts) {
+    const prose = turn.querySelector(".prose");
+    prose.innerHTML = md(text);
+    linkCompanies(prose);
     const meta = document.createElement("div");
     meta.className = "turn-meta";
     const copy = document.createElement("button");
@@ -352,6 +491,28 @@
     const label = document.createElement("span");
     label.textContent = bits.filter(Boolean).join("  ·  ");
     meta.append(copy, label);
+    // The chart-actions disclosure rides in the same row, in the same type —
+    // it is provenance, the same as the latency and the token count.
+    const acts2 = acts || [];
+    if (acts2.length) {
+      const tog = document.createElement("button");
+      tog.className = "acts-toggle";
+      tog.innerHTML = `<span>${acts2.length} on chart</span>`
+        + Icons.svg("chevronDown", "xs");
+      const list = document.createElement("div");
+      list.className = "acts-list";
+      list.innerHTML = acts2.map((t) =>
+        `<span class="act-row">${esc(t)}</span>`).join("");
+      tog.addEventListener("click", () => {
+        const open = meta.classList.toggle("acts-open");
+        tog.setAttribute("aria-expanded", String(open));
+      });
+      meta.append(tog);
+      turn.appendChild(meta);
+      turn.appendChild(list);
+      toBottom();
+      return;
+    }
     turn.appendChild(meta);
     toBottom();
   }
@@ -399,7 +560,7 @@
     if (!turns.length) return;
     for (const t of turns) {
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing); continue; }
-      finishTurn(addAssistantTurn(), t.content, t.meta || []);
+      finishTurn(addAssistantTurn(), t.content, t.meta || [], t.acts || []);
     }
     toBottom();
   })();
@@ -424,8 +585,22 @@
     const t0 = performance.now();
 
     try {
-      // snapshot the chart at send time — what you were looking at when you asked
-      const context = ctxOn && window.__charto ? window.__charto.getChartContext() : null;
+      // Snapshot the charts at send time — what you were looking at when you
+      // asked. The chip names panes, so the envelope is built from those panes
+      // rather than from whatever happens to be selected now, and what came
+      // back is recorded: a layout change can retire a chosen pane, and the
+      // fallback has to be visible rather than silent.
+      const context = ctxOn && window.__charto
+        ? window.__charto.getChartContext(chosen) : null;
+      if (context && context.symbol) {
+        // A chart still loading its bars has no envelope, so it is not in the
+        // conversation — and the chip must stop implying it is.
+        sent = new Set((context.charts || [context]).map((c) => c.symbol));
+        const open = new Map(openCharts().map((c) => [c.pane, c.symbol]));
+        const kept = chosen.filter((p) => sent.has(open.get(p)));
+        if (kept.length && kept.length !== chosen.length) chosen = kept;
+        paintCtxFlag();
+      }
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -436,6 +611,20 @@
       if (d.error) throw new Error(d.error);
       lastBlock = d.context_preview || "(no chart context sent)";
 
+      // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
+      // chart this same turn opened, and applying the patch first would draw
+      // it onto whatever pane happened to be there.
+      if (d.view_ops && d.view_ops.length && window.__charto?.panes) {
+        for (const op of d.view_ops) {
+          if (op.kind !== "open_chart") continue;
+          try {
+            window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
+          } catch (e) {
+            console.warn("[charto] open_chart failed", op, e);
+          }
+        }
+      }
+
       // apply anything the model chose to draw
       if (d.scene_patch && d.scene_patch.length && window.__charto) {
         window.__charto.scene.apply(d.scene_patch);
@@ -443,15 +632,14 @@
 
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       const u = d.usage || {};
-      const tools = (d.tools_used || []).map((t) => t.name + (t.ok ? "" : " (failed)"));
       const meta = [
         `${secs}s`,
         u.input_tokens != null ? `${u.input_tokens.toLocaleString()} in / ${(u.output_tokens ?? 0).toLocaleString()} out` : null,
-        tools.length ? `computed via ${[...new Set(tools)].join(", ")}` : null,
       ].filter(Boolean);
-      turns.push({ role: "assistant", content: d.text, meta });
+      const acts = chartActions(d.scene_patch);
+      turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();
-      finishTurn(turn, d.text, meta);
+      finishTurn(turn, d.text, meta, acts);
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
       saveTurns();
@@ -488,7 +676,10 @@
   const IV_LABEL = { "1m": "1-min", "5m": "5-min", "15m": "15-min", "30m": "30-min",
                      "1h": "1-hour", "1d": "Daily", "1w": "Weekly", "1mo": "Monthly" };
   const DAILY_IV = new Set(["1d", "1w", "1mo"]);
-  const inr = (n) => Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Routed through Sym, not hardcoded en-IN: the same pin chip renders a
+  // Bitcoin candle, where "12,34,567.5" is the wrong grouping and the wrong
+  // currency. Sym owns locale and symbol per instrument.
+  const num = (n) => Sym.num(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   function pinChip(p) {
     // Chart time is IST-shifted, so the UTC getters render IST wall clock.
@@ -512,17 +703,17 @@
 
     const full = [
       `${size} · ${when}`,
-      `O ${inr(p.open)}   H ${inr(p.high)}   L ${inr(p.low)}   C ${inr(p.close)}`,
-      p.volume ? `V ${Number(p.volume).toLocaleString("en-IN")}` : "",
+      `O ${num(p.open)}   H ${num(p.high)}   L ${num(p.low)}   C ${num(p.close)}`,
+      p.volume ? `V ${Sym.num(p.volume)}` : "",
       "Click to find it on the chart · × to unpin",
     ].filter(Boolean).join("\n");
 
     return `<span class="pin ${up ? "up" : "down"}" data-find="${p.time}" `
-      + `role="button" tabindex="0" title="${full}" aria-label="Pinned ${size}, ${when}, close ${inr(p.close)}, ${move}">`
+      + `role="button" tabindex="0" title="${full}" aria-label="Pinned ${size}, ${when}, close ${num(p.close)}, ${move}">`
       + `<span class="pin-bar" aria-hidden="true"><i class="wick"></i>`
       + `<i class="body" style="top:${top.toFixed(1)}%;height:${body.toFixed(1)}%"></i></span>`
       + `<span class="pin-txt">`
-      + `<span class="pin-top">₹${inr(p.close)}<b class="pin-move">${move}</b></span>`
+      + `<span class="pin-top">${Sym.price(p.close, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<b class="pin-move">${move}</b></span>`
       + `<span class="pin-sub">${size} · ${when}</span>`
       + `</span>`
       + `<span class="x" data-unpin="${p.time}" title="Unpin this candle">${Icons.svg("x", "xs")}</span>`
@@ -587,13 +778,142 @@
     ].join("");
   }
 
+  /* ── what the conversation is about ──────────────────────────────────────
+   *
+   * The chip names the CHARTS the model is reading, not the fact that it is
+   * reading something: "sees chart" told you the switch was on and nothing
+   * about which chart. It follows the pane you last clicked, so on a split the
+   * chat and the selection can never disagree — unless you have chosen the set
+   * yourself in the menu, which pins it (a deliberate choice outranks a click
+   * somewhere else on screen).
+   *
+   * The menu offers exactly the charts that are OPEN. Not the universe: a
+   * ticker with no pane has no visible chart to talk about, and the whole
+   * premise here is that the conversation is about what is on screen. Opening
+   * a chart is a layout away.
+   *
+   * Whether the charts ride along is carried by the chip's own ink — attached
+   * reads at full strength, detached goes faint and the tooltip says so.
+   */
+  let chosen = [0];                   // pane indices, in the order they were added
+  let pinned = false;                 // set by choosing in this menu
+  let sent = null;                    // what the last turn actually carried
+
+  /** The open charts, primary first. Before main.js has finished booting there
+   *  is exactly one and it is the page's own symbol. */
+  const openCharts = () => (window.__charto && window.__charto.charts)
+    ? window.__charto.charts()
+    : [{ pane: 0, symbol: Sym.name, interval: "", primary: true }];
+
+  /** The chosen panes as chart records, dropping any the layout has retired. */
+  function chosenCharts() {
+    const open = openCharts();
+    const byPane = new Map(open.map((c) => [c.pane, c]));
+    const list = chosen.map((p) => byPane.get(p)).filter(Boolean);
+    return list.length ? list : [open[0]];
+  }
+
   function paintCtxFlag() {
     ctxFlag.classList.toggle("off", !ctxOn);
-    ctxFlag.innerHTML = `<span class="dot"></span>${ctxOn ? "sees chart" : "chart hidden"}`;
-    ctxFlag.title = ctxOn
-      ? "The visible chart is attached to each message — click to detach"
-      : "The model gets no chart state — click to attach";
+    const list = chosenCharts();
+    ctxFlag.classList.toggle("multi", list.length > 1);
+    /* One chart is named. SEVERAL are just their marks: the row would run to
+     * three or four names beside a text box that is itself the width of the
+     * pane, and the names are one click away in the menu. No interval either —
+     * it belongs to the chart, and the chip answers "about what", not
+     * "at what resolution". */
+    ctxFlag.innerHTML = list.length === 1
+      ? Universe.logoHTML(list[0].symbol, "co-logo")
+        + `<span class="sym">${list[0].symbol}</span>`
+      : list.map((c) => Universe.logoHTML(c.symbol, "co-logo")
+          || `<span class="sym">${c.symbol}</span>`).join("");
+    const names = list.map((c) => `${c.symbol} ${c.interval || ""}`.trim()).join(" · ");
+    ctxFlag.title = (ctxOn
+      ? `The model reads ${list.length > 1 ? "these charts" : "this chart"} — ${names}`
+      : "The charts are detached; the model reads none of them")
+      + " · click to choose what is in context";
   }
+
+  /** The menu behind the chip: every open chart, ticked or not. Ticking one
+   *  puts it in the turn; unticking takes it out. The last one cannot be
+   *  removed — a conversation about no chart is the detach switch, which
+   *  lives in "+" and says so in its own words. */
+  function openSubjectMenu() {
+    const open = openCharts();
+    const picked = new Set(chosenCharts().map((c) => c.pane));
+    const rows = [
+      `<div class="head">Charts in this conversation</div>`,
+      ...open.map((c) => {
+        const on = picked.has(c.pane);
+        return `<div class="item ${on ? "on" : ""}" data-pane="${c.pane}">`
+          + `<span class="lead">${Universe.logoHTML(c.symbol, "co-logo")}`
+          + `${c.symbol}<span class="co-name">${c.interval || ""}`
+          + `${c.primary ? " · main" : ""}</span></span>`
+          + (on ? Icons.svg("check", "xs") : "") + `</div>`;
+      }),
+      pinned ? `<div class="sep"></div><div class="item" data-pane="follow">`
+        + `<span class="lead">${Icons.svg("check", "sm")}`
+        + `Your choice — click to follow the selected chart again</span></div>` : "",
+      open.length === 1
+        ? `<div class="pick-note">Split the layout to put a second chart on `
+          + `screen; anything open can join the conversation.</div>`
+        : `<div class="pick-note">Every ticked chart is sent with each message, `
+          + `and the model can read any of them.</div>`,
+    ].join("");
+
+    const pop = document.createElement("div");
+    pop.className = "dropdown floating subj-menu open";
+    pop.innerHTML = rows;
+    document.body.appendChild(pop);
+    const r = ctxFlag.getBoundingClientRect();
+    pop.style.left = Math.max(8, r.left) + "px";
+    pop.style.bottom = (innerHeight - r.top + 8) + "px";
+
+    const close = () => { pop.remove(); document.removeEventListener("mousedown", out, true); };
+    const out = (e) => { if (!pop.contains(e.target) && !ctxFlag.contains(e.target)) close(); };
+    setTimeout(() => document.addEventListener("mousedown", out, true), 0);
+
+    pop.addEventListener("click", (e) => {
+      const it = e.target.closest("[data-pane]");
+      if (!it) return;
+      e.stopPropagation();
+      if (it.dataset.pane === "follow") {
+        pinned = false;
+        chosen = [(window.__chartoActivePane || 0)];
+        close(); paintCtxFlag();
+        return;
+      }
+      const p = Number(it.dataset.pane);
+      const i = chosen.indexOf(p);
+      if (i >= 0) {
+        if (chosen.length === 1) return;   // never leave the turn with nothing
+        chosen.splice(i, 1);
+      } else {
+        chosen.push(p);
+      }
+      pinned = true;                        // an explicit set outranks a click
+      paintCtxFlag();
+      close(); openSubjectMenu();           // stays open for a second choice
+    });
+  }
+
+  // The selected chart is the subject — the same signal that re-aims the
+  // toolbar. A pinned set ignores it.
+  document.addEventListener("charto:pane-active", (e) => {
+    window.__chartoActivePane = e.detail.pane;
+    if (pinned) return;
+    chosen = [e.detail.pane];
+    paintCtxFlag();
+  });
+  // A layout change retires panes; the chip must stop naming charts that are
+  // no longer on screen.
+  document.addEventListener("charto:panes-changed", () => {
+    const open = new Set(openCharts().map((c) => c.pane));
+    const keep = chosen.filter((p) => open.has(p));
+    chosen = keep.length ? keep : [0];
+    paintCtxFlag();
+  });
+  Universe.load().then(paintCtxFlag);   // the mark lands after the fetch
 
   function clearConversation() {
     turns.length = 0;
@@ -621,7 +941,8 @@
     }
     if (act === "clear") clearConversation();
   });
-  ctxFlag.addEventListener("click", () => { ctxOn = !ctxOn; paintCtxFlag(); });
+  // the chip opens the subject menu; the see-the-chart switch is in "+"
+  ctxFlag.addEventListener("click", (e) => { e.stopPropagation(); openSubjectMenu(); });
   el("ctxPeekClose").addEventListener("click", () => el("ctxPeek").classList.remove("open"));
   paintCtxFlag();
 
@@ -630,16 +951,47 @@
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
 
+  /* Below the breakpoint the shell is a COLUMN: the chat sits under the
+   * chart at full width, and a horizontal split has nothing to divide. The
+   * saved desktop width is an inline style, so it beat the stylesheet and
+   * pinned a phone's chat panel to 340px with the chart's own width beside
+   * it — the split survived the layout that removed it. */
+  const stacked = () => window.matchMedia("(max-width: 820px)").matches;
+
+  const HKEY = "charto_chat_height";
+  const MIN_CHAT_H = 160, MIN_CHART_H = 200;
+
+  /** Stacked layout: the same divider drags HEIGHT. Kept on its own key so
+   *  a phone split and a desktop split do not overwrite each other every
+   *  time the window crosses the breakpoint. */
+  function setChatHeight(px, persist = true) {
+    const total = main.clientHeight;
+    const h = Math.round(Math.max(MIN_CHAT_H, Math.min(px, total - MIN_CHART_H)));
+    panel.style.height = h + "px";
+    if (persist) localStorage.setItem(HKEY, String(h));
+  }
+
   function setChatWidth(px, persist = true) {
+    if (stacked()) {
+      panel.style.width = "";
+      const savedH = parseInt(localStorage.getItem(HKEY) || "0", 10);
+      if (savedH) setChatHeight(savedH, false);
+      return;
+    }
+    panel.style.height = "";
     const total = main.clientWidth;
     const w = Math.round(Math.max(MIN_CHAT, Math.min(px, total - MIN_CHART)));
     panel.style.width = w + "px";
     if (persist) localStorage.setItem(WKEY, String(w));
   }
-  requestAnimationFrame(() => {
+  function applySavedWidth() {
     const saved = parseInt(localStorage.getItem(WKEY) || "0", 10);
     setChatWidth(saved || main.clientWidth * 0.44, false);
-  });
+  }
+  requestAnimationFrame(applySavedWidth);
+  // rotating a phone, or dragging a desktop window across the breakpoint,
+  // has to re-decide this — the width is only meaningful on one side of it
+  window.matchMedia("(max-width: 820px)").addEventListener("change", applySavedWidth);
 
   let dragging = false;
   splitter.addEventListener("mousedown", (e) => {
@@ -651,8 +1003,21 @@
     e.preventDefault();
   });
   window.addEventListener("mousemove", (e) => {
-    if (dragging) setChatWidth(main.getBoundingClientRect().right - e.clientX);
+    if (!dragging) return;
+    const r = main.getBoundingClientRect();
+    if (stacked()) setChatHeight(r.bottom - e.clientY);
+    else setChatWidth(r.right - e.clientX);
   });
+  // the divider has to be draggable by a finger too, or the phone split is
+  // decorative
+  splitter.addEventListener("touchmove", (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const r = main.getBoundingClientRect();
+    if (stacked()) setChatHeight(r.bottom - t.clientY);
+    else setChatWidth(r.right - t.clientX);
+    e.preventDefault();
+  }, { passive: false });
   window.addEventListener("mouseup", () => {
     if (!dragging) return;
     dragging = false;

@@ -748,7 +748,35 @@ def compute(name: str, rows: list[tuple], period: int = 0,
         raise ValueError("period must be between 1 and 500")
     if len(rows) < n + 2:
         raise ValueError(f"{name}({n}) needs at least {n + 2} bars, got {len(rows)}")
+    # An instrument that prints no traded quantity cannot have a volume
+    # indicator computed on it, and the arithmetic does not say so: measured
+    # on NIFTY 50 daily bars, OBV and A/D come back a flat 0.0, VWAP quietly
+    # degenerates to an unweighted typical-price mean, and MFI(14) returns
+    # 100.0 — a maximally-overbought reading manufactured from nothing. That
+    # is a fabricated number on the index users ask about most, so it is
+    # refused here, at the one place every caller goes through.
     kw = {k: v for k, v in extra.items() if v is not None}
+    # Volume dependence is a property of THIS CALL, not only of the
+    # indicator's group. The settings dialog can point any moving average at
+    # VWMA, and a source dropdown can point any indicator at the volume
+    # column — so Bollinger Bands, group "volatility", becomes volume-based
+    # the moment its Basis MA Type is VWMA. Measured on NIFTY 50 that returned
+    # zero points on all five lines: the bands simply vanished off the chart
+    # with nothing said, which is the same silent failure as a fabricated
+    # number wearing different clothes.
+    why = ("is a volume study" if spec["group"] == "volume"
+           else "is being computed on the volume column" if source == "volume"
+           else "is set to VWMA, which weights by volume"
+           if any(str(v).lower() == "vwma" for v in kw.values()) else "")
+    if why and not any(r[5] for r in rows):
+        # One short factual sentence, because this string is read by BOTH a
+        # person (the chart's status bar) and the model (the tool's error).
+        # Guidance on how to phrase a reply belongs in the tool's `_note`
+        # alongside every other model instruction, not in a UI toast.
+        raise ValueError(
+            f"{name} {why} and this instrument prints no volume — every bar "
+            f"in the window has v=0, as indices and India VIX are quoted. "
+            f"Price-only indicators (RSI, MACD, ATR, Bollinger) work here.")
     lines = spec["fn"](rows, n, source, **kw)
     return {"lines": lines,
             "last": {k: (None if _last(v) is None else round(_last(v), 4))

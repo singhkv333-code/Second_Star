@@ -12,20 +12,31 @@ which differs slightly from NSE's official 30-min-VWAP close).
 GET /bars?symbol=RELIANCE&interval=5m&limit=3000[&to=<epoch_s exclusive>]
   -> {symbol, interval, bars:[{t,o,h,l,c,v}], has_more, earliest, latest}
 GET /meta?symbol=RELIANCE -> {symbol, count, earliest, latest}
+GET /stream?symbol=RELIANCE -> SSE {type:"bar", closed_1m, bars:{1m..1h,1d}}
+GET /replay?symbol=RELIANCE&speed=300[&date=YYYY-MM-DD][&stop=1]
+  re-feeds a stored session through the live tick engine (dev driver; the
+  same seam a Kite websocket would use). stop=1 returns the symbol to idle.
 
 Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import queue
+import secrets
 import sqlite3
+import sys
+from os import environ
 import threading
+import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import indicators   # sibling module: the indicator registry
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -40,7 +51,7 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 # deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
 # (gpt-5.4-mini) and Charto should not drag it onto a different model.
 LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
-LLM_EFFORT = "medium"
+LLM_EFFORT_DEFAULT = "medium"
 # Azure priority processing — premium-billed, lower/steadier latency. The
 # response echoes the tier actually served; verify there, not here.
 LLM_SERVICE_TIER = "priority"
@@ -69,6 +80,12 @@ def _load_azure_creds() -> tuple[str, str]:
 
 AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
+# Overridable the same way, so an A/B between efforts is a restart rather than
+# an edit — a benchmark needing a code change between its arms is one nobody
+# re-runs. Env wins over .env so a single run can be pinned from the shell.
+LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
+              or _env_values("CHARTO_LLM_EFFORT")["CHARTO_LLM_EFFORT"]
+              or LLM_EFFORT_DEFAULT)
 
 
 def _creds_error() -> str:
@@ -106,6 +123,96 @@ def _minted_anchors() -> dict:
     return getattr(_scene, "minted_anchors", {}) or {}
 
 
+# ── per-request symbol ────────────────────────────────────────────
+# One dataserver, 500 companies. Every tool and query reads the symbol
+# from here; do_GET / do_POST stamp it per request. Symbols hydrate on
+# first touch from the blob universe (parquet → local SQLite, ~10 s once)
+# via hydrate_symbol.py under the pivot venv — this process stays stdlib.
+_req = threading.local()
+
+
+def _sym() -> str:
+    return getattr(_req, "symbol", "RELIANCE")
+
+
+_SYMBOLS_PATH = Path(__file__).parent / "symbols.json"
+_symbols_cache: list[str] = []
+_HYDRATE_LOCKS: dict[str, threading.Lock] = {}
+_HYDRATE_GUARD = threading.Lock()
+_VENV_PY = Path(__file__).resolve().parents[2] / "pivot" / ".venv" / "bin" / "python"
+
+
+def _known_symbols() -> list[str]:
+    global _symbols_cache
+    if not _symbols_cache and _SYMBOLS_PATH.exists():
+        _symbols_cache = json.loads(_SYMBOLS_PATH.read_text())
+    return _symbols_cache
+
+
+_bar_symbols_cache: tuple[float, set[str]] | None = None
+_BAR_SYMBOLS_TTL = 300.0
+
+
+def _symbols_with_bars() -> set[str]:
+    """Which symbols have 1-minute bars — WITHOUT scanning `bars`.
+
+    `SELECT DISTINCT symbol FROM bars` is a full table scan: SQLite has no
+    index skip-scan, so both DISTINCT and GROUP BY plan as SCAN. Measured on
+    the 413M-row universe store that is 124.71s, which made /symbols time out
+    and left the chart stuck on "Loading..." — the symbol picker asks for this
+    on every page load. It was survivable at 118M rows locally and is not at
+    413M, which is exactly the kind of thing only deploying finds.
+
+    Ask a small table instead: sync_state carries one row per symbol (0.00s),
+    bars_1d GROUP BY is 0.06s over 1.1M rows. The scan stays as a last resort
+    so a store with neither table still answers, slowly, rather than failing.
+    """
+    global _bar_symbols_cache
+    now = time.monotonic()
+    if _bar_symbols_cache and now - _bar_symbols_cache[0] < _BAR_SYMBOLS_TTL:
+        return _bar_symbols_cache[1]
+    out: set[str] = set()
+    for sql in ("SELECT symbol FROM sync_state",
+                "SELECT symbol FROM bars_1d GROUP BY symbol",
+                "SELECT symbol FROM bars GROUP BY symbol"):
+        try:
+            out = {r[0] for r in _con.execute(sql)}
+        except sqlite3.Error:
+            continue
+        if out:
+            break
+    _bar_symbols_cache = (now, out)
+    return out
+
+
+def _symbol_ready(sym: str) -> bool:
+    return bool(_con.execute(
+        "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
+
+
+def _ensure_symbol(sym: str) -> dict | None:
+    """None when the symbol is servable; an error dict otherwise."""
+    if _symbol_ready(sym):
+        return None
+    if sym not in _known_symbols():
+        return {"error": f"unknown symbol {sym}",
+                "hint": "GET /symbols lists the universe"}
+    with _HYDRATE_GUARD:
+        lock = _HYDRATE_LOCKS.setdefault(sym, threading.Lock())
+    with lock:
+        if _symbol_ready(sym):
+            return None
+        import subprocess
+        r = subprocess.run(
+            [str(_VENV_PY), str(Path(__file__).parent / "hydrate_symbol.py"),
+             sym], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            return {"error": f"hydration failed for {sym}",
+                    "detail": (r.stderr or r.stdout)[-400:]}
+        logging.info("hydrated %s: %s", sym, r.stdout.strip())
+    return None
+
+
 def _scene_add(annotation: dict) -> None:
     # Stamp WHICH tool put this on the chart. A clear used to match on kind
     # alone and reach across tools — get_levels(draw_mode="replace") silently
@@ -124,7 +231,7 @@ def _scene_add(annotation: dict) -> None:
     # turn would otherwise report "exactly these are drawn" while three more
     # from the first call are still sitting on screen.
     kind = annotation.get("kind")
-    if kind in ("level", "zone", "segment"):
+    if kind in ("level", "zone", "segment", "vprofile"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
@@ -143,6 +250,24 @@ def _scene_take() -> list[dict]:
     items = getattr(_scene, "items", [])
     _scene.items = []
     return items
+
+
+# A SEPARATE channel from the scene patch, deliberately. A scene op's `pane`
+# means an INDICATOR pane (the RSI strip under the price), and scene.apply()
+# will open one on demand for any op that names it. A chart pane is a different
+# thing entirely, so reusing that key would have had a request for a second
+# CHART quietly open an indicator strip instead. View ops move the workspace —
+# which charts exist, what each is showing — and nothing else.
+def _view_add(op: dict) -> None:
+    if not hasattr(_scene, "views"):
+        _scene.views = []
+    _scene.views.append(op)
+
+
+def _view_take() -> list[dict]:
+    ops = getattr(_scene, "views", [])
+    _scene.views = []
+    return ops
 
 
 # ── the user's drawings, addressable by id ────────────────────────
@@ -173,6 +298,43 @@ def _drawings_set(ctx: dict | None) -> None:
         for key in (d.get("ref"), d.get("id")):
             if key:
                 _drawings.by_ref[str(key).upper()] = d
+    # chat-drawn annotations, addressable by their scene id. The FE lets the
+    # user DRAG these, so the context copy is the current truth — resolving
+    # from it (never from what a tool drew earlier) is what makes a moved
+    # plan re-price as it now stands.
+    _drawings.chat_by_id = {}
+    for d in (ctx or {}).get("chat_drawings") or []:
+        if d.get("id"):
+            _drawings.chat_by_id[str(d["id"]).upper()] = d
+
+
+_CHAT_AS_TYPE = {"level": "hline", "zone": "rect", "segment": "trend",
+                 "fib": "fib"}
+
+
+def _chat_drawing_as_user(c: dict) -> dict | None:
+    """A chat annotation reshaped so the evaluate tools can score it."""
+    k = c.get("kind")
+    if k == "position":
+        tgt = (c.get("targets") or [None])[0]
+        if tgt is None or c.get("entry") is None or c.get("stop") is None:
+            return None
+        pts = [{"p": c["entry"]}, {"p": tgt}, {"p": c["stop"]}]
+        return {"type": "short" if c.get("side") == "short" else "long",
+                "pts": pts, "id": c.get("id"), "_chat": c}
+    if k == "level":
+        return {"type": "hline", "pts": [{"p": c.get("price")}],
+                "id": c.get("id"), "_chat": c}
+    if k == "zone":
+        return {"type": "rect", "pts": [{"p": c.get("lo")}, {"p": c.get("hi")}],
+                "id": c.get("id"), "_chat": c}
+    if k in ("segment", "fib"):
+        p1, p2 = c.get("p1") or {}, c.get("p2") or {}
+        return {"type": _CHAT_AS_TYPE[k],
+                "pts": [{"t": p1.get("t"), "p": p1.get("p")},
+                        {"t": p2.get("t"), "p": p2.get("p")}],
+                "id": c.get("id"), "_chat": c}
+    return None
 
 
 def _drawing_get(ref: str) -> dict:
@@ -181,7 +343,14 @@ def _drawing_get(ref: str) -> dict:
     d = by.get(str(ref or "").upper().strip())
     if d:
         return {"ok": d}
-    avail = sorted({v.get("ref") or v.get("id") for v in by.values()})
+    chat = getattr(_drawings, "chat_by_id", None) or {}
+    c = chat.get(str(ref or "").upper().strip())
+    if c:
+        conv = _chat_drawing_as_user(c)
+        if conv:
+            return {"ok": conv}
+    avail = sorted({v.get("ref") or v.get("id") for v in by.values()}
+                   | set(chat.keys()))
     return {"error": f"no drawing '{ref}' on this chart",
             "available": avail,
             "_note": ("Nothing was scored. The user's drawings are listed in "
@@ -224,13 +393,30 @@ def _drawing_for(ref: str, want: str) -> dict:
                           f"with drawing_id={d.get('ref') or d.get('id')}.")}
     return {"ok": d, "sub": sub, "points": _drawing_points(d)}
 
+def _tz_off() -> int:
+    """Offset for the symbol being served. `_ist` and `_parse_ist` MUST agree
+    on it — the model reads one and writes the other back, so a mismatch is
+    the same class of P0 as a rejected timestamp format."""
+    return session_for(_sym())[1]
+
+
+def _tzl() -> str:
+    """Clock label for the symbol being served, so a UTC-anchored crypto bar
+    is never stamped 'IST' next to a chart axis that reads UTC."""
+    return "IST" if _tz_off() else "UTC"
+
+
 def _ist(ts: int, with_time: bool = True) -> str:
-    d = datetime.fromtimestamp(ts + IST_OFF, tz=timezone.utc)
+    d = datetime.fromtimestamp(ts + _tz_off(), tz=timezone.utc)
     return d.strftime("%d %b %Y %H:%M") if with_time else d.strftime("%d %b %Y")
 
 
 def _parse_ist(s: str | None) -> int | None:
-    """Tolerant IST timestamp parse → epoch seconds.
+    """Tolerant local-clock timestamp parse → epoch seconds.
+
+    The inverse of `_ist`, and it reads the same `_tz_off()` — for a crypto
+    symbol both sides run on UTC, so a timestamp the model copied out of a
+    tool result still round-trips to the second.
 
     It MUST accept the format `_ist` emits ("08 Jul 2026 15:25"), because that
     is the only time format the model ever sees — in tool results, in anchors,
@@ -248,7 +434,7 @@ def _parse_ist(s: str | None) -> int | None:
                 "%d-%m-%Y %H:%M", "%d/%m/%Y %H:%M", "%d-%m-%Y", "%d/%m/%Y"):
         try:
             d = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-            return int(d.timestamp()) - IST_OFF
+            return int(d.timestamp()) - _tz_off()
         except ValueError:
             continue
     return None
@@ -682,7 +868,7 @@ def _divergences(rows: list[tuple], osc: list, window: int = 5,
 # ── tool implementations ──────────────────────────────────────────
 
 def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
-    d = get_bars("RELIANCE", interval, to, limit)
+    d = get_bars(_sym(), interval, to, limit)
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
 
 
@@ -807,7 +993,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
                 f"±5-bar pivot window — 'broke' if a close cleared the level by "
                 f"more than the cluster tolerance, else 'held'"),
             "bars_scanned": len(rows), "interval": interval,
-            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST",
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}",
         },
         "_note": (
             "Lead with what happened, not how often it was tested: quote "
@@ -1288,7 +1474,7 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
         "around_fields": ["t", "open", "high", "low", "close", "volume"],
         "last_price": rows[-1][4],
         "provenance": {"interval": interval, "bars_scanned": n,
-                       "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST",
+                       "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}",
                        "method": "swing pivots (±5 bars), window extremes, session "
                                  "open/close, ATR-sized gaps"},
         "_note": ("Compose shapes from these ids with draw_shape — never type a "
@@ -1592,7 +1778,8 @@ def tool_evaluate_line(p1_time: str = "", p1_value: float = 0.0,
                           "drawing_id rather than copying its coordinates.")}
     t1, t2 = _parse_ist(p1_time), _parse_ist(p2_time)
     if t1 is None or t2 is None:
-        return {"error": "could not parse p1_time / p2_time (expect 'YYYY-MM-DD HH:MM' IST)"}
+        return {"error": "could not parse p1_time / p2_time "
+                         f"(expect 'YYYY-MM-DD HH:MM' {_tzl()})"}
     if t1 == t2:
         return {"error": "the two points share a timestamp — that is a vertical line"}
     rows = _rows(interval, max(120, min(int(lookback_bars or 500), 1500)))
@@ -1787,7 +1974,7 @@ def tool_evaluate_fib(p1_time: str = "", p1_value: float = 0.0,
                          f"{interval} bars, so there is no retracement to "
                          f"measure yet. Say that rather than reporting the "
                          f"levels as untouched."),
-                "scanned": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST"}
+                "scanned": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"}
     levels = []
     for r in _FIB_RATIOS:
         lvl = _fib_level(p1_value, p2_value, r)
@@ -2082,7 +2269,7 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
     tol, window, n = _tolerance(rows), 5, len(rows)
     last = rows[-1][4]
     prov = {"interval": interval, "bars_scanned": n, "tolerance": round(tol, 2),
-            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} IST"}
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"}
 
     if kind == "zone":
         lo, hi = sorted((pts[0]["v"], pts[1]["v"]))
@@ -2237,6 +2424,1541 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
         "R:R it usually is not. Obey hit_rate_withheld. 'unresolved' trials hit "
         "neither level inside the horizon — never fold them into wins. Close by "
         "saying this is historical analysis, not advice.")
+    return res
+
+
+def tool_plan_position(entry: float | None = None, stop: float | None = None,
+                       stop_atr: float | None = None, targets: list | None = None,
+                       targets_r: list | None = None, split: list | None = None,
+                       qty: int | None = None, risk_amount: float | None = None,
+                       capital: float | None = None, risk_pct: float | None = None,
+                       side: str = "", drawing_id: str = "", interval: str = "1d",
+                       draw_mode: str = "add") -> dict:
+    """The user's trade plan as an overlay plus its risk arithmetic.
+
+    Everything here is derived from the handful of numbers the user gave —
+    entry, stop, targets, and one sizing input. Nothing is detected or
+    recommended; the split between this and evaluate_drawing is deliberate:
+    that tool scores history, this one prices a plan.
+    """
+    if str(draw_mode or "add").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "position", "owner": "plan_position"})
+        return {"cleared": True, "_note": "Plan overlay removed from the chart."}
+
+    rows = _rows(interval, 400)
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    last = rows[-1][4]
+    a = _atr(rows, 14)
+    atr14 = next((x for x in reversed(a) if x), None)
+
+    if drawing_id:
+        # a chat-drawn plan resolves with EVERYTHING it carries — all targets
+        # and the sizing the user last set — so a dragged plan re-prices as
+        # it now stands without re-typing anything
+        c = (getattr(_drawings, "chat_by_id", None) or {}).get(
+            str(drawing_id).upper().strip())
+        if c and c.get("kind") == "position" and c.get("targets"):
+            entry, stop = c["entry"], c["stop"]
+            targets = list(c["targets"])
+            side = side or c.get("side") or ""
+            if qty is None and c.get("qty"):
+                qty = c["qty"]
+            if risk_amount is None and c.get("risk_amount"):
+                risk_amount = c["risk_amount"]
+        else:
+            got = _drawing_for(drawing_id, "drawing")
+            if "error" in got:
+                return got
+            if got["sub"] != "position":
+                return {"error": f"drawing {drawing_id} is a {got['sub']}, not "
+                                 "a position — draw one with the long/short "
+                                 "tool or give entry/stop/targets directly"}
+            pv = [p.get("v", p.get("p")) for p in got["points"][:3]]
+            entry, targets, stop = pv[0], [pv[1]], pv[2]
+
+    entry = float(entry) if entry is not None else last
+    if stop is None and stop_atr is not None and atr14:
+        s = (side or "").lower() or ("long" if (targets or [entry + 1])[0] > entry
+                                     else "short")
+        stop = entry - stop_atr * atr14 if s == "long" else entry + stop_atr * atr14
+    if stop is None:
+        return {"error": "a plan needs a stop — give stop, or stop_atr with side"}
+    stop = float(stop)
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return {"error": "stop equals entry; there is no risk to size against"}
+    long_ = stop < entry if not side else side.lower() == "long"
+    if (stop >= entry) if long_ else (stop <= entry):
+        return {"error": "the stop is on the same side as the target",
+                "given": {"entry": entry, "stop": stop, "side": side}}
+    if not targets and targets_r:
+        targets = [entry + r * risk if long_ else entry - r * risk
+                   for r in targets_r]
+    if not targets:
+        return {"error": "a plan needs at least one target (targets or targets_r)"}
+    tps = sorted((float(t) for t in targets[:3]), reverse=not long_)
+    for t in tps:
+        if (t <= entry) if long_ else (t >= entry):
+            return {"error": f"target {round(t, 2)} is on the loss side of "
+                             f"entry {round(entry, 2)} for a "
+                             f"{'long' if long_ else 'short'}"}
+
+    # models send qty:0 / risk_amount:0 to mean "derive it" — honour that
+    qty = int(qty) if qty else None
+    risk_amount = float(risk_amount) if risk_amount else None
+    if risk_amount is None and capital and risk_pct:
+        risk_amount = capital * risk_pct / 100
+    if qty is None and risk_amount:
+        qty = int(risk_amount // risk)
+        if qty < 1:
+            return {"error": f"risking {round(risk_amount, 2)} cannot buy one "
+                             f"share: a single share risks {round(risk, 2)} "
+                             "between entry and stop"}
+    if risk_amount is None and qty:
+        risk_amount = qty * risk
+
+    fr = None
+    if split:
+        fr = [max(0.0, float(f)) for f in split[:len(tps)]]
+        tot = sum(fr) or 1
+        fr = [f / tot for f in fr] + [0.0] * (len(tps) - len(fr))
+
+    tgt = []
+    for i, t in enumerate(tps):
+        rr = abs(t - entry) / risk
+        d = {"price": round(t, 2), "move_pct": round((t - entry) / entry * 100, 2),
+             "rr": round(rr, 2), "breakeven_hit_pct": round(1 / (1 + rr) * 100)}
+        if qty:
+            d["pnl"] = round(abs(t - entry) * qty * (fr[i] if fr else 1))
+        if fr:
+            d["exit_fraction"] = round(fr[i], 2)
+        tgt.append(d)
+
+    plan = {"side": "long" if long_ else "short", "entry": round(entry, 2),
+            "stop": round(stop, 2),
+            "stop_pct": round((stop - entry) / entry * 100, 2),
+            "risk_per_share": round(risk, 2), "targets": tgt}
+    if atr14:
+        plan["stop_distance_atr"] = round(risk / atr14, 2)
+        plan["atr14"] = round(atr14, 2)
+    if qty:
+        plan["qty"] = qty
+        plan["risk_amount"] = round(qty * risk)
+        if capital:
+            plan["capital_at_risk_pct"] = round(qty * risk / capital * 100, 2)
+            plan["position_cost"] = round(qty * entry)
+    if fr and qty:
+        plan["blended"] = {
+            "rr": round(sum(f * t["rr"] for f, t in zip(fr, tgt)), 2),
+            "pnl_all_targets": round(sum(t.get("pnl", 0) for t in tgt))}
+
+    p = _position_record(rows, entry, tps[0], stop, _tolerance(rows))
+    hist = {k: v for k, v in p.items() if k != "horizon_bars"}
+    hist.update(_rate("hit_rate", p["wins"], p["losses"], "resolved trial"))
+    hist["_basis"] = (f"entry→first target vs stop on {len(rows)} {interval} "
+                      f"bars; see evaluate_drawing for the full method")
+
+    t0 = rows[max(0, len(rows) - 40)][0]
+    _scene_add({"kind": "position", "id": "plan", "pane": "price",
+                "side": plan["side"], "entry": plan["entry"],
+                "stop": plan["stop"], "targets": [t["price"] for t in tgt],
+                "pnl": [t.get("pnl") for t in tgt] if qty else None,
+                "risk_amount": plan.get("risk_amount"),
+                "qty": qty, "rr": tgt[0]["rr"], "t0": t0, "t1": rows[-1][0],
+                "label": (f"{plan['side']} · R:R {tgt[0]['rr']}"
+                          + (f" · qty {qty}" if qty else "")),
+                "source": {"tool": "plan_position", "interval": interval}})
+
+    return {"plan": plan, "history": hist, "_note": (
+        "Drawn on the chart; a new plan_position call replaces it, "
+        "draw_mode=clear removes it. Quote these figures exactly, and always "
+        "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
+        "rate without that benchmark reads as an edge it may not be (within "
+        "~8 points is noise: say so). This prices the USER'S stated plan; it "
+        "is analysis, not a recommendation, and must close as such.")}
+
+
+def _logo_map() -> dict[str, str]:
+    """symbol -> logo URL, across BOTH sources.
+
+    Companies get theirs from company_profile (logo.dev, resolved by domain);
+    everything else from instrument_logo (sync_instrument_logos.py) — crypto
+    through the same logo.dev ladder, FX as composited circular flags, indices
+    and commodities as generated badges.
+
+    Two tables rather than one because they state different facts: a row in
+    company_profile means "a company stands behind this symbol", which is not
+    true of Bitcoin or of NIFTY IT, and /company would then answer for them.
+    company_profile wins a collision — a real listed company outranks any
+    generated mark.
+    """
+    out: dict[str, str] = {}
+    for table, col in (("instrument_logo", "logo_url"),
+                       ("company_profile", "logo_url")):
+        try:
+            out.update({s: u for s, u in _con.execute(
+                f"SELECT symbol, {col} FROM {table} "
+                f"WHERE {col} IS NOT NULL AND {col} != ''")})
+        except sqlite3.Error:
+            pass          # table absent — the other source still answers
+    return out
+
+
+def _classification_row(sym: str):
+    try:
+        return _con.execute(
+            "SELECT name, industry FROM classification WHERE symbol=?",
+            (sym,)).fetchone()
+    except sqlite3.Error:
+        return None
+
+
+_PROFILE_COLS = ("sc_id", "name", "long_name", "industry_slug", "sector",
+                 "industry", "market_cap", "summary", "website", "employees",
+                 "city", "country", "logo_url", "eps", "eps_basis",
+                 "eps_period", "ceo", "pb", "ev_sales", "ev_ebitda", "roe",
+                 "roa", "net_margin", "current_ratio", "debt_to_equity",
+                 "book_value_ps")
+
+# The range buttons, in the same set the Pivot stock page offers. Each maps to
+# an interval this store actually holds, so the page's chart is the chart's
+# bars — not a second, differently-sourced series.
+# bar counts are one window exactly: an NSE session is 375 minutes, so 75 5m
+# bars is one day, 125 15m bars is five sessions, 7 hourly bars is a session.
+_RANGE_SPEC = {"1D": ("5m", 75), "1W": ("15m", 125), "1M": ("1h", 154),
+               "6M": ("1d", 126), "1Y": ("1d", 252), "5Y": ("1d", 1260)}
+
+
+def company_history(sym: str, rng: str) -> dict:
+    """Close series for one range button, read through get_bars so the page
+    sees the same (live-merged) bars the chart draws."""
+    rng = (rng or "5Y").upper()
+    interval, want = _RANGE_SPEC.get(rng, _RANGE_SPEC["5Y"])
+    bars = get_bars(sym, interval, None, want)["bars"]
+    note = None
+    if bars and interval != "1d":
+        # trim to whole sessions: the last stored session can be partial, so a
+        # fixed bar count spills into the previous day and "1D" would show two.
+        sessions = {"1D": 1, "1W": 5}.get(rng, 22)
+        days = sorted({(b["t"] + IST_OFF) // 86400 for b in bars})[-sessions:]
+        bars = [b for b in bars if (b["t"] + IST_OFF) // 86400 >= days[0]]
+    if not bars and interval != "1d":
+        # intraday is stored per hydrated symbol; a cold one has daily only.
+        # Say which series is on screen rather than drawing a shorter window
+        # and calling it the intraday one.
+        interval, bars = "1d", get_bars(sym, "1d", None, 126)["bars"]
+        note = f"no intraday history stored for {sym} — showing daily closes"
+    # keep the line light without lying: every Nth real close, and ALWAYS the
+    # newest bar — a decimated tail would end the line on a stale price while
+    # the header quotes the last close.
+    step = max(1, len(bars) // 420)
+    keep = bars[::step]
+    if bars and keep[-1] is not bars[-1]:
+        keep.append(bars[-1])
+    out = {"range": rng, "interval": interval,
+           "points": [{"t": b["t"], "c": b["c"]} for b in keep]}
+    if note:
+        out["note"] = note
+    return out
+
+
+def company_page(sym: str, rng: str = "5Y") -> dict:
+    """Everything the company page shows, in one read.
+
+    The profile half is synced prose and identity (sync_company_profile.py);
+    the price half is computed from THIS store's bars, so the page and the
+    chart can never quote different numbers for the same session.
+    """
+    sym = sym.upper().strip()
+    prof: dict = {}
+    try:
+        row = _con.execute(
+            f"SELECT {','.join(_PROFILE_COLS)} FROM company_profile "
+            "WHERE symbol=?", (sym,)).fetchone()
+        if row:
+            prof = {k: v for k, v in zip(_PROFILE_COLS, row) if v is not None}
+    except sqlite3.Error:
+        prof = {}
+    cls = _classification_row(sym)
+    if cls and "name" not in prof:
+        prof["name"] = cls[0]
+    if cls and "industry_slug" not in prof:
+        prof["industry_slug"] = cls[1]
+
+    daily = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars_1d WHERE symbol=? ORDER BY ts",
+        (sym,)).fetchall()
+    out: dict = {"symbol": sym, "exchange": "NSE", **prof}
+    if not daily:
+        out["_unavailable"] = ("no stored price history for this symbol — "
+                               "the profile is shown without market data")
+        return out
+
+    last, prev = daily[-1], (daily[-2] if len(daily) > 1 else daily[-1])
+    win = daily[-252:]
+    out["price"] = {
+        "last": round(last[4], 2), "open": round(last[1], 2),
+        "high": round(last[2], 2), "low": round(last[3], 2),
+        "prev_close": round(prev[4], 2), "volume": int(last[5] or 0),
+        "change": round(last[4] - prev[4], 2),
+        "change_pct": round((last[4] - prev[4]) / prev[4] * 100, 2)
+        if prev[4] else None,
+        "as_of": _ist(last[0], False),
+        "sessions_stored": len(daily),
+    }
+    out["range_52w"] = {
+        "high": round(max(r[2] for r in win), 2),
+        "low": round(min(r[3] for r in win), 2),
+        "sessions": len(win),
+        "full_year": len(win) >= 252,
+    }
+    eps = prof.get("eps")
+    if eps and eps > 0:
+        out["valuation"] = {
+            "pe": round(last[4] / eps, 1), "eps": round(eps, 2),
+            "basis": prof.get("eps_basis"), "period": prof.get("eps_period")}
+    # P/B and the EV multiples are the enrichment DB's own trailing figures —
+    # kept separate from the P/E we compute here, because they are as of the
+    # enrichment run, not as of this store's last close.
+    ratios = {k: round(prof[k], 2) for k in ("pb", "ev_sales", "ev_ebitda")
+              if isinstance(prof.get(k), (int, float))}
+    if ratios:
+        out["ratios"] = ratios
+    feats = (_screen_features() or {}).get(sym) or {}
+    out["metrics"] = {k: feats[k] for k in (
+        "ret_1w", "ret_1m", "ret_3m", "ret_1y", "rsi14", "atr_pct",
+        "sma50_rel", "sma200_rel", "turnover_20d_cr", "dist_52w_high")
+        if feats.get(k) is not None}
+    ind = prof.get("industry_slug")
+    if ind:
+        peers = _con.execute(
+            "SELECT c.symbol, c.name, p.market_cap, p.logo_url FROM classification c "
+            "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+            "WHERE c.industry=? AND c.symbol!=? ORDER BY "
+            "COALESCE(p.market_cap, 0) DESC LIMIT 8", (ind, sym)).fetchall()
+        out["peers"] = [{"symbol": s, "name": n, "market_cap": m, "logo_url": lo}
+                        for s, n, m, lo in peers]
+    out["history"] = company_history(sym, rng)
+    return out
+
+
+# ── Pivot-shaped API ────────────────────────────────────────────────────────
+# charto/web is Pivot's stock page, copied file-for-file. Rather than edit that
+# page to speak charto's protocol, this answers the endpoints it already calls
+# (`/api/markets/quote`, `/sparkline`, `/ohlc`, `/financials/…`) in Pivot's own
+# response shapes — out of charto's store, so the page and the chart quote the
+# same bars. Anything charto genuinely has no source for is returned as the
+# honest empty state the page already knows how to render (`available: false`,
+# null fields), never as a filler number.
+
+def _iso(ts: int) -> str:
+    return datetime.fromtimestamp(
+        ts, tz=timezone(timedelta(seconds=IST_OFF))).isoformat()
+
+
+def _api_quote(sym: str) -> tuple[int, dict]:
+    d = company_page(sym, "1D")
+    p = d.get("price")
+    if not p:
+        return 404, {"detail": f"no quote available for {sym}"}
+    r = d.get("range_52w") or {}
+    return 200, {
+        "symbol": sym, "name": d.get("long_name") or d.get("name") or sym,
+        "exchange": "NSE", "sector": d.get("sector"),
+        "industry": d.get("industry"),
+        "ltp": p["last"], "change": p["change"], "change_pct": p["change_pct"],
+        "open": p["open"], "high": p["high"], "low": p["low"],
+        "prev_close": p["prev_close"], "volume": p["volume"],
+        "w52_high": r.get("high"), "w52_low": r.get("low"),
+        "market_cap": d.get("market_cap"),
+        "pe_ratio": (d.get("valuation") or {}).get("pe"),
+        "last_updated": _iso(_con.execute(
+            "SELECT MAX(ts) FROM bars_1d WHERE symbol=?", (sym,)).fetchone()[0]),
+        "logo_url": d.get("logo_url"),
+        # the store is Kite 1-minute history, replayed from disk — not a live
+        # feed, so `live` stays false and the page keeps its delayed styling
+        "live": False, "source": "kite_rest", "is_index": False,
+    }
+
+
+def _api_financials(sym: str) -> tuple[int, dict]:
+    """Pivot's financials payload: the statements as Pivot's own code
+    assembled them (sync_financials.py), plus the profile and the two
+    yfinance-sourced multiples this store already holds."""
+    row = _con.execute(
+        f"SELECT {','.join(_PROFILE_COLS)} FROM company_profile WHERE symbol=?",
+        (sym,)).fetchone()
+    prof = dict(zip(_PROFILE_COLS, row)) if row else {}
+    try:
+        blob = _con.execute("SELECT payload FROM financials WHERE symbol=?",
+                            (sym,)).fetchone()
+    except sqlite3.Error:
+        blob = None
+    out = json.loads(blob[0]) if blob else {
+        "available": False, "company": None, "latest": {}, "history": {},
+        "source": "moneycontrol_via_financials_db"}
+
+    if prof:
+        # Moneycontrol carries no ratios for a chunk of the universe (banks
+        # especially); Pivot fills those from yfinance live. The same two
+        # figures are already synced here, so they fill the same gaps —
+        # tagged yfinance, and only where MC left a hole.
+        for field, key, item in (("price_to_book", "pb", "Price to Book"),
+                                 ("ev_to_sales", "ev_sales", "EV to Sales"),
+                                 ("ev_to_ebitda", "ev_ebitda", "EV to EBITDA"),
+                                 ("roe", "roe", "Return on Equity"),
+                                 ("roa", "roa", "Return on Assets"),
+                                 ("net_profit_margin", "net_margin",
+                                  "Net Profit Margin"),
+                                 ("current_ratio", "current_ratio",
+                                  "Current Ratio"),
+                                 ("debt_to_equity", "debt_to_equity",
+                                  "Debt to Equity"),
+                                 ("book_value_per_share", "book_value_ps",
+                                  "Book Value / Share")):
+            v = prof.get(key)
+            if out.get("latest", {}).get(field) is None and v is not None:
+                out.setdefault("latest", {})[field] = {
+                    "value": float(v), "period_end": None,
+                    "period_label": "TTM", "line_item": item, "unit": None,
+                    "basis": "consolidated", "source": "yfinance"}
+        out["profile"] = {"name": prof.get("long_name") or prof.get("name"),
+                          "blurb": prof.get("summary"),
+                          "sector": prof.get("sector"),
+                          "industry": prof.get("industry"),
+                          "website": prof.get("website"), "ceo": prof.get("ceo")}
+        if not out.get("company"):
+            out["company"] = {
+                "sc_id": prof.get("sc_id") or "", "name": prof.get("name") or sym,
+                "nse_symbol": sym, "bse_code": None, "ticker": sym,
+                "sector": prof.get("sector"),
+                "industry_slug": prof.get("industry_slug"),
+                "market_cap": prof.get("market_cap"), "is_active": True}
+        out["available"] = bool(out.get("available")) or any(
+            v is not None for v in (out.get("latest") or {}).values())
+    return 200, out
+
+
+def _api_balance_sheet(sym: str, basis: str) -> tuple[int, dict]:
+    basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    try:
+        row = _con.execute(
+            "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
+            (sym, basis)).fetchone()
+    except sqlite3.Error:
+        row = None
+    if not row:
+        return 200, {"available": False, "company": None, "basis": basis,
+                     "unit": None, "periods": [], "rows": [],
+                     "source": "not stored in charto"}
+    return 200, json.loads(row[0])
+
+
+def _api_search(q: str, limit: int) -> dict:
+    q = (q or "").strip().upper()
+    if not q:
+        return {"results": []}
+    rows = _con.execute(
+        "SELECT c.symbol, c.name, p.sector, p.logo_url FROM classification c "
+        "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+        "WHERE c.symbol LIKE ? OR UPPER(c.name) LIKE ? "
+        "ORDER BY CASE WHEN c.symbol LIKE ? THEN 0 ELSE 1 END, c.symbol "
+        "LIMIT ?", (f"%{q}%", f"%{q}%", f"{q}%", max(1, min(limit, 25)))
+    ).fetchall()
+    return {"results": [{"symbol": s, "name": n or s, "sector": sec,
+                         "has_fundamentals": True, "logo_url": lo}
+                        for s, n, sec, lo in rows]}
+
+
+def api_route(path: str, q: dict) -> tuple[int, dict]:
+    """Dispatch one Pivot-shaped request. Returns (status, payload)."""
+    parts = [p for p in path.split("/") if p]        # ["api", "markets", …]
+    tail = parts[1:]
+    def sym_of(i):
+        return unquote(tail[i]).upper().strip() if len(tail) > i else ""
+
+    if tail[:2] == ["markets", "quote"]:
+        s = sym_of(2)
+        if s not in _known_symbols():
+            return 404, {"detail": f"no quote available for {s}"}
+        return _api_quote(s)
+    if tail[:2] in (["markets", "sparkline"], ["markets", "ohlc"]):
+        s = sym_of(2)
+        if s not in _known_symbols():
+            return 404, {"detail": f"no history available for {s}"}
+        rng = (q.get("range") or "1M").upper()
+        interval, want = _RANGE_SPEC.get(rng, _RANGE_SPEC["1M"])
+        bars = get_bars(s, interval, None, want)["bars"]
+        if not bars and interval != "1d":
+            interval, bars = "1d", get_bars(s, "1d", None, 126)["bars"]
+        if tail[1] == "sparkline":
+            return 200, {"symbol": s, "range": rng, "interval": interval,
+                         "points": [{"t": _iso(b["t"]), "v": b["c"]} for b in bars]}
+        return 200, {"symbol": s, "range": rng, "interval": interval,
+                     "source": "kite",
+                     "bars": [{"t": _iso(b["t"]), "o": b["o"], "h": b["h"],
+                               "l": b["l"], "c": b["c"], "v": int(b["v"] or 0)}
+                              for b in bars]}
+    if tail[:1] == ["financials"]:
+        s = sym_of(1)
+        if len(tail) > 2:      # /financials/{sym}/balance_sheet
+            return _api_balance_sheet(s, q.get("basis", "consolidated"))
+        return _api_financials(s)
+    if tail[:2] == ["markets", "metric-series"]:
+        return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
+                     "range": q.get("range", "1Y"), "available": False,
+                     "points": [], "source": "none"}
+    if tail[:2] == ["companies", "search"]:
+        return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
+    if tail[:2] == ["companies", "logos"]:
+        want = [x.strip().upper() for x in (q.get("symbols") or "").split(",") if x.strip()]
+        have = _logo_map() if want else {}
+        return 200, {"logos": {s: have.get(s) for s in want}}
+    return 404, {"detail": f"{path} is not served by charto"}
+
+
+# ── volume at price ─────────────────────────────────────────────────────────
+#
+# Volume profile, built the only way an Indian retail feed permits: from the
+# stored 1-minute bars, each bar's volume spread UNIFORMLY across its own
+# high-low. That assumption is the entire error budget, so this tool measures
+# it rather than hiding it — the volume-weighted mean bar span — and refuses
+# to draw rows finer than the smear it is built from.
+#
+# Measured on NSE large caps, a 1-minute bar spans a median of 18 ticks and
+# ZERO bars are single-price. So a 120-row profile on a stock whose bars smear
+# over 20 ticks is 6x more resolution than the input carries: it looks precise
+# and most of that detail is manufactured. The row count is therefore derived
+# from the data and the caller may only ask for COARSER, never finer.
+#
+# What this is NOT, and must never be labelled as: order flow. Delta,
+# cumulative delta, footprint and bid/ask imbalance all need the aggressor
+# side of each trade — whether it hit the bid or lifted the ask — which
+# requires true tick-by-tick. Kite throttles to ~1 snapshot/second, so that
+# data does not exist on any Indian retail feed at any price. The optional
+# up/down split here is a BAR-DIRECTION heuristic (close >= open), the same
+# one TradingView uses, and it is labelled as such in the payload so the
+# model cannot narrate it as buying versus selling.
+#
+# The construction is otherwise identical to TradingView's, which also builds
+# from 1-minute bars — so POC and value area agree with what the user sees
+# elsewhere. The edge we have is depth: composites over years, off the local
+# archive, which no free tier will build.
+
+_VP_MAX_ROWS = 60          # beyond this the histogram is thinner than a pixel
+_VP_MIN_ROWS = 6
+_VP_MAX_SESSIONS = 250     # ~1 trading year of 1-min bars, ~94k rows
+
+
+def _infer_tick(mins: list[tuple]) -> float | None:
+    """Smallest price increment actually observed. Reported, never assumed —
+    an instrument's tick is a listing fact and we only have its prints."""
+    seen: set[float] = set()
+    for b in mins[:4000]:
+        seen.update((b[1], b[2], b[3], b[4]))
+    xs = sorted(x for x in seen if x)
+    if len(xs) < 32:
+        return None
+    gap = min((b - a for a, b in zip(xs, xs[1:]) if b - a > 1e-9), default=None)
+    if gap is None or gap < xs[-1] * 1e-7:
+        return None
+    return round(gap, 6)
+
+
+def _px(v: float, ref: float) -> float:
+    """Round a price to a precision its own magnitude can carry.
+
+    A flat round(…, 2) is an equity habit. On DOGEUSDT at $0.07 it collapsed
+    every row bound, the value area and the row height to the same two
+    digits: a 45-row profile reported a value area of 0.07–0.07 and a width
+    of 0.0%, which then ranked it top of a "tightest value area" screen. The
+    precision has to follow the instrument, not the rupee.
+    """
+    a = abs(ref)
+    d = (2 if a >= 100 else 3 if a >= 10 else 4 if a >= 1
+         else 6 if a >= 0.01 else 8)
+    return round(v, d)
+
+
+def _profile(mins: list[tuple], rows: int = 0,
+             value_area_pct: float = 70.0) -> dict | None:
+    """The volume-at-price arithmetic, and the ONLY copy of it.
+
+    The chart tool, the HTTP route and the universe sweep all come through
+    here. A screener that disagreed with the chart about where the point of
+    control sits would be worse than no screener, and two implementations
+    drift the moment one is tuned.
+
+    None when there is nothing to profile — no volume, or no range.
+    """
+    total_v = sum(b[5] or 0 for b in mins)
+    if not total_v:
+        return None
+    lo = min(b[3] for b in mins)
+    hi = max(b[2] for b in mins)
+    rng = hi - lo
+    if rng <= 0:
+        return None
+
+    # the measurement that bounds everything below: a row can never be finer
+    # than the price span a single bar smears its volume across
+    vw_span = sum((b[2] - b[3]) * (b[5] or 0) for b in mins) / total_v
+    ceiling = int(rng / vw_span) if vw_span > 0 else _VP_MAX_ROWS
+    ceiling = max(_VP_MIN_ROWS, min(_VP_MAX_ROWS, ceiling))
+    asked = int(rows or 0)
+    n = max(_VP_MIN_ROWS, min(asked, ceiling) if asked > 0 else ceiling)
+    capped = asked > ceiling
+
+    row_h = rng / n
+    vol = [0.0] * n
+    up = [0.0] * n
+    dn = [0.0] * n
+    for _t, o, h, l, c, v in mins:
+        if not v:
+            continue
+        side = up if c >= o else dn
+        i0 = max(0, min(n - 1, int((l - lo) / row_h)))
+        i1 = max(0, min(n - 1, int((h - lo) / row_h)))
+        if i1 <= i0:
+            vol[i0] += v
+            side[i0] += v
+            continue
+        span = h - l
+        for i in range(i0, i1 + 1):
+            r_lo = lo + i * row_h
+            ov = min(h, r_lo + row_h) - max(l, r_lo)
+            if ov <= 0:
+                continue
+            share = v * ov / span
+            vol[i] += share
+            side[i] += share
+
+    # ── point of control and value area (classic two-row expansion) ──
+    poc = max(range(n), key=lambda i: vol[i])
+    target = total_v * max(50.0, min(90.0, float(value_area_pct))) / 100.0
+    a = b = poc
+    acc = vol[poc]
+    while acc < target and (a > 0 or b < n - 1):
+        upper = (vol[b + 1] + (vol[b + 2] if b + 2 < n else 0.0)
+                 if b < n - 1 else -1.0)
+        lower = (vol[a - 1] + (vol[a - 2] if a - 2 >= 0 else 0.0)
+                 if a > 0 else -1.0)
+        if upper >= lower:
+            for _ in range(2):
+                if b < n - 1 and acc < target:
+                    b += 1
+                    acc += vol[b]
+        else:
+            for _ in range(2):
+                if a > 0 and acc < target:
+                    a -= 1
+                    acc += vol[a]
+
+    return {"lo": lo, "hi": hi, "rng": rng, "total_v": total_v,
+            "vw_span": vw_span, "ceiling": ceiling, "capped": capped,
+            "asked": asked, "n": n, "row_h": row_h, "vol": vol,
+            "up": up, "dn": dn, "poc_i": poc, "a": a, "b": b, "acc": acc,
+            "poc": _px(lo + (poc + 0.5) * row_h, hi),
+            "val": _px(lo + a * row_h, hi),
+            "vah": _px(lo + (b + 1) * row_h, hi)}
+
+
+def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
+                        rows: int = 0, value_area_pct: float = 70.0,
+                        split: bool = False, draw: bool = True,
+                        draw_mode: str = "replace") -> dict:
+    """Volume traded at each price over a window, from 1-minute bars.
+
+    Returns the point of control, the value area, and the high/low volume
+    nodes — plus the measured smear that bounds how finely any of it can
+    honestly be resolved.
+    """
+    if str(draw_mode or "").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "vprofile",
+                    "owner": "volume_profile"})
+        return {"cleared": True, "_note": "Volume profile removed."}
+
+    # ── resolve the window to a raw-bar time range ──
+    daily = _rows("1d", 4000)
+    if not daily:
+        return {"error": "no daily history to locate a window in"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else None
+    if (frm and t0 is None) or (to and t1 is None):
+        return {"error": "could not read the date(s)",
+                "hint": "use the chart's format, e.g. '22 Jul 2026'"}
+    if t0 is None and t1 is None:
+        n_sess = max(1, min(int(lookback_sessions or 1), _VP_MAX_SESSIONS))
+        window = daily[-n_sess:]
+        lo_ts, hi_ts = window[0][0], window[-1][0] + 86400
+    else:
+        if t0 is None:
+            t0 = t1
+        if t1 is None:
+            t1 = t0
+        if t1 < t0:
+            t0, t1 = t1, t0
+        lo_ts, hi_ts = t0, t1 + 86400
+        n_sess = sum(1 for r in daily if lo_ts <= r[0] < hi_ts)
+        if n_sess > _VP_MAX_SESSIONS:
+            return {"error": f"window is {n_sess} sessions — a profile reads "
+                             f"1-minute bars, so it is capped at "
+                             f"{_VP_MAX_SESSIONS}",
+                    "hint": "narrow the window, or ask for a daily-bar study"}
+
+    live = _live_view(_sym())
+    if live and live[1] is not None:
+        hi_ts = min(hi_ts, live[1])   # replay clock hides the session's future
+    mins = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+        "ORDER BY ts", (_sym(), lo_ts, hi_ts)).fetchall()
+    if live and live[0] is not None and lo_ts <= live[0][0] < hi_ts:
+        _merge_form_intraday(mins, live[0])
+    if not mins:
+        return {"error": "no 1-minute bars in that window",
+                "data_spans": f"{_ist(daily[0][0], False)} → "
+                              f"{_ist(daily[-1][0], False)} {_tzl()}"}
+
+    prof = _profile(mins, rows, value_area_pct)
+    if prof is None:
+        # Same boundary the indicator engine enforces: an instrument that
+        # prints no volume has no volume to profile, and a flat histogram
+        # would read as "no interest" rather than "not quoted".
+        if not sum(b[5] or 0 for b in mins):
+            return {"error": "this instrument prints no volume",
+                    # human-facing: the status line shows this one verbatim
+                    "hint": ("indices and India VIX are quoted as levels, not "
+                             "traded — try a constituent stock"),
+                    "_note": ("Every bar in the window has v=0 — indices and "
+                              "India VIX are quoted as levels, not traded "
+                              "instruments, so there is no volume at price to "
+                              "build. Say that plainly. A profile on the index "
+                              "FUTURES or on a constituent stock is the nearest "
+                              "real thing.")}
+        return {"error": "price did not move in that window"}
+
+    lo, hi, rng = prof["lo"], prof["hi"], prof["rng"]
+    total_v, vw_span = prof["total_v"], prof["vw_span"]
+    n, row_h, vol = prof["n"], prof["row_h"], prof["vol"]
+    up, dn = prof["up"], prof["dn"]
+    poc, a, b, acc = prof["poc_i"], prof["a"], prof["b"], prof["acc"]
+    ceiling, capped, asked = prof["ceiling"], prof["capped"], prof["asked"]
+    tick = _infer_tick(mins)
+
+    mean_v = total_v / n
+    price_of = lambda i: lo + (i + 0.5) * row_h          # noqa: E731
+    hvn = [_px(price_of(i), hi) for i in range(1, n - 1)
+           if vol[i] >= 1.3 * mean_v
+           and vol[i] > vol[i - 1] and vol[i] >= vol[i + 1]]
+    lvn = [_px(price_of(i), hi) for i in range(1, n - 1)
+           if vol[i] <= 0.6 * mean_v
+           and vol[i] < vol[i - 1] and vol[i] <= vol[i + 1]]
+
+    peak = max(vol) or 1.0
+    out_rows = []
+    for i in range(n):
+        # Both denominators, both named. One un-suffixed "share" got read as
+        # a share of total volume and printed as a column of percentages
+        # summing to 400% — a row's height on the chart is its share of the
+        # BUSIEST row, which is a different number from its share of the day.
+        r = {"lo": _px(lo + i * row_h, hi),
+             "hi": _px(lo + (i + 1) * row_h, hi),
+             "volume": int(vol[i]),
+             "pct_of_total": round(vol[i] / total_v * 100, 1),
+             "pct_of_busiest_row": round(vol[i] / peak * 100, 1)}
+        if split:
+            r["up_bar_volume"] = int(up[i])
+            r["down_bar_volume"] = int(dn[i])
+        out_rows.append(r)
+
+    poc_price, val, vah = prof["poc"], prof["val"], prof["vah"]
+    ccy = quote_ccy(_sym())
+    unit = "₹" if ccy == "INR" else "$"
+
+    if draw:
+        if str(draw_mode or "replace").lower() == "replace":
+            _scene_add({"kind": "clear", "scope": "vprofile",
+                        "owner": "volume_profile"})
+        _scene_add({
+            "kind": "vprofile", "id": "VP", "pane": "price", "role": "neutral",
+            "rows": [{"lo": r["lo"], "hi": r["hi"],
+                      "share": round(vol[i] / peak, 3)}
+                     for i, r in enumerate(out_rows)],
+            "poc": poc_price, "val": val, "vah": vah,
+            "label": f"POC {unit}{poc_price} · VA {unit}{val}–{unit}{vah}",
+            "source": {"tool": "volume_profile", "interval": "1m",
+                       "bars_scanned": len(mins),
+                       "method": (f"volume at price, {n} rows of "
+                                  f"{unit}{_px(row_h, hi)}")}})
+
+    note = (f"Volume at price from {len(mins):,} one-minute bars over "
+            f"{n_sess} session(s), in {n} rows of {unit}{_px(row_h, hi)}. Each "
+            f"bar's volume is spread uniformly across its own high-low; the "
+            f"volume-weighted mean bar span is {unit}{_px(vw_span, hi)}"
+            + (f" (~{vw_span / tick:.0f} ticks)" if tick else "")
+            + f", which is why the row height is what it is. "
+              f"Quote the levels; describe this as volume at price built from "
+              f"1-minute bars — the same construction TradingView uses. It is "
+              f"NOT order flow: never call it delta, footprint, or buying vs "
+              f"selling pressure.")
+    if capped:
+        note += (f" The requested {asked} rows was reduced to {n}: a single "
+                 f"1-minute bar already smears its volume across "
+                 f"{unit}{_px(vw_span, hi)} of price, so rows finer than that would "
+                 f"be invented detail, not measured detail. Say that — give "
+                 f"the reason and the number, not just the cap.")
+    if split:
+        note += (" The up/down split is a bar-direction heuristic (close >= "
+                 "open), not the aggressor side of trades. Present it that "
+                 "way or not at all.")
+    # A 3-month composite spans a price range an intraday chart never shows,
+    # so most of the histogram renders above or below the visible window.
+    # Nothing is wrong with the profile — the user just cannot see it. This
+    # rides in its OWN key: appended to the end of _note it competed with
+    # four other instructions and the model dropped it every time.
+    view = ""
+    if n_sess >= 10:
+        view = (f"The profile spans {unit}{_px(lo, hi)}–{unit}{_px(hi, hi)}, which is "
+                f"wider than an intraday chart shows — most of it is off "
+                f"screen right now. Tell the user to switch to the D or W "
+                f"timeframe to see the whole thing. This tool cannot change "
+                f"the timeframe itself.")
+
+    return {
+        "window": {"from": _ist(mins[0][0], False), "to": _ist(mins[-1][0], False),
+                   "sessions": n_sess, "minute_bars": len(mins), "tz": _tzl()},
+        "point_of_control": poc_price,
+        # Coarse rows cannot land exactly on 70%: the area grows a whole row
+        # at a time, so the achieved share is the tightest one that CLEARS
+        # the target. Both numbers are named so a 84% value area is reported
+        # as what it is rather than asserted to be the 70% convention.
+        "value_area": {"low": val, "high": vah,
+                       "pct_achieved": round(acc / total_v * 100, 1),
+                       "pct_requested": round(float(value_area_pct), 1)},
+        "range": {"low": _px(lo, hi), "high": _px(hi, hi)},
+        "total_volume": int(total_v),
+        "high_volume_nodes": hvn, "low_volume_nodes": lvn,
+        "rows": out_rows,
+        "resolution": {
+            "row_height": _px(row_h, hi),
+            "rows": n, "max_rows_supported": ceiling,
+            "requested_rows": asked or None, "capped": capped,
+            "volume_weighted_bar_span": _px(vw_span, hi),
+            "tick_size": tick,
+            "why": ("A row cannot be finer than the smear it is built from. "
+                    "Each 1-minute bar's volume is spread uniformly across "
+                    "its high-low, so the volume-weighted mean span is the "
+                    "floor on row height."),
+        },
+        "method": {
+            "built_from": "1-minute bars (the stored granularity)",
+            "distribution": "uniform across each bar's high-low",
+            "value_area": f"{value_area_pct:.0f}% of volume, classic two-row "
+                          f"expansion outward from the point of control",
+            "hvn_lvn": "local maxima >= 1.3x mean row volume / local minima "
+                       "<= 0.6x mean row volume",
+            "not_available": ("delta, cumulative delta, footprint and bid/ask "
+                              "imbalance — all require the aggressor side of "
+                              "each trade, which needs true tick-by-tick. No "
+                              "Indian retail feed carries it."),
+        },
+        **({"to_see_it_all": view} if view else {}),
+        "_note": note,
+    }
+
+
+def tool_get_peers(symbol: str = "") -> dict:
+    """The company's industry classification and its peer group."""
+    sym = (symbol or _sym()).upper().strip()
+    row = _classification_row(sym)
+    if not row:
+        return {"symbol": sym,
+                "error": "no industry classification for this symbol",
+                "_note": ("Say the classification is unavailable rather than "
+                          "guessing peers from the name.")}
+    name, ind = row
+    have = _symbols_with_bars()
+    peers = [{"symbol": p, "name": n, **({} if p in have else {"cold": True})}
+             for p, n in _con.execute(
+                 "SELECT symbol, name FROM classification "
+                 "WHERE industry=? AND symbol!=? ORDER BY symbol", (ind, sym))]
+    # Counted, not hardcoded. It read "500-company" until the universe grew to
+    # hold indices, crypto, MCX futures and INR pairs — and India VIX, asked
+    # for its peers, answered "no peers in the available 500-company chart
+    # universe", which was both the wrong number and the wrong noun.
+    n_uni = _con.execute(
+        "SELECT COUNT(*) FROM classification").fetchone()[0]
+    return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
+            "_note": (
+                f"Industry comes from the Moneycontrol classification; peers "
+                f"are limited to the {n_uni}-instrument chart universe, which "
+                f"holds NSE stocks, indices, India VIX, spot crypto, MCX "
+                f"futures and INR pairs — do not call it a company universe. "
+                f"An instrument alone in its industry has no peers here; say "
+                f"that plainly rather than implying it has no counterparts "
+                f"anywhere. To compare "
+                "price paths, pick a handful (the user's ask decides which — "
+                "do not dump the whole list) and call compare_symbols. To "
+                f"compare a single METRIC across the whole peer set — RSI, "
+                f"returns, distance from highs, any screen feature — call "
+                f"screen_universe with industry='{ind}' and sort by that "
+                f"feature; it covers every peer at once, cold or not. A peer "
+                "marked cold downloads its history on first use, ~6 s each.")}
+
+
+def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
+                         lookback_bars: int = 250) -> dict:
+    """Cross-symbol comparison on locally stored bars, aligned to a
+    common window so no symbol is scored over a span the others lack."""
+    syms = []
+    for s in (symbols or []):
+        s = str(s).upper().strip()
+        if s and s not in syms:
+            syms.append(s)
+    if not (2 <= len(syms) <= 8):
+        return {"error": "give 2-8 symbols to compare"}
+    for s in syms:
+        err = _ensure_symbol(s)
+        if err:
+            return {"error": f"cannot compare: {err['error']}"}
+
+    lb = max(60, min(int(lookback_bars or 250), 1500))
+    series: dict[str, list[tuple]] = {}
+    for s in syms:
+        bars = get_bars(s, interval, None, lb)["bars"]
+        if len(bars) < 20:
+            return {"error": f"{s} has under 20 {interval} bars — too thin "
+                             "to compare on this interval"}
+        series[s] = [(b["t"], b["h"], b["l"], b["c"], b["v"]) for b in bars]
+
+    start = max(v[0][0] for v in series.values())   # common window start
+    out, rets = {}, {}
+    for s, rows in series.items():
+        rows = [r for r in rows if r[0] >= start]
+        closes = [r[3] for r in rows]
+        peak, dd = closes[0], 0.0
+        for c in closes:
+            peak = max(peak, c)
+            dd = min(dd, c / peak - 1)
+        tr = [max(h - l, abs(h - rows[i - 1][3]), abs(l - rows[i - 1][3]))
+              for i, (_, h, l, _c, _v) in enumerate(rows) if i]
+        atr = sum(tr[-14:]) / min(14, len(tr)) if tr else None
+        out[s] = {
+            "last": round(closes[-1], 2),
+            "return_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+            "max_drawdown_pct": round(dd * 100, 2),
+            "atr_pct_of_price": round(atr / closes[-1] * 100, 2) if atr else None,
+            # Crore-rupees is the wrong unit AND the wrong scale for a
+            # dollar-quoted asset: BTC's ~$670M daily notional came back as
+            # "67.3 cr", which a reply would state as ₹67 crore. The key name
+            # carries the unit so a mixed basket cannot silently blend them.
+            **({"avg_daily_turnover_musd": round(
+                sum(r[3] * r[4] for r in rows) / len(rows) / 1e6, 1)}
+               if session_for(s) == UTC_SESSION else
+               {"avg_daily_turnover_cr": round(
+                   sum(r[3] * r[4] for r in rows) / len(rows) / 1e7, 1)}),
+            "bars": len(rows),
+        }
+        rets[s] = {r[0]: r[3] for r in rows}
+
+    common = sorted(set.intersection(*(set(v) for v in rets.values())))
+    corr = {}
+    if len(common) >= 30:
+        chg = {s: [rets[s][t2] / rets[s][t1] - 1
+                   for t1, t2 in zip(common, common[1:])] for s in syms}
+
+        def _r(a, b):
+            n = len(a)
+            ma, mb = sum(a) / n, sum(b) / n
+            ca = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+            va = sum((x - ma) ** 2 for x in a) * sum((y - mb) ** 2 for y in b)
+            return round(ca / va ** 0.5, 2) if va else None
+
+        corr = {f"{a}~{b}": _r(chg[a], chg[b])
+                for i, a in enumerate(syms) for b in syms[i + 1:]}
+
+    wt = interval not in ("1d", "1w", "1mo")
+    res = {"window": f"{_ist(start, wt)} → {_ist(max(v[-1][0] for v in series.values()), wt)} {_tzl()}",
+           "interval": interval,
+           "metrics": out,
+           "ranked_by_return": sorted(syms, key=lambda s: -out[s]["return_pct"]),
+           "return_correlation": corr or "under 30 common bars — not computed"}
+    try:
+        brows = _con.execute(
+            "SELECT c FROM benchmark WHERE symbol='NIFTY 50' "
+            "AND trade_date>=? ORDER BY trade_date",
+            (_iso_day(start),)).fetchall()
+        if len(brows) >= 2:
+            res["nifty50_return_pct_same_window"] = round(
+                (brows[-1][0] / brows[0][0] - 1) * 100, 2)
+    except sqlite3.Error:
+        pass
+    res["_note"] = (
+        "All symbols are measured over the SAME common window (a later "
+        "listing shortens it for everyone — say so if 'bars' looks small). "
+        "Present a markdown table; quote these numbers exactly. Turnover is "
+        "rupees crore per bar. This is descriptive comparison, not a "
+        "ranking of what to buy — close as analysis, not advice.")
+    return res
+
+
+# ── universe screening ────────────────────────────────────────────
+# Daily bars for the whole universe live in bars_1d (built by
+# import_universe_daily.py from the same _fold_daily the chart uses). The
+# features below are plain arithmetic on those bars — the model composes any
+# combination of them; this code only validates and computes.
+
+SCREEN_FEATURES = (
+    "close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y",
+    "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
+    "sma20_rel", "sma50_rel", "sma200_rel",
+    "sma50_cross_ago", "sma200_cross_ago",
+    "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
+    "vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct",
+)
+
+# Volume-profile features come from the swept vp_screen table, not from
+# bars_1d — they need 1-MINUTE bars, which only the hydrated symbols have.
+# That makes their coverage a fraction of the universe's, and a screen that
+# quietly ranked 54 rows as though they were 549 would be the same lie as
+# computing MFI on an index. Every screen that filters or sorts on one of
+# these reports how many instruments could be scored at all.
+_VP_FEATURES = frozenset(
+    {"vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct",
+     "vp20_poc_shift_pct"})
+
+# Features that are arithmetic on VOLUME. The universe now holds instruments
+# with no volume at all: an index prints no traded quantity, so bars_1d
+# carries v=0 on 100% of its days (all 24 indices and India VIX). Computing
+# these anyway does not fail loudly — it fabricates. Measured on NIFTY 50:
+# turnover came out 0.0 (a real zero, and the DEFAULT sort key), OBV and A/D
+# flat 0.0, and MFI(14) reported 100.0 — a maximally-overbought reading
+# manufactured out of no data. A feature whose input does not exist is None.
+_VOLUME_FEATURES = frozenset(
+    {"vol_z20", "turnover_20d_cr", "turnover_20d_musd"})
+
+# Spelled out because an error that only lists names tells the model which
+# words are legal, not which one it meant.
+SCREEN_FEATURE_HELP = {
+    "close": "last daily close, rupees",
+    "ret_1d": "% change over the last session",
+    "ret_1w": "% over 5 sessions",
+    "ret_1m": "% over 21 sessions",
+    "ret_3m": "% over 63 sessions",
+    "ret_6m": "% over 126 sessions",
+    "ret_1y": "% over 252 sessions",
+    "dist_52w_high": "% from the 52-week high (0 = at it, negative = below)",
+    "dist_52w_low": "% above the 52-week low",
+    "rsi14": "RSI(14) on daily closes",
+    "atr_pct": "ATR(14) as % of close — daily volatility",
+    "sma20_rel": "% of close above (+) or below (-) the 20-day SMA",
+    "sma50_rel": "% of close above (+) or below (-) the 50-day SMA",
+    "sma200_rel": "% of close above (+) or below (-) the 200-day SMA",
+    "sma50_cross_ago": "sessions since close last crossed its 50-day SMA "
+                       "(either direction — sma50_rel's sign says which side "
+                       "it is on NOW); 'just crossed above' = this lt N plus "
+                       "sma50_rel gt 0. Null if no cross within ~120 sessions",
+    "sma200_cross_ago": "sessions since close last crossed its 200-day SMA "
+                        "(either direction — pair with sma200_rel's sign); "
+                        "null if no cross within ~120 sessions",
+    "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
+    "vol_z20": "last session's volume in σ of the prior 20 sessions. Null for "
+               "instruments that print no volume (indices, India VIX)",
+    "turnover_20d_cr": "avg daily close*volume over 20 sessions, RUPEES CRORE "
+                       "— INR-quoted instruments only. Null for dollar-quoted "
+                       "ones (use turnover_20d_musd) and for indices",
+    "turnover_20d_musd": "avg daily close*volume over 20 sessions, MILLIONS "
+                         "OF US DOLLARS — dollar-quoted instruments (spot "
+                         "crypto) only. Null for INR-quoted ones",
+    "vp20_pos": "where the close sits inside the 20-session VALUE AREA, as % "
+                "of that area's width: 0 = at the value-area low, 100 = at "
+                "the high, gt 100 = trading ABOVE accepted value, lt 0 = "
+                "below it. 'above value' = gt 100; 'back inside value' = "
+                "gt 0 plus lt 100",
+    "vp20_va_width_pct": "the 20-session value area as % of its point of "
+                         "control — how tightly volume agreed on price. Low "
+                         "= coiled/balanced, high = distributed",
+    "vp20_poc_dist_pct": "% the close sits above (+) or below (-) the "
+                         "20-session point of control (the most-traded price)",
+    "vp20_poc_shift_pct": "% this 20-session POC moved against the PRIOR 20 "
+                          "sessions' POC — value migration, the profile's "
+                          "own trend measure. Positive = value building "
+                          "higher",
+}
+
+SCREEN_OPS = ("lt", "gt")
+_SCREEN_SCAN_CAP = 80   # symbols a pattern pass will scan
+_screen_cache: dict = {}
+
+
+def _screen_stamp() -> tuple | None:
+    # (count, newest, version): count+newest miss an in-place UPDATE that adds
+    # no rows and no new day, so import_universe_daily bumps screen_meta on
+    # every absorb — our own tooling can never leave a running server stale
+    try:
+        cnt, mx = _con.execute("SELECT COUNT(*), MAX(ts) FROM bars_1d").fetchone()
+        ver = 0
+        if _con.execute("SELECT 1 FROM sqlite_master WHERE name='screen_meta'"
+                        ).fetchone():
+            ver = _con.execute(
+                "SELECT MAX(version) FROM screen_meta").fetchone()[0] or 0
+        # vp_screen is swept on its OWN schedule, so it has to enter the
+        # stamp too — otherwise a fresh sweep sits unread behind a matrix
+        # cached against unchanged daily bars
+        vp = 0
+        if _con.execute("SELECT 1 FROM sqlite_master WHERE name='vp_screen'"
+                        ).fetchone():
+            vp = _con.execute(
+                "SELECT MAX(built_at) FROM vp_screen").fetchone()[0] or 0
+        return (cnt, mx, ver, vp)
+    except sqlite3.Error:
+        return None
+
+
+def _rel(a: float, b) -> float | None:
+    return None if not b else round((a - b) / b * 100, 2)
+
+
+def _vp_screen_rows() -> dict:
+    """The swept volume-profile features, keyed by symbol.
+
+    Absent table or absent row both mean "not scored here" rather than zero:
+    the profile needs 1-minute bars and most of the universe is stored daily
+    until something hydrates it. Built by sweep_vp.py.
+    """
+    try:
+        cur = _con.execute(
+            "SELECT symbol, pos, va_width_pct, poc_dist_pct, poc_shift_pct, "
+            "poc, val, vah, n_rows, row_h FROM vp_screen")
+    except sqlite3.Error:
+        return {}          # never swept on this box
+    out = {}
+    for (s, pos, w, d, sh, poc, val, vah, n, rh) in cur:
+        out[s] = {"vp20_pos": pos, "vp20_va_width_pct": w,
+                  "vp20_poc_dist_pct": d, "vp20_poc_shift_pct": sh,
+                  "_vp": {"poc": poc, "value_area": [val, vah],
+                          "rows": n, "row_height": rh}}
+    return out
+
+
+def _squash(s: str, sep: str = "") -> str:
+    return sep.join("".join(ch if ch.isalnum() else " " for ch in s).lower().split())
+
+
+def _screen_row_features(rows: list[tuple], ccy: str = "INR") -> dict:
+    """ascending daily (ts,o,h,l,c,v) for ONE symbol → its feature dict.
+
+    Every feature whose window the symbol cannot cover is None. Falling back
+    to a shorter window would rank a six-month listing against a ten-year one
+    and call both a 1-year return; a null is the honest answer and the filter
+    simply excludes it.
+
+    The same rule now covers the INPUT, not just the window: a symbol that
+    prints no volume gets None for every volume feature rather than the zero
+    the arithmetic would produce, and turnover lands in the feature that
+    carries its own currency.
+    """
+    n = len(rows)
+    closes = [r[4] for r in rows]
+    c = closes[-1]
+    f: dict = {k: None for k in SCREEN_FEATURES}
+    f["close"] = round(c, 2)
+    for key, back in (("ret_1d", 1), ("ret_1w", 5), ("ret_1m", 21),
+                      ("ret_3m", 63), ("ret_6m", 126), ("ret_1y", 252)):
+        if n > back:
+            f[key] = _rel(c, closes[-1 - back])
+    if n >= 252:
+        w = rows[-252:]
+        f["dist_52w_high"] = _rel(c, max(r[2] for r in w))
+        f["dist_52w_low"] = _rel(c, min(r[3] for r in w))
+    if n >= 16:
+        r14 = indicators.compute("rsi", rows, 14)["last"]["rsi"]
+        f["rsi14"] = None if r14 is None else round(r14, 1)
+    a14 = indicators.atr(rows, 14)
+    if a14 and a14[-1] is not None:
+        f["atr_pct"] = round(a14[-1] / c * 100, 2) if c else None
+    for key, p in (("sma20_rel", 20), ("sma50_rel", 50), ("sma200_rel", 200)):
+        if n >= p:
+            f[key] = _rel(c, indicators.sma(closes[-p:], p)[-1])
+    # a cross is a state CHANGE — "which side now" is the smaX_rel sign, this
+    # is how many sessions ago the side last flipped
+    for key, p in (("sma50_cross_ago", 50), ("sma200_cross_ago", 200)):
+        if n >= p + 2:
+            s = indicators.sma(closes, p)
+            if s[-1] is None:
+                continue
+            latest = closes[-1] > s[-1]
+            for i in range(n - 2, max(p - 2, n - 122), -1):
+                if s[i] is None:
+                    break
+                if (closes[i] > s[i]) != latest:
+                    f[key] = n - 2 - i
+                    break
+    if n >= 20:
+        w = rows[-20:]
+        f["range_20d_pct"] = round(
+            (max(r[2] for r in w) - min(r[3] for r in w)) / c * 100, 2) if c else None
+    # `has_vol` is read off the data, not off a symbol list: an instrument
+    # that starts printing volume tomorrow simply starts screening on it, and
+    # nothing here has to be edited to stop being wrong.
+    has_vol = any(r[5] for r in rows[-60:])
+    if has_vol and n >= 20:
+        w = rows[-20:]
+        notional = sum(r[4] * r[5] for r in w) / len(w)
+        key = "turnover_20d_musd" if ccy == "USD" else "turnover_20d_cr"
+        f[key] = round(notional / (1e6 if ccy == "USD" else 1e7), 2)
+    if has_vol and n >= 21:
+        vols = [r[5] for r in rows[-21:-1]]
+        m = sum(vols) / len(vols)
+        sd = (sum((x - m) ** 2 for x in vols) / len(vols)) ** 0.5
+        f["vol_z20"] = round((rows[-1][5] - m) / sd, 2) if sd else None
+    return f
+
+
+def _screen_features() -> dict:
+    """{symbol: {feature: value}} for every symbol in bars_1d.
+
+    Cached on bars_1d's own (row count, newest ts) rather than on a clock:
+    absorbing the universe artifact changes both, so the next call rebuilds
+    and a night of no new data never pays for a rebuild.
+    """
+    stamp = _screen_stamp()
+    if stamp is None or not stamp[0]:
+        return {}
+    if _screen_cache.get("stamp") == stamp:
+        return _screen_cache["feats"]
+    t0 = time.time()
+    by_sym: dict[str, list] = {}
+    for row in _con.execute(
+            "SELECT symbol,ts,o,h,l,c,v FROM bars_1d ORDER BY symbol, ts"):
+        by_sym.setdefault(row[0], []).append(row[1:])
+    # deepest lookback is 252 sessions of ret_1y + warmup; the pattern path
+    # reads [-300:] — retaining full history would hold ~370 MB at 500 symbols
+    by_sym = {s: r[-560:] for s, r in by_sym.items()}
+    feats = {s: _screen_row_features(r, quote_ccy(s))
+             for s, r in by_sym.items() if len(r) >= 2}
+    # volume-profile features ride in from their own swept table; a symbol
+    # with no 1-minute bars simply keeps the Nones it was initialised with
+    vp = _vp_screen_rows()
+    for s, f in feats.items():
+        row = vp.get(s)
+        if row:
+            f.update(row)
+    last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
+    days = list(last_day.values())
+    mode_day = max(set(days), key=days.count) if days else None
+    _screen_cache.update(stamp=stamp, feats=feats, bars=by_sym,
+                         last_day=last_day, mode_day=mode_day,
+                         built_s=round(time.time() - t0, 2))
+    logging.info("charto screen matrix: %d symbols in %.2fs",
+                 len(feats), _screen_cache["built_s"])
+    return feats
+
+
+def _screen_vocab(msg: str) -> dict:
+    return {"error": msg,
+            "features": SCREEN_FEATURE_HELP, "ops": list(SCREEN_OPS),
+            "_note": ("Nothing was screened. Re-call using exactly these "
+                      "feature names; a band is two filters on the same "
+                      "feature (gt then lt).")}
+
+
+def tool_screen_universe(filters: list | None = None, industry: str = "",
+                         pattern: str = "", pattern_within: int = 5,
+                         sort: str = "", limit: int = 15) -> dict:
+    """Rank the whole stored universe on end-of-day features.
+
+    Deliberately not a catalogue of named screens: the model composes the
+    filters, so "coiled large-caps above their 200-day" is expressible without
+    anyone having anticipated it. The engine's whole job is to refuse the
+    unspeakable loudly and compute the rest exactly.
+    """
+    feats = _screen_features()
+    if not feats:
+        return {"error": "the daily universe table (bars_1d) is empty",
+                "_note": ("Say universe screening is unavailable until the "
+                          "daily universe is built — do not answer a "
+                          "which-stocks question from the chart symbol alone.")}
+
+    parsed: list[tuple] = []
+    for spec in (filters or []):
+        if not isinstance(spec, dict):
+            return _screen_vocab("each filter must be an object "
+                                 "{feature, op, value}")
+        name = str(spec.get("feature") or "").strip()
+        op = str(spec.get("op") or "").strip().lower()
+        if name not in SCREEN_FEATURES:
+            return _screen_vocab(f"unknown feature '{name}'")
+        if op not in SCREEN_OPS:
+            return _screen_vocab(f"unknown op '{op}' on {name}")
+        try:
+            val = float(spec.get("value"))
+        except (TypeError, ValueError):
+            return _screen_vocab(f"filter on {name} needs a numeric value")
+        parsed.append((name, op, val))
+
+    cls = {r[0]: (r[1], r[2]) for r in _con.execute(
+        "SELECT symbol, name, industry FROM classification")}
+    want_inds: set = set()
+    if str(industry or "").strip():
+        # Moneycontrol industry slugs carry no separators ("banksprivatesector"),
+        # so both sides are squashed before matching — otherwise the natural
+        # words the model actually types can never hit a single one.
+        known = {i for _, i in cls.values() if i}
+        q = _squash(industry)
+        # substring matching needs length to mean anything: "it" sits inside
+        # wh"it"egoods and hosp"it"al, so short queries match by prefix only
+        want_inds = {i for i in known if _squash(i) == q} or (
+            {i for i in known if q and (q in _squash(i) or _squash(i) in q)}
+            if len(q) >= 4 else
+            {i for i in known if q and _squash(i).startswith(q)})
+        if not want_inds:
+            toks = [t for t in _squash(industry, " ").split() if len(t) >= 4]
+            near = sorted(i for i in known
+                          if any(t in _squash(i) or _squash(i).startswith(t[:5])
+                                 for t in toks))
+            # An empty "closest" is a dead end, so the whole vocabulary goes
+            # back instead — an error the model cannot act on costs more than
+            # the 192 names do.
+            return {"error": f"no industry named '{industry}'",
+                    ("closest" if near else "industries"): near[:15] or sorted(known),
+                    "industries_total": len(known),
+                    "_note": ("Nothing was screened. Industries are "
+                              "Moneycontrol slugs; re-call with one of the "
+                              "names above, drop `industry` to screen every "
+                              "industry, or call get_peers to read a known "
+                              "company's exact industry.")}
+
+    sort_by = str(sort or "").strip()
+    if sort_by and sort_by not in SCREEN_FEATURES:
+        return _screen_vocab(f"cannot sort by '{sort_by}'")
+
+    kind = str(pattern or "").lower().strip()
+    if kind and kind not in patterns.CHART_KINDS + patterns.CANDLE_KINDS:
+        return {"error": f"unknown pattern '{kind}'",
+                "available": {"chart": list(patterns.CHART_KINDS),
+                              "candlestick": list(patterns.CANDLE_KINDS)},
+                "_note": ("Nothing was screened. Re-call with one exact name "
+                          "from this list, or drop `pattern`.")}
+
+    # A volume profile needs 1-MINUTE bars and most of the universe is stored
+    # daily until something hydrates it, so these features score a subset. The
+    # screen says how big that subset is rather than presenting a ranking of
+    # 54 rows as a ranking of 549.
+    vp_used = any(nm in _VP_FEATURES for nm, _, _ in parsed) \
+        or sort_by in _VP_FEATURES
+    # Counted over the set actually being screened. Reported universe-wide,
+    # "54 of 549" next to an industry-filtered table read as "54 of 549
+    # cryptocurrency instruments" — the model localised a global number to
+    # the filter, and the sentence was wrong in a way only the screener could
+    # see. When an industry narrows the pool, the pool is what gets counted.
+    def _in_pool(sym: str) -> bool:
+        return not want_inds or cls.get(sym, (sym, None))[1] in want_inds
+
+    vp_pool = [f for s, f in feats.items() if _in_pool(s)] if vp_used else []
+    vp_scored = sum(1 for f in vp_pool if f.get("vp20_pos") is not None)
+
+    survivors = []
+    for sym, f in feats.items():
+        name, ind = cls.get(sym, (sym, None))
+        if want_inds and ind not in want_inds:
+            continue
+        for fname, op, val in parsed:
+            v = f.get(fname)
+            if v is None or not (v > val if op == "gt" else v < val):
+                break
+        else:
+            survivors.append({"symbol": sym, "name": name, "industry": ind,
+                              "_f": f})
+
+    # The default sort is picked AFTER the survivors are known, because
+    # turnover no longer exists for every instrument: an all-crypto screen has
+    # None in turnover_20d_cr for every row, and sorting on it would order the
+    # result arbitrarily while reporting `sorted_by: turnover_20d_cr`. Falls
+    # through to the first key any survivor actually carries.
+    if not sort_by:
+        sort_by = parsed[0][0] if parsed else next(
+            (k for k in ("turnover_20d_cr", "turnover_20d_musd", "ret_1m",
+                         "close")
+             if any(r["_f"].get(k) is not None for r in survivors)),
+            "close")
+    # Descending unless the screen itself asked for small values of this
+    # feature — "RSI under 30" wants the most oversold first, not the least.
+    desc = not any(nm == sort_by and op == "lt" for nm, op, _ in parsed)
+    survivors.sort(key=lambda r: (r["_f"].get(sort_by) is None,
+                                  -(r["_f"].get(sort_by) or 0) if desc
+                                  else (r["_f"].get(sort_by) or 0)))
+
+    scanned = unscanned = 0
+    within = max(1, min(int(pattern_within or 5), 120))
+    if kind:
+        pool, unscanned = survivors[:_SCREEN_SCAN_CAP], \
+            max(0, len(survivors) - _SCREEN_SCAN_CAP)
+        hit = []
+        for r in pool:
+            bars = ((_screen_cache.get("bars") or {}).get(r["symbol"]) or [])[-300:]
+            if len(bars) < 60:
+                continue
+            scanned += 1
+            # each scanned symbol dates its own bars: `_ist` reads the CHART's
+            # timezone, which would stamp a UTC-anchored crypto day with the
+            # IST calendar of whatever symbol happens to be open
+            off = session_for(r["symbol"])[1]
+            ist = (lambda ts, _o=off: datetime.fromtimestamp(  # noqa: E731
+                ts + _o, tz=timezone.utc).strftime("%d %b %Y"))
+            found = patterns.candlesticks(
+                bars, _atr(bars, 14), ist, {kind}, limit=8) \
+                if kind in patterns.CANDLE_KINDS else patterns.chart_patterns(
+                    bars, _pivots(bars, 5), _tolerance(bars), ist, {kind}, limit=8)
+            # Both detectors return newest first. Without the recency filter a
+            # "which stocks show an engulfing" screen matched every symbol on
+            # a candle from three months ago — true, and not the question.
+            found = [p for p in found if p["bars_ago"] <= within]
+            if found:
+                r["pattern"] = {k: v for k, v in found[0].items()
+                                if not k.startswith("_")}
+                hit.append(r)
+        survivors = hit
+
+    n_lim = max(1, min(int(limit or 15), 50))
+    shown = survivors[:n_lim]
+    # Only the features the screen actually referenced come back — a row
+    # carrying all 17 is noise the model has to re-filter mentally.
+    keep = ["close"] + [nm for nm, _, _ in parsed] + [sort_by]
+    # as_of is the last session MOST symbols share — one symbol topped up
+    # further (or holding a partial day) must not stamp the whole universe
+    mode_day = _screen_cache.get("mode_day")
+    last_day = _screen_cache.get("last_day") or {}
+    # `_ist` renders in the CHART symbol's timezone, but a screen day is a
+    # universe-wide IST calendar date built with _ist_day/IST_OFF. Rendering
+    # it through the chart's clock moved every date a day back whenever the
+    # open chart was a crypto pair. Pinned to the offset it was computed with.
+    def _day_str(day: int) -> str:
+        return datetime.fromtimestamp(day * 86400, tz=timezone.utc).strftime(
+            "%d %b %Y")
+
+    as_of = _day_str(mode_day) if mode_day else "unknown"
+    stale_shown = 0
+    # One read per scope present in the shown rows — the pooled record is
+    # identical for every row of the same market, and a screen that mixes
+    # NSE stocks with crypto must not stamp one market's rate on both.
+    uni_by_scope: dict[str, dict] = {}
+    if kind:
+        for r in shown:
+            sc = scope_for(r["symbol"])
+            if sc not in uni_by_scope:
+                uni_by_scope[sc] = _pattern_universe_stats(
+                    kind, "1d", 10, sc) or {}
+    uni = next((u for u in uni_by_scope.values() if u), None)
+    rows = []
+    for r in shown:
+        out = {"symbol": r["symbol"], "name": r["name"],
+               "industry": r["industry"]}
+        d = last_day.get(r["symbol"])
+        if d is not None and d != mode_day:
+            out["as_of"] = _day_str(d)
+            stale_shown += 1
+        for k in keep:
+            if k not in out:
+                out[k] = r["_f"].get(k)
+        # a value-area screen is unreadable without the area it screened on
+        if vp_used and r["_f"].get("_vp"):
+            out["volume_profile"] = r["_f"]["_vp"]
+        if "pattern" in r:
+            out["pattern"] = r["pattern"]
+            u = uni_by_scope.get(scope_for(r["symbol"])) or {}
+            if u.get("with_direction_rate_pct") is not None:
+                out["universe_rate"] = {
+                    "with_direction_rate_pct": u["with_direction_rate_pct"],
+                    "n": u.get("n"), "scope": u.get("scope"),
+                    "scope_label": u.get("scope_label")}
+        rows.append(out)
+    universe = len(feats)
+    res = {"universe": universe, "matched": len(survivors),
+           "shown": len(rows), "as_of": as_of,
+           "sorted_by": {"feature": sort_by,
+                         "order": "desc" if desc else "asc"},
+           "filters_applied": [{"feature": n, "op": o, "value": v}
+                               for n, o, v in parsed],
+           "rows": rows}
+    if vp_used:
+        pool_n = len(vp_pool)
+        pool_label = (f"instruments in {'/'.join(sorted(want_inds))}"
+                      if want_inds else "stored instruments")
+        res["volume_profile_coverage"] = {
+            "scored": vp_scored, "pool": pool_n, "universe": universe,
+            "window_sessions": 20,
+            "_note": (f"Volume-profile features are built from 1-MINUTE bars, "
+                      f"which only {vp_scored} of the {pool_n} {pool_label} "
+                      f"currently have — the rest hold daily bars only and "
+                      f"were scored as null, so they are absent from this "
+                      f"ranking rather than ranked last. Say '{vp_scored} of "
+                      f"{pool_n}' and describe the pool exactly as written "
+                      f"here; do not restate it against the whole "
+                      f"{universe}-instrument universe. Indices and India VIX "
+                      f"print no volume and can never be scored."),
+        }
+    if want_inds:
+        res["industry_matched"] = sorted(want_inds)
+    if kind:
+        res["pattern"] = kind
+        res["pattern_within_sessions"] = within
+        res["symbols_scanned_for_pattern"] = scanned
+        if unscanned:
+            res["not_scanned_for_pattern"] = unscanned
+    note = [
+        f"Every value is an end-of-day figure as of {as_of}, computed across "
+        f"the {universe} stocks whose daily bars are stored here — state both "
+        f"the date and that universe whenever you quote a count or a rank.",
+        "Symbols lacking the history a filter needs are excluded, never "
+        "defaulted to zero.",
+        "This is arithmetic on price and volume, not a view on any company: "
+        "present the rows as a markdown table and close as analysis, not "
+        "advice.",
+    ]
+    if not survivors:
+        # A screen that finds nothing is an answer. Left unmarked it reads as
+        # a failure and invites quietly loosening the filter it was asked for.
+        note.insert(1, "Nothing passed. Say plainly that no stock in this "
+                       "universe meets the criteria, name the filter that "
+                       "bound, and offer a looser number — never relax it "
+                       "yourself and present the result as if it were asked "
+                       "for.")
+    elif len(survivors) > len(rows):
+        note.insert(1, f"{len(survivors)} names matched and {len(rows)} are "
+                       f"shown — say so rather than implying the list is whole.")
+    if kind:
+        note.insert(1, f"A {kind} counts only if it completed within the last "
+                       f"{within} sessions — say the window, and quote each "
+                       f"hit's own bars_ago rather than implying it printed "
+                       f"today.")
+    if uni:
+        note.insert(1, f"`universe_rate` is the same 10-session forward "
+                       f"reliability pooled on DAILY bars as of "
+                       f"{uni.get('as_of') or 'the pooled run'}, and each row "
+                       f"carries the rate for ITS OWN market (see its "
+                       f"`scope_label`) — it describes the shape in that "
+                       f"market, not these rows, so never present it as a "
+                       f"stock's own record and never quote one row's rate "
+                       f"for a row in another scope.")
+    if unscanned:
+        note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
+                       f"so {unscanned} matching symbols were never checked "
+                       f"for {kind} — say the scan was capped.")
+    if stale_shown:
+        note.insert(1, f"{stale_shown} shown row(s) carry their own as_of "
+                       f"because their last stored session differs from the "
+                       f"universe date — quote per-row dates for those.")
+    # Measured against the classified company list rather than a fixed number,
+    # so the warning retires itself the day the full artifact is absorbed and
+    # never has to be edited to stop lying in either direction.
+    if universe < 0.9 * max(1, len(cls)):
+        note.insert(0, f"Only {universe} of the {len(cls)} companies in the "
+                       f"list have daily bars so far, so this is a PARTIAL "
+                       f"universe, not the market — say that before quoting "
+                       f"any result.")
+    res["_note"] = " ".join(note)
     return res
 
 
@@ -2415,7 +4137,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
 
     res["provenance"] = {
         "interval": interval, "bars_scanned": len(rows),
-        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}",
         "tolerance": round(tol, 2),
         "candlestick_thresholds": {
             "doji_body_max_pct_of_range": patterns._DOJI_BODY * 100,
@@ -2455,6 +4177,134 @@ _EDGE_ONLY = {"ascending_triangle", "descending_triangle",
               "symmetrical_triangle", "rising_wedge", "falling_wedge",
               "rectangle", "channel_up", "channel_down", "broadening",
               "cup_and_handle", "rounding_bottom", "rounding_top"}
+
+# Horizons the pooled artifact is computed at. A tool horizon of 13 is
+# answered with the 10-bar record and the mismatch is never hidden — see
+# `horizon_bars` inside the universe block.
+_UNIVERSE_HORIZONS = (5, 10, 20)
+# Only the fields the artifact is allowed to surface; anything else in the
+# table stays there. Same names as this chart's own result, so the model
+# compares like with like instead of two vocabularies.
+_UNIVERSE_FIELDS = ("n", "n_symbols", "with_direction_rate_pct",
+                    "with_direction_rate_pct_withheld",
+                    "control_base_rate_pct", "edge_pp", "edge_se_pp",
+                    "avg_move_pct")
+
+
+def _pattern_universe_stats(kind: str, interval: str, h: int,
+                            scope: str = "") -> dict | None:
+    """The same evaluation pooled across the stored universe, if it exists.
+
+    Precomputed by an offline artifact into `pattern_stats`; this only
+    reads it. The table is tiny and usually absent, so a missing table is
+    a plain None (house pattern) and every caller degrades to the
+    single-chart answer it already had.
+
+    Scoped to the served symbol's own market. Serving Bitcoin the pooled
+    record of 500 NSE stocks would be a fabricated comparison — a shape's
+    reliability is a property of the market it was measured in, and there is
+    no such thing as "the" base rate across a 375-minute session and a 24/7
+    one. A scope with no swept rows returns None, and the caller falls back
+    to this chart's own record.
+    """
+    sc = scope or scope_for(_sym())
+    try:
+        has_scope = any(r[1] == "scope" for r in
+                        _con.execute("PRAGMA table_info(pattern_stats)"))
+        if has_scope:
+            cur = _con.execute(
+                "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
+                "AND horizon=? AND scope=?", (kind, interval, int(h), sc))
+        else:
+            # pre-migration table: its only content is the equity sweep, so
+            # answering a crypto chart from it would be the exact mix this
+            # scope column exists to prevent
+            if sc != "equity_in":
+                return None
+            cur = _con.execute(
+                "SELECT * FROM pattern_stats WHERE kind=? AND interval=? "
+                "AND horizon=?", (kind, interval, int(h)))
+        cols = [d[0] for d in cur.description]
+        row = cur.fetchone()
+        if not row:
+            return None
+        rec = dict(zip(cols, row))
+        as_of = None
+        try:
+            meta_scoped = any(r[1] == "scope" for r in _con.execute(
+                "PRAGMA table_info(pattern_stats_meta)"))
+            m = _con.execute(
+                "SELECT value FROM pattern_stats_meta WHERE key='as_of' "
+                "AND scope=?", (sc,)).fetchone() if meta_scoped else \
+                _con.execute("SELECT value FROM pattern_stats_meta "
+                             "WHERE key='as_of'").fetchone()
+            as_of = m[0] if m else None
+        except sqlite3.Error:
+            as_of = None
+    except sqlite3.Error:
+        return None
+    out = {k: rec[k] for k in _UNIVERSE_FIELDS
+           if rec.get(k) is not None}
+    if not out:
+        return None
+    if out.get("with_direction_rate_pct") is None and \
+            "with_direction_rate_pct_withheld" not in out:
+        out["with_direction_rate_pct_withheld"] = (
+            "the pooled run graded no instance at this horizon — say the "
+            "universe record is unavailable, not that the rate is zero")
+    out["horizon_bars"] = int(h)
+    out["interval"] = interval
+    # The scope is not decoration: it is the only thing that says what
+    # "across the universe" meant, and the model must name it rather than
+    # implying one market's record covers another.
+    out["scope"] = sc
+    out["scope_label"] = SCOPE_LABEL.get(sc, sc)
+    if as_of:
+        out["as_of"] = as_of
+        lag = _evidence_lag(as_of)
+        if lag:
+            out["as_of_note"] = lag
+    return out
+
+
+def _evidence_lag(as_of: str | None, symbol: str = "") -> str | None:
+    """A note when a DERIVED table's evidence stops before the chart does.
+
+    pattern_stats, vp_screen and the universe screen are SWEPT, not computed
+    per request, so each carries its own as_of while the bar store moves
+    underneath it independently. Measured 2026-08-02: the equity pattern ledger
+    was mined to 22 Jul and the charts had been topped up to 31 Jul, so a
+    pooled rate covering neither of the last seven sessions was being shown
+    beside a chart that drew all of them, with nothing saying so.
+
+    Stating the lag costs one line. Letting the model imply the evidence covers
+    the visible chart is a fabrication, and it is the kind that survives review
+    because every individual number in it is true.
+    """
+    at = _parse_ist(as_of)
+    if at is None:
+        return None
+    sym = symbol or _sym()
+    if not sym:
+        return None
+    try:
+        last = _con.execute("SELECT MAX(ts) FROM bars_1d WHERE symbol=?",
+                            (sym,)).fetchone()[0]
+        if last is None:
+            return None
+        tz_off = session_for(sym)[1]
+        if _ist_day(last, tz_off) <= _ist_day(at, tz_off):
+            return None
+        behind = _con.execute(
+            "SELECT COUNT(*) FROM bars_1d WHERE symbol=? AND ts>?",
+            (sym, at)).fetchone()[0]
+    except sqlite3.Error:
+        return None
+    if behind <= 0:
+        return None
+    return (f"this evidence was mined up to {as_of}; {sym} has traded "
+            f"{behind} session(s) since, to {_ist(last, False)}. Say so rather "
+            f"than implying the record covers the chart on screen.")
 
 
 def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
@@ -2561,6 +4411,26 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         if res.get("with_direction_rate_pct") is not None and base:
             res["edge_pp"] = (res["with_direction_rate_pct"]
                               - res["control"]["base_rate_pct"])
+            # The same error bar the pooled ledger carries. This path is the
+            # one that needed it MOST and did not have it: a single chart
+            # grades a handful of instances, not thousands. Measured live,
+            # India VIX reported a hammer with a "+22 percentage-point
+            # historical edge" off 16 cases — one standard error is 11.6pp
+            # there, so the edge was inside the noise and got narrated as a
+            # finding. The control term is negligible here (it spans every
+            # bar in the window) but is included so both paths agree.
+            p = res["with_direction_rate_pct"] / 100
+            se = (p * (1 - p) / len(evals)) ** 0.5 * 100
+            pc = res["control"]["base_rate_pct"] / 100
+            se = (se ** 2 + pc * (1 - pc) / len(base) * 1e4) ** 0.5
+            res["edge_se_pp"] = round(se, 1)
+            res["edge_verdict"] = (
+                "within sampling noise — say the shape is indistinguishable "
+                "from its base rate on this chart, and do NOT quote the edge "
+                "as a finding"
+                if abs(res["edge_pp"]) <= 2 * se else
+                "larger than twice its sampling error — a real difference on "
+                "this chart, still a historical tendency and not a forecast")
     else:
         res["direction_note"] = (
             "neutral shape — it has no textbook direction to score, so only "
@@ -2574,7 +4444,7 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                 res["avg_abs_move_pct"] = round(
                     sum(abs(e["fwd"]) for e in evals) / len(evals), 2)
     res["provenance"] = {
-        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} IST",
+        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}",
         "bars_scanned": n,
         "method": "forward close-to-close move measured from each instance's "
                   "completion bar (candles: the pattern bar; chart shapes: "
@@ -2583,7 +4453,59 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
         "Quote the pattern rate NEXT TO the base rate — the edge is the "
         "difference, and a rate alone is decoration. This is one symbol's "
         "history at one horizon, not a forecast; past instances of a shape "
-        "do not obligate the next one.")
+        "do not obligate the next one."
+        + (f" `edge_verdict` decides how this chart's edge may be described: "
+           f"{res['edge_verdict']}. An edge inside its error bar must not be "
+           f"called an edge, a tendency, or 'modest' — it is a coin flip on "
+           f"this many cases. Never present a percentage-point difference "
+           f"without saying how many instances produced it."
+           if res.get("edge_verdict") else ""))
+    uh = min(_UNIVERSE_HORIZONS, key=lambda x: (abs(x - h), x))
+    uni = _pattern_universe_stats(k, interval, uh)
+    if uni:
+        res["universe"] = uni
+        # Verified: candle instances are bit-identical between the pooled
+        # sweep and this tool; chart shapes are NOT — the sweep detects in
+        # rolling 600-bar windows each judged against its own volatility,
+        # so shape counts legitimately differ from this single-pass scan.
+        same_method = k in patterns.CANDLE_KINDS
+        res["_note"] += (
+            f" The `universe` block pools {uni.get('n_symbols') or 'the'} "
+            f"{uni.get('scope_label', 'stored instruments')} on the same "
+            f"{interval} interval, as of "
+            f"{uni.get('as_of') or 'the pooled run'}"
+            + (f" at a {uh}-bar horizon, the nearest graded to this call's "
+               f"{h}" if uh != h else "") + ". "
+            + "It covers ONLY that market and that interval — never present "
+              "it as the shape's record everywhere, and never carry a rate "
+              "measured on one interval across to another. "
+            + ("For candlestick kinds it is the SAME method as this chart's "
+               "number — quote both scopes and, when they disagree, say so "
+               "plainly; the pooled record does not override what this "
+               "symbol actually did."
+               if same_method else
+               "For chart shapes it is a DIFFERENT measurement: formations "
+               "found in rolling 600-bar windows, each judged against its "
+               "own volatility, while this chart was scanned in one pass — "
+               "the two can legitimately count different instances. Present "
+               "it as its own scope; never reconcile the counts.")
+            + " Each rate must be quoted next to its OWN control (the pooled "
+              "control is full-history, this chart's is its window). "
+              "Edge-fitted shapes have no universe record at all."
+            + (f" `edge_se_pp` is the sampling error on the EDGE — it carries "
+               f"both the pattern's own count and the control's, so a thin "
+               f"base rate widens it too. This edge of "
+               f"{uni.get('edge_pp')}pp is "
+               + ("WITHIN it, so call the shape indistinguishable from its "
+                  "base rate — do not report it as an edge in either "
+                  "direction"
+                  if uni.get("edge_pp") is not None
+                  and uni.get("edge_se_pp")
+                  and abs(uni["edge_pp"]) <= 2 * uni["edge_se_pp"]
+                  else f"more than twice it ({uni.get('edge_se_pp')}pp), so "
+                       f"it is a real difference — still a small one, and "
+                       f"not a forecast")
+               + "." if uni.get("edge_se_pp") is not None else ""))
     return res
 
 
@@ -2598,7 +4520,7 @@ def _results(limit: int = 200) -> list[dict]:
         rows = _con.execute(
             "SELECT quarter, period_end, trade_date, broadcast_at, "
             "after_market, filings FROM results WHERE symbol=? "
-            "ORDER BY trade_date DESC LIMIT ?", ("RELIANCE", limit)).fetchall()
+            "ORDER BY trade_date DESC LIMIT ?", (_sym(), limit)).fetchall()
     except sqlite3.Error:
         return []
     return [{"quarter": q, "period_end": pe, "trade_date": td,
@@ -2798,7 +4720,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
                       f"next_{h}_bars_pct": round(s["after"], 2)}
                      for s in studied[:6]]
     res["provenance"] = {
-        "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} IST",
+        "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} {_tzl()}",
         "bars_scanned": n,
         "method": ("each event is the first session able to react to the "
                    "filing (after-market announcements roll to the next day); "
@@ -2840,9 +4762,16 @@ def _iso_day(ts: int) -> str:
 def _minutes_of(day_ts: int) -> list[tuple]:
     """1-min bars of the IST session containing day_ts."""
     day0 = _ist_day(day_ts) * 86400 - IST_OFF
-    return _con.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol='RELIANCE' "
-        "AND ts>=? AND ts<? ORDER BY ts", (day0, day0 + 86400)).fetchall()
+    hi = day0 + 86400
+    live = _live_view(_sym())
+    if live and live[1] is not None:
+        hi = min(hi, live[1])   # replay clock: the session's future is hidden
+    rows = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
+        "AND ts>=? AND ts<? ORDER BY ts", (_sym(), day0, hi)).fetchall()
+    if live and live[0] is not None and day0 <= live[0][0] < day0 + 86400:
+        _merge_form_intraday(rows, live[0])
+    return rows
 
 
 def _session_anatomy(prev_close: float, mins: list[tuple]) -> dict:
@@ -2894,7 +4823,7 @@ _QUADRANT = {(1, 1): "long buildup", (-1, 1): "short buildup",
 def _flows_have() -> bool:
     try:
         return bool(_con.execute(
-            "SELECT 1 FROM delivery WHERE symbol='RELIANCE' LIMIT 1").fetchone())
+            "SELECT 1 FROM delivery WHERE symbol=? LIMIT 1", (_sym(),)).fetchone())
     except sqlite3.Error:
         return False
 
@@ -2902,9 +4831,9 @@ def _flows_have() -> bool:
 def _deliv_history(before_iso: str, n: int = 500) -> list[float]:
     try:
         return [r[0] for r in _con.execute(
-            "SELECT deliv_per FROM delivery WHERE symbol='RELIANCE' AND d<? "
+            "SELECT deliv_per FROM delivery WHERE symbol=? AND d<? "
             "AND deliv_per IS NOT NULL ORDER BY d DESC LIMIT ?",
-            (before_iso, n))]
+            (_sym(), before_iso, n))]
     except sqlite3.Error:
         return []
 
@@ -2916,8 +4845,8 @@ def _flows_sessions(d0_iso: str, d1_iso: str, closes_by_day: dict) -> list[dict]
     try:
         for d, per, dq, q in _con.execute(
                 "SELECT d, deliv_per, deliv_qty, qty FROM delivery "
-                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
-                (d0_iso, d1_iso)):
+                "WHERE symbol=? AND d BETWEEN ? AND ? ORDER BY d",
+                (_sym(), d0_iso, d1_iso)):
             s = out.setdefault(d, {"date": d})
             if per is not None:
                 s["delivery_pct"] = round(per, 2)
@@ -2930,8 +4859,8 @@ def _flows_sessions(d0_iso: str, d1_iso: str, closes_by_day: dict) -> list[dict]
                         f"only {len(hist)} prior sessions — too few to rank")
         for d, oi, chg in _con.execute(
                 "SELECT d, SUM(oi), SUM(oi_chg) FROM fut_oi "
-                "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? GROUP BY d "
-                "ORDER BY d", (d0_iso, d1_iso)):
+                "WHERE symbol=? AND d BETWEEN ? AND ? GROUP BY d "
+                "ORDER BY d", (_sym(), d0_iso, d1_iso)):
             s = out.setdefault(d, {"date": d})
             s["futures_oi"] = oi
             s["oi_change"] = chg
@@ -2950,8 +4879,8 @@ def _flows_deals(d0_iso: str, d1_iso: str) -> list[dict]:
                  "qty": q, "price": p}
                 for d, k, c, s, q, p in _con.execute(
                     "SELECT d, kind, client, side, qty, price FROM deals "
-                    "WHERE symbol='RELIANCE' AND d BETWEEN ? AND ? ORDER BY d",
-                    (d0_iso, d1_iso))]
+                    "WHERE symbol=? AND d BETWEEN ? AND ? ORDER BY d",
+                    (_sym(), d0_iso, d1_iso))]
     except sqlite3.Error:
         return []
 
@@ -2996,7 +4925,7 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
         if i0 is None or i1 is None or i0 > i1:
             return {"error": "no sessions inside that window",
                     "data_spans": f"{_ist(rows[0][0], False)} → "
-                                  f"{_ist(rows[-1][0], False)} IST"}
+                                  f"{_ist(rows[-1][0], False)} {_tzl()}"}
     if i0 == 0:
         i0 = 1                                       # need a prior close
     n = i1 - i0 + 1
@@ -3301,6 +5230,268 @@ def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> 
     return out
 
 
+# ── get_deals: the disclosure record, by client or by symbol ───────────────
+#
+# Bulk (>0.5% of equity in a day) and block (negotiated window) deals are the
+# only place the buyer is named by law. This tool's job is to hand that record
+# back FAITHFULLY — it does not score, rank, filter or conclude. Three things
+# had to be got right for "faithfully" to be true:
+#
+#   1. Coverage. Answered off the hydrated copy, "what has this client bought"
+#      returns the few symbols that happen to be local and reads as the whole
+#      truth. The market sweep is preferred wherever attached, and whichever
+#      store answered is stated in the reply.
+#   2. Corporate actions. A 2017 RELIANCE deal printed at 1270.25; that same
+#      session's adjusted close is 294.70. Dividing today's price by the
+#      PRINTED one returns +3% where the truth is +344%. So every return here
+#      is close-to-close on the adjusted series, the printed price is labelled
+#      as printed, and the gap between them is a field — a corporate action
+#      should be visible, not quietly smoothed away.
+#   3. Selection. The return is computed for every deal returned, buy and
+#      sell alike. Showing it only where it flatters is how a record turns
+#      into a track record.
+_BLOCK_MIN_CHANGED = "2025-12-07"   # SEBI raised the block floor 10cr -> 25cr
+
+
+def _deal_clients(query: str, tbl: str) -> list[str]:
+    """Raw client strings whose normalised form contains the asked one.
+
+    One legal entity prints under many spellings ("SBI MUTUAL FUND",
+    "SBI MUTUAL FUND A/C ..."). Matching the raw string alone silently drops
+    rows, and a dropped row is exactly the failure this tool exists to avoid.
+    """
+    norm = lambda s: "".join(ch for ch in (s or "").upper() if ch.isalnum())  # noqa: E731
+    want = norm(query)
+    if not want:
+        return []
+    try:
+        return sorted({c for (c,) in _con.execute(
+            f"SELECT DISTINCT client FROM {tbl}") if want in norm(c)})
+    except sqlite3.Error:
+        return []
+
+
+def tool_get_deals(client: str = "", symbol: str = "", frm: str = "",
+                   to: str = "", limit: int = 40) -> dict:
+    """The bulk/block deal record — who traded, when, how much, at what price."""
+    tbl = "mkt.deals" if _HAVE_MKT else "deals"
+    sym = (symbol or "").strip().upper()
+    where, args = [], []
+    out: dict = {}
+
+    if client:
+        names = _deal_clients(client, tbl)
+        if not names:
+            return {"error": f"no client matching {client!r} in the deal record",
+                    "_read": "Say no deal is recorded under that name — do not "
+                             "guess at who they are or what they hold."}
+        where.append(f"client IN ({','.join('?' * len(names))})")
+        args += names
+        out["matched_client_names"] = names[:25]
+        if len(names) > 25:
+            out["matched_client_names_note"] = f"{len(names) - 25} more folded in"
+    if sym or not client:
+        where.append("symbol=?")
+        args.append(sym or _sym())
+    d0 = _iso_day(t) if (t := _parse_ist(frm)) else ""
+    d1 = _iso_day(t) if (t := _parse_ist(to)) else ""
+    if (frm and not d0) or (to and not d1):
+        return {"error": "could not read the date(s)",
+                "hint": "chart format, e.g. '01 Jul 2026'"}
+    if d0:
+        where.append("d>=?")
+        args.append(d0)
+    if d1:
+        where.append("d<=?")
+        args.append(d1)
+
+    n = max(1, min(int(limit or 40), 200))
+    try:
+        # Two passes, and both earn their place.
+        #   DISTINCT first: `deals` carries no primary key and a handful of
+        #   rows are exact repeats; a double-counted deal is a wrong answer.
+        #   GROUP BY second: one disclosed purchase arrives as many legs (SBI
+        #   MF's 18-Jun ANTHEM buy is 7 rows at one price). Handed the legs,
+        #   the model added them up itself and published 2,894,500 against a
+        #   true 2,694,616 — a fabricated quantity on the one surface whose
+        #   entire purpose is fidelity. Legs are summed HERE, in SQL, and the
+        #   count rides along so nothing is hidden by the folding.
+        rows = _con.execute(
+            f"SELECT d, symbol, kind, client, side, SUM(qty), "
+            f"       SUM(qty*price)/NULLIF(SUM(qty),0), COUNT(*) "
+            f"FROM (SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+            f"      FROM {tbl} WHERE {' AND '.join(where)}) "
+            f"GROUP BY d, symbol, kind, client, side "
+            f"ORDER BY d DESC, SUM(qty*price) DESC LIMIT ?",
+            (*args, n + 1)).fetchall()
+    except sqlite3.Error as exc:
+        return {"error": f"deal record unreadable: {exc}"}
+    if not rows:
+        return {"error": "no deals on record for that scope",
+                "_read": "Say plainly that none is recorded — silence here "
+                         "means none was PRINTED, not that none happened. "
+                         "Only deals crossing the disclosure threshold appear."}
+    more, rows = len(rows) > n, rows[:n]
+
+    # closes come from the adjusted daily series, never from the printed price
+    closes: dict[str, dict] = {}
+    for s in {r[1] for r in rows}:
+        try:
+            closes[s] = {_iso_day(ts): c for ts, c in _con.execute(
+                "SELECT ts, c FROM bars_1d WHERE symbol=? ORDER BY ts", (s,))}
+        except sqlite3.Error:
+            closes[s] = {}
+
+    deals, blocks, days = [], [], []
+    for d, s, kind, cl, side, qty, px, legs in rows:
+        val = (qty or 0) * (px or 0)
+        rec = {"date": d, "symbol": s, "type": kind, "client": cl,
+               "side": side, "qty": qty, "price_as_printed": px,
+               "value_cr": round(val / 1e7, 2)}
+        if legs > 1:
+            rec["legs"] = legs
+            rec["price_as_printed"] = round(px, 2) if px else px
+            rec["_legs_note"] = (f"{legs} disclosed legs, already summed here; "
+                                 f"price is quantity-weighted. Do not re-add.")
+        by_day = closes.get(s) or {}
+        c0 = by_day.get(d)
+        if c0:
+            last_d = max(by_day)
+            rec["close_on_date_adjusted"] = round(c0, 2)
+            if px:
+                rec["printed_vs_close_pct"] = round((px / c0 - 1) * 100, 1)
+            if last_d > d:
+                rec["return_close_to_latest_pct"] = round(
+                    (by_day[last_d] / c0 - 1) * 100, 1)
+                rec["latest_close_on"] = last_d
+        else:
+            rec["close_withheld"] = ("no local daily bar for this symbol on "
+                                     "this date — no return can be quoted")
+        if kind == "block":
+            blocks.append(d)
+        days.append(d)
+        deals.append(rec)
+
+    out["deals"] = deals
+    out["scope"] = {
+        "client": client or "any", "symbol": sym or (None if client else _sym()),
+        "from": d0 or "earliest on record", "to": d1 or "latest on record",
+        "returned": len(deals), "more_exist": more,
+        "source": ("market-wide deal sweep" if _HAVE_MKT
+                   else "LOCAL deal copy — hydrated symbols only, so a "
+                        "client's record here is INCOMPLETE; say so")}
+
+    if client:
+        try:
+            tot, gross, net, syms, lo, hi = _con.execute(
+                f"SELECT COUNT(*), SUM(qty*price), "
+                f"SUM(CASE WHEN side='BUY' THEN qty*price ELSE -qty*price END), "
+                f"COUNT(DISTINCT symbol), MIN(d), MAX(d) FROM "
+                f"(SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+                f" FROM {tbl} WHERE client IN ({','.join('?' * len(names))}))",
+                names).fetchone()
+            # over the WHOLE record, never the returned page: this block reads
+            # as a property of everything the client has done, and a share
+            # measured on one page of it would be a quietly wrong number.
+            sd, both = _con.execute(
+                f"SELECT COUNT(*), SUM(CASE WHEN n>1 THEN 1 ELSE 0 END) FROM "
+                f"(SELECT COUNT(DISTINCT side) n FROM "
+                f" (SELECT DISTINCT d, symbol, kind, client, side, qty, price "
+                f"  FROM {tbl} WHERE client IN ({','.join('?' * len(names))})) "
+                f" GROUP BY symbol, d)", names).fetchone()
+            rc = {"deals_on_record": tot, "distinct_symbols": syms,
+                  "first": lo, "last": hi,
+                  "gross_traded_cr": round((gross or 0) / 1e7),
+                  "net_cr": round((net or 0) / 1e7)}
+            if gross:
+                rc["net_as_pct_of_gross"] = round(abs(net or 0) / gross * 100, 1)
+            rc.update(_rate("both_sides_same_day_pct", both or 0,
+                            (sd or 0) - (both or 0), "symbol-day"))
+            rc["_read"] = (
+                "Properties of this client's OWN record, not a judgement on "
+                "it. A near-zero net against a large gross, with both sides "
+                "traded on most symbol-days, is what a market maker's record "
+                "looks like; a large net across few deals is what a "
+                "one-directional buyer's does. State the numbers and let the "
+                "reader draw that line — do not label the client, and do not "
+                "leave the numbers out, which would read as endorsement.")
+            out["client_record"] = rc
+        except sqlite3.Error:
+            pass
+
+    notes = []
+    # only a comparison ACROSS the change can be misled by it, so the warning
+    # rides on the returned block deals straddling that date — not on merely
+    # having one.
+    if blocks and min(days) < _BLOCK_MIN_CHANGED <= max(days):
+        notes.append(
+            f"SEBI raised the block-deal floor from Rs10cr to Rs25cr on "
+            f"{_BLOCK_MIN_CHANGED} (band +/-1% -> +/-3%). Block counts and "
+            f"sizes are NOT comparable across that date; flow also shifted "
+            f"into bulk. Say so before comparing periods that span it.")
+    notes.append(
+        "price_as_printed is the raw traded price, unadjusted for splits and "
+        "bonuses; close_on_date_adjusted is the same session on the adjusted "
+        "series. A large printed_vs_close_pct is a corporate action since the "
+        "deal, not an error — never divide today's price by the printed one.")
+    out["data_notes"] = notes
+    out["_read"] = (
+        "This is a DISCLOSURE record: report what was traded, by whom, when, "
+        "and at what price, and stop there. Deals are published after market "
+        "hours on the trade date, so the market had the session before anyone "
+        "could read them. Do NOT turn a deal into a recommendation, do not "
+        "call it accumulation or distribution, do not infer intent, conviction "
+        "or a view from it, and do not imply the reader should follow it. "
+        "Where return_close_to_latest_pct is present it is part of the record "
+        "and belongs in the answer — SHOW it, for every deal that has one, "
+        "winners and losers alike, and say 'not available' for the rest. "
+        "Withholding it wherever it looks unflattering is the one way this "
+        "table can lie while every number in it stays true. It is arithmetic "
+        "on public closes between two stated dates: not a track record, not a "
+        "forecast, and not a verdict on the client. Never add up qty or value "
+        "across rows yourself — a summed row already says so in `legs`, and "
+        "totals not present here must not be published. When more_exist is "
+        "true say these are the most recent N, not that they are all of them. "
+        "Only trades crossing the disclosure threshold appear at all, so this "
+        "is never the whole of what an investor did.")
+    return out
+
+
+# ── open_chart: the model arranges the workspace itself ────────────────────
+#
+# Every other tool READS a chart the user opened. This one puts one on screen.
+# It is deliberately the only tool that does, and it validates before it
+# promises: a symbol that will not hydrate must fail HERE, as a refusal the
+# model can relay, rather than as a pane that opens empty on the user's screen
+# while the reply says the chart is ready.
+_OPEN_INTERVALS = {"1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"}
+
+
+def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
+                    layout: str = "") -> dict:
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return {"error": "which symbol should the chart show?"}
+    iv = (interval or "").strip() or "1d"
+    if iv not in _OPEN_INTERVALS:
+        return {"error": f"unknown interval {interval!r}",
+                "allowed": sorted(_OPEN_INTERVALS)}
+    if err := _ensure_symbol(sym):
+        return err          # the pane is never opened on a symbol with no bars
+    op = {"kind": "open_chart", "symbol": sym, "interval": iv,
+          "replace": bool(replace)}
+    if layout:
+        op["layout"] = layout
+    _view_add(op)
+    return {"opened": sym, "interval": iv,
+            "placement": "replaced the focused chart" if replace
+                         else "added a pane; the layout grows to fit",
+            "_read": "The chart is now on screen. Say so in a few words and "
+                     "answer whatever was actually asked — do not describe the "
+                     "layout mechanics, and do not claim to see anything on it "
+                     "that you have not read with a tool."}
+
+
 # ── search_news: the outside world, behind a thin function tool ────────────
 #
 # The hosted web_search_preview costs ~4,300 input tokens merely to be
@@ -3313,6 +5504,37 @@ def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> 
 
 _NEWS_TTL_RECENT = 3600           # window touching the present: 1 hour
 _NEWS_RECENT_DAYS = 3             # past this age a window's news is settled
+_NEWS_TTL_OVERHANG = 86400        # open conditions evolve daily, not hourly
+_NEWS_TTL_UPCOMING = 43200        # calendars move slower still
+
+# A cause is an interval, not a point: a succession question opened on the
+# 18th is still pressing on the 22nd, but a "what happened on the 22nd"
+# search will never rank the 18th's article. So the full scope asks three
+# differently-shaped questions concurrently — dated catalysts, OPEN
+# conditions, and scheduled anticipations — and the cache for the two new
+# legs is keyed by symbol alone: market truth, shared by every session,
+# refreshed by TTL rather than re-discovered per window.
+
+_NEWS_OVERHANG_PROMPT = (
+    "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
+    "Search the web once — twice only if the first search returns nothing — "
+    "for company-specific situations that were OPEN AND UNRESOLVED as of "
+    "{window}, regardless of when they began: leadership or succession "
+    "questions, regulatory approvals awaited, legal or tax disputes, rating "
+    "watches, deal or merger uncertainty, guidance doubts. Reply with 1-4 "
+    "lines, each 'origin date · the open situation and its state as of "
+    "{window} · source domain'. Only situations with a dated origin and a "
+    "source. Do NOT report prices, returns, percentages or targets. If "
+    "nothing is genuinely open, reply exactly: no open overhangs found.")
+
+_NEWS_UPCOMING_PROMPT = (
+    "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
+    "Search the web once — twice only if the first search returns nothing — "
+    "for scheduled events shortly AFTER {window} that investors position "
+    "around: board meetings, results dates, ex-dividend or record dates, "
+    "regulatory decisions due. Reply with 1-3 lines, each 'date · scheduled "
+    "event · source domain'. Only dated, sourced items; no prices or "
+    "estimates. If nothing is scheduled, reply exactly: nothing scheduled.")
 
 _NEWS_PROMPT = (
     "You are a research clerk for an Indian equities chart (NSE: {symbol}). "
@@ -3327,7 +5549,7 @@ _NEWS_PROMPT = (
     "nothing found for this window.")
 
 
-def _news_cache_get(key: str) -> dict | None:
+def _news_cache_get(key: str, ttl: int | None = None) -> dict | None:
     try:
         _con.execute("CREATE TABLE IF NOT EXISTS news_cache ("
                      "key TEXT PRIMARY KEY, fetched_at INTEGER, "
@@ -3340,7 +5562,11 @@ def _news_cache_get(key: str) -> dict | None:
         return None
     fetched, recent, payload = row
     import time as _t
-    if recent and _t.time() - fetched > _NEWS_TTL_RECENT:
+    age = _t.time() - fetched
+    if ttl is not None:
+        if age > ttl:
+            return None
+    elif recent and age > _NEWS_TTL_RECENT:
         return None
     try:
         return json.loads(payload)
@@ -3358,34 +5584,9 @@ def _news_cache_put(key: str, recent: bool, data: dict) -> None:
         pass
 
 
-def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
-    """Dated outside events for a window — an isolated browse, cached.
-
-    Returns causes only: events with dates and source domains. Quantities
-    never come from here.
-    """
-    if not AZURE_ENDPOINT or not AZURE_KEY:
-        return {"error": "web lookup unavailable (no LLM credentials)"}
-    t0 = _parse_ist(frm) if frm else None
-    t1 = _parse_ist(to) if to else t0
-    if t0 is None:
-        return {"error": "give the window, e.g. frm='21 Jul 2026' "
-                         "to='22 Jul 2026'"}
-    if t1 is None:
-        t1 = t0
-    d0, d1 = _iso_day(t0), _iso_day(t1)
-    window = d0 if d0 == d1 else f"{d0} to {d1}"
-
-    key = f"RELIANCE|{d0}|{d1}"
-    cached = _news_cache_get(key)
-    if cached:
-        return {**cached, "cached": True}
-
-    import time as _t
-    recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
-    prompt = _NEWS_PROMPT.format(
-        symbol="RELIANCE", window=window,
-        focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
+def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
+    """One isolated clerk browse. Returns (body, sources, searched) or an
+    error dict — the caller decides how a dead leg degrades."""
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": [{"role": "user", "content": prompt}],
@@ -3404,10 +5605,7 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
         with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
             data = json.loads(r.read())
     except Exception as exc:  # noqa: BLE001 — a dead browse must not kill the turn
-        return {"error": f"web lookup failed: {exc}",
-                "_note": "Answer from the local evidence and say the web "
-                         "lookup was unavailable — do not guess at news."}
-
+        return {"error": f"web lookup failed: {exc}"}
     text, sources, searched = [], [], 0
     for item in data.get("output", []):
         if item.get("type") == "web_search_call":
@@ -3419,21 +5617,126 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "") -> dict:
                     for a in c.get("annotations") or []:
                         if a.get("type") == "url_citation" and a.get("url"):
                             sources.append(a["url"])
-    body = "".join(text).strip()
-    out = {
-        "window": window,
-        "events": body or "nothing found for this window",
-        "sources": sorted(set(sources))[:6],
-        "_note": ("These are candidate CAUSES only — events with dates. "
-                  "Every quantity (price, %, volume, level) must come from "
-                  "the chart tools; if a headline implies a number, use the "
-                  "tool's number. An event here explains the move only if "
-                  "its timing fits the anatomy (a mid-session move is not "
-                  "explained by overnight news)."),
-    }
+    return "".join(text).strip(), sources, searched
+
+
+def _news_leg(key: str, ttl: int, prompt: str, empty: str,
+              field: str) -> tuple[str, list, bool]:
+    """(text, sources, cached) for one cached clerk leg; degrades honestly."""
+    hit = _news_cache_get(key, ttl)
+    if hit:
+        return hit.get(field, empty), hit.get("sources", []), True
+    got = _news_browse(prompt)
+    if isinstance(got, dict):
+        return f"web lookup unavailable for this section ({got['error']})", [], False
+    body, sources, searched = got
+    text = body or empty
     if searched and body:
-        _news_cache_put(key, recent, out)
-    return out
+        _news_cache_put(key, True, {field: text, "sources": sources})
+    return text, sources, False
+
+
+def tool_search_news(frm: str = "", to: str = "", focus: str = "",
+                     scope: str = "events") -> dict:
+    """Outside causes for a window — an isolated browse, cached.
+
+    scope='events': dated happenings in the window (point catalysts).
+    scope='full': three differently-shaped questions asked CONCURRENTLY —
+    dated events, OPEN unresolved company situations, and scheduled
+    upcoming events — merged into one result. One tool call, one hop;
+    wall time is the slowest leg, not the sum.
+    """
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        return {"error": "web lookup unavailable (no LLM credentials)"}
+    t0 = _parse_ist(frm) if frm else None
+    t1 = _parse_ist(to) if to else t0
+    if t0 is None:
+        return {"error": "give the window, e.g. frm='21 Jul 2026' "
+                         "to='22 Jul 2026'"}
+    if t1 is None:
+        t1 = t0
+    d0, d1 = _iso_day(t0), _iso_day(t1)
+    window = d0 if d0 == d1 else f"{d0} to {d1}"
+    sym = _sym()
+
+    import time as _t
+    recent = (_t.time() - t1) < _NEWS_RECENT_DAYS * 86400
+    ev_key = f"{sym}|{d0}|{d1}"
+    ev_prompt = _NEWS_PROMPT.format(
+        symbol=sym, window=window,
+        focus=f" Particular focus: {focus.strip()}." if focus.strip() else "")
+
+    base_note = ("These are candidate CAUSES only — events with dates. "
+                 "Every quantity (price, %, volume, level) must come from "
+                 "the chart tools; if a headline implies a number, use the "
+                 "tool's number. An event here explains the move only if "
+                 "its timing fits the anatomy (a mid-session move is not "
+                 "explained by overnight news).")
+
+    if scope != "full":
+        cached = _news_cache_get(ev_key)
+        if cached:
+            return {**cached, "cached": True}
+        got = _news_browse(ev_prompt)
+        if isinstance(got, dict):
+            return {**got, "_note": "Answer from the local evidence and say "
+                    "the web lookup was unavailable — do not guess at news."}
+        body, sources, searched = got
+        out = {"window": window,
+               "events": body or "nothing found for this window",
+               "sources": sorted(set(sources))[:6], "_note": base_note}
+        if searched and body:
+            _news_cache_put(ev_key, recent, out)
+        return out
+
+    # full scope: three legs, concurrent, each with its own cache and its
+    # own honest failure line — a dead leg never sinks the others
+    from concurrent.futures import ThreadPoolExecutor
+
+    def ev_leg() -> tuple[str, list, bool]:
+        hit = _news_cache_get(ev_key)
+        if hit:
+            return hit.get("events", ""), hit.get("sources", []), True
+        got = _news_browse(ev_prompt)
+        if isinstance(got, dict):
+            return (f"web lookup unavailable for this section "
+                    f"({got['error']})", [], False)
+        body, sources, searched = got
+        text = body or "nothing found for this window"
+        if searched and body:
+            _news_cache_put(ev_key, recent, {
+                "window": window, "events": text,
+                "sources": sorted(set(sources))[:6], "_note": base_note})
+        return text, sources, False
+
+    with ThreadPoolExecutor(3) as ex:
+        f_ev = ex.submit(ev_leg)
+        f_oh = ex.submit(_news_leg, f"{sym}|overhangs", _NEWS_TTL_OVERHANG,
+                         _NEWS_OVERHANG_PROMPT.format(symbol=sym, window=window),
+                         "no open overhangs found", "open_overhangs")
+        f_up = ex.submit(_news_leg, f"{sym}|upcoming", _NEWS_TTL_UPCOMING,
+                         _NEWS_UPCOMING_PROMPT.format(symbol=sym, window=window),
+                         "nothing scheduled", "upcoming")
+    ev_t, ev_s, ev_c = f_ev.result()
+    oh_t, oh_s, oh_c = f_oh.result()
+    up_t, up_s, up_c = f_up.result()
+
+    return {
+        "window": window,
+        "events": ev_t,
+        "open_overhangs": oh_t,
+        "upcoming": up_t,
+        "sources": sorted(set(ev_s + oh_s + up_s))[:8],
+        "cached_legs": [n for n, c in
+                        (("events", ev_c), ("overhangs", oh_c),
+                         ("upcoming", up_c)) if c],
+        "_note": base_note + (
+            " Open overhangs are CONDITIONS, not events: they explain "
+            "multi-day drift, persistent weakness and levels — never a "
+            "sharp intraday move; quote each with its origin date. "
+            "Upcoming items explain positioning ahead of them, not past "
+            "moves. Say which shape of cause fits what the chart shows."),
+    }
 
 
 def tool_get_bars(interval: str = "5m", frm: str | None = None,
@@ -3465,9 +5768,17 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
         # keep the bar CONTAINING t_from, not just bars starting after it
         rows = [r for r in rows if r[0] + iv > t_from][:limit]
     if not rows:
+        # The floor is PER SYMBOL now that the store holds more than NSE
+        # equities — crypto starts 2015-07-20 (BTC) or 2021 (Bybit pairs), a
+        # listed future only a few months back. A hardcoded 2015-02-02 sent
+        # the model to argue with a user about a window that never existed.
+        lo = _con.execute("SELECT MIN(ts) FROM bars WHERE symbol=?",
+                          (_sym(),)).fetchone()[0]
+        closes = ("this symbol trades 24/7" if session_for(_sym()) == UTC_SESSION
+                  else "markets are closed on weekends and holidays")
         return {"error": "no bars in that range",
-                "hint": "history starts 2015-02-02; markets are closed on "
-                        "weekends and NSE holidays"}
+                "hint": (f"{_sym()} history starts {_ist(lo)}; {closes}"
+                         if lo else f"no bars stored for {_sym()} at all")}
     return {
         "bars": [{"t": _ist(r[0]), "o": r[1], "h": r[2], "l": r[3], "c": r[4], "v": r[5]}
                  for r in rows],
@@ -3607,13 +5918,21 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
             idx = next((i for i, r in enumerate(rows) if r[0] >= t), None)
             if idx is None:
                 return {"error": "anchor_time is after the last scanned bar",
-                        "scanned": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} IST"}
+                        "scanned": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} {_tzl()}"}
             extra["anchor_index"] = idx
 
     try:
         res = indicators.compute(name, rows, period, source, **extra)
     except ValueError as exc:
-        return {"error": str(exc)}
+        err: dict = {"error": str(exc)}
+        if indicators.SPECS.get(name, {}).get("group") == "volume":
+            err["_note"] = (
+                "Nothing was computed. Say plainly that this instrument "
+                "publishes no traded volume so the study has no input — do "
+                "NOT report a number, and do not substitute a different "
+                "indicator without saying you switched. Offer a price-only "
+                "one by name instead.")
+        return err
 
     wt = interval not in ("1d", "1w", "1mo")
     out: dict = {
@@ -3822,12 +6141,30 @@ TOOLS = [
          "to": {"type": "string", "description": "window end; omit for one day"},
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
+    {"type": "function", "name": "open_chart",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
+         "replace": {"type": "boolean", "description": "true = swap the focused chart's symbol instead of adding a pane"}},
+      "required": ["symbol"]}},
+    {"type": "function", "name": "get_deals",
+     "description": "The bulk/block deal DISCLOSURE record — who traded a stock, on what date, how much, and at what price, as published by the exchange. Bulk and block deals are the only place the counterparty is named by law. Two axes: pass client to follow ONE named entity across every stock it has traded ('what has SBI Mutual Fund bought', 'has GQG been selling', 'show me Fidelity's deals'), or omit client to get the deals printed on the current chart's symbol ('any big deals in this name', 'who bought this stock'). Client names are matched loosely across spelling variants and every variant folded in is listed back. Returns each deal with its printed price, that session's split/bonus-adjusted close, and the close-to-latest return, computed for every deal shown, buys and sells alike. This tool REPORTS the record; it does not rank, score or filter it, and a deal is never a recommendation.",
+     "parameters": {"type": "object", "properties": {
+         "client": {"type": "string", "description": "name or fragment of the trading entity, e.g. 'SBI Mutual Fund', 'GQG', 'Fidelity'"},
+         "symbol": {"type": "string", "description": "restrict to one symbol; omit to use the current chart's symbol when no client is given"},
+         "frm": {"type": "string", "description": "window start, chart format e.g. '01 Jul 2026'"},
+         "to": {"type": "string", "description": "window end"},
+         "limit": {"type": "integer", "description": "deals returned, default 40, max 200"}},
+      "required": []}},
     {"type": "function", "name": "search_news",
-     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search per turn. Returns events with dates and sources, never numbers.",
+     "description": "Dated outside events for a window — filings, analyst actions, sector/market/macro causes named by the press. When the question itself already demands outside causes ('why did it fall', 'what news moved it'), call this IN THE SAME ROUND as explain_move — batching the two saves a full inference hop, and the search covers company, sector and market angles either way. Call it only after explain_move when you genuinely cannot tell yet whether the move needs a cause at all. At most one search_news call per turn. Returns events with dates and sources, never numbers.",
      "parameters": {"type": "object", "properties": {
          "frm": {"type": "string", "description": "window start, e.g. '21 Jul 2026'"},
          "to": {"type": "string", "description": "window end; omit for one day"},
-         "focus": {"type": "string", "description": "optional angle, e.g. 'market-wide selloff cause' or 'company filings'"}},
+         "focus": {"type": "string", "description": "optional angle, e.g. 'market-wide selloff cause' or 'company filings'"},
+         "scope": {"type": "string", "enum": ["events", "full"],
+                   "description": "'events' (default): dated happenings in the window. 'full': ALSO scans for open unresolved company situations (leadership, regulatory, legal, deals) and scheduled upcoming events, concurrently at no extra latency — use it for open-ended asks ('what does the news suggest', 'why is it weak lately') and whenever the day's events fail to explain the move."}},
       "required": ["frm"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
@@ -3955,6 +6292,103 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
+    {"type": "function", "name": "get_peers",
+     "description": (
+         "The company's industry classification (Moneycontrol) and its peer "
+         "group within the 500-company universe. Use for 'who are the "
+         "peers/competitors' and as the first step of any peer comparison — "
+         "then compare_symbols for price paths, or screen_universe with the "
+         "industry to rank ONE metric (RSI, returns, any feature) across "
+         "every peer at once."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string",
+                    "description": "defaults to the chart's symbol"}},
+         "required": []}},
+    {"type": "function", "name": "compare_symbols",
+     "description": (
+         "Compare 2-8 symbols over a common window: return %, max drawdown, "
+         "ATR volatility, avg turnover, return correlation, and the NIFTY 50 "
+         "return over the same span. Symbols not yet stored locally download "
+         "first (~6 s each). Use for any cross-company or company-vs-peers "
+         "question; the chart's own symbol must be listed explicitly."),
+     "parameters": {"type": "object", "properties": {
+         "symbols": {"type": "array", "items": {"type": "string"}},
+         "interval": {"type": "string", "enum": ["1d", "1w"]},
+         "lookback_bars": {"type": "integer",
+                           "description": "window length, default 250 (~1y of 1d)"}},
+         "required": ["symbols"]}},
+    {"type": "function", "name": "screen_universe",
+     "description": (
+         "Screen the WHOLE stored universe — every company, not the chart's "
+         "symbol — on the end-of-day features in the filter enum, optionally "
+         "narrowed to an industry or to names printing a given daily pattern. "
+         "Compose any combination yourself: a filter is one feature, lt or gt, "
+         "and a number; a band is two filters on the same feature. Use it for "
+         "every 'which stocks / find me / how many companies' question about "
+         "setups, criteria or structure across many names — including "
+         "comparing one metric across a sector's peers (industry + sort by "
+         "the metric; the chart symbol's OWN industry is already stated in "
+         "your context, so call this directly — a get_peers round first "
+         "just to learn it wastes a full hop) and fresh crossovers "
+         "(smaX_cross_ago lt N with smaX_rel's sign for the direction). "
+         "Results are end-of-day and carry their own as-of date and "
+         "universe size — quote both. The vp20_* features screen on the "
+         "20-session VOLUME PROFILE: vp20_pos places the close inside the "
+         "value area (gt 100 = trading above accepted value, lt 0 = below), "
+         "vp20_va_width_pct finds coiled vs distributed names, and "
+         "vp20_poc_shift_pct finds value migrating up or down. Use them for "
+         "'above/below value', 'accepted', 'balanced', 'value migrating' "
+         "asks. They need 1-minute bars, so they score a SUBSET of the "
+         "universe — the result reports how many and you must say so rather "
+         "than implying full coverage."),
+     "parameters": {"type": "object", "properties": {
+         "filters": {"type": "array", "description": "all must pass",
+                     "items": {"type": "object", "properties": {
+                         "feature": {"type": "string", "enum": list(SCREEN_FEATURES)},
+                         "op": {"type": "string", "enum": list(SCREEN_OPS)},
+                         "value": {"type": "number"}},
+                         "required": ["feature", "op", "value"]}},
+         "industry": {"type": "string", "description": "one industry; a miss returns the closest names"},
+         "pattern": {"type": "string", "description": "require this daily pattern, e.g. bull_flag, bullish_engulfing"},
+         "pattern_within": {"type": "integer", "description": "sessions the pattern may be old, default 5"},
+         "sort": {"type": "string", "description": "feature to rank by; defaults to the first filter's"},
+         "limit": {"type": "integer", "description": "rows returned, 1-50, default 15"}},
+         "required": []}},
+    {"type": "function", "name": "plan_position",
+     "description": (
+         "Draw or update the trade-plan overlay (entry/stop/targets) and return "
+         "its risk arithmetic: R:R and breakeven hit-rate per target, position "
+         "size from a risk budget, per-target P&L, stop distance in ATR(14)s, "
+         "and the historical entry→target-vs-stop record. Expresses the USER'S "
+         "stated idea — never invent a trade unprompted. Entry defaults to the "
+         "last close. A new call replaces the plan; draw_mode=clear removes it. "
+         "To size a position the user DREW, pass its ref as drawing_id."),
+     "parameters": {"type": "object", "properties": {
+         "entry": {"type": "number"}, "stop": {"type": "number"},
+         "stop_atr": {"type": "number",
+                      "description": "alt to stop: ATR(14) multiples from entry"},
+         "targets": {"type": "array", "items": {"type": "number"},
+                     "description": "up to 3 prices"},
+         "targets_r": {"type": "array", "items": {"type": "number"},
+                       "description": "alt to targets: R multiples, e.g. [1.5, 3]"},
+         "split": {"type": "array", "items": {"type": "number"},
+                   "description": "scale-out fraction per target, e.g. [0.5, 0.5]"},
+         "qty": {"type": "integer"},
+         "risk_amount": {"type": "number",
+                         "description": "rupees the user is prepared to LOSE "
+                         "('risking 50k' means this, NOT capital); qty is "
+                         "derived from it"},
+         "capital": {"type": "number",
+                     "description": "rupees DEPLOYED to buy — only when the "
+                     "user says invest/deploy, never for 'risking X'"},
+         "risk_pct": {"type": "number",
+                      "description": "with capital: risk_amount = capital × risk_pct/100"},
+         "side": {"type": "string", "enum": ["long", "short"]},
+         "drawing_id": {"type": "string"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "draw_mode": {"type": "string", "enum": ["add", "clear"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "evaluate_drawing",
      "description": "Score a zone, channel or planned position the USER drew, against what price actually did. Use whenever the user asks whether their own box/band/channel/trade-setup is any good, has been respected, or has a record. ALWAYS pass drawing_id when the shape is one the user drew — the chart context lists every drawing with its ref, and both the geometry AND the kind are then read from the chart instead of retyped. The message may also name the drawing the user tagged; that ref is the subject. A zone reports touches held vs broke PLUS how much of the time price closes inside it (a band price lives inside is the range, not a zone). A channel scores each edge separately plus containment. A position reports how often target came before stop from that entry, against the hit rate its risk:reward needs to break even. Do not answer these from raw bars — that is eyeballing, which is what this replaces.",
      "parameters": {"type": "object", "properties": {
@@ -4028,6 +6462,19 @@ TOOLS = [
          "remove": {"type": "boolean", "description": "remove this indicator AND its pane from the chart — period targets one variant, omitted removes every variant of the name"},
          "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
+    {"type": "function", "name": "volume_profile",
+     "description": "How much volume traded at each PRICE over a window, built from 1-minute bars: the point of control (most-traded price), the value area (where 70% of volume changed hands, with its high and low), high- and low-volume nodes, and the total. Use for 'volume profile', 'point of control', 'value area', 'where has most volume traded', 'which levels has price accepted or rejected', and for finding acceptance/imbalance zones. The row height is chosen FROM THE DATA — each bar's volume is spread uniformly across its high-low, so rows can never be finer than that smear; ask for fewer rows if you want it coarser, and a finer request will be reduced and reported. This is volume at price, the same construction TradingView uses. It is NOT order flow: delta, cumulative delta, footprint and bid/ask imbalance need the aggressor side of each trade and no Indian retail feed carries it — never present it as buying versus selling. Indices and India VIX print no volume and the tool will say so. THIS TOOL IS ONE SYMBOL AT A TIME. For a question about MANY instruments — 'all cryptos', 'which stocks', 'compare across the sector', 'who is above value' — do NOT say it cannot be done and do NOT loop this tool over a list you guessed: call screen_universe with the vp20_* features (optionally industry='cryptocurrency' or any other industry), which reads the same 20-session profiles for every scored instrument in one call and returns each one's POC and value area. Loop THIS tool only for a handful of symbols the user actually named.",
+     "parameters": {"type": "object", "properties": {
+         "frm": {"type": "string", "description": "window start in the chart's format, e.g. '21 Jul 2026'; omit to use lookback_sessions"},
+         "to": {"type": "string", "description": "window end; omit for a single day"},
+         "lookback_sessions": {"type": "integer", "description": "used when no dates are given — the last N sessions, default 1 (today's profile), max 250. Multi-session builds a COMPOSITE profile, which is the right call for 'where has volume built up over the last month/quarter'."},
+         "rows": {"type": "integer", "description": "how many price rows. Omit to let the data decide, which is almost always right. A value finer than the bars support is capped and reported; only pass this to make the profile COARSER."},
+         "value_area_pct": {"type": "number", "description": "share of volume in the value area, default 70 (the convention)"},
+         "split": {"type": "boolean", "description": "also return each row split by bar direction (close >= open). This is a heuristic, NOT the aggressor side — only ask for it if the user wants it, and label it as bar direction."},
+         "draw": {"type": "boolean", "description": "draw the histogram with POC and value-area lines on the chart, default true"},
+         "draw_mode": {"type": "string", "enum": ["replace", "add", "clear"],
+                       "description": "'replace' (default) swaps any existing profile, 'clear' removes it"}},
+      "required": []}},
 ]
 
 _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
@@ -4040,19 +6487,141 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
+             "plan_position": tool_plan_position,
+             "volume_profile": tool_volume_profile,
+             "get_peers": tool_get_peers,
+             "compare_symbols": tool_compare_symbols,
+             "screen_universe": tool_screen_universe,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,
              "evaluate_results": tool_evaluate_results,
              "explain_move": tool_explain_move,
              "search_news": tool_search_news,
-             "get_flows": tool_get_flows}
+             "get_flows": tool_get_flows,
+             "get_deals": tool_get_deals,
+             "open_chart": tool_open_chart}
+
+
+# ── which chart a tool reads ────────────────────────────────────────────────
+#
+# The screen can hold several charts, and the model can now aim ANY chart-
+# scoped tool at any of them with `symbol=` — the same tool, pointed somewhere
+# else. That is the whole of the multi-chart capability: there is no compare
+# mode, no comparison tool set, no branch that detects "this is a comparison".
+# Whatever the model can establish about one chart it establishes about the
+# others by calling the same tools again, and composes the answer itself.
+#
+# Two exclusions, and both are about honesty rather than plumbing:
+#   · the tools that DRAW (draw_shape, plan_position) or score a shape the user
+#     drew (evaluate_*) act on the chart the drawings actually live on. Aiming
+#     them elsewhere would compute against one instrument and draw on another.
+#   · get_peers / compare_symbols / screen_universe already name their own
+#     symbols — they were never single-chart tools.
+_CHART_SCOPED = frozenset({
+    "get_levels", "get_bars", "get_indicator", "get_trendlines",
+    "get_divergences", "get_anchors", "get_gaps", "get_patterns",
+    "evaluate_pattern", "get_results", "evaluate_results", "explain_move",
+    "search_news", "get_flows", "volume_profile",
+})
+
+_SYMBOL_ARG = {
+    "type": "string",
+    "description": ("which chart on screen to read — a ticker listed in the "
+                    "chart context. Omit for the chart in focus. Reading a "
+                    "second chart is this argument, not a different tool."),
+}
+for _t in TOOLS:
+    if _t.get("name") in _CHART_SCOPED:
+        _t["parameters"]["properties"].setdefault("symbol", dict(_SYMBOL_ARG))
+
+
+_INK_ARGS = ("draw", "mark_points", "connect", "mark_levels", "remove",
+             "clear_marks")
+
+
+def _wants_ink(args: dict) -> list:
+    """Which arguments of this call would put something on the user's chart."""
+    return [k for k in _INK_ARGS if args.get(k)]
 
 
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
+    # draw_shape / plan_position exist only to draw — the whole call is ink.
+    if name in ("draw_shape", "plan_position") and not getattr(_req, "drawable", True):
+        return {"error": "this chart cannot be drawn on",
+                "_note": ("The selected pane is a reference chart; only the "
+                          "main chart carries drawings. Give the geometry in "
+                          "the reply, and say the user can click the main "
+                          "chart to have it drawn.")}
+    # `symbol` is routing, not a parameter of the computation: the tools that
+    # take it in their own signature (get_peers) keep it, and for everything
+    # else it swaps the request's working chart for the length of this one
+    # call. Doing it here means a tool never has to know that more than one
+    # chart exists — and a tool added tomorrow inherits this for free.
+    args = dict(args or {})
+    want = str(args.pop("symbol", "") or "").upper().strip() \
+        if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
+    prev = getattr(_req, "symbol", "RELIANCE")
+    # The chart in focus may itself be a secondary pane, which has no drawing
+    # layer at all. Anything that would put ink on the screen is refused with
+    # the reason — the alternative is a reply that says "drawn" while the line
+    # appears on a different chart than the one it was computed from.
+    if not getattr(_req, "drawable", True) and _wants_ink(args):
+        return {"error": "this chart cannot be drawn on",
+                "_note": ("The selected pane is a reference chart — drawings, "
+                          "marks and indicator panes only exist on the main "
+                          "chart. Quote the values instead, and say the user "
+                          "can click the main chart if they want it drawn.")}
+    if want and want != prev:
+        # An unloaded chart must say so. Answering from the focused chart
+        # under another chart's name is the one failure that cannot be caught
+        # downstream — every number would look right and belong to the wrong
+        # company.
+        if not _symbol_ready(want):
+            open_now = ", ".join(getattr(_req, "charts", []) or [prev])
+            return {"error": f"no local bars for {want}",
+                    "_note": (f"Nothing is stored for that symbol. The charts in "
+                              f"this conversation are: {open_now}. Say which ones "
+                              f"you can read rather than answering for one you "
+                              f"cannot.")}
+        # Reading another chart is free; DRAWING on one is not. The scene layer
+        # and the indicator panes belong to the chart in focus, so a request to
+        # draw while aimed elsewhere would compute on one instrument and put
+        # the line on another. Refused with the reason, never silently dropped.
+        drawing = _wants_ink(args)
+        if drawing:
+            return {"error": f"cannot draw on {want} from here",
+                    "_note": (f"{prev} is the chart in focus and the only one "
+                              f"that can be drawn on. Reading {want} works — "
+                              f"drop {', '.join(drawing)} and quote the values, "
+                              f"or tell the user to click the {want} pane first "
+                              f"if they want it drawn there.")}
+        _req.symbol = want
+    try:
+        out = _run_tool(name, fn, args)
+    finally:
+        # every stamp below reads the working chart, so it is restored only
+        # once the whole result is built
+        _req.symbol = prev
+    # A result that came from another chart must carry that chart's name, or
+    # two tool results in the same turn are indistinguishable in the reply.
+    if want and isinstance(out, dict):
+        out.setdefault("symbol", want)
+    return out
+
+
+def _fn_params(fn) -> set:
+    import inspect
+    try:
+        return set(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):
+        return set()
+
+
+def _run_tool(name: str, fn, args: dict) -> dict:
     try:
         out = fn(**args)
     except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
@@ -4070,6 +6639,25 @@ def run_tool(name: str, args: dict) -> dict:
             f"These numbers are for the user's {d.get('type', 'drawing')} "
             f"{d.get('ref') or ref} — name it in the reply so they know which "
             f"shape was scored.")
+    # A forming bar reads like any other bar once it is inside a tool result.
+    # Say so here, once, rather than teaching every tool to caveat itself.
+    st = _LIVE.get(_sym())
+    form = st["form"] if st else None
+    if (form and isinstance(out, dict) and "error" not in out
+            and ("bars" in out or "as_of" in out or "interval" in out)):
+        out["_live_note"] = (
+            f"The last bar is still FORMING (as of {_hm_ist(form[0])} {_tzl()}) — "
+            f"treat its values as provisional, not a closed candle.")
+    # Geometry drawn on a timeframe the chart is not showing is invisible to
+    # the user until they switch — a "drawn" claim with nothing on screen
+    # reads as a failure, so the reply must name the switch.
+    iv, ctx_iv = args.get("interval"), getattr(_req, "ctx_interval", "")
+    if (iv and ctx_iv and iv != ctx_iv and isinstance(out, dict)
+            and "error" not in out and getattr(_scene, "items", None)):
+        out["_interval_note"] = (
+            f"This was drawn on the {iv} timeframe but the chart currently "
+            f"shows {ctx_iv} — tell the user to click the {iv} interval "
+            f"button to see it; the chat cannot switch the view.")
     return out
 
 
@@ -4141,9 +6729,41 @@ def build_context_block(ctx: dict | None) -> str:
 
 
 def _render_context(ctx: dict) -> str:
+    """The focused chart, then any others the user has put in the conversation.
+
+    Several charts are ONE list of the same block, not a comparison mode: each
+    is described exactly as a lone chart would be, and the model reads across
+    them itself. The focused chart is the one the drawings, the chat's own
+    annotations and the pinned bars belong to — those sections only appear
+    there, because that is the only chart they exist on.
+    """
+    # A chart is identified by symbol AND interval: the same company on two
+    # timeframes is two charts, and matching on the ticker alone would silently
+    # drop the second one from a conversation that is explicitly about both.
+    me = (ctx.get("symbol"), ctx.get("interval"))
+    others = [c for c in (ctx.get("charts") or [])
+              if isinstance(c, dict) and (c.get("symbol"), c.get("interval")) != me
+              and c.get("view") and c.get("window") and c.get("last_bar")]
+    block = _render_chart(ctx, focused=True)
+    if others:
+        block += "\n\n" + "\n\n".join(_render_chart(c, focused=False) for c in others)
+        names = ", ".join(f"{c['symbol']} ({c['interval']})"
+                          for c in [ctx] + others)
+        block += (
+            f"\n\nThe user has {len(others) + 1} charts in this conversation: {names}. "
+            f"Every chart-reading tool takes `symbol` — pass one of these to aim it at "
+            f"that chart, and call it once per chart when a question spans them. "
+            f"{ctx.get('symbol')} is the one in focus and the only one carrying "
+            f"drawings, chat annotations and pinned bars; a bare 'this chart' means it. "
+            f"Attribute every number to the chart it came from.")
+    return block + "\n" + _CONTEXT_CONTRACT
+
+
+def _render_chart(ctx: dict, focused: bool = True) -> str:
     v, w, lb = ctx["view"], ctx["window"], ctx["last_bar"]
     L = [
-        "## Chart the user is viewing",
+        "## Chart the user is viewing" if focused
+        else f"## Also in this conversation — {ctx['symbol']}",
         f"{ctx['symbol']} · {ctx['exchange']} · {ctx['interval']} · {ctx['source']}",
         f"Visible: {v['from']} → {v['to']} IST · {v['bars_visible']} bars on screen "
         f"· {v['bars_loaded']:,} loaded · history back to {v['history_from']}",
@@ -4154,6 +6774,13 @@ def _render_context(ctx: dict) -> str:
         f"· low {_n(w['low']['p'])} ({w['low']['t']}) "
         f"· avg vol {w['avg_volume']:,}",
     ]
+    cls = _classification_row(str(ctx.get("symbol") or ""))
+    if cls:
+        L.insert(2, f"{cls[0]} · industry: {cls[1]} (Moneycontrol classification)")
+    _st = _LIVE.get(str(ctx.get("symbol") or ""))
+    _form = _st["form"] if _st else None
+    if _form:
+        L.insert(2, f"live · forming bar {_hm_ist(_form[0])} {_tzl()}")
     if ctx.get("session"):
         s = ctx["session"]
         L.append(f"Session {s['date']}: open {_n(s['open'])} → {_n(s['last'])} "
@@ -4169,6 +6796,12 @@ def _render_context(ctx: dict) -> str:
         L.append("Indicators on chart: " + " · ".join(parts))
     else:
         L.append("Indicators on chart: none")
+
+    # Drawings, chat annotations and pinned bars exist on ONE chart. A second
+    # chart in the conversation has none of them, and listing "none" under it
+    # would invite the model to reason about their absence.
+    if not focused:
+        return "\n".join(L)
 
     if ctx.get("pins"):
         for p in ctx["pins"]:
@@ -4203,8 +6836,37 @@ def _render_context(ctx: dict) -> str:
     else:
         L.append("User's own drawings: none")
 
-    L.append(
-        "\nThese facts describe the visible chart. For anything they don't contain "
+    if ctx.get("chat_drawings"):
+        parts = []
+        for d in ctx["chat_drawings"]:
+            k = d["kind"]
+            g = (f"@{_n(d['price'])}" if k == "level"
+                 else f"{_n(d['lo'])}–{_n(d['hi'])}" if k == "zone"
+                 else f"{d['p1']['t']} @{_n(d['p1']['p'])} → {d['p2']['t']} "
+                      f"@{_n(d['p2']['p'])}" if k in ("segment", "fib")
+                 else f"{d.get('side')} entry {_n(d['entry'])} stop "
+                      f"{_n(d['stop'])} targets "
+                      f"{'/'.join(_n(t) for t in d['targets'])}"
+                      + (f" qty {d['qty']}" if d.get("qty") else "")
+                 if k == "position" else "")
+            on = f" on {d['on']}" if d.get("on") else ""
+            adj = " (USER-ADJUSTED)" if d.get("adjusted") else ""
+            parts.append(f"[{d['id']}] {k}{on} {g}{adj}")
+        L.append("Drawn by chat, still on the chart: " + " · ".join(parts))
+        L.append("These geometries are CURRENT — the user can drag chat "
+                 "drawings, and USER-ADJUSTED marks one they moved: its values "
+                 "are the user's revision, which supersedes whatever a tool "
+                 "drew earlier. Address one by passing its bracketed id as "
+                 "drawing_id; a moved plan re-prices via plan_position with "
+                 "drawing_id alone (its targets and sizing carry over).")
+
+    return "\n".join(L)
+
+
+# The contract that closes the envelope — one copy, after the last chart,
+# because it governs every number in it rather than any one chart.
+_CONTEXT_CONTRACT = (
+        "\nThese facts describe the chart(s) above. For anything they don't contain "
         "— a specific bar or date, a level, an indicator not listed — call a tool; "
         "never guess and never estimate. The trajectory points describe shape only: "
         "never quote one as a level, zone, or target. Support and resistance come "
@@ -4216,8 +6878,7 @@ def _render_context(ctx: dict) -> str:
         "direction the user hasn't stated. If asked for a target or stop, give "
         "the levels and what would invalidate them, and say plainly that this is "
         "analysis, not advice. Be concise and concrete."
-    )
-    return "\n".join(L)
+)
 
 
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
@@ -4290,7 +6951,17 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
                 continue
 
 
-_MAX_TOOL_ROUNDS = 3  # bounds latency; 1 round answers almost everything
+_MAX_TOOL_ROUNDS = 4  # bounds latency; 1 round answers almost everything
+# Why 4 and not 3. Every detector that can DRAW does it in its own call
+# (get_levels, volume_profile, get_indicator), so those finish inside two
+# rounds and drew reliably. get_anchors is the exception by design — it mints
+# ids that draw_shape composes — which makes "mark the range" a THREE-round
+# path: explain, anchor, draw. On a compound turn ("why is it stuck in a
+# range, and mark the boundaries") the causal half spent the first round and
+# the turn ended on get_anchors with the drawing never made. Measured over
+# the why-set: every zero-draw case that had asked for one ended on either
+# get_anchors or a get_levels called with draw=false, with no round left to
+# correct it.
 
 
 def _wire_messages(messages: list[dict]) -> list[dict]:
@@ -4352,8 +7023,10 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
+    _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
+    view_ops: list[dict] = []
     tok_in = tok_out = 0
     for _round in range(_MAX_TOOL_ROUNDS):
         # On the final round the tools are withdrawn, so the model must answer
@@ -4381,6 +7054,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 "context_preview": block,
                 "tools_used": tool_trace,
                 "scene_patch": scene_patch,
+                "view_ops": view_ops,
             }
 
         # execute every call this round, then feed results back
@@ -4392,6 +7066,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 args = {}
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
+            view_ops.extend(_view_take())
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
@@ -4425,8 +7100,10 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
+    _req.ctx_interval = str((context or {}).get("interval") or "")
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
+    view_ops: list[dict] = []
     tok_in = tok_out = 0
 
     for _round in range(_MAX_TOOL_ROUNDS):
@@ -4469,7 +7146,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
-                   "scene_patch": scene_patch}
+                   "scene_patch": scene_patch, "view_ops": view_ops}
             return
 
         for call in calls:
@@ -4480,6 +7157,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 args = {}
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
+            view_ops.extend(_view_take())
             ok = "error" not in result
             tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
             # tell the client immediately: a tool landing is the only progress
@@ -4494,7 +7172,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
            "text": "I couldn't finish that lookup — try narrowing the question.",
            "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
            "context_preview": block, "tools_used": tool_trace,
-           "scene_patch": scene_patch}
+           "scene_patch": scene_patch, "view_ops": view_ops}
 
 
 IST_OFF = 19800  # +05:30
@@ -4502,32 +7180,410 @@ SESSION_OPEN_MIN = 9 * 60 + 15  # 09:15 IST, minutes past midnight
 
 INTRADAY_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 
+# A bucket anchor is (session-open minute-of-day, tz offset from UTC). NSE is
+# the default everywhere; the others exist because backfill_crypto.py and
+# backfill_macro.py put non-NSE instruments in the same `bars` table. Anchoring
+# a 24/7 series to 09:15 IST would collapse every bar from midnight to the open
+# into one bucket, so crypto/FX days start at UTC midnight instead.
+NSE_SESSION = (SESSION_OPEN_MIN, IST_OFF)
+UTC_SESSION = (0, 0)                 # 24/7 crypto, 24/5 FX
+MCX_SESSION = (9 * 60, IST_OFF)      # MCX opens 09:00 IST, runs to 23:30
+
+_MCX_SYMBOLS = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
+                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"}
+
+
+def session_for(symbol: str) -> tuple[int, int]:
+    """Bucket anchor for a symbol. Unknown symbols stay on the NSE clock."""
+    if symbol.endswith("USDT") or symbol.endswith("-USD"):
+        return UTC_SESSION
+    if symbol in _MCX_SYMBOLS:
+        return MCX_SESSION
+    return NSE_SESSION
+
+
+# The last 1-min bar of a FULL session, as a minute-of-day on the symbol's own
+# clock (NSE closes 15:30, so its final minute OPENS at 15:29). Every value here
+# is MEASURED off complete stored sessions, not read off an exchange brochure:
+#   NSE 09:15->15:29 = 375 bars   MCX 09:00->23:29 = 870   CDS 09:00->16:59 = 480
+_FX_SYMBOLS = {"USDINR", "EURINR", "GBPINR", "JPYINR"}
+_FX_CLOSE_MIN = 16 * 60 + 59
+_SESSION_CLOSE_MIN = {NSE_SESSION: 15 * 60 + 29,
+                      MCX_SESSION: 23 * 60 + 29,
+                      UTC_SESSION: 23 * 60 + 59}
+
+
+def session_close_for(symbol: str) -> int:
+    """Minute-of-day of the last bar of a COMPLETE session.
+
+    Freshness cannot be read off MAX(ts): it cannot tell "the market closed at
+    15:29" from "the fetcher died at 14:29". RELIANCE is stored to 23 Jul 14:29
+    while its 40 peers stop at 22 Jul 15:29 — by MAX(ts) it looks the freshest
+    of the lot and it is the only truncated one. Everything that judges a
+    session complete measures against this instead.
+
+    The INR pairs need their own entry rather than inheriting the NSE close:
+    session_for() puts them on the NSE anchor, but the currency segment trades
+    09:00-17:00, so a 15:29 bar would mark the day complete and every top-up
+    would silently skip 15:30-16:59 forever.
+    """
+    if symbol in _FX_SYMBOLS:
+        return _FX_CLOSE_MIN
+    return _SESSION_CLOSE_MIN.get(session_for(symbol), 15 * 60 + 29)
+
+
+# ── asset scope ───────────────────────────────────────────────────
+# A pooled pattern rate is a property of a MARKET, not of a shape. 500 NSE
+# stocks trade 375 minutes a day with a gap every night; Bitcoin trades 1440
+# with no gap and no circuit limits. Averaging a hammer's forward return over
+# both produces a number that describes neither, so scope is a stored
+# dimension of the ledger (PRIMARY KEY carries it) rather than a filter
+# applied afterwards. Interval stays a separate dimension for the same reason:
+# a 10-bar horizon is two weeks on 1d and 2.5 hours on 15m.
+SCOPES = ("equity_in", "index_in", "volatility_in", "crypto",
+          "commodity_in", "fx_in")
+
+_SCOPE_BY_INDUSTRY = {
+    "indexbroad": "index_in", "indexsector": "index_in",
+    "volatility": "volatility_in", "cryptocurrency": "crypto",
+    "commoditypreciousmetals": "commodity_in",
+    "commoditybasemetals": "commodity_in",
+    "commodityenergy": "commodity_in", "currency": "fx_in",
+}
+
+# India VIX started out pooled with the indices — it is quoted by the same
+# exchange on the same session. The swept controls said otherwise: at h=10 on
+# daily bars it rises 46.9% of the time against the 23 indices' 57.2%, and its
+# average absolute 10-bar move is 11.21% against their 4.81%. A mean-reverting
+# volatility series is not a price index, and pooling it would have pulled the
+# index base rate down and handed every bearish shape a manufactured edge.
+SCOPE_LABEL = {
+    "equity_in": "NSE-listed stocks",
+    "index_in": "Indian equity indices",
+    "volatility_in": "India VIX",
+    "crypto": "spot crypto (24/7)",
+    "commodity_in": "MCX commodity futures",
+    "fx_in": "INR currency futures",
+}
+
+
+def quote_ccy(symbol: str) -> str:
+    """The currency a symbol's PRICE is quoted in — "INR" or "USD".
+
+    Distinct from session_for on purpose. They happen to agree today, but one
+    is about when a bar opens and the other about what its numbers mean; a
+    turnover figure that inherits its unit from a timezone is one listing away
+    from being wrong.
+    """
+    return "USD" if (symbol.endswith("USDT")
+                     or symbol.endswith("-USD")) else "INR"
+
+
+_scope_cache: dict[str, str] = {}
+
+
+def scope_for(symbol: str) -> str:
+    """Which pooled universe a symbol's evidence belongs to.
+
+    Classification-first so adding an instrument to classify_macro.py is
+    enough; the symbol-shape fallback keeps a freshly backfilled crypto pair
+    out of the equity pool during the window before it is classified.
+    """
+    hit = _scope_cache.get(symbol)
+    if hit:
+        return hit
+    row = _classification_row(symbol)          # (name, industry) or None
+    ind = (row[1] if row else "") or ""
+    if ind in _SCOPE_BY_INDUSTRY:
+        sc = _SCOPE_BY_INDUSTRY[ind]
+    elif symbol.endswith("USDT") or symbol.endswith("-USD"):
+        sc = "crypto"
+    elif symbol in _MCX_SYMBOLS:
+        sc = "commodity_in"
+    else:
+        sc = "equity_in"
+    _scope_cache[symbol] = sc
+    return sc
+
+
 _con = sqlite3.connect(DB_PATH, check_same_thread=False)
+# The store is 9.7 GB and 89M minute rows; SQLite's default 2 MB page cache
+# means a 180k-row read for an hourly chart re-reads pages it just evicted.
+# Measured on the 1h path: 250ms -> 185ms, and a full-symbol minute scan
+# 1548ms -> 867ms. mmap lets the OS page cache do the work instead of
+# copying every page through SQLite's own buffer.
+# Tunable because the right value depends on the host, not the code: a laptop
+# store is 13 GB against plenty of RAM, the VM store is 23 GB against 8 GB, and
+# there a cold symbol costs 6.24s against 0.74s warm (measured 2026-08-03 on
+# SBIN, 1h/4000 through nginx). Negative = KiB.
+_CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
+_MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
+_con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
+_con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
+
+# The served store carries deals only for symbols that have hydrated (41 of
+# them, 1.7k rows). The market-wide sweep is 153k rows over 3,446 symbols,
+# and the difference is not cosmetic: asked what one client has bought, the
+# hydrated copy answers with the handful that happen to be local and reads
+# as the whole truth. Under-disclosure is the one failure this surface
+# cannot have, so the sweep is attached read-only and preferred when there.
+#
+# Attached by PLAIN path, not by a `file:...?mode=ro` URI. URI filenames are a
+# compile-time option and this venv's SQLite (3.39.4) has them off — there the
+# URI is taken as a LITERAL filename, so the attach "succeeds" against a newly
+# created empty database and leaves a file called `file:flows_market.db?mode=ro`
+# on disk. A read-only flag that silently invents an empty store is worse than
+# no flag: what actually keeps this read-only is that nothing writes to `mkt.`.
+# Hence the probe below — an attach that cannot see `deals` is detached again
+# rather than left to answer questions with nothing in it.
+_MKT_PATH = Path(__file__).parent / "flows_market.db"
+_HAVE_MKT = False
+try:
+    if _MKT_PATH.exists():
+        _con.execute("ATTACH DATABASE ? AS mkt", (str(_MKT_PATH),))
+        _HAVE_MKT = bool(_con.execute("SELECT 1 FROM mkt.deals LIMIT 1").fetchone())
+        if not _HAVE_MKT:
+            _con.execute("DETACH DATABASE mkt")
+except sqlite3.Error as exc:  # noqa: BLE001 — absent sweep degrades, never kills
+    logging.warning("market flows attach failed: %s", exc)
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 
 
-def _ist_day(ts: int) -> int:
-    return (ts + IST_OFF) // 86400
+# ── accounts, sessions and saved work ──────────────────────────────────────
+#
+# A SEPARATE database, and that is the whole point. charto_bars.db is a 9.7 GB
+# derived store — rebuilt from the blob universe, re-synced, occasionally
+# dropped and re-imported. Accounts and a user's saved layouts are the only
+# data here that CANNOT be regenerated from an upstream source, so they must
+# not share a file with the one that gets thrown away and rebuilt.
+#
+# Auth is a bearer token, not a cookie. The chart is served from :5173 and this
+# API answers on :5174 — cross-origin, where a cookie needs SameSite=None plus
+# Secure plus an echoed origin plus Allow-Credentials, and still behaves
+# differently across browsers on plain http. A token in an Authorization
+# header needs none of that. The trade is honest: a bearer token in
+# localStorage is readable by any XSS on the page, where an HttpOnly cookie
+# would not be. For a locally-served analysis tool that is the right side of
+# the trade; if this is ever hosted for real, revisit it.
+_USERS_PATH = Path(__file__).parent / "charto_users.db"
+_users = sqlite3.connect(_USERS_PATH, check_same_thread=False)
+_users.execute("PRAGMA journal_mode=WAL")
+_users.executescript("""
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT,
+  pw_hash BLOB NOT NULL,
+  pw_salt BLOB NOT NULL,
+  created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+-- one row per (user, symbol, key): the chat transcript, the scene the chat
+-- drew, the drawings, the volume-profile window. Exactly the keys Store
+-- already scopes by symbol in localStorage, so the FE contract is unchanged.
+CREATE TABLE IF NOT EXISTS workspace_state (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  symbol TEXT NOT NULL,
+  key TEXT NOT NULL,
+  json TEXT NOT NULL,
+  updated INTEGER NOT NULL,
+  PRIMARY KEY (user_id, symbol, key));
+CREATE TABLE IF NOT EXISTS layouts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  spec TEXT NOT NULL,
+  updated INTEGER NOT NULL,
+  UNIQUE (user_id, name));
+""")
+_users_lock = threading.Lock()
+
+_SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
+_SESSION_TTL = 30 * 86400
 
 
-def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
+def _pw_hash(password: str, salt: bytes) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT, dklen=32)
+
+
+def _user_public(row: tuple) -> dict:
+    return {"id": row[0], "email": row[1], "name": row[2]}
+
+
+def _auth_user(headers) -> tuple | None:
+    """The user behind an Authorization: Bearer token, or None.
+
+    Touches last_seen so an active session does not expire under someone who
+    is plainly still using it.
+    """
+    raw = headers.get("Authorization") or ""
+    if not raw.startswith("Bearer "):
+        return None
+    tok, now = raw[7:].strip(), int(time.time())
+    with _users_lock:
+        row = _users.execute(
+            "SELECT u.id, u.email, u.name, s.created FROM sessions s "
+            "JOIN users u ON u.id = s.user_id WHERE s.token=?", (tok,)).fetchone()
+        if not row or now - row[3] > _SESSION_TTL:
+            if row:
+                _users.execute("DELETE FROM sessions WHERE token=?", (tok,))
+                _users.commit()
+            return None
+        _users.execute("UPDATE sessions SET last_seen=? WHERE token=?", (now, tok))
+        _users.commit()
+    return row[:3]
+
+
+def _issue_session(user_id: int) -> str:
+    tok, now = secrets.token_urlsafe(32), int(time.time())
+    with _users_lock:
+        _users.execute("INSERT INTO sessions VALUES (?,?,?,?)",
+                       (tok, user_id, now, now))
+        _users.commit()
+    return tok
+
+
+def _auth_signup(body: dict) -> tuple[int, dict]:
+    email = str(body.get("email") or "").strip().lower()
+    pw = str(body.get("password") or "")
+    name = (str(body.get("name") or "").strip() or None)
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return 400, {"error": "enter a valid email address"}
+    if len(pw) < 8:
+        return 400, {"error": "password must be at least 8 characters"}
+    salt = secrets.token_bytes(16)
+    now = int(time.time())
+    try:
+        with _users_lock:
+            cur = _users.execute(
+                "INSERT INTO users (email, name, pw_hash, pw_salt, created) "
+                "VALUES (?,?,?,?,?)",
+                (email, name, _pw_hash(pw, salt), salt, now))
+            _users.commit()
+            uid = cur.lastrowid
+    except sqlite3.IntegrityError:
+        return 409, {"error": "an account already exists for that email"}
+    return 200, {"token": _issue_session(uid),
+                 "user": {"id": uid, "email": email, "name": name}}
+
+
+def _auth_login(body: dict) -> tuple[int, dict]:
+    email = str(body.get("email") or "").strip().lower()
+    pw = str(body.get("password") or "")
+    with _users_lock:
+        row = _users.execute(
+            "SELECT id, email, name, pw_hash, pw_salt FROM users WHERE email=?",
+            (email,)).fetchone()
+    # The same reply and the same work either way: branching early on "no such
+    # user" tells an attacker which emails are registered, and skipping the
+    # hash makes that difference measurable on the clock as well.
+    salt = row[4] if row else secrets.token_bytes(16)
+    want = row[3] if row else b"\0" * 32
+    if not hmac.compare_digest(_pw_hash(pw, salt), want):
+        return 401, {"error": "email or password is incorrect"}
+    return 200, {"token": _issue_session(row[0]), "user": _user_public(row)}
+
+
+# ── saved work: per-symbol workspace state, and named layouts ──────────────
+#
+# workspace_state mirrors exactly what Store already keeps in localStorage
+# (chat / scene / vp / drawings, scoped by symbol) so signing in changes WHERE
+# the same shape is kept, not what it is. Logged out, the FE keeps using
+# localStorage and nothing here is reached.
+
+def _ws_get(uid: int, symbol: str) -> dict:
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT key, json FROM workspace_state WHERE user_id=? AND symbol=?",
+            (uid, symbol)).fetchall()
+    out = {}
+    for k, blob in rows:
+        try:
+            out[k] = json.loads(blob)
+        except ValueError:      # a corrupt blob must not take the workspace down
+            logging.warning("charto: unreadable workspace %s/%s/%s", uid, symbol, k)
+    return out
+
+
+def _ws_put(uid: int, symbol: str, state: dict) -> int:
+    now, n = int(time.time()), 0
+    with _users_lock:
+        for k, v in (state or {}).items():
+            _users.execute(
+                "INSERT INTO workspace_state VALUES (?,?,?,?,?) "
+                "ON CONFLICT(user_id, symbol, key) DO UPDATE SET "
+                "json=excluded.json, updated=excluded.updated",
+                (uid, symbol, str(k), json.dumps(v), now))
+            n += 1
+        _users.commit()
+    return n
+
+
+def _layouts_list(uid: int) -> list[dict]:
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT id, name, updated FROM layouts WHERE user_id=? "
+            "ORDER BY updated DESC", (uid,)).fetchall()
+    return [{"id": i, "name": nm, "updated": u} for i, nm, u in rows]
+
+
+def _layout_save(uid: int, name: str, spec: dict) -> tuple[int, dict]:
+    name = (name or "").strip()
+    if not name:
+        return 400, {"error": "a layout needs a name"}
+    now = int(time.time())
+    with _users_lock:
+        _users.execute(
+            "INSERT INTO layouts (user_id, name, spec, updated) VALUES (?,?,?,?) "
+            "ON CONFLICT(user_id, name) DO UPDATE SET "
+            "spec=excluded.spec, updated=excluded.updated",
+            (uid, name, json.dumps(spec or {}), now))
+        _users.commit()
+        lid = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
+                             (uid, name)).fetchone()[0]
+    return 200, {"id": lid, "name": name, "updated": now}
+
+
+def _ist_day(ts: int, tz_off: int = IST_OFF) -> int:
+    return (ts + tz_off) // 86400
+
+
+def _bucket_stamp(ts: int, minutes: int,
+                  session: tuple[int, int] = NSE_SESSION) -> tuple[tuple[int, int], int]:
+    """(day, bucket) identity and the stamped bar-open ts a 1-min row falls in.
+
+    The single source of bucket arithmetic: the historical resampler and the
+    live bar builder both call it, so a forming bar can never land on a
+    different stamp than the same minute would get after it is closed.
+    """
+    open_min, tz_off = session
+    local = ts + tz_off
+    day = local // 86400
+    mod = (local % 86400) // 60
+    bucket = max(0, mod - open_min) // minutes
+    return (day, bucket), day * 86400 + (open_min + bucket * minutes) * 60 - tz_off
+
+
+def _resample_intraday(rows: list[tuple], minutes: int,
+                       session: tuple[int, int] = NSE_SESSION) -> list[list]:
     """rows = ascending (ts,o,h,l,c,v) 1-min bars → bucketed bars.
 
     Buckets anchor to each session's minute-of-day relative to 09:15 IST so
     every trading day starts a fresh, aligned bucket (evening specials like
     Muhurat land in later buckets of the same day — still consistent).
+    Pass `session` for instruments on another clock (see session_for).
     """
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in rows:
-        ist = ts + IST_OFF
-        day = ist // 86400
-        mod = (ist % 86400) // 60
-        bucket = max(0, mod - SESSION_OPEN_MIN) // minutes
-        key = (day, bucket)
+        if not (o and h and l and c):
+            continue   # all-zero placeholder minutes are no-data, not prices
+        key, bts = _bucket_stamp(ts, minutes, session)
         if key != cur_key:
-            bucket_start_mod = SESSION_OPEN_MIN + bucket * minutes
-            bts = day * 86400 + bucket_start_mod * 60 - IST_OFF
             out.append([bts, o, h, l, c, v])
             cur_key = key
         else:
@@ -4539,18 +7595,18 @@ def _resample_intraday(rows: list[tuple], minutes: int) -> list[list]:
     return out
 
 
-def _daily(symbol: str) -> list[list]:
-    if symbol in _daily_cache:
-        return _daily_cache[symbol]
-    rows = _con.execute(
-        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts", (symbol,)
-    ).fetchall()
+def _fold_daily(rows: list[tuple],
+                session: tuple[int, int] = NSE_SESSION) -> list[list]:
+    """ascending 1-min rows → one bar per trade date on the symbol's clock."""
+    tz_off = session[1]
     out: list[list] = []
     cur_day = None
     for ts, o, h, l, c, v in rows:
-        day = _ist_day(ts)
+        if not (o and h and l and c):
+            continue   # zero placeholder minutes: same rule as _resample_intraday
+        day = _ist_day(ts, tz_off)
         if day != cur_day:
-            out.append([day * 86400 - IST_OFF, o, h, l, c, v])
+            out.append([day * 86400 - tz_off, o, h, l, c, v])
             cur_day = day
         else:
             b = out[-1]
@@ -4558,12 +7614,45 @@ def _daily(symbol: str) -> list[list]:
             b[3] = min(b[3], l)
             b[4] = c
             b[5] += v
+    return out
+
+
+def _daily(symbol: str) -> list[list]:
+    cached = _daily_cache.get(symbol)   # one atomic read — the tick thread pops
+    if cached is not None:
+        return cached
+    # Folding the whole minute history to get daily bars re-derives, every
+    # time a symbol is first opened, something bars_1d already stores: 1.06M
+    # rows read and folded (1548ms) to reproduce 2837 rows that read in 5ms.
+    #
+    # So read the stored dailies and fold ONLY the minutes newer than the last
+    # one. bars_1d is written by the universe import on its own schedule and
+    # the minute table is topped up on another, so trusting it wholesale would
+    # show a stale last candle the moment the two diverge — the tail fold is
+    # what keeps this a speed change rather than a freshness regression.
+    session = session_for(symbol)
+    stored = [list(r) for r in _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars_1d WHERE symbol=? ORDER BY ts",
+        (symbol,))]
+    if stored:
+        # re-fold the last stored day too: it may have been written while the
+        # session was still open, so its high/low/close can still move
+        cut = stored[-1][0]
+        tail = _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? ORDER BY ts",
+            (symbol, cut)).fetchall(), session)
+        by_day = {r[0]: r for r in tail}
+        out = [by_day.pop(r[0], r) for r in stored]
+        out.extend(by_day[k] for k in sorted(by_day))
+    else:
+        out = _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts",
+            (symbol,)).fetchall(), session)
     _daily_cache[symbol] = out
     return out
 
 
-def _weekly_or_monthly(symbol: str, mode: str) -> list[list]:
-    daily = _daily(symbol)
+def _weekly_or_monthly(daily: list[list], mode: str) -> list[list]:
     out: list[list] = []
     cur_key = None
     for ts, o, h, l, c, v in daily:
@@ -4582,14 +7671,439 @@ def _weekly_or_monthly(symbol: str, mode: str) -> list[list]:
     return out
 
 
+# ── live tick engine ──────────────────────────────────────────────
+# Ticks enter through one seam, _live_on_tick. Today the only driver is the
+# replay thread below re-feeding stored 1-min rows; a Kite websocket would
+# call the same function with the same four arguments. The engine keeps one
+# FORMING 1-min bar per symbol and writes a minute to SQLite the moment it
+# closes; get_bars merges the forming bar, so every tool and /bars goes live
+# without knowing this file has a tick loop. Indicators stay pure functions
+# of rows — nothing here stores an indicator value.
+#
+# horizon != None means replay: stored rows at or after it are the future
+# being re-played and stay hidden until the clock reaches them.
+_LIVE: dict[str, dict] = {}
+_LIVE_GUARD = threading.Lock()
+# Writes go on their own connection (WAL is on) so a tick can never land
+# mid-read on the shared reader.
+_live_writer = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=60)
+# A closing minute gets ONE chance: it is written the instant the bar closes
+# and the forming state is then reset, so a SQLITE_BUSY here loses that minute
+# permanently rather than deferring it. The default busy timeout is 0, which
+# means any concurrent backfill holding the write lock — and a crypto refetch
+# holds it for minutes at a time — would silently punch holes in live data.
+_live_writer.execute("PRAGMA busy_timeout=60000")
+# Every use of _live_writer goes through this. sqlite3 allows the connection to
+# be shared across threads, but NOT interleaved transactions on it — and with a
+# venue driver per socket there are now several tick threads. Measured
+# 2026-08-02 with Coinbase and Bybit live together: thread A's INSERT opened a
+# transaction, thread B's commit closed it, and A's commit then raised
+# "cannot commit - no transaction is active", which surfaced as
+# "trade dropped for ADAUSDT". That is a lost minute, not a cosmetic warning.
+_WRITER_LOCK = threading.Lock()
+_LIVE_MIN_GAP = 0.25   # ≤4 pushes/sec/symbol, minute closes always push
+
+
+def _exact_vol(x) -> int | float:
+    """Volume, exactly — integral when it is, fractional when it is not.
+
+    The closed-bar write used to be `int(f[5])`, which truncates toward zero.
+    On NSE that is free (volume is a share count) but a fraction of a coin is a
+    normal crypto minute: measured 2026-08-02, 990,989 of BTC-USD's 5,731,677
+    stored minutes (17.3%) carried v=0 for minutes that really traded, and the
+    volume profile reads exactly these bars. `v INTEGER` is an AFFINITY, not a
+    constraint — SQLite stores a REAL that cannot be narrowed losslessly as a
+    REAL — so keeping the fraction needs no migration and NSE rows stay ints.
+    """
+    f = float(x or 0)
+    return int(f) if f.is_integer() else round(f, 8)
+
+
+def _hm_ist(ts: int) -> str:
+    t = datetime.fromtimestamp(ts + _tz_off(), tz=timezone.utc)
+    return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def _live_state(sym: str) -> dict:
+    with _LIVE_GUARD:
+        st = _LIVE.get(sym)
+        if st is None:
+            st = _LIVE[sym] = {"lock": threading.Lock(), "form": None,
+                               "horizon": None, "subs": [], "replaying": False,
+                               "replay_stop": False, "thread": None,
+                               "last_push": 0.0}
+        return st
+
+
+def _live_view(sym: str) -> tuple[list | None, int | None] | None:
+    """(forming bar, horizon) — None when the symbol is idle, which is what
+    keeps get_bars on exactly the pre-live code path."""
+    st = _LIVE.get(sym)
+    if st is None:
+        return None
+    with st["lock"]:
+        f, hz = st["form"], st["horizon"]
+        if f is None and hz is None:
+            return None
+        return (list(f) if f is not None else None, hz)
+
+
+def _live_snapshot(sym: str, form: list) -> dict:
+    """The current FORMING bar of every interval, for the SSE payload.
+
+    Bounded by construction: only the current session's closed minutes are
+    read, and each interval is folded by the same bucket math the historical
+    resampler uses.
+    """
+    sess = session_for(sym)
+    day0 = _ist_day(form[0], sess[1]) * 86400 - sess[1]
+    with _WRITER_LOCK:
+        mins = _live_writer.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+            "ORDER BY ts", (sym, day0, form[0])).fetchall()
+    tail = tuple(form)
+    out = {}
+    for name, m in INTRADAY_MIN.items():
+        _, bts = _bucket_stamp(form[0], m, sess)
+        b = _resample_intraday([r for r in mins if r[0] >= bts] + [tail], m, sess)[-1]
+        out[name] = {"t": b[0], "o": b[1], "h": b[2], "l": b[3],
+                     "c": b[4], "v": b[5]}
+    d = _fold_daily(mins + [tail], sess)[-1]
+    out["1d"] = {"t": d[0], "o": d[1], "h": d[2], "l": d[3], "c": d[4], "v": d[5]}
+    return out
+
+
+def _live_push(sym: str, form: list, closed: bool) -> None:
+    st = _LIVE.get(sym)
+    if st is None:
+        return
+    with st["lock"]:
+        subs = list(st["subs"])
+    if not subs:
+        return
+    ev = {"type": "bar", "symbol": sym, "closed_1m": closed,
+          "bars": _live_snapshot(sym, form)}
+    for q in subs:
+        try:
+            q.put_nowait(ev)
+        except queue.Full:            # a subscriber that cannot keep up is gone
+            q.dead = True             # its SSE loop closes the socket, so the
+            with st["lock"]:          # browser reconnects instead of freezing
+                if q in st["subs"]:
+                    st["subs"].remove(q)
+
+
+def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
+    """The one seam every tick source calls. ts = the tick's epoch second."""
+    sess = session_for(sym)
+    open_min, tz_off = sess
+    if price <= 0:
+        return    # a zero print is not a trade and must not enter any candle
+    mod = ((ts + tz_off) % 86400) // 60
+    if mod < open_min or mod > session_close_for(sym):
+        return
+    # ^ gated on the SYMBOL's clock at BOTH ends: a 09:15-IST gate would have
+    # dropped every crypto tick between UTC midnight and 03:45 UTC as
+    # "pre-open", and an open-only gate accepted after-hours prints. Measured
+    # 2026-08-02 (a Sunday): connecting the Kite ticker to a shut market still
+    # delivered one snapshot at ~17:50 IST with no exchange timestamp, so the
+    # wall-clock fallback bucketed it into a 17:50 minute. It survived only
+    # because a forming bar needs a second tick to flush — two would have
+    # written a Sunday candle into RELIANCE that no session ever traded.
+    _, bts = _bucket_stamp(ts, 1, sess)
+    st = _live_state(sym)
+    closed_bar = None
+    with st["lock"]:
+        f = st["form"]
+        if f is not None and f[0] == bts:
+            f[2] = max(f[2], price)
+            f[3] = min(f[3], price)
+            f[4] = price
+            f[5] += vol
+        else:
+            if f is not None:
+                with _WRITER_LOCK:
+                    _live_writer.execute(
+                        "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                        (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
+                    _live_writer.commit()
+                _daily_cache.pop(sym, None)
+                closed_bar = list(f)
+            st["form"] = [bts, price, price, price, price, vol]
+            if st["horizon"] is not None:
+                st["horizon"] = bts        # exclusive: the minute being formed
+        snap = list(st["form"])
+        now = time.monotonic()
+        throttled = closed_bar is None and now - st["last_push"] < _LIVE_MIN_GAP
+        if not throttled:
+            st["last_push"] = now
+    if throttled:
+        return
+    if closed_bar is not None:
+        # the minute's FINAL state must always reach the chart — a throttled
+        # drop here would leave a permanently wrong candle on screen
+        _live_push(sym, closed_bar, True)
+    _live_push(sym, snap, False)
+
+
+def _merge_form_intraday(rows: list, form: list) -> None:
+    """Append (or replace) the forming minute onto ascending 1-min rows."""
+    if rows and rows[-1][0] == form[0]:
+        rows[-1] = tuple(form)
+    elif not rows or form[0] > rows[-1][0]:
+        rows.append(tuple(form))
+
+
+def _merge_form_daily(daily: list[list], form: list,
+                      session: tuple[int, int] = NSE_SESSION) -> list[list]:
+    """A copy of `daily` with the forming minute folded in — never mutates the
+    cached list, which outlives any replay."""
+    tz_off = session[1]
+    out = list(daily)
+    if out and _ist_day(out[-1][0], tz_off) == _ist_day(form[0], tz_off):
+        ts, o, h, l, c, v = out[-1]
+        out[-1] = [ts, o, max(h, form[2]), min(l, form[3]), form[4], v + form[5]]
+    elif not out or form[0] > out[-1][0]:
+        out.append([_ist_day(form[0], tz_off) * 86400 - tz_off,
+                    form[1], form[2], form[3], form[4], form[5]])
+    return out
+
+
+def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
+    """Re-feed one stored session as ticks. Each 1-min row becomes four ticks
+    (o,h,l,c) — the writes it triggers are INSERT OR REPLACE of the identical
+    row, so a replay leaves the store exactly as it found it."""
+    st = _live_state(sym)
+    step = 60.0 / speed / 4
+    try:
+        for ts, o, h, l, c, v in rows:
+            part = int(v or 0) // 4
+            for i, price in enumerate((o, h, l, c)):
+                if st["replay_stop"]:
+                    return
+                _live_on_tick(sym, ts, price,
+                              int(v or 0) - 3 * part if i == 3 else part)
+                time.sleep(step)
+    except Exception as exc:  # noqa: BLE001 — a dead driver must not wedge state
+        logging.warning("charto replay %s failed: %s", sym, exc)
+    finally:
+        with st["lock"]:
+            f = st["form"]
+            if not st["replay_stop"]:
+                if f is not None:
+                    with _WRITER_LOCK:
+                        _live_writer.execute(
+                            "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)",
+                            (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
+                        _live_writer.commit()
+                    _daily_cache.pop(sym, None)
+                st["form"] = None
+                # the replayed rows are all back in the store, so plain history
+                # is correct — a lingering horizon would silently clip every
+                # later session from every tool with no note saying so
+                st["horizon"] = None
+            else:
+                st["form"] = None
+                st["horizon"] = None
+            st["replaying"] = False
+
+
+def _replay(sym: str, date: str | None, speed: float, stop: bool) -> tuple[int, dict]:
+    st = _live_state(sym)
+    if stop:
+        st["replay_stop"] = True
+        th = st["thread"]
+        if th is not None and th.is_alive():
+            th.join(timeout=3)
+        with st["lock"]:
+            st["form"] = None
+            st["horizon"] = None
+            st["replaying"] = False
+        return 200, {"replaying": None, "symbol": sym}
+    if not speed or speed <= 0:
+        return 400, {"error": "speed must be > 0"}
+    if date:
+        try:
+            d = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return 400, {"error": f"bad date {date} — want YYYY-MM-DD"}
+        day = int(d.timestamp()) // 86400
+    else:
+        last = _con.execute("SELECT MAX(ts) FROM bars WHERE symbol=?",
+                            (sym,)).fetchone()[0]
+        if last is None:
+            return 404, {"error": f"no bars for {sym}"}
+        day = _ist_day(last, session_for(sym)[1])
+    # the replayed window is the symbol's own day: asking for 2026-07-20 on a
+    # 24/7 symbol used to hand back 19 Jul 18:30 -> 20 Jul 18:30 UTC (IST
+    # midnight), which is a different session than the date names.
+    day0 = day * 86400 - session_for(sym)[1]
+    rows = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+        "ORDER BY ts", (sym, day0, day0 + 86400)).fetchall()
+    if not rows:
+        return 404, {"error": f"no bars for {sym} on {_iso_day(day0)}"}
+    with st["lock"]:
+        if st["replaying"]:   # checked under the lock — two starts cannot race
+            return 409, {"error": f"{sym} is already replaying"}
+        st["form"] = None
+        st["horizon"] = day0
+        st["replaying"] = True
+        st["replay_stop"] = False
+        st["thread"] = threading.Thread(
+            target=_replay_run, args=(sym, day0, rows, speed), daemon=True)
+    st["thread"].start()
+    return 200, {"replaying": sym, "date": _iso_day(day0),
+                 "bars": len(rows), "speed": speed}
+
+
+# ── live venue drivers, IN THIS PROCESS ───────────────────────────
+# _LIVE and the SSE subscriber lists are module state. A stream started as a
+# separate CLI process therefore writes closed minutes to SQLite correctly and
+# still never moves a chart: its forming bar lives in that process's memory, and
+# the browser is subscribed to this one. Only a driver running here completes
+# the path tick -> forming bar -> SSE -> chart, which is exactly why _replay_run
+# is a thread rather than a script.
+_DRIVERS: dict[str, object] = {}
+_DRIVER_GUARD = threading.Lock()
+
+# crypto_stream routes by symbol (venue_for: "-USD" -> coinbase, "USDT" ->
+# bybit), so one class serves both venues and the venue name here only selects
+# the module. Mixing families in one call is refused by the driver itself
+# rather than silently opening two sockets.
+_VENUES = {"coinbase": ("crypto_stream", "CryptoStream"),
+           "bybit": ("crypto_stream", "CryptoStream"),
+           "kite": ("kite_stream", "KiteStream")}
+
+
+def _venue_symbols(venue: str) -> list[str]:
+    """The pairs a venue owns that this store actually has history for.
+
+    Taken from backfill_crypto's own lists rather than a second hardcoded copy,
+    then intersected with `bars` — subscribing to a pair with no local history
+    writes today's minutes onto nothing and draws a chart that looks live and
+    is one minute long.
+    """
+    try:
+        import backfill_crypto as bc
+        listed = {"coinbase": bc.COINBASE, "bybit": bc.BYBIT}.get(venue, [])
+    except Exception:                                 # noqa: BLE001
+        return []
+    have = _symbols_with_bars()
+    return [s for s, _ in listed if s in have]
+
+
+def _live_stream(venue: str, symbols: list[str], stop: bool) -> tuple[int, dict]:
+    venue = (venue or "").lower()
+    with _DRIVER_GUARD:
+        if stop:
+            drv = _DRIVERS.pop(venue, None)
+            if drv is None:
+                return 404, {"error": f"no {venue} stream is running"}
+            try:
+                drv.stop()
+            except Exception as exc:                  # noqa: BLE001
+                return 500, {"error": f"{venue} stop failed: {exc}"}
+            return 200, {"streaming": None, "venue": venue}
+        if venue not in _VENUES:
+            return 400, {"error": f"unknown venue {venue!r} — "
+                                  f"want one of {', '.join(sorted(_VENUES))}"}
+        if venue in _DRIVERS:
+            return 409, {"error": f"{venue} is already streaming"}
+        mod_name, cls_name = _VENUES[venue]
+        if not symbols or symbols == ["ALL"]:
+            # "every pair this venue owns" is the normal ask once the store is
+            # current, and typing ten tickers by hand is how one gets dropped.
+            symbols = _venue_symbols(venue)
+            if not symbols:
+                return 400, {"error": f"symbols is required — could not derive "
+                                      f"the {venue} pair list"}
+        try:
+            mod = __import__(mod_name)
+            cls = getattr(mod, cls_name)
+        except Exception as exc:                      # noqa: BLE001
+            # an honest boundary beats a 500: the adapter may simply not be
+            # built yet, and the caller should be told which one is missing
+            return 501, {"error": f"{venue} driver unavailable "
+                                  f"({mod_name}.{cls_name}: {exc})"}
+        try:
+            drv = cls(symbols)
+        except Exception as exc:                      # noqa: BLE001
+            return 500, {"error": f"{venue} construct failed: {exc}"}
+        _DRIVERS[venue] = drv
+        # start() must NOT run in the request. CryptoStream.start() fills each
+        # symbol's gap over REST first, and with a venue's full pair list that
+        # is minutes of fetching — the /live call simply hung, and an HTTP
+        # request that blocks on market data is a request that times out under
+        # any real client. The whole lifecycle goes on the thread and the
+        # caller polls /live?status=1, which is where refusals already live.
+        threading.Thread(target=_driver_run, args=(venue, drv),
+                         name=f"live-{venue}", daemon=True).start()
+    # Proof the driver pushes into THIS module's _LIVE rather than a second
+    # copy of it. False means closed bars still reach SQLite while /stream
+    # delivers nothing — a failure that looks like a dead venue, so it is
+    # reported rather than left to be rediscovered.
+    shares = getattr(mod, "ds", None) is sys.modules[__name__]
+    return 202, {"starting": venue, "symbols": symbols,
+                 "shares_live_state": shares,
+                 "note": "gap-fill then connect; poll /live?status=1"}
+
+
+def _driver_run(venue: str, drv) -> None:
+    """Own the driver's whole lifecycle off the request thread.
+
+    The two adapters differ: KiteStream.start() spawns its own reader and has
+    no run(); CryptoStream.start() only resolves symbols and returns a bool,
+    with the socket loop in a blocking run(). Assuming one shape cost a silent
+    no-op once already — connected=false, zero messages, no error anywhere,
+    which reads exactly like a dead venue.
+    """
+    runner = getattr(drv, "run", None)
+    try:
+        ok = drv.start()
+        if ok is False:
+            logging.warning("charto live %s: every symbol refused", venue)
+        elif callable(runner):
+            runner()
+    except Exception as exc:                          # noqa: BLE001
+        logging.warning("charto live driver %s stopped: %s", venue, exc)
+        ok = False
+    finally:
+        # Only a driver whose blocking run() returned has actually finished.
+        # KiteStream has no run() — start() spawns its own reader and returns —
+        # so unregistering on fall-through deleted a LIVE stream from the
+        # registry: /live?status=1 reported {} while the socket kept ticking,
+        # stop had nothing to stop, and a second start would have opened a
+        # SECOND socket against the same API key.
+        if callable(runner) or ok is False:
+            with _DRIVER_GUARD:
+                if _DRIVERS.get(venue) is drv:
+                    _DRIVERS.pop(venue, None)
+
+
+def _live_status() -> dict:
+    with _DRIVER_GUARD:
+        out = {}
+        for venue, drv in _DRIVERS.items():
+            try:
+                out[venue] = drv.status()
+            except Exception as exc:                  # noqa: BLE001
+                out[venue] = {"error": str(exc)}
+        return out
+
+
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
+    live = _live_view(symbol)
+    form, horizon = live if live else (None, None)
     if interval in INTRADAY_MIN:
         mins = INTRADAY_MIN[interval]
         raw_needed = limit * mins + 400  # slack for session boundaries
-        if to:
+        upper = to if horizon is None else (
+            horizon if to is None else min(to, horizon))
+        if upper:
             rows = _con.execute(
                 "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
-                "ORDER BY ts DESC LIMIT ?", (symbol, to, raw_needed)
+                "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)
             ).fetchall()
         else:
             rows = _con.execute(
@@ -4597,13 +8111,20 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
                 "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)
             ).fetchall()
         rows.reverse()
-        bars = _resample_intraday(rows, mins)[-limit:]
+        if form is not None and (to is None or form[0] < to):
+            _merge_form_intraday(rows, form)
+        bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
         has_more = bool(rows) and _con.execute(
             "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
             (symbol, rows[0][0])).fetchone() is not None
     else:
-        series = _daily(symbol) if interval == "1d" \
-            else _weekly_or_monthly(symbol, interval)
+        daily = _daily(symbol) if horizon is None else _fold_daily(_con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? ORDER BY ts",
+            (symbol, horizon)).fetchall(), session_for(symbol))
+        if form is not None:
+            daily = _merge_form_daily(daily, form, session_for(symbol))
+        series = daily if interval == "1d" \
+            else _weekly_or_monthly(daily, interval)
         if to:
             series = [b for b in series if b[0] < to]
         bars = series[-limit:]
@@ -4631,6 +8152,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
+        """Accounts and saved work. Everything past /auth/* needs a session."""
+        if path == "/auth/signup":
+            return _auth_signup(body)
+        if path == "/auth/login":
+            return _auth_login(body)
+        if path == "/auth/logout":
+            raw = self.headers.get("Authorization") or ""
+            if raw.startswith("Bearer "):
+                with _users_lock:
+                    _users.execute("DELETE FROM sessions WHERE token=?",
+                                   (raw[7:].strip(),))
+                    _users.commit()
+            return 200, {"ok": True}          # logging out is never an error
+        me = _auth_user(self.headers)
+        if not me:
+            return 401, {"error": "sign in to save your work"}
+        if path == "/workspace":
+            sym = str(body.get("symbol") or "").upper()
+            if not sym:
+                return 400, {"error": "symbol required"}
+            return 200, {"saved": _ws_put(me[0], sym, body.get("state") or {})}
+        if path == "/layouts":
+            if body.get("delete"):
+                with _users_lock:
+                    _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
+                                   (me[0], str(body.get("name") or "")))
+                    _users.commit()
+                return 200, {"ok": True}
+            return _layout_save(me[0], str(body.get("name") or ""),
+                                body.get("spec") or {})
+        return 404, {"error": "not found"}
+
     def _send_stream(self, messages: list, context: dict | None) -> None:
         """SSE. No Content-Length and no buffering — the whole point is that
         the first token reaches the screen before the turn is finished."""
@@ -4656,15 +8210,102 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001
                 pass
 
+    def _send_live(self, symbol: str) -> None:
+        """SSE of forming bars. One queue per subscriber; a client that stops
+        reading is dropped rather than back-pressuring the tick loop."""
+        st = _live_state(symbol)
+        q: queue.Queue = queue.Queue(maxsize=64)
+        q.dead = False   # set by _live_push on eviction; ends this loop
+        try:
+            with st["lock"]:
+                st["subs"].append(q)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            while not q.dead:
+                try:
+                    ev = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(
+                        f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto live sse failed: %s", exc)
+        finally:
+            with st["lock"]:
+                if q in st["subs"]:
+                    st["subs"].remove(q)
+
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         symbol = q.get("symbol", "RELIANCE").upper()
+        _req.symbol = symbol
         try:
+            if u.path.startswith("/api/"):
+                # Pivot's stock page, copied verbatim into charto/web, calls
+                # its own backend's routes — served here from charto's store.
+                code, payload = api_route(u.path, q)
+                return self._send(code, payload)
+            if u.path == "/symbols":
+                have = _symbols_with_bars()
+                # names ride along so a reply that writes "Caplin Labs" can be
+                # linked to its company page as readily as one that writes the
+                # ticker — the model picks whichever reads better
+                try:
+                    names = dict(_con.execute(
+                        "SELECT symbol, name FROM classification"))
+                except sqlite3.Error:
+                    names = {}
+                logos = _logo_map()
+                try:
+                    # the Moneycontrol short name is wrong for a few rows
+                    # (TITAN reads "IAG Company"); the enrichment long name is
+                    # the one to SHOW, while the short one still has to match
+                    # what a reply writes, so both are sent
+                    longs = dict(_con.execute(
+                        "SELECT symbol, long_name FROM company_profile "
+                        "WHERE long_name IS NOT NULL"))
+                except sqlite3.Error:
+                    # only the long-name lookup is guarded here; _logo_map
+                    # handles its own failures, and clearing it on this error
+                    # would drop every mark because one name column was absent
+                    longs = {}
+                # Anything already in the store is searchable even when it is
+                # absent from the NSE universe file: indices, India VIX, MCX
+                # futures, INR pairs and crypto arrive via backfill_macro.py /
+                # backfill_crypto.py rather than through hydration, so keying
+                # the picker off the universe alone made them unreachable
+                # except by typing ?symbol= into the URL.
+                # A crypto listing is stored venue-qualified — "Bitcoin / USDT
+                # (Bybit)" — so BTCUSDT and BTC-USD stay distinguishable in a
+                # peer table. A reply writes "Bitcoin". The chat marks names by
+                # exact spelling, so without the plain name every crypto row
+                # went unmarked while all 500 companies carried a logo.
+                # Both listings of an asset alias to the same word on purpose:
+                # they are one asset and one mark, and the alias is only ever
+                # used to choose a logo.
+                alias = {sym: n.split(" / ")[0].strip()
+                         for sym, n in names.items() if " / " in n}
+                return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
+                                        "hydrated": sorted(have),
+                                        "names": names, "long": longs,
+                                        "alias": alias, "logos": logos})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
                 if interval not in (*INTRADAY_MIN, "1d", "1w", "1mo"):
                     return self._send(400, {"error": f"bad interval {interval}"})
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
                 to = int(q["to"]) if q.get("to") else None
                 limit = min(int(q.get("limit", 3000)), 20000)
                 return self._send(200, get_bars(symbol, interval, to, limit))
@@ -4727,12 +8368,102 @@ class Handler(BaseHTTPRequestHandler):
                                    for i, v in enumerate(series) if v is not None]
                               for ln, series in res["lines"].items()},
                 })
+            if u.path == "/volume_profile":
+                # The manual path into the same tool chat calls. It returns
+                # the SCENE annotation alongside the numbers so the menu and
+                # the model put an identical object on the chart — a second
+                # renderer here is how the two would drift.
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                _scene.items = []
+                res = tool_volume_profile(
+                    frm=q.get("frm", ""), to=q.get("to", ""),
+                    lookback_sessions=int(q.get("lookback_sessions", 1) or 1),
+                    rows=int(q.get("rows", 0) or 0),
+                    value_area_pct=float(q.get("value_area_pct", 70) or 70),
+                    split=q.get("split") in ("1", "true", "yes"),
+                    draw=True, draw_mode="replace")
+                patch = list(getattr(_scene, "items", []))
+                _scene.items = []
+                if "error" in res:
+                    return self._send(400, res)
+                res["scene"] = patch
+                return self._send(200, res)
+            if u.path == "/live":
+                # start/stop a venue driver inside this process — see the
+                # _DRIVERS comment for why a CLI process cannot move a chart
+                if q.get("status") in ("1", "true", "yes"):
+                    return self._send(200, {"streams": _live_status()})
+                syms = [s.strip() for s in (q.get("symbols") or "").split(",")
+                        if s.strip()]
+                code, payload = _live_stream(
+                    q.get("venue", ""), syms,
+                    q.get("stop") in ("1", "true", "yes"))
+                return self._send(code, payload)
+            if u.path == "/replay":
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                code, payload = _replay(
+                    symbol, q.get("date"), float(q.get("speed", 300) or 300),
+                    q.get("stop") in ("1", "true", "yes"))
+                return self._send(code, payload)
+            if u.path == "/stream":
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                return self._send_live(symbol)
+            if u.path == "/company":
+                if symbol not in _known_symbols():
+                    return self._send(404, {
+                        "error": f"{symbol} is not in the chart universe",
+                        "hint": "GET /symbols lists it"})
+                rng = q.get("range", "5Y")
+                # a range button re-reads the series only — the profile half
+                # never changes between clicks
+                if q.get("only") == "history":
+                    return self._send(200, company_history(symbol, rng))
+                return self._send(200, company_page(symbol, rng))
+            if u.path in ("/auth/me", "/workspace", "/layouts"):
+                me = _auth_user(self.headers)
+                if not me:
+                    # /auth/me answers "nobody" rather than failing: the FE asks
+                    # it on boot to decide which UI to paint, and a 401 there is
+                    # an answer, not a fault.
+                    return self._send(200 if u.path == "/auth/me" else 401,
+                                      {"user": None} if u.path == "/auth/me"
+                                      else {"error": "sign in to load your work"})
+                if u.path == "/auth/me":
+                    return self._send(200, {"user": _user_public(me)})
+                if u.path == "/layouts":
+                    q = parse_qs(u.query)
+                    name = (q.get("name") or [""])[0]
+                    if not name:
+                        return self._send(200, {"layouts": _layouts_list(me[0])})
+                    with _users_lock:
+                        row = _users.execute(
+                            "SELECT name, spec, updated FROM layouts "
+                            "WHERE user_id=? AND name=?", (me[0], name)).fetchone()
+                    if not row:
+                        return self._send(404, {"error": f"no layout named {name!r}"})
+                    return self._send(200, {"name": row[0], "updated": row[2],
+                                            "spec": json.loads(row[1])})
+                sym = (parse_qs(u.query).get("symbol") or [""])[0].upper()
+                if not sym:
+                    return self._send(400, {"error": "symbol required"})
+                return self._send(200, {"symbol": sym,
+                                        "state": _ws_get(me[0], sym)})
             if u.path == "/meta":
                 n, lo, hi = _con.execute(
                     "SELECT COUNT(*),MIN(ts),MAX(ts) FROM bars WHERE symbol=?",
                     (symbol,)).fetchone()
+                # the LLM arm is reported by the SERVER, not assumed by the
+                # caller — an A/B whose two arms cannot be told apart from
+                # outside is an A/A nobody notices
                 return self._send(200, {
-                    "symbol": symbol, "count": n, "earliest": lo, "latest": hi})
+                    "symbol": symbol, "count": n, "earliest": lo, "latest": hi,
+                    "model": LLM_DEPLOYMENT, "effort": LLM_EFFORT})
             return self._send(404, {"error": "not found"})
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
@@ -4741,11 +8472,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, Authorization")
         self.end_headers()
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            return self._send(*self._account_post(u.path, body))
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:
@@ -4754,9 +8493,36 @@ class Handler(BaseHTTPRequestHandler):
             messages = body.get("messages") or []
             if not isinstance(messages, list) or not messages:
                 return self._send(400, {"error": "messages[] required"})
+            ctx = body.get("context") or {}
+            sym = str(ctx.get("symbol") or "RELIANCE").upper()
+            _req.symbol = sym
+            err = _ensure_symbol(sym)
+            if err:
+                return self._send(400, err)
+            # Every chart the user put in the conversation has to be loadable
+            # before the turn starts — a tool aimed at one of them mid-round
+            # cannot wait ~6 s for a cold hydrate. One that will not load is
+            # dropped from the envelope rather than named to the model as
+            # something it can read.
+            charts, keep = [sym], []
+            for c in (ctx.get("charts") or []):
+                s = str((c or {}).get("symbol") or "").upper()
+                if not s or s in charts:
+                    keep.append(c)
+                    continue
+                if _ensure_symbol(s):
+                    logging.warning("charto: chart %s unavailable, dropped", s)
+                    continue
+                charts.append(s)
+                keep.append(c)
+            ctx["charts"] = keep
+            _req.charts = charts
+            # a reference pane has no drawing layer; the envelope says which
+            # kind of chart is in focus and the tools honour it
+            _req.drawable = ctx.get("drawable") is not False
             if body.get("stream"):
-                return self._send_stream(messages, body.get("context"))
-            return self._send(200, llm_chat(messages, body.get("context")))
+                return self._send_stream(messages, ctx)
+            return self._send(200, llm_chat(messages, ctx))
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
 
@@ -4765,5 +8531,42 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # Serving this file as a script names it `__main__`. Every helper module
+    # here does `import dataserver`, which would then load this file a SECOND
+    # time as a separate module object with its own _LIVE, its own subscriber
+    # lists and its own connections. Closed bars still reach the chart because
+    # SQLite is shared, so the split is invisible in /bars — but the live path
+    # dead-ends: measured 2026-08-02, the in-process Coinbase driver took 612
+    # trades and closed 2 minutes while /stream delivered zero events and only
+    # its 15s keepalive ping, because the driver was pushing forming bars into
+    # one _LIVE and the SSE handler was reading another.
+    #
+    # Aliasing the name to this module makes `import dataserver` return the
+    # running server, so a driver started through /live shares its state.
+    sys.modules.setdefault("dataserver", sys.modules[__name__])
+
+    # CHARTO_LIVE_VENUES="bybit,coinbase" arms those feeds at boot.
+    #
+    # Without this a stream only exists because somebody curled /live, and the
+    # unit is Restart=always — so any crash, deploy or reboot silently returns
+    # the box to a state where it serves charts and records NOTHING. Crypto
+    # trades 24/7, so there is no daily open to notice it at; the hole is only
+    # found later as missing bars. The venue drivers are already idempotent
+    # (_live_stream refuses a second driver for a live venue) and each one
+    # gap-fills before it connects, so a restart repairs the minutes it missed
+    # while down instead of streaming on top of them.
+    #
+    # Deliberately opt-in and deliberately NOT defaulted to every venue: a
+    # laptop running this file should not open sockets nobody asked for.
+    for _v in (environ.get("CHARTO_LIVE_VENUES") or "").replace(" ", "").split(","):
+        if not _v:
+            continue
+        try:
+            _code, _body = _live_stream(_v, _venue_symbols(_v), stop=False)
+            print(f"charto live autostart {_v}: {_code} {_body.get('note') or _body}")
+        except Exception as _exc:                              # noqa: BLE001
+            # Never let a venue keep the chart server down — data first.
+            print(f"charto live autostart {_v} FAILED: {_exc}")
+
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

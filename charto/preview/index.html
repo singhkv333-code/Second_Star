@@ -86,6 +86,22 @@
   --radius-xl: 24px;
   --radius-pill: 9999px;
 
+  /* ── seams ──────────────────────────────────────────────────────────
+     Every boundary between two panels is the SAME line: the rail against
+     the chart, the header against everything, the footer, the chat panel,
+     the gap between split charts, and the separator between a price pane
+     and its oscillators. They were each drawing their own — some with
+     --border, some with --border-soft, and the chat panel with nothing at
+     all, so the price axis ran straight into the reply text with no edge
+     between them.
+     One token, so a panel added later cannot invent a fourth kind of
+     edge, and one place to change if the whole shell wants a heavier
+     frame. --seam-strong is for the seam a POINTER can grab (the pane
+     resize handle), which has to be findable rather than merely tidy. */
+  --seam-w: 2px;
+  --seam: var(--border);
+  --seam-strong: var(--muted-foreground);
+
   /* Motion. Three durations, not six. --dur is the default for every
      colour/background transition; --dur-fast is for transforms that
      should feel instant; --dur-slow is for surfaces entering. */
@@ -114,6 +130,7 @@
   --muted-foreground: #8f98a1;
   --faint: #6b7280;
   --accent: rgba(255, 255, 255, .04);
+  --hover-fill: rgba(255, 255, 255, .09);
   --border: #242424;
   --border-soft: #1a1a1a;
   --input: #1c1c1d;
@@ -157,6 +174,7 @@
   --muted-foreground: #4d555c;
   --faint: #6b7280;
   --accent: rgba(15, 18, 22, .06);
+  --hover-fill: rgba(15, 18, 22, .075);
   --border: #e6e6e6;
   --border-soft: #ececee;
   --input: #fbfbfc;
@@ -197,12 +215,16 @@ body {
               color var(--dur-slow) var(--ease-quartr);
 }
 button, textarea, input, select { font-family: inherit; }
+/* Glyphs carry the meaning; the boxes around them only place it. The rail and
+   the header keep their measured widths (46 / 48) — the drawing tools and the
+   chrome icons inside them are drawn LARGER within the same boxes, with the
+   stroke easing off as they grow so the weight on screen stays constant. */
 svg.icon {
-  width: 18px; height: 18px; stroke: currentColor; fill: none;
-  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none;
+  width: 22px; height: 22px; stroke: currentColor; fill: none;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none;
 }
-svg.icon.sm { width: 15px; height: 15px; stroke-width: 1.9; }
-svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
+svg.icon.sm { width: 19px; height: 19px; stroke-width: 1.8; }
+svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .spacer { flex: 1; }
 
 /* Shared entrance for every surface that appears over the page. */
@@ -245,10 +267,11 @@ svg.icon.xs { width: 13px; height: 13px; stroke-width: 2; }
 .btn.outline:hover { border-color: var(--border); background: var(--accent); }
 /* chat toggle rides borderless — the pill reads as a label, not a control */
 #chatToggle, #chatToggle:hover { border-color: transparent; }
-.btn.icon { width: 30px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+.btn.icon { width: 32px; padding: 0; justify-content: center; color: var(--muted-foreground); }
+.btn.icon svg.icon { width: 19px; height: 19px; }
 .btn.icon:hover { color: var(--foreground); }
 .btn.on { color: var(--primary); background: var(--primary-soft); }
-.btn .chev { width: 13px; height: 13px; color: var(--muted-foreground); }
+.btn .chev { width: 14px; height: 14px; color: var(--muted-foreground); }
 
 /* Pivot's CTA is INK ON PAPER — the near-black fill in light, the off-white
    fill in dark. The teal is Pivot's quiet accent thread, reserved for hover
@@ -498,7 +521,7 @@ select.is-dressed { display: none; }
   color: var(--primary); background: var(--primary-soft);
   border-color: color-mix(in srgb, var(--primary) 32%, transparent);
 }
-.lay-opt svg { width: 20px; height: 20px; stroke-width: 1.6; }
+.lay-opt svg { width: 22px; height: 22px; stroke-width: 1.55; }
 
 /* dialog — TradingView's Inputs / Style / Visibility modal on Pivot's tokens */
 .dlg-wrap {
@@ -730,7 +753,7 @@ select.is-dressed { display: none; }
    colour inside one card, and a line TradingView does not draw. */
 body > header {
   display: flex; align-items: center; gap: 8px; height: 48px;
-  padding: 0 10px 0 12px; border-bottom: 1px solid var(--border);
+  padding: 0 10px 0 12px; border-bottom: var(--seam-w) solid var(--seam);
   background: var(--background); z-index: 20; flex: none;
 }
 /* Wordmark sits in Pivot's display serif — the same --font-experiment
@@ -754,14 +777,27 @@ body > header {
 
 /* segmented control (intervals) */
 .seg { display: inline-flex; align-items: center; gap: 2px; }
+/* Intervals and drawing tools are the two things on this screen you reach
+   for constantly, and both sat at --muted-foreground: legible, but reading
+   as disabled next to the chart they drive. They rest at full foreground
+   now, and the hover carries the state change instead of the colour having
+   to hold it.
+   The lift is one property — a 1.06 scale on press-sized targets — because
+   a hover that moves the label is harder to aim at than one that doesn't.
+   Pressing scales BACK past rest, which is the whole tactile trick: the
+   control appears to take the click. */
 .seg button {
-  background: transparent; color: var(--muted-foreground); border: 0; cursor: pointer;
+  background: transparent; color: var(--foreground); border: 0; cursor: pointer;
   font-size: var(--text-sm); font-weight: var(--weight-semi); padding: 0 9px; height: 28px;
   border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
-  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              transform var(--dur-fast) var(--ease-quartr);
 }
-.seg button:hover { background: var(--accent); color: var(--foreground); }
+.seg button:hover { background: var(--hover-fill); color: var(--foreground); transform: scale(1.06); }
+.seg button:active { transform: scale(.95); }
 .seg button.active { color: var(--primary); background: var(--primary-soft); }
+.seg button.active:hover { transform: none; }
 
 /* Indicators accumulate; the header does not. Every OTHER header item is
    fixed-size, so the chip strip is the single thing that flexes — it takes
@@ -824,10 +860,12 @@ header > .spacer { flex: none; }
 .chips-wrap.scrollable > .chips-arrow { display: flex; }
 .chips-arrow.off { visibility: hidden; pointer-events: none; }
 .chips-arrow:hover { color: var(--foreground); background: var(--accent); }
-.chips-arrow svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.chips-arrow svg { width: 17px; height: 17px; stroke-width: 2.1; }
 
 /* Borderless, like the symbol pill next to it: the fill is the shape. On
-   --muted rather than --card so the light theme still has an edge. */
+   --muted rather than --card so the light theme still has an edge. The plate
+   is PERMANENT — a chip that only appeared under the pointer left the header
+   reading as loose words with no shape to aim at. */
 .chip {
   display: inline-flex; gap: 5px; align-items: center; height: 24px;
   font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--foreground);
@@ -835,6 +873,13 @@ header > .spacer { flex: none; }
   background: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .chip .lbl { border-radius: var(--radius-xs); padding: 1px 4px; margin: 0 -2px 0 -4px; }
+/* A LINE, not a dot — it stands for a line on the chart. Sized so it reads
+   as a stroke at 11px next to the label rather than a coloured pill. */
+.chip .swatch {
+  flex: none; width: 12px; height: 2px; border-radius: 1px;
+  margin-right: -1px;
+}
+.chip.muted .swatch, .chip.off .swatch { opacity: .45; }
 /* An indicator switched off for this timeframe (Visibility tab) still has a
    chip — it just isn't drawing. Say that, rather than looking broken. */
 .chip.muted .lbl, .chip.off .lbl { color: var(--faint); text-decoration: line-through; }
@@ -849,7 +894,7 @@ header > .spacer { flex: none; }
 .chip .acts { display: inline-flex; align-items: center; gap: 1px; }
 .chip .act {
   cursor: pointer; color: var(--faint); display: inline-flex;
-  width: 17px; height: 17px; align-items: center; justify-content: center;
+  width: 19px; height: 19px; align-items: center; justify-content: center;
   border-radius: 50%; flex: none;
   /* invisible must also mean unclickable — a 17px target you cannot see is
      worse than no target at all */
@@ -864,24 +909,38 @@ header > .spacer { flex: none; }
 .chip.muted .act[data-eye] { opacity: 1; pointer-events: auto; }
 /* No red on the remove action. Removing an indicator is undone by adding
    it back — colouring it like a destructive act overstates it, and the
-   alarm sat right next to two neutral controls on the same chip. */
-.chip .act:hover { color: var(--foreground); background: var(--accent); }
-.chip .act svg { width: 12px; height: 12px; }
+   alarm sat right next to two neutral controls on the same chip.
+   A button's own hover has to read as a SECOND step inside the chip's plate,
+   so it takes the page's paper and a hairline rather than a slightly
+   different grey — one tint on another tint is not a state change. */
+.chip .act:hover {
+  color: var(--foreground); background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.chip .act svg { width: 13.5px; height: 13.5px; }
 
 /* ─── 6 · RAIL ─────────────────────────────────────────────────────────── */
 
 .rail {
-  width: 46px; background: var(--background); border-right: 1px solid var(--border);
+  width: 46px; background: var(--background); border-right: var(--seam-w) solid var(--seam);
   display: flex; flex-direction: column; align-items: center;
   padding: 7px 0; gap: 1px; z-index: 10; flex: none;
 }
 .tool {
-  width: 32px; height: 32px; border-radius: var(--radius); border: 0; cursor: pointer;
-  background: transparent; color: var(--muted-foreground);
+  width: 34px; height: 34px; border-radius: var(--radius); border: 0; cursor: pointer;
+  background: transparent; color: var(--foreground);
   display: flex; align-items: center; justify-content: center; position: relative;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
-.tool:hover { background: var(--accent); color: var(--foreground); }
+/* the glyph lifts, not the 34px button — a moving hit target is worse to
+   aim at than a still one, and the fill already says which button is hot */
+.tool svg.icon { transition: transform var(--dur-fast) var(--ease-quartr); }
+.tool:hover svg.icon { transform: scale(1.12); }
+.tool:active svg.icon { transform: scale(.94); }
+/* the rail's own glyph size — a drawing tool is the thing you aim at most
+   often on this screen, and it was the smallest target on it */
+.tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
+.tool:hover { background: var(--hover-fill); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
@@ -909,11 +968,24 @@ header > .spacer { flex: none; }
    before the first apply(). The 1px gap IS the divider: the grid's own
    background shows through between panes. */
 .charts {
-  flex: 1; min-width: 0; min-height: 0; display: grid; gap: 1px;
-  background: var(--border);
+  position: relative;
+  flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--seam-w);
+  background: var(--seam);
   grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
 }
 .stage { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
+
+/* Pane splitters. One per internal grid line, laid over the seam already
+   drawn there, so the edge you see and the edge you grab are the same one.
+   The hit area is deliberately wider than the seam — a 2px drag target is
+   findable only by accident — but it stays transparent until hovered. */
+.pane-split {
+  position: absolute; z-index: 6; background: transparent;
+  transition: background var(--dur-fast);
+}
+.pane-split.v { top: 0; bottom: 0; width: 9px; margin-left: -4.5px; cursor: col-resize; }
+.pane-split.h { left: 0; right: 0; height: 9px; margin-top: -4.5px; cursor: row-resize; }
+.pane-split:hover, .pane-split.dragging { background: var(--seam-strong); }
 
 /* Secondary chart. Same chrome as the primary — an in-chart legend and
    nothing else — so a split reads as one chart shown twice. */
@@ -935,20 +1007,86 @@ header > .spacer { flex: none; }
 .stage.overdraw #chart { cursor: move; }
 
 .readout {
-  position: absolute; top: 10px; left: 12px; z-index: 5;
+  /* The OHLC row is not allowed to reach the price scale. It used to be
+     left-anchored only, so on a narrow pane the volume figure ran under the
+     axis labels and the two sets of numbers overlapped. Bounded on the right
+     by the same inset the axis occupies, and wrapped rather than clipped. */
+  position: absolute; top: 10px; left: 12px; right: 76px; z-index: 5;
   font-size: var(--text-sm); color: var(--muted-foreground);
   pointer-events: none; line-height: 1.55; font-variant-numeric: tabular-nums;
 }
+/* A ROW, not a line of text. The ticker is an inline-flex box (it holds the
+   mark beside the word), and an inline-flex box in a text line aligns on the
+   baseline its own contents produce — which sat a pixel or two above the
+   interval and the venue beside it. Laying the title out as a flex row centres
+   every part against the same axis, so the mark, the ticker, the interval and
+   the exchange share one line regardless of their heights. */
 .readout .title {
+  display: flex; align-items: center;
   color: var(--foreground); font-size: var(--text-lg);
   font-weight: var(--weight-semi); letter-spacing: -.01em;
+  /* the legend is inert except for the ticker, which is a control */
+  pointer-events: none;
 }
+/* The ticker in the legend IS the instrument switch. TradingView's affordance:
+   nothing until the pointer arrives, then a plate under the word — the legend
+   stays a label right up to the moment it is reached for. */
+.readout .sym-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  /* No left inset and no negative margin to cancel it: the legend and the
+     OHLC row beneath it must start on the SAME left edge, and a plate that
+     bled 6px further left made the two rows look misaligned by exactly that
+     much. The hover plate grows to the right only. */
+  padding: 1px 7px 1px 0; border-radius: var(--radius-xs);
+  cursor: pointer; pointer-events: auto;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.readout .sym-btn:hover { background: var(--accent); color: var(--primary); }
+.readout .co-logo {
+  width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: none;
+}
+.readout .co-logo.lg { width: 17px; height: 17px; }
 .readout .row { font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.01em; }
 .readout .row span { margin-right: 9px; }
 .readout .sep { margin: 0 5px; color: var(--faint); font-weight: 400; }
 .readout b { font-weight: var(--weight-medium); }
 .readout b.up { color: var(--up); }
 .readout b.down { color: var(--down); }
+/* The candle's own change, set apart from the five OHLC figures it is
+   derived from — same weight as the numbers, its own colour by direction. */
+.readout .chg { font-weight: var(--weight-medium); }
+.readout .chg.up { color: var(--up); }
+.readout .chg.down { color: var(--down); }
+
+/* The chart-actions disclosure: same row, same type and colour as the
+   latency and token counts, because it is the same kind of fact. Closed by
+   default — it answers "what did it touch" only when asked. */
+.acts-toggle {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: transparent; border: 0; padding: 1px 7px 1px 6px; cursor: pointer;
+  font: inherit; color: inherit; opacity: .85;
+  border-radius: var(--radius-pill);
+  transition: opacity var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+/* The browser's default focus ring drew a hard blue rectangle across the
+   footer — the one element on the page wearing a colour from nothing in the
+   palette. It resolves the same way an annotation does: the surface warms,
+   nothing is outlined. :focus-visible so it still answers a keyboard. */
+.acts-toggle:focus { outline: none; }
+.acts-toggle:focus-visible { background: var(--hover-fill); opacity: 1; }
+.turn-meta.acts-open .acts-toggle { background: var(--hover-fill); opacity: 1; }
+.acts-toggle::before { content: "·"; margin-right: 5px; opacity: .7; }
+.acts-toggle:hover { opacity: 1; }
+.acts-toggle svg { transition: transform var(--dur) var(--ease-quartr); }
+.turn-meta.acts-open .acts-toggle svg { transform: rotate(180deg); }
+.acts-list { display: none; margin: 5px 0 2px; padding-left: 2px; }
+.turn-meta.acts-open + .acts-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.act-row {
+  font-size: var(--text-2xs); color: var(--muted-foreground);
+  background: var(--muted); border-radius: var(--radius-sm);
+  padding: 2px 7px; font-variant-numeric: tabular-nums;
+}
 
 /* TradingView's "auto" affordance — appears once you've moved the price
    scale by hand, clicking it re-fits to the visible bars. */
@@ -984,7 +1122,7 @@ header > .spacer { flex: none; }
    26px in the mono face and spilling their buttons out of a box the card
    then clipped. */
 body > footer {
-  height: 26px; padding: 0 12px; border-top: 1px solid var(--border);
+  height: 26px; padding: 0 12px; border-top: var(--seam-w) solid var(--seam);
   background: var(--background); font-size: var(--text-2xs); color: var(--faint);
   display: flex; gap: 14px; align-items: center; flex: none;
   font-family: var(--font-numeric); letter-spacing: -.01em;
@@ -1139,6 +1277,8 @@ body > footer .dotsep { color: var(--border); }
 .chatpanel {
   width: 46%; min-width: 320px; flex: none; background: var(--background);
   display: flex; flex-direction: column; min-height: 0; position: relative;
+  /* the chart's price axis used to run straight into the reply text */
+  border-left: var(--seam-w) solid var(--seam);
 }
 .chatpanel.hidden { display: none; }
 
@@ -1297,24 +1437,45 @@ body > footer .dotsep { color: var(--border); }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
+/* The subject chip: which instrument this conversation is about. It carries
+   the mark, the ticker and the interval of the chart the model reads, so the
+   composer says WHAT is in context rather than merely that something is. */
 .ctx-flag {
+  display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-2xs); color: var(--muted-foreground); border: 0;
   border-radius: var(--radius-pill);
-  padding: 4px 10px; background: var(--muted); white-space: nowrap; cursor: pointer;
-  line-height: 1; transition: color var(--dur) var(--ease-quartr);
+  padding: 4px 10px 4px 8px; background: var(--muted);
+  white-space: nowrap; cursor: pointer;
+  line-height: 1; transition: color var(--dur) var(--ease-quartr),
+                              background var(--dur) var(--ease-quartr);
 }
-.ctx-flag:hover { color: var(--foreground); }
+.ctx-flag:hover { color: var(--foreground); background: var(--accent); }
 .ctx-flag.off { color: var(--faint); }
-.ctx-flag .dot {
-  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--up); margin-right: 5px; vertical-align: middle;
+/* detached: the whole chip dims, mark included — one signal, not a lamp
+   beside a logo */
+.ctx-flag.off .co-logo { opacity: .45; filter: grayscale(1); }
+.ctx-flag .co-logo { width: 13px; height: 13px; border-radius: 3px; object-fit: contain; flex: none; }
+.ctx-flag .sym { font-weight: var(--weight-semi); color: var(--foreground); letter-spacing: -.01em; }
+.ctx-flag.off .sym { color: var(--muted-foreground); }
+/* Several charts read as a row of marks — the names would run the width of the
+   composer. They overlap slightly, the way a stack of avatars does, so the
+   group reads as ONE subject rather than as separate chips. */
+.ctx-flag.multi { gap: 0; padding: 4px 9px; }
+.ctx-flag.multi .co-logo {
+  width: 15px; height: 15px; margin-right: -3px;
+  box-shadow: 0 0 0 1.5px var(--muted);
 }
-.ctx-flag.off .dot { background: var(--faint); }
-.model-label {
-  font-size: var(--text-xs); color: var(--muted-foreground); white-space: nowrap;
-  margin-right: 2px; font-weight: var(--weight-medium);
+.ctx-flag.multi:hover .co-logo { box-shadow: 0 0 0 1.5px var(--accent); }
+.ctx-flag.multi .co-logo:last-child { margin-right: 0; }
+.subj-menu { min-width: 268px; max-width: 320px; }
+.subj-menu .cold { font-size: 10.5px; color: var(--faint); }
+.subj-menu .co-name { margin-left: 6px; font-size: 11px; color: var(--faint); }
+.subj-menu .item.on .lead { color: var(--foreground); }
+/* The honest footnote under a control that can be given more than it sends. */
+.pick-note {
+  font-size: 11px; color: var(--faint); line-height: 1.45;
+  padding: 7px 9px 3px; border-top: 1px solid var(--border-soft); margin-top: 4px;
 }
-.model-label .lvl { color: var(--faint); font-weight: 400; }
 .send {
   width: 30px; height: 30px; border-radius: 50%; border: 0; flex: none;
   background: var(--primary); color: var(--primary-foreground); cursor: pointer;
@@ -1459,12 +1620,410 @@ body > footer .dotsep { color: var(--border); }
   background: var(--faint); background-clip: padding-box; border: 2px solid transparent;
 }
 ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── carried over from the pre-merge chart ─────────────────────────
+     Rules for elements this branch's stylesheet never had: the symbol
+     search pill/menu/list, the venue badge, the chat drawing-tag and
+     chip affordances, and the provenance role badges. Appended rather
+     than interleaved so the incoming design system stays one block.
+     (#periodPop's rules are deliberately NOT carried: the settings
+      dialog replaced that popup and main.js no longer references it.)
+     ─────────────────────────────────────────────────────────────── */
+  .symbol .ex {
+    font-size: 11px; font-weight: 500; color: var(--muted-foreground);
+    letter-spacing: 0;
+  }
+  #symbolPill { cursor: pointer; }
+  #symbolPill:hover { background: var(--accent); }
+  #symbolMenu { width: 270px; }
+  /* Rectangular by request, and it reads better for it: a search field is a
+     text box, and the pill radius made it look like another button in a menu
+     of buttons. The app's smallest radius, not zero — a hard corner inside a
+     16px card is a different design language. */
+  #symbolMenu input, .sym-picker .pick-search {
+    width: 100%; background: var(--input); border: 1px solid var(--border);
+    border-radius: var(--radius-2xs); color: var(--foreground);
+    padding: 7px 9px; font-size: 12.5px; outline: none; margin-bottom: 5px;
+    /* body sets user-select:none so chart drags don't select text; an input
+       that inherits it takes three clicks before a caret lands */
+    user-select: text; -webkit-user-select: text;
+  }
+  #symbolMenu input:focus, .sym-picker .pick-search:focus { border-color: var(--ring); }
+  /* The floating picker is the same list, opened from a legend or the chat
+     chip instead of the header pill — appended to <body> so a chart pane's
+     overflow cannot clip it. */
+  .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
+  #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
+  #symList .item .dot-h, .sym-picker .item .dot-h {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--up);
+    display: inline-block; flex: none;
+  }
+  #symList .item .cold, .sym-picker .item .cold { font-size: 10.5px; color: var(--faint); }
+  #symList .item .co-name, .sym-picker .item .co-name {
+    font-size: 11px; color: var(--muted-foreground); font-weight: 500;
+    margin-left: 6px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 118px;
+  }
+  #symList .item .lead, .sym-picker .item .lead,
+  .subj-menu .item .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  #symList .item .co-logo, .sym-picker .item .co-logo,
+  .subj-menu .item .co-logo, .prose .co-logo {
+    width: 15px; height: 15px; border-radius: 3px; object-fit: contain;
+    background: var(--muted); flex: none;
+  }
+  /* the pill wears the instrument's mark, before the ticker — the same order
+     the search rows, the legend and the chat's tables use */
+  #symbolPill .co-logo {
+    width: 16px; height: 16px; border-radius: 3px; object-fit: contain;
+    background: var(--card); flex: none; margin-right: -1px;
+  }
+  .prose .co-logo {
+    width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px;
+    display: inline-block;
+  }
+  #symList .item .open-co {
+    margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 12px;
+    color: var(--faint); text-decoration: none; flex: none; opacity: 0;
+  }
+  #symList .item:hover .open-co { opacity: 1; }
+  #symList .item .open-co:hover { color: var(--primary); background: var(--accent); }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .chip .x {
+    cursor: pointer; color: var(--faint); display: inline-flex;
+    width: 16px; height: 16px; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .chip .x:hover { color: var(--down); background: var(--down-soft); }
+  .chip .lbl:hover { background: var(--accent); }
+  .draw-tag .x {
+    cursor: pointer; color: var(--faint); width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .draw-tag .x:hover { color: var(--down); background: var(--down-soft); }
+  .attach-chip .x:hover { color: var(--down); background: var(--down-soft); }
+  .prov .role {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .pin .t { color: var(--muted-foreground); }
+  .pin .x {
+    cursor: pointer; color: var(--faint); display: inline-flex;
+    width: 16px; height: 16px; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .pin .x:hover { color: var(--down); background: var(--down-soft); }
+/* ── narrow screens ───────────────────────────────────────────────────────
+   The shell is a row: rail | charts | chat. Below ~820px that gives the
+   chart perhaps half a phone's width, which is not a chart. It becomes a
+   COLUMN with the chart on top and the conversation under it — the chart is
+   the subject and the chat is what you say about it, so that is also the
+   reading order.
+   The chat takes a viewport-relative height rather than a flex share: on a
+   phone the composer must stay reachable with a thumb no matter how long
+   the reply ran. */
+@media (max-width: 820px) and (orientation: portrait) {
+  .main { flex-direction: column; }
+  .charts { flex: 1 1 auto; min-height: 44vh; }
+  .chatpanel {
+    width: 100%; min-width: 0; flex: none;
+    height: 46vh; min-height: 210px;
+    border-left: 0; border-top: var(--seam-w) solid var(--seam);
+  }
+  .chatpanel.hidden { display: none; }
+  /* the rail keeps its tools but stops eating a tenth of the width */
+  .rail { width: 38px; }
+  .rail .tool { width: 30px; height: 30px; }
+  .rail .tool svg.icon { width: 18px; height: 18px; }
+  /* the header is a fixed-width row of many things; let it scroll sideways
+     instead of squeezing the interval strip out of existence */
+  body > header { overflow-x: auto; scrollbar-width: none; }
+  body > header::-webkit-scrollbar { display: none; }
+  /* a 46%-wide readout is fine; a 46%-wide one on a phone is the whole chart */
+  .readout { right: 8px; font-size: var(--text-xs); }
+}
+
+/* ── landscape ────────────────────────────────────────────────────────────
+   Turning the phone does not just make the viewport wider — it makes it
+   SHORT. Stacking chart over chat there leaves both too flat to read, so
+   landscape goes back to the side-by-side the desktop uses: the chart takes
+   the width it just gained, and the conversation takes a column instead of a
+   strip. Height is the scarce axis now, so the header and footer give some
+   back and the rail returns — a landscape phone has the width to spare and
+   is the one phone posture where drawing is practical. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .main { flex-direction: row; }
+  .charts { min-height: 0; }
+  .chatpanel {
+    width: 42%; min-width: 260px; height: auto;
+    border-left: var(--seam-w) solid var(--seam); border-top: 0;
+  }
+  .splitter { width: 1px; height: auto; cursor: col-resize; }
+  .splitter::after { inset: 0 -7px; }
+  .rail { display: flex; width: 34px; }
+  .rail .tool { width: 28px; height: 28px; }
+  .rail .tool svg.icon { width: 17px; height: 17px; }
+  body > header { height: 40px; }
+  body > footer { height: 22px; }
+  /* the chart is wide again, so the labels can come back onto it */
+  .scene-chips { display: block; }
+  .chips-btn { display: none !important; }
+}
+
+/* Phones proper: the drawing rail is a desktop affordance — on a touch
+   screen the chart itself is the surface you draw on, and 38px of chrome
+   costs more than the tools are worth at this width. */
+@media (max-width: 560px) and (orientation: portrait) {
+  .rail { display: none; }
+  /* the OHLC row wrapped onto a second line and sat over the candles; at
+     this width it earns its space only if it stays one line */
+  .readout .row { font-size: var(--text-2xs); }
+  .readout .row span { margin-right: 6px; }
+  /* the change chip is the one figure the five OHLC numbers cannot give you,
+     so when the row has to lose something it keeps that and drops volume */
+  .readout .row span:nth-child(5) { display: none; }
+  /* the change is one figure, not two — it must not break between the
+     rupees and the percent */
+  .readout .row { white-space: nowrap; }
+  .readout .chg { white-space: nowrap; }
+
+  /* ── the composer, on one line ──────────────────────────────────────────
+     Three stacked rows — textarea, then a control row, then a keyboard hint —
+     cost roughly a fifth of the viewport before a single word was typed. On a
+     phone it collapses to one: plus, the instrument's MARK, the field, send.
+     `display: contents` flattens the control row into the composer's own flex
+     line rather than nesting a second one.
+     The ticker text goes because the logo already says which instrument this
+     is, and it is the same mark the chart header and the search rows use. The
+     keyboard hint goes because there is no Shift+Enter on a phone — it was
+     advice about a key the reader does not have. */
+  .composer-hint { display: none; }
+  .composer-wrap { padding: 4px 10px 8px; }
+  .composer {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 6px 5px 12px; border-radius: var(--radius-pill);
+  }
+  .composer-row { display: contents; }
+  .composer textarea {
+    order: 3; flex: 1 1 auto; width: auto;
+    font-size: var(--text-base); line-height: 1.35;
+    min-height: 22px; max-height: 92px; padding: 0;
+  }
+  .composer-row .menu-wrap { order: 1; }
+  .composer-row .spacer { display: none; }
+  .cbtn { width: 26px; height: 26px; }
+  /* mark only: the chip keeps its tap target and loses its words */
+  .ctx-flag {
+    order: 2; padding: 2px; gap: 0; background: transparent;
+    max-width: 26px; overflow: hidden;
+  }
+  .ctx-flag > *:not(img) { display: none; }
+  .ctx-flag img { width: 18px; height: 18px; }
+  .send { order: 4; width: 32px; height: 32px; }
+
+  /* The status bar is three groups on one 26px line; at this width it wrapped
+     and doubled the footer's height, eating the composer's room. It scrolls
+     sideways instead — the leftmost group is the one you actually read. */
+  body > footer {
+    overflow-x: auto; white-space: nowrap; scrollbar-width: none;
+    gap: 10px;
+  }
+  body > footer::-webkit-scrollbar { display: none; }
+  body > footer > * { flex: none; }
+
+  /* Annotation labels are written INTO the chart. On a desktop pane there is
+     room beside the candles; on a phone three pattern labels covered the
+     price entirely — the chart stopped being readable at exactly the moment
+     it had the most to say. They are hidden behind a count instead, and the
+     drawings themselves stay on the chart untouched. */
+  .scene-chips { display: none; }
+  .stage.chips-on .scene-chips { display: block; }
+  .chips-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 6;
+    display: inline-flex; align-items: center; gap: 3px;
+    height: 24px; padding: 0 8px; border: 0; cursor: pointer;
+    border-radius: var(--radius-pill); background: var(--muted);
+    color: var(--foreground); font-size: var(--text-2xs);
+    font-weight: var(--weight-medium); font-variant-numeric: tabular-nums;
+  }
+  .chips-btn svg { transition: transform var(--dur) var(--ease-quartr); }
+  .stage.chips-on .chips-btn svg { transform: rotate(180deg); }
+  .stage.chips-on .scene-chips { background: color-mix(in srgb, var(--background) 82%, transparent); }
+}
+/* desktop keeps the labels on the chart; the button is a phone affordance.
+   Scoped by min-width rather than a bare rule — an unscoped `display:none`
+   sits later in the sheet than the media block that shows it, and won. */
+@media (min-width: 561px) { .chips-btn { display: none !important; } }
+
+/* Touch panning. lightweight-charts only receives a touch drag when the
+   element declines the browser's own gesture — at touch-action:auto the pan
+   is claimed as page scroll, and since body is overflow:hidden it went
+   nowhere and the chart simply did not move. Desktop was unaffected, which
+   is why this survived: a mouse drag never asks the browser for a gesture. */
+#chart, .sub-canvas, .charts canvas { touch-action: none; }
+
+/* The mobile split is HORIZONTAL: the same divider, turned, dragging the
+   chat's height instead of its width. */
+@media (max-width: 820px) and (orientation: portrait) {
+  .splitter {
+    width: auto; height: 1px; cursor: row-resize;
+  }
+  .splitter::after { inset: -7px 0; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AUTH — shadcn's login-03 block, in this stylesheet's own vocabulary
+   ──────────────────────────────────────────────────────────────────────────
+   login-03 is the muted-background variant: the form centred in the viewport,
+   the wordmark above the card, one column. It is the block that survives the
+   translation out of React intact, because its whole structure is
+   Card > CardHeader(Title + Description) > CardContent(Field*) > CardFooter —
+   and .surface, .btn, .input and .checkbox here already ARE those primitives.
+   So nothing below invents a component; it composes the ones the app is
+   already built from, which is also why the login inherits both themes and
+   the focus ring for free.
+
+   .field / .label are added as GENERAL primitives rather than auth-only ones:
+   a labelled control is the one shadcn primitive this stylesheet had no name
+   for, and the indicator dialogs hand-roll it today.
+   ══════════════════════════════════════════════════════════════════════════ */
+.field { display: flex; flex-direction: column; gap: 7px; }
+/* `display: flex` outranks the UA stylesheet's `[hidden] { display: none }`,
+   so the Name field stayed on screen through sign-in mode with the attribute
+   dutifully set. Any component given a display here has to say this itself. */
+.field[hidden] { display: none; }
+.label {
+  font-size: 13.5px; font-weight: 550; color: var(--foreground);
+  letter-spacing: -0.005em;
+}
+.label .hint { font-weight: 400; color: var(--muted-foreground); }
+
+.auth-screen {
+  position: fixed; inset: 0; z-index: 200;
+  display: none; place-items: center;
+  padding: 24px; overflow-y: auto;
+  background: var(--background);
+}
+.auth-screen.open { display: grid; }
+/* The muted wash that names the variant. Kept as a soft radial rather than a
+   flat --muted fill: on the true-black dark theme a flat panel behind a
+   --card panel reads as a seam, not as depth. */
+.auth-screen::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%,
+              var(--primary-soft), transparent 70%);
+}
+.auth-wrap {
+  position: relative; width: 100%; max-width: 384px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+.auth-brand {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  font-size: 22px; font-weight: 700; letter-spacing: -0.03em;
+  color: var(--foreground);
+}
+.auth-brand .dot { color: var(--primary); }
+.auth-card { padding: 26px 26px 24px; }
+.auth-head { display: flex; flex-direction: column; gap: 5px; margin-bottom: 20px; }
+.auth-title { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.auth-desc { font-size: 13.5px; color: var(--muted-foreground); line-height: 1.45; }
+.auth-body { display: flex; flex-direction: column; gap: 15px; }
+.auth-card .input { width: 100%; height: 38px; }
+.auth-foot { display: flex; flex-direction: column; gap: 13px; margin-top: 21px; }
+.auth-foot .btn.cta { width: 100%; height: 38px; justify-content: center; }
+.auth-alt {
+  text-align: center; font-size: 13px; color: var(--muted-foreground);
+}
+.auth-alt button {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: var(--foreground); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--faint);
+}
+.auth-alt button:hover { text-decoration-color: var(--foreground); }
+/* The error is a REGION, announced, and it reserves no space when empty —
+   a form that jumps by a line the first time you get the password wrong is
+   the same bug as a chart that reflows when a tooltip opens. */
+.auth-error {
+  display: none; font-size: 13px; line-height: 1.4;
+  color: var(--down); background: var(--down-soft);
+  border: 1px solid color-mix(in srgb, var(--down) 30%, transparent);
+  border-radius: var(--radius-sm); padding: 9px 11px;
+}
+.auth-error.show { display: block; }
+.auth-note {
+  position: relative; text-align: center; font-size: 12.5px;
+  color: var(--muted-foreground); line-height: 1.5;
+}
+/* A skipped sign-in is a real choice here: charto works fully signed out, it
+   just keeps your work in this browser instead of your account. */
+.auth-skip { margin-top: -4px; }
+
 </style>
 </head>
 <body>
+  <!-- Auth. One card, two modes: the fields that differ are hidden rather
+       than rebuilt, so switching between sign-in and sign-up keeps whatever
+       you have already typed. -->
+  <div class="auth-screen" id="authScreen" role="dialog" aria-modal="true"
+       aria-labelledby="authTitle">
+    <div class="auth-wrap">
+      <div class="auth-brand">Charto<span class="dot">.</span></div>
+      <div class="surface auth-card">
+        <form id="authForm" novalidate>
+          <div class="auth-head">
+            <div class="auth-title" id="authTitle">Sign in</div>
+            <div class="auth-desc" id="authDesc">
+              Your charts, drawings and conversations, on every device.
+            </div>
+          </div>
+          <div class="auth-body">
+            <div class="auth-error" id="authError" role="alert" aria-live="polite"></div>
+            <div class="field" id="authNameField" hidden>
+              <label class="label" for="authName">Name <span class="hint">(optional)</span></label>
+              <input class="input" id="authName" type="text" autocomplete="name" />
+            </div>
+            <div class="field">
+              <label class="label" for="authEmail">Email</label>
+              <input class="input" id="authEmail" type="email" required
+                     autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div class="field">
+              <label class="label" for="authPassword">Password</label>
+              <input class="input" id="authPassword" type="password" required
+                     autocomplete="current-password" placeholder="••••••••" />
+            </div>
+          </div>
+          <div class="auth-foot">
+            <button class="btn cta" id="authSubmit" type="submit">Sign in</button>
+            <div class="auth-alt">
+              <span id="authAltText">New to Charto?</span>
+              <button type="button" id="authToggle">Create an account</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="auth-note auth-skip">
+        <button type="button" id="authSkip"
+                style="background:none;border:0;padding:0;cursor:pointer;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:3px;">
+          Continue without an account
+        </button>
+        — your work stays in this browser only.
+      </div>
+    </div>
+  </div>
+
   <header>
     <div class="brand">Charto<span class="dot">.</span></div>
-    <div class="symbol">RELIANCE <span class="ex">NSE</span></div>
+    <div class="menu-wrap">
+      <div class="symbol" id="symbolPill" title="Search companies">
+        <span id="symbolName">RELIANCE</span> <span class="ex" id="symbolVenue">NSE</span>
+      </div>
+      <div class="dropdown" id="symbolMenu">
+        <input id="symSearch" placeholder="Search instruments…"
+               autocomplete="off" spellcheck="false" />
+        <div id="symList"></div>
+      </div>
+    </div>
     <div class="vsep"></div>
 
     <div class="seg" id="intervalSeg">
@@ -1560,9 +2119,8 @@ body > footer .dotsep { color: var(--border); }
                 <button type="button" class="cbtn" id="plusBtn" title="Conversation options"></button>
                 <div class="dropdown up" id="plusMenu"></div>
               </div>
-              <button type="button" class="ctx-flag" id="ctxFlag" title="Toggle whether the model sees the chart"></button>
+              <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
-              <span class="model-label">gpt-5.6-luna <span class="lvl">medium</span></span>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
@@ -1590,17 +2148,19 @@ body > footer .dotsep { color: var(--border); }
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/store.js?v=4"></script>
-  <script src="./js/theme.js?v=4"></script>
-  <script src="./js/icons.js?v=9"></script>
-  <script src="./js/indicators.js?v=14"></script>
-  <script src="./js/indsettings.js?v=5"></script>
-  <script src="./js/geometry.js?v=6"></script>
-  <script src="./js/tools.js?v=5"></script>
-  <script src="./js/drawings.js?v=9"></script>
-  <script src="./js/scene.js?v=14"></script>
-  <script src="./js/panes.js?v=2"></script>
-  <script src="./js/main.js?v=28"></script>
-  <script src="./js/chat.js?v=9"></script>
+  <script src="./js/auth.js?v=1"></script>
+  <script src="./js/store.js?v=10"></script>
+  <script src="./js/theme.js?v=7"></script>
+  <script src="./js/universe.js?v=1"></script>
+  <script src="./js/icons.js?v=10"></script>
+  <script src="./js/indicators.js?v=18"></script>
+  <script src="./js/indsettings.js?v=6"></script>
+  <script src="./js/geometry.js?v=8"></script>
+  <script src="./js/tools.js?v=8"></script>
+  <script src="./js/drawings.js?v=12"></script>
+  <script src="./js/scene.js?v=22"></script>
+  <script src="./js/panes.js?v=11"></script>
+  <script src="./js/main.js?v=54"></script>
+  <script src="./js/chat.js?v=103"></script>
 </body>
 </html>

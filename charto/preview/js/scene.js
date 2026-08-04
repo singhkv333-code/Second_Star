@@ -32,6 +32,9 @@ const Scene = (() => {
   };
   const FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
   const HIT = 6;
+  // How much of the pane the volume histogram may claim. Wide enough to read
+  // the shape, narrow enough that the candles stay the subject.
+  const vpBand = (w) => Math.max(40, Math.min(150, w * 0.22));
 
   function create(chart, candle, env) {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
@@ -68,7 +71,7 @@ const Scene = (() => {
     const _ru = () => { for (const f of rus.values()) f(); };
     const attached = new Map();            // paneKey -> {pane, prim}
 
-    const fmt = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const fmt = (n) => Sym.num(n);
     /** Pane keys may be composite — "rsi@26" means the rsi pane whose line
      *  is period 26, so marks land on the variant they were computed from
      *  when two of the same indicator are open. Plain names keep working. */
@@ -161,6 +164,28 @@ const Scene = (() => {
       })],
       // ratios and colours come from Tools, the same source the user's own fib
       // tool draws from — one ladder, so the two layers cannot drift apart
+      // trade-plan overlay from plan_position: reward box per target
+      // (fading with distance), one risk box, dashed entry. Same palette as
+      // the user's own long/short tool so the two layers read as one idiom.
+      // trade plan from plan_position — same primitive (and so the exact
+      // same TradingView-style design) as the user's own long/short tool
+      position: (a) => {
+        const inr = (n) => Sym.price(Math.round(n), { maximumFractionDigits: 0 });
+        const pct = (v) => Math.abs((v - a.entry) / a.entry * 100).toFixed(2);
+        const dst = (v) => Math.abs(v - a.entry).toFixed(2);
+        const amt = (i) => (a.pnl && a.pnl[i] != null) ? `, Amount: ${inr(a.pnl[i])}` : "";
+        const center = [
+          a.qty ? `Qty: ${a.qty}` + (a.risk_amount ? ` · Risk: ${inr(a.risk_amount)}` : "")
+                : (a.side === "short" ? "Short" : "Long"),
+          `Risk/reward ratio: ${a.rr ?? "—"}`];
+        return [Geo.position(
+          { t: a.t0, v: a.entry },
+          { v: a.stop, text: `Stop: ${a.stop.toFixed(2)} (${pct(a.stop)}%) ${dst(a.stop)}`
+                             + (a.risk_amount ? `, Amount: ${inr(a.risk_amount)}` : "") },
+          (a.targets || []).map((tp, i) => ({
+            v: tp, text: `Target: ${tp.toFixed(2)} (${pct(tp)}%) ${dst(tp)}${amt(i)}` })),
+          { t1: a.t1, center })];
+      },
       fib: (a) => {
         const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];
         Geo.ladder(a.p1.v, a.p2.v, Tools.FIB).forEach((lv, i) => {
@@ -190,7 +215,20 @@ const Scene = (() => {
       for (let i = state.items.length - 1; i >= 0; i--) {
         const a = state.items[i];
         if (!mine(a, key)) continue;
-        if (a.kind === "level") {
+        if (a.kind === "vprofile") {
+          // the histogram answers for itself; its POC/VAH/VAL lines answer
+          // anywhere along their length
+          const w = plotW();
+          if (x != null && w && x > w - vpBand(w)) {
+            const y1 = vToY(a.rows[a.rows.length - 1].hi, a.pane);
+            const y2 = vToY(a.rows[0].lo, a.pane);
+            if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
+          }
+          for (const v of [a.poc, a.vah, a.val]) {
+            const ly = vToY(v, a.pane);
+            if (ly !== null && Math.abs(y - ly) < HIT) return a;
+          }
+        } else if (a.kind === "level") {
           const ly = vToY(a.price, a.pane);
           if (ly !== null && Math.abs(y - ly) < HIT) return a;
         } else if (a.kind === "zone") {
@@ -326,7 +364,41 @@ const Scene = (() => {
         ctx.shadowColor = hot ? rgba(col, 0.55) : "transparent";
         ctx.shadowBlur = hot ? 9 : 0;
 
-        if (a.kind === "level") {
+        if (a.kind === "vprofile") {
+          // Volume at price: a histogram hanging off the right edge, so it
+          // reads against the axis it shares rather than over the candles.
+          // The value area is the assertion, the rest is context — so the
+          // fill carries the emphasis and only POC/VAH/VAL get a line.
+          const band = vpBand(w);
+          const rs = a.rows || [];
+          if (!rs.length) continue;
+          clearGlow();
+          for (const r of rs) {
+            const y1 = vToY(r.hi, a.pane), y2 = vToY(r.lo, a.pane);
+            if (y1 === null || y2 === null) continue;
+            const bh = Math.max(1, y2 - y1 - 1);
+            const bw = Math.max(1, band * (r.share || 0));
+            const inVA = r.lo >= a.val - 1e-9 && r.hi <= a.vah + 1e-9;
+            const isPoc = a.poc >= r.lo && a.poc < r.hi;
+            ctx.fillStyle = rgba(col, isPoc ? (hot ? 0.92 : 0.8)
+              : inVA ? (hot ? 0.5 : 0.4) : (hot ? 0.24 : 0.17));
+            ctx.fillRect(w - bw, y1 + 0.5, bw, bh);
+          }
+          // the three numbers a profile actually asserts
+          ctx.lineWidth = hot ? 2 : 1.5;
+          for (const [v, dash, tag] of [[a.poc, [], "POC"],
+                                        [a.vah, [5, 4], "VAH"],
+                                        [a.val, [5, 4], "VAL"]]) {
+            const y = vToY(v, a.pane);
+            if (y === null) continue;
+            ctx.globalAlpha = tag === "POC" ? 1 : 0.62;
+            ctx.setLineDash(dash);
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - band, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+            chip(`${tag} ${fmt(v)}`, 8, y, col);
+          }
+        } else if (a.kind === "level") {
           const y = vToY(a.price, a.pane);
           if (y === null) continue;
           ctx.setLineDash(a.strength === "weak" ? [2, 4] : [7, 4]);
@@ -386,7 +458,9 @@ const Scene = (() => {
                         dash: prim.dash ?? [7, 4], fillAlpha: 0.12 }, e);
             if (!anchor) anchor = px;
           }
-          if (a.label && anchor) {
+          // a position paints its own pills and centre chip — the generic
+          // label chip would duplicate them
+          if (a.label && anchor && a.kind !== "position") {
             const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
             const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
             chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);
@@ -444,6 +518,30 @@ const Scene = (() => {
     // ── interaction ─────────────────────────────────────
     // Resolved against the pane the pointer is in, never the chart as one
     // surface: an annotation in the RSI pane is only hittable from there.
+    /** True when the pointer is over the PLOT, not the price or time axis.
+     *  A level, a zone or a position leg spans the full plot width, so a
+     *  press on the price scale — the rescale gesture — landed on whichever
+     *  line shared that y and dragged it, silently re-writing a plan's stop
+     *  and target and stamping it "user-adjusted". The axes belong to the
+     *  chart; only the plot belongs to the annotations. */
+    /** Plot width in pane-local pixels — what render() is handed as `w`.
+     *  hitAt needs the same number to know where the volume histogram is. */
+    function plotW() {
+      const r = env.container.getBoundingClientRect();
+      let axisW = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* pre-layout */ }
+      return r.width - axisW;
+    }
+
+    function inPlot(e) {
+      const r = env.container.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      let axisW = 0, axisH = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* pre-layout */ }
+      try { axisH = chart.timeScale().height(); } catch { /* pre-layout */ }
+      return x >= 0 && x < r.width - axisW && y >= 0 && y < r.height - axisH;
+    }
+
     const pointIn = (e) => {
       const key = env.paneAt ? env.paneAt(e.clientY) : "price";
       const r = env.container.getBoundingClientRect();
@@ -459,6 +557,7 @@ const Scene = (() => {
         const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
         return y1 === null || y2 === null ? null : (y1 + y2) / 2;
       }
+      if (a.kind === "vprofile") return vToY(a.poc, a.pane);
       return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
     }
 
@@ -470,7 +569,7 @@ const Scene = (() => {
       // the hover.
       if (e.target && e.target.closest && e.target.closest(".scene-chip")) return;
       const p = pointIn(e);
-      const a = hitAt(p.y, p.key, p.x);
+      const a = inPlot(e) ? hitAt(p.y, p.key, p.x) : null;
       const id = a ? a.id : null;
       if (id !== state.hover) {
         state.hover = id;
@@ -479,8 +578,115 @@ const Scene = (() => {
       }
     });
 
+    // ── manual adjustment ───────────────────────────────
+    // Chat drawings are draggable like the user's own shapes: the whole
+    // shape translates, and a position's entry/stop/target lines move one
+    // at a time. The id never changes; `adjusted: true` marks the geometry
+    // as the USER'S revision — the backend reads these values from the
+    // chart context, so a moved plan re-prices as it now stands.
+    let drag = null;
+    let swallowClick = false;   // a drag-release is not a select
+    const setScroll = (on) => chart.applyOptions({ handleScroll: on, handleScale: on });
+    const priceAt = (y, key) => {
+      const p = paneFor(key);
+      return p ? p.series.coordinateToPrice(y) : null;
+    };
+    const r2 = (v) => Math.round(v * 100) / 100;
+
+    function positionHandle(a, my, key) {
+      const near = (v) => {
+        const y = vToY(v, key);
+        return y !== null && Math.abs(my - y) < HIT + 2;
+      };
+      if (near(a.entry)) return { k: "entry" };
+      if (near(a.stop)) return { k: "stop" };
+      for (let i = 0; i < (a.targets || []).length; i++) {
+        if (near(a.targets[i])) return { k: "target", i };
+      }
+      return null;
+    }
+
+    function applyDelta(a, o, dv, dt, h) {
+      const mv = (p, q) => { p.v = r2(q.v + dv); p.t = q.t + dt; };
+      switch (a.kind) {
+        case "level": a.price = r2(o.price + dv); break;
+        case "zone": a.lo = r2(o.lo + dv); a.hi = r2(o.hi + dv); break;
+        case "segment": case "fib": mv(a.p1, o.p1); mv(a.p2, o.p2); break;
+        case "box": mv(a.a, o.a); mv(a.b, o.b); break;
+        case "vline": a.t = o.t + dt; break;
+        case "point": mv(a.a, o.a); break;
+        case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
+        case "position":
+          if (h && h.k === "entry") a.entry = r2(o.entry + dv);
+          else if (h && h.k === "stop") a.stop = r2(o.stop + dv);
+          else if (h && h.k === "target") {
+            a.targets = o.targets.map((t, i) => (i === h.i ? r2(t + dv) : t));
+          } else {
+            a.entry = r2(o.entry + dv); a.stop = r2(o.stop + dv);
+            a.targets = o.targets.map((t) => r2(t + dv));
+            a.t0 = o.t0 + dt; a.t1 = o.t1 + dt;
+          }
+          break;
+      }
+    }
+
+    // sizing that no longer matches the moved geometry is recomputed where
+    // the arithmetic is unambiguous (rr, qty from the kept risk budget) and
+    // DROPPED where it is not (pnl depends on the server-side split)
+    function refreshDerived(a) {
+      if (a.kind !== "position") return;
+      const risk = Math.abs(a.entry - a.stop);
+      a.rr = risk && a.targets.length
+        ? r2(Math.abs(a.targets[0] - a.entry) / risk) : null;
+      if (a.risk_amount && risk) a.qty = Math.floor(a.risk_amount / risk);
+      a.pnl = null;
+      a.label = `${a.side} · R:R ${a.rr ?? "—"}` + (a.qty ? ` · qty ${a.qty}` : "");
+    }
+
+    env.container.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || !env.isCursorMode()) return;
+      if (env.userBusy && env.userBusy()) return;  // a user drawing took this press
+      if (!inPlot(e)) return;      // an axis drag is a rescale, not a move
+      const p = pointIn(e);
+      const a = hitAt(p.y, p.key, p.x);
+      // A computed profile has no geometry the user owns — dragging it would
+      // mean nothing and would stamp it "adjusted", so it is hoverable but
+      // not movable, like markers.
+      if (!a || a.kind === "markers" || a.kind === "vprofile") return;
+      const l0 = chart.timeScale().coordinateToLogical(p.x);
+      drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
+               orig: JSON.parse(JSON.stringify(a)),
+               handle: a.kind === "position" ? positionHandle(a, p.y, p.key) : null };
+      setScroll(false); e.preventDefault();
+    });
+    env.container.addEventListener("mousemove", (e) => {
+      if (!drag) return;
+      const p = pointIn(e);
+      const v1 = priceAt(env.yIn(e.clientY, drag.key), drag.key);
+      const l1 = chart.timeScale().coordinateToLogical(p.x);
+      if (v1 === null || drag.v0 === null) return;
+      const sec = env.getIntervalSec ? env.getIntervalSec() : 60;
+      const dt = (l1 !== null && drag.l0 !== null)
+        ? Math.round((l1 - drag.l0) * sec) : 0;
+      applyDelta(drag.a, drag.orig, v1 - drag.v0, dt, drag.handle);
+      drag.moved = true;
+      _ru();
+    });
+    window.addEventListener("mouseup", () => {
+      if (!drag) return;
+      if (drag.moved && JSON.stringify(drag.a) !== JSON.stringify(drag.orig)) {
+        drag.a.adjusted = true;
+        refreshDerived(drag.a);
+        swallowClick = true;
+        env.onChange(count());   // persists the moved geometry
+      }
+      drag = null; setScroll(true);
+    });
+
     env.container.addEventListener("click", (e) => {
       if (!env.isCursorMode()) return;
+      if (swallowClick) { swallowClick = false; return; }
+      if (!inPlot(e)) return;      // nor does an axis click select a shape
       const p = pointIn(e);
       const hit = hitAt(p.y, p.key, p.x);
       if (hit) {
@@ -489,7 +695,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile"]);
 
     return {
       state,

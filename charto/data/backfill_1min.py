@@ -26,7 +26,14 @@ from backend.kite.auth import (                                # noqa: E402
 from backend.kite.historical import _resolve_instrument_token  # noqa: E402
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
-FLOOR = datetime(2015, 2, 2, tzinfo=timezone.utc)   # measured Kite 1-min floor
+# Kite's client formats a datetime as a bare "%Y-%m-%d %H:%M:%S" string and
+# DROPS tzinfo, so the server reads whatever fields it is given as IST. A UTC
+# `now` therefore asks for "up to 13:13" and Kite hears 13:13 IST, silently
+# truncating exactly 5:30 of the current session. Measured 2026-08-03 on
+# GOLD: UTC bound -> 254 bars ending 13:13, IST bound -> 584 ending 18:43.
+# It never showed on old history because those windows end in the past.
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+FLOOR = datetime(2015, 2, 2, tzinfo=IST_TZ)   # measured Kite 1-min floor
 WINDOW_DAYS = 55                                     # cap is 60; stay safe
 WORKERS = 3                                          # measured sweet spot
 
@@ -53,7 +60,7 @@ def main(symbol: str) -> None:
         raise SystemExit(f"could not resolve instrument token for {symbol}")
     print(f"{symbol}: instrument_token={instrument}")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(IST_TZ)
     windows: list[tuple[datetime, datetime]] = []
     start = FLOOR
     while start < now:

@@ -7,9 +7,23 @@
 
 (function () {
   const LWC = window.LightweightCharts;
-  const API = "http://127.0.0.1:5174";
-  const IST = 19800;
-  const SYMBOL = "RELIANCE";
+  // Same-origin when deployed behind a proxy, explicit port in local dev.
+  // A hardcoded 127.0.0.1 works on a laptop and breaks the moment the page is
+  // served from anywhere else — the browser dials the VIEWER's machine, so
+  // every request fails with a connection error that looks like a dead server.
+  const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
+  const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
+  // Pivot's stock page, copied into charto/web and served by `next dev`
+  // there (see charto/web/README). Company links open it directly.
+  const COMPANY_PAGE = "http://localhost:5175";
+
+  // Per-symbol: +05:30 for Indian instruments, 0 for crypto (whose bars the
+  // dataserver folds on UTC midnight). Every `+ IST` / `- IST` below is a
+  // shift between raw exchange time and chart time, so this one binding
+  // switches the whole axis.
+  const IST = Sym.tz;
+  const SYMBOL = (new URLSearchParams(location.search).get("symbol")
+                  || "RELIANCE").toUpperCase();
   const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
 
@@ -24,6 +38,8 @@
     bars: [],          // chart-time bars {time,open,high,low,close,volume}
     hasMore: true,
     loadingOlder: false,
+    switching: false,  // interval switch in flight — stream events wait it out
+    vp: null,          // active volume-profile window, in sessions
   };
 
   // ── chart ─────────────────────────────────────────────
@@ -46,8 +62,29 @@
   }
 
   const T0 = chartTheme();
+  /* The price axis sizes itself to its WIDEST label, so a six-figure
+   * instrument spends ~90px of a 414px phone on "80000.00" — a fifth of the
+   * chart, to say a number nobody reads to the last paisa at that scale.
+   * Narrow screens get a compact label: 80.0k, 1.24M. Desktop keeps the full
+   * figure, because there the width costs nothing and precision is free.
+   * The crosshair label and the OHLC readout are untouched — the exact price
+   * is still one tap away, it just stops paying rent on the axis. */
+  const compactPrice = (v) => {
+    const a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (a >= 1e4) return (v / 1e3).toFixed(1) + "k";
+    if (a >= 100) return v.toFixed(0);
+    if (a >= 1) return v.toFixed(2);
+    return v.toPrecision(3);
+  };
+  const SMALL = "(max-width: 820px), (max-height: 520px)";
+  const narrow = () => window.matchMedia(SMALL).matches;
+  const priceLocale = () => (narrow()
+    ? { priceFormatter: compactPrice } : {});
+
   const chart = LWC.createChart(chartEl, {
     ...T0,
+    localization: { ...(T0.localization || {}), ...priceLocale() },
     layout: { ...T0.layout, fontFamily: CHART_FONT, fontSize: 12 },
     rightPriceScale: { ...T0.rightPriceScale, scaleMargins: { top: 0.06, bottom: 0.22 } },
     timeScale: { ...T0.timeScale, timeVisible: true, secondsVisible: false, rightOffset: 5 },
@@ -96,6 +133,7 @@
     state.interval = interval;
     setOverlay(true, "Loading…");
     const t0 = performance.now();
+    state.switching = true;   // latch: stream events must not touch the old series mid-switch
     try {
       const { bars, hasMore } = await fetchBars(interval, null, PAGE[interval]);
       state.bars = bars; state.hasMore = hasMore;
@@ -109,13 +147,15 @@
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
       el("barsLine").textContent = `${bars.length.toLocaleString()} × ${interval}`;
-      status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ₹${lastBar.close}`);
+      status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ${Sym.price(lastBar.close)}`);
       setOverlay(false);
       // drawings live in time, not in any one interval — make sure the new
       // interval's data actually reaches back to what is on the chart
       coverScene();
     } catch (e) {
       setOverlay(true, String(e.message || e), true);
+    } finally {
+      state.switching = false;
     }
   }
 
@@ -182,25 +222,139 @@
     if (got) status(`loaded ${got} older bars (total ${state.bars.length})`);
   });
 
+  // ── live stream ───────────────────────────────────────
+  // One EventSource for the whole session: every event carries the forming bar
+  // of every interval, so switching interval needs no new stream. The browser
+  // reconnects on its own.
+  let indTimer = null, es = null;
+  function openStream() {
+    if (es) return;
+    es = new EventSource(`${API}/stream?symbol=${encodeURIComponent(SYMBOL)}`);
+    es.onmessage = (msg) => {
+      if (state.loadingOlder || state.switching) return;   // bars array is being rewritten
+      let ev;
+      try { ev = JSON.parse(msg.data); } catch { return; }
+      if (!ev || ev.type !== "bar" || !ev.bars) return;
+      const b = ev.bars[state.interval];
+      if (!b) return;                   // 1w/1mo aren't streamed
+      const bar = { time: b.t + IST, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v };
+      const last = state.bars[state.bars.length - 1];
+      if (last && last.time === bar.time) state.bars[state.bars.length - 1] = bar;
+      else if (last && bar.time < last.time) return;   // stale/out-of-order
+      else state.bars.push(bar);
+      candle.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      volume.update({ time: bar.time, value: bar.volume,
+        color: bar.close >= bar.open ? Theme.c("volUp") : Theme.c("volDown") });
+      lastBar = bar;
+      paintReadout(lastBar);
+      // the server owns indicator math — refresh at most once a second, and a
+      // fast stream of closes must not keep pushing the refresh into the future
+      if (ev.closed_1m && !indTimer) {
+        indTimer = setTimeout(() => {
+          indTimer = null;
+          ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length });
+        }, 1000);
+      }
+    };
+    es.onerror = () => status("live stream reconnecting…");
+  }
+
   // ── readout ───────────────────────────────────────────
   let lastBar = null;
+
+  /* The phone's annotation disclosure. The labels are hidden by CSS at this
+   * width; this is the count that brings them back. Built once and updated,
+   * rather than rebuilt per scene change, so tapping it mid-answer does not
+   * lose the open state. */
+  let chipsBtn = null;
+  function syncChipsBtn(n) {
+    const stage = el("stage");
+    if (!stage) return;
+    if (!chipsBtn) {
+      chipsBtn = document.createElement("button");
+      chipsBtn.className = "chips-btn";
+      chipsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        stage.classList.toggle("chips-on");
+      });
+      stage.appendChild(chipsBtn);
+    }
+    chipsBtn.innerHTML = `<span>${n}</span>` + Icons.svg("chevronDown", "xs");
+    chipsBtn.style.display = n ? "" : "none";
+    if (!n) stage.classList.remove("chips-on");
+  }
+
   /** Same legend shape the secondary panes use, so a split shows one chart
    *  twice rather than two differently-labelled ones. */
   function paintTitle() {
-    el("roTitle").innerHTML = `${SYMBOL}<span class="sep">·</span>${state.interval}`
-      + `<span class="sep">·</span><span class="ex">NSE</span>`;
+    // The venue comes from Sym, not a literal: this legend sits directly under
+    // a badge that already reads BYBIT on a Bitcoin chart, and the two saying
+    // different exchanges about the same instrument is worse than either.
+    // The ticker carries the instrument's mark and IS the instrument switch —
+    // the legend is where a chart says what it is, so it is also where a
+    // reader reaches to change it.
+    el("roTitle").innerHTML =
+      `<span class="sym-btn" data-sym-btn title="Change instrument">`
+      + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${SYMBOL}</span>`
+      + `<span class="sep">·</span>${state.interval}`
+      + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
+  }
+  // Delegated once: paintTitle rewrites its own children on every interval
+  // change, and a listener per repaint leaks one per switch.
+  el("roTitle").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sym-btn]");
+    if (!btn) return;
+    e.stopPropagation();
+    Panes.setActive(0);
+    Universe.open({
+      anchor: btn, current: SYMBOL,
+      // A symbol change is a new session — chart, chat, drawings and scene all
+      // re-init against it — so it goes through the same reload the header
+      // pill uses rather than swapping bars under a live conversation.
+      onPick: (s) => { if (s !== SYMBOL) location.search = "?symbol=" + encodeURIComponent(s); },
+    });
+  });
+  // the mark lands after the universe does; repaint once it is known
+  Universe.load().then(() => { if (state.bars.length) paintTitle(); });
+
+  /** Index of the bar at this chart time. Binary search because the readout
+   *  runs on every crosshair move and a linear scan of 4,000 bars per
+   *  mousemove is a scroll stutter nobody can name the cause of. */
+  function barIndexAt(t) {
+    const a = state.bars;
+    let lo = 0, hi = a.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (a[m].time === t) return m;
+      if (a[m].time < t) lo = m + 1; else hi = m - 1;
+    }
+    return -1;
   }
 
   function paintReadout(b) {
     if (!b) { el("roOhlc").innerHTML = ""; return; }
     const cls = b.close >= b.open ? "up" : "down";
-    const f = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const f = (n) => Sym.num(n);
+    // What the candle DID, which is the thing a reader is actually after and
+    // the one number five OHLC figures never quite say. Measured against the
+    // PREVIOUS bar's close — the same base every terminal means by a bar's
+    // change — so it accounts for the gap, unlike close-minus-open.
+    let chg = "";
+    const i = barIndexAt(b.time);
+    const prev = i > 0 ? state.bars[i - 1] : null;
+    if (prev && prev.close) {
+      const d = b.close - prev.close;
+      const sign = d >= 0 ? "+" : "-";
+      chg = `<span class="chg ${d >= 0 ? "up" : "down"}">`
+        + `${sign}${f(Math.abs(d))} (${sign}${Math.abs(d / prev.close * 100)
+          .toFixed(2)}%)</span>`;
+    }
     el("roOhlc").innerHTML =
       `<span>O <b class="${cls}">${f(b.open)}</b></span>` +
       `<span>H <b class="${cls}">${f(b.high)}</b></span>` +
       `<span>L <b class="${cls}">${f(b.low)}</b></span>` +
       `<span>C <b class="${cls}">${f(b.close)}</b></span>` +
-      `<span>V <b class="${cls}">${f(b.volume)}</b></span>`;
+      `<span>V <b class="${cls}">${f(b.volume)}</b></span>` + chg;
   }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
@@ -220,16 +374,42 @@
   const ind = Indicators.createManager(chart);
   const menu = el("indMenu");
 
+  /* ONE toolbar, aimed at whichever pane is selected — the same rule the
+   * interval strip already follows. `ind` stays the PRIMARY chart's manager
+   * (the scene layer, the chat envelope and the drawing panes are all bound
+   * to it); everything the header operates goes through IND(), which is the
+   * selected pane's own manager when a secondary chart holds the selection.
+   * A gear opened on a secondary pane therefore edits that pane's copy. */
+  const IND = () => Panes.activeInd() || ind;
+
   el("indBtn").innerHTML =
     Icons.svg("indicators", "sm") + "Indicators" + Icons.svg("chevronDown", "chev");
 
+  /* Volume profile is a STUDY, not a line series: it has no per-bar value to
+   * plot, so it never enters the indicator CATALOG and gets its own section.
+   * The only knob offered is the WINDOW. Row height is deliberately not a
+   * user setting — it is derived from the measured smear of the 1-minute
+   * bars, and letting someone dial it finer is exactly the fake precision
+   * the tool exists to refuse. */
+  const VP_WINDOWS = [
+    { n: 1, label: "Session" }, { n: 5, label: "5 sessions" },
+    { n: 20, label: "20 sessions" }, { n: 60, label: "60 sessions" },
+  ];
+
   function renderIndMenu() {
+    const m = IND();
     menu.innerHTML = '<div class="head">Overlays</div>' +
-      ind.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
+      m.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
       '<div class="sep"></div><div class="head">Panes</div>' +
-      ind.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("");
+      m.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("") +
+      '<div class="sep"></div><div class="head">Volume profile</div>' +
+      VP_WINDOWS.map((v) => {
+        const on = state.vp === v.n;
+        return `<div class="item ${on ? "on" : ""}" data-vp="${v.n}">` +
+          `<span>${v.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
+      }).join("");
     function itemHTML(c) {
-      const on = ind.isActive(c.id);
+      const on = m.isActive(c.id);
       return `<div class="item ${on ? "on" : ""}" data-ind="${c.id}">` +
         `<span>${c.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
     }
@@ -239,13 +419,24 @@
    *  about an indicator is behind the gear now — the old click-the-label
    *  period box could change one number out of the eight the dialog owns. */
   function renderChips() {
-    el("indChips").innerHTML = [...ind.active.keys()].map((id) => {
-      const c = ind.CATALOG.find((q) => q.id === id);
-      const hidden = ind.isHidden(id);
-      const off = !hidden && ind.offInterval(id);
+    const m = IND();
+    el("indChips").innerHTML = [...m.active.keys()].map((id) => {
+      const c = m.CATALOG.find((q) => q.id === id);
+      const hidden = m.isHidden(id);
+      const off = !hidden && m.offInterval(id);
       const cls = hidden ? " muted" : (off ? " off" : "");
+      // The chip's own colour, as a short LINE rather than a dot: it stands
+      // for a line on the chart, and now that two SMAs no longer share a
+      // colour the swatch is what maps a chip to the curve it drew.
+      const st = m.settings(id);
+      const plots = (st && st.style && st.style.plots) || {};
+      const swatch = Object.entries(plots)
+        .find(([k, v]) => v && v.visible !== false && k !== "histogram")
+        || Object.entries(plots)[0];
+      const dash = swatch
+        ? `<i class="swatch" style="background:${swatch[1].color}"></i>` : "";
       return `<span class="chip${cls}" data-ind-chip="${id}">` +
-        `<span class="lbl">${c.label}</span>` +
+        `${dash}<span class="lbl">${c.label}</span>` +
         `<span class="acts">` +
         `<span class="act${hidden ? " pinned" : ""}" data-eye="${id}" ` +
           `title="${hidden ? "Show" : "Hide"}">${Icons.svg(hidden ? "eyeOff" : "eye")}</span>` +
@@ -254,16 +445,22 @@
         `</span></span>`;
     }).join("");
     // the chips ARE the active set, so this is the one honest save point —
-    // it catches the menu, the chip's x, and anything the chat adds
-    Store.set("indicators", [...ind.active.keys()]);
+    // it catches the menu, the chip's x, and anything the chat adds. Only the
+    // PRIMARY's set is persisted: a secondary pane is created by the layout
+    // and dies with it, so restoring indicators onto one would be restoring
+    // them onto a different chart than the one they were added to.
+    if (Panes.primaryActive) Store.set("indicators", [...ind.active.keys()]);
     if (window.__chartoSyncChips) window.__chartoSyncChips();
   }
 
   /** Open the settings dialog on one indicator. Every edit inside it applies
    *  live and persists itself; all this has to do is keep the chips honest. */
   function openIndSettings(id) {
-    IndSettings.open(ind, id, {
-      subtitle: `${SYMBOL} · ${state.interval}`,
+    const m = IND();
+    IndSettings.open(m, id, {
+      // the subtitle names the chart being edited, which on a split is not
+      // necessarily the page's own symbol or interval
+      subtitle: `${m.symbol} · ${m.interval}`,
       onChange: () => {
         renderChips();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
@@ -276,20 +473,75 @@
     closeMenus(menu);
     menu.classList.toggle("open");
   });
+  /** Add, re-window or remove the profile. One at a time: a second window
+   *  over the same prices is two histograms in one strip, unreadable and
+   *  meaningless — so picking a new window REPLACES, and picking the active
+   *  one clears. */
+  async function setVolumeProfile(n) {
+    if (!n) {
+      state.vp = null;
+      Store.set("vp", null);
+      scene.apply([{ kind: "clear", scope: "vprofile", owner: "volume_profile" }]);
+      renderIndMenu();
+      status("volume profile removed");
+      return;
+    }
+    status(`volume profile · ${n} session${n > 1 ? "s" : ""}…`);
+    const r = await fetch(`${API}/volume_profile?symbol=${encodeURIComponent(SYMBOL)}`
+      + `&lookback_sessions=${n}`);
+    const d = await r.json();
+    if (!r.ok) {
+      // an instrument with no volume is a REFUSAL, not a failure: leave the
+      // menu unticked and say why, the same way a volume indicator does
+      state.vp = null; renderIndMenu();
+      status((d.error || "volume profile unavailable")
+        + (d.hint ? ` — ${d.hint}` : ""));
+      return;
+    }
+    state.vp = n;
+    Store.set("vp", n);
+    // provenance, so the badge can tell who put this here
+    scene.apply(d.scene.map((a) => (a.kind === "vprofile"
+      ? { ...a, manual: true } : a)));
+    renderIndMenu();
+    const q = d.resolution;
+    status(`volume profile · ${d.window.sessions} session(s), `
+      + `${d.window.minute_bars.toLocaleString()} 1-min bars · `
+      + `${q.rows} rows of ${q.row_height} · POC ${d.point_of_control}`
+      + (q.capped ? ` · capped from ${q.requested_rows}` : ""));
+  }
+
   menu.addEventListener("click", (e) => {
     e.stopPropagation(); // keep the dropdown open for multi-select
+    const vp = e.target.closest("[data-vp]");
+    if (vp) {
+      const n = Number(vp.dataset.vp);
+      setVolumeProfile(state.vp === n ? null : n)
+        .catch((err) => status(`volume profile failed: ${err.message}`));
+      return;
+    }
     const it = e.target.closest("[data-ind]");
     if (!it) return;
     const id = it.dataset.ind;
-    const def = ind.CATALOG.find((q) => q.id === id);
-    if (def.intradayOnly && ["1d", "1w", "1mo"].includes(state.interval) && !ind.isActive(id)) {
+    const m = IND();
+    const def = m.CATALOG.find((q) => q.id === id);
+    const iv = Panes.primaryActive ? state.interval : m.interval;
+    if (def.intradayOnly && ["1d", "1w", "1mo", "D", "W", "M"].includes(iv) && !m.isActive(id)) {
       status("VWAP is session-anchored — switch to an intraday interval");
       return;
     }
-    Promise.resolve(ind.toggle(id, state.bars))
+    Promise.resolve(m.toggle(id, state.bars))
       .then(() => { renderIndMenu(); renderChips(); })
-      .catch((err) => status(`could not add ${def.label}: ${err.message}`));
-    renderIndMenu(); renderChips();
+      // the failure path MUST re-render too. The optimistic pass below draws
+      // the chip and the tick while the fetch is still in flight; without a
+      // re-render here a refused indicator (a volume study on an index, which
+      // has no volume to compute from) stayed checked in the menu and kept a
+      // chip in the toolbar, reading as active over a pane that never drew.
+      .catch((err) => {
+        renderIndMenu(); renderChips();
+        status(`could not add ${def.label}: ${err.message}`);
+      });
+    renderIndMenu(); renderChips();   // optimistic: chip appears immediately
   });
   // ── the chip strip scrolls sideways ───────────────────
   // Three ways in, because a strip that silently continues past its edge is
@@ -374,10 +626,11 @@
   })();
 
   el("indChips").addEventListener("click", (e) => {
+    const m = IND();
     const eye = e.target.closest("[data-eye]");
     if (eye) {
       e.stopPropagation();
-      ind.setHidden(eye.dataset.eye, !ind.isHidden(eye.dataset.eye));
+      m.setHidden(eye.dataset.eye, !m.isHidden(eye.dataset.eye));
       renderChips();
       return;
     }
@@ -389,7 +642,7 @@
     }
     const x = e.target.closest("[data-rm]");
     if (x) {
-      ind.remove(x.dataset.rm);
+      m.remove(x.dataset.rm);
       renderChips();
       // the shared signal every other removal path sends — without it the
       // orphan purge and pane sync never hear about the chip's ×
@@ -434,6 +687,11 @@
     if (Panes.setIntervalOnActive(b.dataset.iv)) return markInterval(b.dataset.iv);
     selectInterval(b.dataset.iv);
     loadInterval(b.dataset.iv);
+    // the chat's subject chip carries the interval too, and this is the one
+    // path that changes the primary's without a pane selection
+    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+      detail: { pane: 0, symbol: SYMBOL, interval: b.dataset.iv },
+    }));
   });
 
   /** Paint the segmented control without claiming it as the primary's state. */
@@ -623,7 +881,7 @@
       const blob = new Blob([draw.exportJSON()], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "charto_drawings_RELIANCE.json";
+      a.download = `charto_drawings_${SYMBOL}.json`;
       a.click();
       return;
     }
@@ -741,17 +999,24 @@
   }
   const r2 = (n) => Math.round(n * 100) / 100;
 
-  function getChartContext() {
-    const bars = state.bars;
-    if (!bars.length) return { status: "loading", symbol: SYMBOL, interval: state.interval };
-    const withTime = !DAILY.has(state.interval);
+  /** Everything in the envelope that is true of ANY chart: the instrument,
+   *  what is visible, the last bar and the window's own statistics. The
+   *  primary adds its drawings, indicators and pins on top of this; a
+   *  secondary pane has none of those and must not borrow the primary's.
+   *  Returns null when there is nothing loaded yet to describe. */
+  function windowEnvelope(bars, chartObj, symName, interval, hasMore) {
+    if (!bars.length) return null;
+    const d = Sym.of(symName);
+    // a secondary pane spells daily intervals D/W/M; both vocabularies mean
+    // "no wall clock on this bar"
+    const withTime = !DAILY.has(interval) && !["D", "W", "M"].includes(interval);
     const T = (t) => fmtIST(t, withTime);
 
-    const lr = chart.timeScale().getVisibleLogicalRange();
+    const lr = chartObj.timeScale().getVisibleLogicalRange();
     const lo = Math.max(0, Math.floor(lr ? lr.from : 0));
     const hi = Math.min(bars.length - 1, Math.ceil(lr ? lr.to : bars.length - 1));
     const vis = bars.slice(lo, hi + 1);
-    if (!vis.length) return { status: "loading", symbol: SYMBOL, interval: state.interval };
+    if (!vis.length) return null;
 
     let hp = -Infinity, ht = 0, lp = Infinity, lt = 0, vsum = 0;
     for (const b of vis) {
@@ -782,6 +1047,96 @@
       }
     }
 
+    return { T, withTime, vis, first, last, env: {
+      symbol: d.name, exchange: d.venue,
+      source: `local 1-min store (${d.feed})`,
+      interval,
+      view: {
+        from: T(first.time), to: T(last.time),
+        bars_visible: vis.length, bars_loaded: bars.length,
+        history_from: "2015-02-02", more_history: !!hasMore,
+      },
+      last_bar: {
+        t: T(last.time), o: r2(last.open), h: r2(last.high),
+        l: r2(last.low), c: r2(last.close), v: last.volume,
+      },
+      session,
+      window: {
+        open: r2(first.open), close: r2(last.close),
+        change_pct: r2((last.close - first.open) / first.open * 100),
+        high: { p: r2(hp), t: T(ht) }, low: { p: r2(lp), t: T(lt) },
+        avg_volume: Math.round(vsum / vis.length),
+        trajectory: traj,
+      },
+    } };
+  }
+
+  /** Every chart on screen, primary first — the choices the chat offers and
+   *  what it sends when more than one is chosen. */
+  function chartList() {
+    return [{ pane: 0, symbol: SYMBOL, interval: state.interval,
+              bars: state.bars.length, primary: true }]
+      .concat(Panes.subsInfo());
+  }
+
+  /** `pane` is optional: omit it and the envelope describes whichever chart is
+   *  selected; pass an index and it describes that one (the chat pins a pane
+   *  so the subject it NAMES and the chart it SENDS cannot drift apart); pass
+   *  an ARRAY and the envelope carries all of them — the first that resolves
+   *  is the focused chart and the rest ride in `charts[]`.
+   *
+   *  Several charts are not a different kind of envelope: each entry is built
+   *  by exactly the same code that builds a lone one, so nothing downstream
+   *  needs a comparison mode to read them. An index the layout no longer has
+   *  falls back to the primary. */
+  function getChartContext(pane) {
+    if (Array.isArray(pane)) {
+      /* The FOCUSED chart is the primary whenever it is among the chosen: it
+       * is the only one carrying drawings, the chat's own annotations and the
+       * pinned bars, so making anything else the head would silently drop
+       * them from the turn. */
+      const idx = [...new Set(pane)].filter((i) => Panes.hasPane(i));
+      if (!idx.length) return getChartContext();
+      const head = idx.includes(0) ? 0 : idx[0];
+      const built = [head, ...idx.filter((i) => i !== head)]
+        .map((i) => getChartContext(i))
+        .filter((c) => c && c.symbol && !c.status);
+      if (!built.length) return getChartContext(head);
+      // one chart chosen is one chart sent — the envelope stays exactly what
+      // it has always been rather than growing a one-element list
+      return built.length === 1 ? built[0] : { ...built[0], charts: built };
+    }
+    /* The chart the user last clicked is the chart being discussed. A
+     * secondary pane carries its own instrument, interval and indicators, so
+     * it can answer for itself — but it holds no drawings, no scene and no
+     * pins, and the envelope says which chart this is instead of quietly
+     * sending the primary's annotations attached to another pane's prices. */
+    const sub = pane == null ? Panes.activeSub() : Panes.paneAt(pane);
+    if (sub) {
+      const w = windowEnvelope(sub.bars, sub.chart, sub.symbol, sub.interval, false);
+      if (!w) return { status: "loading", symbol: sub.symbol, interval: sub.interval };
+      return {
+        ...w.env,
+        // The backend renders `source` verbatim on the envelope's header line,
+        // so the pane's nature is said where the model will actually read it —
+        // a key it does not render would have been a note to nobody.
+        source: `${w.env.source} · secondary pane — drawings, chat annotations `
+          + `and pinned bars live on the main chart, not this one`,
+        // and the tools enforce it: a reference pane has no drawing layer, so
+        // "drawn" must never be said about one
+        drawable: false,
+        indicators: sub.ind.snapshot(w.first.time).map((x) => ({
+          label: x.label, now: r2(x.now),
+          at_window_start: x.at === null ? null : r2(x.at),
+        })),
+      };
+    }
+
+    const bars = state.bars;
+    const w0 = windowEnvelope(bars, chart, SYMBOL, state.interval, state.hasMore);
+    if (!w0) return { status: "loading", symbol: SYMBOL, interval: state.interval };
+    const { T, first } = w0;
+
     // A drawing's numbers only mean "rupees" on the price pane. On an
     // indicator pane they are that indicator's units, so the pane has to
     // travel with the drawing or 62 on RSI reads as ₹62.
@@ -799,31 +1154,32 @@
       };
     });
 
+    // Chat-drawn annotations, CURRENT geometry — the user can drag these,
+    // so the backend must read them from here, not from what it drew
+    const chat_drawings = scene.state.items.slice(0, 20).map((a) => {
+      const g = a.kind === "level" ? { price: r2(a.price) }
+        : a.kind === "zone" ? { lo: r2(a.lo), hi: r2(a.hi) }
+        : (a.kind === "segment" || a.kind === "fib")
+          ? { p1: { t: T(a.p1.t), p: r2(a.p1.v) }, p2: { t: T(a.p2.t), p: r2(a.p2.v) } }
+        : a.kind === "box"
+          ? { a: { t: T(a.a.t), p: r2(a.a.v) }, b: { t: T(a.b.t), p: r2(a.b.v) } }
+        : a.kind === "position"
+          ? { side: a.side, entry: r2(a.entry), stop: r2(a.stop),
+              targets: (a.targets || []).map(r2), qty: a.qty || undefined,
+              risk_amount: a.risk_amount || undefined }
+        : null;
+      return g && { id: a.id, kind: a.kind, on: paneLabel(a.pane),
+                    label: a.label || undefined,
+                    adjusted: a.adjusted || undefined, ...g };
+    }).filter(Boolean);
+
     return {
-      symbol: SYMBOL, exchange: "NSE",
-      source: "local 1-min store (Kite-sourced)",
-      interval: state.interval,
-      view: {
-        from: T(first.time), to: T(last.time),
-        bars_visible: vis.length, bars_loaded: bars.length,
-        history_from: "2015-02-02", more_history: state.hasMore,
-      },
-      last_bar: {
-        t: T(last.time), o: r2(last.open), h: r2(last.high),
-        l: r2(last.low), c: r2(last.close), v: last.volume,
-      },
-      session,
-      window: {
-        open: r2(first.open), close: r2(last.close),
-        change_pct: r2((last.close - first.open) / first.open * 100),
-        high: { p: r2(hp), t: T(ht) }, low: { p: r2(lp), t: T(lt) },
-        avg_volume: Math.round(vsum / vis.length),
-        trajectory: traj,
-      },
+      ...w0.env,
       indicators: ind.snapshot(first.time).map((x) => ({
         label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
       })),
       drawings,
+      chat_drawings: chat_drawings.length ? chat_drawings : undefined,
       drawings_omitted: Math.max(0, draw.state.drawings.length - 15) || undefined,
       // A pin carries the interval it was taken on, so it is stamped and
       // formatted by ITS OWN bar size — a daily pin printed as "09:15" while
@@ -871,8 +1227,23 @@
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     onChange: (n) => {
+      syncChipsBtn(n);
       const badge = el("sceneCount"), clear = el("sceneClear");
-      badge.textContent = n ? `${n} drawn by chat` : "";
+      // The scene is no longer chat's alone — the Indicators menu puts a
+      // volume profile on it too. Crediting chat for something the user
+      // added themselves is a small lie the badge does not need to tell.
+      const manual = (scene.state.items || []).some((x) => x.manual);
+      badge.textContent = n ? `${n} ${manual ? "on chart" : "drawn by chat"}` : "";
+      // Chat owns the same overlay the menu does, and it can replace or clear
+      // a profile the menu put there. Whichever window the menu last ticked is
+      // then a claim about a histogram that is no longer on screen, so the
+      // tick is dropped the moment the drawn profile stops being the menu's.
+      if (state.vp) {
+        const vp = (scene.state.items || []).find((x) => x.kind === "vprofile");
+        if (!vp || !vp.manual) {
+          state.vp = null; Store.set("vp", null); renderIndMenu();
+        }
+      }
       badge.style.display = n ? "" : "none";
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
@@ -883,7 +1254,8 @@
       const s = (a && a.source) || {};
       el("drawStatus").textContent = a
         ? [a.label, s.strength, s.last_touch && `last ${s.last_touch}`,
-           s.method, s.bars_scanned && `${s.bars_scanned} ${s.interval || ""} bars`]
+           s.method, s.bars_scanned && `${s.bars_scanned} ${s.interval || ""} bars`,
+           a.adjusted && "user-adjusted"]
             .filter(Boolean).join(" · ")
         : "";
       // Hovering an annotation answers two questions at once: WHAT is this
@@ -944,6 +1316,10 @@
       }
     },
     isCursorMode: () => draw.state.tool === "cursor",
+    // drawings.js's mousedown runs first (attached earlier); if it took the
+    // press — drag, handle, or a click spent deselecting — the scene must
+    // not also start a drag under it
+    userBusy: () => draw.state.consumedDown || draw.state.draft !== null,
     // Clicking an annotation opens nothing: the hover card already showed
     // everything, and a click-card was a second surface saying the same
     // thing. Clicking still lands on the chart for the candle-pin path.
@@ -1022,7 +1398,7 @@
     const s = a.source || {};
     const row = (k, v) => (v ? `<dt>${k}</dt><dd>${v}</dd>` : "");
     const num = (n) => (Number.isFinite(Number(n))
-      ? Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2 }) : null);
+      ? Sym.num(n, { minimumFractionDigits: 2 }) : null);
     // join only the parts that exist, so one missing half never poisons a row
     const dot = (...p) => p.filter((x) => x != null && x !== "").join(" · ");
     // Detector enums arrive snake_cased ("not_assessed"); the card is prose,
@@ -1235,8 +1611,11 @@
     const price = (v) => {
       const n = Number(v);
       if (!Number.isFinite(n)) return;
-      out.push(n.toLocaleString("en-IN", { minimumFractionDigits: 2 }));
-      out.push(n.toLocaleString("en-IN", { minimumFractionDigits: 1 }));
+      // these strings are searched for inside the chat text, so they must be
+      // formatted exactly as the reply formatted them — i.e. on the symbol's
+      // locale, not always India's
+      out.push(Sym.num(n, { minimumFractionDigits: 2 }));
+      out.push(Sym.num(n, { minimumFractionDigits: 1 }));
     };
     if (!out.length) {
       if (a.kind === "level") price(a.price);
@@ -1365,7 +1744,7 @@
     // Two decimals, like every other price in the app. Raw drawing geometry
     // carries a third ("1,268.091"), which reads as a precision the anchor
     // does not have — you dragged it there.
-    const num = (n) => Number(n).toLocaleString("en-IN",
+    const num = (n) => Sym.num(n,
       { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const g = draw.geometryOf(d.id) || { pts: [] };
     const unit = d.pane && d.pane !== "price"
@@ -1608,9 +1987,25 @@
     paintLayoutBtn();
     Store.set("layout", Panes.layout);
   });
-  // Selecting a pane re-aims the toolbar: the segmented control shows that
-  // pane's interval, so the control never claims a value it isn't driving.
-  Panes.onActive((_i, iv) => markInterval(iv || state.interval));
+  // Selecting a pane re-aims the WHOLE toolbar: the segmented control shows
+  // that pane's interval and the indicator menu and chips show what that pane
+  // is carrying, so neither ever claims a value it isn't driving. The chat is
+  // told too — `charto:pane-active` is what moves its subject to the chart you
+  // just clicked (unless you have pinned one yourself).
+  Panes.onActive((i, iv, sym) => {
+    markInterval(iv || state.interval);
+    renderChips();
+    if (menu.classList.contains("open")) renderIndMenu();
+    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+      detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
+    }));
+    // a pane's symbol or interval may have moved with the selection
+    document.dispatchEvent(new CustomEvent("charto:panes-changed"));
+  });
+  // A layout change creates and destroys charts, so anything holding a pane
+  // index — the chat's chosen set above all — has to be told the screen is
+  // different now.
+  Panes.onChange(() => document.dispatchEvent(new CustomEvent("charto:panes-changed")));
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
 
@@ -1647,11 +2042,20 @@
         time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
       })));
       ind.retheme(state.bars);
+      // retheme repaints the LINES; the chips carry their own copy of the
+      // colour, baked in at render time. Without this the swatch kept the
+      // other theme's palette — dark goldenrod on a near-black chip, which
+      // reads as a dead grey dash rather than "this is the gold line".
+      renderChips();
     }
     draw.requestUpdate();
     scene.requestUpdate();
   });
   paintThemeBtn();
+
+  window.matchMedia(SMALL).addEventListener("change", () => {
+    chart.applyOptions({ localization: { priceFormatter: narrow() ? compactPrice : undefined } });
+  });
 
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "Chat";
 
@@ -1659,7 +2063,7 @@
   // the view back at the live edge) and put back everything the user built.
   // Drawings restore themselves — drawings.js reads its own store at create().
   (async function boot() {
-    await Indicators.loadCatalogue(API);
+    await Indicators.loadCatalogue(API, SYMBOL);
     ind.setContext({ interval: Store.get("interval", "5m") });
     renderIndMenu();
     // Read the restore list BEFORE the first load. renderChips() is also the
@@ -1701,8 +2105,129 @@
       // so the orphan purge saw an empty scene — signal once more now
       document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
     }
+
+    // A profile is RE-FETCHED rather than restored from the saved scene: a
+    // session that ran since the last visit changes what "20 sessions" means,
+    // and a stale histogram under a fresh tick is the one failure a persisted
+    // overlay can hide. Runs after the scene restore so it replaces, not
+    // duplicates, whatever that put back.
+    const vp = Store.get("vp", null);
+    if (vp) {
+      await setVolumeProfile(Number(vp))
+        .catch((err) => console.error("[charto] volume profile restore", err));
+    }
+
+    openStream();   // only once history is on the chart, so ticks extend it
   })();
 
   // expose for debugging + the chat pane
-  window.__charto = { chart, candle, state, draw, ind, scene, pins, getChartContext };
+  // ── company search — the symbol pill opens the 500-company universe ──
+  // Picking one navigates to ?symbol=X: a full reload is what guarantees a
+  // genuinely fresh session (chart, chat, drawings and scene all re-init
+  // against that symbol's own persisted state). First open of a company
+  // hydrates it server-side from the blob universe (~8 s once).
+  (() => {
+    el("symbolName").textContent = SYMBOL;
+    el("symbolVenue").textContent = Sym.venue;
+    el("srcLine").textContent = `local store · ${Sym.feed}`;
+    paintTitle();
+    document.title = `${SYMBOL} — Charto`;
+    const pill = el("symbolPill"), menu = el("symbolMenu");
+    const input = el("symSearch"), list = el("symList");
+    let all = null, hyd = new Set(), names = {}, shortNames = {}, logos = {};
+    /** The instrument's own mark, on the pill. It sits BEFORE the ticker, the
+     *  same order the search rows and the chat's tables use — one instrument,
+     *  one mark, in one position wherever it is named. */
+    Universe.load().then(() => {
+      const src = Universe.logo(SYMBOL);
+      if (!src || pill.querySelector(".co-logo")) return;
+      const img = document.createElement("img");
+      img.className = "co-logo"; img.src = src; img.alt = ""; img.loading = "lazy";
+      img.onerror = () => img.remove();
+      pill.insertBefore(img, pill.firstChild);
+    });
+    const go = (s) => {
+      if (!s || s === SYMBOL) { menu.classList.remove("open"); return; }
+      pill.style.opacity = "0.6";
+      location.search = "?symbol=" + encodeURIComponent(s);
+    };
+    const render = (query) => {
+      const q = query.trim().toUpperCase();
+      if (all === null) {   // first open: the universe is still in flight, and
+        list.innerHTML =    // "no match" would read as "your query found none"
+          '<div class="item" style="color:var(--faint)">loading companies…</div>';
+        return;
+      }
+      const pool = all || [];
+      // the whole universe renders — 500 rows is nothing, and a cap made
+      // the list look like it "couldn't load more" past the B's
+      // a name search is how people actually look ("laurus", not LAURUSLABS)
+      const hits = q
+        ? pool.filter((s) => s.includes(q)
+                          || (names[s] || "").toUpperCase().includes(q)
+                          || (shortNames[s] || "").toUpperCase().includes(q))
+            .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
+                            || a.localeCompare(b))
+        : pool;
+      list.innerHTML = hits.map((s) =>
+        `<div class="item" data-sym="${s}"><span class="lead">` +
+        (logos[s] ? `<img class="co-logo" src="${logos[s]}" alt="" loading="lazy"
+             onerror="this.remove()"/>` : "") +
+        (hyd.has(s) ? '<span class="dot-h"></span>' : "") +
+        `${s}${names[s] && names[s] !== s
+          ? `<span class="co-name">${names[s]}</span>` : ""}</span>` +
+        (hyd.has(s) ? "" : '<span class="cold">~6s</span>') +
+        // the row opens the chart; this opens the company page, so a search
+        // can end in either surface without a second search
+        `<a class="open-co" target="_blank" rel="noopener" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
+            title="${s} — company page">↗</a>` +
+        "</div>").join("")
+        || '<div class="item" style="color:var(--faint)">no match</div>';
+    };
+    pill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const opening = !menu.classList.contains("open");
+      window.__chartoCloseMenus && window.__chartoCloseMenus();
+      menu.classList.toggle("open", opening);
+      if (!opening) return;
+      // Focus FIRST, and never clear after the fetch. This used to sit after
+      // `await`, so the first open ate every keystroke typed while the 500
+      // symbols were in flight — you clicked, typed, watched the box empty
+      // itself, and only the third attempt (data cached) worked.
+      input.value = ""; render(""); input.focus();
+      if (!all) {
+        // one cache for the whole app — the legend, the pane pickers and the
+        // chat's logo marker all read the same payload
+        const d = await Universe.load();
+        all = d.symbols; hyd = d.hydrated;
+        // show the enrichment long name (the Moneycontrol short name is
+        // wrong for a few rows); still search both
+        names = d.names; shortNames = d.short; logos = d.logos;
+        // re-render against whatever is in the box NOW, not against ""
+        if (menu.classList.contains("open")) render(input.value);
+      }
+    });
+    input.addEventListener("input", () => render(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") go(list.querySelector(".item[data-sym]")?.dataset.sym);
+      if (e.key === "Escape") menu.classList.remove("open");
+    });
+    list.addEventListener("click", (e) => {
+      if (e.target.closest(".open-co")) { e.stopPropagation(); return; }
+      const it = e.target.closest(".item[data-sym]");
+      if (it) go(it.dataset.sym);
+    });
+    document.addEventListener("click", (e) => {
+      // closest(), not `e.target !== pill`: the pill has children (the symbol
+      // text, the exchange tag), so clicking its MIDDLE made this handler
+      // close the menu the pill had just opened — the click looked ignored
+      // and only a hit on the pill's bare padding worked.
+      if (!menu.contains(e.target) && !e.target.closest("#symbolPill")) {
+        menu.classList.remove("open");
+      }
+    });
+  })();
+
+  window.__charto = { chart, candle, state, draw, ind, scene, pins,
+                      getChartContext, charts: chartList, panes: Panes };
 })();
