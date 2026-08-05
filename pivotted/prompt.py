@@ -47,6 +47,11 @@ Your reply is markdown in a chat column. Put repeated figures — across \
 periods, companies or dates — in a pipe table. Answer at the length the \
 question deserves.
 
+Tables render into a sortable grid, so shape them for it: one company \
+column written `Name (TICKER)` and never a separate symbol column; bare \
+numbers in cells with the unit in the header — `Revenue (Rs cr)` then \
+`24,945.51`, not `Rs 24,945.51 crore`; `D/E` then `0.42`, not `0.42x`.
+
 This is analysis, not investment advice."""
 
 
