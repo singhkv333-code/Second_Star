@@ -45,8 +45,20 @@ PORT = int(os.environ.get("PIVOTTED_PORT", "5175"))
 AZURE_ENDPOINT = T.ds.AZURE_ENDPOINT
 AZURE_KEY = T.ds.AZURE_KEY
 LLM_DEPLOYMENT = T.ds.LLM_DEPLOYMENT
-LLM_EFFORT = T.ds.LLM_EFFORT
 LLM_SERVICE_TIER = T.ds.LLM_SERVICE_TIER
+
+# Charto reasons at "medium" because it decides GEOMETRY — which swing is the
+# anchor, whether a line's touches count, what a pattern is worth. Those are
+# judgement calls made from a wall of numbers.
+#
+# Research turns are not that shape. The judgement is in the reply text, and
+# the decision the reasoning budget actually buys — which tool, which fields —
+# is nearly always obvious from a well-described tool table. Measured on the
+# first eval: ~6s of the ~6.5s per round was the model, against 1.27s average
+# for the tools it was deciding between.
+#
+# So the default drops to "low" here, overridable when a build needs it back.
+LLM_EFFORT = (os.environ.get("PIVOTTED_LLM_EFFORT") or "low").strip()
 
 # Four rounds, for a different reason than Charto's four. Charto needed the
 # fourth because drawing is a three-hop path (explain → anchor → draw) and a

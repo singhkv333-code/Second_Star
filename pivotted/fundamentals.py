@@ -255,8 +255,17 @@ def tool_screen_fundamentals(filters: list | None = None, sector: str = "",
                              sort_by: dict | None = None, limit: int = 15,
                              market_cap_tier: str = "",
                              growth_years: int = 0,
-                             exclude: list | None = None) -> dict:
-    """Cross-sectional screen over every company with recent filings."""
+                             exclude: list | None = None,
+                             enrich_fields: list | None = None) -> dict:
+    """Cross-sectional screen over every company with recent filings.
+
+    `enrich_fields` exists to kill a round. A screen returns only the metrics
+    it filtered or sorted on, so "screen on ROE, then tell me their margins"
+    was always two LLM hops: screen, read the names back, fetch each one. The
+    tool call itself is ~1.3s; the hop around it is ~6s. Fetching the extra
+    fields for the returned rows HERE — concurrently, inside the same call —
+    collapses the most common two-round pattern in this product into one.
+    """
     if not filters:
         return {"error": "filters is required",
                 "_note": ("Give at least one {field, op, value}. Use "
@@ -278,6 +287,24 @@ def tool_screen_fundamentals(filters: list | None = None, sector: str = "",
         got.setdefault("_note", (
             "Every row is a real filing. A filter the DB cannot serve is "
             "dropped and disclosed in `note` — read it before answering."))
+        rows = got.get("results") or []
+        want = [f for f in (enrich_fields or []) if f]
+        if want and rows:
+            syms = [r.get("symbol") for r in rows[:12] if r.get("symbol")]
+            with ThreadPoolExecutor(max_workers=min(len(syms), 8)) as pool:
+                extra = dict(zip(syms, pool.map(
+                    lambda s: tool_get_fundamentals(s, fields=want), syms)))
+            for row in rows:
+                got_one = extra.get(row.get("symbol")) or {}
+                vals = got_one.get("values") or {}
+                # Only fields the screen did not already carry, so an enriched
+                # column never silently overwrites the one that was filtered on
+                # (they can differ: the screen applies its own recency floor).
+                for k, v in vals.items():
+                    row.setdefault(k, v)
+                if got_one.get("as_of"):
+                    row.setdefault("as_of", got_one["as_of"])
+            got["enriched_with"] = want
         return got
     except Exception as exc:                       # noqa: BLE001
         logging.exception("pivotted: screen_fundamentals failed")
@@ -286,12 +313,21 @@ def tool_screen_fundamentals(filters: list | None = None, sector: str = "",
 
 def tool_compare_fundamentals(symbols: list | None = None,
                               fields: list | None = None,
-                              basis: str = "consolidated") -> dict:
+                              basis: str = "consolidated",
+                              history: list | None = None,
+                              history_years: int = 6) -> dict:
     """The same fields across several companies — fetched concurrently.
 
     Sequentially this is N × ~1.4s of Azure round-trip, which is the whole
     latency budget for a four-company comparison. Each company is an
     independent query against a read-only DB, so they go together.
+
+    `history` is here because leaving it out cost a whole round. Without it,
+    "how has A's ROCE trended, and how does B compare" could only be answered
+    by comparing the LEVELS in one round and then re-fetching both companies
+    with history in the next — the model reaching for get_fundamentals twice
+    because the comparison tool could not carry a series. Observed doing
+    exactly that before this argument existed.
     """
     syms = [str(s).strip() for s in (symbols or []) if str(s).strip()]
     if len(syms) < 2:
@@ -299,9 +335,12 @@ def tool_compare_fundamentals(symbols: list | None = None,
     syms = syms[:8]
     want = fields or ["revenue", "net_profit", "roe", "roce",
                       "debt_to_equity", "net_profit_margin", "price_to_book"]
+    hist = [f for f in (history or []) if f]
     with ThreadPoolExecutor(max_workers=len(syms)) as pool:
         got = list(pool.map(
-            lambda s: (s, tool_get_fundamentals(s, fields=want, basis=basis)),
+            lambda s: (s, tool_get_fundamentals(
+                s, fields=want, basis=basis, history=hist,
+                history_years=history_years)),
             syms))
     rows, failed = {}, {}
     for sym, res in got:
@@ -310,7 +349,8 @@ def tool_compare_fundamentals(symbols: list | None = None,
             continue
         rows[res["company"]["symbol"]] = {
             "name": res["company"]["name"], "as_of": res.get("as_of"),
-            "basis": res.get("basis"), **res["values"]}
+            "basis": res.get("basis"), **res["values"],
+            **({"history": res["history"]} if res.get("history") else {})}
     out = {"fields": want, "companies": rows}
     if failed:
         # A comparison missing a leg is a different answer, not a smaller one.

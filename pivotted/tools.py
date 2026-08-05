@@ -47,6 +47,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -102,16 +103,94 @@ def stored_symbols() -> set:
     return _universe["set"]
 
 
+# Sentences that describe an argument this build removed, or a chart surface
+# it does not have. Dropped whole rather than reworded — each one exists only
+# to explain ink.
+_INK_SENTENCE_RE = re.compile(
+    r"\b(draw=true|draw_ids|remove=true|mark_levels|mark_points|clear_marks"
+    r"|drawing one marks|to shade them|off the chart|onto the chart"
+    r"|on the chart with|add it to the chart|put them on the chart"
+    r"|put them ON the chart|marked points|context's drawings)\b", re.I)
+
+# What survives is rewritten. Longest first — "the chart's own symbol" must be
+# consumed before "the chart" gets a chance at it.
+_CHART_REWRITES: list[tuple[str, str]] = [
+    # "IST times (chart format, e.g. …)" means the format the chart renders —
+    # a generic chart->symbol pass turns it into "symbol format", which reads
+    # like a real argument contract and is nonsense. Consume it first.
+    (r"\(chart format, ", "("),
+    (r"the chart symbol's OWN industry is already stated in your context, so "
+     r"call this directly", "call this directly"),
+    (r"the chart summary doesn't contain", "you do not already have"),
+    (r"the chart's own symbol", "the subject symbol"),
+    (r"the chart's symbol", "the subject symbol"),
+    (r"\bnot the chart's symbol\b", "not just one company"),
+    (r"\bon this chart\b", "for this symbol"),
+    (r"\bthis chart\b", "this symbol"),
+    (r"\bchart patterns\b", "patterns"),
+    (r"\bthe chart\b", "the stored history"),
+    (r"\ba chart\b", "a symbol"),
+    (r"\bcharts\b", "symbols"),
+    (r"\bchart\b", "symbol"),
+]
+
+
+def _derust(text: str) -> str:
+    """Strip the chart surface out of a description Charto wrote for one.
+
+    Charto's tool descriptions are written for a chat sitting beside a live
+    chart, and they say so 85 times across the 18 tools kept here. That is not
+    cosmetic: the model reads those descriptions as a description of ITS OWN
+    situation, concludes a chart context envelope exists, and — when the
+    envelope is absent, as it always is here — refuses work it could do.
+    Observed live: asked for technicals on a screen's results, it answered
+    "the price-history archive is not available in this chat session because
+    no chart/symbol context was attached" and offered to proceed if the user
+    supplied one. Every tool it needed was in front of it.
+    """
+    kept = [s for s in re.split(r"(?<=[.;]) ", text)
+            if not _INK_SENTENCE_RE.search(s)]
+    out = " ".join(kept)
+    for pat, repl in _CHART_REWRITES:
+        out = re.sub(pat, repl, out, flags=re.I)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
+# Replaces Charto's `symbol` argument, which is the single densest source of
+# the problem: it is injected into all 15 chart-scoped tools and tells each of
+# them there is a chart on screen, a chart context listing tickers, and a
+# chart in focus to fall back on. Here the argument is simply required.
+_SYMBOL_ARG = {
+    "type": "string",
+    "description": ("The company this reads — an NSE symbol. Required: there "
+                    "is no default subject, so name it on every call."),
+}
+
+
+# Charto's `_INK_ARGS` is only the boolean TRIGGERS — it is what `_wants_ink`
+# tests, so it never needed the companions. Stripping just those left
+# draw_ids / draw_mode / draw_as / max_draw on seven tools: arguments for
+# choosing which shapes to draw and how, on a surface that does not exist.
+_INK_ARGS_ALL = frozenset(ds._INK_ARGS) | {
+    "draw_ids", "draw_mode", "draw_as", "max_draw"}
+
+
 def _charto_tools() -> list[dict]:
-    """Charto's table, minus the ink tools, minus the ink arguments."""
+    """Charto's table, minus the ink tools, the ink arguments, and the chart."""
     out = []
     for spec in ds.TOOLS:
         if spec.get("name") in DROPPED:
             continue
         spec = copy.deepcopy(spec)
+        spec["description"] = _derust(spec.get("description", ""))
         props = spec["parameters"]["properties"]
-        for arg in ds._INK_ARGS:
+        for arg in _INK_ARGS_ALL:
             props.pop(arg, None)
+        for key, prop in props.items():
+            if key == "symbol":
+                props[key] = dict(_SYMBOL_ARG)
+            elif isinstance(prop, dict) and prop.get("description"):
+                prop["description"] = _derust(prop["description"])
         spec["parameters"]["required"] = [
             r for r in spec["parameters"].get("required", [])
             if r not in ds._INK_ARGS]
@@ -151,7 +230,10 @@ _FUNDAMENTAL_TOOLS = [
          "them."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string",
-                    "description": "NSE symbol or company name."},
+                    "description": ("NSE symbol OR company name — this "
+                                    "resolves the name itself, so call it "
+                                    "directly rather than looking the symbol "
+                                    "up first.")},
          "fields": {"type": "array", "items": {"type": "string"},
                     "description": "Omit for all 37."},
          "history": {"type": "array", "items": {"type": "string"},
@@ -182,11 +264,15 @@ _FUNDAMENTAL_TOOLS = [
 
     {"type": "function", "name": "search_companies",
      "description": (
-         "Resolve a name or partial ticker to listed companies. Use whenever "
-         "the user names a company you cannot map to a symbol with certainty, "
-         "and BEFORE answering for a guessed ticker — the universe is 11,256 "
-         "companies and many share a first word. `has_fundamentals` says "
-         "whether filings exist for that row."),
+         "FALLBACK company lookup, not a first step. get_fundamentals and "
+         "compare_fundamentals already resolve a plain company name, so going "
+         "through this one first costs a whole extra round-trip and is also "
+         "less reliable — some names are stored truncated, so a search for "
+         "'Avenue Supermarts' returns nothing while asking for DMART works. "
+         "Call it only when a direct lookup returned no match, or returned a "
+         "company whose name does not look like the one asked about, or when "
+         "the user is genuinely browsing for companies rather than naming "
+         "one. `has_fundamentals` says whether filings exist for that row."),
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
          "limit": {"type": "integer", "description": "Default 10, max 25."},
@@ -221,21 +307,39 @@ _FUNDAMENTAL_TOOLS = [
                                           "is measured; default 3.")},
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Names, sector words, or 'PSU'."},
+         "enrich_fields": {"type": "array", "items": {"type": "string"},
+                           "description": (
+                               "Extra metrics to fetch for the rows that come "
+                               "back, in this same call. A screen returns only "
+                               "what it filtered or sorted on, so name here "
+                               "anything you intend to REPORT — margins, "
+                               "growth, valuation — instead of screening and "
+                               "then looking the rows up, which costs an extra "
+                               "round-trip.")},
          "limit": {"type": "integer", "description": "Default 15, max 50."},
      }, "required": ["filters"]}},
 
     {"type": "function", "name": "compare_fundamentals",
      "description": (
          "The same financial fields across 2-8 companies at once, fetched "
-         "concurrently. Use for any 'X vs Y' or peer-set question instead of "
-         "calling get_fundamentals repeatedly. Companies that cannot be "
-         "resolved are returned under not_found rather than dropped."),
+         "concurrently — names or symbols, resolved here, so never look them "
+         "up first. Use for any 'X vs Y' or peer-set question instead of "
+         "calling get_fundamentals repeatedly. Pass `history` in the SAME "
+         "call when the question is about trends rather than levels; "
+         "comparing levels first and fetching series afterwards costs an "
+         "extra round-trip. Companies that cannot be resolved are returned "
+         "under not_found rather than dropped."),
      "parameters": {"type": "object", "properties": {
          "symbols": {"type": "array", "items": {"type": "string"}},
          "fields": {"type": "array", "items": {"type": "string"},
                     "description": ("Omit for a sensible default set "
                                     "(revenue, net_profit, roe, roce, "
                                     "debt_to_equity, margin, price_to_book).")},
+         "history": {"type": "array", "items": {"type": "string"},
+                     "description": ("Fields to also return as a multi-year "
+                                     "series for every company.")},
+         "history_years": {"type": "integer",
+                           "description": "Default 6, max 12."},
          "basis": {"type": "string", "enum": ["consolidated", "standalone"]},
      }, "required": ["symbols"]}},
 
