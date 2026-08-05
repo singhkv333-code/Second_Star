@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import sys
+from os import environ
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -40,7 +41,13 @@ from backend.kite.auth import (                                # noqa: E402
     get_authenticated_kite, read_kite_access_token,
 )
 
-DB_PATH = Path(__file__).parent / "charto_bars.db"
+# CHARTO_DB retargets the store, same contract as topup_1min.py. Without it
+# this file could only ever fill the store it sits next to, so the remote
+# catch-up (catchup_remote.py — seed a throwaway DB with the remote's
+# watermarks, fetch only its missing windows, ship those) reached the 500 NSE
+# equities and left the 37 macro symbols — every index, the four INR pairs and
+# the nine MCX metals — two sessions stale with no way to close them.
+DB_PATH = Path(environ.get("CHARTO_DB") or (Path(__file__).parent / "charto_bars.db"))
 # Kite's client formats a datetime as a bare "%Y-%m-%d %H:%M:%S" string and
 # DROPS tzinfo, so the server reads whatever fields it is given as IST. A UTC
 # `now` therefore asks for "up to 13:13" and Kite hears 13:13 IST, silently
