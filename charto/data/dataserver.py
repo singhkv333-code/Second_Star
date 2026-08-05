@@ -8360,13 +8360,30 @@ class Handler(BaseHTTPRequestHandler):
                                              q.get("source", ""), **extra)
                 except ValueError as exc:
                     return self._send(400, {"error": str(exc)})
-                # emitted as {time, value} pairs, nulls dropped — the chart
-                # series API wants gaps absent rather than null-valued
+                # LEADING nulls are dropped; INTERIOR nulls become whitespace
+                # points — {time} with no value — which is the series API's
+                # actual mechanism for a gap.
+                #
+                # Dropping them all was wrong in a way that only shows on an
+                # indicator whose line legitimately stops and restarts.
+                # Supertrend is exactly that: it publishes supertrend_up on
+                # up-bars and supertrend_down on down-bars, each None on the
+                # other's bars. With those points simply absent, the series had
+                # holes in TIME, and a line series joins its neighbours across a
+                # hole — so every trend flip drew a long diagonal straight
+                # through the candles, which is what made the indicator look
+                # wrong. TradingView breaks the line there; so does this now.
+                def _pts(series: list) -> list[dict]:
+                    first = next((i for i, v in enumerate(series) if v is not None), None)
+                    if first is None:
+                        return []
+                    return [{"time": rows[i][0]} if v is None
+                            else {"time": rows[i][0], "value": round(v, 6)}
+                            for i, v in enumerate(series[first:], start=first)]
+
                 return self._send(200, {
                     "name": name, "spec": res["spec"],
-                    "lines": {ln: [{"time": rows[i][0], "value": round(v, 6)}
-                                   for i, v in enumerate(series) if v is not None]
-                              for ln, series in res["lines"].items()},
+                    "lines": {ln: _pts(series) for ln, series in res["lines"].items()},
                 })
             if u.path == "/volume_profile":
                 # The manual path into the same tool chat calls. It returns

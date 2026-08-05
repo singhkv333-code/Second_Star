@@ -1518,6 +1518,9 @@
       </dl>
       <footer>
         <button class="btn cta" data-act="ask">${Icons.svg("chat", "xs")}Ask about this</button>
+        ${a.adjusted && a.origin
+          ? `<button class="btn" data-act="restore" title="Put it back where chat drew it">Restore position</button>`
+          : ""}
         <button class="btn danger" data-act="remove">${Icons.svg("eraser", "xs")}Remove</button>
       </footer>`;
   }
@@ -1740,6 +1743,54 @@
   /** The card for one of the USER's own drawings. Selecting a shape opens
    *  it; only its "Ask in chat" button attaches the drawing to the message,
    *  so selecting to drag or edit never silently tags anything. */
+  /** Every chart time an annotation names, whatever its shape.
+   *
+   *  The kinds keep their coordinates in different places — p1/p2 on a
+   *  segment, a/b on a box, pts[] on a poly, a bare t on a vline — so rather
+   *  than a switch that silently returns nothing for the kind nobody thought
+   *  of, this walks the object and collects every `t` it finds. A new kind
+   *  therefore works without being added here. */
+  function annTimes(a) {
+    const out = [];
+    (function walk(v, depth) {
+      if (!v || depth > 3) return;
+      if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+      if (typeof v !== "object") return;
+      if (typeof v.t === "number") out.push(v.t);
+      for (const k of ["p1", "p2", "a", "b", "pts"]) if (v[k]) walk(v[k], depth + 1);
+    })(a, 0);
+    if (typeof a.t === "number") out.push(a.t);
+    return out.sort((x, y) => x - y);
+  }
+
+  function annSpan(a) {
+    const ts = annTimes(a);
+    if (!ts.length) return null;
+    const withTime = !DAILY.has(state.interval);
+    // annTimes returns RAW detector times; fmtIST renders a chart time, so
+    // the shift has to be applied or every span reads 5.5 hours early.
+    const F = (t) => fmtIST(t + IST, withTime);
+    return ts[0] === ts[ts.length - 1]
+      ? F(ts[0])
+      : `${F(ts[0])} → ${F(ts[ts.length - 1])}`;
+  }
+
+  /** Put a dragged annotation back where it was first drawn.
+   *
+   *  `origin` is captured once, by scene.js, on the FIRST drag — not on every
+   *  one. Snapshotting per-drag would make "restore" mean "undo the last
+   *  nudge", which is a different and much less useful promise than "put it
+   *  back where chat drew it". */
+  function restoreAnnotation(a) {
+    if (!a || !a.origin) return;
+    const keep = { id: a.id, origin: a.origin, source: a.source,
+                   owner: a.owner, pane: a.pane, kind: a.kind };
+    for (const k of Object.keys(a)) if (!(k in keep)) delete a[k];
+    Object.assign(a, JSON.parse(JSON.stringify(a.origin)), keep);
+    delete a.adjusted;
+    scene.refresh(a);
+  }
+
   let provDraw = null;
   function showDrawingCard(d, y) {
     provDraw = d;
@@ -1801,10 +1852,55 @@
       provDraw = null;
       return hideProvenance();
     }
-    // A chat-drawn annotation's card is evidence only — it is raised by
-    // hover and reads as a label, so it carries no actions of its own. Close
-    // is the whole interaction; the chat removes what the chat drew.
+    const ann = provFor && (scene.state.items || []).find((x) => x.id === provFor);
+    if (act === "ask" && ann) {
+      // The card has rendered this button since the day it was written and
+      // nothing ever handled it — the click fell straight through to
+      // hideProvenance, so "Ask about this" closed the card and did nothing
+      // else. Same contract as a user drawing's "Ask in chat": tag it, let
+      // the next message carry it, and never attach on mere hover.
+      document.dispatchEvent(new CustomEvent("charto:draw-tag", {
+        detail: {
+          ref: ann.id,
+          label: ann.label || ann.kind || "annotation",
+          pane: ann.pane,
+          kind: ann.kind,
+          span: annSpan(ann),
+          adjusted: !!ann.adjusted,
+          // The chip draws the shape, so it needs the shape's own ink. Same
+          // rule the canvas uses: amber above, cyan below, violet otherwise.
+          color: Theme.c(ann.role === "resistance" ? "annRes"
+            : ann.role === "support" ? "annSup" : "annNeutral"),
+        },
+      }));
+      return hideProvenance();
+    }
+    if (act === "restore" && ann && ann.origin) {
+      restoreAnnotation(ann);
+      return hideProvenance();
+    }
+    // Otherwise a chat-drawn annotation's card is evidence: it is raised by
+    // hover and reads as a label. Close is the whole interaction.
     hideProvenance();
+  });
+
+  /* A candle is clickable — clicking one pins it as context — so hovering one
+   * should say so. The hand is reserved for the BAR itself, not for the whole
+   * plot: the crosshair is what makes empty space readable, and turning the
+   * entire pane into a hand would trade that away for nothing. So the test is
+   * "is the pointer inside this bar's high-low", which is also exactly the
+   * region a click resolves to. */
+  chart.subscribeCrosshairMove((p) => {
+    const off = () => chartEl.classList.remove("candle-grab");
+    if (!p || !p.point || draw.state.tool !== "cursor") return off();
+    const d = p.seriesData && p.seriesData.get(candle);
+    if (!d || d.high === undefined) return off();
+    const yH = candle.priceToCoordinate(d.high);
+    const yL = candle.priceToCoordinate(d.low);
+    if (yH === null || yL === null) return off();
+    // a couple of px of slack so a thin wick is still catchable
+    chartEl.classList.toggle("candle-grab",
+      p.point.y >= yH - 3 && p.point.y <= yL + 3);
   });
 
   // ── click a candle to pin it as context ──

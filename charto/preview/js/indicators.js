@@ -193,7 +193,12 @@ const Indicators = (() => {
     if (!r.ok) throw new Error((await r.json()).error || "indicator failed");
     const lines = (await r.json()).lines;
     for (const k of Object.keys(lines)) {
-      lines[k] = lines[k].map((p) => ({ time: p.time + shift, value: p.value }));
+      // A point with no `value` is WHITESPACE — it holds the slot in time and
+      // breaks the line. Rebuilding it as {time, value: undefined} would put
+      // the key back and stop it reading as whitespace, so the branch matters.
+      lines[k] = lines[k].map((p) => (p.value == null
+        ? { time: p.time + shift }
+        : { time: p.time + shift, value: p.value }));
     }
     return lines;
   }

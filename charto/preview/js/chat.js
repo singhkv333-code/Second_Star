@@ -55,9 +55,34 @@
     const row = el("drawTagRow");
     row.style.display = d ? "" : "none";
     if (!d) return;
-    const on = d.pane && d.pane !== "price" ? ` · on ${d.pane}` : "";
-    row.innerHTML = `<span class="draw-tag"><span class="ref">${d.ref}</span>`
-      + `${d.label.toLowerCase()}${on}`
+    // A candle pin shows a candle. A drawing pin shows the DRAWING — its own
+    // geometry in its own ink — because that is what makes it recognisable at
+    // a glance, and it is the thing you just clicked on. The previous version
+    // spelled out kind, span and touch count and read as a paragraph; a
+    // picture and a name say it faster and take one line instead of two.
+    const c = d.color || "currentColor";
+    const S = (inner) => `<svg class="dg" viewBox="0 0 20 14" width="20"`
+      + ` height="14" fill="none" stroke="${c}" stroke-width="1.6"`
+      + ` stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+    const GLYPH = {
+      segment: () => S('<path d="M2 12L18 3"/>'),
+      level: () => S('<path d="M2 7h16" stroke-dasharray="3 2.5"/>'),
+      zone: () => S(`<rect x="2" y="4" width="16" height="6" fill="${c}"`
+        + ` fill-opacity=".18" stroke-dasharray="3 2.5"/>`),
+      box: () => S(`<rect x="2.5" y="3" width="15" height="8" fill="${c}" fill-opacity=".18"/>`),
+      poly: () => S('<path d="M2 11l4-6 4 4 4-7 4 5"/>'),
+      fib: () => S('<path d="M2 3h16M2 7h16M2 11h16" stroke-dasharray="3 2.5"/>'),
+      vline: () => S('<path d="M10 2v10" stroke-dasharray="3 2.5"/>'),
+      point: () => S(`<circle cx="10" cy="7" r="3.2" fill="${c}" fill-opacity=".3"/>`),
+      vprofile: () => S('<path d="M3 3h7M3 7h13M3 11h5"/>'),
+      position: () => S(`<rect x="2.5" y="3" width="15" height="8" fill="${c}"`
+        + ` fill-opacity=".14"/><path d="M2.5 7h15"/>`),
+    };
+    const glyph = (GLYPH[d.kind] || GLYPH.segment)();
+    row.innerHTML = `<span class="pins-lead">${Icons.svg("pin", "xs")}`
+      + `1 drawing pinned — sent with your next message</span>`
+      + `<span class="pin draw"><span class="dg-wrap">${glyph}</span>`
+      + `<span class="pin-txt"><span class="pin-top">${d.label}</span></span>`
       + `<span class="x" data-untag="1" title="Don't ask about this">`
       + `${Icons.svg("x", "xs")}</span></span>`;
   }

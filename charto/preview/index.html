@@ -139,6 +139,15 @@
   --primary-foreground: #0d0d0e;
   --ring: rgba(43, 179, 209, .5);
   --primary-soft: color-mix(in srgb, #2bb3d1 14%, transparent);
+  /* Liquid Glass. On black the body is a light film, not a light panel — a
+     bright fill reads as plastic. The rim does the work. */
+  --glass-fill:      rgba(255, 255, 255, .055);
+  --glass-fill-hi:   rgba(255, 255, 255, .085);
+  --glass-rim:       rgba(255, 255, 255, .14);
+  --glass-spec:      rgba(255, 255, 255, .22);
+  --glass-spec-dim:  rgba(255, 255, 255, .05);
+  --glass-sheen:     rgba(255, 255, 255, .07);
+  --glass-sheen-far: rgba(255, 255, 255, .03);
   --chart-bg: #0d0e12;
   --up-soft: rgba(8, 153, 129, .16);
   --down-soft: rgba(242, 54, 69, .16);
@@ -172,6 +181,15 @@
   --popover: #ffffff;
   --muted: #f5f5f5;
   --muted-foreground: #4d555c;
+  /* On white the material is the opposite: the fill carries it and the rim
+     is a hairline, because a bright rim on a bright ground is invisible. */
+  --glass-fill:      rgba(255, 255, 255, .62);
+  --glass-fill-hi:   rgba(255, 255, 255, .78);
+  --glass-rim:       rgba(255, 255, 255, .85);
+  --glass-spec:      rgba(255, 255, 255, .95);
+  --glass-spec-dim:  rgba(0, 0, 0, .03);
+  --glass-sheen:     rgba(255, 255, 255, .45);
+  --glass-sheen-far: rgba(255, 255, 255, .18);
   --faint: #6b7280;
   --accent: rgba(15, 18, 22, .06);
   --hover-fill: rgba(15, 18, 22, .075);
@@ -1016,7 +1034,52 @@ header > .spacer { flex: none; }
 #chart { position: absolute; inset: 0; cursor: crosshair; }
 /* TradingView cursors: crosshair to place, grabbing hand while panning */
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-.stage.overdraw #chart { cursor: move; }
+/* Over something pickable the crosshair becomes a HAND. `move` (the four-way
+   arrow) was saying "this can be dragged in any direction", which is true but
+   is not what the pointer is being asked; `grab` says "you can take hold of
+   this", which is the question. Two layers answer it — drawings.js sets
+   .overdraw on the stage for the user's own shapes, scene.js sets .scene-grab
+   on the chart for chat's — and either one is enough. */
+.stage.overdraw #chart,
+#chart.scene-grab,
+#chart.candle-grab { cursor: grab; }
+.stage.overdraw #chart:active,
+#chart.scene-grab:active,
+#chart.candle-grab:active { cursor: grabbing; }
+
+/* The scene legend, folded. Subtle on purpose: it sits over the newest bars,
+   which is the part of the chart people actually read, so it has to read as a
+   quiet affordance rather than as another label competing with the price. */
+/* An icon BUTTON, the way every collapse on a chart is — not a sentence.
+   The first version spelled out "▸ 4 drawings" in mono over the plot, which
+   read as a stray label competing with the price rather than as a control.
+   The count moved to the tooltip and the accessible name, where it is still
+   useful and no longer in the way. Opaque because it sits over the canvas: a
+   transparent one had a dashed level line running through it. */
+.scene-toggle {
+  position: absolute; top: 8px; z-index: 3;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--chart-bg); color: var(--muted-foreground);
+  cursor: pointer;
+  /* .scene-chips is pointer-events:none so the overlay never eats a drag on
+     the chart underneath; every interactive child has to opt back IN. The
+     chips do it, this button did not, so it rendered and could not be clicked. */
+  pointer-events: auto;
+  transition: color var(--dur) ease, background var(--dur) ease,
+              border-color var(--dur) ease;
+}
+.scene-toggle:hover {
+  color: var(--foreground); background: var(--hover-fill);
+  border-color: var(--seam-strong);
+}
+.scene-toggle svg { transition: transform var(--dur) ease; }
+/* Chevron up = "fold this away"; down = "there is more under here". */
+.scene-toggle:not(.open) svg { transform: rotate(180deg); }
+.scene-toggle .caret { font-size: 9px; line-height: 1; opacity: .8; }
+.scene-chip { transition: opacity var(--dur) ease; }
+.scene-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -1260,6 +1323,11 @@ body > footer .dotsep { color: var(--border); }
   font: var(--text-xs) var(--font); letter-spacing: -.005em;
   font-variant-numeric: tabular-nums;
   pointer-events: auto; cursor: default;
+  /* Same reason as .scene-toggle: these are words over a live plot, and a
+     level or grid line crossing them reads as a strikethrough. The plate is
+     the chart's own background so it disappears against it. */
+  background: var(--chart-bg);
+  box-shadow: 0 0 0 2px var(--chart-bg);
 }
 .scene-chip.hot { font-weight: var(--weight-semi); }
 
@@ -1298,6 +1366,7 @@ body > footer .dotsep { color: var(--border); }
 }
 .chatpanel.hidden { display: none; }
 
+#chatPanel, .chat-pane { position: relative; }
 .thread {
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   padding: 26px 0 8px; scroll-behavior: smooth;
@@ -1431,14 +1500,97 @@ body > footer .dotsep { color: var(--border); }
 .to-bottom:hover { color: var(--foreground); }
 
 /* composer */
-.composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
-.composer-inner { max-width: 720px; margin: 0 auto; }
-.composer {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius-2xl); padding: 10px 10px 8px 14px;
-  transition: border-color var(--dur-slow) var(--ease-quartr);
+/* The composer FLOATS over the thread instead of sitting in the column below
+   it. This is not decoration — it is the precondition for the material to
+   exist at all. `flex: none` under the thread meant the only thing behind the
+   glass was the pane's own flat background, and a backdrop-filter over a flat
+   fill returns that same flat fill: a slightly lighter rectangle, whatever
+   blur or displacement you put on it. Glass needs something to bend.
+   Now the conversation slides underneath it and is refracted, which is the
+   same reason iOS floats its tab bars and input accessories over content
+   rather than docking them below it. */
+.composer-wrap {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding: 6px clamp(16px, 4%, 34px) 14px;
+  /* A hard edge where the float begins would read as a panel. This fades the
+     pane's own colour up behind the glass so the transition is a gradient,
+     not a seam. */
+  background: linear-gradient(to top,
+    var(--background) 0%, var(--background) 34%, transparent 100%);
+  pointer-events: none;
 }
-.composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.composer-wrap > * { pointer-events: auto; }
+/* Room for the float, or the last line of the reply hides under it. */
+.thread { padding-bottom: 132px !important; }
+.composer-inner { max-width: 720px; margin: 0 auto; }
+/* ══════════════════════════════════════════════════════════════════════════
+   LIQUID GLASS — the composer
+   ──────────────────────────────────────────────────────────────────────────
+   Apple's material is not frosted glass. Frosted glass SCATTERS light; this
+   one REFRACTS it, and it is defined by three things a plain blur does not
+   have:
+
+     1  the backdrop is bent, not just blurred — content behind the rim
+        appears displaced, the way it does through a real lens
+     2  a SPECULAR RIM: a bright hairline along the top edge and a dimmer one
+        along the bottom, as if a light source sits above the element
+     3  the material samples what is behind it, so it is never one flat colour
+
+   (1) needs an SVG feDisplacementMap as a backdrop-filter, which today only
+   Chromium honours. Rather than ship a effect that silently degrades to
+   nothing in Safari, the refraction is approximated with a saturation boost
+   and a gradient rim — and the true displacement is left as `.lg-refract`
+   below, applied only where it is supported.
+
+   The composer is the RIGHT surface for this: the thread scrolls directly
+   underneath it, so there is real content for the material to pick up. Glass
+   over a flat panel is just a lighter panel.
+   ══════════════════════════════════════════════════════════════════════════ */
+.composer {
+  position: relative;
+  border-radius: var(--radius-2xl); padding: 10px 10px 8px 14px;
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  /* inset top = the specular highlight; inset bottom = the light that has
+     travelled THROUGH the body and caught the far rim; outer = the lift. */
+  box-shadow:
+    inset 0 1px 0 var(--glass-spec),
+    inset 0 -1px 0 var(--glass-spec-dim),
+    0 8px 24px -8px rgba(0, 0, 0, .18),
+    0 1px 2px rgba(0, 0, 0, .04);
+  transition: border-color var(--dur-slow) var(--ease-quartr),
+              box-shadow var(--dur-slow) var(--ease-quartr),
+              background var(--dur-slow) var(--ease-quartr);
+}
+/* The sheen. A real rim catches light unevenly — brightest where the surface
+   turns away from you — so this is a gradient across the top edge rather than
+   a uniform border, and it must never eat clicks. */
+.composer::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(140deg,
+    var(--glass-sheen) 0%, transparent 38%, transparent 62%,
+    var(--glass-sheen-far) 100%);
+}
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--glass-rim));
+  background: var(--glass-fill-hi);
+  box-shadow:
+    inset 0 1px 0 var(--glass-spec),
+    inset 0 -1px 0 var(--glass-spec-dim),
+    0 10px 30px -8px rgba(0, 0, 0, .22),
+    0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+/* Chromium only: the actual lensing. Everything above already stands on its
+   own, so this is additive and its absence is not a broken state. */
+@supports (backdrop-filter: url(#lg-refract)) {
+  .composer {
+    -webkit-backdrop-filter: blur(20px) saturate(180%) url(#lg-refract);
+    backdrop-filter: blur(20px) saturate(180%) url(#lg-refract);
+  }
+}
 .composer textarea {
   width: 100%; resize: none; background: transparent; color: var(--foreground);
   border: 0; outline: none; font-size: var(--text-xl); line-height: 1.55;
@@ -1447,8 +1599,15 @@ body > footer .dotsep { color: var(--border); }
 .composer textarea::placeholder { color: var(--faint); }
 .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .cbtn {
-  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
-  background: transparent; color: var(--muted-foreground); cursor: pointer;
+  width: 28px; height: 28px; border-radius: 50%;
+  /* concentric with the composer and made of the same material — a plain
+     bordered circle inside a glass panel reads as a sticker on it */
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(8px) saturate(160%);
+  backdrop-filter: blur(8px) saturate(160%);
+  box-shadow: inset 0 1px 0 var(--glass-spec);
+  color: var(--muted-foreground); cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex: none;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
@@ -1545,6 +1704,20 @@ body > footer .dotsep { color: var(--border); }
 
 /* drawing references carried into the composer */
 .draw-tag-row { margin-bottom: 6px; }
+/* The drawing tag borrows the pinned-candle chip wholesale — it is the same
+   idea (context riding with the next message) and two shapes for one idea is
+   how a composer starts looking like a settings panel. Only the leading
+   colour swatch differs: a candle has a direction, a drawing does not. */
+.pin.draw { align-items: center; gap: 8px; }
+/* The swatch sits where the candle glyph sits on a pinned bar, and carries
+   the drawing's own colour so the chip and the shape on the chart are
+   obviously the same object. */
+.pin.draw .dg-wrap {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 16px; flex: 0 0 auto;
+}
+.pin.draw .dg { display: block; overflow: visible; }
+.pin.draw .pin-top { font-weight: 500; }
 .draw-tag {
   display: inline-flex; gap: 6px; align-items: center; height: 26px;
   font-size: var(--text-xs); color: var(--foreground);
@@ -1666,7 +1839,23 @@ body > footer .dotsep { color: var(--border); }
   }
   #symbolMenu input:focus, .sym-picker .pick-search:focus { border-color: var(--ring); }
   /* The floating picker is the same list, opened from a legend or the chat
-     chip instead of the header pill — appended to <body> so a chart pane's
+     chip instead of the header pill — appended to <body>
+  <!-- The lens. feTurbulence makes a smooth low-frequency field; feDisplacementMap
+       uses its R/G channels to push the backdrop's pixels sideways, which is what
+       bends content behind the rim instead of merely blurring it. Scale is small
+       on purpose — real glass of this thickness displaces a few pixels, and more
+       reads as a funhouse mirror rather than a material.
+       Chromium-only as a backdrop-filter; harmless everywhere else. -->
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <filter id="lg-refract" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012"
+                    numOctaves="2" seed="7" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="3" result="soft"/>
+      <feDisplacementMap in="SourceGraphic" in2="soft" scale="9"
+                         xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+ so a chart pane's
      overflow cannot clip it. */
   .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
   #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
@@ -2452,20 +2641,31 @@ body > footer .dotsep { color: var(--border); }
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/auth.js?v=1"></script>
   <script src="./js/store.js?v=10"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
   <script src="./js/icons.js?v=11"></script>
-  <script src="./js/indicators.js?v=18"></script>
+  <script src="./js/indicators.js?v=19"></script>
   <script src="./js/indsettings.js?v=6"></script>
   <script src="./js/geometry.js?v=8"></script>
   <script src="./js/tools.js?v=8"></script>
   <script src="./js/drawings.js?v=13"></script>
-  <script src="./js/scene.js?v=22"></script>
+  <script src="./js/scene.js?v=26"></script>
   <script src="./js/panes.js?v=12"></script>
-  <script src="./js/main.js?v=55"></script>
-  <script src="./js/chat.js?v=104"></script>
+  <script src="./js/main.js?v=58"></script>
+  <script src="./js/chat.js?v=106"></script>
+  <script>
+    /* The vendored module owns the SVG displacement filter, the backdrop-filter
+       wiring, resize handling, and the frosted fallback for Safari/Firefox
+       (which silently no-op SVG-filtered backdrops). Tint, rim and glare stay
+       in the stylesheet above — the library is deliberately only the optics. */
+    (function () {
+      const el = document.querySelector('.composer');
+      if (el && window.liquidGlass) window.liquidGlass(el, { scale: -112, radius: 24 });
+    })();
+  </script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=2"></script>
 </body>
