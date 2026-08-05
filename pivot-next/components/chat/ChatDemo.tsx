@@ -158,11 +158,24 @@ async function* streamChat(
    */
   attachments?: Array<Record<string, unknown>> | null,
 ): AsyncGenerator<SseEvent> {
+  // DE-WIRED (temporary): when NEXT_PUBLIC_PIVOTTED_BASE is set, this tab
+  // talks to Pivotted — the research/analysis chat in `pivotted/` — instead of
+  // Pivot's own /chat/stream. Pivotted speaks this exact SSE dialect
+  // (start / tool_start / tool_done / delta / done{response}), so nothing
+  // below this line changes and unsetting the env var restores Pivot.
+  //
+  // What is deliberately absent when de-wired: logiccard and raw_data, so no
+  // card renders and nothing is committable. That is the point of the split —
+  // Pivotted researches and does not build, register or deploy anything.
+  const pivotted =
+    typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOTTED_BASE;
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
     "/api";
   const legacyBase = base.replace(/\/api\/?$/, "");
-  const url = `${legacyBase}/chat/stream`;
+  const url = pivotted
+    ? `${pivotted.replace(/\/$/, "")}/chat/stream`
+    : `${legacyBase}/chat/stream`;
 
   const messages: ChatHistoryMessage[] = [
     ...history,
