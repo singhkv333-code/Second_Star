@@ -147,27 +147,16 @@ const Scene = (() => {
     }
 
     /* ── marking a bar ────────────────────────────────────────────────────
-     * A `candle` annotation is a BRACKET: one tick above the high, one below
-     * the low, the same gap from each, centred on the bar. It says "this
-     * one" without covering the bar it is pointing at — which a box, a dot
-     * or an arrow all do.
+     * A `candle` annotation is ONE DOT, sitting above the bar's high and
+     * centred on it. It says "this one" without covering the bar it points
+     * at — with a candlestick pattern the body against the wick IS the
+     * evidence, so anything drawn over it hides the reason it qualified.
      *
-     * The gap is PIXELS, not price. Equal price offsets are unequal on
-     * screen the moment the scale is log, and "the same distance above and
-     * below" is a thing the eye judges, not the axis. */
-    const MARK_GAP = 7;        // px from the bar's extreme to its tick
-    const MARK_SPAN = 0.45;    // half-width, in bar widths → 0.9 bars wide
-
-    /** Pixels between adjacent bars, MEASURED. Read at the middle of the
-     *  visible range: logicalToCoordinate answers null past the data's
-     *  edges, and the edge bars are exactly where a mark is likely to sit. */
-    function barPx() {
-      const l = chart.timeScale().getVisibleLogicalRange();
-      if (!l) return 8;
-      const i = Math.floor((l.from + l.to) / 2);
-      const a = logicalToX(i), b = logicalToX(i + 1);
-      return (a !== null && b !== null && b > a) ? b - a : 8;
-    }
+     * The gap is PIXELS, not price: a fixed price offset drifts with the
+     * scale and stops looking like the same distance the moment the axis is
+     * log or the range changes. */
+    const MARK_GAP = 6;        // px from the bar's high to its dot
+    const MARK_DOT = 2.3;      // dot radius — a pointer, not a bullet
 
     /** The loaded bar at a detector time, or null when this interval has no
      *  bar there — a daily pattern viewed on 5m has no 5m bar at that stamp.
@@ -187,25 +176,22 @@ const Scene = (() => {
       return null;
     }
 
-    /** A candle mark's screen box: the two tick y's and the x span they
-     *  share. One function so the renderer and the hit-tester can never
-     *  disagree about where the mark is. */
-    function markBox(a) {
+    /** Where a candle mark's dot goes. One function, so the renderer and the
+     *  hit-tester can never disagree about where the mark is.
+     *
+     *  A multi-bar pattern (an engulfing is two bars, a morning star three)
+     *  centres its dot over the SPAN and hangs it off the highest of those
+     *  bars — one mark for one pattern, rather than a dot per bar, which
+     *  would read as several findings. */
+    function markDot(a) {
       const c1 = tToX(a.t1), c2 = tToX(a.t2 == null ? a.t1 : a.t2);
       if (c1 === null || c2 === null) return null;
-      const bar = (a.hi == null || a.lo == null) ? barAt(a.t1) : null;
+      const bar = a.hi == null ? barAt(a.t1) : null;
       const hiV = a.hi == null ? (bar && bar.high) : a.hi;
-      const loV = a.lo == null ? (bar && bar.low) : a.lo;
-      if (hiV == null || loV == null) return null;
-      const yH = vToY(hiV, a.pane), yL = vToY(loV, a.pane);
-      if (yH === null || yL === null) return null;
-      // Half a bar of overhang at EACH end. A single bar (t1 === t2) becomes
-      // a tick 0.9 bars wide centred on it; an N-bar pattern spans centre to
-      // centre plus the same overhang. One rule, both cases, and neither can
-      // reach into a neighbouring bar's column.
-      const pad = Math.max(3.5, barPx() * MARK_SPAN);
-      return { x0: Math.min(c1, c2) - pad, x1: Math.max(c1, c2) + pad,
-               yTop: yH - MARK_GAP, yBot: yL + MARK_GAP };
+      if (hiV == null) return null;
+      const yH = vToY(hiV, a.pane);
+      if (yH === null) return null;
+      return { cx: (c1 + c2) / 2, cy: yH - MARK_GAP - MARK_DOT };
     }
 
     const mine = (a, key) =>
@@ -312,11 +298,10 @@ const Scene = (() => {
           if ([x1, x2, y1, y2].every((q) => q !== null)
               && distSeg(x, y, x1, y1, x2, y2) < HIT) return a;
         } else if (a.kind === "candle" && x != null) {
-          // the two ticks answer, the empty space between them does not —
-          // otherwise a mark would swallow every click on the bar it marks
-          const m = markBox(a);
-          if (m && x > m.x0 - HIT && x < m.x1 + HIT
-              && (Math.abs(y - m.yTop) < HIT || Math.abs(y - m.yBot) < HIT)) return a;
+          // the dot answers, the bar under it does not — otherwise a mark
+          // would swallow every click on the candle it is pointing at
+          const m = markDot(a);
+          if (m && Math.hypot(x - m.cx, y - m.cy) < HIT) return a;
         } else if (SHAPES[a.kind] && x != null) {
           // shapes composed via draw_shape share the drawing layer's algebra
           const e = geoEnv(a.pane);
@@ -509,18 +494,16 @@ const Scene = (() => {
           ctx.fillStyle = col;
           chip(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, 8, y1, col);
         } else if (a.kind === "candle") {
-          const m = markBox(a);
+          const m = markDot(a);
           if (!m) continue;
           ctx.setLineDash([]);
-          ctx.lineWidth = hot ? 3 : 2.2;
           ctx.beginPath();
-          ctx.moveTo(m.x0, m.yTop); ctx.lineTo(m.x1, m.yTop);
-          ctx.moveTo(m.x0, m.yBot); ctx.lineTo(m.x1, m.yBot);
-          ctx.stroke();
+          ctx.arc(m.cx, m.cy, hot ? MARK_DOT + 1.2 : MARK_DOT, 0, Math.PI * 2);
+          ctx.fill();
           if (a.label) {
             const lw = ctx.measureText(a.label).width + 12;
-            chip(a.label, Math.min(Math.max(m.x0, 8), w - lw - 4),
-                 m.yTop - 4, col);
+            chip(a.label, Math.min(Math.max(m.cx - lw / 2, 8), w - lw - 4),
+                 m.cy - MARK_DOT - 3, col);
           }
         } else if (a.kind === "segment") {
           const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
@@ -657,8 +640,8 @@ const Scene = (() => {
       }
       if (a.kind === "vprofile") return vToY(a.poc, a.pane);
       if (a.kind === "candle") {
-        const m = markBox(a);
-        return m ? m.yTop : null;
+        const m = markDot(a);
+        return m ? m.cy : null;
       }
       return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
     }

@@ -4044,7 +4044,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         picked = charts[:3]
     # Candlesticks get marked too, and draw_ids addresses chart patterns only,
     # so an explicit id list means "just those" and leaves the candles alone.
-    cpicked = cands[-3:] if (draw and not draw_ids) else []
+    #
+    # EVERY candlestick the scan returned, not a slice of them. A cap here
+    # would be a second, invisible limit on top of `limit` — the scan reports
+    # a dozen, the chart marks three, and the reply has to invent a reason for
+    # the gap. `limit` is the one place the caller says how many they want.
+    cpicked = cands if (draw and not draw_ids) else []
     if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
     for p in picked:
@@ -4132,15 +4137,14 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
 
     # ── drawing: a candlestick has no geometry to trace — it IS the bar
     #
-    # So the mark points at it from OUTSIDE rather than drawing over it: a
-    # tick above the high and one below the low, the same gap from each,
-    # centred on the bar. An outline or a box would hide the very anatomy
-    # (body against wick) that made the pattern qualify.
+    # So the mark points at it from OUTSIDE rather than drawing over it: one
+    # dot, above the high, centred on the bar. An outline or a box would hide
+    # the very anatomy (body against wick) that made the pattern qualify.
     #
     # What crosses the wire is the bar span and its TRUE high/low, not screen
-    # geometry — the client owns the gap and the tick width in pixels, so the
-    # mark stays put through zoom, and stays correct through an interval
-    # change that leaves no bar at this exact stamp.
+    # geometry — the client owns the gap in pixels, so the mark stays put
+    # through zoom, and stays correct through an interval change that leaves
+    # no bar at this exact stamp.
     marks: dict[tuple, dict] = {}
     for c in cpicked:
         i = len(rows) - 1 - c["bars_ago"]
@@ -4189,9 +4193,11 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         res["_drawn_note"] = _drawn_ledger()
     if marks:
         res["_marked_note"] = (
-            "The candles listed in `drawn` are bracketed on the chart — a "
-            "short line above the high and below the low of each. Say which "
-            "bar carries which pattern; do not describe the bracket itself.")
+            f"All {len(marks)} candlestick pattern bar(s) in `candlesticks` "
+            "are marked on the chart with a dot above the bar's high. Nothing "
+            "was left out, so do not say the chart shows only the recent ones. "
+            "Say which bar carries which pattern; the dot is a pointer, not a "
+            "finding.")
 
     # A specific ask that found nothing must come back as a plain NO.
     if asked:
@@ -6305,10 +6311,10 @@ TOOLS = [
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib, candle. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it brackets the bar with a short line above its high and below its low, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib, candle. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
      "parameters": {"type": "object", "properties": {
          "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib", "candle"],
-                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' brackets the bar an anchor sits on, above the high and below the low"},
+                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' dots the bar an anchor sits on, just above its high"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
@@ -6342,7 +6348,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO brackets the three most recent candlestick patterns on the bars that qualified: a short line above the high and below the low of each. Name the bar and its pattern; the bracket is a pointer, not a finding.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks EVERY candlestick pattern it returns, with a dot above the high of the bar that qualified — 'mark all the candle patterns' is one call with draw=true, and `limit` is what decides how many come back. Name the bar and its pattern; the dot is a pointer, not a finding.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
