@@ -78,6 +78,93 @@ def _pivot():
     return _mods["fdb"], _mods["fs"]
 
 
+# ── symbol resolution ───────────────────────────────────────────────────────
+#
+# Pivot's `financials_db.resolve_symbol` tries `sc_id` FIRST. Moneycontrol's
+# sc_id is an internal code — short alphanumerics like "GAIL", "ACC", "BEL",
+# "PFC" — and those collide with the real NSE tickers of COMPLETELY DIFFERENT
+# companies. Measured over 548 real NSE symbols: 16 resolved to the wrong
+# company, and not obscure ones.
+#
+#   GAIL -> Gurunanak Agric      BEL  -> BLS E-Services
+#   ACC  -> Active Clothing      PFC  -> Pro Fin Capital
+#   BSE  -> Bandhan Silver       BDL  -> Baroda Dyeing
+#   OIL  -> Omnitel Ind          JSL  -> JSL Industries
+#
+# Its docstring already reasons that nse_symbol must outrank the polluted
+# `ticker` column ("Jay Electric and Bharat Hotels both carry ticker='BHEL'").
+# The same argument applies one level up and was not made: sc_id outranks
+# both, and for a product whose inputs are tickers and company names — never
+# internal Moneycontrol codes — that ordering is exactly backwards.
+#
+# So this resolves nse_symbol first and keeps sc_id as a late fallback, which
+# still answers a genuine sc_id lookup because nothing earlier will match it.
+# Pivot's own resolver stays untouched: it is shared with the stock page, and
+# silently changing what a symbol MEANS for another product is not a fix to
+# make from here. It carries the same bug and should be fixed there too.
+_RESOLVE_SQL = """
+SELECT sc_id FROM (
+    SELECT sc_id, 1 AS pri,
+           CASE WHEN EXISTS (SELECT 1 FROM mc.statement_lines sl
+                             WHERE sl.sc_id = c.sc_id) THEN 0 ELSE 1 END AS f
+      FROM mc.companies c WHERE upper(nse_symbol) = upper(:s)
+    UNION ALL
+    -- An EXACT full-name match outranks BOTH ticker and sc_id. Pivot's own
+    -- docstring establishes that `ticker` is polluted — "Jay Electric and
+    -- Bharat Hotels both carry ticker='BHEL'" — and the same column is why
+    -- ACC and UPL resolve wrongly: Active Clothing carries ticker='ACC' and
+    -- UP Lime Chem carries ticker='UPL', while the real ACC (ACC06) and UPL
+    -- (UP04) sit there with nse_symbol AND ticker NULL and company_name
+    -- exactly 'ACC' / 'UPL'. A company literally NAMED the query beats one a
+    -- scraper happened to tag with it. This is full-string equality, not a
+    -- prefix, so it stays precise.
+    SELECT sc_id, 2,
+           CASE WHEN EXISTS (SELECT 1 FROM mc.statement_lines sl
+                             WHERE sl.sc_id = c.sc_id) THEN 0 ELSE 1 END
+      FROM mc.companies c WHERE upper(company_name) = upper(:s)
+    UNION ALL
+    SELECT sc_id, 3,
+           CASE WHEN EXISTS (SELECT 1 FROM mc.statement_lines sl
+                             WHERE sl.sc_id = c.sc_id) THEN 0 ELSE 1 END
+      FROM mc.companies c WHERE upper(c.ticker) = upper(:s)
+    UNION ALL
+    SELECT sc_id, 4, 0 FROM mc.companies WHERE sc_id = :s
+    UNION ALL
+    SELECT sc_id, 5, 0 FROM mc.companies WHERE bse_code = :s
+) x ORDER BY pri, f LIMIT 1
+"""
+
+_resolve_cache: dict[str, str | None] = {}
+
+
+def resolve(symbol: str) -> str | None:
+    """sc_id for a ticker or company name — traded symbols win over sc_ids."""
+    key = (symbol or "").strip().upper()
+    if not key:
+        return None
+    if key in _resolve_cache:
+        return _resolve_cache[key]
+    fdb, _ = _pivot()
+    from sqlalchemy import text
+    s = fdb._session()
+    try:
+        row = s.execute(text(_RESOLVE_SQL), {"s": symbol.strip()}).fetchone()
+        got = row[0] if row else None
+    finally:
+        s.close()
+    # Deliberately NO fallback to Pivot's resolver. Its last step bridges
+    # through the enrich DB keyed on enrich's `ticker`, and that column is
+    # corrupted in exactly the way this function exists to survive: asked for
+    # ACC it returns sc_id 'ACC' — Active Clothing — while reporting
+    # long_name "ACC Limited"; GAIL returns Gurunanak Agric's row labelled
+    # "GAIL (India) Limited". Right name, wrong company. Reached only when
+    # everything above missed, so its whole contribution is to convert an
+    # honest "not found" into a confident wrong company, which is the one
+    # failure mode nothing downstream can catch.
+    _resolve_cache[key] = got
+    return got
+
+
 def fdb_fields() -> frozenset:
     """The per-company metric vocabulary — what get_fundamentals can serve."""
     try:
@@ -176,7 +263,7 @@ def tool_get_fundamentals(symbol: str = "", fields: list | None = None,
     except Exception as exc:                      # noqa: BLE001
         return _unavailable(exc)
     try:
-        sc_id = fdb.resolve_symbol(symbol)
+        sc_id = resolve(symbol)
         if sc_id is None:
             return {"error": f"no listed company matches {symbol!r}",
                     "_note": ("Call search_companies to find the right name — "
@@ -220,8 +307,14 @@ def tool_get_balance_sheet(symbol: str = "", basis: str = "consolidated",
     except Exception as exc:                       # noqa: BLE001
         return _unavailable(exc)
     try:
+        # Resolve HERE rather than letting the statement helper do it — it
+        # calls Pivot's sc_id-first resolver internally, which is how a
+        # request for BEL's balance sheet comes back with BLS E-Services'.
+        sc_id = resolve(symbol)
+        if sc_id is None:
+            return {"error": f"no listed company matches {symbol!r}"}
         got = fdb.get_balance_sheet_statement(
-            symbol, basis=basis, years=max(1, min(int(years or 6), 10)))
+            sc_id, basis=basis, years=max(1, min(int(years or 6), 10)))
         if got is None:
             return {"error": f"no listed company matches {symbol!r}"}
         if not got.get("rows"):
