@@ -447,10 +447,11 @@ const Scene = (() => {
           ctx.setLineDash(a.dashed ? [7, 4] : []);
           ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
           ctx.setLineDash([]);
-          // anchors, so you can see the swings it was fitted to
-          for (const [px, py] of [[x1, y1], [x2, y2]]) {
-            ctx.beginPath(); ctx.arc(px, py, hot ? 3.5 : 2.5, 0, Math.PI * 2); ctx.fill();
-          }
+          // No anchor dots. A segment already ENDS at the swing it was fitted
+          // to — where the stroke stops is the claim — so a filled circle
+          // there restates it and nothing more. On a pattern like a wedge,
+          // whose two legs are two segments, it put four dots on the chart
+          // that read as handles you could grab and cannot.
           if (a.label) {
             // clamp by the MEASURED label width — a fixed margin let long
             // pattern labels run under the price axis

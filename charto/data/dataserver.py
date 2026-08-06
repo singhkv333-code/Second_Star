@@ -4052,12 +4052,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
             _scene_add({"kind": "poly", "id": link + "-o", "link": link,
                         "pane": "price", "role": role, "pts": o,
                         "solid": True, "source": src})
-            if "head_and_shoulders" in p["pattern"] and len(o) == 5:
-                for idx, tag in ((0, "left shoulder"), (2, "head"),
-                                 (4, "right shoulder")):
-                    _scene_add({"kind": "point", "id": f"{link}-t{idx}",
-                                "link": link, "pane": "price", "role": role,
-                                "a": o[idx], "label": tag, "source": src})
+            # No dots on the shoulders and head. The outline already turns at
+            # each of them — a five-point zigzag IS a left shoulder, a head
+            # and a right shoulder, in that order, and naming them with a
+            # filled circle adds a mark the user can't grab and doesn't need.
+            # A point annotation still exists for the one case that means it:
+            # get_indicator's mark_points, where the dot IS the answer.
             if base:
                 _scene_add({"kind": "poly", "id": link + "-f", "link": link,
                             "pane": "price", "role": role,
