@@ -43,8 +43,10 @@ _SECTOR = {
 }
 _PRECIOUS = {"GOLD": "Gold", "GOLDM": "Gold Mini",
              "SILVER": "Silver", "SILVERM": "Silver Mini"}
-_BASE = {"COPPER": "Copper", "ZINC": "Zinc", "ALUMINIUM": "Aluminium"}
+_BASE = {"COPPER": "Copper", "ZINC": "Zinc", "ALUMINIUM": "Aluminium",
+         "LEAD": "Lead", "NICKEL": "Nickel"}
 _ENERGY = {"CRUDEOIL": "Crude Oil", "NATURALGAS": "Natural Gas"}
+_SOFT = {"COTTON": "Cotton", "MENTHAOIL": "Mentha Oil"}
 _FX = {"USDINR": "USD/INR", "EURINR": "EUR/INR",
        "GBPINR": "GBP/INR", "JPYINR": "JPY/INR"}
 # The venue is part of the name because BTC-USD and BTCUSDT are the same asset
@@ -59,7 +61,7 @@ _CRYPTO_BASE = {
 for src, ind in ((_BROAD, "indexbroad"), (_SECTOR, "indexsector"),
                  (_PRECIOUS, "commoditypreciousmetals"),
                  (_BASE, "commoditybasemetals"), (_ENERGY, "commodityenergy"),
-                 (_FX, "currency")):
+                 (_SOFT, "commoditysoft"), (_FX, "currency")):
     for sym, name in src.items():
         ROWS[sym] = (name, ind)
 ROWS["INDIA VIX"] = ("India VIX", "volatility")

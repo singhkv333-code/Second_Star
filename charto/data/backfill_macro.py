@@ -46,7 +46,8 @@ from backend.kite.auth import (                                # noqa: E402
 # catch-up (catchup_remote.py — seed a throwaway DB with the remote's
 # watermarks, fetch only its missing windows, ship those) reached the 500 NSE
 # equities and left the 37 macro symbols — every index, the four INR pairs and
-# the nine MCX metals — two sessions stale with no way to close them.
+# the MCX commodities (now 13: bullion/base-metals/energy/agri) — two
+# sessions stale with no way to close them.
 DB_PATH = Path(environ.get("CHARTO_DB") or (Path(__file__).parent / "charto_bars.db"))
 # Kite's client formats a datetime as a bare "%Y-%m-%d %H:%M:%S" string and
 # DROPS tzinfo, so the server reads whatever fields it is given as IST. A UTC
@@ -69,7 +70,8 @@ INDICES = [
     "NIFTY MEDIA", "NIFTY COMMODITIES", "SENSEX", "BANKEX",
 ]
 METALS = ["GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
-          "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"]      # MCX-FUT
+          "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM",
+          "LEAD", "NICKEL", "COTTON", "MENTHAOIL"]           # MCX-FUT
 CURRENCY = ["USDINR", "EURINR", "GBPINR", "JPYINR"]         # CDS-FUT
 
 _lock = threading.Lock()

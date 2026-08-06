@@ -7190,7 +7190,8 @@ UTC_SESSION = (0, 0)                 # 24/7 crypto, 24/5 FX
 MCX_SESSION = (9 * 60, IST_OFF)      # MCX opens 09:00 IST, runs to 23:30
 
 _MCX_SYMBOLS = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
-                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"}
+                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM",
+                "LEAD", "NICKEL", "COTTON", "MENTHAOIL"}
 
 
 def session_for(symbol: str) -> tuple[int, int]:
@@ -7248,7 +7249,8 @@ _SCOPE_BY_INDUSTRY = {
     "volatility": "volatility_in", "cryptocurrency": "crypto",
     "commoditypreciousmetals": "commodity_in",
     "commoditybasemetals": "commodity_in",
-    "commodityenergy": "commodity_in", "currency": "fx_in",
+    "commodityenergy": "commodity_in",
+    "commoditysoft": "commodity_in", "currency": "fx_in",
 }
 
 # India VIX started out pooled with the indices — it is quoted by the same
