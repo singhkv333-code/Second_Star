@@ -827,39 +827,82 @@
     msgsEl.querySelectorAll(".suggest").forEach((n) => n.remove());
   }
 
+  /** The server's suggest_clean, verbatim. Both ends apply it — this one to
+   *  the half-written line on screen, that one to the final list — and if
+   *  they disagreed every suggestion would twitch as the stream settled. */
+  const cleanSuggest = (s) => s
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+    .trim().replace(/^["']|["']$/g, "").trim();
+
   async function suggestAfter(turn) {
     clearSuggest();
-    let picks = [];
+    const box = document.createElement("div");
+    box.className = "suggest";
+    turn.appendChild(box);
+    // Stale before it was ever shown: by now the user may have asked
+    // something else, switched chats, or cleared the thread.
+    const dead = () => !turn.isConnected || !box.isConnected || pending;
+    const rowAt = (i) => {
+      while (box.children.length <= i) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "suggest-row";
+        b.addEventListener("click", () => {
+          const q = b.textContent.trim();
+          if (q) { clearSuggest(); send(q); }
+        });
+        box.appendChild(b);
+      }
+      return box.children[i];
+    };
+    const paint = (lines) => {
+      lines.slice(0, 3).forEach((q, i) => {
+        const b = rowAt(i);
+        if (b.textContent !== q) { b.textContent = q; b.title = q; }
+      });
+    };
+
+    let acc = "";
     try {
       const r = await fetch(`${API}/suggest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: wireHistory() }),
       });
-      if (!r.ok) return;
-      picks = (await r.json()).suggestions || [];
-    } catch { return; }
-    // The user is fast and this call is not: by now they may have asked
-    // something else, switched chats, or cleared the thread. Any of those
-    // makes these three stale before they were ever shown.
-    if (picks.length !== 3 || pending || !turn.isConnected) return;
-    const box = document.createElement("div");
-    box.className = "suggest";
-    const cap = document.createElement("div");
-    cap.className = "suggest-cap";
-    cap.textContent = "Ask next";
-    box.appendChild(cap);
-    for (const q of picks) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "suggest-row";
-      b.title = q;          // the full text, for one the row had to ellipsise
-      b.innerHTML = `<span>${esc(q)}</span>` + Icons.svg("chevronRight", "xs");
-      b.addEventListener("click", () => { clearSuggest(); send(q); });
-      box.appendChild(b);
+      if (!r.ok || !r.body) { box.remove(); return; }
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await rd.read();
+        if (done) break;
+        if (dead()) { await rd.cancel(); box.remove(); return; }
+        buf += dec.decode(value, { stream: true });
+        // SSE frames are blank-line separated; a partial one waits its turn
+        const frames = buf.split("\n\n");
+        buf = frames.pop();
+        for (const f of frames) {
+          const line = f.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (ev.type === "delta") {
+            acc += ev.text || "";
+            paint(acc.split("\n").map(cleanSuggest).filter(Boolean));
+            toBottom();
+          } else if (ev.type === "done") {
+            const picks = ev.suggestions || [];
+            if (picks.length !== 3 || dead()) { box.remove(); return; }
+            paint(picks);
+            while (box.children.length > 3) box.lastChild.remove();
+            toBottom(true);
+            return;
+          }
+        }
+      }
+      box.remove();            // stream ended without a `done` — say nothing
+    } catch {
+      box.remove();
     }
-    turn.appendChild(box);
-    toBottom(true);
   }
 
   function failTurn(turn, msg) {

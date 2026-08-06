@@ -7001,21 +7001,46 @@ SUGGEST_PROMPT = (
     "pleasantries. Name the actual symbol under discussion rather than "
     "'this stock'.\n"
     "- Under 60 characters each. Short enough to read at a glance.\n\n"
+    "A question about what WILL happen is the easy mistake, and it is always "
+    "wrong here — rewrite it as the measurable thing underneath:\n"
+    "  'Will RELIANCE break out of the wedge?' -> 'Where are the wedge's "
+    "edges now?'\n"
+    "  'Is this a good entry?' -> 'How often has this pattern held on "
+    "RELIANCE?'\n"
+    "  'Should I wait for confirmation?' -> 'What would confirm the "
+    "breakout?'\n\n"
     "Return exactly three lines. One question per line. No numbering, no "
     "bullets, no quotes, no commentary."
 )
 
 
-def _suggest_next(messages: list[dict]) -> list[str]:
-    """Three follow-ups for the thread — or [] if anything at all goes wrong.
+def suggest_clean(raw: str) -> str:
+    """One suggestion line, as it should be shown.
+
+    Shared with the client, which applies the SAME two rules to the partial
+    line it is drawing mid-stream. If the two disagreed, every suggestion
+    would visibly twitch the moment the final list replaced the streamed one.
+    """
+    # the model still sometimes numbers them despite being told not to
+    line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
+    return line.strip("\"'").strip()
+
+
+def _suggest_stream(messages: list[dict]):
+    """Yield SSE events for three follow-ups: deltas, then a final list.
 
     An isolated sub-call, deliberately: the main turn is already streamed and
     finished by the time this runs, and giving the chat agent a fourth job
     would put these words through the whole tool loop and the system contract
     to produce thirty tokens.
 
-    Every failure path returns [] and the row simply does not appear. A
-    suggestion is a convenience; nothing here may cost anyone their answer.
+    It STREAMS for the same reason the answer above it does — the first
+    question is readable about a second in, rather than three lines appearing
+    at once when the call returns. There is no typewriter here: what arrives
+    is what the model has actually written so far.
+
+    Every failure path ends in a `done` carrying [] and the row simply never
+    appears. A suggestion is a convenience; nothing here may cost an answer.
     """
     tail = []
     for m in messages[-8:]:
@@ -7026,43 +7051,54 @@ def _suggest_next(messages: list[dict]) -> list[str]:
         if body.strip():
             tail.append({"role": role, "content": body})
     if not tail:
-        return []
+        yield {"type": "done", "suggestions": []}
+        return
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": [{"role": "system", "content": SUGGEST_PROMPT}, *tail],
         "max_output_tokens": 700,
         "reasoning": {"effort": "low"},
         "service_tier": LLM_SERVICE_TIER,
+        "stream": True,
     }
     req = urllib.request.Request(
         f"{AZURE_ENDPOINT}/responses",
         data=json.dumps(payload).encode(),
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST")
+    text = []
     try:
-        with urllib.request.urlopen(req, timeout=20, context=_ssl_ctx()) as r:
-            data = json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                body = line[5:].strip()
+                if not body or body == "[DONE]":
+                    continue
+                try:
+                    ev = json.loads(body)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("type") == "response.output_text.delta":
+                    d = ev.get("delta") or ""
+                    if d:
+                        text.append(d)
+                        yield {"type": "delta", "text": d}
     except Exception as exc:  # noqa: BLE001 — a dead suggest must not surface
         logging.info("suggest failed: %s", exc)
-        return []
-    text = []
-    for item in data.get("output", []):
-        if item.get("type") == "message":
-            for c in item.get("content", []):
-                if c.get("type") == "output_text":
-                    text.append(c.get("text", ""))
+        yield {"type": "done", "suggestions": []}
+        return
     out, seen = [], set()
     for raw in "".join(text).splitlines():
-        # the model still sometimes numbers them despite being told not to
-        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
-        line = line.strip("\"'").strip()
+        line = suggest_clean(raw)
         if not line or len(line) > 90 or line.lower() in seen:
             continue
         seen.add(line.lower())
         out.append(line)
         if len(out) == 3:
             break
-    return out if len(out) == 3 else []
+    yield {"type": "done", "suggestions": out if len(out) == 3 else []}
 
 
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
@@ -8457,6 +8493,29 @@ class Handler(BaseHTTPRequestHandler):
                                 body.get("spec") or {})
         return 404, {"error": "not found"}
 
+    def _send_events(self, events) -> None:
+        """Pump an already-built event generator down an SSE response.
+
+        The headers are the load-bearing part — see _send_stream — so both
+        streams set them in one place rather than each remembering
+        X-Accel-Buffering for itself.
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            for ev in events:
+                self.wfile.write(f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto sse failed: %s", exc)
+
     def _send_stream(self, messages: list, context: dict | None) -> None:
         """SSE. No Content-Length and no buffering — the whole point is that
         the first token reaches the screen before the turn is finished."""
@@ -8782,8 +8841,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(*self._account_post(u.path, body))
         if u.path == "/suggest":
             # Separate from /chat on purpose. It runs AFTER the reply has
-            # landed, so it can never delay one — and a 200 with an empty list
-            # is a normal answer, not a failure the client has to handle.
+            # landed, so it can never delay one — and a `done` carrying an
+            # empty list is a normal answer, not a failure to handle.
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")
@@ -8792,7 +8851,7 @@ class Handler(BaseHTTPRequestHandler):
             msgs = body.get("messages")
             if not isinstance(msgs, list):
                 return self._send(400, {"error": "messages[] required"})
-            return self._send(200, {"suggestions": _suggest_next(msgs)})
+            return self._send_events(_suggest_stream(msgs))
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:

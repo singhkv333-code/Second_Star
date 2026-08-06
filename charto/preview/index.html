@@ -1739,56 +1739,37 @@ header > .btn, header > .badge { flex: none; }
 
 /* ── three things worth asking next ──────────────────────────────────────
  *
- * Under the last reply, in the same column, and deliberately QUIETER than
- * the answer: hairline group, one size down, muted ink until reached. These
- * are an offer, not more output, and the moment they compete with the reply
- * for attention the thread stops reading top to bottom.
+ * No card, no rule, no header. They sit in the reply's own column on the
+ * reply's own surface, because they are the tail of reading the answer
+ * rather than a widget parked underneath it — a bordered panel here reads as
+ * a second thing on the page and breaks the thread in half.
  *
- * One line each, ellipsised — three rows of ragged heights is exactly the
- * sloppy version of this control, and the backend already caps the text.
+ * So the ONLY thing marking them is what has to: quieter ink than the prose,
+ * warming to full and underlining when reached. One line each, ellipsised —
+ * three rows of ragged heights is the sloppy version of this.
  */
 .suggest {
-  margin: 12px 0 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--card);
-}
-.suggest-cap {
-  padding: 6px 11px 5px;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-medium);
-  letter-spacing: .07em;
-  text-transform: uppercase;
-  color: var(--faint);
-  border-bottom: 1px solid var(--border-soft);
+  margin: 14px 0 2px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  max-width: 100%;
 }
 .suggest-row {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 8px 11px;
-  font: inherit; font-size: var(--text-xs); line-height: 1.4;
+  display: block; max-width: 100%; padding: 3px 0;
+  font: inherit; font-size: var(--text-xs); line-height: 1.5;
   text-align: left; color: var(--muted-foreground);
-  background: none; border: 0; border-top: 1px solid var(--border-soft);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-quartr),
-              color var(--dur-fast) var(--ease-quartr);
-}
-.suggest-row:first-of-type { border-top: 0; }
-.suggest-row > span {
-  flex: 1; min-width: 0;
+  background: none; border: 0; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-decoration-color: transparent;
+  transition: color var(--dur-fast) var(--ease-quartr),
+              text-decoration-color var(--dur-fast) var(--ease-quartr);
 }
-.suggest-row svg.icon {
-  flex: none; width: 13px; height: 13px;
-  opacity: 0; transform: translateX(-3px);
-  transition: opacity var(--dur-fast) var(--ease-quartr),
-              transform var(--dur-fast) var(--ease-quartr);
-}
+.suggest-row:empty { display: none; }   /* a row waiting on its first token */
 .suggest-row:hover, .suggest-row:focus-visible {
-  background: var(--hover-fill); color: var(--foreground); outline: none;
+  color: var(--foreground); outline: none;
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: currentColor;
 }
-.suggest-row:hover svg.icon,
-.suggest-row:focus-visible svg.icon { opacity: .55; transform: none; }
 
 /* per-turn footnotes: provenance + timing, quiet until hovered */
 .turn-meta {
@@ -3714,7 +3695,7 @@ header > .btn, header > .badge { flex: none; }
   <script src="./js/scene.js?v=26"></script>
   <script src="./js/panes.js?v=14"></script>
   <script src="./js/main.js?v=64"></script>
-  <script src="./js/chat.js?v=107"></script>
+  <script src="./js/chat.js?v=108"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=4"></script>
