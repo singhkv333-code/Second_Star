@@ -115,8 +115,8 @@ export default function DesignShowcase() {
           <Display.Em>Every surface</Display.Em> it touches.
         </Display>
         <Prose size={15} style={{ maxWidth: 560, marginTop: 22 }}>
-          Newsreader for the voice, Inter for the interface, JetBrains Mono
-          for the machine. Ink on paper, paper on ink — color belongs to
+          Newsreader for the voice, Inter for the interface and for every
+          figure. Ink on paper, paper on ink — color belongs to
           P&amp;L alone. Extracted from pivotnow.in and the app&apos;s Quartr
           token set; every component below reads theme variables, so it
           renders both modes unchanged.
@@ -135,7 +135,7 @@ export default function DesignShowcase() {
         <SectionHeader
           index="01"
           title="Typography"
-          note="Serif display speaks; Inter works; mono annotates."
+          note="Serif display speaks; Inter works, and counts."
         />
         <div className="flex flex-col gap-10">
           <Display size="section">
@@ -158,8 +158,8 @@ export default function DesignShowcase() {
                 <Delta value={-2.08} />
               </div>
               <Prose size={13}>
-                Numerals set in the machine face — JetBrains Mono, everywhere
-                a number lives.
+                Numerals are Inter with tabular figures — one face, and
+                columns that still line up on the decimal.
               </Prose>
             </div>
           </div>

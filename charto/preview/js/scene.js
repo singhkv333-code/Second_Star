@@ -39,7 +39,13 @@ const Scene = (() => {
   function create(chart, candle, env) {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
     //        onChange, onHover, onSelect, onIndicator, isCursorMode }
-    const state = { items: [], hover: null };
+    // `hidden` folds every annotation away — canvas marks, the corner legend
+    // and the bar markers alike — without removing one of them. What the chat
+    // drew is still in state, still restored on reload, still in the context
+    // envelope; it is simply not on screen. See Drawings' own flag: one
+    // control in the readout drives both, because "the chart is too busy" is
+    // never a question about which layer drew what.
+    const state = { items: [], hover: null, hidden: false };
     // Event icons (results, and anything else that happens ON a bar) use the
     // library's own marker layer rather than our canvas: markers belong to
     // the series, so they track the bar through zoom, pan and interval
@@ -47,7 +53,7 @@ const Scene = (() => {
     let markerApi = null;
     function syncMarkers() {
       const evs = [];
-      for (const a of state.items) {
+      for (const a of (state.hidden ? [] : state.items)) {
         if (a.kind !== "markers") continue;
         for (const m of a.marks || []) {
           evs.push({
@@ -212,6 +218,10 @@ const Scene = (() => {
     /** Which annotation is at this pane-local point? Shared by hover, click
      *  and the chart's own pin guard, so all three always agree. */
     function hitAt(y, key, x) {
+      // Folded away is not there. Hover, click and the chart's own pin guard
+      // all resolve through here, so this one line is what stops a hidden
+      // level raising a provenance card over an empty chart.
+      if (state.hidden) return null;
       for (let i = state.items.length - 1; i >= 0; i--) {
         const a = state.items[i];
         if (!mine(a, key)) continue;
@@ -282,45 +292,6 @@ const Scene = (() => {
       return div;
     }
 
-    /* The legend is COLLAPSED by default, behind a count.
-     *
-     * Three patterns and five levels is eight lines of text sitting over the
-     * top-right of the price action — the corner where the most recent bars
-     * are, which is the part of the chart people actually read. So the list
-     * folds into "N drawings" and opens when asked. The toggle is per pane
-     * and per session: opening it is a deliberate act, and it should stay
-     * open while you work through the list. */
-    const expanded = new Set();
-
-    function toggleFor(key, host, n) {
-      let t = host.querySelector(".scene-toggle");
-      if (!t) {
-        t = document.createElement("button");
-        t.className = "scene-toggle";
-        t.type = "button";
-        t.addEventListener("click", (e) => {
-          e.stopPropagation();
-          expanded.has(key) ? expanded.delete(key) : expanded.add(key);
-          _ru();
-        });
-        host.appendChild(t);
-      }
-      const open = expanded.has(key);
-      t.setAttribute("aria-expanded", String(open));
-      // Icon only. The count belonged in the label when the control was a
-      // sentence; as a button it is a chevron and nothing else, the way every
-      // other collapse on a chart is. The number survives where it is still
-      // useful — the tooltip and the accessible name.
-      const lbl = `${open ? "Hide" : "Show"} ${n} drawing${n === 1 ? "" : "s"}`;
-      t.title = lbl;
-      t.setAttribute("aria-label", lbl);
-      t.classList.toggle("open", open);
-      t.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none"'
-        + ' stroke="currentColor" stroke-width="1.7" stroke-linecap="round"'
-        + ' stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg>';
-      return open;
-    }
-
     function paintChips(key, chips) {
       const host = overlayFor(key);
       if (!host) return;
@@ -348,27 +319,15 @@ const Scene = (() => {
        * scale's own measured width instead of guessing at a constant. */
       let axis = 0;
       try { axis = chart.priceScale("right").width() || 0; } catch { axis = 0; }
-      const open = toggleFor(key, host, chips.length);
-      const tog = host.querySelector(".scene-toggle");
-      if (tog) { tog.style.right = `${axis + 8}px`; tog.style.display = chips.length ? "" : "none"; }
       chips.forEach((c, i) => {
         const el = pool[i];
-        el.style.display = open ? "" : "none";
+        el.style.display = "";
         el.style.right = `${axis + 8}px`;
         if (el.textContent !== c.text) el.textContent = c.text;
         el.style.color = c.col;
         el.classList.toggle("hot", !!c.hot);
-        // the indicator legend's own step, pushed down past the 24px button
-        el.style.top = `${8 + 30 + i * 17}px`;
+        el.style.top = `${8 + i * 17}px`;   // the indicator legend's own step
         el.dataset.ann = c.id || "";
-        // An entry names a place on the chart. Following it is the obvious
-        // thing to want and the one thing it did not do.
-        el.style.cursor = "pointer";
-        el.title = "Go to it on the chart";
-        el.onclick = (ev) => {
-          ev.stopPropagation();
-          if (c.id) api.focus(c.id);
-        };
         el.onmouseenter = () => {
           const a = state.items.find((q) => q.id === c.id);
           if (!a || state.hover === c.id) return;
@@ -392,6 +351,11 @@ const Scene = (() => {
     }
 
     function render(ctx, w, h, key) {
+      // The chips are DOM and outlive a skipped canvas pass, so folding away
+      // has to paint an EMPTY legend rather than simply not painting one —
+      // otherwise the names of the annotations survive in the corner while
+      // the annotations themselves are gone.
+      if (state.hidden) { paintChips(key, []); return; }
       ctx.save();
       const clearGlow = () => { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; };
       ctx.font = `11px ${FONT}`;
@@ -622,12 +586,6 @@ const Scene = (() => {
       const p = pointIn(e);
       const a = inPlot(e) ? hitAt(p.y, p.key, p.x) : null;
       const id = a ? a.id : null;
-      // The crosshair '+' says "I am measuring". Over something you can pick
-      // up it should say "I am grabbable" instead. Two layers hit-test
-      // independently (drawings.js owns the user's own shapes), so each sets
-      // its OWN class and the CSS answers to either — otherwise whichever
-      // ran second would clear the other's cursor on every mousemove.
-      env.container.classList.toggle("scene-grab", !!a && env.isCursorMode());
       if (id !== state.hover) {
         state.hover = id;
         env.onHover(a, cardY(a) ?? p.y);
@@ -732,15 +690,6 @@ const Scene = (() => {
     window.addEventListener("mouseup", () => {
       if (!drag) return;
       if (drag.moved && JSON.stringify(drag.a) !== JSON.stringify(drag.orig)) {
-        // Captured ONCE, on the first drag, so "restore" means "back to where
-        // chat drew it" rather than "undo the last nudge". drag.orig is the
-        // pre-drag snapshot and is otherwise thrown away at mouseup, which is
-        // why there was no way back from a shape you moved by accident.
-        if (!drag.a.origin) {
-          const o = JSON.parse(JSON.stringify(drag.orig));
-          delete o.origin; delete o.adjusted;
-          drag.a.origin = o;
-        }
         drag.a.adjusted = true;
         refreshDerived(drag.a);
         swallowClick = true;
@@ -763,7 +712,7 @@ const Scene = (() => {
 
     const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile"]);
 
-    const api = {
+    return {
       state,
       hitAt: (y, key, x) => hitAt(y, key, x),
       /** Drive the hover highlight from outside the canvas — the chat pane
@@ -775,74 +724,18 @@ const Scene = (() => {
         _ru();
       },
       cardY: (id) => cardY(state.items.find((a) => a.id === id)),
-      /** Repaint + persist after an annotation was edited from outside —
-       *  today that is only "restore position". Goes through the same
-       *  refreshDerived + onChange the drag path uses, so a restored shape
-       *  re-derives its labels and is written to the store exactly as a
-       *  moved one is. */
-      refresh(a) {
-        if (a) refreshDerived(a);
-        _ru();
-        env.onChange(count());
+      /** Fold every annotation away, or bring them back. Presentation only:
+       *  the items are untouched, so nothing is saved and nothing is undoable.
+       *  The hover goes with them — it points at something no longer drawn. */
+      setHidden(v) {
+        const next = !!v;
+        if (state.hidden === next) return next;
+        state.hidden = next;
+        if (next) state.hover = null;
+        syncMarkers(); _ru();
+        return next;
       },
-      /** Scroll the chart to an annotation and leave it centred. The legend
-       *  entry is a pointer to a place, and until now it was a label you
-       *  could hover but not follow. */
-      focus(id) {
-        const a = state.items.find((x) => x.id === id);
-        if (!a) return false;
-        const ts = [];
-        (function walk(v, d) {
-          if (!v || d > 3) return;
-          if (Array.isArray(v)) return v.forEach((x) => walk(x, d + 1));
-          if (typeof v !== "object") return;
-          if (typeof v.t === "number") ts.push(v.t);
-          for (const k of ["p1", "p2", "a", "b", "pts"]) if (v[k]) walk(v[k], d + 1);
-        })(a, 0);
-        if (typeof a.t === "number") ts.push(a.t);
-        const bars = env.getBars() || [];
-        if (!bars.length) return false;
-        // Detector times are RAW exchange time; bars[].time is IST-shifted
-        // (+19800). Comparing them directly framed the shape 5.5 hours early —
-        // on a 1h chart that is five bars of drift, enough to leave the end of
-        // the pattern outside the view it was supposed to centre.
-        const idxOf = (t) => {
-          const ct = env.toChartTime ? env.toChartTime(t) : t;
-          let lo = 0, hi = bars.length - 1;
-          while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if (bars[mid].time < ct) lo = mid + 1; else hi = mid;
-          }
-          return lo;
-        };
-        // A LEVEL spans the whole chart and names no time at all — there is
-        // nowhere to scroll to, so say so rather than jumping somewhere
-        // arbitrary and calling it a hit.
-        if (!ts.length) { state.hover = id; _ru(); return false; }
-        const i0 = idxOf(Math.min(...ts)), i1 = idxOf(Math.max(...ts));
-        // Recentre at the CURRENT zoom, widening only if the shape does not
-        // fit — the same contract as revealing a pinned candle, and the right
-        // one here: following a legend entry answers "where is it", not "how
-        // far out should I be standing".
-        //
-        // And the range must stay inside the right edge. Asking for a `to`
-        // past bars.length + rightOffset is not clamped by the library, it is
-        // REJECTED — the call returns without throwing and the chart simply
-        // never moves, which is exactly how this failed the first time.
-        const lr = chart.timeScale().getVisibleLogicalRange();
-        const cur = lr ? Math.max(20, lr.to - lr.from) : 180;
-        const span = Math.max(cur, (i1 - i0) * 1.6 + 16);
-        const mid = (i0 + i1) / 2;
-        let from = mid - span / 2, to = mid + span / 2;
-        const maxTo = bars.length + 4;
-        if (to > maxTo) { from -= to - maxTo; to = maxTo; }
-        try {
-          chart.timeScale().setVisibleLogicalRange({ from, to });
-        } catch { return false; }
-        state.hover = id;
-        _ru();
-        return true;
-      },
+      isHidden: () => state.hidden,
       syncPanes,
       remove(id) {
         // removing one leg of a linked pair removes the pair
@@ -907,10 +800,18 @@ const Scene = (() => {
         return drew;
       },
       clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },
+      /** Replace every annotation at once — the undo stack's write path.
+       *  Exactly the bookkeeping clear() does, with a list instead of
+       *  nothing; the hover is dropped because the annotation it pointed at
+       *  may not be in the state being restored. */
+      setItems(list) {
+        state.items = (list || []).slice();
+        state.hover = null;
+        syncMarkers(); _ru(); env.onChange(count());
+      },
       count,
       requestUpdate: () => _ru(),
     };
-    return api;
 
     /** Linked legs are one annotation to the user, so count them as one. */
     function count() {

@@ -20,7 +20,8 @@ const Drawings = (() => {
   const G = Geo;
 
   function create(chart, candle, env) {
-    // env: { getBars, getIntervalSec, container, stage, panes, setStatus, onToolDone }
+    // env: { getBars, getIntervalSec, container, stage, panes, setStatus,
+    //        onToolDone, onChange }
     // Short human-readable ref per drawing ("D3"), monotonic and never
     // recycled — it is what the chat tags and what the tools resolve by.
     let refSeq = 0;
@@ -33,6 +34,12 @@ const Drawings = (() => {
       drag: null,
       mouse: null,
       consumedDown: false,
+      // Folded away, not deleted. A chart carrying a dozen shapes is
+      // unreadable exactly when you want to look at the bars underneath them,
+      // and the only thing on offer used to be the trash. This is the eye:
+      // the drawings stay in state, in storage and in the chat's context —
+      // they are simply not painted, and not hittable while they are not.
+      hidden: false,
     };
     const rus = new Map();
     const _ru = () => { for (const f of rus.values()) f(); };
@@ -60,6 +67,16 @@ const Drawings = (() => {
     }
     const save = () => {
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+      // Every path that changes a drawing ends here — placement, the drag
+      // release, the Delete key, the card's Remove, clear-all — so this is
+      // the one line the undo stack has to hear about. It is a no-op while
+      // the stack is itself writing (js/history.js).
+      Undo.touch();
+      // …and the one line anything COUNTING drawings has to hear about. The
+      // scene layer has had this since it was written; the drawing layer only
+      // ever announced its selection, so a control that wanted to say "3
+      // drawings" had no event to say it on.
+      if (env.onChange) env.onChange(state.drawings.length);
     };
     /** Announce which drawing is selected. The chat listens and offers to
      *  tag it, so "is this any good?" carries a ref instead of leaving the
@@ -186,6 +203,9 @@ const Drawings = (() => {
     }
 
     function render(ctx, w, h, key) {
+      // A draft still paints while hidden — arming a tool un-hides (setTool),
+      // so the only way to reach this is a draft that was already open.
+      if (state.hidden && !state.draft) return;
       const e = envFor(key, w, h);
       const paint = (d, selected, isDraft) => {
         if ((d.pane || "price") !== key) return;
@@ -195,7 +215,9 @@ const Drawings = (() => {
         }
         if (selected) handles(ctx, d, e);
       };
-      for (const d of state.drawings) paint(d, d.id === state.selId, false);
+      if (!state.hidden) {
+        for (const d of state.drawings) paint(d, d.id === state.selId, false);
+      }
       if (state.draft) paint(state.draft, false, true);
     }
 
@@ -253,6 +275,10 @@ const Drawings = (() => {
 
     // ── hit-testing ─────────────────────────────────────
     function hitTest(mx, my, key) {
+      // Nothing invisible is grabbable. A hidden shape that still answered
+      // the pointer would select, drag and delete from under a chart that
+      // shows no reason for any of it to be happening.
+      if (state.hidden) return null;
       const e = envFor(key, el.clientWidth, paneHeight(key));
       for (let i = state.drawings.length - 1; i >= 0; i--) {
         const d = state.drawings[i];
@@ -479,16 +505,101 @@ const Drawings = (() => {
       el.addEventListener("touchcancel", end, opts);
     })();
 
+    /* ── the text box ─────────────────────────────────────────────────────
+     * A text annotation used to be `window.prompt("Text")` — a modal, in the
+     * middle of the screen, over the chart you were annotating, in the
+     * browser's own type. You could not see where the label was going while
+     * you wrote it, which is the one thing that matters about a label.
+     *
+     * This is TradingView's answer instead: the box opens ON the chart, at
+     * the anchor, in the size and position the finished chip will occupy —
+     * so what you type is already the drawing. It is placed in the CHIP's
+     * own geometry (see G.chip: 11px type, a 15px band, 6px of side padding,
+     * offset +4/-9 from the anchor), which is what makes it WYSIWYG rather
+     * than merely nearby.
+     *
+     * Enter or a click away keeps it; Escape or an empty box throws it away.
+     * The chart is frozen while it is open — a pan under a fixed-position
+     * editor would leave the box pointing at a bar it no longer belongs to.
+     */
+    let measurer = null;
+    function textWidth(str, font) {
+      measurer = measurer || document.createElement("canvas").getContext("2d");
+      measurer.font = font;
+      return measurer.measureText(str).width;
+    }
+
+    function openTextBox(d, done) {
+      const key = d.pane || "price";
+      const p = paneFor(key);
+      const paneEl = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+      const x = tToX(d.pts[0].t), y = vToY(d.pts[0].v, key);
+      if (x === null || y === null) return done(null);
+      const cr = el.getBoundingClientRect();
+      const pr = (paneEl || el).getBoundingClientRect();
+
+      const box = document.createElement("input");
+      box.className = "text-box";
+      box.type = "text";
+      box.placeholder = "Add text";
+      box.spellcheck = false;
+      box.style.left = Math.round(cr.left + x + 4) + "px";
+      box.style.top = Math.round(pr.top + y - 9) + "px";
+      document.body.appendChild(box);
+
+      const font = getComputedStyle(box).font;
+      // 62 is the stylesheet's own min-width: setting a narrower inline
+      // width would just be overridden, and the two would disagree about
+      // how wide an empty box is
+      const fit = () => {
+        const w = textWidth(box.value || box.placeholder, font);
+        box.style.width = Math.max(62, Math.ceil(w + 16)) + "px";
+      };
+      fit();
+      box.focus();
+
+      setScroll(false);
+      let closed = false;
+      const close = (txt) => {
+        if (closed) return;
+        closed = true;
+        box.remove();
+        setScroll(state.tool === "cursor");
+        done(txt);
+      };
+      box.addEventListener("input", fit);
+      box.addEventListener("keydown", (e2) => {
+        // never let a keystroke inside the box reach the chart's own
+        // shortcuts — Escape there cancels a draft, Delete removes a drawing
+        e2.stopPropagation();
+        if (e2.key === "Enter") { e2.preventDefault(); close(box.value.trim()); }
+        if (e2.key === "Escape") { e2.preventDefault(); close(null); }
+      });
+      // A click anywhere else is a commit, the way it is in TradingView —
+      // but the click that OPENED the box must not immediately close it.
+      setTimeout(() => box.addEventListener("blur", () => close(box.value.trim())), 0);
+    }
+
     function commit() {
       const d = state.draft;
       state.draft = null;
       if (!d) return;
       const spec = Tools.SPECS[d.type];
       if (spec.text) {
-        const txt = window.prompt("Text");
-        if (!txt) { _ru(); env.onToolDone(); return; }
-        d.text = txt;
+        _ru();                       // the box is the preview; drop the draft
+        openTextBox(d, (txt) => {
+          if (!txt) { _ru(); env.onToolDone(); return; }
+          d.text = txt;
+          place(d);
+        });
+        return;
       }
+      place(d);
+    }
+
+    /** Everything a commit does once the drawing is finally known. */
+    function place(d) {
+      const spec = Tools.SPECS[d.type];
       d.id = newId();
       d.ref = "D" + (++refSeq);
       state.drawings.push(d);
@@ -511,6 +622,18 @@ const Drawings = (() => {
       if (e2.key === "Escape") { state.draft = null; state.selId = null; _ru(); emitSelect(); env.onToolDone(); }
     });
 
+    /** Hidden drops the SELECTION too. The selection is what the composer
+     *  offers to tag ("about D3…"), and a ref pointing at a shape nobody can
+     *  see is an offer the chart cannot back up. */
+    function setHidden(v) {
+      const next = !!v;
+      if (state.hidden === next) return next;
+      state.hidden = next;
+      if (next && state.selId) { state.selId = null; emitSelect(); }
+      _ru();
+      return next;
+    }
+
     return {
       state,
       SPECS: Tools.SPECS,
@@ -518,11 +641,20 @@ const Drawings = (() => {
       setTool(tool) {
         state.tool = tool;
         state.draft = null;
+        // Arming a tool un-folds. Drawing a trendline onto a chart that is
+        // hiding its trendlines would put the new one straight into the hole
+        // the old ones are in — the gesture would look like it failed.
+        if (tool !== "cursor" && state.hidden) setHidden(false);
         setScroll(tool === "cursor");
         el.classList.toggle("drawing", tool !== "cursor");
         _ru();
       },
       toggleMagnet() { state.magnet = !state.magnet; return state.magnet; },
+      /** Fold every shape away, or bring them back. Presentation only — it
+       *  writes nothing to storage and touches no undo step, because nothing
+       *  about the drawings themselves has changed. */
+      setHidden,
+      isHidden: () => state.hidden,
       /** Delete one drawing by id — the same path the Delete key takes, so
        *  the card's Remove button cannot drift from the keyboard's. */
       remove(id) {
@@ -535,6 +667,26 @@ const Drawings = (() => {
         return true;
       },
       clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
+      /** Replace the whole set at once — the undo stack's write path.
+       *
+       *  Selection is DROPPED rather than carried across: the shape it
+       *  pointed at may not exist in the state being restored, and a
+       *  selection with no drawing under it leaves handles on the chart
+       *  that nothing can move. An open draft goes for the same reason.
+       *
+       *  Refs stay monotonic. A restored D7 must not let the next drawing
+       *  mint a second D7 — a chat turn that said "D7" has to keep meaning
+       *  one shape, which is the same promise load() makes at boot. */
+      setAll(list) {
+        state.drawings = (list || []).map((d) => ({ ...d, pane: d.pane || "price" }));
+        state.selId = null;
+        state.draft = null;
+        for (const d of state.drawings) {
+          const n = d.ref && /^D(\d+)$/.exec(d.ref);
+          if (n) refSeq = Math.max(refSeq, +n[1]);
+        }
+        save(); _ru(); emitSelect();
+      },
       count: () => state.drawings.length,
       syncPanes,
       /** Geometry of one drawing, for the backend to score. */

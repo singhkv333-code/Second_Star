@@ -54,8 +54,46 @@ const Icons = (() => {
     fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     eraser: '<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/>',
     copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    /* The clockwise arrow Pivot's message rows use for "ask that again" —
+     * lucide rotate-cw, not the bent undo arrow below it, because re-sending
+     * a prompt moves the conversation FORWARD rather than reversing it. */
+    rotateCw: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+    /* The undo pair. lucide undo-2/redo-2: the arrow curls BACK on itself,
+     * which is the glyph TradingView, Figma and every editor before them
+     * settled on — a plain left arrow reads as "previous", not "revert". */
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>',
+    redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"/>',
     pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
     panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+
+    // ── alerts ─────────────────────────────────────────────
+    bell: '<path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/>',
+    bellOff: '<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
+    pause: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
+    play: '<path d="M6 4.5v15l13-7.5z"/>',
+    /* The empty alerts state draws at 74px, so it gets its own glyph rather
+     * than the bar's bell scaled up. It is TradingView's own idea and the
+     * right one: a clock face left OPEN in its lower-right quadrant, with
+     * the + standing in the gap — an alert is a time that has not happened
+     * yet, and the gap is what you are being asked to fill. The arc is the
+     * 270° the plus does not occupy (large-arc, clockwise from 6 o'clock). */
+    alertPlus: '<path d="M12 21A9 9 0 1 1 21 12"/><path d="M12 7v5l3.2 2"/><path d="M19.5 16.5v6"/><path d="M16.5 19.5h6"/>',
+    // ── watchlist ──────────────────────────────────────────
+    /* The STAR is the watchlist, not the bulleted list. Every Indian broker a
+     * reader arrives from — Zerodha, Groww, Upstox — marks "things I follow"
+     * with a star, and a list glyph beside a bell reads as "menu" rather than
+     * as a subject. `list` stays: the alert LOG and the column picker are
+     * lists in the ordinary sense and still use it. */
+    star: '<path d="M11.53 2.3a.53.53 0 0 1 .94 0l2.31 4.68a2.12 2.12 0 0 0 1.6 1.16l5.16.75a.53.53 0 0 1 .3.91l-3.74 3.63a2.12 2.12 0 0 0-.61 1.88l.88 5.14a.53.53 0 0 1-.77.56l-4.62-2.43a2.12 2.12 0 0 0-1.97 0L6.4 21.01a.53.53 0 0 1-.77-.56l.88-5.14a2.12 2.12 0 0 0-.61-1.88L2.16 9.8a.53.53 0 0 1 .3-.91l5.16-.75a2.12 2.12 0 0 0 1.6-1.16z"/>',
+    list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/>',
+    columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+    sort: '<path d="M4 6h10"/><path d="M4 12h7"/><path d="M4 18h4"/><path d="M18 8v12"/><path d="m15 17 3 3 3-3"/>',
+
+    // ── account ────────────────────────────────────────────
+    // The signed-OUT avatar. A signed-in one is an initial, not a glyph —
+    // drawn by main.js in CSS, because a letter is not an icon.
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><path d="M21 12H9"/>',
 
     // ── phone toolbar ──────────────────────────────────────
     // The bar has no room for words on every slot, so these four carry a

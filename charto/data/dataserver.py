@@ -8144,6 +8144,92 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
     }
 
 
+# ── quotes ──────────────────────────────────────────────────────────────────
+#
+# What a watchlist row is, and nothing more: the last trade and the move since
+# the previous session's close, for many symbols in one call. Read off the same
+# daily series get_bars folds — including the forming minute — so a row and the
+# candles beside it can never quote different numbers for the same session.
+#
+# It deliberately does NOT hydrate. /bars pulls a cold symbol out of the blob
+# store (~6 s of subprocess) because the user asked to LOOK at it; a watchlist
+# asks for thirty at once, on a timer, and firing thirty hydrations off a
+# repaint would take the server down with it. A symbol this store holds nothing
+# for answers `last: null`, which is the honest state and the one the panel
+# already knows how to draw — never a filler number.
+
+_QUOTES_MAX = 120        # a panel that scrolls, not a screener
+_QUOTE_MIN_TAIL = 3000   # ≥2 sessions of minutes on every venue we carry
+
+
+def _q(v: float) -> float:
+    """Round for display without flattening a sub-rupee instrument to 0.0."""
+    return round(v, 2) if abs(v) >= 1 else round(v, 6)
+
+
+def _quote_daily(sym: str) -> list[list]:
+    """This symbol's daily bars — on any shape of store.
+
+    `_daily` is the fast path and the one the chart uses. It reads bars_1d,
+    which a trimmed dev store does not carry at all; rather than fail the whole
+    call, fold the TAIL of the minute table instead. Bounded on purpose — a
+    quote needs two sessions, not the whole history.
+    """
+    try:
+        daily = _daily(sym)
+    except sqlite3.Error:
+        daily = []
+    if daily:
+        return daily
+    rows = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts DESC LIMIT ?",
+        (sym, _QUOTE_MIN_TAIL)).fetchall()
+    rows.reverse()
+    return _fold_daily(rows, session_for(sym))
+
+
+def quote_for(sym: str) -> dict:
+    """One row's worth of price. `last: null` when we hold nothing."""
+    daily = _quote_daily(sym)
+    live = _live_view(sym)
+    form = live[0] if live else None
+    if form is not None and daily:
+        daily = _merge_form_daily(daily, form, session_for(sym))
+    if not daily:
+        return {"symbol": sym, "last": None,
+                "note": f"no stored price history for {sym}"}
+    last = daily[-1]
+    # A single stored session has no previous close, so the day's move is
+    # UNKNOWN rather than zero — the row shows a price and no change.
+    prev = daily[-2][4] if len(daily) > 1 else None
+    out = {
+        "symbol": sym, "last": _q(last[4]), "open": _q(last[1]),
+        "high": _q(last[2]), "low": _q(last[3]),
+        "prev_close": _q(prev) if prev else None,
+        "change": None, "change_pct": None,
+        "as_of": last[0], "currency": quote_ccy(sym),
+        # the asset class the store itself assigns (classification-backed), so
+        # the panel groups its rows off one source instead of a second guess
+        "scope": scope_for(sym),
+    }
+    if prev:
+        out["change"] = _q(last[4] - prev)
+        out["change_pct"] = round((last[4] - prev) / prev * 100, 2)
+    return out
+
+
+def quotes_for(names: list[str]) -> list[dict]:
+    seen: set[str] = set()
+    out = []
+    for raw in names:
+        s = raw.strip().upper()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(quote_for(s))
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict) -> None:
         body = json.dumps(payload).encode()
@@ -8311,6 +8397,12 @@ class Handler(BaseHTTPRequestHandler):
                 to = int(q["to"]) if q.get("to") else None
                 limit = min(int(q.get("limit", 3000)), 20000)
                 return self._send(200, get_bars(symbol, interval, to, limit))
+            if u.path == "/quotes":
+                want = (q.get("symbols") or "").split(",")
+                if len([s for s in want if s.strip()]) > _QUOTES_MAX:
+                    return self._send(400, {
+                        "error": f"at most {_QUOTES_MAX} symbols per call"})
+                return self._send(200, {"quotes": quotes_for(want)})
             if u.path == "/indicators":
                 # the catalogue the chart builds its menu from — one list, so
                 # the menu and the model can never disagree about what exists

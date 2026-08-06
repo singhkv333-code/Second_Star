@@ -110,7 +110,7 @@
     // toggles something on it (an indicator, a volume-profile window) does
     // not, because those are multi-select by design. The hosted menus'
     // own handlers have already run by the time this fires.
-    if (e.target.closest("[data-close], [data-layout], [data-shot], [data-sym]")) {
+    if (e.target.closest("[data-close], [data-layout], [data-shot], [data-sym], [data-acct]")) {
       closeSheet();
     }
   });
@@ -151,27 +151,28 @@
   } };
 
   /* ── slot · interval ──────────────────────────────────────────────────
-   * Read off the segmented control, and every tap is a click ON it, so
-   * main.js's pane-aware routing (a selected secondary chart keeps its own
-   * interval) applies here untouched. */
+   * Read off the header's interval MENU, and every tap is a click ON one of
+   * its rows, so main.js's pane-aware routing (a selected secondary chart
+   * keeps its own interval) applies here untouched.
+   *
+   * The menu spells the interval out ("15 minutes") because it has a column
+   * of width to do it in; a 74px tile does not, so the tiles wear the short
+   * form the header pill wears — carried on the row itself as data-short so
+   * there is still only one list of intervals in the app. */
   SHEETS.interval = { title: "Interval", fill(b) {
     b.innerHTML = '<div class="sheet-grid compact">' +
-      [...el("intervalSeg").children].map((x) =>
+      [...el("intervalMenu").querySelectorAll("button[data-iv]")].map((x) =>
         `<button type="button" class="tile ${x.classList.contains("active") ? "on" : ""}" ` +
-        `data-iv="${x.dataset.iv}"><span class="tile-lbl">${x.textContent}</span></button>`
+        `data-iv="${x.dataset.iv}"><span class="tile-lbl">${x.dataset.short}</span></button>`
       ).join("") + "</div>";
   } };
 
   /* ── slot · indicators ────────────────────────────────────────────────
-   * Two real elements borrowed: the chip strip — the only way to reach an
-   * indicator's eye, gear and × on a phone — and the menu itself. #indBtn's
-   * click is what renders that menu against the SELECTED pane. */
+   * The menu, borrowed whole — #indBtn's click is what renders it against
+   * the SELECTED pane. This sheet only ADDS: what is already on the chart is
+   * edited from the legend written on the chart itself, where a phone shows
+   * the eye/gear/×/⋯ permanently rather than on a hover it cannot perform. */
   SHEETS.indicators = { title: "Indicators", fill(b) {
-    const chips = document.querySelector(".chips-wrap");
-    if (chips && el("indChips").children.length) {
-      b.insertAdjacentHTML("beforeend", '<div class="sheet-sec">On this chart</div>');
-      adopt(chips);
-    }
     const menu = el("indMenu");
     menu.classList.remove("open");
     adopt(menu);
@@ -241,6 +242,9 @@
         tile('data-more="shotFull"', Icons.svg("camera"), "Screenshot") +
         tile('data-more="shotRegion"', Icons.svg("rect"), "Select area") +
       "</div>" +
+      // No Panels section: the watchlist and alerts are buttons ON the bar
+      // now, one tap away. A door in here to the same two would be a second
+      // path to a control that is already visible.
       '<div class="sheet-sec">Conversation</div><div class="sheet-grid">' +
         tile('data-more="chat"', Icons.svg("chat"), chatOn ? "Hide chat" : "Show chat",
              chatOn ? "on" : "") +
@@ -249,6 +253,13 @@
       '<div class="sheet-sec">Appearance</div><div class="sheet-grid">' +
         tile('data-more="theme"', Icons.svg(dark ? "sun" : "moon"),
              dark ? "Light theme" : "Dark theme") +
+      "</div>" +
+      // The header's avatar is one of the controls this width hides, and it
+      // is the only door to signing out — so it gets a tile here rather than
+      // being unreachable on a phone.
+      '<div class="sheet-sec">Account</div><div class="sheet-grid">' +
+        tile('data-more="account"', Icons.svg("user"),
+             Auth.user ? (Auth.user.name || Auth.user.email) : "Sign in") +
       "</div>";
   } };
 
@@ -259,13 +270,20 @@
     el("layoutBtn").click();
   } };
 
+  SHEETS.account = { title: "Account", fill() {
+    const menu = el("acctMenu");
+    menu.classList.remove("open");
+    adopt(menu);
+    el("acctBtn").click();
+  } };
+
   /* ── one delegated handler for every sheet body ───────────────────────
    * Registered once. Filling a sheet must never add a listener: the body
    * element survives every open, so a per-fill listener would stack one
    * copy per visit and fire a tool five times on the fifth open. */
   sBody.addEventListener("click", (e) => {
     const iv = e.target.closest("[data-iv]");
-    if (iv) return act(el("intervalSeg").querySelector(`button[data-iv="${iv.dataset.iv}"]`));
+    if (iv) return act(el("intervalMenu").querySelector(`button[data-iv="${iv.dataset.iv}"]`));
 
     const tab = e.target.closest("[data-tab]");
     if (tab) {
@@ -303,6 +321,7 @@
     if (!m) return;
     switch (m.dataset.more) {
       case "layout": return openSheet("layout");
+      case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
       case "chat": return act(el("chatToggle"));
@@ -315,7 +334,15 @@
     }
   });
 
-  /* ── the bar ─────────────────────────────────────────────────────────── */
+  /* ── the bar ─────────────────────────────────────────────────────────────
+   * Left of the spacer: what the CHART is showing — instrument, interval,
+   * indicators, drawings. Right of it: the panels beside the chart, then
+   * More. The widget bar those two proxy is display:none at this width, so
+   * this is the only way to reach a panel on a phone — and, as everywhere
+   * else in this file, each one CLICKS the real button rather than owning a
+   * state of its own. Read off #wbar, so a widget added there arrives here
+   * with no edit to this file. */
+  const widgetBtns = [...document.querySelectorAll("#wbar [data-widget]")];
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +
@@ -325,6 +352,12 @@
     '<button type="button" class="mbtn" data-slot="drawings" id="mbDraw" aria-label="Drawings">' +
       Icons.svg("pen") + "</button>" +
     '<span class="mspace"></span>' +
+    widgetBtns.map((b) => {
+      const label = b.querySelector(".tip").textContent;
+      return `<button type="button" class="mbtn" data-widget="${b.dataset.widget}" ` +
+        `aria-label="${label}">${lift(b, "list")}</button>`;
+    }).join("") +
+    '<span class="msep"></span>' +
     '<button type="button" class="mbtn" data-slot="more" aria-label="More">' +
       Icons.svg("more") + "</button>";
 
@@ -332,6 +365,11 @@
     // the app closes every dropdown on a document click; the bar's own taps
     // are not that click
     e.stopPropagation();
+    // A panel opens in place, so — unlike a sheet — nothing has to get out
+    // of the chart's way first: click the real widget-bar button and let
+    // js/panels.js apply its own one-panel rule.
+    const w = e.target.closest("[data-widget]");
+    if (w) { closeSheet(); el(`wb-${w.dataset.widget}`).click(); return syncBar(); }
     const b = e.target.closest("[data-slot]");
     if (b) openSheet(b.dataset.slot);
   });
@@ -352,8 +390,8 @@
         (logo ? `<img class="co-logo" src="${logo}" alt="" onerror="this.remove()"/>`
               : Icons.svg("search")) + `<span>${sym}</span>`;
     }
-    const iv = el("intervalSeg").querySelector("button.active");
-    const ivl = iv ? iv.textContent : "—";
+    const iv = el("intervalMenu").querySelector("button.active");
+    const ivl = iv ? iv.dataset.short : "—";
     if (shown.iv !== ivl) {
       shown.iv = ivl;
       el("mbInterval").innerHTML = `<span>${ivl}</span>`;
@@ -366,6 +404,15 @@
     for (const b of bar.querySelectorAll("[data-slot]")) {
       b.classList.toggle("on", !!openId && b.dataset.slot === openId);
     }
+    // …and a panel button reads its state off the widget-bar button it
+    // proxies, including the bell's "something fired" dot: at this width the
+    // bar is hidden, so this row is the only place that mark can show.
+    for (const b of bar.querySelectorAll("[data-widget]")) {
+      const real = el(`wb-${b.dataset.widget}`);
+      if (!real) continue;
+      b.classList.toggle("armed", real.classList.contains("active"));
+      b.classList.toggle("has-new", real.classList.contains("has-new"));
+    }
   }
 
   // The bar tracks the app rather than being told by it: the interval moves
@@ -374,7 +421,7 @@
   // elements carrying those facts beats four call sites that must remember.
   if (window.MutationObserver) {
     const mo = new MutationObserver(syncBar);
-    mo.observe(el("intervalSeg"),
+    mo.observe(el("intervalMenu"),
                { subtree: true, attributes: true, attributeFilter: ["class"] });
     mo.observe(el("tool-cursor"), { attributes: true, attributeFilter: ["class"] });
   }
