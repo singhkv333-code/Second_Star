@@ -80,6 +80,37 @@ PROMPTS: list[dict] = [
 ]
 
 
+# Set B — a second, disjoint set. Same brief (research and financial analysis,
+# light on chart technicals), no company or question reused from set A, so a
+# pass here is not a pass on prompts the build was already tuned against.
+PROMPTS_B: list[dict] = [
+    {"id": 101, "tag": "sector", "turns": [
+        "Which Indian FMCG companies earn the best return on capital, and are their margins holding up?"]},
+    {"id": 102, "tag": "leverage", "turns": [
+        "Compare the leverage and interest cover of Adani Ports and JSW Infrastructure."]},
+    {"id": 103, "tag": "compare", "turns": [
+        "Bajaj Auto or Hero MotoCorp — which has been the better allocator of capital?"]},
+    {"id": 104, "tag": "quality", "turns": [
+        "Find companies with high ROE but weak or falling revenue. I want to spot quality traps."]},
+    {"id": 105, "tag": "single-co", "turns": [
+        "How leveraged is Indian Hotels, and has it actually deleveraged over the years you have?"]},
+    {"id": 106, "tag": "explainer", "turns": [
+        "Explain the difference between operating margin and EBITDA margin, using a real Indian company's numbers."]},
+    {"id": 107, "tag": "multiturn", "turns": [
+        "Which cement companies have the strongest interest coverage?",
+        "How does that sit against how much debt they actually carry?"]},
+    {"id": 108, "tag": "growth", "turns": [
+        "What does the revenue and profit trend look like at Eternal, formerly Zomato?"]},
+    {"id": 109, "tag": "multiturn", "turns": [
+        "Compare HDFC Bank, ICICI Bank and Axis Bank on net interest margin and asset quality.",
+        "Which of the three looks safest on the numbers you pulled?"]},
+    {"id": 110, "tag": "screen", "turns": [
+        "Screen IT companies with revenue growth above 10% and ROE above 20%, and show me their margins."]},
+]
+
+SETS = {"a": PROMPTS, "b": PROMPTS_B}
+
+
 def turn(messages: list[dict], timeout: int = 240) -> dict:
     req = urllib.request.Request(
         f"{BASE}/chat",
@@ -146,7 +177,7 @@ def summarise(results: list[dict]) -> str:
                 fails.append(name)
 
     lines = [
-        "# Pivotted — 20-prompt research eval",
+        f"# Pivotted — {len(results)}-prompt research eval",
         "",
         f"{len(results)} prompts, {len(flat)} turns ({len(flat) - len(results)} follow-ups), "
         f"{len(flat) - len(ok)} transport failures.",
@@ -203,8 +234,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="/tmp/pivotted_eval")
     ap.add_argument("--only", type=int, default=0, help="first N prompts")
+    ap.add_argument("--set", choices=sorted(SETS), default="a")
     a = ap.parse_args()
-    items = PROMPTS[:a.only] if a.only else PROMPTS
+    items = SETS[a.set]
+    items = items[:a.only] if a.only else items
     try:
         urllib.request.urlopen(f"{BASE}/health", timeout=5)
     except Exception as exc:                        # noqa: BLE001

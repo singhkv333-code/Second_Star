@@ -78,6 +78,15 @@ def _pivot():
     return _mods["fdb"], _mods["fs"]
 
 
+def fdb_fields() -> frozenset:
+    """The per-company metric vocabulary — what get_fundamentals can serve."""
+    try:
+        fdb, _ = _pivot()
+    except Exception:                              # noqa: BLE001
+        return frozenset()
+    return frozenset(fdb.FIELD_MAP)
+
+
 def _unavailable(exc: Exception) -> dict:
     return {"error": f"the filings database is unreachable ({exc})",
             "_note": ("Say the fundamentals lookup failed and answer from "
@@ -288,7 +297,23 @@ def tool_screen_fundamentals(filters: list | None = None, sector: str = "",
             "Every row is a real filing. A filter the DB cannot serve is "
             "dropped and disclosed in `note` — read it before answering."))
         rows = got.get("results") or []
-        want = [f for f in (enrich_fields or []) if f]
+        asked = [f for f in (enrich_fields or []) if f]
+        # The screen and the per-company reader do NOT share a vocabulary. The
+        # growth set (revenue_growth / net_profit_growth / eps_growth) is
+        # computed by the screen off mc.growth_metrics_mat and has no entry in
+        # financials_db's FIELD_MAP, so routing it through get_fundamentals
+        # returns nothing at all. Observed: a screen asked to enrich with
+        # growth rendered a column of em-dashes, and the reply reported the
+        # figures as unavailable — honest, and wrong, because the screen can
+        # serve them perfectly well when they are named as a filter or sort.
+        want = [f for f in asked if f in fdb_fields()]
+        rejected = [f for f in asked if f not in fdb_fields()]
+        if rejected:
+            got["enrich_unavailable"] = rejected
+            got["_enrich_note"] = (
+                f"{', '.join(rejected)} cannot be enriched per-company — they "
+                f"are computed by the screen itself. To get them, name them in "
+                f"`filters` or `sort_by` on this same call instead.")
         if want and rows:
             syms = [r.get("symbol") for r in rows[:12] if r.get("symbol")]
             with ThreadPoolExecutor(max_workers=min(len(syms), 8)) as pool:

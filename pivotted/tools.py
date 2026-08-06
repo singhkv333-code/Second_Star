@@ -294,10 +294,25 @@ _FUNDAMENTAL_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "filters": {"type": "array", "items": {"type": "object"},
                      "description": "[{field, op, value}], at least one."},
+         # An enum, not prose, because an unrecognised sector is SILENTLY
+         # IGNORED by the screen rather than rejected — the filter vanishes
+         # and the caller gets a ranked list of the wrong universe. The
+         # earlier free-text description advertised cement, realty, media and
+         # "chemical" (the real slug is plural), none of which resolve; asked
+         # for the strongest cement balance sheets, the screen returned Garnet
+         # International and Guj Toolroom. These twelve are the whole
+         # vocabulary — anything outside it must be handled by naming
+         # companies instead.
          "sector": {"type": "string",
-                    "description": ("Coarse sector: pharma, bank, it, energy, "
-                                    "auto, metal, finance, fmcg, cement, "
-                                    "realty, chemical, textile, media…")},
+                    "enum": ["auto", "autoancillary", "bank", "chemicals",
+                             "energy", "finance", "fmcg", "infra", "it",
+                             "metal", "pharma", "textiles"],
+                    "description": ("The only sectors this screen knows. For "
+                                    "anything else — cement, realty, media, "
+                                    "telecom, capital goods — omit this and "
+                                    "compare named companies instead, rather "
+                                    "than screening a sector that will be "
+                                    "ignored.")},
          "sort_by": {"type": "object",
                      "description": "{field, dir: asc|desc}."},
          "market_cap_tier": {"type": "string",
@@ -313,9 +328,13 @@ _FUNDAMENTAL_TOOLS = [
                                "back, in this same call. A screen returns only "
                                "what it filtered or sorted on, so name here "
                                "anything you intend to REPORT — margins, "
-                               "growth, valuation — instead of screening and "
-                               "then looking the rows up, which costs an extra "
-                               "round-trip.")},
+                               "returns, leverage, valuation — instead of "
+                               "screening and then looking the rows up, which "
+                               "costs an extra round-trip. The GROWTH fields "
+                               "(revenue_growth, net_profit_growth, "
+                               "eps_growth) do not work here — they are "
+                               "computed by the screen, so put those in "
+                               "`filters` or `sort_by` instead.")},
          "limit": {"type": "integer", "description": "Default 15, max 50."},
      }, "required": ["filters"]}},
 
