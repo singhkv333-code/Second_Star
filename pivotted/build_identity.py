@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS company_identity (
   verified_bse_code   TEXT,
   mc_sc_id            TEXT PRIMARY KEY,
   mc_slug             TEXT,
+  mc_is_primary       BOOLEAN NOT NULL DEFAULT TRUE,
+  mc_latest_period    DATE,
+  mc_metric_count     INTEGER,
   match_route         TEXT NOT NULL,
   match_name_score    REAL NOT NULL,
   verified_at         TIMESTAMPTZ NOT NULL
@@ -119,6 +122,18 @@ COMMENT ON COLUMN company_identity.mc_sc_id IS
  'JOIN KEY ONLY — NOT AN IDENTIFIER. Joins mc.companies / mc.statement_lines / '
  'enrich.company_profile. Never resolve a user-supplied symbol against it: '
  'these codes collide with other companies real tickers.';
+COMMENT ON COLUMN company_identity.mc_is_primary IS
+ 'FILTER ON THIS for anything per-company. Moneycontrol carries SEVERAL sc_ids '
+ 'for one security — Tata Steel has 6, Reliance 4 — so 149 ISINs appear on more '
+ 'than one row and an extraction that ignores this fetches Tata Steel six '
+ 'times. TRUE = the sc_id holding the deepest, most recent filings for that '
+ 'ISIN. 118 of the 333 duplicate sc_ids carry no filings at all.';
+COMMENT ON COLUMN company_identity.mc_latest_period IS
+ 'Newest period_end Moneycontrol holds for this sc_id. The primary-selection '
+ 'evidence, and a staleness check: a row years behind is a dead listing.';
+COMMENT ON COLUMN company_identity.mc_metric_count IS
+ 'Rows in mc.growth_metrics_mat for this sc_id — filing depth, the tie-break '
+ 'when two sc_ids share a latest period.';
 COMMENT ON COLUMN company_identity.mc_slug IS
  'UNVERIFIED. Moneycontrol name slug, kept as the evidence this row was '
  'matched on. Not authoritative — use verified_name.';
@@ -295,6 +310,35 @@ def resolve_all(rows, off) -> tuple[list, dict]:
     return resolved, stats
 
 
+def mark_primary(resolved, depth):
+    """One primary sc_id per ISIN: newest filing wins, then filing depth.
+
+    Rows are (sc_id, exchange, symbol, isin, name, slug, scrip_cd, route,
+    score, stamp); this returns them with (is_primary, latest, count) appended.
+
+    Rows without an ISIN cannot be grouped, so they stay primary — they are
+    their own identity as far as anything here can tell.
+    """
+    by_isin = {}
+    for r in resolved:
+        if r[3]:
+            by_isin.setdefault(r[3], []).append(r)
+    winner = {}
+    for isin, group in by_isin.items():
+        if len(group) == 1:
+            continue
+        best = max(group, key=lambda r: (
+            depth.get(r[0], (0, None))[1] or __import__("datetime").date.min,
+            depth.get(r[0], (0, None))[0]))
+        winner[isin] = best[0]
+    out = []
+    for r in resolved:
+        cnt, latest = depth.get(r[0], (0, None))
+        primary = True if not r[3] else winner.get(r[3], r[0]) == r[0]
+        out.append((*r, primary, latest, cnt))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -318,12 +362,19 @@ def main() -> int:
     fc.execute("SELECT sc_id, company_slug, company_name, nse_symbol, "
                "bse_code, ticker FROM mc.companies")
     rows = fc.fetchall()
-    fc.execute("SELECT DISTINCT sc_id FROM mc.growth_metrics_mat")
-    have_fin = {r[0] for r in fc.fetchall()}
+    # Depth + recency per sc_id, off the materialised growth table rather than
+    # the 18.3M-row statement_lines (which times out). Enough to pick a
+    # primary: where Moneycontrol carries several sc_ids for one security, the
+    # duplicates are either empty or a year behind.
+    fc.execute("SELECT sc_id, count(*), max(latest_end) "
+               "FROM mc.growth_metrics_mat GROUP BY sc_id")
+    depth = {r[0]: (r[1], r[2]) for r in fc.fetchall()}
+    have_fin = set(depth)
     fin.close()
     print(f"  mc.companies {len(rows)}")
 
     resolved, stats = resolve_all(rows, off)
+    resolved = mark_primary(resolved, depth)
     print("\nROUTES")
     for k, v in sorted(stats.items(), key=lambda kv: -kv[1]):
         print(f"  {k:<32} {v:>6}")
@@ -337,6 +388,8 @@ def main() -> int:
     print(f"  by exchange       {dict(ex)}")
     print(f"  with ISIN         {isin} ({100*isin/max(len(resolved),1):.1f}%)")
     print(f"  with financials   {fin_n}")
+    prim = sum(1 for r in resolved if r[10])
+    print(f"  primary rows      {prim}  (dupes suppressed: {len(resolved)-prim})")
     print(f"  name agreement <0.6 {len(weak)}  (mc slug vs official name)")
     for r in weak[:8]:
         print(f"     {r[2]:<12} slug={r[5][:26]:<26} official={r[4][:34]} "
@@ -353,8 +406,9 @@ def main() -> int:
     cur.executemany(
         "INSERT INTO company_identity (mc_sc_id,verified_exchange,"
         "verified_symbol,isin,verified_name,mc_slug,verified_bse_code,"
-        "match_route,match_name_score,verified_at) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", resolved)
+        "match_route,match_name_score,verified_at,"
+        "mc_is_primary,mc_latest_period,mc_metric_count) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", resolved)
     db.commit()
     cur.execute("SELECT count(*) FROM company_identity")
     print(f"\nwrote company_identity: {cur.fetchone()[0]} rows")
