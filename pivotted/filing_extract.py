@@ -209,15 +209,31 @@ class Doc:
                 hi = mid - 1
         return best
 
+    # A declaration normally sits above the numbers it governs, so "nearest
+    # above" is the rule. But a match often lands on a table's CAPTION, and the
+    # "(` in crore)" header prints on the line after it — leaving the true unit
+    # a few characters BELOW. Allowing a short look-ahead fixes the worst
+    # measured case in the sample: HDFCBANK's contingent-liability table on page
+    # 378 is headed "(C in ‘000)" 103 characters below the caption, and without
+    # this the resolver reached 131,280 characters back to a "crore" declaration
+    # on page 310 — a 10,000x error, silently. The window is deliberately tiny;
+    # anything larger starts stealing the NEXT table's header.
+    LOOKAHEAD = 600
+
     def resolve_unit(self, pos: int) -> UnitDecl | None:
-        """Nearest declaration ABOVE pos. This is trap #1's entire defence."""
-        best = None
+        """Nearest declaration governing pos. This is trap #1's entire defence."""
+        above = None
+        below = None
         for u in self.units:
             if u.pos <= pos:
-                best = u
+                above = u
             else:
+                below = u
                 break
-        return best
+        if below is not None and below.pos - pos <= self.LOOKAHEAD:
+            if above is None or (below.pos - pos) < (pos - above.pos):
+                return below
+        return above
 
     def section_of(self, pos: int) -> Section | None:
         best = None
