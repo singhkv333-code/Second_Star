@@ -45,7 +45,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "filings_sample"
+OUT = HERE / "filings_sample"          # overridden by --out
 PDFS = OUT / "pdf"
 TEXT = OUT / "text"
 DB = OUT / "index.db"
@@ -274,11 +274,24 @@ def extract_text(pdf_bytes, dest: Path):
 
 
 def main() -> int:
+    # `global` must precede every use of these names in this scope — the
+    # argparse defaults below read them.
+    global OUT, PDFS, TEXT, DB, NSE_SAMPLE, BSE_SAMPLE
     ap = argparse.ArgumentParser()
     ap.add_argument("--reports", type=int, default=2, help="annual reports per company")
     ap.add_argument("--pres", type=int, default=3, help="presentation-ish docs per company")
     ap.add_argument("--workers", type=int, default=5)
+    ap.add_argument("--out", default="filings_sample",
+                    help="output dir under pivotted/ (use a NEW name for a "
+                         "held-out validation sample)")
+    ap.add_argument("--nse", default=",".join(NSE_SAMPLE))
+    ap.add_argument("--bse", default=",".join(f"{s}:{c}" for s, c in BSE_SAMPLE))
     a = ap.parse_args()
+
+    OUT = HERE / a.out
+    PDFS, TEXT, DB = OUT / "pdf", OUT / "text", OUT / "index.db"
+    NSE_SAMPLE = [x for x in a.nse.split(",") if x]
+    BSE_SAMPLE = [tuple(x.split(":")) for x in a.bse.split(",") if x]
 
     for p in (OUT, PDFS, TEXT):
         p.mkdir(parents=True, exist_ok=True)

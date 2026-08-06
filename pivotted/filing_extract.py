@@ -58,10 +58,18 @@ APOS = "'‘’ʼ`´"
 
 # Trap 1 + 3: match the WORD, never the currency glyph. Canonical unit is crore.
 _U = rf"[{APOS}]?000|thousand|lakh?s?|lacs?|crores?|millions?|billions?"
+
+# The currency glyph sits BETWEEN "in" and the unit word: INFY writes
+# "(In ` crore)". A plain `\bin\s+` therefore matches nothing, and INFY scored
+# ZERO unit declarations across two 384-page reports on the held-out run — its
+# CSR figures survived only because the inline rule caught them. `_GAP` allows
+# the glyph (`, C, K, I, H, J, ~, \x07, en-dash, ₹ ...) to sit in that space.
+_GAP = r"[\s\W]{0,4}"
 UNIT_DECL_RE = re.compile(
-    rf"\(\s*[^()\n]{{0,24}}?\bin\s+({_U})\b[^()\n]{{0,30}}?\)", re.I)
+    rf"\(\s*[^()\n]{{0,24}}?\bin{_GAP}({_U})\b[^()\n]{{0,30}}?\)", re.I)
 # Some filings write it without brackets: "Amount in Lakhs"
-UNIT_BARE_RE = re.compile(rf"\b(?:amount|figures|rs\.?|inr)\s+in\s+({_U})\b", re.I)
+UNIT_BARE_RE = re.compile(
+    rf"\b(?:amount|figures|rs\.?|inr)\s+in{_GAP}({_U})\b", re.I)
 
 TO_CRORE = {
     "crore": 1.0, "crores": 1.0,
@@ -90,22 +98,44 @@ def _despace(line: str) -> str:
     return _SPACED_RUN.sub(lambda m: m.group(1).replace(" ", "").replace("\t", ""), line)
 
 
+_APOS_RE = re.compile(f"[{APOS}]")
+_DASH_RE = re.compile(r"[–—‒]")
+
+
 def normalise(text: str) -> str:
-    """Case-fold + de-letter-space + collapse whitespace. For MATCHING only."""
-    return re.sub(r"[ \t]+", " ", _despace(text)).strip().lower()
+    """Case-fold, de-letter-space, fold punctuation, collapse whitespace.
+
+    Punctuation folding is not cosmetic. Filings use U+2019 for the possessive
+    ("board's report", "independent auditor's report"), and an ASCII-only
+    character class silently matches nothing — the same failure mode as the
+    U+2018 in "'000". Folding once here fixes every downstream pattern.
+    For MATCHING only; never store the result.
+    """
+    s = _despace(text)
+    s = _APOS_RE.sub("'", s)
+    s = _DASH_RE.sub("-", s)
+    return re.sub(r"[ \t]+", " ", s).strip().lower()
 
 
 # Section anchors. Ordered: earlier entries win a tie. Patterns run against the
 # normalised line, so they are lowercase and whitespace-tolerant by construction.
+# normalise() has already folded apostrophes to ' and dashes to -, so patterns
+# only ever need the ASCII forms. `ANX` lets an annexure heading anchor the same
+# section — "Annexure III to Board Report" belongs with the Board's Report.
+ANX = r"(?:annexure[^\n]{0,22}?to\s+(?:the\s+)?)?"
+POSS = r"'?s?"
+
 SECTIONS: list[tuple[str, str]] = [
     ("agm_notice",       r"^notice\b.{0,40}annual general meeting|^notice is hereby given"),
-    ("chairman_letter",  r"^(chairman|chairperson)[''`s]{0,2}\s+(letter|message|statement)"),
+    ("chairman_letter",  rf"^(?:chairman|chairperson|managing director)[^\n]{{0,40}}"
+                         rf"(?:letter|message|statement)\s*$"),
     ("mda",              r"^management discussion and analysis"),
-    ("board_report",     r"^(board[''`s]{0,2}|directors?[''`s]{0,2})\s+report\b"),
-    ("corp_governance",  r"^corporate governance report"),
+    ("board_report",     rf"^{ANX}(?:board|directors?){POSS}\s+report\b"),
+    ("corp_governance",  r"^(?:report on )?corporate governance\b(?: report)?\s*:?$"
+                         r"|^corporate governance report"),
     ("brsr",             r"^business responsibility (and|&) sustainability"),
     ("secretarial_audit", r"^secretarial audit report"),
-    ("auditor_report",   r"^independent auditor[''`s]{0,2}\s+report"),
+    ("auditor_report",   rf"^{ANX}independent auditors?{POSS}\s+report"),
     ("key_audit_matters", r"^key audit matters?\b"),
     ("balance_sheet",    r"^(standalone |consolidated )?balance sheet\b"),
     ("profit_loss",      r"^(standalone |consolidated )?(statement of )?profit and loss"),
@@ -120,6 +150,16 @@ SECTION_RES = [(name, re.compile(pat)) for name, pat in SECTIONS]
 # Basis is tracked by heading, never by position (RIL standalone-first vs TCS
 # consolidated-first).
 BASIS_RE = re.compile(r"^(standalone|consolidated)\b")
+
+# Smaller filers number their sections — "16. Corporate Governance",
+# "4.<tab>Corporate Governance", "(a) Board's Report". Every ^-anchored pattern
+# misses those, which is why corp_governance scored 5/20 on the held-out set
+# against 13/19 on the first. Strip the marker before matching.
+_LIST_MARKER_RE = re.compile(r"^(?:\(?[0-9ivx]{1,4}\)?[.)]\s*|\(?[a-z]\)[.)]?\s*)+", re.I)
+
+
+def _strip_list_marker(norm_line: str) -> str:
+    return _LIST_MARKER_RE.sub("", norm_line, count=1).strip()
 
 
 @dataclass
@@ -215,7 +255,7 @@ def parse(path: Path) -> Doc:
     for raw_line in text.splitlines(keepends=True):
         line = raw_line.strip()
         if line and len(line) < 160:
-            norm = normalise(line)
+            norm = _strip_list_marker(normalise(line))
             bm = BASIS_RE.match(norm)
             if bm:
                 basis = bm.group(1)
@@ -297,6 +337,24 @@ FACT_SPECS = [
     FactSpec("csr_avg_net_profit",
              rf"average net profit of the compan(?:y|ies)[^:\n]{{0,60}}:"
              rf"\s*(?:rs\.?|inr)?\s*[^\d\n]{{0,4}}({NUM})", "currency"),
+
+    # CONTINGENT LIABILITIES ARE NOT UNIFORMLY REGEX-ABLE. Four shapes in ten
+    # companies: RELIANCE an itemised table, JYOTI a table under its own "₹
+    # lakhs" header, TCS inline prose, KPGEL a narrative NIL. Only the prose
+    # form is safe, so only the prose form is taken here.
+    #
+    # The trap that decided this: KPGEL states "has not provided for any
+    # contingent liability" and then mentions "` 547.25 lakhs" two lines later
+    # — an unrelated property advance. A greedy pattern returns 547.25 as the
+    # contingent liability: wrong number, full confidence, no error. The
+    # itemised-table cases are therefore left to the model stage rather than
+    # guessed at here.
+    # NOTE: [^.] not [^.\n] — the sentence wraps across lines in the extracted
+    # text ("...tax demands received\nfrom direct tax authorities..."), so
+    # excluding newlines makes this match nothing at all.
+    FactSpec("contingent_tax_demand",
+             rf"contingent liabilit\w*\s+in respect of tax demands?[^.]{{0,120}}?"
+             rf"\bis\s*[^\d]{{0,3}}({NUM})", "currency"),
 ]
 _COMPILED = [(s, re.compile(s.pattern, re.I)) for s in FACT_SPECS]
 
@@ -385,8 +443,9 @@ def validate(facts: list[Fact]) -> list[str]:
 
 # ---------------------------------------------------------------- report
 
-def run_sample() -> int:
-    db = sqlite3.connect(SAMPLE / "index.db")
+def run_sample(sample_dir: Path = SAMPLE) -> int:
+    print(f"sample: {sample_dir}")
+    db = sqlite3.connect(sample_dir / "index.db")
     rows = list(db.execute("""SELECT symbol,exchange,text_path,pages FROM docs
                               WHERE fetch_state='ok' AND doc_kind='annual_report'
                                 AND text_path IS NOT NULL ORDER BY symbol"""))
@@ -396,9 +455,16 @@ def run_sample() -> int:
           f"{'units':>6s}  unit mix")
     all_facts: list[Fact] = []
     section_hits: dict[str, int] = {}
+    bad_docs: list[tuple[str, str]] = []
     multi_unit = 0
     for sym, ex, tp, pages in rows:
         d = parse(Path(tp))
+        if not d.pages:
+            bad_docs.append((sym, "no text layer extracted (0 pages) — PDF unreadable"))
+            continue
+        if not d.units:
+            bad_docs.append((sym, f"{pages}p but ZERO unit declarations — "
+                                  "any currency here would be unresolvable"))
         kinds = {s.name for s in d.sections}
         for k in kinds:
             section_hits[k] = section_hits.get(k, 0) + 1
@@ -411,6 +477,14 @@ def run_sample() -> int:
         top = sorted(mix.items(), key=lambda x: -x[1])[:4]
         print(f"  {sym:8s}{ex:4s}{pages:>5}{len(d.sections):>6}{len(kinds):>6}"
               f"{len(d.units):>6}  {top}")
+
+    # A document that yielded no text, or no unit declaration at all, must be
+    # reported as a FAILURE. Silently returning "no facts" for it is how a
+    # corpus run quietly loses companies.
+    if bad_docs:
+        print(f"\n=== !! UNUSABLE DOCUMENTS ({len(bad_docs)}) — excluded, not silently empty ===")
+        for sym, why in bad_docs:
+            print(f"  {sym:12s} {why}")
 
     print(f"\n=== SECTION COVERAGE (of {len(rows)} reports) ===")
     for k, v in sorted(section_hits.items(), key=lambda x: -x[1]):
@@ -440,5 +514,7 @@ def run_sample() -> int:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", action="store_true")
+    ap.add_argument("--dir", default="filings_sample",
+                    help="sample dir under pivotted/ to run against")
     a = ap.parse_args()
-    raise SystemExit(run_sample() if a.sample else run_sample())
+    raise SystemExit(run_sample(HERE / a.dir))
