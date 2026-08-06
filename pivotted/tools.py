@@ -211,11 +211,11 @@ _FUNDAMENTAL_TOOLS = [
     {"type": "function", "name": "get_fundamentals",
      "description": (
          "Financial-statement metrics for ONE company — any listed company, "
-         "not just the ones with stored bars. 37 fields: the ratio set (roe, "
-         "roce, roa, roic, debt_to_equity, current_ratio, quick_ratio, "
+         "not just the ones with stored bars. The ratio set (roe, "
+         "roce, roa, debt_to_equity, current_ratio, quick_ratio, "
          "interest_coverage, net_profit_margin, ebitda_margin, "
-         "operating_margin, gross_margin, asset_turnover, inventory_turnover, "
-         "receivables_turnover, price_to_book, ev_to_ebitda, earnings_yield, "
+         "operating_margin, asset_turnover, inventory_turnover, "
+         "price_to_book, ev_to_ebitda, earnings_yield, "
          "dividend_payout), the raw lines (revenue, net_profit, "
          "operating_profit, eps_basic, eps_diluted, interest_expense, "
          "total_debt, total_equity, reserves, cash_from_ops, "
@@ -228,7 +228,11 @@ _FUNDAMENTAL_TOOLS = [
          "statement data, so a question about last quarter cannot be answered "
          "from here. Fields the company does not publish come back named "
          "under not_published — say they are unavailable, never estimate "
-         "them."),
+         "them. ALWAYS quote `as_of`: the reader prefers the consolidated "
+         "basis over recency, so when a company stopped filing consolidated "
+         "the figure returned can be a year or more older than its newest "
+         "standalone filing, and the period is the only thing that reveals "
+         "it."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string",
                     "description": ("NSE symbol OR company name — this "
