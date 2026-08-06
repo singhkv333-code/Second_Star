@@ -1782,7 +1782,11 @@
         `(?<![\\w.])(${pairs.map(([s]) => escRe(s)).join("|")})(?![\\w])`, "gi");
 
       const walker = document.createTreeWalker(threadEl, NodeFilter.SHOW_TEXT, {
+        // Never inside the follow-up suggestions: those are questions the
+        // user has not asked yet, so a price in one refers to nothing on the
+        // chart and marking it as a live reference is simply false.
         acceptNode: (n) => (n.parentElement && !n.parentElement.closest("span.ann-ref")
+          && !n.parentElement.closest(".suggest")
           && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
       });
       const nodes = [];

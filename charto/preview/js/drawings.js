@@ -199,6 +199,8 @@ const Drawings = (() => {
         width: prim.width || (selected ? 2 : 1.5),
         dash: isDraft ? [4, 4] : (prim.dash || d.dash || []),
         fillAlpha: prim.fillAlpha,
+        // a position's numbers ride on selection — see geometry's `position`
+        detail: selected || isDraft,
       };
     }
 

@@ -560,9 +560,13 @@ const Scene = (() => {
             // by ratio, and repainting it all one role colour loses that
             // ?? not ||: an explicit empty dash means SOLID — a pattern
             // outline through real swings is an assertion, not a suggestion
+            // `detail` is hover here, not selection: clicking a scene
+            // annotation opens nothing (main.js's onSelect is empty), so
+            // pointing at one IS how this layer is addressed.
             Geo.paint(ctx, prim, px,
                       { color: prim.color || col, width: hot ? 2 : 1.5,
-                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12 }, e);
+                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12,
+                        detail: hot }, e);
             if (!anchor) anchor = px;
           }
           // a position paints its own pills and centre chip — the generic

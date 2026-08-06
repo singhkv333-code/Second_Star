@@ -1621,13 +1621,12 @@ header > .btn, header > .badge { flex: none; }
 .scene-chip.hot { font-weight: var(--weight-semi); }
 
 /* chart ⇄ chat cross-highlight. A mention of something drawn on the chart,
-   quiet until it matters. A real text-decoration, not a bottom border: a
-   border is an edge of a BOX, so border-radius curled its ends upward and
-   the mention looked like it was sitting in a tray. */
+   quiet until it matters — and at REST it matters not at all, so it carries
+   no mark. A dotted rule under every price in a reply is a lot of ink spent
+   telling you something you find out for free by pointing at one; a reply
+   with six levels in it read as though the model had underlined its own
+   homework. The link is still live, it just no longer announces itself. */
 .ann-ref {
-  text-decoration: underline dotted var(--foreground);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
   cursor: default;
   /* No transition. Crossing in and out of a small inline target fades the
      state in and out repeatedly, which reads as jitter — it should be
@@ -3686,12 +3685,12 @@ header > .btn, header > .badge { flex: none; }
   <script src="./js/indicators.js?v=19"></script>
   <script src="./js/indlegend.js?v=1"></script>
   <script src="./js/indsettings.js?v=6"></script>
-  <script src="./js/geometry.js?v=8"></script>
+  <script src="./js/geometry.js?v=9"></script>
   <script src="./js/tools.js?v=8"></script>
-  <script src="./js/drawings.js?v=16"></script>
-  <script src="./js/scene.js?v=27"></script>
+  <script src="./js/drawings.js?v=17"></script>
+  <script src="./js/scene.js?v=28"></script>
   <script src="./js/panes.js?v=14"></script>
-  <script src="./js/main.js?v=64"></script>
+  <script src="./js/main.js?v=65"></script>
   <script src="./js/chat.js?v=108"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->

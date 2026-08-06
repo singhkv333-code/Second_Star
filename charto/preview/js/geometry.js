@@ -340,6 +340,14 @@ const Geo = (() => {
           ctx.fillStyle = "#fff";
           ctx.fillText(text, x + 9, py + 15);
         };
+        // The arithmetic appears when you POINT at the plan, not before.
+        // Entry, stop, target, percentage, distance, quantity, risk, R:R and
+        // rupee P&L is nine values in four pills sitting over the candles; as
+        // a permanent fixture it is a wall of text on a chart whose job is to
+        // show the shape of the trade. The shape stays — zones, boundaries,
+        // entry line — and the numbers are one hover or one selection away,
+        // in the reply, and in the plan card.
+        if (!s.detail) break;
         px.yT.forEach((y, i) => {
           const tp = prim.targets[i];
           if (tp.text) pill(tp.text, y, GREEN, y <= px.yE);
