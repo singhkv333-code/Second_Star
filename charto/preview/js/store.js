@@ -69,7 +69,10 @@ const Store = (() => {
   // "vp" rides with "scene" because it IS scene state: a volume profile is a
   // window over one instrument's own bars. Left unscoped it followed the user
   // from symbol to symbol and drew an uninvited profile on the next chart.
-  const SCOPED = new Set(["chat", "scene", "vp"]);
+  // "chats"/"chatid" are the conversation ARCHIVE and the one that is open —
+  // scoped with "chat" (the single-thread key they replace) for the same
+  // reason: a company's conversations belong to that company.
+  const SCOPED = new Set(["chat", "chats", "chatid", "scene", "vp"]);
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
 

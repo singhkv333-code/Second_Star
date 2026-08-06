@@ -123,10 +123,11 @@
       time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
     })));
     // A new interval can move an indicator in or out of the timeframes its
-    // Visibility tab allows, and the chip is where that is legible — without
-    // this the plot vanishes on 1h while its chip still reads as live.
+    // Visibility tab allows, and the legend row is where that is legible —
+    // without this the plot vanishes on 1h while its row still reads as live.
+    // (recomputeAll repaints the legend itself; this is only the menu's tick.)
     ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length })
-      .then(() => renderChips());
+      .then(() => renderIndMenu());
   }
 
   async function loadInterval(interval) {
@@ -247,6 +248,14 @@
         color: bar.close >= bar.open ? Theme.c("volUp") : Theme.c("volDown") });
       lastBar = bar;
       paintReadout(lastBar);
+      // Anything else on the page showing this instrument's PRICE. The event
+      // carries the last trade and nothing else — no change, no percent, no
+      // opinion — so a listener that wants a move computes it against its own
+      // baseline. Today's listener is the watchlist row for this symbol,
+      // which would otherwise sit up to a poll behind the candle beside it.
+      document.dispatchEvent(new CustomEvent("charto:tick", {
+        detail: { symbol: SYMBOL, last: b.c },
+      }));
       // the server owns indicator math — refresh at most once a second, and a
       // fast stream of closes must not keep pushing the refresh into the future
       if (ev.closed_1m && !indTimer) {
@@ -418,55 +427,48 @@
         `<span>${c.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
     }
   }
-  /** The chips ARE TradingView's indicator legend: label, then the eye,
-   *  the gear and the × that appear under the cursor. Everything editable
-   *  about an indicator is behind the gear now — the old click-the-label
-   *  period box could change one number out of the eight the dialog owns. */
-  function renderChips() {
-    const m = IND();
-    el("indChips").innerHTML = [...m.active.keys()].map((id) => {
-      const c = m.CATALOG.find((q) => q.id === id);
-      const hidden = m.isHidden(id);
-      const off = !hidden && m.offInterval(id);
-      const cls = hidden ? " muted" : (off ? " off" : "");
-      // The chip's own colour, as a short LINE rather than a dot: it stands
-      // for a line on the chart, and now that two SMAs no longer share a
-      // colour the swatch is what maps a chip to the curve it drew.
-      const st = m.settings(id);
-      const plots = (st && st.style && st.style.plots) || {};
-      const swatch = Object.entries(plots)
-        .find(([k, v]) => v && v.visible !== false && k !== "histogram")
-        || Object.entries(plots)[0];
-      const dash = swatch
-        ? `<i class="swatch" style="background:${swatch[1].color}"></i>` : "";
-      return `<span class="chip${cls}" data-ind-chip="${id}">` +
-        `${dash}<span class="lbl">${c.label}</span>` +
-        `<span class="acts">` +
-        `<span class="act${hidden ? " pinned" : ""}" data-eye="${id}" ` +
-          `title="${hidden ? "Show" : "Hide"}">${Icons.svg(hidden ? "eyeOff" : "eye")}</span>` +
-        `<span class="act" data-cfg="${id}" title="Settings">${Icons.svg("settings")}</span>` +
-        `<span class="act rm" data-rm="${id}" title="Remove">${Icons.svg("x")}</span>` +
-        `</span></span>`;
-    }).join("");
-    // the chips ARE the active set, so this is the one honest save point —
-    // it catches the menu, the chip's x, and anything the chat adds. Only the
-    // PRIMARY's set is persisted: a secondary pane is created by the layout
-    // and dies with it, so restoring indicators onto one would be restoring
-    // them onto a different chart than the one they were added to.
-    if (Panes.primaryActive) Store.set("indicators", [...ind.active.keys()]);
-    if (window.__chartoSyncChips) window.__chartoSyncChips();
+  /* The indicator legend is ON the chart now (js/indlegend.js) — one row per
+   * study under the OHLC, carrying its own reading and its own eye, gear, ×
+   * and ⋯, plus TradingView's collapse toggle. The header's chip strip is
+   * gone with it: it said the same thing further from the line it was about,
+   * and it could never quote a value at the bar under the pointer.
+   *
+   * Note this is bound to the PRIMARY chart's manager, not to IND(). Each
+   * pane wears its own legend, so a legend never describes a chart other
+   * than the one it is drawn on — which is the whole point of moving it. */
+  const legend = IndLegend.create({
+    chart, chartEl, mgr: ind, stage: stageEl, host: el("indLegend"),
+    storeKey: "ind_legend_collapsed",
+    openSettings: (id) => openIndSettings(id, ind),
+    status,
+    onChange: () => {
+      renderIndMenu();
+      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+    },
+  });
+
+  /** The active set moved. The legend repaints itself off the manager's own
+   *  sink, so all this owns is the SAVE — and only the primary's, since a
+   *  secondary pane is created by the layout and dies with it: restoring
+   *  indicators onto one would be restoring them onto a different chart than
+   *  the one they were added to. */
+  function saveIndicators() {
+    Store.set("indicators", [...ind.active.keys()]);
   }
 
   /** Open the settings dialog on one indicator. Every edit inside it applies
-   *  live and persists itself; all this has to do is keep the chips honest. */
-  function openIndSettings(id) {
-    const m = IND();
+   *  live and persists itself; all this has to do is keep the menu honest.
+   *  The manager is passed in by the legend that was clicked — on a split,
+   *  the gear on a secondary pane's row must edit THAT pane's copy, not
+   *  whichever pane happens to hold the selection. */
+  function openIndSettings(id, mgr) {
+    const m = mgr || IND();
     IndSettings.open(m, id, {
       // the subtitle names the chart being edited, which on a split is not
       // necessarily the page's own symbol or interval
       subtitle: `${m.symbol} · ${m.interval}`,
       onChange: () => {
-        renderChips();
+        renderIndMenu();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
       },
     });
@@ -535,130 +537,18 @@
       return;
     }
     Promise.resolve(m.toggle(id, state.bars))
-      .then(() => { renderIndMenu(); renderChips(); })
-      // the failure path MUST re-render too. The optimistic pass below draws
-      // the chip and the tick while the fetch is still in flight; without a
-      // re-render here a refused indicator (a volume study on an index, which
-      // has no volume to compute from) stayed checked in the menu and kept a
-      // chip in the toolbar, reading as active over a pane that never drew.
+      .then(() => { renderIndMenu(); saveIndicators(); })
+      // the failure path MUST re-render too. The optimistic pass below ticks
+      // the menu while the fetch is still in flight; without a re-render here
+      // a refused indicator (a volume study on an index, which has no volume
+      // to compute from) stayed checked, reading as active over a pane that
+      // never drew.
       .catch((err) => {
-        renderIndMenu(); renderChips();
+        renderIndMenu(); saveIndicators();
         status(`could not add ${def.label}: ${err.message}`);
       });
-    renderIndMenu(); renderChips();   // optimistic: chip appears immediately
+    renderIndMenu();                  // optimistic: the tick lands immediately
   });
-  // ── the chip strip scrolls sideways ───────────────────
-  // Three ways in, because a strip that silently continues past its edge is
-  // the same as one that is cut off: ARROWS say there is more, DRAG is what
-  // a hand reaches for first, and the WHEEL is what a mouse has. The arrows
-  // appear only on a side that actually has somewhere to go.
-  (function chipScroller() {
-    const strip = el("indChips");
-    const left = el("chipsLeft"), right = el("chipsRight");
-    left.innerHTML = Icons.svg("chevronLeft");
-    right.innerHTML = Icons.svg("chevronRight");
-
-    const wrap = strip.parentElement;
-    function sync() {
-      const over = strip.scrollWidth - strip.clientWidth;
-      const x = strip.scrollLeft;
-      // both slots come and go together; only their VISIBILITY tracks which
-      // direction has somewhere to go, so reaching an end never reflows
-      const canL = over > 1 && x > 1, canR = over > 1 && x < over - 1;
-      wrap.classList.toggle("scrollable", over > 1);
-      left.classList.toggle("off", !canL);
-      right.classList.toggle("off", !canR);
-      // the strip fades on whichever side still has chips past the edge
-      strip.classList.toggle("can-left", canL);
-      strip.classList.toggle("can-right", canR);
-    }
-    const page = () => Math.max(80, strip.clientWidth * 0.7);
-    left.addEventListener("click", (e) => {
-      e.stopPropagation(); strip.scrollLeft -= page();
-    });
-    right.addEventListener("click", (e) => {
-      e.stopPropagation(); strip.scrollLeft += page();
-    });
-
-    strip.addEventListener("wheel", (e) => {
-      if (strip.scrollWidth <= strip.clientWidth) return;
-      const by = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      if (!by) return;
-      e.preventDefault();
-      strip.scrollLeft += by;
-    }, { passive: false });
-
-    // Drag to pan. A press that never travels is still a click on the chip
-    // under it, so the threshold decides between the two and a real drag
-    // swallows the click that follows it.
-    let down = null, moved = false;
-    strip.addEventListener("pointerdown", (e) => {
-      if (strip.scrollWidth <= strip.clientWidth) return;
-      if (e.target.closest(".act")) return;      // eye / gear / × stay clickable
-      down = { x: e.clientX, at: strip.scrollLeft, id: e.pointerId };
-      moved = false;
-    });
-    addEventListener("pointermove", (e) => {
-      if (!down || e.pointerId !== down.id) return;
-      const dx = e.clientX - down.x;
-      if (!moved && Math.abs(dx) < 4) return;
-      if (!moved) { moved = true; strip.classList.add("dragging"); }
-      strip.scrollLeft = down.at - dx;
-    });
-    addEventListener("pointerup", (e) => {
-      if (!down || e.pointerId !== down.id) return;
-      down = null;
-      strip.classList.remove("dragging");
-      if (moved) {
-        // one-shot capture: kill the click this drag would otherwise fire
-        strip.addEventListener("click", (ev) => {
-          ev.stopPropagation(); ev.preventDefault();
-        }, { capture: true, once: true });
-      }
-    });
-
-    strip.addEventListener("scroll", sync, { passive: true });
-    addEventListener("resize", sync);
-    document.addEventListener("charto:indicators-changed", () => setTimeout(sync, 0));
-    // The arrows are only honest if this ran against the CURRENT geometry.
-    // A window resize is not the only thing that changes it — a chip's label
-    // reflows when its webfont lands, and the strip's own share of the header
-    // changes when a neighbour appears. Watch the box itself.
-    if (window.ResizeObserver) new ResizeObserver(sync).observe(strip);
-    sync();
-    window.__chartoSyncChips = sync;
-  })();
-
-  el("indChips").addEventListener("click", (e) => {
-    const m = IND();
-    const eye = e.target.closest("[data-eye]");
-    if (eye) {
-      e.stopPropagation();
-      m.setHidden(eye.dataset.eye, !m.isHidden(eye.dataset.eye));
-      renderChips();
-      return;
-    }
-    const cfg = e.target.closest("[data-cfg]");
-    if (cfg) {
-      e.stopPropagation();
-      openIndSettings(cfg.dataset.cfg);
-      return;
-    }
-    const x = e.target.closest("[data-rm]");
-    if (x) {
-      m.remove(x.dataset.rm);
-      renderChips();
-      // the shared signal every other removal path sends — without it the
-      // orphan purge and pane sync never hear about the chip's ×
-      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
-      return;
-    }
-    // anywhere else on the chip is the gear, the way double-clicking a
-    // TradingView legend row opens its settings
-    const chip = e.target.closest("[data-ind-chip]");
-    if (chip) { e.stopPropagation(); openIndSettings(chip.dataset.indChip); }
-  });
-
   /** Close every open dropdown except `keep`. Shared by header + composer. */
   function closeMenus(keep) {
     document.querySelectorAll(".dropdown.open").forEach((d) => {
@@ -678,8 +568,14 @@
     delete document.documentElement.dataset.nav;
   }, true);
 
-  // keep the chips honest when the chat adds an indicator
-  document.addEventListener("charto:indicators-changed", renderChips);
+  // keep the menu and the saved set honest when the chat adds an indicator
+  document.addEventListener("charto:indicators-changed", () => {
+    saveIndicators();
+    if (menu.classList.contains("open")) renderIndMenu();
+    // a new oscillator pane re-lays the chart's rows; the pane legends are
+    // pinned to those rows, so they have to be re-measured once it has
+    legend.reposition();
+  });
 
   // ── interval buttons ──────────────────────────────────
   el("intervalSeg").addEventListener("click", (e) => {
@@ -759,6 +655,14 @@
   function setToolMenu(gid, open) {
     const menu = el(`menu-${gid}`);
     if (!menu) return;
+    // The filled row is the tool this group's rail button currently arms —
+    // marked on OPEN rather than at build time, because clicking an item
+    // changes it, and a mark written once would go stale the first time.
+    if (open) {
+      for (const it of menu.querySelectorAll(".item[data-tool]")) {
+        it.classList.toggle("on", it.dataset.tool === lastOfGroup[gid]);
+      }
+    }
     menu.classList.toggle("open", open);
     menu.parentElement.classList.toggle("menu-open", open);
   }
@@ -1279,10 +1183,8 @@
       const raw = String(a.name || "");
       const name = raw.split("@")[0];
       const period = a.period || Number(raw.split("@")[1]) || 0;
-      const changed = () => {
-        renderChips();
+      const changed = () =>
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
-      };
       // if this indicator is already on the chart, chat RE-PERIODS it in
       // place — a second variant of the same indicator appears only when
       // the user adds one deliberately from the menu
@@ -1315,7 +1217,6 @@
       });
       victims.forEach((id) => ind.remove(id));
       if (victims.length) {
-        renderChips();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
       }
     },
@@ -1382,7 +1283,11 @@
   }
   function hideProvenance() {
     clearTimeout(peekTimer);
-    prov.classList.remove("open");
+    // `peek` has to go with `open`, or it outlives the hover that set it: the
+    // next card CLICKED open inherited the peek styling — narrower, and with
+    // its close button display:none'd — so a card you opened deliberately had
+    // no way out but Escape.
+    prov.classList.remove("open", "peek");
     provFor = null;
     // Dismissing the card ends the whole hover conversation — leaving the
     // chat mention lit after its card is gone strands a highlight with
@@ -1405,6 +1310,16 @@
       ? Sym.num(n, { minimumFractionDigits: 2 }) : null);
     // join only the parts that exist, so one missing half never poisons a row
     const dot = (...p) => p.filter((x) => x != null && x !== "").join(" · ");
+    /** A row that ENDS in a number: the qualifier reads on the left and the
+     *  figure closes the row against the card's right edge, so every number
+     *  in the card sits on one margin instead of wherever its sentence
+     *  happened to end. Either half may be missing — with only a qualifier
+     *  the row is the prose it always was, and with neither, row() drops it. */
+    const val = (q, v) => {
+      const has = (x) => x != null && x !== "";
+      if (!has(v)) return has(q) ? String(q) : "";
+      return (has(q) ? `<span class="t">${q}</span>` : "") + `<b class="v">${v}</b>`;
+    };
     // Detector enums arrive snake_cased ("not_assessed"); the card is prose,
     // so it reads them as words rather than as a database value. Some of
     // those enums are ABSENCES wearing a value's clothes — "Status: not
@@ -1458,7 +1373,7 @@
       let stated = false;
       const facts = parts.map((p) => {
         const m = /^(.+?)\s+(-?[\d,]+(?:\.\d+)?%?)$/.exec(p);
-        if (m) return row(cap(m[1]), m[2]);
+        if (m) return row(cap(m[1]), val(null, m[2]));
         stated = true;
         return row("Status", p);
       }).join("");
@@ -1471,12 +1386,12 @@
     } else if (s.tool === "get_trendlines") {
       kindName = "Trendline";
       title = null;
-      body = row("Record", dot(s.touches ? `${s.touches} touches` : null, words(s.strength)))
+      body = row("Record", val(words(s.strength), s.touches ? `${s.touches} touches` : null))
         + row("Anchored", span(s.first_touch, s.last_touch));
     } else if (s.tool === "get_divergences") {
       title = `${words(s.strength) || ""} divergence`.trim();
       body = row("Record", words(s.record))
-        + row("Instances", s.touches ? `${s.touches} in this window` : "")
+        + row("Instances", s.touches ? val("in this window", s.touches) : "")
         + row("Spans", span(s.first_touch, s.last_touch));
     } else {
       const ev = s.evidence || {};
@@ -1487,14 +1402,15 @@
       body = row("Record", !graded
         ? (words(s.record) || (Number.isFinite(Number(a.price)) || a.kind === "zone"
             ? "never re-tested" : ""))
-        : dot(`held ${ev.held} of ${graded}`,
+        : val(`held ${ev.held} of ${graded}`,
               ev.hold_rate == null ? null : `${ev.hold_rate}%`))
         + row("Reaction", ev.react_pct == null ? ""
-          : `${ev.react_pct}% ${a.role === "resistance" ? "down" : "up"}`
-            + (ev.react_bars == null ? "" : `, median ${ev.react_bars} bars`))
+          : val(dot(a.role === "resistance" ? "down" : "up",
+                    ev.react_bars == null ? null : `median ${ev.react_bars} bars`),
+                `${ev.react_pct}%`))
         + row("Judged", graded && s.horizon_bars
           ? `re-tests only, ${s.horizon_bars} bars each` : "")
-        + row("Touches", dot(s.touches, words(s.strength)))
+        + row("Touches", val(words(s.strength), s.touches))
         // A level with one touch has the same timestamp at both ends, and
         // printing it twice under two different labels reads as two events.
         + (s.first_touch && s.first_touch === s.last_touch
@@ -1518,7 +1434,7 @@
       </dl>
       <footer>
         <button class="btn cta" data-act="ask">${Icons.svg("chat", "xs")}Ask about this</button>
-        <button class="btn danger" data-act="remove">${Icons.svg("eraser", "xs")}Remove</button>
+        <button class="btn danger" data-act="remove">${Icons.svg("trash", "xs")}Remove</button>
       </footer>`;
   }
 
@@ -1753,9 +1669,67 @@
     const g = draw.geometryOf(d.id) || { pts: [] };
     const unit = d.pane && d.pane !== "price"
       ? ((ind.CATALOG.find((c) => c.id === d.pane) || {}).label || d.pane) : "";
-    const rows = g.pts.slice(0, 3).map((p, i) =>
-      `<dt>${["From", "To", "Third"][i] || "Point"}</dt>` +
-      `<dd>${T(p.t)} @ ${num(p.v)}</dd>`).join("");
+    // A shape that measures TIME carries a value at each anchor only because
+    // a drag has to land somewhere — the price under a date range's edge is
+    // not a reading, and printing it in the same column as a price range's
+    // endpoints would say it was one. Those cards state their times and their
+    // bar count, and nothing they did not measure.
+    const TIME_ONLY = new Set(["dateRange", "vline"]);
+    const NO_DELTA = new Set(["dateRange", "vline", "text", "brush"]);
+    const timeOnly = TIME_ONLY.has(g.type);
+
+    // Anchors that MEAN something get their meaning as their label. A position
+    // tool's three points are an entry, a target and a stop — the shape is
+    // built from them in that order — and a card that called them "Point 2"
+    // and "Point 3" made you re-derive on sight which line was the stop.
+    const ANCHORS = {
+      long: ["Entry", "Target", "Stop"], short: ["Entry", "Target", "Stop"],
+      channel: ["From", "To", "Width"],
+    };
+    const pts = g.pts.slice(0, 3);
+    const NAMES = ANCHORS[g.type]
+      || (pts.length > 2 ? ["Point 1", "Point 2", "Point 3"] : ["From", "To"]);
+    // A row is a QUALIFIER and a VALUE, not a sentence: the timestamp reads
+    // on the left and the price closes the row hard against the right edge,
+    // so the numbers stack into one column you can run your eye down. The
+    // old "12 Jul 2026 08:15 @ 1,315.68" put the figure that matters in the
+    // middle of a string, at a different x on every row.
+    const rows = pts.map((p, i) =>
+      `<dt>${NAMES[i] || "Point"}</dt><dd><span class="t">${T(p.t)}</span>`
+      + (timeOnly ? "" : `<b class="v">${num(p.v)}</b>`) + `</dd>`).join("");
+
+    // What a two-anchor shape is FOR is the distance between its ends. The
+    // chart already draws that on the shape; the card was the one place that
+    // made you subtract by eye. It is derived from the two rows printed
+    // above it and from nothing else, so it cannot disagree with them.
+    let extra = "";
+    if (g.pts.length === 2 && !NO_DELTA.has(g.type)) {
+      const dv = g.pts[1].v - g.pts[0].v;
+      const base = g.pts[0].v;
+      const sign = dv > 0 ? "+" : dv < 0 ? "−" : "";
+      const dir = dv > 0 ? "up" : dv < 0 ? "down" : "";
+      const abs = `${sign}${num(Math.abs(dv))}`;
+      // Per-cent of an indicator's own scale is not a per-cent of anything
+      // (RSI 30 → 60 is not "up 100%"), so it is priced only in the price pane.
+      const pct = !unit && Number.isFinite(base) && base !== 0
+        ? `${sign}${Math.abs((dv / base) * 100).toFixed(2)}%` : null;
+      extra += `<dt>Change</dt><dd>`
+        + (pct ? `<span class="t num">${abs}</span><b class="v ${dir}">${pct}</b>`
+               : `<b class="v ${dir}">${abs}</b>`)
+        + `</dd>`;
+    }
+    // The same count the tool prints on the chart, from the same arithmetic —
+    // a span in bars is what a date range measured, and the other half of what
+    // the measure tool did. Labelled "Bars" rather than "Span: 108 bars" so
+    // the figure lands in the card's number column instead of trailing a word.
+    if (g.pts.length === 2 && (timeOnly || g.type === "measure")) {
+      const sec = IV_SEC[state.interval];
+      const n = sec
+        ? Math.max(1, Math.round(Math.abs(g.pts[1].t - g.pts[0].t) / sec)) : null;
+      if (n) extra += `<dt>Bars</dt><dd><b class="v">${n}</b></dd>`;
+    }
+    if (g.pts.length > 3) extra += `<dt>Anchors</dt><dd><b class="v">${g.pts.length}</b></dd>`;
+
     prov.innerHTML = `
       <header>
         <span class="role">${d.label}</span>
@@ -1763,19 +1737,21 @@
         <button class="btn icon" data-act="close" title="Close">${Icons.svg("x", "xs")}</button>
       </header>
       <dl>
-        ${unit ? `<dt>Pane</dt><dd>${unit} — values are that indicator's units</dd>` : ""}
+        ${unit ? `<dt>Pane</dt><dd><span class="t">${unit}, in its own units</span></dd>` : ""}
         ${rows}
-        ${g.pts.length > 3 ? `<dt>Points</dt><dd>${g.pts.length} anchors</dd>` : ""}
+        ${extra}
       </dl>
       <footer>
         <button class="btn cta" data-act="ask-draw">${Icons.svg("chat", "xs")}Ask in chat</button>
-        <button class="btn danger" data-act="del-draw">${Icons.svg("eraser", "xs")}Remove</button>
+        <button class="btn danger" data-act="del-draw">${Icons.svg("trash", "xs")}Remove</button>
       </footer>`;
     // Docked, not tracked. This used to set `top` from the pointer while the
     // stylesheet pinned `bottom` — with both edges fixed the card stretched
     // the full height of the chart instead of sitting where either wanted it.
     prov.style.top = "auto";
     dockProv();
+    // this one is CLICKED open, so it is never the hover's abbreviated form
+    prov.classList.remove("peek");
     prov.classList.add("open");
   }
   document.addEventListener("charto:draw-select", (e) => {
@@ -1947,6 +1923,9 @@
   // Panes wraps #stage in a grid; the primary chart keeps its element, its
   // instance and every overlay bound to it, so nothing here can disturb it.
   Panes.init(stageEl);
+  // a gear on a secondary pane's legend row opens the one settings dialog,
+  // pointed at that pane's own indicator manager
+  Panes.onSettings((id, mgr) => openIndSettings(id, mgr));
   const layoutBtn = el("layoutBtn"), layoutMenu = el("layoutMenu");
   /* The picker is a GRID OF GLYPHS grouped by pane count, not a list of
    * names: with forty-two layouts a text menu would be four screens of
@@ -1992,13 +1971,13 @@
     Store.set("layout", Panes.layout);
   });
   // Selecting a pane re-aims the WHOLE toolbar: the segmented control shows
-  // that pane's interval and the indicator menu and chips show what that pane
-  // is carrying, so neither ever claims a value it isn't driving. The chat is
-  // told too — `charto:pane-active` is what moves its subject to the chart you
-  // just clicked (unless you have pinned one yourself).
+  // that pane's interval and the indicator menu shows what that pane is
+  // carrying, so neither ever claims a value it isn't driving. The legend is
+  // NOT re-aimed — every pane wears its own now, which is the point. The chat
+  // is told too — `charto:pane-active` is what moves its subject to the chart
+  // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
     markInterval(iv || state.interval);
-    renderChips();
     if (menu.classList.contains("open")) renderIndMenu();
     document.dispatchEvent(new CustomEvent("charto:pane-active", {
       detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
@@ -2045,12 +2024,10 @@
       volume.setData(state.bars.map(({ time, volume: v, open, close }) => ({
         time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
       })));
+      // retheme repaints the LINES and re-emits the legend, whose row colours
+      // are baked in at render time — without that pass a name kept the other
+      // theme's palette, dark goldenrod on a near-black chart.
       ind.retheme(state.bars);
-      // retheme repaints the LINES; the chips carry their own copy of the
-      // colour, baked in at render time. Without this the swatch kept the
-      // other theme's palette — dark goldenrod on a near-black chip, which
-      // reads as a dead grey dash rather than "this is the gold line".
-      renderChips();
     }
     draw.requestUpdate();
     scene.requestUpdate();
@@ -2070,10 +2047,9 @@
     await Indicators.loadCatalogue(API, SYMBOL);
     ind.setContext({ interval: Store.get("interval", "5m") });
     renderIndMenu();
-    // Read the restore list BEFORE the first load. renderChips() is also the
-    // save point for the active set, and loading an interval repaints the
-    // chips — at boot that runs against an empty active map and would write
-    // the session away before it had been read back.
+    // Read the restore list BEFORE the first load: saveIndicators() runs on
+    // every indicator change, and at boot that would fire against an empty
+    // active map and write the session away before it had been read back.
     const wanted = Store.get("indicators", []);
     const saved = Store.get("interval", "5m");
     const iv = IV_SEC[saved] ? saved : "5m";
@@ -2088,12 +2064,12 @@
       // daily+, rather than restoring an indicator that can't mean anything
       if (!def || ind.isActive(rid)) continue;
       if (def.intradayOnly && DAILY.has(state.interval)) continue;
-      // never swallow: a restore that fails silently leaves a chip on
+      // never swallow: a restore that fails silently leaves a legend row on
       // screen with no series under it, which looks like a render bug
       await Promise.resolve(ind.toggle(rid, state.bars))
         .catch((err) => { console.error("[charto] indicator restore failed", rid, err); });
     }
-    renderChips();
+    saveIndicators();
     // panes created during restore need every layer's primitives attached —
     // the same signal a live indicator change sends
     document.dispatchEvent(new CustomEvent("charto:indicators-changed"));

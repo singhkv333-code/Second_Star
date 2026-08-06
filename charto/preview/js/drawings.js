@@ -479,16 +479,101 @@ const Drawings = (() => {
       el.addEventListener("touchcancel", end, opts);
     })();
 
+    /* ── the text box ─────────────────────────────────────────────────────
+     * A text annotation used to be `window.prompt("Text")` — a modal, in the
+     * middle of the screen, over the chart you were annotating, in the
+     * browser's own type. You could not see where the label was going while
+     * you wrote it, which is the one thing that matters about a label.
+     *
+     * This is TradingView's answer instead: the box opens ON the chart, at
+     * the anchor, in the size and position the finished chip will occupy —
+     * so what you type is already the drawing. It is placed in the CHIP's
+     * own geometry (see G.chip: 11px type, a 15px band, 6px of side padding,
+     * offset +4/-9 from the anchor), which is what makes it WYSIWYG rather
+     * than merely nearby.
+     *
+     * Enter or a click away keeps it; Escape or an empty box throws it away.
+     * The chart is frozen while it is open — a pan under a fixed-position
+     * editor would leave the box pointing at a bar it no longer belongs to.
+     */
+    let measurer = null;
+    function textWidth(str, font) {
+      measurer = measurer || document.createElement("canvas").getContext("2d");
+      measurer.font = font;
+      return measurer.measureText(str).width;
+    }
+
+    function openTextBox(d, done) {
+      const key = d.pane || "price";
+      const p = paneFor(key);
+      const paneEl = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+      const x = tToX(d.pts[0].t), y = vToY(d.pts[0].v, key);
+      if (x === null || y === null) return done(null);
+      const cr = el.getBoundingClientRect();
+      const pr = (paneEl || el).getBoundingClientRect();
+
+      const box = document.createElement("input");
+      box.className = "text-box";
+      box.type = "text";
+      box.placeholder = "Add text";
+      box.spellcheck = false;
+      box.style.left = Math.round(cr.left + x + 4) + "px";
+      box.style.top = Math.round(pr.top + y - 9) + "px";
+      document.body.appendChild(box);
+
+      const font = getComputedStyle(box).font;
+      // 62 is the stylesheet's own min-width: setting a narrower inline
+      // width would just be overridden, and the two would disagree about
+      // how wide an empty box is
+      const fit = () => {
+        const w = textWidth(box.value || box.placeholder, font);
+        box.style.width = Math.max(62, Math.ceil(w + 16)) + "px";
+      };
+      fit();
+      box.focus();
+
+      setScroll(false);
+      let closed = false;
+      const close = (txt) => {
+        if (closed) return;
+        closed = true;
+        box.remove();
+        setScroll(state.tool === "cursor");
+        done(txt);
+      };
+      box.addEventListener("input", fit);
+      box.addEventListener("keydown", (e2) => {
+        // never let a keystroke inside the box reach the chart's own
+        // shortcuts — Escape there cancels a draft, Delete removes a drawing
+        e2.stopPropagation();
+        if (e2.key === "Enter") { e2.preventDefault(); close(box.value.trim()); }
+        if (e2.key === "Escape") { e2.preventDefault(); close(null); }
+      });
+      // A click anywhere else is a commit, the way it is in TradingView —
+      // but the click that OPENED the box must not immediately close it.
+      setTimeout(() => box.addEventListener("blur", () => close(box.value.trim())), 0);
+    }
+
     function commit() {
       const d = state.draft;
       state.draft = null;
       if (!d) return;
       const spec = Tools.SPECS[d.type];
       if (spec.text) {
-        const txt = window.prompt("Text");
-        if (!txt) { _ru(); env.onToolDone(); return; }
-        d.text = txt;
+        _ru();                       // the box is the preview; drop the draft
+        openTextBox(d, (txt) => {
+          if (!txt) { _ru(); env.onToolDone(); return; }
+          d.text = txt;
+          place(d);
+        });
+        return;
       }
+      place(d);
+    }
+
+    /** Everything a commit does once the drawing is finally known. */
+    function place(d) {
+      const spec = Tools.SPECS[d.type];
       d.id = newId();
       d.ref = "D" + (++refSeq);
       state.drawings.push(d);
