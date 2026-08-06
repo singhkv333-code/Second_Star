@@ -419,6 +419,10 @@ if __name__ == "__main__":
         format="%(asctime)s pivotted %(levelname)s %(message)s")
     logging.info("tools: %d (%d from charto, %d fundamentals) — dropped %s",
                  len(T.TOOLS), len(T.TOOLS) - 6, 6, ", ".join(sorted(T.DROPPED)))
-    logging.info("price universe: %d symbols; filings: every listed company",
+    logging.info("price universe: %d symbols archived; daily bars fetchable "
+                 "for any listed company; filings: all of them",
                  len(T.stored_symbols()))
+    # Resolve the price-service import here, single-threaded, so the first
+    # concurrent tool round does not race the circular import and lose.
+    logging.info("price service warm: %s", T.bars.warm())
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

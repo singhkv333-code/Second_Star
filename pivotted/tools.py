@@ -53,6 +53,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import bars
 import fundamentals as fnd
 
 HERE = Path(__file__).resolve().parent
@@ -460,27 +461,57 @@ def _call(name: str, args: dict, symbol: str) -> dict:
                 "_note": ("There is no chart in focus here — every "
                           "price/technical tool takes the symbol "
                           "explicitly.")}
-    if want not in stored_symbols():
-        # The honest boundary, stated where the model can act on it. A
-        # company can be perfectly real, and screenable on fundamentals, and
-        # still have no bars in this archive.
-        return {"error": f"no stored price history for {want}",
-                "_note": ("The bar archive is ~560 symbols; the filings "
-                          "database is every listed company. Fundamentals "
-                          "tools will still work for this company — say the "
-                          "price-based part is unavailable rather than "
-                          "substituting an index or a peer.")}
-    # In the universe but not yet on this box: pull it. Charto does this once
-    # per turn before the loop starts because a tool aimed mid-round cannot
-    # wait ~6s; here it happens inside the worker, which is fine because the
-    # workers are already concurrent and `_ensure_symbol` holds a per-symbol
-    # lock, so two calls for the same cold symbol hydrate it once.
-    if not ds._symbol_ready(want):
+    # Three tiers of price coverage, and the gate has to test what ACTUALLY
+    # exists rather than which list a symbol appears on:
+    #
+    #   minute bars stored     -> everything, including intraday
+    #   in symbols.json        -> minutes hydratable from blob (~5.7s, once)
+    #   anything else listed   -> daily bars fetchable on demand (bars.py)
+    #
+    # Membership in `stored_symbols()` is the wrong test for the third tier,
+    # because a company that has been daily-hydrated JOINS that set — so on
+    # the next boot it took the archive path, failed `_symbol_ready` (which
+    # reads the MINUTE table), missed symbols.json and came back "unknown
+    # symbol", with 1,239 perfectly good daily bars sitting in bars_1d.
+    intraday = str(args.get("interval") or "").lower() in (
+        "1m", "3m", "5m", "10m", "15m", "30m", "1h", "2h", "4h")
+    has_minutes = ds._symbol_ready(want)
+    hydratable = want in set(ds._known_symbols())
+
+    if not has_minutes and hydratable:
+        # Charto does this once per turn before its loop starts, because a
+        # tool aimed mid-round cannot wait ~6s. Here it happens inside the
+        # worker, which is fine: the workers are already concurrent and
+        # `_ensure_symbol` holds a per-symbol lock, so two calls for the same
+        # cold symbol hydrate it once.
         err = ds._ensure_symbol(want)
         if err:
-            return {**err, "_note": ("This symbol is in the universe but its "
-                                     "bars could not be loaded. Say the "
-                                     "price data is unavailable right now.")}
+            return {**err,
+                    "_note": ("This symbol is in the archive but its bars "
+                              "could not be loaded. Say the price data is "
+                              "unavailable right now.")}
+        has_minutes = True
+
+    if not has_minutes:
+        if intraday:
+            return {"error": f"no intraday history for {want}",
+                    "_note": ("Minute bars exist only for the ~560-symbol "
+                              "archive. Daily, weekly and monthly work for "
+                              "any listed company — re-ask on the daily "
+                              "rather than substituting another symbol.")}
+        got = bars.ensure_daily(ds._con, want)
+        if not got.get("ok"):
+            return {"error": f"no price history for {want} ({got.get('reason')})",
+                    "_note": ("Fundamentals still work for this company — say "
+                              "the price-based part is unavailable rather "
+                              "than substituting an index or a peer.")}
+        if not got.get("cached"):
+            # bars_1d changed, so neither the daily read cache nor the
+            # universe set may keep serving the pre-fetch view.
+            ds._daily_cache.pop(want, None)
+            with _universe_lock:
+                _universe.pop("set", None)
+        args.setdefault("interval", "1d")
     ds._req.symbol = want
     ds._req.drawable = False          # no chart: refuses anything ink-shaped
     ds._req.charts = [want]
