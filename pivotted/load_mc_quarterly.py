@@ -114,6 +114,14 @@ SECTION_HEADERS = {
 }
 META_KEYS = {"yrc", "yrc0"}
 
+# Moneycontrol opens a block with a header but never closes one, so a naive
+# forward-fill drags EXPENDITURE across the result lines beneath it — "P/L
+# Before Tax" and "Other Income" are not expenditure. A line that starts a
+# result/subtotal closes the open block instead.
+def _closes_block(line_item: str) -> bool:
+    s = (line_item or "").strip()
+    return s.startswith("P/L") or s.startswith("Operating Profit")
+
 DDL = """
 CREATE TABLE IF NOT EXISTS quarterly_statement_lines (
   sc_id         TEXT NOT NULL,
@@ -166,6 +174,20 @@ COMMENT ON COLUMN quarterly_statement_lines.isin_state IS
  'share series). Data is kept but must not be trusted as this symbol. '
  'unverified = company_info returned nothing to check against. '
  'Filter on isin_state=''verified'' for anything analytical.';
+COMMENT ON COLUMN quarterly_statement_lines.line_item IS
+ 'Moneycontrol''s OWN row label, stored verbatim. TWO TRAPS. '
+ '(1) Depreciation arrives as the truncated string ''depreciat'' in the standard '
+ 'template — WHERE line_item=''Depreciation'' silently misses every '
+ 'non-financial company. (2) The vocabulary is TEMPLATE-dependent: banks get a '
+ 'different sheet entirely (Interest Earned / Interest Expended / Gross NPA / '
+ 'Capital Adequacy Ratio / Return on Assets %) and carry NO '
+ '''Net Sales/Income from operations'' at all, so a revenue query on one '
+ 'line_item quietly drops the whole banking sector.';
+COMMENT ON COLUMN quarterly_statement_lines.section IS
+ 'Nearest preceding block header (EXPENDITURE, EPS Before Extra Ordinary, ...). '
+ 'POSITIONAL, not semantic: Moneycontrol opens blocks but never closes them, so '
+ 'this is the header above the row, closed heuristically at the first P/L or '
+ 'Operating Profit line. Group on line_item, not on this.';
 COMMENT ON COLUMN quarterly_statement_lines.unit IS
  'rs_crore — Moneycontrol reports this grid in Rs Crore. EPS and percentage '
  'rows are NOT in crore; check line_item before scaling.';
@@ -265,6 +287,8 @@ def parse(sc, alias, isin, symbol, basis, periods, state, url):
             if k in SECTION_HEADERS:
                 section = k
                 continue
+            if _closes_block(k):
+                section = None
             raw = rec.get(k)
             txt = str(raw).strip() if raw is not None else ""
             num = to_num(txt)
