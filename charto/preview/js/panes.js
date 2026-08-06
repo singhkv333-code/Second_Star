@@ -194,7 +194,9 @@ const Panes = (() => {
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
 
-  const CHART_FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
+  /* Must stay identical to main.js's copy — a sub-pane's axis sits directly
+     under the primary's and any difference reads as a rendering bug. */
+  const CHART_FONT = "'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
   function chartOpts() {
     const P = Theme.palette;

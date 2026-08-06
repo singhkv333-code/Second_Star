@@ -28,6 +28,11 @@
   const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
 
   const el = (id) => document.getElementById(id);
+  /* The app's status strip is gone from the page, but the messages it used to
+     carry are written from a dozen call sites — including error paths. This
+     swallows a write to a node that is no longer there rather than making
+     every one of those sites test for it. */
+  const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
   const chartEl = el("chart");
   const stageEl = el("stage");
 
@@ -43,7 +48,12 @@
   };
 
   // ── chart ─────────────────────────────────────────────
-  const CHART_FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
+  /* The axes are canvas text, so they cannot inherit --font — the stack has
+     to be repeated here. Inter leads, exactly as --font does: with the system
+     faces first, Windows drew the price axis in Segoe UI while the OHLC row
+     an inch above it was Inter, and now that both are the same family that
+     mismatch would be the only one left on the chart. */
+  const CHART_FONT = "'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   function chartTheme() {
     const P = Theme.palette;
     return {
@@ -147,7 +157,7 @@
       chart.timeScale().setVisibleLogicalRange({ from: bars.length - 180, to: bars.length + 6 });
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
-      el("barsLine").textContent = `${bars.length.toLocaleString()} × ${interval}`;
+      setText("barsLine", `${bars.length.toLocaleString()} × ${interval}`);
       status(`${interval}: ${bars.length} bars in ${Math.round(performance.now() - t0)}ms · last ${Sym.price(lastBar.close)}`);
       setOverlay(false);
       // drawings live in time, not in any one interval — make sure the new
@@ -177,7 +187,7 @@
       if (keep) chart.timeScale().setVisibleLogicalRange({
         from: keep.from + older.length, to: keep.to + older.length,
       });
-      el("barsLine").textContent = `${state.bars.length.toLocaleString()} × ${state.interval}`;
+      setText("barsLine", `${state.bars.length.toLocaleString()} × ${state.interval}`);
       return older.length;
     } catch (e) {
       status(`older-page error: ${e.message}`);
@@ -377,7 +387,7 @@
     } else paintReadout(lastBar);
   });
 
-  function status(msg) { el("statusLine").textContent = msg; }
+  function status(msg) { setText("statusLine", msg); }
   function setOverlay(show, text, isErr) {
     el("overlayText").innerHTML = isErr ? `<span class="err">${text}</span>` : (text || "");
     el("overlay").classList.toggle("show", !!show);
@@ -454,6 +464,12 @@
    *  the one they were added to. */
   function saveIndicators() {
     Store.set("indicators", [...ind.active.keys()]);
+    // The one choke point every path to the active set passes through — the
+    // menu, the legend's ×, the chat, the restore — so it is where the undo
+    // stack listens. NOT the charto:indicators-changed event: the menu's own
+    // handler saves without dispatching it, and an indicator you added by
+    // clicking it would have been the one thing Ctrl+Z could not take back.
+    Undo.touch();
   }
 
   /** Open the settings dialog on one indicator. Every edit inside it applies
@@ -586,7 +602,7 @@
 
   // keep the menu and the saved set honest when the chat adds an indicator
   document.addEventListener("charto:indicators-changed", () => {
-    saveIndicators();
+    saveIndicators();   // which is also where the undo stack hears about it
     if (menu.classList.contains("open")) renderIndMenu();
     // a new oscillator pane re-lays the chart's rows; the pane legends are
     // pinned to those rows, so they have to be re-measured once it has
@@ -811,8 +827,9 @@
     container: chartEl,
     stage: stageEl,
     panes: panesList,
-    setStatus: (m) => { el("drawStatus").textContent = m; },
+    setStatus: (m) => setText("drawStatus", m),
     onToolDone: () => selectTool("cursor"),
+    onChange: () => syncDrawToggle(),
   });
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());
@@ -827,10 +844,10 @@
     }
     document.querySelectorAll(".dropdown .item[data-tool]").forEach((n) =>
       n.classList.toggle("on", n.dataset.tool === id));
-    el("drawStatus").textContent = spec
+    setText("drawStatus", spec
       ? `${spec.label} — ${spec.anchors === "free" ? "drag to draw"
           : `click ${spec.anchors} point${spec.anchors > 1 ? "s" : ""}`}`
-      : "";
+      : "");
     trashArmed = false;
   }
   rail.addEventListener("click", (e) => {
@@ -850,12 +867,12 @@
     if (id === "trash") {
       if (!trashArmed) {
         trashArmed = true;
-        el("drawStatus").textContent = `click trash again to clear ${draw.count()} drawings`;
+        setText("drawStatus", `click trash again to clear ${draw.count()} drawings`);
         setTimeout(() => { trashArmed = false; }, 3000);
       } else {
         draw.clearAll();
         trashArmed = false;
-        el("drawStatus").textContent = "all drawings cleared";
+        setText("drawStatus", "all drawings cleared");
       }
     }
   });
@@ -1189,13 +1206,20 @@
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     onChange: (n) => {
-      syncChipsBtn(n);
-      const badge = el("sceneCount"), clear = el("sceneClear");
-      // The scene is no longer chat's alone — the Indicators menu puts a
-      // volume profile on it too. Crediting chat for something the user
-      // added themselves is a small lie the badge does not need to tell.
-      const manual = (scene.state.items || []).some((x) => x.manual);
-      badge.textContent = n ? `${n} ${manual ? "on chart" : "drawn by chat"}` : "";
+      // The chat DRAWING something un-folds the chart. A reply that answers
+      // "where's resistance?" by placing a level the fold then swallows is an
+      // answer the user never sees — so a fold set five minutes ago yields to
+      // the thing that just arrived. Removals and clears do not: those leave
+      // less on the chart, which is what the fold was asking for anyway.
+      if (drawBooted && drawCollapsed && n > sceneCount) {
+        drawCollapsed = false;
+        Store.set("draw_collapsed", false);
+        applyDrawCollapsed();
+      }
+      sceneCount = n;
+      syncChipsBtn(drawCollapsed ? 0 : n);
+      syncDrawToggle();
+      const clear = el("sceneClear");
       // Chat owns the same overlay the menu does, and it can replace or clear
       // a profile the menu put there. Whichever window the menu last ticked is
       // then a claim about a histogram that is no longer on screen, so the
@@ -1206,20 +1230,23 @@
           state.vp = null; Store.set("vp", null); renderIndMenu();
         }
       }
-      badge.style.display = n ? "" : "none";
+      // The eraser is the whole indicator now: it appears exactly when there
+      // is something to erase. The count that used to sit beside it is
+      // already on the chart, on the .chips-btn that syncChipsBtn drives.
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
       indexChatRefs();        // new annotations → new mentions to link
+      Undo.touch();           // what chat drew is undoable like anything else
     },
     onHover: (a, y) => {
       const s = (a && a.source) || {};
-      el("drawStatus").textContent = a
+      setText("drawStatus", a
         ? [a.label, s.strength, s.last_touch && `last ${s.last_touch}`,
            s.method, s.bars_scanned && `${s.bars_scanned} ${s.interval || ""} bars`,
            a.adjusted && "user-adjusted"]
             .filter(Boolean).join(" · ")
-        : "";
+        : "");
       // Hovering an annotation answers two questions at once: WHAT is this
       // (the card) and WHERE did chat say it (the mention lights up).
       if (a) { clearTimeout(peekTimer); peekProvenance(a); markChatRefs(a.id); }
@@ -1286,6 +1313,43 @@
   });
   el("sceneClear").innerHTML = Icons.svg("eraser", "sm");
   el("sceneClear").addEventListener("click", () => scene.clear());
+
+  /* ── undo / redo ────────────────────────────────────────────────────────
+   * TradingView's pair, in TradingView's place: the top bar, immediately
+   * after the controls that ADD things to the chart, so the reverse of an
+   * action sits beside the action.
+   *
+   * What it reverses is the workspace — drawings, what the chat drew, the
+   * indicator set — and not the view; js/history.js states that boundary and
+   * why. The buttons grey out when their stack is empty rather than clicking
+   * to no effect, because a control that silently does nothing is the one
+   * thing worse than not having it.
+   */
+  const undoBtn = el("undoBtn"), redoBtn = el("redoBtn");
+  undoBtn.innerHTML = Icons.svg("undo", "sm");
+  redoBtn.innerHTML = Icons.svg("redo", "sm");
+  // No status line on either: undo SHOWS its result — the line goes, the
+  // study leaves the pane — and a message saying "undone" beside a chart that
+  // visibly changed is narration, not feedback.
+  undoBtn.addEventListener("click", () => Undo.undo());
+  redoBtn.addEventListener("click", () => Undo.redo());
+  Undo.onChange((s) => {
+    undoBtn.disabled = !s.canUndo;
+    redoBtn.disabled = !s.canRedo;
+  });
+  /* Ctrl+Z / Ctrl+Shift+Z, and Ctrl+Y for the Windows hand that reaches for
+   * it. Capture phase so nothing downstream eats the chord — but never taken
+   * from a field the user is typing in, where the browser's own undo is the
+   * right one and the only one that knows about their half-written sentence. */
+  addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = String(e.key || "").toLowerCase();
+    if (k !== "z" && k !== "y") return;
+    const t = e.target;
+    if (t && (/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+    e.preventDefault();
+    if (k === "y" || e.shiftKey) Undo.redo(); else Undo.undo();
+  }, true);
   document.addEventListener("charto:indicators-changed", () => {
     // marks on a pane whose indicator is gone are orphans: invisible, yet
     // still counted by the badge and revived if the pane ever returns —
@@ -1319,6 +1383,90 @@
       else if (a.kind === "poly") for (const p of a.pts || []) vals.push(p.v);
     }
     return vals.filter((v) => Number.isFinite(v));
+  });
+
+  /* ── fold every drawing away ──────────────────────────
+   *
+   * The indicator legend has had this since it was written — one control that
+   * turns a stack of rows into "⌄ 3" — and drawings, which cover far more of
+   * the chart than a legend does, had only the trash. So the two things a
+   * reader wants when the candles disappear under their own annotations were
+   * "delete everything" and nothing.
+   *
+   * ONE control for BOTH layers. A user who wants to see the bars does not
+   * care that the trendline is theirs and the neckline is the chat's; asking
+   * them to find two toggles would be asking them to hold a distinction the
+   * question does not contain. It hides — it never deletes: state, storage,
+   * the chat's context envelope and the undo stack are all untouched, which
+   * is what makes this safe to reach for and the trash not.
+   */
+  const drawLegend = el("drawLegend");
+  let drawCollapsed = !!Store.get("draw_collapsed", false);
+  // The restore is not an edit. Boot puts the saved scene back one apply at a
+  // time, and every one of those looks exactly like the chat drawing — so the
+  // "a new annotation un-folds" rule stays off until the session is standing
+  // up, or a chart saved folded would open unfolded every time.
+  let drawBooted = false;
+  let sceneCount = 0;
+
+  function syncDrawToggle() {
+    if (!drawLegend) return;
+    const n = draw.count() + scene.count();
+    drawLegend.classList.toggle("empty", !n);
+    if (!n) {
+      // Nothing left to fold — so the fold goes too, in storage as well as in
+      // memory. A chart must never sit in a hidden state with no control on
+      // screen to reverse it, and a flag left set would re-hide the next
+      // drawing the moment it was made.
+      if (drawCollapsed) {
+        drawCollapsed = false;
+        Store.set("draw_collapsed", false);
+        applyDrawCollapsed();
+      }
+      drawLegend.innerHTML = "";
+      return;
+    }
+    drawLegend.innerHTML =
+      `<button class="ind-toggle draw-toggle${drawCollapsed ? " on" : ""}" ` +
+      // "Hide", never "clear" — the word has to carry the promise the
+      // behaviour makes, because the only other control that acts on every
+      // drawing at once is the trash.
+      `type="button" data-draw-toggle title="${drawCollapsed
+        ? `Show ${n} drawing${n > 1 ? "s" : ""}`
+        : `Hide ${n} drawing${n > 1 ? "s" : ""} — nothing is deleted`}">` +
+      Icons.svg("pen", "pen") +
+      Icons.svg(drawCollapsed ? "chevronDown" : "chevronUp", "chev") +
+      // Folded, the control carries the COUNT — same reason the indicator
+      // toggle does: a chart that has quietly stopped showing eight objects
+      // reads as a chart that never had them.
+      (drawCollapsed ? `<span>${n}</span>` : "") + "</button>";
+  }
+
+  /** Push the flag into both layers. Separate from the sync above so the
+   *  restore at boot and the click take exactly the same path. */
+  function applyDrawCollapsed() {
+    draw.setHidden(drawCollapsed);
+    scene.setHidden(drawCollapsed);
+    if (drawCollapsed) {
+      // The card and the chat highlight both point AT an annotation. Folding
+      // the annotations away has to take them with it, or the card is left
+      // describing a line that is no longer on the chart.
+      hideProvenance();
+      provDraw = null;
+      markChatRefs(null);
+    }
+    // The phone's chip disclosure counts what is on screen, and while folded
+    // that is nothing — otherwise the button offers to reveal an empty list.
+    syncChipsBtn(drawCollapsed ? 0 : scene.count());
+  }
+
+  drawLegend?.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-draw-toggle]")) return;
+    e.stopPropagation();
+    drawCollapsed = !drawCollapsed;
+    Store.set("draw_collapsed", drawCollapsed);
+    applyDrawCollapsed();
+    syncDrawToggle();
   });
 
   // ── provenance card: every drawn line is interrogable ──
@@ -2216,6 +2364,56 @@
         .catch((err) => console.error("[charto] volume profile restore", err));
     }
 
+    /* The restored session is the STARTING POSITION, not a move — so the undo
+     * stack opens here, with everything already put back and both buttons
+     * greyed. Bound any earlier and a freshly opened tab could "undo" its own
+     * restore, walking a chart the user had built up back to empty.
+     *
+     * The three sets below are the whole of what undo covers; `vp` rides with
+     * them because the profile's MENU TICK is a claim about a scene item, and
+     * putting the histogram back without the tick would leave the menu lying
+     * about what is on screen. */
+    Undo.bind({
+      read: () => ({
+        drawings: draw.state.drawings,
+        scene: scene.state.items,
+        indicators: [...ind.active.keys()],
+        vp: state.vp || null,
+      }),
+      write: async (s) => {
+        draw.setAll(s.drawings);
+        scene.setItems(s.scene);          // fires onChange → may null state.vp
+        // Indicators are a SET, restored by difference: dropping and re-adding
+        // every study would tear down panes the survivors are drawn on.
+        const want = new Set(s.indicators || []);
+        for (const id of [...ind.active.keys()]) if (!want.has(id)) ind.remove(id);
+        for (const id of s.indicators || []) {
+          // dynamic defs (rsi26) don't survive as objects — re-mint from the id,
+          // the same way the boot restore above does
+          const rid = ind.ensureFromId(id);
+          if (!rid || ind.isActive(rid)) continue;
+          await Promise.resolve(ind.toggle(rid, state.bars))
+            .catch((err) => console.warn("[charto] undo: indicator", rid, err));
+        }
+        saveIndicators();
+        // after scene.setItems, so the tick describes the histogram that is
+        // actually on the chart rather than the one that just left it
+        state.vp = s.vp || null;
+        Store.set("vp", state.vp);
+        renderIndMenu();
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      },
+    });
+
+    /* The fold is restored LAST — after the scene, the profile and the undo
+     * bind, so `sceneCount` starts from what is actually on the chart and the
+     * "a new annotation un-folds" rule opens on a true baseline rather than
+     * on zero. Only now does that rule start listening. */
+    sceneCount = scene.count();
+    drawBooted = true;
+    applyDrawCollapsed();
+    syncDrawToggle();
+
     openStream();   // only once history is on the chart, so ticks extend it
   })();
 
@@ -2228,7 +2426,7 @@
   (() => {
     el("symbolName").textContent = SYMBOL;
     el("symbolVenue").textContent = Sym.venue;
-    el("srcLine").textContent = `local store · ${Sym.feed}`;
+    setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
     document.title = `${SYMBOL} — Charto`;
     const pill = el("symbolPill"), menu = el("symbolMenu");

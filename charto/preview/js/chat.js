@@ -311,12 +311,26 @@
     } catch { return false; }
   }
 
+  /** A footnote-row control: one glyph, a title, a click. The geometry lives
+   *  in `.turn-meta .act` so a prompt's Retry and a reply's Copy can never
+   *  end up two different sizes. */
+  function actBtn(icon, label, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "act";
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = Icons.svg(icon, "xs");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
   /** The copy button used by both kinds of turn. `get` is called at CLICK
    *  time so a streaming reply copies what it finally said. */
   function copyBtn(get, label) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "copy";
+    b.className = "act copy";
     b.title = label;
     b.setAttribute("aria-label", label);
     b.innerHTML = Icons.svg("copy", "xs");
@@ -335,26 +349,27 @@
   }
 
   /* When a prompt was sent. A timestamp on every message is noise in a thread
-   * you are reading, so it lives in the same hover-revealed row as the copy —
-   * "when did I ask this?" only has to be one hover away. Today and yesterday
-   * are named rather than dated: on the day itself a bare "5 Aug" is the one
-   * thing you already know. */
+   * you are reading, so it lives in the same hover-revealed row as the
+   * actions — "when did I ask this?" only has to be one hover away.
+   *
+   * The DAY, not the clock: this is Pivot's format ("06 Aug"), and it is the
+   * right one. Inside a conversation you are reading top to bottom, the
+   * minute a question was typed answers nothing; which day it was is the
+   * only part you might have lost track of. The full moment stays on the
+   * title, one hover deeper, for the rare time it matters. */
   function fmtWhen(ts) {
-    const d = new Date(ts), now = new Date();
-    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const yday = new Date(now);
-    yday.setDate(yday.getDate() - 1);
-    if (d.toDateString() === now.toDateString()) return `Today, ${time}`;
-    if (d.toDateString() === yday.toDateString()) return `Yesterday, ${time}`;
-    const date = d.toLocaleDateString([], {
-      day: "numeric", month: "short",
-      ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-    });
-    return `${date}, ${time}`;
+    try {
+      return new Date(ts).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    } catch { return ""; }
   }
 
-  /** The prompt's footnote row: when it was sent, and a copy of what you
-   *  typed. Nothing to show for a legacy turn that has neither. */
+  /** The prompt's footnote row, exactly as Pivot draws it: when it was sent,
+   *  a Retry that asks the same thing again, and a copy of what you typed.
+   *  Nothing to show for a legacy turn that has neither.
+   *
+   *  Retry SENDS rather than refilling the composer — re-asking is one click
+   *  in Pivot and has to be one here, and it appends a fresh turn rather than
+   *  rewriting the old one, so the thread stays a record of what was asked. */
   function userMeta(text, ts) {
     if (!ts && !text) return null;
     const meta = document.createElement("div");
@@ -366,7 +381,10 @@
       when.title = new Date(ts).toLocaleString();   // the exact moment, in full
       meta.appendChild(when);
     }
-    if (text) meta.appendChild(copyBtn(text, "Copy prompt"));
+    if (text) {
+      meta.appendChild(actBtn("rotateCw", "Retry", () => send(text)));
+      meta.appendChild(copyBtn(text, "Copy prompt"));
+    }
     return meta;
   }
 
@@ -404,15 +422,138 @@
     return turn;
   }
 
-  function addAssistantTurn() {
+  /* ── the wait ────────────────────────────────────────────────────────────
+   *
+   * Pivot's waiting indicator, in Charto's words. A breathing dot labelled
+   * "Thinking…" said only that something was happening — and on a turn that
+   * reads six tools before it writes a word, "something" is the least useful
+   * thing it could say. This is the shape Pivot settled on instead: a
+   * timeline that GROWS, one plain word per step, so the pane accumulates a
+   * record of the work rather than repainting a spinner.
+   *
+   * The words are Charto's, because the work is Charto's: Pivot queries
+   * fundamentals and searches news, this reads a chart. Two sources feed the
+   * list and they are different in kind —
+   *
+   *   · the SCRIPT below is representative. It walks forward on a slow
+   *     cadence and holds on its last line rather than looping, because a
+   *     list that cycles is a spinner with extra steps.
+   *   · a real tool call overrides it with what actually happened. The
+   *     server emits `tool` the moment one lands, so genuine work shows
+   *     through the moment there is genuine work to show.
+   *
+   * Nothing here claims a tool ran that did not. A scripted line names a
+   * KIND of work ("Reading the chart") and never a number, a level or a
+   * result — the same rule the replies themselves are held to.
+   */
+  const STEP_SCRIPT = [
+    { word: "Thinking", detail: "" },
+    { word: "Reading", detail: "the chart" },
+    { word: "Scanning", detail: "price history" },
+    { word: "Measuring", detail: "levels" },
+    { word: "Checking", detail: "indicators" },
+    { word: "Weighing", detail: "the evidence" },
+  ];
+
+  /** A lead word + its supporting words for a tool that actually ran. Keyed
+   *  off the dataserver's own tool names (data/dataserver.py, TOOLS). */
+  function toolStep(name) {
+    const n = String(name || "").toLowerCase();
+    if (/open_chart/.test(n)) return { word: "Opening", detail: "the chart" };
+    if (/draw_shape/.test(n)) return { word: "Drawing", detail: "on the chart" };
+    if (/trendline/.test(n)) return { word: "Fitting", detail: "trendlines" };
+    if (/pattern/.test(n)) return { word: "Scanning", detail: "patterns" };
+    if (/diverg/.test(n)) return { word: "Comparing", detail: "momentum" };
+    if (/gap/.test(n)) return { word: "Finding", detail: "gaps" };
+    if (/level|anchor/.test(n)) return { word: "Measuring", detail: "levels" };
+    if (/volume_profile/.test(n)) return { word: "Building", detail: "the volume profile" };
+    if (/evaluate/.test(n)) return { word: "Testing", detail: "the idea" };
+    if (/plan_position/.test(n)) return { word: "Planning", detail: "the trade" };
+    if (/indicator/.test(n)) return { word: "Computing", detail: "indicators" };
+    if (/bars/.test(n)) return { word: "Reading", detail: "price history" };
+    if (/news|explain_move/.test(n)) return { word: "Searching", detail: "news" };
+    if (/flow|deal/.test(n)) return { word: "Reading", detail: "the flows" };
+    if (/results/.test(n)) return { word: "Reading", detail: "the results" };
+    if (/screen/.test(n)) return { word: "Screening", detail: "the market" };
+    if (/compare|peer/.test(n)) return { word: "Comparing", detail: "peers" };
+    return { word: "Working", detail: "" };
+  }
+
+  /** Mount the indicator into `host` and return its three controls. Owns two
+   *  intervals, so `stop()` is not optional — a turn that finished with them
+   *  still running would tick a counter on an answer that already landed. */
+  function createWait(host) {
+    const t0 = performance.now();
+    host.innerHTML = '<div class="wait-head">'
+      + '<span class="wait-ticker" aria-hidden="true">'
+      + '<span class="wait-bar"></span><span class="wait-bar"></span><span class="wait-bar"></span>'
+      + '</span><span class="wait-secs" aria-live="off">0s</span></div>'
+      + '<div class="wait-steps"></div>';
+    const rows = host.querySelector(".wait-steps");
+    const secs = host.querySelector(".wait-secs");
+    const seen = new Set();
+    let last = null, cursor = 1;
+
+    function push(step) {
+      // never repeat the line already at the bottom — a second "Reading price
+      // history" is a row that says nothing the row above it did not
+      if (last && last.word === step.word && last.detail === step.detail) return;
+      const prev = rows.lastElementChild;
+      if (prev) prev.querySelector(".chat-step-label").classList.remove("shimmer");
+      const row = document.createElement("div");
+      row.className = "chat-step";
+      row.innerHTML = '<span class="chat-step-dot" aria-hidden="true"></span>'
+        + '<span class="chat-step-label shimmer">'
+        + `<span class="chat-step-word">${esc(step.word)}</span>`
+        + (step.detail ? ` ${esc(step.detail)}` : "") + "</span>";
+      rows.appendChild(row);
+      last = step;
+      if (atBottom()) toBottom();
+    }
+    push(STEP_SCRIPT[0]);
+
+    const clock = setInterval(() => {
+      secs.textContent = Math.max(0, Math.round((performance.now() - t0) / 1000)) + "s";
+    }, 250);
+    const walk = setInterval(() => {
+      if (cursor >= STEP_SCRIPT.length) return;   // hold on the last line
+      push(STEP_SCRIPT[cursor++]);
+    }, 2600);
+
+    return {
+      /** A tool landed. Once per tool: a turn that reads three intervals of
+       *  bars did one kind of work, not three. */
+      tool(name) {
+        if (seen.has(name)) return;
+        seen.add(name);
+        push(toolStep(name));
+      },
+      /** The first token of the answer arrived. */
+      writing() { push({ word: "Writing", detail: "the answer" }); },
+      stop() { clearInterval(clock); clearInterval(walk); host.remove(); },
+    };
+  }
+
+  /** An assistant turn. `live` is false when repainting a finished thread —
+   *  the wait belongs to a turn that is being waited FOR, and starting its
+   *  intervals only to stop them a line later is work for nobody. */
+  function addAssistantTurn(live = true) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn assistant";
-    turn.innerHTML =
-      '<div class="prose"><div class="thinking"><span class="pulse"></span>Thinking…</div></div>';
+    turn.innerHTML = (live ? '<div class="wait"></div>' : "") + '<div class="prose"></div>';
+    if (live) turn.__wait = createWait(turn.querySelector(".wait"));
     msgsEl.appendChild(turn);
     toBottom();
     return turn;
+  }
+
+  /** Take the wait down. Idempotent — both the success and the failure path
+   *  call it, and a turn that never had one is not an error. */
+  function endWait(turn) {
+    if (!turn.__wait) return;
+    turn.__wait.stop();
+    turn.__wait = null;
   }
 
   /** Consume the SSE turn, painting the answer as it arrives.
@@ -465,15 +606,15 @@
         if (!line) continue;
         let ev;
         try { ev = JSON.parse(line.slice(5)); } catch { continue; }
-        if (ev.type === "delta") { text += ev.text; paint(); }
-        else if (ev.type === "tool") {
+        if (ev.type === "delta") {
+          if (!text && turn.__wait) turn.__wait.writing();
+          text += ev.text;
+          paint();
+        } else if (ev.type === "tool") {
           tools.push(ev.name);
-          // before the first token there is nothing else to show — say what
-          // is actually happening rather than an indefinite "Thinking…"
-          if (!text) {
-            const t = turn.querySelector(".thinking");
-            if (t) t.innerHTML = `<span class="pulse"></span>${[...new Set(tools)].join(" · ")}`;
-          }
+          // a landed tool is the only progress signal a multi-round turn has —
+          // it becomes its own line on the wait's timeline
+          if (turn.__wait) turn.__wait.tool(ev.name);
         } else if (ev.type === "done") { done = ev; }
       }
     }
@@ -622,8 +763,18 @@
     return out;
   }
 
+  /* Provenance the footer no longer carries. The token count was a number
+   * about the BILL, not about the answer — it sat in the same row as the
+   * latency and the chart actions, both of which say something about what
+   * you just read, and it never did. New turns stop recording it (see
+   * send()); a conversation saved before that still has the string in its
+   * meta, so it is dropped on the way to the screen rather than left to
+   * reappear on every reload of an old thread. */
+  const TOKENS_RE = /^[\d,]+\s*in\s*\/\s*[\d,]+\s*out$/i;
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
   function finishTurn(turn, text, bits, acts) {
+    endWait(turn);
     const prose = turn.querySelector(".prose");
     prose.innerHTML = md(text);
     linkCompanies(prose);
@@ -631,7 +782,9 @@
     meta.className = "turn-meta";
     const copy = copyBtn(text, "Copy reply");
     const label = document.createElement("span");
-    label.textContent = bits.filter(Boolean).join("  ·  ");
+    label.textContent = bits
+      .filter((b) => b && !TOKENS_RE.test(String(b).trim()))
+      .join("  ·  ");
     meta.append(copy, label);
     // The chart-actions disclosure rides in the same row, in the same type —
     // it is provenance, the same as the latency and the token count.
@@ -660,6 +813,7 @@
   }
 
   function failTurn(turn, msg) {
+    endWait(turn);
     turn.classList.add("error");
     turn.querySelector(".prose").textContent = `Couldn't reach the model — ${msg}`;
     toBottom();
@@ -711,22 +865,30 @@
     }
     for (const t of turns) {
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts); continue; }
-      finishTurn(addAssistantTurn(), t.content, t.meta || [], t.acts || []);
+      finishTurn(addAssistantTurn(false), t.content, t.meta || [], t.acts || []);
     }
     toBottom();
   }
   if (turns.length) renderThread();
 
   // ── send ──────────────────────────────────────────────
-  async function send() {
-    const text = input.value.trim();
+  /** `again` is a prompt being re-asked from a past turn's Retry. It leaves
+   *  the composer alone — the half-written question sitting in it is not
+   *  what you clicked — and carries no attachment: a screenshot and a tagged
+   *  drawing were pinned for the message they went with, and silently
+   *  re-attaching them to a re-ask would change the question. */
+  async function send(again) {
+    const retry = typeof again === "string";
+    const text = retry ? again.trim() : input.value.trim();
     if ((!text && !pendingImage) || pending) return;
-    const image = pendingImage;
-    const drawing = pendingDraw;
-    setAttachment(null);
-    setDrawTag(null);
-    input.value = "";
-    autoGrow();
+    const image = retry ? null : pendingImage;
+    const drawing = retry ? null : pendingDraw;
+    if (!retry) {
+      setAttachment(null);
+      setDrawTag(null);
+      input.value = "";
+      autoGrow();
+    }
     pending = true;
     sendBtn.disabled = true;
 
@@ -783,12 +945,11 @@
         window.__charto.scene.apply(d.scene_patch);
       }
 
+      // How long it took, and nothing else. The token count used to ride
+      // here too; it is a fact about the bill rather than about the answer,
+      // and the row it sat in is otherwise entirely about what you just read.
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      const u = d.usage || {};
-      const meta = [
-        `${secs}s`,
-        u.input_tokens != null ? `${u.input_tokens.toLocaleString()} in / ${(u.output_tokens ?? 0).toLocaleString()} out` : null,
-      ].filter(Boolean);
+      const meta = [`${secs}s`];
       const acts = chartActions(d.scene_patch);
       turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();

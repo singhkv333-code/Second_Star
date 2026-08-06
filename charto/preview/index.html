@@ -42,12 +42,20 @@
 /* ─── 1 · TOKENS ────────────────────────────────────────────────────────── */
 
 :root {
-  /* Typography — Inter for UI, JetBrains Mono for every numeral,
-     Newsreader for the wordmark (Pivot's --font-experiment slot). */
+  /* Typography — Inter for UI *and* for every numeral, Newsreader for the
+     wordmark (Pivot's --font-experiment slot).
+     Numerals used to be set in JetBrains Mono. The machine face bought
+     column alignment, but the chart's own price and time axes are drawn by
+     lightweight-charts in the UI sans — so every figure ON the chart and
+     every figure BESIDE it were two different typefaces. --font-numeric is
+     now the same stack as --font; alignment comes from `tabular-nums`,
+     which Inter carries, instead of from a second family.
+     --mono survives for the three surfaces that are genuinely CODE — the
+     hex field, the JSON inspector, and inline `code` in a reply. */
   --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
           "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --font-numeric: var(--font);
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
   /* Type scale. Every size in the app is one of these twelve steps —
@@ -310,6 +318,14 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .btn.icon svg.icon { width: 19px; height: 19px; }
 .btn.icon:hover { color: var(--foreground); }
 .btn.on { color: var(--primary); background: var(--primary-soft); }
+/* A control with nothing to do says so. Dimmed rather than hidden, because
+   undo/redo appearing and disappearing would move every button beside them;
+   the hover states are cancelled too, or a dead button still lights up under
+   the pointer and promises an action it will not perform. The title stays
+   readable — `pointer-events: none` would take the tooltip with the click. */
+.btn:disabled { opacity: .32; cursor: default; }
+.btn:disabled:hover { background: transparent; }
+.btn.icon:disabled:hover { color: var(--muted-foreground); }
 .btn .chev { width: 14px; height: 14px; color: var(--muted-foreground); }
 
 /* Pivot's CTA is INK ON PAPER — the near-black fill in light, the off-white
@@ -1162,7 +1178,10 @@ header > .btn, header > .badge { flex: none; }
   width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: none;
 }
 .readout .co-logo.lg { width: 17px; height: 17px; }
-.readout .row { font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.01em; }
+.readout .row {
+  font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
 .readout .row span { margin-right: 9px; }
 /* the O/H/L/C/V letters are tagged so a narrow pane can drop them without
    dropping the figure they label — an <i> because the margin rule above is
@@ -1237,7 +1256,10 @@ header > .btn, header > .badge { flex: none; }
   font-weight: var(--weight-medium); overflow: hidden;
   text-overflow: ellipsis; min-width: 0;
 }
-.ind-vals { font-family: var(--font-numeric); letter-spacing: -.01em; }
+.ind-vals {
+  font-family: var(--font-numeric); letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
 /* tighter than the title row's dot: the row's own 6px gap is already half
    the separation, and 5px on each side of it read as a gap in the sentence */
 .ind-vals .sep { margin: 0 4px 0 0; color: var(--faint); font-weight: 400; }
@@ -1288,6 +1310,23 @@ header > .btn, header > .badge { flex: none; }
 }
 .ind-toggle:hover { color: var(--foreground); background: var(--hover-fill); }
 .ind-toggle svg { width: 12px; height: 12px; stroke-width: 2.2; }
+
+/* The same fold for DRAWINGS — the shapes you placed and the ones the chat
+   placed, counted and folded as one set. It borrows `.ind-toggle` outright
+   rather than growing a second look for the same gesture; the pen in front
+   of the chevron is the only difference, and it is the difference that
+   matters, because a bare chevron sitting under another bare chevron says
+   nothing about which one folds what. */
+.draw-legend { margin-top: 1px; display: flex; align-items: flex-start; }
+.draw-legend.empty { display: none; }
+/* The pen is the SUBJECT of the control and the chevron is its state, so
+   they are not equals: the chevron drops back to the quiet weight the
+   indicator toggle uses on its own. */
+.draw-toggle .pen { opacity: .9; }
+.draw-toggle .chev { opacity: .75; margin-left: -1px; }
+/* Folded, the control is the only trace left of a dozen shapes — so it stops
+   being a hint and becomes a statement, wearing the plate its hover uses. */
+.draw-toggle.on { color: var(--foreground); background: var(--hover-fill); }
 
 /* An oscillator's rows go in ITS pane, pinned to the pane's own top-left by
    js/indlegend.js off the rows LWC lays the panes out as. Same rows, same
@@ -1365,18 +1404,6 @@ header > .btn, header > .badge { flex: none; }
 .splitter:hover, .splitter.dragging { background: var(--primary); }
 .splitter.hidden { display: none; }
 
-/* The app status strip. Scoped to the page's own footer — as a bare
-   element selector it also claimed the cards' footers, forcing them to
-   26px in the mono face and spilling their buttons out of a box the card
-   then clipped. */
-body > footer {
-  height: 26px; padding: 0 12px; border-top: var(--seam-w) solid var(--seam);
-  background: var(--background); font-size: var(--text-2xs); color: var(--faint);
-  display: flex; gap: 14px; align-items: center; flex: none;
-  font-family: var(--font-numeric); letter-spacing: -.01em;
-}
-body > footer .dotsep { color: var(--border); }
-
 /* provenance card — why a drawn level is on the chart.
    DOCKED, not floating over the candles. The card used to track the
    annotation's y, which put it in the middle of the chart — right where you
@@ -1415,7 +1442,7 @@ body > footer .dotsep { color: var(--border); }
 .prov.peek header { padding: 11px 12px 0 14px; }
 .prov.peek header .btn.icon { display: none; }
 .prov.peek dl { padding: 10px 14px 3px; font-size: var(--text-xs); gap: 7px 12px; }
-.prov.peek footer { padding: 7px 5px 9px; }
+.prov.peek footer { padding: 7px 14px 11px; }
 /* ONE surface, like the settings dialog. The card used to be three banded
    strips — a ruled header, a ruled footer and the rows between them — which
    made a 250px hover card look like a form. Rhythm separates the parts now;
@@ -1488,6 +1515,7 @@ body > footer .dotsep { color: var(--border); }
    ways on one row and the two halves stop looking like one figure. */
 .prov dd .t.num {
   font-family: var(--font-numeric); font-size: var(--text-xs); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
 }
 /* Tabular figures, because the point of the column is that the decimal
    points line up: proportional digits put 1,315.68 and 1,284.27 on two
@@ -1507,19 +1535,30 @@ body > footer .dotsep { color: var(--border); }
 .prov dd .v.up { color: var(--up); }
 .prov dd .v.down { color: var(--down); }
 .prov dl:empty { display: none; }
-/* Ghost buttons carry their own padding, so the footer's own inset is that
-   much smaller — the action text then starts on the same 14px line as the
-   rows above it instead of hanging one step to the right. */
+/* The footer sits on the card's OWN margin — 14px, the same line the rows
+   and the title are set on — because the ask is a FILLED button and a filled
+   button is a box. The inset used to be 5px so the button's *text* landed on
+   14 while its fill hung 9px further left, into the card's margin: the one
+   solid shape in the card was the one thing not aligned to it. A ghost button
+   can be aligned on its text; this one cannot.
+   Both edges are the same number, so the ask's icon and Remove's last letter
+   are inset by exactly their own padding from opposite margins — the footer
+   reads as symmetrical, and every hover plate lands on 14 like the rows. */
 .prov footer {
-  display: flex; align-items: center; gap: 2px;
-  height: auto; padding: 8px 5px 9px;
+  display: flex; align-items: center; gap: 6px;
+  height: auto; padding: 8px 14px 12px;
   font-family: var(--font); background: transparent;
 }
 /* 28px, not 26: TradingView's dialog closes on a 34px footer row, and at
    this card's scale that lands at 28 — a hair more room under the rows, and
    a target that no longer reads as smaller than the X in the header. */
+/* 8px of side padding, not 11 — the box is now pinned to the card's margin,
+   so this number is how far the words sit INSIDE their own button rather
+   than how far they sit from the card's edge. `.btn`'s 1px transparent
+   border rides inside the box (border-box), so both buttons put their first
+   and last glyph on 23px from opposite margins. */
 .prov footer .btn {
-  height: 28px; padding: 0 9px; gap: 6px;
+  height: 28px; padding: 0 8px; gap: 6px;
   font-size: var(--text-xs); font-weight: var(--weight-medium);
   border-radius: var(--radius-xs); color: var(--muted-foreground);
 }
@@ -1705,13 +1744,31 @@ body > footer .dotsep { color: var(--border); }
   transition: opacity var(--dur) ease; user-select: text;
 }
 .turn.assistant:hover .turn-meta { opacity: 1; }
-.turn-meta .copy {
+/* The action buttons in a footnote row, on Pivot's geometry: a 28px square
+   target holding a 14px glyph, quiet by default and warming to full ink on a
+   surface when reached. Both turns wear the same button — a prompt's Retry
+   and a reply's Copy are the same kind of control and must not be two sizes. */
+.turn-meta .act {
   background: none; border: 0; color: var(--faint); cursor: pointer;
-  display: inline-flex; padding: 3px; border-radius: var(--radius-xs);
+  width: 28px; height: 28px; padding: 0; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
   transition: color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
 }
-.turn-meta .copy:hover { color: var(--foreground); background: var(--accent); }
+.turn-meta .act:hover { color: var(--foreground); background: var(--accent); }
+.turn-meta .act svg.icon { width: 14px; height: 14px; }
 .turn-meta .copy.done { color: var(--primary); }
+/* The tick that replaces the copy glyph pops rather than cutting, so the
+   success registers without a word of "Copied" beside it. */
+@keyframes copyTickPop {
+  0%   { transform: scale(.4);  opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.copy.done svg.icon { animation: copyTickPop .26s var(--ease-quartr) both; }
+@media (prefers-reduced-motion: reduce) {
+  .copy.done svg.icon { animation: none; }
+}
 
 /* The prompt carries the same footnote row as the reply — when you sent it,
    and a copy of what you typed. Fully hidden rather than dimmed: a reply's
@@ -1719,7 +1776,7 @@ body > footer .dotsep { color: var(--border); }
    question you asked is a second column of grey running down a thread you
    are reading. It appears under the pointer and on keyboard focus. */
 .turn.user .turn-meta {
-  margin-top: 6px; justify-content: flex-end; opacity: 0;
+  margin-top: 6px; justify-content: flex-end; opacity: 0; gap: 6px;
 }
 .turn.user:hover .turn-meta,
 .turn.user:focus-within .turn-meta { opacity: 1; }
@@ -1730,15 +1787,90 @@ body > footer .dotsep { color: var(--border); }
   .turn.user .turn-meta { opacity: .6; }
 }
 
-.thinking {
-  color: var(--muted-foreground); font-size: var(--text-xl);
-  display: flex; align-items: center; gap: 9px;
+/* ── the wait ────────────────────────────────────────────────────────────
+   Pivot's waiting indicator, in Charto's words. A single breathing dot
+   labelled "Thinking…" said only that something was happening; this is the
+   Notion-AI shape Pivot settled on instead — a timeline that GROWS
+   downward, one plain word per step, a dot per row and a hairline joining
+   the dots. Nothing fades away: earlier steps settle into the muted ink and
+   only the newest line shimmers, so the pane reads as a record of what has
+   been done rather than a spinner that keeps forgetting.
+
+   Above it, the header row Pivot puts there: three bars rising and falling
+   on independent periods (a volume strip, not a wheel) and a live elapsed
+   counter, because the one question a wait actually raises is "how long has
+   this been going". */
+.wait { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.wait-head {
+  display: flex; align-items: center; gap: 10px;
+  font-size: var(--text-xs); color: var(--muted-foreground);
 }
-.thinking .pulse {
-  width: 7px; height: 7px; border-radius: 50%; background: currentColor;
-  animation: breathe 1.1s ease-in-out infinite;
+.wait-ticker { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.wait-secs { font-variant-numeric: tabular-nums; }
+.wait-bar {
+  display: inline-block; width: 3px; height: 14px; border-radius: 1.5px;
+  background: var(--muted-foreground); transform-origin: bottom;
+  will-change: transform;
 }
-@keyframes breathe { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+.wait-bar:nth-child(1) { animation: waitBar1 1.05s ease-in-out infinite; }
+.wait-bar:nth-child(2) { animation: waitBar2 1.25s ease-in-out infinite .08s; }
+.wait-bar:nth-child(3) { animation: waitBar3 .95s  ease-in-out infinite .18s; }
+@keyframes waitBar1 { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+@keyframes waitBar2 { 0%, 100% { transform: scaleY(1); }   30% { transform: scaleY(.55); } 70% { transform: scaleY(.4); } }
+@keyframes waitBar3 { 0%, 100% { transform: scaleY(.4); }  40% { transform: scaleY(.8); }  80% { transform: scaleY(1); } }
+
+.wait-steps { display: flex; flex-direction: column; gap: 4px; }
+@keyframes waitStepIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.chat-step {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  min-height: 24px; animation: waitStepIn .32s var(--ease-quartr) both;
+}
+/* Soft grey for EVERY dot, the newest included — the reference is
+   grey-on-grey throughout, and an accent on the live row would read as a
+   status colour rather than as a position in a list. */
+.chat-step-dot {
+  flex: none; width: 5px; height: 5px; border-radius: 50%;
+  background: color-mix(in srgb, var(--muted-foreground) 65%, var(--background));
+}
+/* the connector: every row but the first draws the line ABOVE its own dot */
+.chat-step + .chat-step::before {
+  content: ""; position: absolute; left: 2px; top: -12px;
+  width: 1px; height: 20px; background: var(--border);
+}
+.chat-step-label {
+  font-size: var(--text-md); letter-spacing: -.005em; color: var(--faint);
+}
+/* the lead word carries a touch more weight than the words supporting it */
+.chat-step-word { font-weight: var(--weight-display); }
+
+/* Grey letters with a LIGHTER band sweeping through — never a white flash.
+   The highlight mixes the base grey toward the page, so it reads as soft
+   silver on light and a soft glow on dark. `repeat`, not `no-repeat`: a
+   200% gradient slides fully out of the text box mid-cycle, and transparent
+   glyphs over nothing render as blank. */
+@keyframes waitShimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.shimmer {
+  color: transparent;
+  background-image: linear-gradient(100deg,
+    var(--faint) 0%, var(--faint) 40%,
+    color-mix(in srgb, var(--faint) 25%, var(--background)) 50%,
+    var(--faint) 60%, var(--faint) 100%);
+  background-size: 200% 100%; background-repeat: repeat;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: waitShimmer 2.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer { animation: none; color: var(--faint); -webkit-text-fill-color: currentColor; }
+  .wait-bar { animation: none; }
+  .chat-step { animation: none; }
+}
 
 /* Streaming cursor. `inline-block` with a nudged vertical-align keeps it on
    the text baseline even when the last node is a table or list, where a
@@ -1774,9 +1906,7 @@ body > footer .dotsep { color: var(--border); }
 .composer {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius-2xl); padding: 10px 10px 8px 14px;
-  transition: border-color var(--dur-slow) var(--ease-quartr);
 }
-.composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 .composer textarea {
   width: 100%; resize: none; background: transparent; color: var(--foreground);
   border: 0; outline: none; font-size: var(--text-xl); line-height: 1.55;
@@ -1838,10 +1968,6 @@ body > footer .dotsep { color: var(--border); }
 }
 .send:hover { transform: scale(1.05); }
 .send:disabled { opacity: .3; cursor: default; transform: none; }
-.composer-hint {
-  text-align: center; font-size: var(--text-3xs); color: var(--faint);
-  margin-top: 8px; letter-spacing: .01em;
-}
 
 /* screenshot capture + attachment */
 .shot-pop {
@@ -1939,7 +2065,10 @@ body > footer .dotsep { color: var(--border); }
   background: currentColor; border-radius: 1.5px;
 }
 .pin-txt { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
-.pin-top { font-family: var(--font-numeric); font-size: var(--text-sm); letter-spacing: -.01em; }
+.pin-top {
+  font-family: var(--font-numeric); font-size: var(--text-sm); letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
 .pin-move { font-weight: var(--weight-medium); margin-left: 6px; }
 .pin.up .pin-move { color: var(--up); }
 .pin.down .pin-move { color: var(--down); }
@@ -1970,19 +2099,44 @@ body > footer .dotsep { color: var(--border); }
    conversation you were in. A row is a whole conversation — what it opened
    with, how long it ran, when it was last touched. */
 .chat-history .hist-tools { padding: 10px 12px; }
-.chat-history input {
+/* ── the app's search field ─────────────────────────────────────────────────
+   ONE look for every "type to filter this list" box in the app: the
+   conversation search here and the instrument search in the header pill and
+   the floating picker. A soft fill with no border reads as a field you type
+   INTO; the outlined box the instrument search used to wear read as another
+   button in a menu of buttons, and the two sat a pane apart looking like
+   controls from different apps.
+   The border is `transparent`, not absent, so focus can darken an edge
+   without the 1px arriving from nowhere and nudging the row. */
+.chat-history input,
+#symbolMenu input, .sym-picker .pick-search {
   width: 100%; background: var(--muted); border: 1px solid transparent;
   border-radius: var(--radius-sm); padding: 8px 11px; color: var(--foreground);
   font: inherit; font-size: var(--text-base); outline: none;
   transition: border-color var(--dur) var(--ease-quartr);
 }
-.chat-history input::placeholder { color: var(--faint); }
-.chat-history input:focus { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
-.hist-list { flex: 1; overflow-y: auto; padding: 2px 8px 12px; }
+.chat-history input::placeholder,
+#symbolMenu input::placeholder,
+.sym-picker .pick-search::placeholder { color: var(--faint); }
+/* Same rule the dialog fields follow: focus darkens the field's own edge
+   rather than painting a teal ring around it. */
+.chat-history input:focus,
+#symbolMenu input:focus, .sym-picker .pick-search:focus { border-color: var(--border); }
+:root[data-nav="kbd"] .chat-history input:focus-visible,
+:root[data-nav="kbd"] #symbolMenu input:focus-visible,
+:root[data-nav="kbd"] .sym-picker .pick-search:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 1px;
+}
+.hist-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+/* Rows are TINTED blocks, not ruled lines, so they need air between them —
+   stacked flush, the current conversation's fill ran straight into the next
+   row's hover and the two read as one card with four lines in it. */
 .hist-row {
   position: relative; padding: 9px 34px 9px 11px; border-radius: var(--radius-sm);
   cursor: pointer; transition: background var(--dur) var(--ease-quartr);
+  margin-bottom: 5px;
 }
+.hist-row:last-child { margin-bottom: 0; }
 .hist-row:hover { background: var(--accent); }
 :root[data-nav="kbd"] .hist-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 /* The one already in the thread is INK-marked, not tinted: it is the row a
@@ -2486,19 +2640,16 @@ body > footer .dotsep { color: var(--border); }
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 270px; }
-  /* Rectangular by request, and it reads better for it: a search field is a
-     text box, and the pill radius made it look like another button in a menu
-     of buttons. The app's smallest radius, not zero — a hard corner inside a
-     16px card is a different design language. */
+  /* Look and focus come from the shared search-field rule up in the chat
+     section — this field is the conversation search in a different menu, and
+     the two are a pane apart in the same app. Only what is local to sitting
+     at the top of a dropdown stays here. */
   #symbolMenu input, .sym-picker .pick-search {
-    width: 100%; background: var(--input); border: 1px solid var(--border);
-    border-radius: var(--radius-2xs); color: var(--foreground);
-    padding: 7px 9px; font-size: 12.5px; outline: none; margin-bottom: 5px;
+    margin-bottom: 5px;
     /* body sets user-select:none so chart drags don't select text; an input
        that inherits it takes three clicks before a caret lands */
     user-select: text; -webkit-user-select: text;
   }
-  #symbolMenu input:focus, .sym-picker .pick-search:focus { border-color: var(--ring); }
   /* The floating picker is the same list, opened from a legend or the chat
      chip instead of the header pill — appended to <body> so a chart pane's
      overflow cannot clip it. */
@@ -2616,7 +2767,7 @@ body > footer .dotsep { color: var(--border); }
    SHORT. Stacking chart over chat there leaves both too flat to read, so
    landscape goes back to the side-by-side the desktop uses: the chart takes
    the width it just gained, and the conversation takes a column instead of a
-   strip. Height is the scarce axis now, so the header and footer give some
+   strip. Height is the scarce axis now, so the header gives some
    back and the rail returns — a landscape phone has the width to spare and
    is the one phone posture where drawing is practical. */
 @media (orientation: landscape) and (max-height: 520px) {
@@ -2641,7 +2792,6 @@ body > footer .dotsep { color: var(--border); }
   .rail .tool { width: 28px; height: 28px; }
   .rail .tool svg.icon { width: 17px; height: 17px; }
   body > header { height: 40px; }
-  body > footer { height: 22px; }
   /* the chart is wide again, so the labels can come back onto it */
   .scene-chips { display: block; }
   .chips-btn { display: none !important; }
@@ -2706,16 +2856,13 @@ body > footer .dotsep { color: var(--border); }
   .ind-act svg { width: 14px; height: 14px; }
 
   /* ── the composer, on one line ──────────────────────────────────────────
-     Three stacked rows — textarea, then a control row, then a keyboard hint —
-     cost roughly a fifth of the viewport before a single word was typed. On a
-     phone it collapses to one: plus, the instrument's MARK, the field, send.
+     Two stacked rows — textarea, then a control row — cost roughly a fifth of
+     the viewport before a single word was typed. On a phone it collapses to
+     one: plus, the instrument's MARK, the field, send.
      `display: contents` flattens the control row into the composer's own flex
      line rather than nesting a second one.
      The ticker text goes because the logo already says which instrument this
-     is, and it is the same mark the chart header and the search rows use. The
-     keyboard hint goes because there is no Shift+Enter on a phone — it was
-     advice about a key the reader does not have. */
-  .composer-hint { display: none; }
+     is, and it is the same mark the chart header and the search rows use. */
   .composer-wrap { padding: 4px 10px 8px; }
   .composer {
     display: flex; align-items: center; gap: 6px;
@@ -2738,16 +2885,6 @@ body > footer .dotsep { color: var(--border); }
   .ctx-flag > *:not(img) { display: none; }
   .ctx-flag img { width: 18px; height: 18px; }
   .send { order: 4; width: 32px; height: 32px; }
-
-  /* The status bar is three groups on one 26px line; at this width it wrapped
-     and doubled the footer's height, eating the composer's room. It scrolls
-     sideways instead — the leftmost group is the one you actually read. */
-  body > footer {
-    overflow-x: auto; white-space: nowrap; scrollbar-width: none;
-    gap: 10px;
-  }
-  body > footer::-webkit-scrollbar { display: none; }
-  body > footer > * { flex: none; }
 
   /* Annotation labels are written INTO the chart. On a desktop pane there is
      room beside the candles; on a phone three pattern labels covered the
@@ -3335,9 +3472,20 @@ body > footer .dotsep { color: var(--border); }
     <!-- No chip strip. What is on the chart is said ON the chart, in the
          readout's indicator legend — the header only ADDS. -->
 
+    <!-- Undo / redo, where TradingView keeps them: the top bar, directly
+         after the controls that put things ON the chart, so the reverse of
+         an action sits beside the action. They reverse the WORKSPACE —
+         drawings, what chat drew, the indicator set — never the view;
+         js/history.js states that boundary and why. Disabled rather than
+         inert when their stack is empty. -->
+    <div class="vsep"></div>
+    <button class="btn icon" id="undoBtn" type="button"
+            title="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
+    <button class="btn icon" id="redoBtn" type="button"
+            title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
+
     <div class="spacer"></div>
 
-    <span class="badge accent" id="sceneCount" style="display:none"></span>
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
     <div class="menu-wrap">
       <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
@@ -3383,6 +3531,12 @@ body > footer .dotsep { color: var(--border); }
              collapse toggle that folds the lot into a count. Filled by
              js/indlegend.js. -->
         <div class="ind-legend empty" id="indLegend"></div>
+        <!-- …and the same fold for everything DRAWN — the shapes you placed
+             and the ones the chat placed, together, because "the chart is too
+             busy to read" is never a question about which layer drew what.
+             Directly under the indicator toggle so the two decluttering
+             controls sit together. Filled by js/main.js. -->
+        <div class="draw-legend empty" id="drawLegend"></div>
       </div>
       <div class="prov" id="provCard"></div>
       <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
@@ -3452,7 +3606,6 @@ body > footer .dotsep { color: var(--border); }
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
-          <div class="composer-hint">Enter to send · Shift+Enter for a new line</div>
         </div>
       </div>
 
@@ -3486,20 +3639,15 @@ body > footer .dotsep { color: var(--border); }
     </aside>
   </div>
 
-  <footer>
-    <span id="statusLine">ready</span>
-    <span class="spacer"></span>
-    <span id="drawStatus"></span>
-    <span id="srcLine">local store · kite 1-min</span>
-    <span class="dotsep">·</span>
-    <span id="barsLine">—</span>
-  </footer>
-
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
   <script src="./js/store.js?v=11"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
-  <script src="./js/icons.js?v=15"></script>
+  <script src="./js/icons.js?v=16"></script>
+  <!-- before anything that edits the chart: drawings.js and scene.js call
+       Undo.touch() from their save paths, so the module has to exist by the
+       time the first one runs -->
+  <script src="./js/history.js?v=2"></script>
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
@@ -3509,11 +3657,11 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/indsettings.js?v=6"></script>
   <script src="./js/geometry.js?v=8"></script>
   <script src="./js/tools.js?v=8"></script>
-  <script src="./js/drawings.js?v=14"></script>
-  <script src="./js/scene.js?v=22"></script>
-  <script src="./js/panes.js?v=13"></script>
-  <script src="./js/main.js?v=59"></script>
-  <script src="./js/chat.js?v=105"></script>
+  <script src="./js/drawings.js?v=15"></script>
+  <script src="./js/scene.js?v=23"></script>
+  <script src="./js/panes.js?v=14"></script>
+  <script src="./js/main.js?v=64"></script>
+  <script src="./js/chat.js?v=106"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=4"></script>

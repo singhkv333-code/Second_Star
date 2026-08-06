@@ -39,7 +39,13 @@ const Scene = (() => {
   function create(chart, candle, env) {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
     //        onChange, onHover, onSelect, onIndicator, isCursorMode }
-    const state = { items: [], hover: null };
+    // `hidden` folds every annotation away — canvas marks, the corner legend
+    // and the bar markers alike — without removing one of them. What the chat
+    // drew is still in state, still restored on reload, still in the context
+    // envelope; it is simply not on screen. See Drawings' own flag: one
+    // control in the readout drives both, because "the chart is too busy" is
+    // never a question about which layer drew what.
+    const state = { items: [], hover: null, hidden: false };
     // Event icons (results, and anything else that happens ON a bar) use the
     // library's own marker layer rather than our canvas: markers belong to
     // the series, so they track the bar through zoom, pan and interval
@@ -47,7 +53,7 @@ const Scene = (() => {
     let markerApi = null;
     function syncMarkers() {
       const evs = [];
-      for (const a of state.items) {
+      for (const a of (state.hidden ? [] : state.items)) {
         if (a.kind !== "markers") continue;
         for (const m of a.marks || []) {
           evs.push({
@@ -212,6 +218,10 @@ const Scene = (() => {
     /** Which annotation is at this pane-local point? Shared by hover, click
      *  and the chart's own pin guard, so all three always agree. */
     function hitAt(y, key, x) {
+      // Folded away is not there. Hover, click and the chart's own pin guard
+      // all resolve through here, so this one line is what stops a hidden
+      // level raising a provenance card over an empty chart.
+      if (state.hidden) return null;
       for (let i = state.items.length - 1; i >= 0; i--) {
         const a = state.items[i];
         if (!mine(a, key)) continue;
@@ -341,6 +351,11 @@ const Scene = (() => {
     }
 
     function render(ctx, w, h, key) {
+      // The chips are DOM and outlive a skipped canvas pass, so folding away
+      // has to paint an EMPTY legend rather than simply not painting one —
+      // otherwise the names of the annotations survive in the corner while
+      // the annotations themselves are gone.
+      if (state.hidden) { paintChips(key, []); return; }
       ctx.save();
       const clearGlow = () => { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; };
       ctx.font = `11px ${FONT}`;
@@ -709,6 +724,18 @@ const Scene = (() => {
         _ru();
       },
       cardY: (id) => cardY(state.items.find((a) => a.id === id)),
+      /** Fold every annotation away, or bring them back. Presentation only:
+       *  the items are untouched, so nothing is saved and nothing is undoable.
+       *  The hover goes with them — it points at something no longer drawn. */
+      setHidden(v) {
+        const next = !!v;
+        if (state.hidden === next) return next;
+        state.hidden = next;
+        if (next) state.hover = null;
+        syncMarkers(); _ru();
+        return next;
+      },
+      isHidden: () => state.hidden,
       syncPanes,
       remove(id) {
         // removing one leg of a linked pair removes the pair
@@ -773,6 +800,15 @@ const Scene = (() => {
         return drew;
       },
       clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },
+      /** Replace every annotation at once — the undo stack's write path.
+       *  Exactly the bookkeeping clear() does, with a list instead of
+       *  nothing; the hover is dropped because the annotation it pointed at
+       *  may not be in the state being restored. */
+      setItems(list) {
+        state.items = (list || []).slice();
+        state.hover = null;
+        syncMarkers(); _ru(); env.onChange(count());
+      },
       count,
       requestUpdate: () => _ru(),
     };
