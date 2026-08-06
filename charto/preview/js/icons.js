@@ -70,6 +70,12 @@ const Icons = (() => {
      * 270° the plus does not occupy (large-arc, clockwise from 6 o'clock). */
     alertPlus: '<path d="M12 21A9 9 0 1 1 21 12"/><path d="M12 7v5l3.2 2"/><path d="M19.5 16.5v6"/><path d="M16.5 19.5h6"/>',
     // ── watchlist ──────────────────────────────────────────
+    /* The STAR is the watchlist, not the bulleted list. Every Indian broker a
+     * reader arrives from — Zerodha, Groww, Upstox — marks "things I follow"
+     * with a star, and a list glyph beside a bell reads as "menu" rather than
+     * as a subject. `list` stays: the alert LOG and the column picker are
+     * lists in the ordinary sense and still use it. */
+    star: '<path d="M11.53 2.3a.53.53 0 0 1 .94 0l2.31 4.68a2.12 2.12 0 0 0 1.6 1.16l5.16.75a.53.53 0 0 1 .3.91l-3.74 3.63a2.12 2.12 0 0 0-.61 1.88l.88 5.14a.53.53 0 0 1-.77.56l-4.62-2.43a2.12 2.12 0 0 0-1.97 0L6.4 21.01a.53.53 0 0 1-.77-.56l.88-5.14a2.12 2.12 0 0 0-.61-1.88L2.16 9.8a.53.53 0 0 1 .3-.91l5.16-.75a2.12 2.12 0 0 0 1.6-1.16z"/>',
     list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/>',
     columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
     sort: '<path d="M4 6h10"/><path d="M4 12h7"/><path d="M4 18h4"/><path d="M18 8v12"/><path d="m15 17 3 3 3-3"/>',

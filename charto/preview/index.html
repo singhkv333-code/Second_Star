@@ -70,6 +70,14 @@
   --text-h2:   17px;     /* wordmark, prose h2                         */
   --text-h1:   19px;     /* dialog title, prose h1                     */
 
+  /* One row height for every MENU row that is a single line of text with an
+     optional glyph. It is the interval list's natural box — a 12.5px Inter
+     line (~15px) inside .dropdown .item's 7px vertical padding — pinned as a
+     token so the rail's tool flyouts can be that exact height instead of
+     approximately it. Two lists opening a rail apart at two different rhythms
+     read as two different menus. */
+  --menu-row-h: 29px;
+
   --weight-display: 550;
   --weight-medium: 500;
   --weight-semi: 600;
@@ -261,13 +269,15 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 @keyframes fade { from { opacity: 0; } }
 
 /* The uppercase micro-label — Pivot's spec, used by the dropdown header,
-   the exchange suffix, the provenance role, the auto-pill and the table
-   head. It was written out five times; it is one rule now. */
+   the exchange suffix, the auto-pill and the table head. It was written out
+   five times; it is one rule now.
+   The provenance card's role LEFT this group: it is the title of a panel,
+   not a label over a group of rows, and TradingView titles a panel in
+   sentence-case ink. See .prov header. */
 .micro,
 .symbol .ex,
 .readout .ex,
 .dropdown .head,
-.prov .role,
 .auto-pill,
 .prose thead th,
 .dlg-formula span {
@@ -562,10 +572,13 @@ select.is-dressed { display: none; }
 .lay-opt:hover { background: var(--accent); color: var(--foreground); }
 :root[data-nav="kbd"] .lay-opt:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* the current layout is filled, not merely tinted — at 30px a colour-only
-   state is easy to miss in a field of forty-two near-identical glyphs */
+   state is easy to miss in a field of forty-two near-identical glyphs.
+   No ring on it: the tinted plate and the teal glyph already say "this one",
+   and a third edge around a glyph that is itself a drawing of framed boxes
+   read as a sixth pane rather than as a selection. The transparent border
+   stays so the box does not resize between states. */
 .lay-opt.on {
   color: var(--primary); background: var(--primary-soft);
-  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
 }
 .lay-opt svg { width: 22px; height: 22px; stroke-width: 1.55; }
 
@@ -855,7 +868,8 @@ body > header {
 /* a <button> so the phone's sheet can click the real control, which means
    undoing the UA's button chrome the .item rule never had to think about */
 .iv-menu .iv-item {
-  width: 100%; justify-content: flex-start; text-align: left;
+  width: 100%; height: var(--menu-row-h); padding: 0 9px;
+  justify-content: flex-start; text-align: left;
   background: transparent; border: 0; font: inherit;
   font-size: var(--text-base); color: var(--foreground);
   transition: background var(--dur) var(--ease-quartr),
@@ -1007,13 +1021,20 @@ header > .btn, header > .badge { flex: none; }
   margin: 0; padding: 8px 8px 6px; border-bottom: 0;
   font-size: var(--text-2xs); letter-spacing: .04em;
 }
+/* Same row height as the interval list — see --menu-row-h. It used to be 40,
+   which made the rail's flyout stand a third taller per row than every other
+   menu in the app; at that size five tools were a taller card than nine
+   intervals, and the two opening side by side looked like two products. */
 .dropdown.side .item {
-  height: 40px; padding: 0 4px; gap: 6px; border-radius: 6px;
+  height: var(--menu-row-h); padding: 0 4px; gap: 6px; border-radius: 6px;
   font-size: var(--text-xl); font-weight: 400;
 }
 .dropdown.side .item .lead { gap: 6px; }
+/* The glyph comes down with the row: 28px in a 29px box is a row that IS the
+   icon. 20 keeps it comfortably the largest thing on the line without
+   touching the edges. */
 .dropdown.side .item .lead svg.icon {
-  width: 28px; height: 28px; stroke-width: 1.4; color: var(--foreground);
+  width: 20px; height: 20px; stroke-width: 1.4; color: var(--foreground);
 }
 .dropdown.side .item:hover { background: var(--accent); }
 /* The current tool is INK, not a tint: at 40px a colour-only state in a list
@@ -1156,6 +1177,33 @@ header > .btn, header > .badge { flex: none; }
 .readout .chg { font-weight: var(--weight-medium); }
 .readout .chg.up { color: var(--up); }
 .readout .chg.down { color: var(--down); }
+
+/* ── the legend on ONE line, laptop and up ─────────────────────────────────
+   Groww's terminal runs "RELIANCE · 30m · NSE" and the five OHLC figures on
+   the SAME line, and it is the right call at this width: the title row is a
+   dozen characters against a pane 900px wide, so stacking the figures under
+   it spent a second line of chart to say what fits beside it — and pushed the
+   indicator legend a row further down the candles for nothing.
+
+   Wrapping, not nowrap: a four-pane split still has to render this, and a
+   pane too narrow for both should drop the figures to the next line exactly
+   as it does today rather than run them under the price axis. The indicator
+   legend keeps its own line regardless — it is a list of rows with controls,
+   never a tail on the ticker. */
+@media (min-width: 1024px) {
+  /* `center`, not `baseline`, for the same reason .readout .title itself is a
+     centred flex row: the ticker is an inline-flex box holding a logo, and an
+     inline-flex box contributes its LAST item's baseline to the line — which
+     put the figures a couple of pixels below the word they sit beside. One
+     axis, every part centred on it. */
+  .readout {
+    display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px;
+  }
+  .readout .ind-legend { flex-basis: 100%; }
+  /* the row's trailing 9px span margin is the gap between the figures; the
+     one after V would push the legend's wrap point 9px early */
+  .readout .row > :last-child { margin-right: 0; }
+}
 
 /* ── the in-chart indicator legend ─────────────────────────────────────
    TradingView's arrangement, and the reason it is right: an indicator's
@@ -1336,7 +1384,14 @@ body > footer .dotsep { color: var(--border); }
    price axis, so its position is predictable and the area around the
    pointer stays visible. The legend holds the top-right, so the two never
    argue over the same space. */
+/* The card is a PANEL floating over the chart, which is the same thing a
+   menu is — so it wears the same sheet: true white at 6px with one tight
+   shadow, measured off TradingView's own floating dialog (380 wide, 6px,
+   rgba(0,0,0,.2) 0 2px 4px). It used to sit on the card paper at a 16px
+   radius, which beside a 6px menu opened from the header read as a
+   different family of object. See --menu-bg. */
 .prov {
+  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
   position: absolute; left: 12px; bottom: 12px; z-index: 40; width: 272px;
   display: none; overflow: hidden;
   transition: opacity var(--dur) var(--ease-quartr);
@@ -1369,12 +1424,25 @@ body > footer .dotsep { color: var(--border); }
   display: flex; align-items: center; gap: 8px;
   padding: 11px 7px 0 14px;
 }
+/* TradingView titles a panel in SENTENCE-CASE INK — "Object tree", 20px/600,
+   no tracking, no rule under it — and the weight of the panel's name is what
+   tells you the rows below belong to it. This card was announcing "FIB
+   RETRACEMENT" in the 11px uppercase grey used for a label OVER a group of
+   rows, so the loudest thing in it was the D1 handle and the name of the
+   thing read as a caption. Same idea at this card's scale: 20/600 in a 380px
+   dialog is 13/600 in a 272px card. */
+.prov .role {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground); text-transform: none;
+}
 /* The dismiss is the smallest thing in the header, not the largest.
-   `.btn.icon` re-inflates any glyph inside it to 19px, so an 11px title was
+   `.btn.icon` re-inflates any glyph inside it to 19px, so the title was
    sitting beside a 19px X and the way OUT of the card read as its main
-   action. Sized to the title it shares a line with. */
+   action. Sized to the title it shares a line with, and squared off with
+   the sheet — an 8px pill inside a 6px panel is more corner than button. */
 .prov header .btn.icon {
-  width: 24px; height: 24px; margin-right: -1px; border-radius: var(--radius-sm);
+  width: 24px; height: 24px; margin-right: -1px; border-radius: var(--radius-xs);
 }
 .prov header .btn.icon svg.icon { width: 14px; height: 14px; }
 /* annotation colours, never the candle red/green */
@@ -1447,10 +1515,13 @@ body > footer .dotsep { color: var(--border); }
   height: auto; padding: 8px 5px 9px;
   font-family: var(--font); background: transparent;
 }
+/* 28px, not 26: TradingView's dialog closes on a 34px footer row, and at
+   this card's scale that lands at 28 — a hair more room under the rows, and
+   a target that no longer reads as smaller than the X in the header. */
 .prov footer .btn {
-  height: 26px; padding: 0 9px; gap: 6px;
+  height: 28px; padding: 0 9px; gap: 6px;
   font-size: var(--text-xs); font-weight: var(--weight-medium);
-  border-radius: var(--radius-sm); color: var(--muted-foreground);
+  border-radius: var(--radius-xs); color: var(--muted-foreground);
 }
 /* The glyph marks its word; it does not outweigh it. The shared `xs` size is
    14px, drawn beside 11.5px type — a step down puts the two on the same
@@ -1477,13 +1548,21 @@ body > footer .dotsep { color: var(--border); }
 .prov footer .btn.danger { margin-left: auto; }
 .prov footer .btn.danger:hover { background: var(--accent); color: var(--foreground); }
 /* A drawing's REF is a handle, not its identity — the name leads on the
-   left in the micro-label a pattern card uses, and the ref rides quietly on
-   the right where a level card puts its price. */
+   left and the ref rides quietly on the right, where a level card puts its
+   price. Now that the name is set in ink the chip has to give way: it drops
+   to the muted fill and the faint ink of any other quiet marker, and squares
+   off to the sheet's radius. As a teal pill beside a grey caption it was the
+   brightest thing in the card, which made a handle look like the subject. */
 .prov .draw-ref {
-  margin-left: auto; margin-right: 1px;
+  flex: none; margin-left: auto; margin-right: 1px;
   font: var(--text-3xs)/1 var(--mono); font-weight: var(--weight-semi); letter-spacing: .02em;
-  color: var(--primary); background: var(--primary-soft);
-  border-radius: var(--radius-pill); padding: 4px 7px;
+  color: var(--muted-foreground);
+  /* Mixed FROM the ink, not taken from --muted — the same trap the footer's
+     CTA documents: in dark --muted and the sheet are both #1c1c1d, so a
+     --muted chip on this card had no fill at all and the handle read as
+     loose text beside the title. */
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  border-radius: var(--radius-2xs); padding: 4px 6px;
 }
 
 /* Scene labels — HTML, so they always sit above the chart canvases and the
@@ -1955,6 +2034,39 @@ body > footer .dotsep { color: var(--border); }
    The watchlist below is wired; the alerts widget is still a look. See
    js/panels.js. */
 
+/* ── the widget bar, laptop-side: NAMED BUTTONS IN THE HEADER ────────────
+   A 46px strip down the right edge can only ever show a glyph, so what the
+   two panels are was carried entirely by a bell and a list — and a list
+   glyph next to a bell reads as "menu", not as "the things I follow". The
+   header has horizontal room this bar never had, so at laptop width the two
+   move up there and wear their NAMES, and the strip stands down rather than
+   offering a second door to the same panel.
+
+   Still one control per panel: js/panels.js builds both sets from the one
+   WIDGETS list and syncs the state onto whichever is showing, so the bar
+   below the breakpoint and the buttons above it are the same button. */
+.wtabs { display: none; align-items: center; gap: 2px; flex: none; }
+.wtabs .wtab { color: var(--muted-foreground); position: relative; }
+.wtabs .wtab svg.icon { width: 17px; height: 17px; }
+.wtabs .wtab:hover { color: var(--foreground); }
+/* Open is the header's own "on" — the teal plate every other stateful button
+   up here wears — rather than the bar's, so the row has one vocabulary. */
+.wtabs .wtab.active { color: var(--primary); background: var(--primary-soft); }
+/* the bell's "something fired since you last looked". On the glyph, not on
+   the button's corner: the label put the corner an inch away from the icon
+   the mark is about. */
+.wtabs .wtab.has-new::after {
+  content: ""; position: absolute; left: 20px; top: 5px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--primary); box-shadow: 0 0 0 2px var(--background);
+}
+/* Below the laptop the header is already the row that has to scroll, so the
+   panels go back to the strip on the edge. The separators go with the
+   buttons — two rules with nothing between them is one thick rule.
+   The swap itself is at the END of this section: `.wbar { display: none }`
+   has to come AFTER the bar's own `display: flex`, both being one class. */
+#wtabsSep, #wtabsSep2 { display: none; }
+
 /* ── the widget bar ────────────────────────────────────────────────────── */
 .wbar {
   width: 46px; flex: none; z-index: 10;
@@ -1971,6 +2083,18 @@ body > footer .dotsep { color: var(--border); }
   content: ""; position: absolute; top: 3px; right: 4px;
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--primary); box-shadow: 0 0 0 2px var(--background);
+}
+
+/* ── the swap ─────────────────────────────────────────────────────────────
+   Laptop and up: the header's named buttons ARE the widget switch and the
+   strip stands down — 46px of chart back, and no second door to a panel that
+   already has one. Everything narrower keeps the bar. This has to sit AFTER
+   `.wbar`'s own `display: flex` above: both are one class, so source order
+   is what decides, not the media query. */
+@media (min-width: 1024px) {
+  .wtabs { display: flex; }
+  #wtabsSep, #wtabsSep2 { display: block; }
+  .wbar { display: none; }
 }
 
 /* ── the panel ─────────────────────────────────────────────────────────────
@@ -2421,15 +2545,12 @@ body > footer .dotsep { color: var(--border); }
   }
   .draw-tag .x:hover { color: var(--down); background: var(--down-soft); }
   .attach-chip .x:hover { color: var(--down); background: var(--down-soft); }
-  /* The card's title. It was set at --faint, the colour this stylesheet uses
-     for the QUIETEST thing in a row — so the one word naming the card was
-     fainter than the labels beneath it and the card read as headless. It
-     steps up to --muted-foreground; the role tints (support / resistance)
-     are more specific and still win. */
-  .prov .role {
-    font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--muted-foreground);
-  }
+  /* (The card's title used to be re-stated here, one step louder than the
+     --faint it started at but still an uppercase micro-label. It is a panel
+     TITLE now — sentence-case ink, TradingView's own treatment — and lives
+     with the rest of the card's rules at .prov .role. A second declaration
+     down here only won by source order, which is how the first attempt at
+     this change appeared to do nothing.) */
   .pin .t { color: var(--muted-foreground); }
   .pin .x {
     cursor: pointer; color: var(--faint); display: inline-flex;
@@ -2775,9 +2896,12 @@ body > footer .dotsep { color: var(--border); }
   padding: 0; background: transparent; border: 0; box-shadow: none;
   border-radius: 0; overflow: visible; animation: none;
 }
-/* touch targets, not pointer targets */
+/* touch targets, not pointer targets. --menu-row-h is a POINTER row — the
+   height the interval list and the rail's flyouts share on a desktop — so it
+   is released here rather than inherited into a sheet a thumb has to hit. */
 .sheet-body .dropdown .item {
-  padding: 11px 10px; font-size: var(--text-xl); border-radius: var(--radius-sm);
+  height: auto; padding: 11px 10px; font-size: var(--text-xl);
+  border-radius: var(--radius-sm);
 }
 .sheet-body .dropdown .item:active { background: var(--accent); }
 .sheet-body .dropdown .head { padding-top: 12px; }
@@ -3227,8 +3351,14 @@ body > footer .dotsep { color: var(--border); }
         <div class="item" data-shot="region"><span>Select area…</span></div>
       </div>
     </div>
-    <!-- No alerts button here: the widget bar on the far right is where the
-         panels are switched, the way TradingView's is. One place, not two. -->
+    <!-- Watchlist and Alerts, NAMED. Filled by js/panels.js from the same
+         WIDGETS list the vertical bar is built from, and the bar stands down
+         at this width — one control per panel, still, just moved to where
+         there is room to say what it opens. Below the laptop breakpoint this
+         is empty space and the bar comes back. -->
+    <div class="vsep" id="wtabsSep"></div>
+    <div class="wtabs" id="wtabs" role="group" aria-label="Panels"></div>
+    <div class="vsep" id="wtabsSep2"></div>
     <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
     <button class="btn outline" id="chatToggle"></button>
     <!-- The account, last — TradingView's place for it, and the only control
@@ -3369,7 +3499,7 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/store.js?v=11"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
-  <script src="./js/icons.js?v=14"></script>
+  <script src="./js/icons.js?v=15"></script>
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
@@ -3386,7 +3516,7 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/chat.js?v=105"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=3"></script>
+  <script src="./js/panels.js?v=4"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=7"></script>
 </body>

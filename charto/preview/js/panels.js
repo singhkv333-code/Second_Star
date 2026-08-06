@@ -756,23 +756,43 @@ const Panels = (() => {
   /* ══ the widget list ═══════════════════════════════════════════════════ */
 
   const WIDGETS = [
-    { id: "watch",  panel: "watchPanel",  icon: "list", label: "Watchlist",
+    // A star, not a list: see the `star` note in js/icons.js.
+    { id: "watch",  panel: "watchPanel",  icon: "star", label: "Watchlist",
       render: renderWatch },
     { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
       render: renderAlerts },
   ];
   const byId = (id) => WIDGETS.find((w) => w.id === id);
 
-  /* ══ the bar ═══════════════════════════════════════════════════════════ */
+  /* ══ the bar, and the header's named buttons ═══════════════════════════
+   * Two renderings of the ONE list: the vertical strip on the right edge,
+   * and — at laptop width, where there is room to spell the panel's name —
+   * a pair of labelled buttons in the header. The stylesheet shows exactly
+   * one of them (see .wtabs), and everything below writes state to BOTH, so
+   * neither can be the stale one. `tabs` is optional: a build without the
+   * header container still gets the bar.
+   */
+  const tabs = el("wtabs");
 
   bar.innerHTML = WIDGETS.map((w) =>
     `<button type="button" class="tool" id="wb-${w.id}" data-widget="${w.id}" ` +
     `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
     `<span class="tip">${w.label}</span></button>`).join("");
 
+  if (tabs) {
+    tabs.innerHTML = WIDGETS.map((w) =>
+      `<button type="button" class="btn wtab" id="wt-${w.id}" data-widget="${w.id}" ` +
+      `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
+      `<span>${w.label}</span></button>`).join("");
+  }
+
+  /** Every control that opens this widget — the bar's icon and, at laptop
+   *  width, the header's named button. */
+  const ctrls = (id) => [el(`wb-${id}`), el(`wt-${id}`)].filter(Boolean);
+
   // the fixture log has something in it from today, so the bell starts marked
   if (MOCK.log.length && MOCK.log[0].day === "Today") {
-    el("wb-alerts").classList.add("has-new");
+    for (const b of ctrls("alerts")) b.classList.add("has-new");
   }
 
   let openId = null;
@@ -789,9 +809,10 @@ const Panels = (() => {
     for (const w of WIDGETS) {
       const on = w.id === id;
       el(w.panel).classList.toggle("hidden", !on);
-      const b = el(`wb-${w.id}`);
-      b.classList.toggle("active", on);
-      b.setAttribute("aria-expanded", String(on));
+      for (const b of ctrls(w.id)) {
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-expanded", String(on));
+      }
       // rendered on open rather than up front, so a panel is never showing a
       // state older than the moment you asked for it
       if (on) w.render(el(w.panel));
@@ -801,7 +822,7 @@ const Panels = (() => {
     polling(id === "watch");
     if (id !== "watch") closePopup();
     // looking at the alerts spends the "something fired" dot
-    if (id === "alerts") el("wb-alerts").classList.remove("has-new");
+    if (id === "alerts") for (const b of ctrls("alerts")) b.classList.remove("has-new");
     // Stacked, there is room for the chart and ONE panel. The conversation
     // goes away through its own toggle rather than by being hidden here, so
     // the chat button's state stays true.
@@ -811,10 +832,14 @@ const Panels = (() => {
 
   const toggle = (id) => show(openId === id ? null : id);
 
-  bar.addEventListener("click", (e) => {
+  // one handler shape, both renderings — the bar and the header's buttons
+  // carry the same data-widget, so neither needs its own branch
+  const onPick = (e) => {
     const b = e.target.closest("[data-widget]");
     if (b) toggle(b.dataset.widget);
-  });
+  };
+  bar.addEventListener("click", onPick);
+  if (tabs) tabs.addEventListener("click", onPick);
 
   /* ══ inside the panels ═════════════════════════════════════════════════
    * One delegated handler per panel, because a panel's body is rebuilt on
