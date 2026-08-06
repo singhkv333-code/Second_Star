@@ -74,6 +74,12 @@ const Icons = (() => {
     columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
     sort: '<path d="M4 6h10"/><path d="M4 12h7"/><path d="M4 18h4"/><path d="M18 8v12"/><path d="m15 17 3 3 3-3"/>',
 
+    // ── account ────────────────────────────────────────────
+    // The signed-OUT avatar. A signed-in one is an initial, not a glyph —
+    // drawn by main.js in CSS, because a letter is not an icon.
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><path d="M21 12H9"/>',
+
     // ── phone toolbar ──────────────────────────────────────
     // The bar has no room for words on every slot, so these four carry a
     // whole sheet each. Same Lucide set, same 24×24 frame.

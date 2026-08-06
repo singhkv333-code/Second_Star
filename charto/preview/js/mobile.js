@@ -110,7 +110,7 @@
     // toggles something on it (an indicator, a volume-profile window) does
     // not, because those are multi-select by design. The hosted menus'
     // own handlers have already run by the time this fires.
-    if (e.target.closest("[data-close], [data-layout], [data-shot], [data-sym]")) {
+    if (e.target.closest("[data-close], [data-layout], [data-shot], [data-sym], [data-acct]")) {
       closeSheet();
     }
   });
@@ -151,14 +151,19 @@
   } };
 
   /* ── slot · interval ──────────────────────────────────────────────────
-   * Read off the segmented control, and every tap is a click ON it, so
-   * main.js's pane-aware routing (a selected secondary chart keeps its own
-   * interval) applies here untouched. */
+   * Read off the header's interval MENU, and every tap is a click ON one of
+   * its rows, so main.js's pane-aware routing (a selected secondary chart
+   * keeps its own interval) applies here untouched.
+   *
+   * The menu spells the interval out ("15 minutes") because it has a column
+   * of width to do it in; a 74px tile does not, so the tiles wear the short
+   * form the header pill wears — carried on the row itself as data-short so
+   * there is still only one list of intervals in the app. */
   SHEETS.interval = { title: "Interval", fill(b) {
     b.innerHTML = '<div class="sheet-grid compact">' +
-      [...el("intervalSeg").children].map((x) =>
+      [...el("intervalMenu").querySelectorAll("button[data-iv]")].map((x) =>
         `<button type="button" class="tile ${x.classList.contains("active") ? "on" : ""}" ` +
-        `data-iv="${x.dataset.iv}"><span class="tile-lbl">${x.textContent}</span></button>`
+        `data-iv="${x.dataset.iv}"><span class="tile-lbl">${x.dataset.short}</span></button>`
       ).join("") + "</div>";
   } };
 
@@ -248,6 +253,13 @@
       '<div class="sheet-sec">Appearance</div><div class="sheet-grid">' +
         tile('data-more="theme"', Icons.svg(dark ? "sun" : "moon"),
              dark ? "Light theme" : "Dark theme") +
+      "</div>" +
+      // The header's avatar is one of the controls this width hides, and it
+      // is the only door to signing out — so it gets a tile here rather than
+      // being unreachable on a phone.
+      '<div class="sheet-sec">Account</div><div class="sheet-grid">' +
+        tile('data-more="account"', Icons.svg("user"),
+             Auth.user ? (Auth.user.name || Auth.user.email) : "Sign in") +
       "</div>";
   } };
 
@@ -258,13 +270,20 @@
     el("layoutBtn").click();
   } };
 
+  SHEETS.account = { title: "Account", fill() {
+    const menu = el("acctMenu");
+    menu.classList.remove("open");
+    adopt(menu);
+    el("acctBtn").click();
+  } };
+
   /* ── one delegated handler for every sheet body ───────────────────────
    * Registered once. Filling a sheet must never add a listener: the body
    * element survives every open, so a per-fill listener would stack one
    * copy per visit and fire a tool five times on the fifth open. */
   sBody.addEventListener("click", (e) => {
     const iv = e.target.closest("[data-iv]");
-    if (iv) return act(el("intervalSeg").querySelector(`button[data-iv="${iv.dataset.iv}"]`));
+    if (iv) return act(el("intervalMenu").querySelector(`button[data-iv="${iv.dataset.iv}"]`));
 
     const tab = e.target.closest("[data-tab]");
     if (tab) {
@@ -302,6 +321,7 @@
     if (!m) return;
     switch (m.dataset.more) {
       case "layout": return openSheet("layout");
+      case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
       case "chat": return act(el("chatToggle"));
@@ -370,8 +390,8 @@
         (logo ? `<img class="co-logo" src="${logo}" alt="" onerror="this.remove()"/>`
               : Icons.svg("search")) + `<span>${sym}</span>`;
     }
-    const iv = el("intervalSeg").querySelector("button.active");
-    const ivl = iv ? iv.textContent : "—";
+    const iv = el("intervalMenu").querySelector("button.active");
+    const ivl = iv ? iv.dataset.short : "—";
     if (shown.iv !== ivl) {
       shown.iv = ivl;
       el("mbInterval").innerHTML = `<span>${ivl}</span>`;
@@ -401,7 +421,7 @@
   // elements carrying those facts beats four call sites that must remember.
   if (window.MutationObserver) {
     const mo = new MutationObserver(syncBar);
-    mo.observe(el("intervalSeg"),
+    mo.observe(el("intervalMenu"),
                { subtree: true, attributes: true, attributeFilter: ["class"] });
     mo.observe(el("tool-cursor"), { attributes: true, attributeFilter: ["class"] });
   }

@@ -148,6 +148,14 @@
     0 16px 40px -20px rgba(0, 0, 0, .9);
   --scrim: rgba(0, 0, 0, .38);
   --scroll-thumb: #34353b;
+  /* A MENU is not a card — see the --menu-bg note in the light theme. On a
+     true-black page the sheet has to step UP to read as floating, so dark
+     keeps the card paper and only the geometry changes. */
+  --menu-bg: #1c1c1d;
+  --menu-shadow:
+    rgba(0, 0, 0, .01) 0 13px 5px 0, rgba(0, 0, 0, .03) 0 7px 4px 0,
+    rgba(0, 0, 0, .05) 0 3px 3px 0, rgba(0, 0, 0, .06) 0 1px 2px 0,
+    0 16px 40px -20px rgba(0, 0, 0, .9);
   /* The swatch ring must read on both a white chip and a black one, so it
      is neutral by design — but it was a raw grey that ignored the theme.
      Now it steps with the theme like everything else. */
@@ -192,6 +200,17 @@
      white wash left the chart looking bleached rather than dimmed */
   --scrim: rgba(0, 0, 0, .38);
   --scroll-thumb: #e4e5e9;
+  /* ── the menu sheet ─────────────────────────────────────────────────
+     Menus were on --card (#fbfbfc), which against a white chart is a grey
+     wash rather than a surface — the panel read as dimmed paper, not as
+     something floating. Groww's terminal (and TradingView under it) puts
+     every menu on TRUE WHITE at a 6px radius with one tight shadow, which
+     is also what .dlg here already does: measured at 6px off TradingView's
+     own dialog. So this is not a new idea in the file, it is the dialog's
+     rule finally reaching the menus. Cards, dialogs and the provenance
+     panel are untouched — a menu is the only surface that changes. */
+  --menu-bg: #ffffff;
+  --menu-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 10px 28px -14px rgba(15, 18, 22, .22);
   --swatch-ring: rgba(15, 18, 22, .2);
   --swatch-ring-strong: rgba(15, 18, 22, .4);
   /* stroke = this theme's --muted-foreground (#4d555c). Previously the
@@ -454,9 +473,13 @@ select.is-dressed { display: none; }
   border-radius: var(--radius-lg); box-shadow: var(--shadow);
 }
 
-/* dropdown-menu */
+/* dropdown-menu
+   The one surface that is NOT the card paper: a menu is the crisp white
+   sheet Groww/TradingView float over a chart, on the 6px radius .dlg already
+   measured off TradingView's own dialog. See --menu-bg. */
 .menu-wrap { position: relative; }
 .dropdown {
+  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
   min-width: 224px; padding: 5px; display: none;
   /* a long menu (Indicators is 20 items) must scroll inside itself rather
@@ -465,11 +488,11 @@ select.is-dressed { display: none; }
   overflow-y: auto; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
 }
-/* The global 9px scrollbar runs corner to corner, so inside a 16px-radius
+/* The global 9px scrollbar runs corner to corner, so inside a rounded
    popover the thumb spills over the rounded ends and reads as overflowing.
    Give the menu a thinner bar and inset the track past both corners. */
 .dropdown::-webkit-scrollbar { width: 6px; }
-.dropdown::-webkit-scrollbar-track { background: transparent; margin: 12px 0; }
+.dropdown::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
 .dropdown::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb); border-radius: var(--radius-2xs);
   border: 0; background-clip: border-box;
@@ -478,9 +501,11 @@ select.is-dressed { display: none; }
 .dropdown.right { left: auto; right: 0; }
 .dropdown.up { top: auto; bottom: calc(100% + 8px); }
 .dropdown.open { display: block; animation: pop var(--dur) ease-out; }
+/* Rows follow the sheet: a 8px pill inside a 6px box left more corner than
+   row, so the radius steps down with the panel's. */
 .dropdown .item {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  padding: 7px 9px; border-radius: var(--radius-xs); cursor: pointer;
   font-size: var(--text-base); color: var(--foreground);
 }
 .dropdown .item:hover { background: var(--accent); }
@@ -508,11 +533,16 @@ select.is-dressed { display: none; }
    text about shapes you can read at a glance; the count leads each row in
    the gutter so "I want four charts" is one downward scan. */
 .layout-menu { min-width: 0; width: max-content; max-width: min(560px, calc(100vw - 24px)); }
+/* Groww runs the rule between pane counts EDGE TO EDGE, and it is the right
+   call: a hairline that stops 5px short of the panel's sides reads as a
+   drawn line inside the sheet rather than as the seam between two bands.
+   Negative margins pull each row out past the menu's own padding. */
 .lay-group {
-  display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px;
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 0 -5px; padding: 7px 9px;
   border-bottom: 1px solid var(--border-soft);
 }
-.lay-group:last-child { border-bottom: 0; }
+.lay-group:last-child { border-bottom: 0; margin-bottom: -5px; }
 /* the count sits in its own gutter, aligned with the first row of glyphs */
 .lay-n {
   flex: none; width: 14px; text-align: center; padding-top: 7px;
@@ -524,7 +554,7 @@ select.is-dressed { display: none; }
   width: 30px; height: 30px; flex: none; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   background: transparent; border: 1px solid transparent;
-  border-radius: var(--radius-sm); color: var(--muted-foreground);
+  border-radius: var(--radius-xs); color: var(--muted-foreground);
   transition: background var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr),
               border-color var(--dur) var(--ease-quartr);
@@ -792,35 +822,128 @@ body > header {
   letter-spacing: -.01em; white-space: nowrap;
 }
 
-/* segmented control (intervals) */
-.seg { display: inline-flex; align-items: center; gap: 2px; }
-/* Intervals and drawing tools are the two things on this screen you reach
-   for constantly, and both sat at --muted-foreground: legible, but reading
-   as disabled next to the chart they drive. They rest at full foreground
-   now, and the hover carries the state change instead of the colour having
-   to hold it.
-   The lift is one property — a 1.06 scale on press-sized targets — because
-   a hover that moves the label is harder to aim at than one that doesn't.
-   Pressing scales BACK past rest, which is the whole tactile trick: the
-   control appears to take the click. */
-.seg button {
-  background: transparent; color: var(--foreground); border: 0; cursor: pointer;
-  font-size: var(--text-sm); font-weight: var(--weight-semi); padding: 0 9px; height: 28px;
-  border-radius: var(--radius-sm); line-height: 1; letter-spacing: -.01em;
-  transition: background var(--dur) var(--ease-quartr),
-              color var(--dur) var(--ease-quartr),
-              transform var(--dur-fast) var(--ease-quartr);
+/* ── interval — Groww's one pill, not eight buttons ──────────────────────
+   Groww's terminal spends a single 39×38 slot on the timeframe: the CURRENT
+   interval, as a word, opening a grouped list. Eight always-visible buttons
+   is the trade the other way — one click saved, a fifth of the header spent,
+   and a strip that can only ever show the intervals that fit.
+   The pill wins here for a second reason this app has and Groww does not:
+   the toolbar is aimed at whichever PANE is selected, so the header has to
+   state an interval, not just offer a row of them. A filled word says
+   "this chart is on 15m" at a glance; a tinted button among eight does not. */
+.iv-pill {
+  min-width: 44px; justify-content: center; padding: 0 10px;
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.01em; font-variant-numeric: tabular-nums;
 }
-.seg button:hover { background: var(--hover-fill); color: var(--foreground); transform: scale(1.06); }
-.seg button:active { transform: scale(.95); }
-.seg button.active { color: var(--primary); background: var(--primary-soft); }
-.seg button.active:hover { transform: none; }
+.iv-pill.open { background: var(--accent); }
+
+/* The menu is Groww's: sections in the micro-label, the interval SPELLED
+   OUT ("15 minutes", not "15m"), and the current one filled in ink — the
+   same near-black fill the checkbox and the CTA already use for "this is
+   the state", rather than the teal, which this file reserves for accents. */
+.iv-menu { min-width: 172px; }
+.iv-sec {
+  padding: 9px 9px 5px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+/* Groww draws no rule between the sections and it is right not to: the
+   label IS the break, and a hairline every four rows in a 172px column is
+   more furniture than a nine-item list can carry. Space instead. */
+.iv-item + .iv-sec { padding-top: 13px; }
+/* a <button> so the phone's sheet can click the real control, which means
+   undoing the UA's button chrome the .item rule never had to think about */
+.iv-menu .iv-item {
+  width: 100%; justify-content: flex-start; text-align: left;
+  background: transparent; border: 0; font: inherit;
+  font-size: var(--text-base); color: var(--foreground);
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.iv-menu .iv-item.active {
+  background: var(--foreground); color: var(--background);
+}
+.iv-menu .iv-item.active:hover { background: var(--foreground); }
 
 /* Every header item is fixed-size; the spacer is the one thing that
    flexes, and it is what pushes the right-hand cluster to the edge. The
    indicator strip used to hold that job — it is on the chart now. */
-header > .brand, header > .symbol, header > .seg, header > .menu-wrap,
+header > .brand, header > .symbol, header > .menu-wrap,
 header > .btn, header > .badge { flex: none; }
+
+/* ── account — TradingView's avatar, at the outer edge ───────────────────
+   TradingView ends its toolbar with a circular avatar carrying the account's
+   initial, and everything about the account lives behind it. Charto puts it
+   in the same place for the same reason: it is the only control in the
+   header that is not about the CHART, so it sits outside all of them.
+   Signed out the circle is still there — a chart you can use without an
+   account is a feature here, so the door must not be a dead space. */
+.acct-btn {
+  width: 30px; height: 30px; flex: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 0; background: var(--muted);
+  color: var(--muted-foreground);
+  font: var(--weight-semi) 13px var(--font); letter-spacing: -.01em;
+  transition: box-shadow var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.acct-btn svg.icon { width: 17px; height: 17px; }
+.acct-btn:hover { color: var(--foreground); }
+/* Signed IN the circle is the account's colour, not the chrome's: a teal
+   disc with the initial in the page's own paper. The ring is what the
+   hover moves, because a 30px circle that changes fill reads as a different
+   avatar rather than as the same one under the pointer. */
+.acct-btn.in {
+  background: linear-gradient(150deg,
+              color-mix(in srgb, var(--primary) 86%, #ffffff) 0%,
+              var(--primary) 62%,
+              color-mix(in srgb, var(--primary) 74%, #000000) 100%);
+  color: var(--primary-foreground);
+}
+.acct-btn:hover, .acct-btn.open {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--hover-fill);
+}
+:root[data-nav="kbd"] .acct-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.acct-menu { min-width: 244px; }
+/* The identity block is a HEAD, not a row: it is not clickable, so it must
+   not wear a row's hover or a row's padding. */
+.acct-id {
+  display: flex; align-items: center; gap: 10px;
+  margin: -5px -5px 5px; padding: 12px 12px 11px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.acct-id .disc {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: var(--weight-semi) 14px var(--font);
+  background: var(--muted); color: var(--muted-foreground);
+}
+.acct-id.in .disc {
+  background: linear-gradient(150deg,
+              color-mix(in srgb, var(--primary) 86%, #ffffff) 0%,
+              var(--primary) 62%,
+              color-mix(in srgb, var(--primary) 74%, #000000) 100%);
+  color: var(--primary-foreground);
+}
+.acct-id .who { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acct-id .nm {
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  color: var(--foreground); letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.acct-id .em {
+  font-size: var(--text-sm); color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Where the work is kept is the one thing an account changes in this app, so
+   the menu says it rather than leaving it to be discovered. */
+.acct-note {
+  padding: 8px 9px 6px; font-size: var(--text-sm); line-height: 1.45;
+  color: var(--muted-foreground);
+}
 
 /* ─── 6 · RAIL ─────────────────────────────────────────────────────────── */
 
@@ -2790,19 +2913,28 @@ body > footer .dotsep { color: var(--border); }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   AUTH — shadcn's login-03 block, in this stylesheet's own vocabulary
+   AUTH — Pivot's split sign-in, translated out of React
    ──────────────────────────────────────────────────────────────────────────
-   login-03 is the muted-background variant: the form centred in the viewport,
-   the wordmark above the card, one column. It is the block that survives the
-   translation out of React intact, because its whole structure is
-   Card > CardHeader(Title + Description) > CardContent(Field*) > CardFooter —
-   and .surface, .btn, .input and .checkbox here already ARE those primitives.
-   So nothing below invents a component; it composes the ones the app is
-   already built from, which is also why the login inherits both themes and
-   the focus ring for free.
+   This is pivot-next/app/login/page.tsx and its signup twin, one for one:
+   a dark editorial BrandPanel on the left (theme-independent by design — it
+   is the brand surface, not a themed one) carrying the wordmark over a
+   static black-and-white wave field with grain and a vignette, and on the
+   right a single focused column of fields on the app's own paper. Every
+   measurement below is Pivot's: the 56px panel padding, the 26px wordmark,
+   the 384px form column, the 2rem title, the 20px field rhythm.
 
-   .field / .label are added as GENERAL primitives rather than auth-only ones:
-   a labelled control is the one shadcn primitive this stylesheet had no name
+   What is NOT carried over is the SocialSignIn block above Pivot's email
+   field. Charto's dataserver issues its own sessions and speaks no OAuth,
+   and a "Continue with Google" button that cannot continue with Google is
+   the one thing this codebase refuses to draw.
+
+   Utility stays charto's: one overlay with two modes rather than two routed
+   pages, because charto is one page and the app behind this screen is fully
+   usable signed out. The fields that differ between modes are hidden rather
+   than rebuilt, so switching keeps whatever you have already typed.
+
+   .field / .label are GENERAL primitives rather than auth-only ones: a
+   labelled control is the one shadcn primitive this stylesheet had no name
    for, and the indicator dialogs hand-roll it today.
    ══════════════════════════════════════════════════════════════════════════ */
 .field { display: flex; flex-direction: column; gap: 7px; }
@@ -2815,49 +2947,113 @@ body > footer .dotsep { color: var(--border); }
   letter-spacing: -0.005em;
 }
 .label .hint { font-weight: 400; color: var(--muted-foreground); }
+.label-row { display: flex; align-items: center; gap: 10px; }
+.label-row .aside {
+  margin-left: auto; font-size: var(--text-xs); color: var(--muted-foreground);
+}
 
 .auth-screen {
-  position: fixed; inset: 0; z-index: 200;
-  display: none; place-items: center;
-  padding: 24px; overflow-y: auto;
+  position: fixed; inset: 0; z-index: 200; display: none;
   background: var(--background);
 }
-.auth-screen.open { display: grid; }
-/* The muted wash that names the variant. Kept as a soft radial rather than a
-   flat --muted fill: on the true-black dark theme a flat panel behind a
-   --card panel reads as a seam, not as depth. */
-.auth-screen::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse 80% 60% at 50% 0%,
-              var(--primary-soft), transparent 70%);
+.auth-screen.open { display: flex; }
+
+/* ── left · the brand panel ───────────────────────────────────────────────
+   Always dark, in both themes. Pivot is explicit that this is the brand
+   surface rather than a themed one, and a wave field that inverts with the
+   app theme would be a different mark twice. */
+.auth-brandpanel {
+  position: relative; overflow: hidden; flex: none; width: 50%;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 56px; color: #fbfcfc;
+  background: radial-gradient(130% 110% at 30% 18%,
+              #161618 0%, #0a0a0b 52%, #060607 100%);
 }
-.auth-wrap {
-  position: relative; width: 100%; max-width: 384px;
-  display: flex; flex-direction: column; gap: 22px;
+.auth-brandpanel > svg, .auth-brandpanel > .vignette {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
 }
-.auth-brand {
-  display: flex; align-items: center; justify-content: center; gap: 2px;
-  font-size: 22px; font-weight: 700; letter-spacing: -0.03em;
+.auth-brandpanel .grain { opacity: .05; }
+.auth-brandpanel .vignette { box-shadow: inset 0 0 220px 60px rgba(0, 0, 0, .65); }
+.auth-brandpanel .mark, .auth-brandpanel .fine { position: relative; z-index: 1; }
+.auth-brandpanel .mark {
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: 26px; letter-spacing: -.03em; color: #fbfcfc;
+}
+.auth-brandpanel .mark .dot { color: var(--primary); }
+/* Pivot's headline slot. Charto's claim is charto's, not Pivot's — the
+   layout is what is being reused, never the copy. */
+.auth-brandpanel .pitch {
+  position: relative; z-index: 1; max-width: 30ch; margin-top: auto;
+  padding-bottom: 26px;
+  font-size: 34px; font-weight: var(--weight-semi);
+  letter-spacing: -.045em; line-height: 1.06; color: #fbfcfc;
+}
+.auth-brandpanel .fine { font-size: var(--text-xs); color: rgba(255, 255, 255, .4); }
+
+/* ── right · the form column ────────────────────────────────────────────── */
+.auth-col {
+  flex: 1 1 auto; min-width: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: 32px 24px;
+}
+/* the wordmark the brand panel carries — shown only when the panel is not */
+.auth-col .mark {
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: 24px; letter-spacing: -.03em; color: var(--foreground);
+}
+.auth-col .mark .dot { color: var(--primary); }
+.auth-mid { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
+.auth-wrap { width: 100%; max-width: 384px; padding: 28px 0; }
+.auth-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 26px; }
+.auth-title {
+  font-size: 24px; font-weight: var(--weight-semi); letter-spacing: -.03em;
   color: var(--foreground);
 }
-.auth-brand .dot { color: var(--primary); }
-.auth-card { padding: 26px 26px 24px; }
-.auth-head { display: flex; flex-direction: column; gap: 5px; margin-bottom: 20px; }
-.auth-title { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
-.auth-desc { font-size: 13.5px; color: var(--muted-foreground); line-height: 1.45; }
-.auth-body { display: flex; flex-direction: column; gap: 15px; }
-.auth-card .input { width: 100%; height: 38px; }
-.auth-foot { display: flex; flex-direction: column; gap: 13px; margin-top: 21px; }
+.auth-desc { font-size: var(--text-lg); color: var(--muted-foreground); line-height: 1.5; }
+.auth-body { display: flex; flex-direction: column; gap: 20px; }
+.auth-body .input { width: 100%; height: 38px; }
+.auth-foot { display: flex; flex-direction: column; gap: 20px; margin-top: 20px; }
 .auth-foot .btn.cta { width: 100%; height: 38px; justify-content: center; }
-.auth-alt {
-  text-align: center; font-size: 13px; color: var(--muted-foreground);
-}
+.auth-alt { text-align: center; font-size: var(--text-md); color: var(--muted-foreground); }
 .auth-alt button {
   background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  font-weight: var(--weight-medium);
   color: var(--foreground); text-decoration: underline;
-  text-underline-offset: 3px; text-decoration-color: var(--faint);
+  text-underline-offset: 4px; text-decoration-color: var(--faint);
 }
 .auth-alt button:hover { text-decoration-color: var(--foreground); }
+
+/* the eye — Pivot's show/hide, an icon INSIDE the field's own box */
+.pw-wrap { position: relative; }
+.pw-wrap .input { padding-right: 36px; }
+.pw-eye {
+  position: absolute; right: 0; top: 0; width: 36px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--muted-foreground); border-radius: var(--radius-xs);
+  transition: color var(--dur) var(--ease-quartr);
+}
+.pw-eye:hover { color: var(--foreground); }
+.pw-eye svg.icon { width: 16px; height: 16px; }
+
+/* the strength meter — three segments and one word, Pivot's exactly. It
+   REPORTS; the server's rule is length alone, and this must never gate a
+   password the server would have accepted. */
+.pw-meter { display: none; flex-direction: column; gap: 6px; padding-top: 2px; }
+.pw-meter.show { display: flex; }
+.pw-bars { display: flex; gap: 4px; }
+.pw-bars i {
+  flex: 1; height: 4px; border-radius: var(--radius-pill);
+  background: var(--border);
+  transition: background var(--dur) var(--ease-quartr);
+}
+.pw-say {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: var(--text-xs);
+}
+.pw-say .lvl { font-weight: var(--weight-medium); }
+.pw-say .hint { color: var(--muted-foreground); }
+
 /* The error is a REGION, announced, and it reserves no space when empty —
    a form that jumps by a line the first time you get the password wrong is
    the same bug as a chart that reflows when a tooltip opens. */
@@ -2865,66 +3061,121 @@ body > footer .dotsep { color: var(--border); }
   display: none; font-size: 13px; line-height: 1.4;
   color: var(--down); background: var(--down-soft);
   border: 1px solid color-mix(in srgb, var(--down) 30%, transparent);
-  border-radius: var(--radius-sm); padding: 9px 11px;
+  border-radius: var(--radius-xs); padding: 9px 11px;
 }
 .auth-error.show { display: block; }
+/* A skipped sign-in is a real choice here: charto works fully signed out, it
+   just keeps your work in this browser instead of your account. Pivot has no
+   such door — it has no signed-out product — so this is charto's own line at
+   the foot of Pivot's column, where Pivot puts its disclaimer. */
 .auth-note {
-  position: relative; text-align: center; font-size: 12.5px;
+  text-align: center; font-size: var(--text-sm);
   color: var(--muted-foreground); line-height: 1.5;
 }
-/* A skipped sign-in is a real choice here: charto works fully signed out, it
-   just keeps your work in this browser instead of your account. */
-.auth-skip { margin-top: -4px; }
+.auth-note button {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: inherit; text-decoration: underline; text-underline-offset: 3px;
+}
+.auth-note button:hover { color: var(--foreground); }
+
+/* Below Pivot's `lg` the brand panel stands down and the wordmark moves into
+   the column — the same fold Pivot's `hidden lg:flex` performs. */
+@media (max-width: 1023px) {
+  .auth-brandpanel { display: none; }
+}
+@media (min-width: 1024px) {
+  .auth-col > .mark { display: none; }
+  .auth-col { padding: 32px 56px; }
+}
 
 </style>
 </head>
 <body>
-  <!-- Auth. One card, two modes: the fields that differ are hidden rather
-       than rebuilt, so switching between sign-in and sign-up keeps whatever
-       you have already typed. -->
+  <!-- Auth — Pivot's split login/signup. Left: the dark brand panel (always
+       dark, in both themes). Right: one column, two modes — the fields that
+       differ are hidden rather than rebuilt, so switching between sign-in and
+       sign-up keeps whatever you have already typed. -->
   <div class="auth-screen" id="authScreen" role="dialog" aria-modal="true"
        aria-labelledby="authTitle">
-    <div class="auth-wrap">
-      <div class="auth-brand">Charto<span class="dot">.</span></div>
-      <div class="surface auth-card">
-        <form id="authForm" novalidate>
+    <div class="auth-brandpanel">
+      <!-- the wave field and the grain are drawn by js/auth.js: thirty
+           deterministic ridge paths are geometry, not markup -->
+      <div class="mark">Charto<span class="dot">.</span></div>
+      <div class="pitch">A chart you can hold a conversation with.</div>
+      <div class="fine">Data &amp; analysis only. Not financial advice.</div>
+    </div>
+
+    <div class="auth-col">
+      <div class="mark">Charto<span class="dot">.</span></div>
+      <div class="auth-mid">
+        <div class="auth-wrap">
           <div class="auth-head">
-            <div class="auth-title" id="authTitle">Sign in</div>
-            <div class="auth-desc" id="authDesc">
-              Your charts, drawings and conversations, on every device.
-            </div>
+            <h1 class="auth-title" id="authTitle">Sign in to Charto</h1>
+            <p class="auth-desc" id="authDesc">
+              Enter your email and password to access your account.
+            </p>
           </div>
-          <div class="auth-body">
-            <div class="auth-error" id="authError" role="alert" aria-live="polite"></div>
-            <div class="field" id="authNameField" hidden>
-              <label class="label" for="authName">Name <span class="hint">(optional)</span></label>
-              <input class="input" id="authName" type="text" autocomplete="name" />
+
+          <form id="authForm" novalidate>
+            <div class="auth-body">
+              <div class="field" id="authNameField" hidden>
+                <label class="label" for="authName">Full name <span class="hint">(optional)</span></label>
+                <input class="input" id="authName" type="text" autocomplete="name"
+                       placeholder="Arjun Sharma" />
+              </div>
+
+              <div class="field">
+                <label class="label" for="authEmail">Email</label>
+                <input class="input" id="authEmail" type="email" required
+                       autocomplete="email" placeholder="you@example.com" />
+              </div>
+
+              <div class="field">
+                <div class="label-row">
+                  <label class="label" for="authPassword">Password</label>
+                  <span class="aside" id="authPwAside">Forgot? Contact support</span>
+                </div>
+                <div class="pw-wrap">
+                  <input class="input" id="authPassword" type="password" required
+                         autocomplete="current-password" placeholder="••••••••" />
+                  <button type="button" class="pw-eye" data-eye="authPassword"
+                          tabindex="-1" aria-label="Show password"></button>
+                </div>
+                <div class="pw-meter" id="authPwMeter" aria-live="polite">
+                  <div class="pw-bars"><i></i><i></i><i></i></div>
+                  <div class="pw-say">
+                    <span class="lvl" id="authPwLevel"></span>
+                    <span class="hint" id="authPwHint"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field" id="authConfirmField" hidden>
+                <label class="label" for="authConfirm">Confirm password</label>
+                <div class="pw-wrap">
+                  <input class="input" id="authConfirm" type="password"
+                         autocomplete="new-password" placeholder="••••••••" />
+                  <button type="button" class="pw-eye" data-eye="authConfirm"
+                          tabindex="-1" aria-label="Show password"></button>
+                </div>
+              </div>
+
+              <div class="auth-error" id="authError" role="alert" aria-live="polite"></div>
             </div>
-            <div class="field">
-              <label class="label" for="authEmail">Email</label>
-              <input class="input" id="authEmail" type="email" required
-                     autocomplete="email" placeholder="you@example.com" />
+
+            <div class="auth-foot">
+              <button class="btn cta" id="authSubmit" type="submit">Sign in</button>
+              <div class="auth-alt">
+                <span id="authAltText">New to Charto?</span>
+                <button type="button" id="authToggle">Create an account</button>
+              </div>
             </div>
-            <div class="field">
-              <label class="label" for="authPassword">Password</label>
-              <input class="input" id="authPassword" type="password" required
-                     autocomplete="current-password" placeholder="••••••••" />
-            </div>
-          </div>
-          <div class="auth-foot">
-            <button class="btn cta" id="authSubmit" type="submit">Sign in</button>
-            <div class="auth-alt">
-              <span id="authAltText">New to Charto?</span>
-              <button type="button" id="authToggle">Create an account</button>
-            </div>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
-      <div class="auth-note auth-skip">
-        <button type="button" id="authSkip"
-                style="background:none;border:0;padding:0;cursor:pointer;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:3px;">
-          Continue without an account
-        </button>
+
+      <div class="auth-note">
+        <button type="button" id="authSkip">Continue without an account</button>
         — your work stays in this browser only.
       </div>
     </div>
@@ -2944,15 +3195,12 @@ body > footer .dotsep { color: var(--border); }
     </div>
     <div class="vsep"></div>
 
-    <div class="seg" id="intervalSeg">
-      <button data-iv="1m">1m</button>
-      <button data-iv="5m" class="active">5m</button>
-      <button data-iv="15m">15m</button>
-      <button data-iv="30m">30m</button>
-      <button data-iv="1h">1h</button>
-      <button data-iv="1d">D</button>
-      <button data-iv="1w">W</button>
-      <button data-iv="1mo">M</button>
+    <!-- Interval — Groww's single pill over a grouped list, filled by main.js
+         from the one catalogue that also decides what the chart can page. -->
+    <div class="menu-wrap">
+      <button class="btn iv-pill" id="intervalBtn" type="button" title="Interval"
+              aria-haspopup="menu" aria-expanded="false">5m</button>
+      <div class="dropdown iv-menu" id="intervalMenu" role="menu"></div>
     </div>
 
     <div class="vsep"></div>
@@ -2983,6 +3231,13 @@ body > footer .dotsep { color: var(--border); }
          panels are switched, the way TradingView's is. One place, not two. -->
     <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
     <button class="btn outline" id="chatToggle"></button>
+    <!-- The account, last — TradingView's place for it, and the only control
+         in this header that is not about the chart. Filled by main.js. -->
+    <div class="menu-wrap">
+      <button class="acct-btn" id="acctBtn" type="button" title="Account"
+              aria-haspopup="menu" aria-expanded="false"></button>
+      <div class="dropdown right acct-menu" id="acctMenu" role="menu"></div>
+    </div>
   </header>
 
   <div class="main">
@@ -3111,11 +3366,14 @@ body > footer .dotsep { color: var(--border); }
   </footer>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/auth.js?v=1"></script>
   <script src="./js/store.js?v=11"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=1"></script>
-  <script src="./js/icons.js?v=13"></script>
+  <script src="./js/icons.js?v=14"></script>
+  <!-- after icons.js: the sign-in screen draws the show/hide eye from the
+       shared set, and a classic script cannot reach a const declared by one
+       that has not run yet -->
+  <script src="./js/auth.js?v=2"></script>
   <script src="./js/indicators.js?v=19"></script>
   <script src="./js/indlegend.js?v=1"></script>
   <script src="./js/indsettings.js?v=6"></script>
@@ -3124,12 +3382,12 @@ body > footer .dotsep { color: var(--border); }
   <script src="./js/drawings.js?v=14"></script>
   <script src="./js/scene.js?v=22"></script>
   <script src="./js/panes.js?v=13"></script>
-  <script src="./js/main.js?v=58"></script>
+  <script src="./js/main.js?v=59"></script>
   <script src="./js/chat.js?v=105"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=3"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=6"></script>
+  <script src="./js/mobile.js?v=7"></script>
 </body>
 </html>

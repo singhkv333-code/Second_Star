@@ -549,11 +549,27 @@
       });
     renderIndMenu();                  // optimistic: the tick lands immediately
   });
+  /* Two header triggers wear their own open state — the interval pill takes a
+   * fill and the avatar takes a ring, and both carry aria-expanded. Every
+   * other menu button in here is an icon whose menu IS the feedback. Read off
+   * the menus rather than tracked, so the document-wide close below cannot
+   * leave a trigger looking open over a menu that isn't. */
+  const MENU_TRIGGERS = [["intervalBtn", "intervalMenu"], ["acctBtn", "acctMenu"]];
+  function syncMenuTriggers() {
+    for (const [b, m] of MENU_TRIGGERS) {
+      const btn = el(b), menu = el(m);
+      if (!btn || !menu) continue;
+      const open = menu.classList.contains("open");
+      btn.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+  }
   /** Close every open dropdown except `keep`. Shared by header + composer. */
   function closeMenus(keep) {
     document.querySelectorAll(".dropdown.open").forEach((d) => {
       if (d !== keep) d.classList.remove("open");
     });
+    syncMenuTriggers();
   }
   document.addEventListener("click", () => closeMenus(null));
   window.__chartoCloseMenus = closeMenus;
@@ -577,10 +593,41 @@
     legend.reposition();
   });
 
-  // ── interval buttons ──────────────────────────────────
-  el("intervalSeg").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-iv]");
+  // ── interval ──────────────────────────────────────────
+  /* Groww's control, not a segmented strip: ONE pill saying which interval
+   * this chart is on, opening a list grouped the way a trader thinks about
+   * time. Eight always-visible buttons cost a fifth of the header to save a
+   * click, and — because this toolbar is aimed at whichever PANE is selected
+   * — a strip of eight has to *state* a value anyway, which a tinted button
+   * among seven others does badly and a filled word does at a glance.
+   *
+   * The set is exactly the eight IV_SEC/PAGE know how to page. A ninth row
+   * here would offer a timeframe the loader cannot fetch, which is the same
+   * class of lie as an invented number. */
+  const IV_MENU = [
+    ["Minutes", [["1m", "1m", "1 minute"], ["5m", "5m", "5 minutes"],
+                 ["15m", "15m", "15 minutes"], ["30m", "30m", "30 minutes"]]],
+    ["Hours", [["1h", "1h", "1 hour"]]],
+    ["Days", [["1d", "D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
+  ];
+  const ivBtn = el("intervalBtn"), ivMenu = el("intervalMenu");
+  ivMenu.innerHTML = IV_MENU.map(([sec, rows]) =>
+    `<div class="iv-sec">${sec}</div>`
+    + rows.map(([iv, short, name]) =>
+        `<button type="button" class="item iv-item" role="menuitemradio" `
+        + `data-iv="${iv}" data-short="${short}">${name}</button>`).join("")).join("");
+
+  ivBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus(ivMenu);
+    ivMenu.classList.toggle("open");
+    syncMenuTriggers();
+  });
+  ivMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-iv]");
     if (!b) return;
+    ivMenu.classList.remove("open");
+    syncMenuTriggers();
     // One toolbar, aimed at whichever pane is selected. When a secondary pane
     // has the selection this must NOT touch the primary chart — the interval
     // is a property of the pane you clicked, not of the app.
@@ -594,10 +641,17 @@
     }));
   });
 
-  /** Paint the segmented control without claiming it as the primary's state. */
+  /** Paint the pill and its list without claiming either as the primary's
+   *  state — a selected secondary pane drives this too. */
   function markInterval(iv) {
-    [...el("intervalSeg").children].forEach((x) =>
-      x.classList.toggle("active", x.dataset.iv === iv));
+    const row = ivMenu.querySelector(`[data-iv="${iv}"]`);
+    ivBtn.textContent = row ? row.dataset.short : iv;
+    ivBtn.title = row ? `Interval — ${row.textContent}` : "Interval";
+    for (const b of ivMenu.querySelectorAll("[data-iv]")) {
+      const on = b.dataset.iv === iv;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-checked", on ? "true" : "false");
+    }
   }
 
   function selectInterval(iv) {
@@ -2039,6 +2093,71 @@
   });
 
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "Chat";
+
+  // ── account ───────────────────────────────────────────
+  /* TradingView's avatar, and everything about WHO this is behind it. The
+   * chart is fully usable signed out — that is the design, written down at
+   * the top of js/auth.js — so the signed-out circle is not an error state
+   * and does not nag: it offers the two doors and says plainly where the
+   * work is being kept meanwhile.
+   *
+   * Auth owns the session; this owns only its picture, and re-reads it on
+   * every change rather than keeping a copy. */
+  const acctBtn = el("acctBtn"), acctMenu = el("acctMenu");
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const initialOf = (u) => {
+    const s = String((u && (u.name || u.email)) || "").trim();
+    return s ? esc(s[0].toUpperCase()) : "?";
+  };
+
+  function paintAccount(u) {
+    acctBtn.classList.toggle("in", !!u);
+    acctBtn.innerHTML = u ? initialOf(u) : Icons.svg("user");
+    acctBtn.title = u ? `Account — ${u.name || u.email}` : "Sign in to Charto";
+    acctBtn.setAttribute("aria-label", acctBtn.title);
+    acctMenu.innerHTML = u
+      ? `<div class="acct-id in"><span class="disc">${initialOf(u)}</span>`
+        + `<span class="who"><span class="nm">${esc(u.name || u.email)}</span>`
+        + (u.name ? `<span class="em">${esc(u.email)}</span>` : "")
+        + `</span></div>`
+        // The one thing an account changes in this app, said rather than left
+        // to be discovered.
+        + `<div class="acct-note">Layouts, drawings and conversations are `
+        + `saved to this account.</div>`
+        + `<div class="sep"></div>`
+        + `<div class="item" data-acct="logout"><span class="lead">`
+        + Icons.svg("logOut", "xs") + `Sign out</span></div>`
+      : `<div class="acct-id"><span class="disc">${Icons.svg("user")}</span>`
+        + `<span class="who"><span class="nm">Not signed in</span>`
+        + `<span class="em">Working in this browser</span></span></div>`
+        + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
+        + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
+        + `<div class="sep"></div>`
+        + `<div class="acct-note">Your charts, drawings and chats stay in this `
+        + `browser until you sign in.</div>`;
+  }
+
+  acctBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus(acctMenu);
+    acctMenu.classList.toggle("open");
+    syncMenuTriggers();
+  });
+  acctMenu.addEventListener("click", async (e) => {
+    const it = e.target.closest("[data-acct]");
+    if (!it) return;
+    closeMenus(null);
+    if (it.dataset.acct === "logout") {
+      await Auth.logout();
+      // Signing out changes WHOSE work this is, and the modules holding that
+      // work are already running — the same reason a sign-in reloads.
+      return location.reload();
+    }
+    window.CHARTO_AUTH_OPEN(it.dataset.acct === "signup" ? "signup" : "login");
+  });
+  Auth.onChange(paintAccount);
+  paintAccount(Auth.user);   // onChange only fires on a CHANGE; paint the rest
 
   // A reload refreshes the PRICE, not the session: re-fetch bars (which lands
   // the view back at the live edge) and put back everything the user built.
