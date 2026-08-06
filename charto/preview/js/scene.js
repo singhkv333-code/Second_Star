@@ -146,6 +146,68 @@ const Scene = (() => {
       return logicalToX(lo + (ct - bars[lo].time) / span);
     }
 
+    /* ── marking a bar ────────────────────────────────────────────────────
+     * A `candle` annotation is a BRACKET: one tick above the high, one below
+     * the low, the same gap from each, centred on the bar. It says "this
+     * one" without covering the bar it is pointing at — which a box, a dot
+     * or an arrow all do.
+     *
+     * The gap is PIXELS, not price. Equal price offsets are unequal on
+     * screen the moment the scale is log, and "the same distance above and
+     * below" is a thing the eye judges, not the axis. */
+    const MARK_GAP = 7;        // px from the bar's extreme to its tick
+    const MARK_SPAN = 0.45;    // half-width, in bar widths → 0.9 bars wide
+
+    /** Pixels between adjacent bars, MEASURED. Read at the middle of the
+     *  visible range: logicalToCoordinate answers null past the data's
+     *  edges, and the edge bars are exactly where a mark is likely to sit. */
+    function barPx() {
+      const l = chart.timeScale().getVisibleLogicalRange();
+      if (!l) return 8;
+      const i = Math.floor((l.from + l.to) / 2);
+      const a = logicalToX(i), b = logicalToX(i + 1);
+      return (a !== null && b !== null && b > a) ? b - a : 8;
+    }
+
+    /** The loaded bar at a detector time, or null when this interval has no
+     *  bar there — a daily pattern viewed on 5m has no 5m bar at that stamp.
+     *  Only ever a FALLBACK: an annotation that carries its own hi/lo keeps
+     *  its geometry across interval changes, which is why the drawer sends
+     *  them. */
+    function barAt(t) {
+      const bars = env.getBars();
+      if (!bars.length) return null;
+      const ct = env.toChartTime ? env.toChartTime(t) : t;
+      let lo = 0, hi = bars.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (bars[mid].time <= ct) lo = mid; else hi = mid;
+      }
+      for (const k of [lo, hi]) if (bars[k] && bars[k].time === ct) return bars[k];
+      return null;
+    }
+
+    /** A candle mark's screen box: the two tick y's and the x span they
+     *  share. One function so the renderer and the hit-tester can never
+     *  disagree about where the mark is. */
+    function markBox(a) {
+      const c1 = tToX(a.t1), c2 = tToX(a.t2 == null ? a.t1 : a.t2);
+      if (c1 === null || c2 === null) return null;
+      const bar = (a.hi == null || a.lo == null) ? barAt(a.t1) : null;
+      const hiV = a.hi == null ? (bar && bar.high) : a.hi;
+      const loV = a.lo == null ? (bar && bar.low) : a.lo;
+      if (hiV == null || loV == null) return null;
+      const yH = vToY(hiV, a.pane), yL = vToY(loV, a.pane);
+      if (yH === null || yL === null) return null;
+      // Half a bar of overhang at EACH end. A single bar (t1 === t2) becomes
+      // a tick 0.9 bars wide centred on it; an N-bar pattern spans centre to
+      // centre plus the same overhang. One rule, both cases, and neither can
+      // reach into a neighbouring bar's column.
+      const pad = Math.max(3.5, barPx() * MARK_SPAN);
+      return { x0: Math.min(c1, c2) - pad, x1: Math.max(c1, c2) + pad,
+               yTop: yH - MARK_GAP, yBot: yL + MARK_GAP };
+    }
+
     const mine = (a, key) =>
       String(a.pane || "price").split("@")[0] === (key || "price");
 
@@ -249,6 +311,12 @@ const Scene = (() => {
           const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
           if ([x1, x2, y1, y2].every((q) => q !== null)
               && distSeg(x, y, x1, y1, x2, y2) < HIT) return a;
+        } else if (a.kind === "candle" && x != null) {
+          // the two ticks answer, the empty space between them does not —
+          // otherwise a mark would swallow every click on the bar it marks
+          const m = markBox(a);
+          if (m && x > m.x0 - HIT && x < m.x1 + HIT
+              && (Math.abs(y - m.yTop) < HIT || Math.abs(y - m.yBot) < HIT)) return a;
         } else if (SHAPES[a.kind] && x != null) {
           // shapes composed via draw_shape share the drawing layer's algebra
           const e = geoEnv(a.pane);
@@ -440,6 +508,20 @@ const Scene = (() => {
           ctx.moveTo(0, y1 + hgt); ctx.lineTo(w, y1 + hgt); ctx.stroke();
           ctx.fillStyle = col;
           chip(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, 8, y1, col);
+        } else if (a.kind === "candle") {
+          const m = markBox(a);
+          if (!m) continue;
+          ctx.setLineDash([]);
+          ctx.lineWidth = hot ? 3 : 2.2;
+          ctx.beginPath();
+          ctx.moveTo(m.x0, m.yTop); ctx.lineTo(m.x1, m.yTop);
+          ctx.moveTo(m.x0, m.yBot); ctx.lineTo(m.x1, m.yBot);
+          ctx.stroke();
+          if (a.label) {
+            const lw = ctx.measureText(a.label).width + 12;
+            chip(a.label, Math.min(Math.max(m.x0, 8), w - lw - 4),
+                 m.yTop - 4, col);
+          }
         } else if (a.kind === "segment") {
           const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
           const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
@@ -574,6 +656,10 @@ const Scene = (() => {
         return y1 === null || y2 === null ? null : (y1 + y2) / 2;
       }
       if (a.kind === "vprofile") return vToY(a.poc, a.pane);
+      if (a.kind === "candle") {
+        const m = markBox(a);
+        return m ? m.yTop : null;
+      }
       return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
     }
 
@@ -667,8 +753,11 @@ const Scene = (() => {
       const a = hitAt(p.y, p.key, p.x);
       // A computed profile has no geometry the user owns — dragging it would
       // mean nothing and would stamp it "adjusted", so it is hoverable but
-      // not movable, like markers.
-      if (!a || a.kind === "markers" || a.kind === "vprofile") return;
+      // not movable, like markers. A candle mark is the same: its geometry
+      // IS a particular bar, so dragging it off that bar destroys its only
+      // claim.
+      if (!a || a.kind === "markers" || a.kind === "vprofile"
+          || a.kind === "candle") return;
       const l0 = chart.timeScale().coordinateToLogical(p.x);
       drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
                orig: JSON.parse(JSON.stringify(a)),
@@ -711,7 +800,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile", "candle"]);
 
     return {
       state,
