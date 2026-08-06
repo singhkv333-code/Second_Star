@@ -260,14 +260,18 @@ const Drawings = (() => {
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
         if (lp && lp.pane === rec.pane) continue;
-        try { rec.pane.detachPrimitive(rec.prim); } catch {}
+        try { rec.host.detachPrimitive(rec.prim); } catch {}
         attached.delete(key); rus.delete(key);
       }
       for (const p of live) {
         if (attached.has(p.key)) continue;
         const prim = makePrimitive(p.key);
-        p.pane.attachPrimitive(prim);
-        attached.set(p.key, { pane: p.pane, prim });
+        // The series, not the pane — see the same line in scene.js. A pane
+        // primitive shares the candles' canvas; a series primitive gets the
+        // overlay above it. The user's own shapes were behind the bars too.
+        const host = p.series || p.pane;
+        host.attachPrimitive(prim);
+        attached.set(p.key, { pane: p.pane, host, prim });
       }
       _ru();
     }

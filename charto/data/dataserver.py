@@ -2454,7 +2454,7 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
                        qty: int | None = None, risk_amount: float | None = None,
                        capital: float | None = None, risk_pct: float | None = None,
                        side: str = "", drawing_id: str = "", interval: str = "1d",
-                       draw_mode: str = "add") -> dict:
+                       draw_mode: str = "add", basis: str = "") -> dict:
     """The user's trade plan as an overlay plus its risk arithmetic.
 
     Everything here is derived from the handful of numbers the user gave —
@@ -2580,19 +2580,45 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
     hist["_basis"] = (f"entry→first target vs stop on {len(rows)} {interval} "
                       f"bars; see evaluate_drawing for the full method")
 
-    t0 = rows[max(0, len(rows) - 40)][0]
+    # A plan is about what happens NEXT.
+    #
+    # This overlay used to start 40 bars in the PAST and end at the last bar,
+    # so the risk and reward boxes were painted over price that has already
+    # printed — the one stretch of chart the plan can say nothing about. It
+    # read as though the trade had been running all along, and it hid the
+    # candles it was drawn over for no gain.
+    #
+    # It now starts AT the entry bar and projects forward into the blank chart
+    # on the right. The width is the same horizon the history above was
+    # measured over, so the box covers exactly the window those win/loss
+    # numbers came from — bounded, so it stays near the viewport.
+    #
+    # The step is the last bar gap, not a median, because that is the number
+    # the client extrapolates with: matching it makes the box land exactly
+    # `ahead` bars past the last one, weekend gap or not.
+    step = rows[-1][0] - rows[-2][0] if len(rows) > 1 else 86400
+    ahead = max(6, min(int(p["horizon_bars"]), 30))
+    t0 = rows[-1][0]
     _scene_add({"kind": "position", "id": "plan", "pane": "price",
                 "side": plan["side"], "entry": plan["entry"],
                 "stop": plan["stop"], "targets": [t["price"] for t in tgt],
                 "pnl": [t.get("pnl") for t in tgt] if qty else None,
                 "risk_amount": plan.get("risk_amount"),
-                "qty": qty, "rr": tgt[0]["rr"], "t0": t0, "t1": rows[-1][0],
+                "qty": qty, "rr": tgt[0]["rr"],
+                "t0": t0, "t1": t0 + step * ahead,
                 "label": (f"{plan['side']} · R:R {tgt[0]['rr']}"
-                          + (f" · qty {qty}" if qty else "")),
-                "source": {"tool": "plan_position", "interval": interval}})
+                          + (f" · qty {qty}" if qty else "")
+                          + (f" · {basis}" if basis else "")),
+                "source": {"tool": "plan_position", "interval": interval,
+                           **({"basis": basis} if basis else {})}})
 
     return {"plan": plan, "history": hist, "_note": (
-        "Drawn on the chart; a new plan_position call replaces it, "
+        "Drawn on the chart, projecting FORWARD from the latest bar — it "
+        "marks the window the trade would run in, so never describe it as "
+        "something the chart has already done. Name the level or pattern each "
+        "of entry, stop and target came from; a plan whose numbers have no "
+        "stated origin is a guess wearing arithmetic. "
+        "A new plan_position call replaces it, "
         "draw_mode=clear removes it. Quote these figures exactly, and always "
         "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
         "rate without that benchmark reads as an edge it may not be (within "
@@ -6458,7 +6484,12 @@ TOOLS = [
          "and the historical entry→target-vs-stop record. Expresses the USER'S "
          "stated idea — never invent a trade unprompted. Entry defaults to the "
          "last close. A new call replaces the plan; draw_mode=clear removes it. "
-         "To size a position the user DREW, pass its ref as drawing_id."),
+         "To size a position the user DREW, pass its ref as drawing_id. "
+         "The overlay projects FORWARD from the entry bar into blank chart — "
+         "it is the window the trade would live in, not a record of the past. "
+         "Whenever the levels come from something already on the chart — a "
+         "wedge edge, a support level, a neckline — pass `basis` so the plan "
+         "carries what it was built on, and name those levels in the reply."),
      "parameters": {"type": "object", "properties": {
          "entry": {"type": "number"}, "stop": {"type": "number"},
          "stop_atr": {"type": "number",
@@ -6481,6 +6512,7 @@ TOOLS = [
                       "description": "with capital: risk_amount = capital × risk_pct/100"},
          "side": {"type": "string", "enum": ["long", "short"]},
          "drawing_id": {"type": "string"},
+         "basis": {"type": "string", "description": "the chart feature these levels came from, a few words — 'falling wedge upper edge 1,318.15', 'support 1,271 · 4 touches'. Rides on the overlay so the plan says what it was built on. Leave empty only when the user gave bare numbers with no reason."},
          "interval": {"type": "string",
                       "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
          "draw_mode": {"type": "string", "enum": ["add", "clear"]}},

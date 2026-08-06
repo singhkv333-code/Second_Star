@@ -176,6 +176,32 @@ const Scene = (() => {
       return null;
     }
 
+    /** A plan projects into blank chart to the RIGHT of the last bar, and the
+     *  chart leaves five bars of it. Widen the margin so the window the trade
+     *  would live in is actually on screen.
+     *
+     *  Outward only, and bounded: this moves the user's view, so it may open
+     *  room that was not there and must never take room away or push the
+     *  candles into a corner. */
+    function fitProjection() {
+      const bars = env.getBars();
+      if (bars.length < 2) return;
+      const last = bars[bars.length - 1].time;
+      const span = Math.max(1, last - bars[bars.length - 2].time);
+      let need = 0;
+      for (const a of state.items) {
+        if (a.kind !== "position" || a.t1 == null) continue;
+        const ct = env.toChartTime ? env.toChartTime(a.t1) : a.t1;
+        need = Math.max(need, Math.ceil((ct - last) / span));
+      }
+      if (need <= 0) return;
+      const ts = chart.timeScale();
+      const want = Math.min(need + 2, 40);
+      if (want > (ts.options().rightOffset || 0)) {
+        ts.applyOptions({ rightOffset: want });
+      }
+    }
+
     /** Where a candle mark's dot goes. One function, so the renderer and the
      *  hit-tester can never disagree about where the mark is.
      *
@@ -583,14 +609,24 @@ const Scene = (() => {
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
         if (lp && lp.pane === rec.pane) continue;
-        try { rec.pane.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
+        try { rec.host.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
         attached.delete(key); rus.delete(key); dropOverlay(key);
       }
       for (const p of live) {
         if (attached.has(p.key)) continue;
         const prim = makePrimitive(p.key);
-        p.pane.attachPrimitive(prim);
-        attached.set(p.key, { pane: p.pane, prim });
+        // Attach to the SERIES, not the pane. Both accept a primitive and
+        // both honour zOrder "top", but they paint on DIFFERENT canvases: a
+        // pane primitive lands on the same canvas as the candles (z-index 1)
+        // and competes with them there, while a series primitive lands on the
+        // overlay canvas above it (z-index 2). Measured, both ways, by
+        // filling an opaque rect from each and reading the pixels back.
+        //
+        // That is why a plan overlay was disappearing behind the very bars it
+        // was drawn across: half of it was under the wicks.
+        const host = p.series || p.pane;
+        host.attachPrimitive(prim);
+        attached.set(p.key, { pane: p.pane, host, prim });
       }
       _ru();
     }
@@ -869,7 +905,7 @@ const Scene = (() => {
           if (i >= 0) state.items[i] = a; else state.items.push(a);
           drew++;
         }
-        if (drew) { syncMarkers(); _ru(); env.onChange(count()); }
+        if (drew) { syncMarkers(); fitProjection(); _ru(); env.onChange(count()); }
         return drew;
       },
       clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },
