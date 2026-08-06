@@ -812,6 +812,56 @@
     toBottom();
   }
 
+  /* ── three things worth asking next ───────────────────────────────────
+   *
+   * Fetched AFTER the turn is finished and painted, in a request of its own,
+   * so a slow or dead suggest costs the answer nothing — the row simply never
+   * appears. That is also why the backend answers 200 with an empty list
+   * rather than an error: there is no failure here for the client to handle.
+   *
+   * Only the NEWEST turn carries a row. Leaving them under older replies
+   * would offer questions the conversation has already moved past, and stack
+   * a control every few hundred pixels down a thread you are trying to read.
+   */
+  function clearSuggest() {
+    msgsEl.querySelectorAll(".suggest").forEach((n) => n.remove());
+  }
+
+  async function suggestAfter(turn) {
+    clearSuggest();
+    let picks = [];
+    try {
+      const r = await fetch(`${API}/suggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: wireHistory() }),
+      });
+      if (!r.ok) return;
+      picks = (await r.json()).suggestions || [];
+    } catch { return; }
+    // The user is fast and this call is not: by now they may have asked
+    // something else, switched chats, or cleared the thread. Any of those
+    // makes these three stale before they were ever shown.
+    if (picks.length !== 3 || pending || !turn.isConnected) return;
+    const box = document.createElement("div");
+    box.className = "suggest";
+    const cap = document.createElement("div");
+    cap.className = "suggest-cap";
+    cap.textContent = "Ask next";
+    box.appendChild(cap);
+    for (const q of picks) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "suggest-row";
+      b.title = q;          // the full text, for one the row had to ellipsise
+      b.innerHTML = `<span>${esc(q)}</span>` + Icons.svg("chevronRight", "xs");
+      b.addEventListener("click", () => { clearSuggest(); send(q); });
+      box.appendChild(b);
+    }
+    turn.appendChild(box);
+    toBottom(true);
+  }
+
   function failTurn(turn, msg) {
     endWait(turn);
     turn.classList.add("error");
@@ -881,6 +931,7 @@
     const retry = typeof again === "string";
     const text = retry ? again.trim() : input.value.trim();
     if ((!text && !pendingImage) || pending) return;
+    clearSuggest();          // the offer is spent the moment anything is asked
     const image = retry ? null : pendingImage;
     const drawing = retry ? null : pendingDraw;
     if (!retry) {
@@ -954,6 +1005,7 @@
       turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();
       finishTurn(turn, d.text, meta, acts);
+      suggestAfter(turn);    // deliberately not awaited — the turn is done
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
       saveTurns();

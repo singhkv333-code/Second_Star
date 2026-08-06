@@ -26,6 +26,7 @@ import hmac
 import json
 import logging
 import queue
+import re
 import secrets
 import sqlite3
 import sys
@@ -6976,6 +6977,94 @@ _CONTEXT_CONTRACT = (
 )
 
 
+SUGGEST_PROMPT = (
+    "You write the three questions a user is most likely to want to ask NEXT, "
+    "given the conversation so far.\n\n"
+    "This is a chart-analysis chat for Indian markets (NSE/BSE equities, "
+    "indices, MCX commodities, crypto). It can answer from bars: price and "
+    "volume history, indicators, candlestick and chart patterns, support and "
+    "resistance levels, trendlines, divergences, gaps, volume profile, "
+    "correlations and comparisons between symbols, peers, company "
+    "fundamentals, bulk and block deal disclosures, and it can draw on the "
+    "chart. It cannot place orders, hold a portfolio, or predict.\n\n"
+    "Rules:\n"
+    "- Each must be answerable by this app from chart or company data. Never "
+    "suggest a prediction, a recommendation, a buy/sell, a target, or "
+    "anything about a market it does not carry.\n"
+    "- Follow the thread. Prefer the obvious next step from what was just "
+    "answered, and the loose end left earlier in the conversation that was "
+    "never picked up.\n"
+    "- Three DIFFERENT directions — not three rewordings of one. Going "
+    "deeper, widening to another symbol or timeframe, and testing what was "
+    "claimed are good axes.\n"
+    "- Write them as the user would type them: first person, plain, no "
+    "pleasantries. Name the actual symbol under discussion rather than "
+    "'this stock'.\n"
+    "- Under 60 characters each. Short enough to read at a glance.\n\n"
+    "Return exactly three lines. One question per line. No numbering, no "
+    "bullets, no quotes, no commentary."
+)
+
+
+def _suggest_next(messages: list[dict]) -> list[str]:
+    """Three follow-ups for the thread — or [] if anything at all goes wrong.
+
+    An isolated sub-call, deliberately: the main turn is already streamed and
+    finished by the time this runs, and giving the chat agent a fourth job
+    would put these words through the whole tool loop and the system contract
+    to produce thirty tokens.
+
+    Every failure path returns [] and the row simply does not appear. A
+    suggestion is a convenience; nothing here may cost anyone their answer.
+    """
+    tail = []
+    for m in messages[-8:]:
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        body = str(m.get("content") or "")[:1200]
+        if body.strip():
+            tail.append({"role": role, "content": body})
+    if not tail:
+        return []
+    payload = {
+        "model": LLM_DEPLOYMENT,
+        "input": [{"role": "system", "content": SUGGEST_PROMPT}, *tail],
+        "max_output_tokens": 700,
+        "reasoning": {"effort": "low"},
+        "service_tier": LLM_SERVICE_TIER,
+    }
+    req = urllib.request.Request(
+        f"{AZURE_ENDPOINT}/responses",
+        data=json.dumps(payload).encode(),
+        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=_ssl_ctx()) as r:
+            data = json.loads(r.read())
+    except Exception as exc:  # noqa: BLE001 — a dead suggest must not surface
+        logging.info("suggest failed: %s", exc)
+        return []
+    text = []
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    text.append(c.get("text", ""))
+    out, seen = [], set()
+    for raw in "".join(text).splitlines():
+        # the model still sometimes numbers them despite being told not to
+        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
+        line = line.strip("\"'").strip()
+        if not line or len(line) > 90 or line.lower() in seen:
+            continue
+        seen.add(line.lower())
+        out.append(line)
+        if len(out) == 3:
+            break
+    return out if len(out) == 3 else []
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     payload = {
         "model": LLM_DEPLOYMENT,
@@ -8691,6 +8780,19 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 return self._send(400, {"error": "bad JSON body"})
             return self._send(*self._account_post(u.path, body))
+        if u.path == "/suggest":
+            # Separate from /chat on purpose. It runs AFTER the reply has
+            # landed, so it can never delay one — and a 200 with an empty list
+            # is a normal answer, not a failure the client has to handle.
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            msgs = body.get("messages")
+            if not isinstance(msgs, list):
+                return self._send(400, {"error": "messages[] required"})
+            return self._send(200, {"suggestions": _suggest_next(msgs)})
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:

@@ -1737,6 +1737,59 @@ header > .btn, header > .badge { flex: none; }
    indicator chips. */
 .prose strong, .prose code, .prose td, .turn-meta { font-variant-numeric: tabular-nums; }
 
+/* ── three things worth asking next ──────────────────────────────────────
+ *
+ * Under the last reply, in the same column, and deliberately QUIETER than
+ * the answer: hairline group, one size down, muted ink until reached. These
+ * are an offer, not more output, and the moment they compete with the reply
+ * for attention the thread stops reading top to bottom.
+ *
+ * One line each, ellipsised — three rows of ragged heights is exactly the
+ * sloppy version of this control, and the backend already caps the text.
+ */
+.suggest {
+  margin: 12px 0 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--card);
+}
+.suggest-cap {
+  padding: 6px 11px 5px;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--border-soft);
+}
+.suggest-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 11px;
+  font: inherit; font-size: var(--text-xs); line-height: 1.4;
+  text-align: left; color: var(--muted-foreground);
+  background: none; border: 0; border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-quartr),
+              color var(--dur-fast) var(--ease-quartr);
+}
+.suggest-row:first-of-type { border-top: 0; }
+.suggest-row > span {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.suggest-row svg.icon {
+  flex: none; width: 13px; height: 13px;
+  opacity: 0; transform: translateX(-3px);
+  transition: opacity var(--dur-fast) var(--ease-quartr),
+              transform var(--dur-fast) var(--ease-quartr);
+}
+.suggest-row:hover, .suggest-row:focus-visible {
+  background: var(--hover-fill); color: var(--foreground); outline: none;
+}
+.suggest-row:hover svg.icon,
+.suggest-row:focus-visible svg.icon { opacity: .55; transform: none; }
+
 /* per-turn footnotes: provenance + timing, quiet until hovered */
 .turn-meta {
   margin-top: 10px; font-size: var(--text-2xs); color: var(--faint);
@@ -3661,7 +3714,7 @@ header > .btn, header > .badge { flex: none; }
   <script src="./js/scene.js?v=26"></script>
   <script src="./js/panes.js?v=14"></script>
   <script src="./js/main.js?v=64"></script>
-  <script src="./js/chat.js?v=106"></script>
+  <script src="./js/chat.js?v=107"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=4"></script>
