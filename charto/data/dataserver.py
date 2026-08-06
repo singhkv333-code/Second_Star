@@ -3985,7 +3985,8 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
-                      draw_ids: list | None = None, draw_mode: str = "add") -> dict:
+                      draw_ids: list | None = None, draw_mode: str = "add",
+                      mark_limit: int = 5) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -4045,11 +4046,18 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     # Candlesticks get marked too, and draw_ids addresses chart patterns only,
     # so an explicit id list means "just those" and leaves the candles alone.
     #
-    # EVERY candlestick the scan returned, not a slice of them. A cap here
-    # would be a second, invisible limit on top of `limit` — the scan reports
-    # a dozen, the chart marks three, and the reply has to invent a reason for
-    # the gap. `limit` is the one place the caller says how many they want.
+    # `cands` is already NEWEST FIRST — patterns.candlesticks sorts on
+    # bars_ago ascending — so taking them in order fills the cap with the most
+    # recent bars. Do not reverse it: its docstring used to claim "newest
+    # last", and the version that believed it marked the OLDEST three while
+    # the reply's table listed the newest three. The chart and the text
+    # disagreed and neither was obviously wrong to read.
+    #
+    # The cap is `mark_limit`, an argument with a default — not a slice buried
+    # in this loop. It has to be nameable, changeable and REPORTED, or the
+    # reply invents a rule to explain why the chart shows fewer than the list.
     cpicked = cands if (draw and not draw_ids) else []
+    n_marks = max(0, int(mark_limit if mark_limit is not None else 5))
     if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
     for p in picked:
@@ -4155,11 +4163,14 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         name = c["pattern"].replace("_", " ")
         if span in marks:
             # One bar often carries several names — a doji is usually also a
-            # long-legged doji. Two identical brackets land on the same pixels
-            # and say nothing the first didn't; the label carries both names.
+            # long-legged doji. Two dots land on the same pixels and say
+            # nothing the first didn't; the label carries both names. This
+            # costs no slot: it is the same mark.
             marks[span]["label"] += " · " + name
             c["drawn_as"] = marks[span]["id"]
             continue
+        if len(marks) >= n_marks:
+            continue                       # cap reached — older bars go unmarked
         cid = "K" + "".join(w[0] for w in c["pattern"].split("_")).upper() \
               + str(c["bars_ago"])
         marks[span] = {
@@ -4192,12 +4203,17 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         res["drawn"] = [p["id"] for p in picked] + [m["id"] for m in marks.values()]
         res["_drawn_note"] = _drawn_ledger()
     if marks:
+        shown = sum(1 for c in cands if c.get("drawn_as"))
         res["_marked_note"] = (
-            f"All {len(marks)} candlestick pattern bar(s) in `candlesticks` "
-            "are marked on the chart with a dot above the bar's high. Nothing "
-            "was left out, so do not say the chart shows only the recent ones. "
-            "Say which bar carries which pattern; the dot is a pointer, not a "
-            "finding.")
+            f"{len(marks)} bar(s) marked with a dot above the high, carrying "
+            f"{shown} of the {len(cands)} candlestick pattern(s) listed. "
+            + (f"The chart shows the {len(marks)} most recent; the older "
+               f"{len(cands) - shown} are in `candlesticks` and were NOT "
+               "drawn — say so plainly if it matters, and re-call with a "
+               f"higher mark_limit (now {n_marks}) to draw more. "
+               if shown < len(cands) else "Every pattern found is drawn. ")
+            + "Say which bar carries which pattern; the dot is a pointer, "
+            "not a finding.")
 
     # A specific ask that found nothing must come back as a plain NO.
     if asked:
@@ -6348,7 +6364,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks EVERY candlestick pattern it returns, with a dot above the high of the bar that qualified — 'mark all the candle patterns' is one call with draw=true, and `limit` is what decides how many come back. Name the bar and its pattern; the dot is a pointer, not a finding.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -6360,6 +6376,7 @@ TOOLS = [
          "draw": {"type": "boolean", "description": "mark the top chart patterns"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the chart_patterns list, to mark exactly those"},
+         "mark_limit": {"type": "integer", "description": "how many candlestick BARS to mark, most recent first — default 5. Raise it when the user asks for all of them ('mark every candle pattern'); the result says how many were found versus drawn."},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_pattern",
