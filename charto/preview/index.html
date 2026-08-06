@@ -1745,11 +1745,11 @@ header > .btn, header > .badge { flex: none; }
  * a second thing on the page and breaks the thread in half.
  *
  * So the ONLY thing marking them is what has to: quieter ink than the prose,
- * warming to full and underlining when reached. One line each, ellipsised —
- * three rows of ragged heights is the sloppy version of this.
+ * warming to full and gaining a little weight when reached. One line each,
+ * ellipsised — three rows of ragged heights is the sloppy version of this.
  */
 .suggest {
-  margin: 14px 0 2px;
+  margin: 5px 0 2px;
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
   max-width: 100%;
 }
@@ -1759,16 +1759,13 @@ header > .btn, header > .badge { flex: none; }
   text-align: left; color: var(--muted-foreground);
   background: none; border: 0; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  text-decoration-color: transparent;
-  transition: color var(--dur-fast) var(--ease-quartr),
-              text-decoration-color var(--dur-fast) var(--ease-quartr);
+  font-weight: 400;
+  transition: color var(--dur-fast) var(--ease-quartr);
 }
 .suggest-row:empty { display: none; }   /* a row waiting on its first token */
 .suggest-row:hover, .suggest-row:focus-visible {
   color: var(--foreground); outline: none;
-  text-decoration: underline; text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-  text-decoration-color: currentColor;
+  font-weight: var(--weight-medium);
 }
 
 /* per-turn footnotes: provenance + timing, quiet until hovered */
