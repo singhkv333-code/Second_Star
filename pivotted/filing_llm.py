@@ -435,7 +435,8 @@ _NUM_TOKEN = re.compile(r"-?\d[\d,]*\.?\d*")
 # it outranks any header. Same rule as the deterministic stage's inline-after.
 _TRAIL_UNIT = re.compile(
     rf"^\s*(?:{_U}|per\s*cent|%|mw|kw|gw|mt|mmt|tpa|tonnes?|kg|units?|sq\.?\s*ft|"
-    rf"acres?|km|litres?|kl|bbl|nos\.?|stores?|outlets?|employees?)\b", re.I)
+    rf"acres?|km|litres?|kl|bbl|nos\.?|stores?|outlets?|employees?|mmt|mtpa|mnt|"
+    rf"lakh tonnes?|msf|mmscmd|boepd)\b", re.I)
 # A dash or "nil" in a table cell is a REPORTED ZERO, not a parse failure.
 _NIL_CELL = re.compile(r"^[\s\-–—~]*$|^\s*(nil|n\.?a\.?|none)\s*$", re.I)
 
@@ -578,6 +579,17 @@ def ground(d: Doc, window_blob: str, raw: dict, task: str) -> LLMFact:
             f.kind = "measure"
             f.unit = re.sub(r"\s+", "", welded).lower()
             f.unit_source = f"physical unit welded to the figure: {f.unit}"
+        return f
+
+    # The model calls a capacity "currency" when it sits in a financial table —
+    # ULTRACEMCO's MMT/MTPA/MW accounted for 33 of the 44 unresolved figures on
+    # the held-out set. A physical unit is not money whatever the model typed,
+    # and treating it as an unresolved rupee figure hides a perfectly good fact.
+    if f.unit_text and _TRAIL_UNIT.match(f.unit_text.strip()) \
+            and to_crore(f.unit_text.strip()) is None:
+        f.kind = "measure"
+        f.unit = re.sub(r"\s+", "", f.unit_text).lower()[:12]
+        f.unit_source = f"physical unit: {f.unit_text.strip()!r}"
         return f
 
     # Only money is unit-scaled. A count, a percentage and a ratio are already
