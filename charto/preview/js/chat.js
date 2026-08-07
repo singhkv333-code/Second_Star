@@ -86,6 +86,43 @@
         t.image && i !== lastImg ? { ...t, image: undefined } : t) };
     }));
     Store.set("chatid", activeId);
+    mirrorChats();
+  }
+
+  /* ── the copy a LATER session can be asked about ──────────────────────────
+   *
+   * localStorage is where a conversation lives while you are having it, and
+   * it is the wrong place to answer "what did we decide about ITC last
+   * week" from: it dies with the browser profile and it is invisible to the
+   * model, which runs on the server. So a signed-in user's archive is
+   * mirrored to their account, where recall_conversations can read it.
+   *
+   * Signed out, nothing is sent and nothing is stored — which is also why
+   * that tool answers "not signed in" rather than empty-handed.
+   *
+   * Debounced and fire-and-forget: this rides on every persist, and a
+   * conversation must never wait on it, nor fail because of it.
+   */
+  let mirrorTimer = null;
+  function mirrorChats() {
+    if (typeof Auth === "undefined" || !Auth.token) return;
+    clearTimeout(mirrorTimer);
+    mirrorTimer = setTimeout(async () => {
+      try {
+        await fetch(`${API}/conversations`, {
+          method: "POST",
+          headers: Auth.headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({
+            chats: chats.map((c) => ({
+              id: c.id, created: c.created, updated: c.updated,
+              symbols: [...new Set(c.turns.map((t) => t.symbol).filter(Boolean))],
+              // text only — an image never leaves the browser for this
+              turns: c.turns.map((t) => ({ role: t.role, content: t.content })),
+            })),
+          }),
+        });
+      } catch { /* the conversation is safe locally; a mirror can wait */ }
+    }, 4000);
   }
 
   const saveTurns = () => {
@@ -1001,6 +1038,10 @@
       // fallback has to be visible rather than silent.
       const context = ctxOn && window.__charto
         ? window.__charto.getChartContext(chosen) : null;
+      // Stamp the turn with what was on screen when it was asked. Only the
+      // mirrored archive uses it, so a later session can find "that ITC
+      // conversation" without reading every word of every one.
+      if (context && context.symbol) turns[turns.length - 1].symbol = context.symbol;
       if (context && context.symbol) {
         // A chart still loading its bars has no envelope, so it is not in the
         // conversation — and the chip must stop implying it is.
@@ -1013,7 +1054,11 @@
       const res = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: wireHistory(), context, stream: true }),
+        // chat_id is what lets recall_conversations EXCLUDE this conversation
+        // from a search of the earlier ones — its turns are already in
+        // `messages`, and finding them twice would read as two occasions.
+        body: JSON.stringify({ messages: wireHistory(), context, stream: true,
+                               chat_id: activeId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await readStream(res, turn);

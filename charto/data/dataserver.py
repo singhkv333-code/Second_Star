@@ -6476,6 +6476,13 @@ TOOLS = [
          "sort": {"type": "string", "description": "feature to rank by; defaults to the first filter's"},
          "limit": {"type": "integer", "description": "rows returned, 1-50, default 15"}},
          "required": []}},
+    {"type": "function", "name": "recall_conversations",
+     "description": "Search the user's EARLIER conversations — the ones from previous sessions, stored against their account. Call it ONLY when the user refers to something outside this conversation: 'what did we say about ITC last week', 'the level I asked about yesterday', 'have I looked at this before', 'remind me what my plan was'. NEVER call it for anything said in the current conversation — every turn of that is already in front of you, and re-fetching it wastes a round trip and makes one remark look like two. Omit `query` to list recent conversations (an index: title, date, symbols); pass `query` and/or `symbol` to search their text and get the matching passages back. Nothing is stored for a signed-out user, and the result says so — relay that rather than recalling anything yourself. An empty result is an ANSWER ('no earlier conversation mentions it'), not a reason to hedge. Old conversations record what was SAID; current prices and levels still come from the data tools.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "words to look for in what was said, e.g. 'stop loss' or 'wedge breakout'. Omit to list recent conversations."},
+         "symbol": {"type": "string", "description": "narrow to a symbol the conversation was about, e.g. 'ITC'"},
+         "limit": {"type": "integer", "description": "conversations returned, 1-10, default 5"}},
+         "required": []}},
     {"type": "function", "name": "plan_position",
      "description": (
          "Draw or update the trade-plan overlay (entry/stop/targets) and return "
@@ -6605,6 +6612,83 @@ TOOLS = [
       "required": []}},
 ]
 
+def tool_recall_conversations(query: str = "", symbol: str = "",
+                              limit: int = 5) -> dict:
+    """Search the user's EARLIER conversations. Never this one.
+
+    Two exclusions do that, and both are load-bearing:
+
+      · the conversation open right now is filtered out by chat_id. Its turns
+        are already in the model's context — every one of them — so returning
+        them here would spend tokens re-reading what it just read, and worse,
+        the same sentence arriving twice from two places reads as two
+        occasions on which it was said.
+      · nothing is stored for a signed-out user, so there is nothing to leak
+        between people sharing a browser.
+
+    A miss is an ANSWER: "you have no earlier conversations mentioning X" is
+    a fact worth relaying, not a reason to hedge or to invent a recollection.
+    """
+    me = getattr(_req, "user", None)
+    if not me:
+        return {"available": False, "_note": (
+            "Conversation history is stored per ACCOUNT and this user is not "
+            "signed in, so there is nothing to search. Say exactly that — "
+            "signed out, so earlier chats were never saved — and do not "
+            "recall anything from memory.")}
+    uid, cur = me[0], str(getattr(_req, "chat_id", "") or "")
+    terms = [w for w in re.split(r"\W+", f"{query} {symbol}".lower()) if len(w) > 2]
+
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT chat_id, title, symbols, started, updated, turns "
+            "FROM conversations WHERE user_id=? AND chat_id<>? "
+            "ORDER BY updated DESC LIMIT 400", (uid, cur)).fetchall()
+    if not rows:
+        return {"conversations": [], "searched": 0, "_note": (
+            "This account has no EARLIER conversations — only the one in "
+            "progress, which is already in context. Say so plainly.")}
+
+    lim = max(1, min(int(limit or 5), 10))
+    out = []
+    for cid, title, syms, started, updated, blob in rows:
+        try:
+            turns = json.loads(blob)
+        except json.JSONDecodeError:
+            continue
+        rec = {"when": _ist(updated, False), "title": title,
+               "symbols": [s for s in syms.split(",") if s],
+               "turns": len(turns)}
+        if not terms:
+            out.append(rec)                       # no query: just the index
+        else:
+            # Score on TURNS, not the blob, so the excerpt returned is the
+            # passage that matched rather than a conversation-shaped guess.
+            hits = [t for t in turns
+                    if any(w in t["content"].lower() for w in terms)]
+            if not hits:
+                continue
+            rec["matched_turns"] = len(hits)
+            rec["excerpt"] = [{"role": t["role"], "said": t["content"][:600]}
+                              for t in hits[:6]]
+            out.append(rec)
+        if len(out) >= lim:
+            break
+
+    note = ("Everything here is from an EARLIER conversation, not this one. "
+            "Date each recollection ('on 22 Jul you asked…') so the user can "
+            "tell a memory from something said a moment ago, and quote rather "
+            "than paraphrase — these are their own words. What the CHART "
+            "shows now still comes from the tools; an old conversation is a "
+            "record of what was said, never a source of current prices.")
+    if terms and not out:
+        note = (f"Searched {len(rows)} earlier conversation(s) and none "
+                f"mentions {' or '.join(terms[:3])}. That is the answer: say "
+                "there is no earlier discussion of it rather than hedging.")
+    return {"conversations": out, "searched": len(rows),
+            "query": " ".join(terms), "_note": note}
+
+
 _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_indicator": tool_get_indicator,
              "get_trendlines": tool_get_trendlines,
@@ -6628,6 +6712,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "search_news": tool_search_news,
              "get_flows": tool_get_flows,
              "get_deals": tool_get_deals,
+             "recall_conversations": tool_recall_conversations,
              "open_chart": tool_open_chart}
 
 
@@ -7653,6 +7738,21 @@ CREATE TABLE IF NOT EXISTS layouts (
   spec TEXT NOT NULL,
   updated INTEGER NOT NULL,
   UNIQUE (user_id, name));
+-- Past conversations, so "what did we decide about ITC last week" has an
+-- answer. TEXT ONLY: no images, no chart context, no scene patches. This
+-- exists to be READ BACK by recall_conversations, and a stored screenshot
+-- would be a large private thing kept for a feature that cannot use it.
+CREATE TABLE IF NOT EXISTS conversations (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  chat_id TEXT NOT NULL,
+  title   TEXT NOT NULL,
+  symbols TEXT NOT NULL DEFAULT '',   -- comma-separated, for "that TCS chat"
+  started INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  turns   TEXT NOT NULL,              -- JSON [{role, content}]
+  PRIMARY KEY (user_id, chat_id));
+CREATE INDEX IF NOT EXISTS conversations_recent
+  ON conversations(user_id, updated DESC);
 """)
 _users_lock = threading.Lock()
 
@@ -7800,6 +7900,63 @@ def _layout_save(uid: int, name: str, spec: dict) -> tuple[int, dict]:
         lid = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
                              (uid, name)).fetchone()[0]
     return 200, {"id": lid, "name": name, "updated": now}
+
+
+_CONV_KEEP = 200          # conversations retained per user
+_CONV_TURNS = 80          # turns retained per conversation
+_CONV_CHARS = 4000        # characters retained per turn
+
+
+def _conv_sync(uid: int, chats: list) -> dict:
+    """Mirror the browser's conversation archive into the DB.
+
+    The browser is the OWNER of a conversation while it is being had — this is
+    a copy kept so a LATER session can be asked about an earlier one, which is
+    the only thing that needs it. So it is a plain upsert of whatever the
+    client sends, not a merge: the client's copy is the one the user has been
+    reading.
+
+    Stripped to text on the way in. A turn carries a screenshot, a chart
+    context envelope and a scene patch; none of that can be read back by a
+    recall, and keeping a user's screenshots on a server for a feature that
+    cannot use them is a cost with no matching benefit.
+    """
+    now, wrote = int(time.time()), 0
+    with _users_lock:
+        for c in chats[:_CONV_KEEP]:
+            cid = str((c or {}).get("id") or "").strip()[:64]
+            turns = [t for t in ((c or {}).get("turns") or [])
+                     if isinstance(t, dict) and t.get("role") in ("user", "assistant")
+                     and str(t.get("content") or "").strip()]
+            if not cid or not turns:
+                continue          # an empty conversation is not a record
+            lean = [{"role": t["role"],
+                     "content": str(t["content"])[:_CONV_CHARS]}
+                    for t in turns[-_CONV_TURNS:]]
+            # The title is the first thing the user said, which is what they
+            # will recognise it by — never the model's opening line.
+            first = next((t["content"] for t in lean if t["role"] == "user"), "")
+            _users.execute(
+                "INSERT INTO conversations "
+                "(user_id, chat_id, title, symbols, started, updated, turns) "
+                "VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(user_id, chat_id) DO UPDATE SET "
+                "title=excluded.title, symbols=excluded.symbols, "
+                "updated=excluded.updated, turns=excluded.turns",
+                (uid, cid, str(first)[:200],
+                 ",".join(sorted({str(s).upper()[:24]
+                                  for s in ((c or {}).get("symbols") or [])})),
+                 int((c or {}).get("created") or now * 1000) // 1000,
+                 int((c or {}).get("updated") or now * 1000) // 1000,
+                 json.dumps(lean)))
+            wrote += 1
+        # Keep the archive bounded per user, oldest first.
+        _users.execute(
+            "DELETE FROM conversations WHERE user_id=? AND chat_id NOT IN ("
+            "  SELECT chat_id FROM conversations WHERE user_id=? "
+            "  ORDER BY updated DESC LIMIT ?)", (uid, uid, _CONV_KEEP))
+        _users.commit()
+    return {"saved": wrote}
 
 
 def _ist_day(ts: int, tz_off: int = IST_OFF) -> int:
@@ -8514,6 +8671,11 @@ class Handler(BaseHTTPRequestHandler):
             if not sym:
                 return 400, {"error": "symbol required"}
             return 200, {"saved": _ws_put(me[0], sym, body.get("state") or {})}
+        if path == "/conversations":
+            chats = body.get("chats")
+            if not isinstance(chats, list):
+                return 400, {"error": "chats[] required"}
+            return 200, _conv_sync(me[0], chats)
         if path == "/layouts":
             if body.get("delete"):
                 with _users_lock:
@@ -8864,7 +9026,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
-        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts"):
+        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts",
+                                                     "/conversations"):
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")
@@ -8895,6 +9058,13 @@ class Handler(BaseHTTPRequestHandler):
             ctx = body.get("context") or {}
             sym = str(ctx.get("symbol") or "RELIANCE").upper()
             _req.symbol = sym
+            # Who is asking, and which conversation this is. Both exist for
+            # recall_conversations and nothing else: the user scopes the
+            # archive, and the chat_id is what EXCLUDES the conversation
+            # already in context from a search of the earlier ones. A signed
+            # out request sets user None and the tool says so honestly.
+            _req.user = _auth_user(self.headers)
+            _req.chat_id = str(body.get("chat_id") or "")[:64]
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
