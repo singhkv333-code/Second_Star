@@ -579,10 +579,13 @@ select.is-dressed { display: none; }
   background: var(--primary);
 }
 .ly-btn svg { flex: none; opacity: .6; }
-.ly-menu { min-width: 268px; padding: 5px; }
+/* Slimmer than it was: the widest row is "Download chart data…" and 268px
+   left it swimming in space to the right, which read as a dialog rather than
+   a menu. Type is untouched — only the box moved in around it. */
+.ly-menu { min-width: 224px; padding: 5px; }
 .ly-menu .item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 9px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 8px; border-radius: var(--radius-sm);
 }
 .ly-menu .item > svg { flex: none; opacity: .75; }
 .ly-menu .item > span:first-of-type { flex: 1; min-width: 0; }
@@ -592,11 +595,11 @@ select.is-dressed { display: none; }
 }
 .ly-menu .sep { height: 1px; margin: 5px 4px; background: var(--border-soft); }
 .ly-menu .head {
-  padding: 7px 9px 5px; font-size: var(--text-2xs); color: var(--faint);
+  padding: 7px 8px 5px; font-size: var(--text-2xs); color: var(--faint);
   text-transform: uppercase; letter-spacing: .07em;
   font-weight: var(--weight-medium);
 }
-.ly-empty { padding: 8px 9px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
+.ly-empty { padding: 8px 8px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
 /* a note glyph that explains a toggle without spending a line on it */
 .ly-note {
   width: 14px; height: 14px; flex: none; border-radius: 50%;
@@ -670,14 +673,19 @@ select.is-dressed { display: none; }
 .ly-del:hover { color: var(--down); background: var(--background); }
 .btn.danger { background: var(--down); color: #fff; border-color: transparent; }
 
-/* one toast, bottom-centre, for "Saved" and every other one-line outcome */
+/* one toast, bottom-centre, for "Saved" and every other one-line outcome.
+   A CARD, not a pill: the pill radius made a short message look like a
+   lozenge floating over the candles, and every other surface in this app —
+   menu, dialog, popover — is a rectangle with the same soft corner. It
+   should read as the app speaking, not as a badge. */
 .layout-toast {
   position: fixed; left: 50%; bottom: 26px; z-index: 95;
   transform: translate(-50%, 12px);
-  padding: 9px 16px; border-radius: var(--radius-pill);
+  padding: 10px 14px; border-radius: var(--radius-sm);
   background: var(--popover); border: 1px solid var(--border);
   box-shadow: var(--menu-shadow);
   font-size: var(--text-xs); color: var(--foreground);
+  line-height: 1.35; white-space: nowrap;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr),
               transform var(--dur) var(--ease-quartr);
