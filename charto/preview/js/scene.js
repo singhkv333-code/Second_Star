@@ -38,7 +38,8 @@ const Scene = (() => {
 
   function create(chart, candle, env) {
     // env: { panes, getBars, toChartTime, container, inPricePane, priceY,
-    //        onChange, onHover, onSelect, onIndicator, isCursorMode }
+    //        onChange, onHover, onSelect, onIndicator, isCursorMode,
+    //        foldState, onFold }
     // `hidden` folds every annotation away — canvas marks, the corner legend
     // and the bar markers alike — without removing one of them. What the chat
     // drew is still in state, still restored on reload, still in the context
@@ -342,7 +343,136 @@ const Scene = (() => {
           env.onHover(null, 0);
         };
       });
+      paintFold(key, host, chips.length, axis);
+      // render() is the chart's own repaint, so this is every pan, zoom,
+      // rescale and tick — exactly when what is behind a chip changes.
+      schedulePlates();
     }
+
+    /* ── the fold control ────────────────────────────────
+     *
+     * TradingView's "⌄ 2", for what is DRAWN. The indicator legend has had
+     * this since it was written — one control that turns a stack of rows into
+     * a count — and the drawings, which cover far more of the chart than a
+     * legend does, had only the trash: the two things a reader wants when the
+     * candles vanish under their own annotations were "delete everything" and
+     * nothing.
+     *
+     * It stands at the foot of the chip list, because that list is where the
+     * annotations say what they are, and a control folds the thing it sits
+     * under. Its COUNT comes from main.js and includes the user's own shapes:
+     * one number, one fold, both layers — a reader who wants to see the bars
+     * does not care that the trendline is theirs and the neckline is the
+     * chat's, and asking them to find two toggles would be asking them to
+     * hold a distinction the question does not contain.
+     */
+    const folds = new Map();          // paneKey -> button element
+
+    function paintFold(key, host, nChips, axis) {
+      let b = folds.get(key);
+      // Price pane only. The oscillator panes carry their own marks, but a
+      // second fold in each of them would be three controls for one decision.
+      const s = key === "price" && env.foldState ? env.foldState() : null;
+      if (!s || !s.n) {
+        if (b) { b.remove(); folds.delete(key); }
+        return;
+      }
+      if (!b || !b.isConnected) {
+        b = document.createElement("button");
+        b.type = "button";
+        b.className = "ind-toggle scene-fold";
+        /* The press must not reach the chart, or mousedown starts LWC's pan
+         * gesture under a button you meant to click and the bars scroll while
+         * the pointer never moves.
+         * stopPropagation ONLY — never preventDefault. Cancelling a pointerdown
+         * suppresses the compatibility mouse events Chrome derives `click`
+         * from, so the button would take the press and then never report it:
+         * the exact silence this control was already failing with. */
+        b.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+        b.addEventListener("click", (e) => { e.stopPropagation(); env.onFold(); });
+        host.appendChild(b);
+        folds.set(key, b);
+      }
+      /* REBUILD ONLY WHEN THE STATE CHANGED — load-bearing, not a micro-tune.
+       *
+       * render() runs on every repaint, and moving the pointer onto this
+       * button IS a crosshair move. An unconditional rewrite therefore
+       * replaced the <svg> between the mousedown and the mouseup of every
+       * single press. The browser derives a click from the nearest common
+       * ancestor of those two targets, and with the mousedown's target
+       * detached there is none — so NO CLICK EVENT FIRES AT ALL. The button
+       * took the press, wore a focus ring, and did nothing. That was the bug.
+       *
+       * Guarded on a STATE KEY, never on `innerHTML` itself. Comparing the
+       * serialized DOM looks equivalent and is not: the browser re-serializes
+       * `<path .../>` as `<path ...></path>`, so a string built from
+       * Icons.svg() never equals what it just wrote and the guard silently
+       * does nothing. (The indicator legend can compare innerHTML because its
+       * content is <span>/<b> text, which round-trips unchanged.) Two values
+       * decide everything drawn here, so those two ARE the key. */
+      const key2 = `${s.collapsed ? 1 : 0}:${s.n}`;
+      if (b.dataset.fold !== key2) {
+        b.dataset.fold = key2;
+        b.title = s.collapsed
+          ? `Show ${s.n} drawing${s.n > 1 ? "s" : ""}`
+          // "Hide", never "clear" — the word has to carry the promise the
+          // behaviour makes, because the only other control that acts on
+          // every drawing at once is the trash.
+          : `Hide ${s.n} drawing${s.n > 1 ? "s" : ""} — nothing is deleted`;
+        b.innerHTML = Icons.svg(s.collapsed ? "chevronDown" : "chevronUp", "xs")
+          // Folded, the control carries the COUNT — the indicator toggle's own
+          // rule: a chart that has quietly stopped showing eight objects reads
+          // as a chart that never had them.
+          + (s.collapsed ? `<span>${s.n}</span>` : "");
+      }
+      // The chips run right-aligned from `axis + 8`; the control closes the
+      // column on that same edge, one 17px step below the last of them. Minus
+      // its own 5px of padding, so it is the GLYPH that lines up with the chip
+      // text and the hover plate that hangs outside — exactly what the
+      // indicator toggle does at the other end, mirrored. `right` rather than
+      // `left`, so a two-digit count grows inward instead of walking the
+      // control out over the price scale.
+      b.style.right = `${axis + 3}px`;
+      b.style.top = `${8 + nChips * 17 + (nChips ? 2 : 0)}px`;
+    }
+
+    /* ── the plate ───────────────────────────────────────
+     *
+     * The indicator legend's rectangle, at the other end of the chart. Same
+     * reasoning, same module (js/occlusion.js): a chip is a reading laid over
+     * the plot, and over candles it is unreadable without a wash of paper
+     * behind it — while over empty sky the wash is a box drawn around nothing.
+     * So the trigger is whether the series is actually there, per chip, and
+     * the fold control at the foot of the list answers to it too.
+     *
+     * These chips carry no hover-revealed controls, so unlike the indicator
+     * rows there is no second state to keep clear of: the plate is the whole
+     * treatment. */
+    const occl = typeof Occlusion === "undefined" ? null : Occlusion.create(chart);
+
+    function paintPlates() {
+      if (!occl) return;
+      for (const [key, host] of overlays) {
+        if (!host.isConnected) continue;
+        const p = paneFor(key);
+        let idx = 0;
+        try { idx = p.pane.paneIndex(); } catch { continue; }
+        const els = [...host.children].filter((e) => e.style.display !== "none");
+        if (!els.length) continue;
+        const hit = occl.probe(idx, els.map((e) => e.getBoundingClientRect()));
+        els.forEach((e, k) => e.classList.toggle("over-chart", !!hit[k]));
+      }
+    }
+
+    /* Coalesced to a frame, and never run INSIDE the canvas pass that asks
+     * for it: the probe reads layout, and reading layout from a draw callback
+     * stalls the frame the library is in the middle of painting. */
+    let plateReq = 0;
+    function schedulePlates() {
+      if (plateReq || !occl) return;
+      plateReq = requestAnimationFrame(() => { plateReq = 0; paintPlates(); });
+    }
+    if (occl) occl.onData(schedulePlates);
 
     function dropOverlay(key) {
       const d = overlays.get(key);

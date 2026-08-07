@@ -631,7 +631,8 @@
     `<div class="iv-sec">${sec}</div>`
     + rows.map(([iv, short, name]) =>
         `<button type="button" class="item iv-item" role="menuitemradio" `
-        + `data-iv="${iv}" data-short="${short}">${name}</button>`).join("")).join("");
+        + `data-iv="${iv}" data-short="${short}" data-name="${name}">`
+        + `<span>${name}</span></button>`).join("")).join("");
 
   ivBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -662,11 +663,21 @@
   function markInterval(iv) {
     const row = ivMenu.querySelector(`[data-iv="${iv}"]`);
     ivBtn.textContent = row ? row.dataset.short : iv;
-    ivBtn.title = row ? `Interval — ${row.textContent}` : "Interval";
+    // dataset.name, not textContent: the row carries a tick now, and reading
+    // the node's text would put the glyph's (empty) text in the pill's title
+    ivBtn.title = row ? `Interval — ${row.dataset.name}` : "Interval";
     for (const b of ivMenu.querySelectorAll("[data-iv]")) {
       const on = b.dataset.iv === iv;
-      b.classList.toggle("active", on);
+      // `on`, the class every menu in this app marks its current row with —
+      // this list used to have a private `active` for the same idea, which
+      // is how it ended up with a private LOOK for it too
+      b.classList.toggle("on", on);
       b.setAttribute("aria-checked", on ? "true" : "false");
+      // the tick is the mark; it is written here rather than at build time
+      // because which row wears it is exactly what this function decides
+      const tick = b.querySelector("svg");
+      if (on && !tick) b.insertAdjacentHTML("beforeend", Icons.svg("check", "xs"));
+      else if (!on && tick) tick.remove();
     }
   }
 
@@ -682,7 +693,12 @@
   // is how a rail stays 8 buttons wide while offering twenty tools.
   const rail = el("rail");
   const ICON_FOR = { trend: "trend", ray: "ray", extended: "extended",
-    hline: "hline", vline: "vline", channel: "channel", regression: "channel",
+    infoLine: "infoLine", trendAngle: "trendAngle",
+    hline: "hline", hray: "hray", vline: "vline", crossline: "crossline",
+    channel: "channel", regression: "channel", flatChannel: "flatChannel",
+    disjointChannel: "disjointChannel",
+    pitchfork: "pitchfork", schiff: "schiff", schiffModified: "schiffMod",
+    insidePitchfork: "insideFork",
     fib: "fib", rect: "rect", triangle: "triangle", brush: "brush",
     priceRange: "hline", dateRange: "vline", measure: "measure",
     long: "position", short: "position", text: "text" };
@@ -693,19 +709,38 @@
     `${Icons.svg("crosshair")}<span class="tip">Cursor / select</span></button>` +
     '<div class="rail-sep"></div>');
 
+  /** One row of a tool flyout. A tool with a `key` advertises its shortcut
+   *  in the row's trailing slot — the same slot the tick lands in, which is
+   *  fine because the two never both matter: the shortcut is how you get to
+   *  a tool, the tick is confirmation you are already on it. */
+  const toolRow = (id, s, g) =>
+    `<div class="item" data-tool="${id}"><span class="lead">` +
+    `${Icons.svg(ICON_FOR[id] || g.icon, "sm")}${s.label}</span>` +
+    (s.key ? `<span class="sc">Alt + ${s.key}</span>` : "") + `</div>`;
+
   for (const g of Tools.GROUPS) {
     const tools = Object.entries(Tools.SPECS).filter(([, s]) => s.group === g.id);
     if (!tools.length) continue;
     lastOfGroup[g.id] = tools[0][0];
-    const items = tools.map(([id, s]) =>
-      `<div class="item" data-tool="${id}"><span class="lead">` +
-      `${Icons.svg(ICON_FOR[id] || g.icon, "sm")}${s.label}</span></div>`).join("");
+    // A sectioned group heads each band and rules between them; an unsectioned
+    // one is the single-heading flyout this rail has always drawn. Sections
+    // are read off the group, not off the tools, so the ORDER is declared in
+    // one place rather than emerging from catalogue order.
+    const items = g.sections
+      ? g.sections.map(([sid, slabel], i) => {
+          const rows = tools.filter(([, s]) => (s.section || g.id) === sid);
+          if (!rows.length) return "";
+          return (i ? `<div class="sep"></div>` : "")
+            + `<div class="head">${slabel}</div>`
+            + rows.map(([id, s]) => toolRow(id, s, g)).join("");
+        }).join("")
+      : `<div class="head">${g.label}</div>`
+        + tools.map(([id, s]) => toolRow(id, s, g)).join("");
     rail.insertAdjacentHTML("beforeend",
       `<div class="tool-wrap" data-group="${g.id}">` +
         `<button class="tool has-group" id="group-${g.id}" data-group-btn="${g.id}">` +
         `${Icons.svg(g.icon)}<span class="tip">${g.label}</span></button>` +
-        `<div class="dropdown side" id="menu-${g.id}">` +
-          `<div class="head">${g.label}</div>${items}</div>` +
+        `<div class="dropdown side" id="menu-${g.id}">${items}</div>` +
       `</div>`);
   }
   rail.insertAdjacentHTML("beforeend",
@@ -725,12 +760,19 @@
   function setToolMenu(gid, open) {
     const menu = el(`menu-${gid}`);
     if (!menu) return;
-    // The filled row is the tool this group's rail button currently arms —
+    // The marked row is the tool this group's rail button currently arms —
     // marked on OPEN rather than at build time, because clicking an item
     // changes it, and a mark written once would go stale the first time.
     if (open) {
       for (const it of menu.querySelectorAll(".item[data-tool]")) {
-        it.classList.toggle("on", it.dataset.tool === lastOfGroup[gid]);
+        const on = it.dataset.tool === lastOfGroup[gid];
+        it.classList.toggle("on", on);
+        // and the tick with it — the same glyph in the same slot the
+        // indicator list puts it in. `:scope > svg` so the row's own LEAD
+        // icon, which lives inside .lead, is never the one removed.
+        const tick = it.querySelector(":scope > svg");
+        if (on && !tick) it.insertAdjacentHTML("beforeend", Icons.svg("check", "xs"));
+        else if (!on && tick) tick.remove();
       }
     }
     menu.classList.toggle("open", open);
@@ -771,20 +813,45 @@
     }
     const item = e.target.closest(".dropdown .item[data-tool]");
     if (item) {
-      const gid = item.closest(".tool-wrap").dataset.group;
-      lastOfGroup[gid] = item.dataset.tool;
-      // the rail button now shows what it will arm next time
-      const btn = el(`group-${gid}`);
-      const icon = ICON_FOR[item.dataset.tool];
-      if (icon) btn.innerHTML = Icons.svg(icon)
-        + `<span class="tip">${Tools.SPECS[item.dataset.tool].label}</span>`;
       clearTimeout(hoverTimer);
       closeToolMenus();
-      selectTool(item.dataset.tool);
+      armTool(item.dataset.tool);
     }
   });
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".tool-wrap")) closeToolMenus();
+  });
+
+  /** Arm a tool AND make its group's rail button remember it — the one path
+   *  every way of picking a tool goes through, so a keyboard shortcut and a
+   *  click on the same row cannot leave the rail in different states. */
+  function armTool(id) {
+    const spec = Tools.SPECS[id];
+    if (!spec) return;
+    lastOfGroup[spec.group] = id;
+    // the rail button now shows what it will arm next time
+    const btn = el(`group-${spec.group}`);
+    const icon = ICON_FOR[id];
+    if (btn && icon) {
+      btn.innerHTML = Icons.svg(icon) + `<span class="tip">${spec.label}</span>`;
+    }
+    selectTool(id);
+  }
+
+  /* The shortcuts the flyout advertises. Matched on e.code, not e.key: with
+   * Alt held, a Windows layout reports `e.key` as the composed character
+   * (and a dead key on several European layouts), so the physical key is the
+   * only thing that means "T" everywhere the app runs. */
+  addEventListener("keydown", (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    const t = e.target;
+    if (t && (/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+    const found = Object.entries(Tools.SPECS)
+      .find(([, s]) => s.key && e.code === `Key${s.key}`);
+    if (!found) return;
+    e.preventDefault();
+    closeToolMenus();
+    armTool(found[0]);
   });
 
   // ── panes ─────────────────────────────────────────────
@@ -1205,6 +1272,11 @@
     getIntervalSec: () => IV_SEC[state.interval],
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
+    // The fold control lives at the foot of the chip legend, which scene owns
+    // — but the number it carries counts the DRAWING layer too, so the state
+    // is read from here and the click is handed back here.
+    foldState: () => drawFoldState(),
+    onFold: () => toggleDrawFold(),
     onChange: (n) => {
       // The chat DRAWING something un-folds the chart. A reply that answers
       // "where's resistance?" by placing a level the fold then swallows is an
@@ -1399,8 +1471,13 @@
    * question does not contain. It hides — it never deletes: state, storage,
    * the chat's context envelope and the undo stack are all untouched, which
    * is what makes this safe to reach for and the trash not.
+   *
+   * The control itself is DRAWN BY js/scene.js, at the foot of the chip
+   * legend — a control belongs under the thing it folds, and that list is
+   * where the drawings say what they are. What lives here is the number, the
+   * flag and the two setHidden calls; scene.js asks for all three through
+   * `foldState` and hands the click back through `onFold`.
    */
-  const drawLegend = el("drawLegend");
   let drawCollapsed = !!Store.get("draw_collapsed", false);
   // The restore is not an edit. Boot puts the saved scene back one apply at a
   // time, and every one of those looks exactly like the chat drawing — so the
@@ -1409,44 +1486,35 @@
   let drawBooted = false;
   let sceneCount = 0;
 
-  function syncDrawToggle() {
-    if (!drawLegend) return;
+  /** What the control should say right now, or null when there is nothing to
+   *  fold. Read by scene.js on every chip repaint. */
+  function drawFoldState() {
     const n = draw.count() + scene.count();
-    drawLegend.classList.toggle("empty", !n);
-    if (!n) {
-      // Nothing left to fold — so the fold goes too, in storage as well as in
-      // memory. A chart must never sit in a hidden state with no control on
-      // screen to reverse it, and a flag left set would re-hide the next
-      // drawing the moment it was made.
-      if (drawCollapsed) {
-        drawCollapsed = false;
-        Store.set("draw_collapsed", false);
-        applyDrawCollapsed();
-      }
-      drawLegend.innerHTML = "";
-      return;
+    return n ? { n, collapsed: drawCollapsed } : null;
+  }
+
+  /** Repaint the control after something OTHER than a scene change — a shape
+   *  placed, dragged or deleted on the drawing layer, which scene.js has no
+   *  way to hear about but which its count includes. */
+  function syncDrawToggle() {
+    // Nothing left to fold — so the fold goes too, in storage as well as in
+    // memory. A chart must never sit in a hidden state with no control on
+    // screen to reverse it, and a flag left set would re-hide the next
+    // drawing the moment it was made.
+    if (drawCollapsed && !drawFoldState()) {
+      drawCollapsed = false;
+      Store.set("draw_collapsed", false);
+      applyDrawCollapsed();
+      return;                       // applyDrawCollapsed already repainted
     }
-    drawLegend.innerHTML =
-      `<button class="ind-toggle draw-toggle${drawCollapsed ? " on" : ""}" ` +
-      // "Hide", never "clear" — the word has to carry the promise the
-      // behaviour makes, because the only other control that acts on every
-      // drawing at once is the trash.
-      `type="button" data-draw-toggle title="${drawCollapsed
-        ? `Show ${n} drawing${n > 1 ? "s" : ""}`
-        : `Hide ${n} drawing${n > 1 ? "s" : ""} — nothing is deleted`}">` +
-      Icons.svg("pen", "pen") +
-      Icons.svg(drawCollapsed ? "chevronDown" : "chevronUp", "chev") +
-      // Folded, the control carries the COUNT — same reason the indicator
-      // toggle does: a chart that has quietly stopped showing eight objects
-      // reads as a chart that never had them.
-      (drawCollapsed ? `<span>${n}</span>` : "") + "</button>";
+    scene.requestUpdate();
   }
 
   /** Push the flag into both layers. Separate from the sync above so the
    *  restore at boot and the click take exactly the same path. */
   function applyDrawCollapsed() {
     draw.setHidden(drawCollapsed);
-    scene.setHidden(drawCollapsed);
+    scene.setHidden(drawCollapsed);   // repaints the chips, and the control
     if (drawCollapsed) {
       // The card and the chat highlight both point AT an annotation. Folding
       // the annotations away has to take them with it, or the card is left
@@ -1458,16 +1526,14 @@
     // The phone's chip disclosure counts what is on screen, and while folded
     // that is nothing — otherwise the button offers to reveal an empty list.
     syncChipsBtn(drawCollapsed ? 0 : scene.count());
+    scene.requestUpdate();
   }
 
-  drawLegend?.addEventListener("click", (e) => {
-    if (!e.target.closest("[data-draw-toggle]")) return;
-    e.stopPropagation();
+  function toggleDrawFold() {
     drawCollapsed = !drawCollapsed;
     Store.set("draw_collapsed", drawCollapsed);
     applyDrawCollapsed();
-    syncDrawToggle();
-  });
+  }
 
   // ── provenance card: every drawn line is interrogable ──
   const prov = el("provCard");
@@ -1956,11 +2022,23 @@
     prov.classList.remove("peek");
     prov.classList.add("open");
   }
+  /* A TEXT annotation gets no card. The card exists to say what a shape
+   * cannot say for itself — where a trendline's ends are, what a channel is
+   * worth, how many bars a range spans. A text chip has none of that: its
+   * anchors are wherever you clicked, and its entire content is already
+   * printed on the chart at full size. All the card added was a second,
+   * larger box quoting a timestamp and a price the label never claimed to be
+   * about, over the label it was describing. Selecting still works — drag it,
+   * Delete removes it. */
+  const NO_CARD = new Set(["text"]);
   document.addEventListener("charto:draw-select", (e) => {
     if (!e.detail) return hideProvenance();
     // finishing a drawing selects it, but popping its card mid-flow
     // interrupts someone laying out several shapes in a row
     if (e.detail.via === "create") return;
+    // hide, not return: a card open on the PREVIOUS selection would otherwise
+    // stay up describing a shape that is no longer the selected one
+    if (NO_CARD.has(e.detail.type)) return hideProvenance();
     showDrawingCard(e.detail, lastUpAt[1] - stageEl.getBoundingClientRect().top);
   });
 
@@ -2477,7 +2555,8 @@
         // the row opens the chart; this opens the company page, so a search
         // can end in either surface without a second search
         `<a class="open-co" target="_blank" rel="noopener" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
-            title="${s} — company page">↗</a>` +
+            title="${s} — open company page in a new tab"
+            aria-label="${s} — open company page in a new tab">${Icons.svg("externalLink", "sm")}</a>` +
         "</div>").join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';
     };

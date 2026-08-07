@@ -47,6 +47,11 @@ const IndLegend = (() => {
     let at = null;                       // crosshair time, null = latest bar
     const boxes = new Map();             // pane index -> floating box element
     const valEls = new Map();            // indicator id -> its .ind-vals span
+    /* The plate behind a row is a fact about the CHART, not about the pointer
+     * — see js/occlusion.js. Guarded by `typeof`, not by `window.Occlusion`:
+     * every module here is a top-level `const` in a classic script, which is a
+     * global LEXICAL binding and never a property of window. */
+    const occl = typeof Occlusion === "undefined" ? null : Occlusion.create(chart);
 
     // ── markup ──────────────────────────────────────────
     /** The readings, led by the same middle dot the title row uses between
@@ -140,6 +145,9 @@ const IndLegend = (() => {
       // sink fires before LWC has done it — so measure again next frame or
       // the new box lands on the pane boundary it was born at.
       if (boxes.size) requestAnimationFrame(position);
+      // The rows are new elements, so their plates are back to nothing until
+      // the probe has run over them.
+      schedulePlates();
     }
 
     /** The crosshair path: rewrite the readings and nothing else. `.ind-vals`
@@ -152,6 +160,9 @@ const IndLegend = (() => {
         const next = valsHTML(r);
         if (el.innerHTML !== next) el.innerHTML = next;   // no needless reflow
       }
+      // A reading is what sets a row's WIDTH, so the box the plate has to
+      // cover changed with it.
+      schedulePlates();
     }
 
     // ── pane boxes ──────────────────────────────────────
@@ -181,6 +192,37 @@ const IndLegend = (() => {
         box.style.left = `${r.left - base.left + 10}px`;
         box.style.maxWidth = `${Math.max(80, r.width - 84)}px`;
       }
+    }
+
+    // ── the plate ───────────────────────────────────────
+    /* TradingView's rectangle: a wash of paper behind a row, on WHENEVER the
+     * series runs behind it. It is not a hover state and never was — hover is
+     * what reveals the eye/gear/×/⋯, which is a different question ("are you
+     * reaching for this?") with a different answer.
+     *
+     * Each surface is probed against the pane it floats over: the readout
+     * rows over the price pane, every floating box over its own. The rows in
+     * `host` belong to the price pane by construction — overlays are the ones
+     * that go there, and it is pane 0 on every chart charto builds. */
+    function paintPlates() {
+      if (!occl) return;
+      const groups = [[0, host], ...boxes];
+      for (const [i, root] of groups) {
+        const els = [...root.querySelectorAll(".ind-row, .ind-toggle")];
+        if (!els.length) continue;
+        const hit = occl.probe(i, els.map((e) => e.getBoundingClientRect()));
+        els.forEach((e, k) => e.classList.toggle("over-chart", !!hit[k]));
+      }
+    }
+
+    /* Coalesced to a frame. Every trigger below — a crosshair move, a pan, a
+     * resize, a tick — can fire several times before the browser paints once,
+     * and the probe reads layout, so an un-batched call is a forced reflow per
+     * event rather than per frame. */
+    let plateReq = 0;
+    function schedulePlates() {
+      if (plateReq || !occl) return;
+      plateReq = requestAnimationFrame(() => { plateReq = 0; paintPlates(); });
     }
 
     // ── the ⋯ menu ──────────────────────────────────────
@@ -312,19 +354,39 @@ const IndLegend = (() => {
       // stream that feeds the readings is also the cheapest honest place to
       // keep the pane boxes pinned.
       position();
+      // …and a vertical drag re-scales the price axis without moving the time
+      // scale, so this is also the only signal that the candles slid UNDER a
+      // legend that never moved.
+      schedulePlates();
     });
-    if (window.ResizeObserver) new ResizeObserver(position).observe(stage);
+    if (window.ResizeObserver) {
+      new ResizeObserver(() => { position(); schedulePlates(); }).observe(stage);
+    }
+    /* Pan, zoom and the auto-scroll on a fresh tick move the series behind a
+     * legend with no pointer on the chart at all — the one repaint the
+     * crosshair stream never sees. */
+    let offRange = null, offData = null;
+    if (occl) {
+      try {
+        chart.timeScale().subscribeVisibleLogicalRangeChange(schedulePlates);
+        offRange = () =>
+          chart.timeScale().unsubscribeVisibleLogicalRangeChange(schedulePlates);
+      } catch { /* older time scale api — the crosshair still covers a drag */ }
+      offData = occl.onData(schedulePlates);
+    }
 
     return {
       render,
       /** Layout changes and pane adds land after LWC has re-laid the table;
        *  one frame later is when the rows can actually be measured. */
-      reposition: () => requestAnimationFrame(position),
+      reposition: () => requestAnimationFrame(() => { position(); paintPlates(); }),
       destroy() {
         mgr.setLegendSink(null);
         for (const [, box] of boxes) box.remove();
         boxes.clear();
         host.removeEventListener("click", onClick);
+        if (offRange) offRange();
+        if (offData) offData();
       },
     };
   }

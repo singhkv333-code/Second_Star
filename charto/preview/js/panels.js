@@ -350,7 +350,11 @@ const Panels = (() => {
         iconBtn("al-act", "bell",
                 `Add an alert on ${esc(sym)} — alerts are not wired yet`,
                 "disabled") +
-        iconBtn("al-act danger", "x", `Remove ${esc(sym)}`, 'data-wl="drop"') +
+        // Plain, not `danger`: a × is a dismissal, not a warning, and red on
+        // this page means the price went down. Dropping a symbol from a list
+        // is one click to put back. `.al-act.danger` stays for the alert
+        // trash, which is the control that has earned it.
+        iconBtn("al-act", "x", `Remove ${esc(sym)}`, 'data-wl="drop"') +
       `</span></div>`;
   }
 
@@ -802,6 +806,27 @@ const Panels = (() => {
   const stacked = () => stackMq.matches;
   const chatOpen = () => !el("chatPanel").classList.contains("hidden");
 
+  /* ══ two sidebars, and what the chart gives up for them ════════════════
+   * A widget panel and the conversation are TWO columns taken off the
+   * chart. On a 1512px laptop that leaves the price pane around 430px —
+   * narrow enough that the five OHLC figures no longer fit beside the
+   * ticker, wrap to a second line, and run at the price axis they are
+   * already bounded off (see .readout's `right: 76px`). Two rows of small
+   * grey numbers over the candles, to say what the axis and the crosshair
+   * are both saying anyway.
+   *
+   * So the figures stand down while both columns are open. They are the
+   * right thing to drop and the only one: the ticker line says WHICH chart
+   * this is and costs a line either way, the indicator legend is the only
+   * place a study can be reached, and the exact price is still on the axis
+   * under the crosshair and pinned there for the last close. Nothing is
+   * lost that the chart itself was not already showing.
+   *
+   * The class goes on <body>, not on .stage: panes are built and rebuilt
+   * per layout, and this is a fact about the SHELL's columns. */
+  const syncDense = () =>
+    document.body.classList.toggle("two-columns", !!openId && chatOpen());
+
   /** show(id) — open that widget, or null to close whatever is open. One at
    *  a time: two 304px columns plus the conversation leaves no chart. */
   function show(id) {
@@ -827,6 +852,8 @@ const Panels = (() => {
     // goes away through its own toggle rather than by being hidden here, so
     // the chat button's state stays true.
     if (id && stacked() && chatOpen()) el("chatToggle").click();
+    // last, so it reads the state the line above may just have changed
+    syncDense();
     // the charts are autoSize — they re-measure themselves off the layout
   }
 
@@ -901,6 +928,10 @@ const Panels = (() => {
   // has already flipped — if it is now showing, the panel is what gives way.
   el("chatToggle").addEventListener("click", () => {
     if (stacked() && chatOpen()) show(null);
+    // the conversation is half of "two columns", so its toggle owns this
+    // just as much as a panel's does — and show(null) above already ran
+    // syncDense on the stacked path, which is why this is safe to repeat
+    syncDense();
   });
   // Rotating a phone, or dragging a window across the breakpoint, can arrive
   // at the stacked layout with both already open — a state the column has no
@@ -908,6 +939,7 @@ const Panels = (() => {
   // product surface, so this is the one that gives way.
   stackMq.addEventListener("change", () => {
     if (stacked() && chatOpen() && openId) show(null);
+    syncDense();
   });
 
   // No Escape-to-close: these are columns of the shell, like the chat panel,
