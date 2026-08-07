@@ -565,6 +565,33 @@ def _store_facts(sha: str, facts: list, mark_done: bool = False) -> None:
                         "updated_at=now() WHERE sha256=%s", (sha,))
 
 
+CLAIM_BATCH = int(os.environ.get("PIPE_CLAIM_BATCH", "40"))
+
+
+def claim(n: int) -> list[dict]:
+    """Take n pending rows for THIS process, atomically.
+
+    The VM has 32 cores and one Python process was using 1.4 of them — 218
+    threads sharing one GIL, 96% of the machine idle. The fix is more
+    PROCESSES, and the moment there is more than one they must not fetch the
+    same documents: that would double the downloads and double the Azure bill
+    for nothing.
+
+    FOR UPDATE SKIP LOCKED is the Postgres work-queue primitive for exactly
+    this — each worker locks a disjoint set and never waits on another's rows.
+    """
+    with connect() as c, c.cursor() as cur:
+        cur.execute("""
+            UPDATE filings.queue q SET state='claimed', updated_at=now()
+            WHERE q.url IN (
+                SELECT url FROM filings.queue WHERE state='pending'
+                ORDER BY symbol FOR UPDATE SKIP LOCKED LIMIT %s)
+            RETURNING q.url,q.symbol,q.exchange,q.doc_kind,q.title,q.period,
+                      q.filed_at""", (n,))
+        return [dict(zip(("url", "symbol", "exchange", "doc_kind", "title",
+                          "period", "filed_at"), r)) for r in cur.fetchall()]
+
+
 def _queue_state(url: str, state: str, err: str | None = None) -> None:
     with connect() as c, c.cursor() as cur:
         cur.execute("UPDATE filings.queue SET state=%s,error=%s,updated_at=now() "
@@ -585,12 +612,15 @@ def run(limit: int | None) -> int:
     q_model: queue.Queue = queue.Queue(maxsize=Q_DEPTH)
     DONE = object()
 
+    # Reclaim anything a dead process was holding. A worker that dies mid-batch
+    # leaves its rows 'claimed' for ever otherwise, and they are invisible to
+    # every other worker — the queue would slowly leak itself empty.
     with connect() as c, c.cursor() as cur:
-        cur.execute("SELECT url,symbol,exchange,doc_kind,title,period,filed_at "
-                    "FROM filings.queue WHERE state='pending' ORDER BY symbol "
-                    + ("LIMIT %s" % int(limit) if limit else ""))
-        pending = [dict(zip(("url", "symbol", "exchange", "doc_kind", "title",
-                             "period", "filed_at"), r)) for r in cur.fetchall()]
+        cur.execute("""UPDATE filings.queue SET state='pending'
+                       WHERE state='claimed'
+                         AND updated_at < now() - interval '30 minutes'""")
+        if cur.rowcount:
+            print(f"  reclaimed {cur.rowcount} rows from a dead worker")
         # Documents from a previous run that died partway. Resume must cover
         # EVERY intermediate state, not just the last one — the first version
         # resumed only 'extracted' and silently did nothing for ten documents
@@ -603,14 +633,17 @@ def run(limit: int | None) -> int:
                     "WHERE state='fetched' AND blob_pdf IS NOT NULL")
         refetch = cur.fetchall()
 
-    print(f"pipeline  pending_urls={len(pending)}  resume_extracted={len(resume)}"
+    with connect() as c, c.cursor() as cur:
+        cur.execute("SELECT count(*) FROM filings.queue WHERE state='pending'")
+        n_pending = cur.fetchone()[0]
+    print(f"pipeline  pending_urls={n_pending}  resume_extracted={len(resume)}"
           f"  resume_fetched={len(refetch)}")
     print(f"  fetch={FETCH_WORKERS}t (NSE {NSE_CONC}/BSE {BSE_CONC})  "
           f"extract={EXTRACT_WORKERS}t  docs-in-flight={LLM_WORKERS}  "
           f"api-calls={os.environ.get('FILING_LLM_CONCURRENCY','48')}  "
           f"pg-pool={_POOL_SIZE}  queues={Q_DEPTH}  "
           f"{L.LLM_MODEL}@{L.LLM_EFFORT}")
-    if not pending and not resume and not refetch:
+    if not n_pending and not resume and not refetch:
         print("  nothing to do — run --discover first")
         return 0
 
@@ -648,9 +681,20 @@ def run(limit: int | None) -> int:
                 for job in ex.map(_from_blob, refetch):
                     if job:
                         q_extract.put(job)
-                for job in ex.map(stage_fetch, pending):
-                    if job:
-                        q_extract.put(job)    # blocks when full = backpressure
+                got = 0
+                while True:
+                    # Claim as we go, not all up front. Claiming the whole
+                    # queue would hand one process every row and leave the
+                    # other processes with nothing to do.
+                    batch = claim(min(CLAIM_BATCH, (limit - got) if limit else CLAIM_BATCH))
+                    if not batch:
+                        break
+                    got += len(batch)
+                    for job in ex.map(stage_fetch, batch):
+                        if job:
+                            q_extract.put(job)   # blocks when full = backpressure
+                    if limit and got >= limit:
+                        break
         finally:
             q_extract.put(DONE)
 
