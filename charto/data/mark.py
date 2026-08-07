@@ -151,11 +151,17 @@ def resolve_time(expr: str, rows: list, lo: int, hi: int, env: dict,
     # hour", and without it the shape has to be re-expressed as two clock
     # times, which costs a whole round to discover. Bars (+10) and time
     # (+1h) are both here because a chart is read in both.
-    m = re.fullmatch(r"([+-])\s*(\d+)\s*(m|min|mins|h|hr|hrs|d|w)", e)
+    m = re.fullmatch(r"([+-])\s*((?:\d+\s*(?:mins?|m|hrs?|h|d|w)\s*)+)", e)
     if m:
+        # compound too ("+1h30m"): the model writes durations the way a
+        # person says them, and refusing the compound form costs a whole
+        # round to rediscover as two clock times
         unit = {"m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600,
-                "hrs": 3600, "d": 86400, "w": 604800}[m.group(3)]
-        off = int(m.group(2)) * unit * (1 if m.group(1) == "+" else -1)
+                "hrs": 3600, "d": 86400, "w": 604800}
+        secs = sum(int(n) * unit[u]
+                   for n, u in re.findall(r"(\d+)\s*(mins?|m|hrs?|h|d|w)",
+                                          m.group(2)))
+        off = secs * (1 if m.group(1) == "+" else -1)
         return _at(rows, lo, hi, (rows[hi][0] if ref is None else ref) + off)
 
     m = re.fullmatch(r"([+-])\s*(\d+)", e)
