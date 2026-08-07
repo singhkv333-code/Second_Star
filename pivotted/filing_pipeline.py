@@ -103,8 +103,65 @@ def dsn() -> str:
     return _dsn
 
 
-def connect():
-    return psycopg2.connect(dsn())
+# THE REAL CEILING IS POSTGRES, NOT AZURE.
+#
+# Measured on the server: max_connections=50, superuser_reserved=10, and 22
+# already held by the product — about 18 usable. Meanwhile 42 model workers use
+# 10.5% of luna's 7M TPM, and quota would not bind until roughly 400 workers.
+# So a second LLM deployment buys nothing; the database is ~20x tighter than
+# the model quota and is what actually decides how wide this can run.
+#
+# Worse, `with psycopg2.connect(...) as c` COMMITS the transaction but does NOT
+# close the connection — a very old psycopg2 trap. Every call site here leaked
+# one. Ten documents survived on garbage collection; 150 workers would exhaust
+# all 50 connections in seconds and fail documents that were fine.
+#
+# So: a small fixed pool, deliberately far below the limit, shared by every
+# stage. Workers wait microseconds for a connection instead of opening one.
+_POOL_SIZE = int(os.environ.get("PIPE_PG_POOL", "8"))
+_pool = None
+_pool_lock = threading.Lock()
+# psycopg2's ThreadedConnectionPool RAISES "connection pool exhausted" the
+# moment demand exceeds the pool — it does not wait. Under 150 workers that
+# turns a queueing problem into failed documents. The semaphore supplies the
+# blocking the pool refuses to: callers wait for a slot, so getconn() is only
+# ever called when one is free.
+_slots = None
+
+
+def _get_pool():
+    global _pool, _slots
+    with _pool_lock:
+        if _pool is None:
+            from psycopg2.pool import ThreadedConnectionPool
+            _pool = ThreadedConnectionPool(1, _POOL_SIZE, dsn())
+            _slots = threading.Semaphore(_POOL_SIZE)
+        return _pool
+
+
+class connect:
+    """Pooled connection + transaction. Returns the connection to the pool."""
+
+    def __enter__(self):
+        pool = _get_pool()
+        _slots.acquire()
+        try:
+            self._c = pool.getconn()
+        except Exception:
+            _slots.release()
+            raise
+        return self._c
+
+    def __exit__(self, et, ev, tb):
+        try:
+            if et is None:
+                self._c.commit()
+            else:
+                self._c.rollback()
+        finally:
+            _get_pool().putconn(self._c)
+            _slots.release()
+        return False
 
 
 # ────────────────────────────────────────────────────────────── schema
@@ -382,10 +439,13 @@ def stage_model(job: dict) -> None:
     kept = [f for f in facts if not f.drop_reason]
     kept, _ = L.dedupe(kept)
     L.check_sums(kept)           # sets period_ambiguous / partial_table flags
-    _store_facts(job["sha256"], kept)
-    with connect() as c, c.cursor() as cur:
-        cur.execute("UPDATE filings.documents SET state='done',updated_at=now() "
-                    "WHERE sha256=%s", (job["sha256"],))
+    # One round trip, not two. Azure PG is in Central India and every operation
+    # is RTT-bound — the pool stress test measured ~280ms per trivial query
+    # under contention, so a round trip saved per document is real time saved
+    # across 3,000 of them. Doing both in one transaction also means facts and
+    # the 'done' flag commit together: a crash between them would otherwise
+    # leave a document marked complete with no facts, which resume cannot see.
+    _store_facts(job["sha256"], kept, mark_done=True)
     STATS.bump("modelled")
     STATS.bump("facts", len(kept))
     STATS.bump("dropped", len(facts) - len(kept))
@@ -398,9 +458,7 @@ COLS = ("doc_sha symbol task grp label kind rollup value_text unit_text period "
         "unit_source unit_agrees period_ambiguous partial_table model").split()
 
 
-def _store_facts(sha: str, facts: list) -> None:
-    if not facts:
-        return
+def _store_facts(sha: str, facts: list, mark_done: bool = False) -> None:
     rows = []
     for f in facts:
         a = asdict(f)
@@ -411,8 +469,14 @@ def _store_facts(sha: str, facts: list) -> None:
                      a["unit_source"], a["unit_agrees"], a["period_ambiguous"],
                      a["partial_table"], L.LLM_MODEL))
     with connect() as c, c.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur, f"INSERT INTO filings.facts ({','.join(COLS)}) VALUES %s", rows)
+        if rows:
+            psycopg2.extras.execute_values(
+                cur, f"INSERT INTO filings.facts ({','.join(COLS)}) VALUES %s", rows)
+        if mark_done:
+            # A document that yielded no facts is still DONE — leaving it
+            # unmarked would make resume re-run it every restart for ever.
+            cur.execute("UPDATE filings.documents SET state='done',"
+                        "updated_at=now() WHERE sha256=%s", (sha,))
 
 
 def _queue_state(url: str, state: str, err: str | None = None) -> None:
