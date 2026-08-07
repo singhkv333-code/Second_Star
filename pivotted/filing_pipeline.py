@@ -294,24 +294,74 @@ def discover(symbols_nse: list[str], bse: list[tuple[str, str]], per_symbol: int
                 rows.append((u, sym, ex, kind, (it.get("title") or "")[:400],
                              it.get("period"), it.get("filed_at")))
 
+    lock = threading.Lock()
+
+    def collect(sym, ex_name, items):
+        with lock:
+            add(sym, ex_name, "annual_report", items)
+
     with ThreadPoolExecutor(max_workers=NSE_CONC) as ex:
         for sym, items in zip(symbols_nse,
                               ex.map(lambda s: _safe(FF.nse_annual, s, per_symbol),
                                      symbols_nse)):
-            add(sym, "NSE", "annual_report", items)
-    for sym, code in bse:
-        add(sym, "BSE", "annual_report",
-            _safe(FF.bse_annual, sym, code, per_symbol, op_bse))
+            collect(sym, "NSE", items)
+    # BSE was a serial loop, which is fine for five companies and hopeless for
+    # 2,230 — the sample never exposed it because the sample had five.
+    if bse:
+        with ThreadPoolExecutor(max_workers=BSE_CONC) as ex:
+            for (sym, _code), items in zip(
+                    bse, ex.map(lambda sc: _safe(FF.bse_annual, sc[0], sc[1],
+                                                 per_symbol, op_bse), bse)):
+                collect(sym, "BSE", items)
 
     if not rows:
         return 0
-    with connect() as c, c.cursor() as cur:
-        psycopg2.extras.execute_values(cur, """
-            INSERT INTO filings.queue
-                (url,symbol,exchange,doc_kind,title,period,filed_at)
-            VALUES %s ON CONFLICT (url) DO NOTHING""", rows)
-        n = cur.rowcount
+    # Chunked: a single execute_values of ~10,000 rows is one enormous
+    # statement over an RTT-bound link, and a failure loses all of it.
+    n = 0
+    for i in range(0, len(rows), 500):
+        with connect() as c, c.cursor() as cur:
+            psycopg2.extras.execute_values(cur, """
+                INSERT INTO filings.queue
+                    (url,symbol,exchange,doc_kind,title,period,filed_at)
+                VALUES %s ON CONFLICT (url) DO NOTHING""", rows[i:i + 500])
+            n += cur.rowcount
     return n
+
+
+def universe(include_sme: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
+    """The listed universe, from company_identity — NOT from mc.companies.
+
+    mc.companies is not an identity source: its names are truncated to 15
+    characters, its sc_id collides across companies, and its nse_symbol column
+    holds BSE codes for some rows. company_identity is the reconciled table and
+    is what every other pivotted job keys on.
+
+    SME is off by default. 516 of the 5,019 are NSE_SME, which file far less and
+    would spend fetch budget for very little.
+    """
+    import re as _re
+    import pathlib
+    env = (HERE.parent / "pivot" / ".env").read_text(encoding="utf-8")
+    m = _re.search(r"^DATABASE_URL=(.*)$", env, _re.M)
+    conn = psycopg2.connect(m.group(1).strip())
+    try:
+        with conn.cursor() as cur:
+            ex = ("('NSE','NSE_SME')" if include_sme else "('NSE')")
+            cur.execute(f"""SELECT DISTINCT verified_symbol FROM company_identity
+                            WHERE verified_exchange IN {ex}
+                              AND verified_symbol IS NOT NULL
+                            ORDER BY 1""")
+            nse = [r[0] for r in cur.fetchall()]
+            cur.execute("""SELECT DISTINCT verified_symbol, verified_bse_code
+                           FROM company_identity
+                           WHERE verified_exchange='BSE'
+                             AND verified_bse_code IS NOT NULL
+                           ORDER BY 1""")
+            bse = [(s, str(c)) for s, c in cur.fetchall()]
+    finally:
+        conn.close()
+    return nse, bse
 
 
 def _safe(fn, *a):
@@ -688,13 +738,23 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int)
     ap.add_argument("--per-symbol", type=int, default=2)
     ap.add_argument("--symbols", help="comma-separated NSE symbols (default: sample)")
+    ap.add_argument("--universe", action="store_true",
+                    help="every listed company from company_identity")
+    ap.add_argument("--sme", action="store_true", help="include NSE_SME")
     a = ap.parse_args()
     if a.init:
         init_db()
     if a.discover:
-        syms = (a.symbols.split(",") if a.symbols else FF.NSE_SAMPLE)
-        n = discover(syms, [], a.per_symbol)
-        print(f"discovered {n} new urls from {len(syms)} symbols")
+        if a.universe:
+            nse, bse = universe(a.sme)
+            print(f"universe: {len(nse)} NSE + {len(bse)} BSE"
+                  f"{' (incl SME)' if a.sme else ''}")
+        else:
+            nse, bse = (a.symbols.split(",") if a.symbols else FF.NSE_SAMPLE), []
+        t = time.time()
+        n = discover(nse, bse, a.per_symbol)
+        print(f"discovered {n} new urls from {len(nse)+len(bse)} companies "
+              f"in {time.time()-t:.0f}s")
     if a.run:
         raise SystemExit(run(a.limit))
     if a.status:
