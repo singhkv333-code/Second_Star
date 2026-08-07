@@ -66,7 +66,25 @@ from filing_extract import (  # noqa: E402
 )
 
 sys.path.insert(0, str(HERE.parent / "charto" / "data"))
-import dataserver as ds  # noqa: E402  — one Azure key for the whole repo
+try:
+    import dataserver as ds  # noqa: E402  — one Azure key for the whole repo
+except Exception:  # noqa: BLE001
+    # dataserver is a 300KB module imported here for exactly three constants,
+    # and it drags Charto's whole dependency set with it. On a throwaway VM
+    # that is a lot of freight for two strings, so fall back to reading the
+    # same .env it reads. Same source of truth either way.
+    class ds:  # type: ignore[no-redef]
+        _env = {}
+        _p = HERE.parent / "pivot" / ".env"
+        if _p.exists():
+            for _line in _p.read_text(encoding="utf-8").splitlines():
+                if "=" in _line and not _line.strip().startswith("#"):
+                    _k, _v = _line.split("=", 1)
+                    _env[_k.strip()] = _v.strip().strip('"').strip("'")
+        AZURE_ENDPOINT = _env.get("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
+        AZURE_KEY = _env.get("AZURE_KEY", "")
+        LLM_DEPLOYMENT = _env.get("CHARTO_LLM_MODEL") or "gpt-5.6-luna"
+        LLM_SERVICE_TIER = "priority"
 
 LLM_EFFORT = os.environ.get("FILING_LLM_EFFORT", "low")
 LLM_WORKERS = int(os.environ.get("FILING_LLM_WORKERS", "12"))
