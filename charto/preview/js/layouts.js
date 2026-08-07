@@ -63,6 +63,62 @@ const Layouts = (() => {
     };
   }
 
+  /* ── the picture ──────────────────────────────────────────────────────
+   *
+   * A name tells you which layout you saved; a picture tells you which desk
+   * it was. So the Open dialog leads with one, and it has to be the WHOLE
+   * desk — a split screen whose thumbnail showed only the primary pane would
+   * be a picture of a layout the user does not have.
+   *
+   * Every pane is its own lightweight-charts instance with its own
+   * takeScreenshot(), so this composites them by their real screen rectangles
+   * into one canvas the shape of the grid. 480px wide at JPEG 0.6 lands
+   * around 30 KB, which is what makes it affordable to send forty of them.
+   */
+  const THUMB_W = 480;
+
+  function thumbnail() {
+    const c = window.__charto;
+    if (!c) return "";
+    try {
+      const shots = [];
+      const primary = document.getElementById("chart");
+      if (primary && c.chart) shots.push([c.chart.takeScreenshot(),
+                                          primary.getBoundingClientRect()]);
+      for (let i = 1; ; i++) {
+        const s = c.panes.paneAt(i);
+        if (!s) break;
+        if (s.chart && s.root) shots.push([s.chart.takeScreenshot(),
+                                           s.root.getBoundingClientRect()]);
+      }
+      if (!shots.length) return "";
+      const x0 = Math.min(...shots.map(([, r]) => r.left));
+      const y0 = Math.min(...shots.map(([, r]) => r.top));
+      const x1 = Math.max(...shots.map(([, r]) => r.right));
+      const y1 = Math.max(...shots.map(([, r]) => r.bottom));
+      const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+      const k = THUMB_W / w;
+      const out = document.createElement("canvas");
+      out.width = THUMB_W;
+      out.height = Math.max(1, Math.round(h * k));
+      const ctx = out.getContext("2d");
+      // the pane background, so a gap between panes is not transparent-black
+      ctx.fillStyle = getComputedStyle(document.body)
+        .getPropertyValue("--chart-bg").trim() || "#fff";
+      ctx.fillRect(0, 0, out.width, out.height);
+      for (const [cv, r] of shots) {
+        ctx.drawImage(cv, (r.left - x0) * k, (r.top - y0) * k,
+                      r.width * k, r.height * k);
+      }
+      return out.toDataURL("image/jpeg", 0.6);
+    } catch (e) {
+      // A layout still saves without its picture — the capture is the
+      // decoration, never the record.
+      console.warn("[charto] thumbnail failed", e);
+      return "";
+    }
+  }
+
   function symbolsOf(spec) {
     return [...new Set((spec.charts || []).map((x) => x.symbol).filter(Boolean))];
   }
@@ -104,9 +160,13 @@ const Layouts = (() => {
     return d;
   }
 
-  async function refresh() {
+  async function refresh(withThumbs) {
     if (!signedIn()) { list = []; return list; }
-    try { list = (await call("/layouts")).layouts || []; } catch { list = []; }
+    try {
+      // thumbs only for the picker — see _layouts_list; a dropdown must not
+      // pay a megabyte for pictures it does not show
+      list = (await call(`/layouts${withThumbs ? "?thumbs=1" : ""}`)).layouts || [];
+    } catch { list = []; }
     return list;
   }
 
@@ -118,13 +178,20 @@ const Layouts = (() => {
     if (!spec) return toast("The chart is still loading");
     const body = {
       name: name || (cur && cur.name) || UNTITLED,
-      spec, symbols: symbolsOf(spec),
+      spec, symbols: symbolsOf(spec), thumb: thumbnail(),
       chat_id: (window.Chat && window.Chat.activeId && window.Chat.activeId()) || "",
     };
-    if (!asNew && cur && cur.id) body.id = cur.id;
+    // Belt and braces on the hazard the boot adoption also guards: never
+    // overwrite a layout that was saved on a DIFFERENT instrument. `cur`
+    // carries the symbol it was opened on, so if the desk has since moved,
+    // this becomes a NEW layout instead of silently replacing one that was
+    // about something else.
+    const here = symbolsOf(spec)[0];
+    const sameSymbol = cur && (!cur.symbol || cur.symbol === here);
+    if (!asNew && cur && cur.id && sameSymbol) body.id = cur.id;
     try {
       const d = await call("/layouts", body);
-      cur = { ...(cur || {}), id: d.id, name: d.name,
+      cur = { ...(cur || {}), id: d.id, name: d.name, symbol: here,
               autosave: asNew ? false : !!(cur && cur.autosave) };
       dirty = false;
       await refresh();
@@ -151,7 +218,8 @@ const Layouts = (() => {
       return;
     }
     cur = { id: d.id, name: d.name, autosave: d.autosave,
-            shared: d.shared, chat_id: d.chat_id };
+            shared: d.shared, chat_id: d.chat_id,
+            symbol: (want && want.symbol) || null };
     await restore(d.spec);
     if (d.chat_id && window.Chat && window.Chat.openChat) {
       window.Chat.openChat(d.chat_id);
@@ -177,7 +245,8 @@ const Layouts = (() => {
     if (!cur || !cur.id) return toast("Save this layout first");
     try {
       const d = await call("/layouts", { id: cur.id, copy: true });
-      cur = { id: d.id, name: d.name, autosave: false, shared: false };
+      cur = { id: d.id, name: d.name, autosave: false, shared: false,
+              symbol: cur.symbol };
       await refresh(); paint();
       toast(`Copied to “${d.name}”`);
     } catch (e) { toast(e.message); }
@@ -282,7 +351,7 @@ const Layouts = (() => {
       const spec = snapshot();
       if (!spec) return;
       call("/layouts", { id: cur.id, name: cur.name, spec,
-                         symbols: symbolsOf(spec) })
+                         symbols: symbolsOf(spec), thumb: thumbnail() })
         .then(() => { dirty = false; paint(); })
         .catch(() => {});     // a failed autosave must never interrupt work
     }, AUTOSAVE_MS);
@@ -368,10 +437,10 @@ const Layouts = (() => {
 
   /* ── dialogs ──────────────────────────────────────────────────────────── */
 
-  function dlg(html) {
+  function dlg(html, cls) {
     const back = document.createElement("div");
     back.className = "ly-back";
-    back.innerHTML = `<div class="ly-dlg">${html}</div>`;
+    back.innerHTML = `<div class="ly-dlg${cls ? " " + cls : ""}">${html}</div>`;
     document.body.appendChild(back);
     const close = () => back.remove();
     back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
@@ -415,18 +484,27 @@ const Layouts = (() => {
     const q = (openDlg.back.querySelector("#lyq").value || "").toLowerCase();
     const rows = list.filter((L) => !q || L.name.toLowerCase().includes(q)
       || L.symbols.join(" ").toLowerCase().includes(q));
+    // A CARD, led by the picture. The name tells you which one you saved;
+    // the chart tells you which desk it was, and that is what a person
+    // actually recognises. Details sit under it, quiet and in one line.
     openDlg.back.querySelector("#lylist").innerHTML = rows.length
-      ? rows.map((L) => `<div class="ly-item${cur && cur.id === L.id ? " on" : ""}"
-           data-id="${L.id}">
-           <div class="ly-item-main">
-             <div class="ly-item-name">${esc(L.name)}
-               ${L.shared ? '<span class="ly-tag">Shared</span>' : ""}
-               ${L.autosave ? '<span class="ly-tag alt">Auto</span>' : ""}</div>
-             <div class="ly-item-sub">${esc(L.symbols.join(" · ") || "—")}
-               · ${when(L.updated)}</div>
-           </div>
-           <button class="ly-del" data-del="${L.id}" title="Delete">
-             ${Icons.svg("trash", "xs")}</button></div>`).join("")
+      ? `<div class="ly-grid">` + rows.map((L) => `
+          <div class="ly-card${cur && cur.id === L.id ? " on" : ""}" data-id="${L.id}">
+            <div class="ly-shot">
+              ${L.thumb ? `<img src="${esc(L.thumb)}" alt="" loading="lazy">`
+                        : `<div class="ly-noshot">${Icons.svg("candles", "sm")}
+                             <span>No preview</span></div>`}
+              <button class="ly-del" data-del="${L.id}" title="Delete">
+                ${Icons.svg("trash", "xs")}</button>
+            </div>
+            <div class="ly-meta">
+              <div class="ly-item-name">${esc(L.name)}
+                ${L.shared ? '<span class="ly-tag">Shared</span>' : ""}
+                ${L.autosave ? '<span class="ly-tag alt">Auto</span>' : ""}</div>
+              <div class="ly-item-sub">${esc(L.symbols.join(" · ") || "—")}
+                <span class="ly-dotsep">·</span> ${when(L.updated)}</div>
+            </div>
+          </div>`).join("") + `</div>`
       : `<div class="ly-empty">${q ? "Nothing matches that." : "No saved layouts yet."}</div>`;
   }
 
@@ -441,13 +519,14 @@ const Layouts = (() => {
   }
 
   async function openPicker() {
-    await refresh();
+    await refresh(true);
     openDlg = dlg(
       `<h3>Open layout</h3>`
       + `<input class="dlg-input" id="lyq" placeholder="Search layouts or symbols">`
       + `<div class="ly-list" id="lylist"></div>`
       + `<div class="ly-actions"><button class="btn" data-x>Close</button>`
-      + `<button class="btn primary" data-new>Create new…</button></div>`);
+      + `<button class="btn primary" data-new>Create new…</button></div>`,
+      "wide");
     renderOpen();
     openDlg.back.querySelector("#lyq").addEventListener("input", renderOpen);
     openDlg.back.querySelector("[data-x]").onclick = () => { openDlg.close(); openDlg = null; };
@@ -462,7 +541,7 @@ const Layouts = (() => {
         if (L) remove(L.id, L.name);
         return;
       }
-      const it = e.target.closest(".ly-item");
+      const it = e.target.closest(".ly-card");
       if (!it) return;
       openDlg.close(); openDlg = null;
       open(Number(it.dataset.id));
@@ -538,14 +617,27 @@ const Layouts = (() => {
       u.searchParams.delete("layout");
       history.replaceState(null, "", u.toString());
     } else if (list.length && !cur) {
-      // The most recently opened one NAMES the desk you are sitting at, so
-      // the header does not say "Unnamed" over a chart you saved last week.
-      // Its contents are NOT applied — a reload restores the live session
-      // from localStorage, and re-applying a snapshot over it would throw
-      // away whatever was done since.
-      const top = [...list].sort((a, b) => (b.opened || 0) - (a.opened || 0))[0];
-      cur = { id: top.id, name: top.name, autosave: top.autosave,
-              shared: top.shared, chat_id: top.chat_id };
+      /* Adopt the most recently opened layout as the one you are sitting in —
+       * but ONLY if it is on this symbol.
+       *
+       * Without that test, opening AARTIIND showed the name of a layout saved
+       * on RELIANCE, and the header was not merely wrong: ⌘S would then have
+       * written the AARTIIND desk over the RELIANCE layout, under its name,
+       * destroying it. A label that lies about identity is a save-over
+       * waiting to happen.
+       *
+       * Its contents are still not applied either way — a reload restores the
+       * live session from localStorage, and re-applying a snapshot over that
+       * would discard whatever has been done since.
+       */
+      const here = window.__charto && window.__charto.symbol;
+      const top = [...list]
+        .filter((L) => (L.symbols || [])[0] === here)
+        .sort((a, b) => (b.opened || 0) - (a.opened || 0))[0];
+      if (top) {
+        cur = { id: top.id, name: top.name, autosave: top.autosave,
+                shared: top.shared, chat_id: top.chat_id, symbol: here };
+      }
     }
     booted = true;
     paint();

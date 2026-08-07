@@ -7765,6 +7765,7 @@ for _col, _decl in (
         ("symbols", "TEXT NOT NULL DEFAULT ''"),       # summary line, no parse
         ("autosave", "INTEGER NOT NULL DEFAULT 0"),
         ("chat_id", "TEXT NOT NULL DEFAULT ''"),       # the conversation had here
+        ("thumb", "TEXT NOT NULL DEFAULT ''"),         # data: URI, ~30 KB JPEG
         ("share_token", "TEXT")):                      # NULL = private
     try:
         _users.execute(f"ALTER TABLE layouts ADD COLUMN {_col} {_decl}")
@@ -7913,12 +7914,29 @@ def _layout_row(r: tuple) -> dict:
             "autosave": bool(r[6]), "chat_id": r[7], "shared": bool(r[8])}
 
 
-def _layouts_list(uid: int) -> list[dict]:
+_THUMB_MAX = 220_000     # a 480px JPEG is ~30 KB; this is the runaway guard
+
+
+def _layouts_list(uid: int, thumbs: bool = False) -> list[dict]:
+    """The index. Thumbnails only when asked for, and that is the point.
+
+    A picture per layout is 30 KB. Forty of them is over a megabyte, which is
+    the wrong price for opening a dropdown — so the menu asks without them and
+    the Open dialog, where a user has deliberately gone to LOOK at their
+    layouts, asks with.
+    """
+    cols = _LAYOUT_COLS + (", thumb" if thumbs else "")
     with _users_lock:
         rows = _users.execute(
-            f"SELECT {_LAYOUT_COLS} FROM layouts WHERE user_id=? "
+            f"SELECT {cols} FROM layouts WHERE user_id=? "
             "ORDER BY updated DESC", (uid,)).fetchall()
-    return [_layout_row(r) for r in rows]
+    out = []
+    for r in rows:
+        rec = _layout_row(r)
+        if thumbs:
+            rec["thumb"] = r[9]
+        out.append(rec)
+    return out
 
 
 def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
@@ -7964,9 +7982,23 @@ def _layout_free_name(uid: int, want: str) -> str:
     return f"{want} {secrets.token_hex(3)}"
 
 
+def _clean_thumb(v) -> str:
+    """A layout thumbnail, or "". Only a small inline JPEG/PNG is accepted.
+
+    This column is echoed straight back into an <img src>, so it must not be
+    able to carry anything else — a `javascript:` or `data:text/html` URI
+    would execute in the picker. Prefix-checked and size-capped rather than
+    trusted because the client sent it.
+    """
+    s = str(v or "")
+    if not s.startswith(("data:image/jpeg;base64,", "data:image/png;base64,")):
+        return ""
+    return s if len(s) <= _THUMB_MAX else ""
+
+
 def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
                  symbols: list | None = None, autosave: bool | None = None,
-                 chat_id: str = "") -> tuple[int, dict]:
+                 chat_id: str = "", thumb: str = "") -> tuple[int, dict]:
     """Create or overwrite. `id` given means SAVE OVER that one, even renamed.
 
     Without an id this is "Create new layout", and a clashing name gets the
@@ -7990,6 +8022,12 @@ def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
                 return 409, {"error": f"you already have a layout called “{name}”"}
             sets = "name=?, spec=?, symbols=?, updated=?, opened=?"
             args: list = [name, blob, syms, now, now]
+            pic = _clean_thumb(thumb)
+            if pic:
+                # only when one was sent — a save from a chart that could not
+                # be captured must not blank the picture already stored
+                sets += ", thumb=?"
+                args.append(pic)
             if autosave is not None:
                 sets += ", autosave=?"
                 args.append(1 if autosave else 0)
@@ -8008,9 +8046,10 @@ def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
             name = _layout_free_name(uid, name)
             _users.execute(
                 "INSERT INTO layouts (user_id, name, spec, symbols, created, "
-                "updated, opened, autosave, chat_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                "updated, opened, autosave, chat_id, thumb) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (uid, name, blob, syms, now, now, now,
-                 1 if autosave else 0, chat_id[:64]))
+                 1 if autosave else 0, chat_id[:64], _clean_thumb(thumb)))
             _users.commit()
             new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND "
                                     "name=?", (uid, name)).fetchone()[0]
@@ -8019,8 +8058,9 @@ def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
 
 def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
     with _users_lock:
-        r = _users.execute("SELECT name, spec, symbols, chat_id FROM layouts "
-                           "WHERE user_id=? AND id=?", (uid, lid)).fetchone()
+        r = _users.execute("SELECT name, spec, symbols, chat_id, thumb "
+                           "FROM layouts WHERE user_id=? AND id=?",
+                           (uid, lid)).fetchone()
     if not r:
         return 404, {"error": "no such layout"}
     now = int(time.time())
@@ -8031,8 +8071,9 @@ def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
         name = _layout_free_name(uid, f"{r[0]} copy")
         _users.execute(
             "INSERT INTO layouts (user_id, name, spec, symbols, created, "
-            "updated, opened, autosave, chat_id) VALUES (?,?,?,?,?,?,?,0,?)",
-            (uid, name, r[1], r[2], now, now, now, r[3]))
+            "updated, opened, autosave, chat_id, thumb) "
+            "VALUES (?,?,?,?,?,?,?,0,?,?)",
+            (uid, name, r[1], r[2], now, now, now, r[3], r[4]))
         _users.commit()
         new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
                                 (uid, name)).fetchone()[0]
@@ -8899,7 +8940,8 @@ class Handler(BaseHTTPRequestHandler):
                 uid, str(body.get("name") or ""), body.get("spec") or {},
                 lid=lid, symbols=body.get("symbols") or [],
                 autosave=body.get("autosave"),
-                chat_id=str(body.get("chat_id") or ""))
+                chat_id=str(body.get("chat_id") or ""),
+                thumb=str(body.get("thumb") or ""))
         return 404, {"error": "not found"}
 
     def _send_events(self, events) -> None:
@@ -9212,7 +9254,9 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(*_layout_get(me[0], int(lid)))
                     name = (q.get("name") or [""])[0]
                     if not name:
-                        return self._send(200, {"layouts": _layouts_list(me[0])})
+                        thumbs = (q.get("thumbs") or [""])[0] in ("1", "true")
+                        return self._send(200, {
+                            "layouts": _layouts_list(me[0], thumbs)})
                     with _users_lock:
                         row = _users.execute(
                             "SELECT name, spec, updated FROM layouts "

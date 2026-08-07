@@ -638,19 +638,38 @@ select.is-dressed { display: none; }
   border-radius: var(--radius-lg); box-shadow: var(--menu-shadow);
   padding: 18px;
 }
+/* the picker holds a grid of chart previews, so it gets room the rename and
+   delete dialogs have no use for */
+.ly-dlg.wide { width: min(760px, calc(100vw - 32px)); }
 .ly-dlg h3 { margin: 0 0 12px; font-size: var(--text-md); font-weight: var(--weight-semi); }
 .ly-dlg .ly-body { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .ly-lab { display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
 .ly-dlg .dlg-input { width: 100%; }
 .ly-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.ly-list { margin-top: 10px; max-height: min(46vh, 380px); overflow-y: auto; }
-.ly-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer;
+.ly-list { margin-top: 12px; max-height: min(58vh, 520px); overflow-y: auto; margin-right: -6px; padding-right: 6px; }
+/* Cards, two up. A layout is recognised by its CHART, not its name, so the
+   picture leads and the words sit quietly underneath it. Two columns is the
+   most that keeps the image big enough to read a trend off. */
+.ly-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ly-card {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  overflow: hidden; cursor: pointer; background: var(--card);
+  transition: border-color var(--dur) var(--ease-quartr),
+              box-shadow var(--dur) var(--ease-quartr);
 }
-.ly-item:hover { background: var(--accent); }
-.ly-item.on { background: var(--accent); box-shadow: inset 2px 0 0 var(--primary); }
-.ly-item-main { flex: 1; min-width: 0; }
+.ly-card:hover { border-color: var(--muted-foreground); }
+.ly-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+/* 16:10 — near enough to a chart's own proportions that the thumbnail is
+   not letterboxed, and short enough that two rows fit without scrolling */
+.ly-shot { position: relative; aspect-ratio: 16 / 10; background: var(--chart-bg); }
+.ly-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.ly-noshot {
+  position: absolute; inset: 0; display: grid; place-content: center;
+  justify-items: center; gap: 6px; color: var(--faint);
+  font-size: var(--text-2xs);
+}
+.ly-meta { padding: 9px 10px 10px; border-top: 1px solid var(--border-soft); }
+.ly-dotsep { opacity: .5; margin: 0 2px; }
 .ly-item-name {
   display: flex; align-items: center; gap: 6px;
   font-size: var(--text-sm); font-weight: var(--weight-medium);
@@ -3843,7 +3862,7 @@ header > .btn, header > .badge { flex: none; }
   <script src="./js/scene.js?v=28"></script>
   <script src="./js/panes.js?v=14"></script>
   <script src="./js/main.js?v=66"></script>
-  <script src="./js/layouts.js?v=3"></script>
+  <script src="./js/layouts.js?v=5"></script>
   <script src="./js/chat.js?v=110"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
