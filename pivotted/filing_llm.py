@@ -422,6 +422,7 @@ class LLMFact:
     unit_source: str = "none"
     unit_agrees: str = "n/a"      # vs the deterministic resolver
     period_ambiguous: bool = False
+    partial_table: bool = False
     drop_reason: str | None = None
 
 
@@ -788,12 +789,30 @@ def check_sums(facts: list[LLMFact]) -> list[str]:
             # The label regex stays only as a backstop for a missed flag.
             tot = [f for f in rows if f.rollup and re.search(
                 r"^\s*(grand\s+)?total\b|\btotal\b\s*$", f.label, re.I)]
-            # Memo lines sit inside the table but are not components of it.
-            # MARUTI prints "Amount deposited under protest" beneath its claims
-            # table; adding it to the claims makes a correct table read 1.10x.
-            parts = [f for f in rows if not f.rollup and not re.search(
-                r"eliminat|unallocat|inter[- ]segment|deposited under protest|"
-                r"^\s*less\s*:", f.label, re.I)]
+            # An UNALLOCABLE row is a component, not a memo — GUJTLRM's segment
+            # assets are 346.40 across four segments plus 200.28 unallocable,
+            # and the printed total is 546.68. Excluding it (as an earlier
+            # version did, and as the model's own rollup flag also did) failed
+            # six tables that had been read exactly right. It carries its own
+            # sign: the same company's unallocable INCOME is -6.88, and
+            # 18.50 + (-6.88) = 11.61 = the printed total.
+            #
+            # Genuine memo lines are still excluded: MARUTI prints "Amount
+            # deposited under protest" beneath its claims table, and adding it
+            # makes a correct table read 1.10x. "Less:" rows are excluded
+            # because the total sits above them, not below.
+            # NOTE the spelling: filings write "Unallocable", which does not
+            # contain "unallocat". Matching on the longer stem left these rows
+            # in `parts` AND re-added them below, counting GUJTLRM's 200.28
+            # twice and turning a 0.63 shortfall into a 1.37 excess. Match
+            # "unalloca" and add back only the rows the model called rollup.
+            memo = (r"eliminat|inter[- ]segment|deposited under protest|"
+                    r"^\s*less\s*:")
+            parts = [f for f in rows
+                     if not f.rollup and not re.search(memo, f.label, re.I)]
+            parts += [f for f in rows
+                      if f.rollup and re.search(r"unalloca", f.label, re.I)
+                      and not re.search(memo, f.label, re.I)]
             # One row label, one period, two different values = the model gave
             # two year-columns the same period string. Only one can be right, and
             # guessing which would be inventing data — so the bucket is declared
@@ -817,9 +836,23 @@ def check_sums(facts: list[LLMFact]) -> list[str]:
             printed = tot[0]
             s = sum(f.value_crore for f in parts)
             r = s / printed.value_crore if printed.value_crore else 0
-            ok = 0.97 <= r <= 1.03
+            # Over and under mean opposite things and must not share a verdict.
+            # Parts EXCEEDING the total is double counting or a misread row — a
+            # correctness failure. Parts falling well SHORT means rows are
+            # missing: LT's note 57 totals 123,080 cr and the model returned six
+            # lines of it, because the note runs past the window. Every number
+            # it did return is right. Calling that a failure would hide the real
+            # ones, so it is reported as INCOMPLETE and the rows are flagged.
+            if r > 1.03:
+                verdict = "FAIL"
+            elif r < 0.97:
+                verdict = "PART"
+                for f in parts:
+                    f.partial_table = True
+            else:
+                verdict = "PASS"
             label = f"{grp[:24]}/{measure[:16]}" if measure else grp[:41]
-            msgs.append(f"  {'PASS' if ok else 'FAIL'}  {sym:10s} {label:42s} "
+            msgs.append(f"  {verdict}  {sym:10s} {label:42s} "
                         f"{per[:9]:9s} parts={s:>12,.2f} vs total="
                         f"{printed.value_crore:>12,.2f}  ratio={r:>6.3f} "
                         f"(n={len(parts)})")
@@ -949,7 +982,11 @@ def main(sample_dir: Path, only: list[str] | None, limit: int | None,
     v = check_sums(kept)
     print("\n".join(v) if v else "    (no company printed both parts and a total)")
     if v:
-        print(f"\n    {sum(1 for x in v if 'PASS' in x)}/{len(v)} passed")
+        npass = sum(1 for x in v if x.lstrip().startswith("PASS"))
+        nfail = sum(1 for x in v if x.lstrip().startswith("FAIL"))
+        npart = sum(1 for x in v if x.lstrip().startswith("PART"))
+        print(f"\n    {npass} reconcile / {nfail} OVER-COUNT (a real error) / "
+              f"{npart} incomplete (rows missing, numbers still right)")
 
     if errors:
         print(f"\n=== CALL ERRORS ({len(errors)}) ===")
