@@ -422,39 +422,28 @@ const Indicators = (() => {
     return color;
   }
 
-  // ── legend primitive (one per pane) ───────────────────
-  function makeLegendPrimitive(topOffset) {
-    return {
-      _lines: [], _ru: null,
-      attached(p) { this._ru = p.requestUpdate; },
-      setLines(lines) { this._lines = lines; if (this._ru) this._ru(); },
-      updateAllViews() {},
-      paneViews() {
-        const self = this;
-        return [{
-          zOrder: () => "top",
-          renderer: () => ({
-            draw(target) {
-              target.useMediaCoordinateSpace(({ context: ctx }) => {
-                ctx.font = '11.5px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
-                let y = topOffset;
-                for (const ln of self._lines) {
-                  ctx.fillStyle = ln.color || Theme.c("legend");
-                  ctx.fillText(ln.text, 10, y);
-                  y += 16;
-                }
-              });
-            },
-          }),
-        }];
-      },
-    };
+  /** The value at `time` in a sorted {time,value} array. Exact match only:
+   *  the crosshair sits ON a bar, and a nearest-neighbour fallback is what
+   *  made a Supertrend print the flat side's stale number as though it were
+   *  live. Binary, because this runs once per line per mousemove. */
+  function valueAt(arr, time) {
+    let lo = 0, hi = arr.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (arr[m].time === time) return arr[m];
+      if (arr[m].time < time) lo = m + 1; else hi = m - 1;
+    }
+    return null;
   }
 
   // ── manager ───────────────────────────────────────────
   function createManager(chart) {
     const active = new Map();
-    let overlayLegend = null;
+    // The legend is DOM now (js/indlegend.js), not a canvas primitive: a row
+    // that carries the eye, the gear and the × has to be reachable by a
+    // pointer, and nothing drawn into the chart's own canvas ever is. This is
+    // the one hook it needs — "the active set or its paint moved, repaint".
+    let onLegend = null;
     let ctx = { interval: "1d", limit: 3000 };
     // scene marks on a pane (rsi 70/30 lines…) sit outside the data's own
     // range; the pane's autoscale must stretch to include them or a marked
@@ -566,40 +555,69 @@ const Indicators = (() => {
       } };
     };
 
-    function legendLines(def, specs, st) {
-      if (!st.style.statusLine || st.hidden || !intervalOk(st)) return [];
-      // Nulls are stripped before the series is set, so the last POINT of a
-      // line is not necessarily a value at the latest bar. Supertrend shows
-      // only the band on the active side, and printing the other one's last
-      // known value reads as though both are live. Show a line only when it
-      // actually reaches the newest bar any of them do.
-      const endsAt = (s) => (s.data.length ? s.data[s.data.length - 1].time : -1);
-      const newest = Math.max(-1, ...specs.map(endsAt));
-      const named = specs.filter((s) =>
-        s.opts && shown(st, s.line) && endsAt(s) === newest);
-      if (!named.length) return [];
-      const fmt = formatter(st);
-      const text = `${def.label} · `
-        + named.map((s) => fmt(s.data[s.data.length - 1].value)).join("  ");
-      return [{ text, color: named[0].opts.color }];
+    /** One legend ROW per live indicator, read at `time` (null = the latest
+     *  bar). This is the whole model the DOM legend renders: the manager owns
+     *  what an indicator is CALLED, what it is WORTH and what state it is in,
+     *  and the view layer owns nothing but the markup.
+     *
+     *  `values` is empty rather than absent when there is nothing to quote —
+     *  a hidden indicator, one switched off for this timeframe, or one whose
+     *  "Values in status line" is unticked still gets a row, because the row
+     *  is now the only handle it has. Dropping it, the way the old canvas
+     *  legend did, would leave an indicator on the chart with no way to
+     *  reach its eye or its gear. */
+    function legendRows(time) {
+      const rows = [];
+      for (const [id, a] of active) {
+        if (a.pending || !a.def) continue;
+        const st = settings(id);
+        if (!st) continue;
+        const hidden = !!st.hidden;
+        const off = !hidden && !intervalOk(st);
+        const fmt = formatter(st);
+        // Nulls are stripped before the series is set, so a line does not
+        // necessarily reach the bar under the crosshair. Supertrend draws
+        // only the band on the active side; an exact-time lookup is what
+        // keeps the other one's stale number out of the row.
+        const at = time != null ? time
+          : Math.max(-1, ...(a.specs || []).map((s) =>
+              (s.data.length ? s.data[s.data.length - 1].time : -1)));
+        const values = [];
+        let color = null;
+        for (const s of (a.specs || [])) {
+          if (!s.opts || !s.data.length) continue;
+          if (!color) color = s.opts.color;          // the row's own swatch
+          if (!shown(st, s.line) || st.style.statusLine === false) continue;
+          const p = valueAt(s.data, at);
+          if (!p || p.value == null) continue;
+          values.push({ color: s.opts.color, text: fmt(p.value) });
+        }
+        // The pane index is read LIVE, not remembered: removing an oscillator
+        // closes its pane and renumbers everything below it, and a legend box
+        // positioned from the index the indicator was born with then floats
+        // over the wrong chart.
+        let pane = a.pane || 0;
+        try { pane = a.series[0].getPane().paneIndex(); } catch { /* torn down */ }
+        rows.push({
+          id, label: a.def.label, kind: a.def.kind, pane,
+          color: color || Theme.c("legend"), values, hidden, off,
+        });
+      }
+      return rows;
     }
 
-    function refreshOverlayLegend() {
-      if (!overlayLegend) {
-        overlayLegend = makeLegendPrimitive(64);
-        chart.panes()[0].attachPrimitive(overlayLegend);
-      }
-      const lines = [];
-      for (const [, a] of active) if (a.def.kind === "overlay") lines.push(...a.legendLines);
-      overlayLegend.setLines(lines);
-    }
+    /** "Something the legend renders has moved." Add, remove, restyle, a
+     *  refetch and a theme flip all land here; the crosshair does not — that
+     *  is the view's own subscription, and routing it through the manager
+     *  would put a full re-render on every mousemove. */
+    function emitLegend() { if (onLegend) onLegend(); }
 
     async function add(id) {
       if (active.has(id)) return;
       const def = CATALOG.find((c) => c.id === id);
       if (!def) return;
       const st = settings(id);
-      active.set(id, { pending: true, def, series: [], data: [], legendLines: [] });
+      active.set(id, { pending: true, def, series: [], data: [] });
       let lines;
       try {
         lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params, ctx.symbol);
@@ -625,24 +643,17 @@ const Indicators = (() => {
           p.setStretchFactor(base.getStretchFactor() * 0.32);
         }
       }
-      const entry = { series, def, specs, legendLines: legendLines(def, specs, st),
-                      data: specs.map((s) => s.data), raw: lines, pane };
-      if (def.kind === "pane" && series.length) {
-        entry.legend = makeLegendPrimitive(16);
-        series[0].getPane().attachPrimitive(entry.legend);
-        entry.legend.setLines(entry.legendLines);
-      }
-      active.set(id, entry);
-      refreshOverlayLegend();
+      active.set(id, { series, def, specs, data: specs.map((s) => s.data),
+                       raw: lines, pane });
+      emitLegend();
     }
 
     function remove(id) {
       const a = active.get(id);
       if (!a) return;
-      if (a.legend) { try { a.series[0].getPane().detachPrimitive(a.legend); } catch {} }
       (a.series || []).forEach((s) => chart.removeSeries(s));
       active.delete(id);
-      refreshOverlayLegend();
+      emitLegend();
     }
 
     /** Re-apply the STYLE of a live indicator without refetching. Options are
@@ -701,9 +712,7 @@ const Indicators = (() => {
       });
       a.specs = specs;
       a.data = specs.map((s) => s.data);
-      a.legendLines = legendLines(a.def, specs, st);
-      if (a.legend) a.legend.setLines(a.legendLines);
-      refreshOverlayLegend();
+      emitLegend();
     }
 
     /** Refetch one live indicator against its current params, then hand the
@@ -730,7 +739,7 @@ const Indicators = (() => {
         // the new interval's Visibility rule reaches the series either way
         try { await refetch(id); } catch { restyle(id); }
       }
-      refreshOverlayLegend();
+      emitLegend();
     }
 
     /** Light/dark switch: repaint every plot the user has NOT recoloured.
@@ -741,7 +750,7 @@ const Indicators = (() => {
         refreshThemeColors(a.def, settings(id));
         restyle(id);
       }
-      refreshOverlayLegend();
+      emitLegend();
     }
 
     /** Swap a live indicator to a new period: same indicator, new def. The
@@ -851,6 +860,10 @@ const Indicators = (() => {
         return !!(st && b && st.visibility[b] === false);
       },
       setScaleExtras(fn) { scaleExtras = fn; },
+      /** The in-chart legend's two hooks: the rows to draw, and the signal
+       *  that says they moved. One sink per manager — one chart, one legend. */
+      legendRows,
+      setLegendSink(fn) { onLegend = fn; if (fn) fn(); },
       setContext(next) { ctx = { ...ctx, ...next }; },
       get interval() { return ctx.interval; },
       /** The instrument this manager computes on — the page symbol on the

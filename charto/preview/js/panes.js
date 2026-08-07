@@ -33,6 +33,8 @@ const Panes = (() => {
   // instrument from its legend, and everything about it (clock, currency,
   // venue, indicator series) follows that symbol rather than the page's.
   const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "D", "W", "M"];
+  // set by main.js — see onSettings() at the bottom of this file
+  let onSettings = null;
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
   const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
@@ -192,7 +194,9 @@ const Panes = (() => {
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
 
-  const CHART_FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
+  /* Must stay identical to main.js's copy — a sub-pane's axis sits directly
+     under the primary's and any difference reads as a rendering bug. */
+  const CHART_FONT = "'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
   function chartOpts() {
     const P = Theme.palette;
@@ -242,10 +246,12 @@ const Panes = (() => {
        <div class="readout sub-legend">
          <div class="title"></div>
          <div class="row ohlc"></div>
+         <div class="ind-legend empty"></div>
        </div>`;
     const canvas = root.querySelector(".sub-canvas");
     const titleEl = root.querySelector(".sub-legend .title");
     const ohlcEl = root.querySelector(".sub-legend .ohlc");
+    const legendEl = root.querySelector(".sub-legend .ind-legend");
 
     const chart = LWC.createChart(canvas, chartOpts());
     const candle = chart.addSeries(LWC.CandlestickSeries, {
@@ -265,6 +271,18 @@ const Panes = (() => {
     // given. Settings still live in one place per indicator, so an EMA styled
     // in one pane is the same EMA everywhere — only membership is per-pane.
     sub.ind = Indicators.createManager(chart);
+    /* …and so is the legend. A secondary pane wears the same in-chart list
+     * the primary does — name, live value, eye/gear/×/⋯ — reading its OWN
+     * manager. That is the difference the header strip could never draw: one
+     * strip, shared, describing whichever pane happened to hold the
+     * selection. The collapse state is not persisted here: a secondary pane
+     * is created by the layout and dies with it. */
+    sub.legend = IndLegend.create({
+      chart, chartEl: canvas, mgr: sub.ind, stage: root, host: legendEl,
+      openSettings: (id) => { if (onSettings) onSettings(id, sub.ind); },
+      onChange: () => document.dispatchEvent(
+        new CustomEvent("charto:indicators-changed")),
+    });
 
     const fmt = (n) => Sym.of(sub.symbol).num(n);
     function paintLegend(b) {
@@ -276,12 +294,14 @@ const Panes = (() => {
         + `<span class="sep">·</span><span class="ex">${d.venue}</span>`;
       if (!b) { ohlcEl.innerHTML = ""; return; }
       const cls = b.close >= b.open ? "up" : "down";
+      // same per-figure classes the primary legend uses — a phone hides the
+      // same four figures here, or a split would keep the row this width
       ohlcEl.innerHTML =
-        `<span>O <b class="${cls}">${fmt(b.open)}</b></span>` +
-        `<span>H <b class="${cls}">${fmt(b.high)}</b></span>` +
-        `<span>L <b class="${cls}">${fmt(b.low)}</b></span>` +
-        `<span>C <b class="${cls}">${fmt(b.close)}</b></span>` +
-        `<span>V <b class="${cls}">${fmt(b.volume)}</b></span>`;
+        `<span class="ro-o"><i>O</i> <b class="${cls}">${fmt(b.open)}</b></span>` +
+        `<span class="ro-h"><i>H</i> <b class="${cls}">${fmt(b.high)}</b></span>` +
+        `<span class="ro-l"><i>L</i> <b class="${cls}">${fmt(b.low)}</b></span>` +
+        `<span class="ro-c"><i>C</i> <b class="${cls}">${fmt(b.close)}</b></span>` +
+        `<span class="ro-v"><i>V</i> <b class="${cls}">${fmt(b.volume)}</b></span>`;
     }
     chart.subscribeCrosshairMove((p) => {
       if (!p || !p.time) return paintLegend(sub.bars[sub.bars.length - 1]);
@@ -355,6 +375,10 @@ const Panes = (() => {
     };
     sub.destroy = () => {
       sub.destroyed = true;
+      // before the chart goes: the legend holds a sink on the manager and
+      // floating boxes parented to `root`, and a torn-down chart cannot
+      // answer the crosshair subscription still pointed at it
+      try { sub.legend.destroy(); } catch { /* never created */ }
       try { chart.remove(); } catch { /* already gone */ }
       root.remove();
     };
@@ -570,6 +594,12 @@ const Panes = (() => {
 
   return {
     init, apply, LAYOUTS, setActive,
+    /** Where a secondary pane's legend sends a gear click. main.js owns the
+     *  settings dialog (and the signal that follows an edit), so it hands
+     *  down one opener rather than this file growing a second copy of it.
+     *  The pane's OWN manager travels with the call — a gear on pane 2 must
+     *  never edit pane 1's copy of the same indicator. */
+    onSettings(fn) { onSettings = fn; },
     /** the catalogue in menu order, already grouped by pane count */
     groups() {
       const by = new Map();

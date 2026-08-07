@@ -69,7 +69,15 @@ const Store = (() => {
   // "vp" rides with "scene" because it IS scene state: a volume profile is a
   // window over one instrument's own bars. Left unscoped it followed the user
   // from symbol to symbol and drew an uninvited profile on the next chart.
-  const SCOPED = new Set(["chat", "scene", "vp"]);
+  // "chats"/"chatid" are the conversation ARCHIVE and the one that is open —
+  // scoped with "chat" (the single-thread key they replace) for the same
+  // reason: a company's conversations belong to that company.
+  // "draw_collapsed" is scoped for the same reason: the shapes it folds away
+  // belong to one instrument (drawings.js keys its own store per symbol, and
+  // "scene" is scoped right here), so a chart tidied on RELIANCE must not
+  // open TCS with its levels already hidden and no obvious reason why.
+  const SCOPED = new Set(["chat", "chats", "chatid", "scene", "vp",
+                          "draw_collapsed"]);
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
 

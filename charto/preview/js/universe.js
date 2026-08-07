@@ -97,9 +97,9 @@ const Universe = (() => {
     pop.className = "dropdown floating sym-picker open";
     pop.dataset.for = anchor.dataset.pickerId;
     pop.innerHTML =
-      `<input class="pick-search" placeholder="Search instruments…"
-              autocomplete="off" spellcheck="false" />
-       <div class="pick-list"></div>` +
+      Icons.field(`<input class="pick-search" placeholder="Search instruments…"
+              autocomplete="off" spellcheck="false" />`) +
+      `<div class="pick-list"></div>` +
       (note ? `<div class="pick-note">${note}</div>` : "");
     document.body.appendChild(pop);
     popEl = pop;

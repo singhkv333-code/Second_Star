@@ -21,24 +21,85 @@
   // One source for the thread: the wire payload maps out of this, and this is
   // what persists — so a restored conversation and a live one can't diverge.
   // `meta` is display-only (latency, tokens, tools) and never reaches the model.
-  const turns = Store.get("chat", []);   // [{role, content, image?, meta?}]
+  //
+  // Mutated in PLACE, never rebound: every closure below holds this one array,
+  // so opening a past conversation refills it rather than replacing it.
+  const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
     ...(t.image ? { image: t.image } : {}),
     ...(t.drawing ? { drawing: t.drawing } : {}),
   }));
-  // Persist a bounded tail. A long session of table-heavy replies would
-  // otherwise walk into the ~5MB localStorage ceiling, and Store.set swallows
-  // quota errors — so it would stop saving silently rather than loudly.
-  // Screenshots are the heavy part: persist only the NEWEST one (the same
-  // policy the server applies to what the model sees).
-  const KEEP_TURNS = 60;
+
+  /* ── the archive ─────────────────────────────────────────────────────────
+   * A conversation is kept, not overwritten. Starting a new one files the
+   * old one away instead of erasing it, and the history overlay reads that
+   * file back — the same move Claude Code's resume list makes.
+   *
+   * Bounded on both axes, because localStorage is ~5MB and Store.set swallows
+   * a quota error: it would stop saving silently rather than loudly. Per
+   * conversation, the last KEEP_TURNS turns; across the archive, MAX_CHATS
+   * conversations, oldest-touched dropped first. Screenshots are the heavy
+   * part — the OPEN conversation keeps only its newest one (the same policy
+   * the server applies to what the model sees) and a filed one keeps none.
+   */
+  const KEEP_TURNS = 60, MAX_CHATS = 40;
+  const newId = () =>
+    `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const blankChat = () => ({ id: newId(), created: Date.now(), updated: Date.now(), turns: [] });
+
+  let chats = Store.get("chats", null);      // [{id, created, updated, turns}]
+  let activeId = Store.get("chatid", null);
+  if (!Array.isArray(chats)) {
+    // migrate the single-thread key this replaces — an existing conversation
+    // becomes the first record rather than being dropped on upgrade
+    const old = Store.get("chat", []);
+    chats = old.length
+      ? [{ id: newId(), created: Date.now(), updated: Date.now(), turns: old }] : [];
+    Store.del("chat");
+    activeId = chats.length ? chats[0].id : null;
+  }
+  chats = chats.filter((c) => c && c.id && Array.isArray(c.turns));
+  if (!chats.some((c) => c.id === activeId)) activeId = null;
+  if (!activeId) { const c = blankChat(); chats.unshift(c); activeId = c.id; }
+
+  const active = () => chats.find((c) => c.id === activeId) || chats[0];
+  turns.push(...(active().turns || []));
+
+  /** Newest touched first — the order both the archive and the list use. */
+  const byRecent = (a, b) => (b.updated || 0) - (a.updated || 0);
+
+  function persistChats() {
+    const open = active();          // held across the trim: the conversation
+    // A conversation nothing was ever said in is not a record of anything —
+    // a "New conversation" you then walked away from must not leave a row.
+    chats = chats.filter((c) => c.turns.length || c === open);
+    chats.sort(byRecent);           // on screen can never be the one dropped
+    if (chats.length > MAX_CHATS) chats.length = MAX_CHATS;
+    if (!chats.includes(open)) chats.push(open);
+    Store.set("chats", chats.map((c) => {
+      if (c.id !== activeId) {
+        return { ...c, turns: c.turns.map((t) => (t.image ? { ...t, image: undefined } : t)) };
+      }
+      const lastImg = c.turns.map((t) => !!t.image).lastIndexOf(true);
+      return { ...c, turns: c.turns.map((t, i) =>
+        t.image && i !== lastImg ? { ...t, image: undefined } : t) };
+    }));
+    Store.set("chatid", activeId);
+  }
+
   const saveTurns = () => {
-    const tail = turns.slice(-KEEP_TURNS);
-    const lastImg = tail.map((t) => !!t.image).lastIndexOf(true);
-    Store.set("chat", tail.map((t, i) =>
-      t.image && i !== lastImg ? { ...t, image: undefined } : t));
+    const rec = active();
+    rec.turns = turns.slice(-KEEP_TURNS);
+    rec.updated = Date.now();
+    persistChats();
   };
+
+  // Write the archive back at boot rather than waiting for the next message.
+  // A conversation migrated off the old single-thread key exists only in
+  // memory until something is saved, and the old key has just been deleted —
+  // a reload before you next spoke would have lost the thread outright.
+  persistChats();
   let pending = false;
   let ctxOn = true;     // chart-state envelope attached to each message
   let lastBlock = "";   // what the model was actually told, for the inspector
@@ -221,7 +282,113 @@
     if (e) e.remove();
   }
 
-  function addUserTurn(text, image, drawing) {
+  /* ── copy ────────────────────────────────────────────────────────────────
+   * A prompt and a reply are both worth lifting out of the thread, so both
+   * carry the same control — same glyph, same tick, same place under the
+   * turn. The reply's copy has always been there; the prompt's had not, and
+   * re-typing what you asked in order to ask it elsewhere is the kind of
+   * friction that makes a thread feel read-only.
+   *
+   * The Clipboard API needs a secure context. 127.0.0.1 is one, a phone
+   * hitting the dev server on the LAN over plain http is NOT — so the old
+   * textarea path stays as a fallback rather than the button doing nothing
+   * on exactly the device where retyping is worst.
+   */
+  async function toClipboard(text) {
+    if (!text) return false;
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch { /* blocked or insecure context — fall through */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch { return false; }
+  }
+
+  /** A footnote-row control: one glyph, a title, a click. The geometry lives
+   *  in `.turn-meta .act` so a prompt's Retry and a reply's Copy can never
+   *  end up two different sizes. */
+  function actBtn(icon, label, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "act";
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = Icons.svg(icon, "xs");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  /** The copy button used by both kinds of turn. `get` is called at CLICK
+   *  time so a streaming reply copies what it finally said. */
+  function copyBtn(get, label) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "act copy";
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = Icons.svg("copy", "xs");
+    b.addEventListener("click", async () => {
+      if (!(await toClipboard(typeof get === "function" ? get() : get))) return;
+      b.innerHTML = Icons.svg("check", "xs");
+      b.title = "Copied";
+      b.classList.add("done");
+      setTimeout(() => {
+        b.innerHTML = Icons.svg("copy", "xs");
+        b.title = label;
+        b.classList.remove("done");
+      }, 1200);
+    });
+    return b;
+  }
+
+  /* When a prompt was sent. A timestamp on every message is noise in a thread
+   * you are reading, so it lives in the same hover-revealed row as the
+   * actions — "when did I ask this?" only has to be one hover away.
+   *
+   * The DAY, not the clock: this is Pivot's format ("06 Aug"), and it is the
+   * right one. Inside a conversation you are reading top to bottom, the
+   * minute a question was typed answers nothing; which day it was is the
+   * only part you might have lost track of. The full moment stays on the
+   * title, one hover deeper, for the rare time it matters. */
+  function fmtWhen(ts) {
+    try {
+      return new Date(ts).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    } catch { return ""; }
+  }
+
+  /** The prompt's footnote row, exactly as Pivot draws it: when it was sent,
+   *  a Retry that asks the same thing again, and a copy of what you typed.
+   *  Nothing to show for a legacy turn that has neither.
+   *
+   *  Retry SENDS rather than refilling the composer — re-asking is one click
+   *  in Pivot and has to be one here, and it appends a fresh turn rather than
+   *  rewriting the old one, so the thread stays a record of what was asked. */
+  function userMeta(text, ts) {
+    if (!ts && !text) return null;
+    const meta = document.createElement("div");
+    meta.className = "turn-meta";
+    if (ts) {
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = fmtWhen(ts);
+      when.title = new Date(ts).toLocaleString();   // the exact moment, in full
+      meta.appendChild(when);
+    }
+    if (text) {
+      meta.appendChild(actBtn("rotateCw", "Retry", () => send(text)));
+      meta.appendChild(copyBtn(text, "Copy prompt"));
+    }
+    return meta;
+  }
+
+  function addUserTurn(text, image, drawing, ts) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn user";
@@ -248,20 +415,145 @@
       b.appendChild(t);
     }
     turn.appendChild(b);
+    const meta = userMeta(text, ts);
+    if (meta) turn.appendChild(meta);
     msgsEl.appendChild(turn);
     toBottom();
     return turn;
   }
 
-  function addAssistantTurn() {
+  /* ── the wait ────────────────────────────────────────────────────────────
+   *
+   * Pivot's waiting indicator, in Charto's words. A breathing dot labelled
+   * "Thinking…" said only that something was happening — and on a turn that
+   * reads six tools before it writes a word, "something" is the least useful
+   * thing it could say. This is the shape Pivot settled on instead: a
+   * timeline that GROWS, one plain word per step, so the pane accumulates a
+   * record of the work rather than repainting a spinner.
+   *
+   * The words are Charto's, because the work is Charto's: Pivot queries
+   * fundamentals and searches news, this reads a chart. Two sources feed the
+   * list and they are different in kind —
+   *
+   *   · the SCRIPT below is representative. It walks forward on a slow
+   *     cadence and holds on its last line rather than looping, because a
+   *     list that cycles is a spinner with extra steps.
+   *   · a real tool call overrides it with what actually happened. The
+   *     server emits `tool` the moment one lands, so genuine work shows
+   *     through the moment there is genuine work to show.
+   *
+   * Nothing here claims a tool ran that did not. A scripted line names a
+   * KIND of work ("Reading the chart") and never a number, a level or a
+   * result — the same rule the replies themselves are held to.
+   */
+  const STEP_SCRIPT = [
+    { word: "Thinking", detail: "" },
+    { word: "Reading", detail: "the chart" },
+    { word: "Scanning", detail: "price history" },
+    { word: "Measuring", detail: "levels" },
+    { word: "Checking", detail: "indicators" },
+    { word: "Weighing", detail: "the evidence" },
+  ];
+
+  /** A lead word + its supporting words for a tool that actually ran. Keyed
+   *  off the dataserver's own tool names (data/dataserver.py, TOOLS). */
+  function toolStep(name) {
+    const n = String(name || "").toLowerCase();
+    if (/open_chart/.test(n)) return { word: "Opening", detail: "the chart" };
+    if (/draw_shape/.test(n)) return { word: "Drawing", detail: "on the chart" };
+    if (/trendline/.test(n)) return { word: "Fitting", detail: "trendlines" };
+    if (/pattern/.test(n)) return { word: "Scanning", detail: "patterns" };
+    if (/diverg/.test(n)) return { word: "Comparing", detail: "momentum" };
+    if (/gap/.test(n)) return { word: "Finding", detail: "gaps" };
+    if (/level|anchor/.test(n)) return { word: "Measuring", detail: "levels" };
+    if (/volume_profile/.test(n)) return { word: "Building", detail: "the volume profile" };
+    if (/evaluate/.test(n)) return { word: "Testing", detail: "the idea" };
+    if (/plan_position/.test(n)) return { word: "Planning", detail: "the trade" };
+    if (/indicator/.test(n)) return { word: "Computing", detail: "indicators" };
+    if (/bars/.test(n)) return { word: "Reading", detail: "price history" };
+    if (/news|explain_move/.test(n)) return { word: "Searching", detail: "news" };
+    if (/flow|deal/.test(n)) return { word: "Reading", detail: "the flows" };
+    if (/results/.test(n)) return { word: "Reading", detail: "the results" };
+    if (/screen/.test(n)) return { word: "Screening", detail: "the market" };
+    if (/compare|peer/.test(n)) return { word: "Comparing", detail: "peers" };
+    return { word: "Working", detail: "" };
+  }
+
+  /** Mount the indicator into `host` and return its three controls. Owns two
+   *  intervals, so `stop()` is not optional — a turn that finished with them
+   *  still running would tick a counter on an answer that already landed. */
+  function createWait(host) {
+    const t0 = performance.now();
+    host.innerHTML = '<div class="wait-head">'
+      + '<span class="wait-ticker" aria-hidden="true">'
+      + '<span class="wait-bar"></span><span class="wait-bar"></span><span class="wait-bar"></span>'
+      + '</span><span class="wait-secs" aria-live="off">0s</span></div>'
+      + '<div class="wait-steps"></div>';
+    const rows = host.querySelector(".wait-steps");
+    const secs = host.querySelector(".wait-secs");
+    const seen = new Set();
+    let last = null, cursor = 1;
+
+    function push(step) {
+      // never repeat the line already at the bottom — a second "Reading price
+      // history" is a row that says nothing the row above it did not
+      if (last && last.word === step.word && last.detail === step.detail) return;
+      const prev = rows.lastElementChild;
+      if (prev) prev.querySelector(".chat-step-label").classList.remove("shimmer");
+      const row = document.createElement("div");
+      row.className = "chat-step";
+      row.innerHTML = '<span class="chat-step-dot" aria-hidden="true"></span>'
+        + '<span class="chat-step-label shimmer">'
+        + `<span class="chat-step-word">${esc(step.word)}</span>`
+        + (step.detail ? ` ${esc(step.detail)}` : "") + "</span>";
+      rows.appendChild(row);
+      last = step;
+      if (atBottom()) toBottom();
+    }
+    push(STEP_SCRIPT[0]);
+
+    const clock = setInterval(() => {
+      secs.textContent = Math.max(0, Math.round((performance.now() - t0) / 1000)) + "s";
+    }, 250);
+    const walk = setInterval(() => {
+      if (cursor >= STEP_SCRIPT.length) return;   // hold on the last line
+      push(STEP_SCRIPT[cursor++]);
+    }, 2600);
+
+    return {
+      /** A tool landed. Once per tool: a turn that reads three intervals of
+       *  bars did one kind of work, not three. */
+      tool(name) {
+        if (seen.has(name)) return;
+        seen.add(name);
+        push(toolStep(name));
+      },
+      /** The first token of the answer arrived. */
+      writing() { push({ word: "Writing", detail: "the answer" }); },
+      stop() { clearInterval(clock); clearInterval(walk); host.remove(); },
+    };
+  }
+
+  /** An assistant turn. `live` is false when repainting a finished thread —
+   *  the wait belongs to a turn that is being waited FOR, and starting its
+   *  intervals only to stop them a line later is work for nobody. */
+  function addAssistantTurn(live = true) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn assistant";
-    turn.innerHTML =
-      '<div class="prose"><div class="thinking"><span class="pulse"></span>Thinking…</div></div>';
+    turn.innerHTML = (live ? '<div class="wait"></div>' : "") + '<div class="prose"></div>';
+    if (live) turn.__wait = createWait(turn.querySelector(".wait"));
     msgsEl.appendChild(turn);
     toBottom();
     return turn;
+  }
+
+  /** Take the wait down. Idempotent — both the success and the failure path
+   *  call it, and a turn that never had one is not an error. */
+  function endWait(turn) {
+    if (!turn.__wait) return;
+    turn.__wait.stop();
+    turn.__wait = null;
   }
 
   /** Consume the SSE turn, painting the answer as it arrives.
@@ -314,15 +606,15 @@
         if (!line) continue;
         let ev;
         try { ev = JSON.parse(line.slice(5)); } catch { continue; }
-        if (ev.type === "delta") { text += ev.text; paint(); }
-        else if (ev.type === "tool") {
+        if (ev.type === "delta") {
+          if (!text && turn.__wait) turn.__wait.writing();
+          text += ev.text;
+          paint();
+        } else if (ev.type === "tool") {
           tools.push(ev.name);
-          // before the first token there is nothing else to show — say what
-          // is actually happening rather than an indefinite "Thinking…"
-          if (!text) {
-            const t = turn.querySelector(".thinking");
-            if (t) t.innerHTML = `<span class="pulse"></span>${[...new Set(tools)].join(" · ")}`;
-          }
+          // a landed tool is the only progress signal a multi-round turn has —
+          // it becomes its own line on the wait's timeline
+          if (turn.__wait) turn.__wait.tool(ev.name);
         } else if (ev.type === "done") { done = ev; }
       }
     }
@@ -471,25 +763,28 @@
     return out;
   }
 
+  /* Provenance the footer no longer carries. The token count was a number
+   * about the BILL, not about the answer — it sat in the same row as the
+   * latency and the chart actions, both of which say something about what
+   * you just read, and it never did. New turns stop recording it (see
+   * send()); a conversation saved before that still has the string in its
+   * meta, so it is dropped on the way to the screen rather than left to
+   * reappear on every reload of an old thread. */
+  const TOKENS_RE = /^[\d,]+\s*in\s*\/\s*[\d,]+\s*out$/i;
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
   function finishTurn(turn, text, bits, acts) {
+    endWait(turn);
     const prose = turn.querySelector(".prose");
     prose.innerHTML = md(text);
     linkCompanies(prose);
     const meta = document.createElement("div");
     meta.className = "turn-meta";
-    const copy = document.createElement("button");
-    copy.className = "copy"; copy.title = "Copy reply";
-    copy.innerHTML = Icons.svg("copy", "xs");
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(text);
-        copy.innerHTML = Icons.svg("check", "xs");
-        setTimeout(() => { copy.innerHTML = Icons.svg("copy", "xs"); }, 1200);
-      } catch { /* clipboard blocked — nothing useful to say */ }
-    });
+    const copy = copyBtn(text, "Copy reply");
     const label = document.createElement("span");
-    label.textContent = bits.filter(Boolean).join("  ·  ");
+    label.textContent = bits
+      .filter((b) => b && !TOKENS_RE.test(String(b).trim()))
+      .join("  ·  ");
     meta.append(copy, label);
     // The chart-actions disclosure rides in the same row, in the same type —
     // it is provenance, the same as the latency and the token count.
@@ -518,6 +813,7 @@
   }
 
   function failTurn(turn, msg) {
+    endWait(turn);
     turn.classList.add("error");
     turn.querySelector(".prose").textContent = `Couldn't reach the model — ${msg}`;
     toBottom();
@@ -554,33 +850,52 @@
     el("toBottom").classList.toggle("show", !atBottom() && msgsEl.children.length > 0);
   });
 
-  /** Repaint a persisted thread. Same builders as a live turn, so a reloaded
-   *  conversation is pixel-identical to the one that just happened. */
-  (function restoreThread() {
-    if (!turns.length) return;
+  const EMPTY_HTML = '<div class="chat-empty">Ask about what you\'re looking at.'
+    + '<br/><b>The model sees the visible chart.</b></div>';
+
+  /** Paint `turns` from scratch. Same builders as a live turn, so a reloaded
+   *  conversation — or one reopened from the history — is pixel-identical to
+   *  the one that just happened. */
+  function renderThread() {
+    msgsEl.innerHTML = "";
+    if (!turns.length) {
+      msgsEl.innerHTML = EMPTY_HTML;
+      el("toBottom").classList.remove("show");
+      return;
+    }
     for (const t of turns) {
-      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing); continue; }
-      finishTurn(addAssistantTurn(), t.content, t.meta || [], t.acts || []);
+      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts); continue; }
+      finishTurn(addAssistantTurn(false), t.content, t.meta || [], t.acts || []);
     }
     toBottom();
-  })();
+  }
+  if (turns.length) renderThread();
 
   // ── send ──────────────────────────────────────────────
-  async function send() {
-    const text = input.value.trim();
+  /** `again` is a prompt being re-asked from a past turn's Retry. It leaves
+   *  the composer alone — the half-written question sitting in it is not
+   *  what you clicked — and carries no attachment: a screenshot and a tagged
+   *  drawing were pinned for the message they went with, and silently
+   *  re-attaching them to a re-ask would change the question. */
+  async function send(again) {
+    const retry = typeof again === "string";
+    const text = retry ? again.trim() : input.value.trim();
     if ((!text && !pendingImage) || pending) return;
-    const image = pendingImage;
-    const drawing = pendingDraw;
-    setAttachment(null);
-    setDrawTag(null);
-    input.value = "";
-    autoGrow();
+    const image = retry ? null : pendingImage;
+    const drawing = retry ? null : pendingDraw;
+    if (!retry) {
+      setAttachment(null);
+      setDrawTag(null);
+      input.value = "";
+      autoGrow();
+    }
     pending = true;
     sendBtn.disabled = true;
 
-    turns.push({ role: "user", content: text,
+    const ts = Date.now();
+    turns.push({ role: "user", content: text, ts,
                  ...(image ? { image } : {}), ...(drawing ? { drawing } : {}) });
-    addUserTurn(text, image, drawing);
+    addUserTurn(text, image, drawing, ts);
     const turn = addAssistantTurn();
     const t0 = performance.now();
 
@@ -630,12 +945,11 @@
         window.__charto.scene.apply(d.scene_patch);
       }
 
+      // How long it took, and nothing else. The token count used to ride
+      // here too; it is a fact about the bill rather than about the answer,
+      // and the row it sat in is otherwise entirely about what you just read.
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      const u = d.usage || {};
-      const meta = [
-        `${secs}s`,
-        u.input_tokens != null ? `${u.input_tokens.toLocaleString()} in / ${(u.output_tokens ?? 0).toLocaleString()} out` : null,
-      ].filter(Boolean);
+      const meta = [`${secs}s`];
       const acts = chartActions(d.scene_patch);
       turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();
@@ -655,6 +969,7 @@
   sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
   el("plusBtn").innerHTML = Icons.svg("plus", "sm");
   el("ctxPeekClose").innerHTML = Icons.svg("x", "sm");
+  el("histClose").innerHTML = Icons.svg("x", "sm");
 
   function autoGrow() {
     input.style.height = "auto";
@@ -767,7 +1082,13 @@
   const plusMenu = el("plusMenu"), ctxFlag = el("ctxFlag");
 
   function renderPlusMenu() {
+    const n = chats.filter((c) => turnsOf(c).length).length;
     plusMenu.innerHTML = [
+      `<div class="item" data-act="new"><span class="lead">${Icons.svg("plus", "sm")}New conversation</span></div>`,
+      `<div class="item" data-act="history"><span class="lead">${Icons.svg("clock", "sm")}Chat history</span>`,
+      n ? `<span class="menu-count">${n}</span>` : "",
+      `</div>`,
+      `<div class="sep"></div>`,
       `<div class="item ${ctxOn ? "on" : ""}" data-act="ctx">`,
       `<span class="lead">${Icons.svg(ctxOn ? "eye" : "eyeOff", "sm")}Let the model see the chart</span>`,
       ctxOn ? Icons.svg("check", "xs") : "",
@@ -915,9 +1236,177 @@
   });
   Universe.load().then(paintCtxFlag);   // the mark lands after the fetch
 
-  function clearConversation() {
+  /* ── conversation history ────────────────────────────────────────────────
+   *
+   * The overlay is Claude Code's resume list, in this pane: every past
+   * conversation as one row — what it was about, how long it ran, when it
+   * was last touched — and opening one puts it back in the thread.
+   *
+   * The row's TITLE is the first thing you asked, verbatim. A generated
+   * summary would be a second model call and a second thing that can be
+   * wrong; the question you typed is what you will recognise the
+   * conversation by, because it is the reason you started it.
+   *
+   * Nothing here moves the chart. A conversation is a record of what was
+   * said, not a workspace snapshot — reopening one must not silently redraw
+   * levels onto the chart you are looking at now.
+   */
+  const histEl = el("chatHistory"), histList = el("histList"),
+        histSearch = el("histSearch");
+
+  /* The OPEN conversation's record is only written on save, so the list reads
+   * the live array for it — otherwise a row could describe the thread as it
+   * was one message ago, in the one place the reader can see the thread. */
+  const turnsOf = (c) => (c.id === activeId ? turns : (c.turns || []));
+
+  function chatTitle(c) {
+    const rows = turnsOf(c);
+    const first = rows.find((t) => t.role === "user" && t.content);
+    const s = String(first ? first.content : "").replace(/\s+/g, " ").trim();
+    if (s) return s.length > 90 ? s.slice(0, 89) + "…" : s;
+    return rows.some((t) => t.image) ? "Screenshot" : "Empty conversation";
+  }
+
+  /** How long ago, at the coarseness that is actually useful in a list. */
+  function relTime(ts) {
+    const s = Math.max(0, (Date.now() - (ts || 0)) / 1000);
+    if (s < 90) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    if (s < 604800) return `${Math.round(s / 86400)}d ago`;
+    return new Date(ts).toLocaleDateString([], { day: "numeric", month: "short" });
+  }
+
+  function renderHistory() {
+    const q = histSearch.value.trim().toLowerCase();
+    // Search reads the whole conversation, not just its title: you remember a
+    // thread by something that was SAID in it as often as by how it opened.
+    // The conversation you are IN is a row — unless nothing has been said in
+    // it yet, when "Empty conversation · Current" is a line about the screen
+    // you are already looking at.
+    const list = chats
+      .filter((c) => turnsOf(c).length)
+      .filter((c) => !q || chatTitle(c).toLowerCase().includes(q)
+        || turnsOf(c).some((t) => String(t.content || "").toLowerCase().includes(q)))
+      .slice()
+      .sort(byRecent);
+
+    const rows = list.map((c) => {
+      const n = turnsOf(c).length;
+      const sub = [
+        c.id === activeId ? "Current" : "",
+        `${n} message${n === 1 ? "" : "s"}`,
+        relTime(c.updated),
+      ].filter(Boolean).join(" · ");
+      return `<div class="hist-row${c.id === activeId ? " on" : ""}" data-open="${c.id}"`
+        + ` role="button" tabindex="0">`
+        + `<span class="hist-title">${esc(chatTitle(c))}</span>`
+        + `<span class="hist-sub">${sub}</span>`
+        + `<span class="x" data-del="${c.id}" role="button" tabindex="0"`
+        + ` title="Delete this conversation">${Icons.svg("x", "xs")}</span>`
+        + `</div>`;
+    }).join("");
+
+    // An in-flight reply belongs to the conversation that asked for it, so
+    // the list says why it is inert rather than quietly ignoring a click.
+    histList.innerHTML = (pending
+      ? `<div class="hist-note">Waiting for the current reply to finish…</div>` : "")
+      + (rows || `<div class="hist-empty">`
+        + (q ? "Nothing matches that." : "No conversations yet.") + `</div>`);
+  }
+
+  function openHistory() {
+    histSearch.value = "";
+    renderHistory();
+    histEl.classList.add("open");
+    // a phone has no hover and no room to spare — don't summon the keyboard
+    if (!matchMedia("(hover: none)").matches) histSearch.focus();
+  }
+  const closeHistory = () => histEl.classList.remove("open");
+
+  function newConversation() {
+    if (pending) return;
+    closeHistory();
+    if (!turns.length) { input.focus(); return; }   // already a fresh one
+    saveTurns();                                     // file the open one away
+    const c = blankChat();
+    chats.unshift(c);
+    activeId = c.id;
     turns.length = 0;
-    Store.del("chat");
+    persistChats();
+    renderThread();
+    input.focus();
+  }
+
+  function openConversation(id) {
+    if (pending) return;
+    if (id === activeId) { closeHistory(); return; }
+    const rec = chats.find((c) => c.id === id);
+    if (!rec) return;
+    saveTurns();              // flush what is open before leaving it
+    activeId = id;
+    turns.length = 0;
+    turns.push(...(rec.turns || []));
+    persistChats();           // remember which one is open across a reload
+    renderThread();
+    closeHistory();
+  }
+
+  function deleteConversation(id) {
+    if (pending && id === activeId) return;
+    const i = chats.findIndex((c) => c.id === id);
+    if (i < 0) return;
+    chats.splice(i, 1);
+    if (id === activeId) {
+      const c = blankChat();
+      chats.unshift(c);
+      activeId = c.id;
+      turns.length = 0;
+      renderThread();
+    }
+    persistChats();
+    renderHistory();
+  }
+
+  histList.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (del) { e.stopPropagation(); deleteConversation(del.dataset.del); return; }
+    const row = e.target.closest("[data-open]");
+    if (row) openConversation(row.dataset.open);
+  });
+  histList.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const del = e.target.closest("[data-del]");
+    const row = e.target.closest("[data-open]");
+    if (!del && !row) return;
+    e.preventDefault();
+    if (del) deleteConversation(del.dataset.del);
+    else openConversation(row.dataset.open);
+  });
+  histSearch.addEventListener("input", renderHistory);
+  // The field swallows keys so typing "d" in it can't arm a drawing tool —
+  // but Escape has to close the overlay from the one place you are most
+  // likely to press it, so it is handled here rather than left to bubble.
+  histSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeHistory();
+    e.stopPropagation();
+  });
+  el("histClose").addEventListener("click", closeHistory);
+  el("histNew").addEventListener("click", newConversation);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && histEl.classList.contains("open")) closeHistory();
+  });
+
+  /** Erase what is in the thread. The conversation's own record goes with it —
+   *  "clear" has always meant gone, and leaving it in the history under a
+   *  title you just erased would be the opposite of what the word says. */
+  function clearConversation() {
+    if (pending) return;
+    turns.length = 0;
+    const rec = active();
+    rec.turns = [];
+    rec.updated = Date.now();
+    persistChats();
     msgsEl.innerHTML = '<div class="chat-empty">Cleared.<br/><b>Fresh conversation.</b></div>';
     el("toBottom").classList.remove("show");
   }
@@ -939,6 +1428,8 @@
       el("ctxPeekBody").textContent = lastBlock || "Nothing sent yet — ask something first.";
       el("ctxPeek").classList.add("open");
     }
+    if (act === "new") newConversation();
+    if (act === "history") openHistory();
     if (act === "clear") clearConversation();
   });
   // the chip opens the subject menu; the see-the-chart switch is in "+"
@@ -1008,16 +1499,44 @@
     if (stacked()) setChatHeight(r.bottom - e.clientY);
     else setChatWidth(r.right - e.clientX);
   });
-  // the divider has to be draggable by a finger too, or the phone split is
-  // decorative
+  /* The divider has to be draggable by a finger too, or the phone split is
+   * decorative. Two things the mouse path does not need:
+   *
+   *  · the GRAB OFFSET. This used to set the panel straight from the touch
+   *    y, which centres the divider under the finger on the first move —
+   *    invisible on a 1px line, a visible jump now that the phone divider
+   *    is a 20px bar you aim at. Where you took hold of it is where it
+   *    stays.
+   *  · a start and an end. Touch has no hover, so `dragging` is the only
+   *    feedback that the bar is live, and nothing else would ever clear it.
+   */
+  let grab = null;
+  splitter.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const s = splitter.getBoundingClientRect();
+    grab = stacked() ? t.clientY - s.top : t.clientX - s.left;
+    splitter.classList.add("dragging");
+    el("chart").style.pointerEvents = "none";   // as the mouse path does
+    e.preventDefault();
+  }, { passive: false });
   splitter.addEventListener("touchmove", (e) => {
     const t = e.touches[0];
     if (!t) return;
     const r = main.getBoundingClientRect();
-    if (stacked()) setChatHeight(r.bottom - t.clientY);
-    else setChatWidth(r.right - t.clientX);
+    const off = grab === null ? 0 : grab;
+    if (stacked()) setChatHeight(r.bottom - (t.clientY - off) - splitter.offsetHeight);
+    else setChatWidth(r.right - (t.clientX - off) - splitter.offsetWidth);
     e.preventDefault();
   }, { passive: false });
+  const endTouch = () => {
+    if (grab === null) return;
+    grab = null;
+    splitter.classList.remove("dragging");
+    el("chart").style.pointerEvents = "";
+  };
+  splitter.addEventListener("touchend", endTouch);
+  splitter.addEventListener("touchcancel", endTouch);
   window.addEventListener("mouseup", () => {
     if (!dragging) return;
     dragging = false;
@@ -1025,7 +1544,14 @@
     document.body.style.cursor = "";
     el("chart").style.pointerEvents = "";
   });
-  splitter.addEventListener("dblclick", () => setChatWidth(main.clientWidth * 0.44));
+  // Reset. setChatWidth is a no-op when the shell is a COLUMN — it restores
+  // the saved height instead — so a stacked layout has to name its own
+  // default, or the divider's one documented gesture does nothing on the
+  // only layout where the divider is a visible control.
+  splitter.addEventListener("dblclick", () => {
+    if (stacked()) setChatHeight(main.clientHeight * 0.46);
+    else setChatWidth(main.clientWidth * 0.44);
+  });
 
   const chatToggle = el("chatToggle");
   chatToggle.addEventListener("click", () => {

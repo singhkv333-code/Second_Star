@@ -1,7 +1,7 @@
 /* Newsreader carries the `ital` axis so display italics render as true
    italics (the landing-page "That's all" treatment), not synthetic
    obliques. */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -124,9 +124,12 @@
     --font-mono:    'Inter', system-ui, sans-serif;
     --font-ui:      'Inter', system-ui, sans-serif;
     --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
-    /* Numerals — prices, NAVs, P&L, levels all set in the machine face.
-       One token so the numeric voice can be swapped product-wide. */
-    --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    /* Numerals — prices, NAVs, P&L, levels. Inter, like everything else:
+       --font-mono above is already the sans, so a JetBrains Mono here meant
+       two different faces for figures depending on which token a component
+       happened to reach for. Column alignment comes from `tabular-nums`,
+       which Inter carries, not from a second family. */
+    --font-numeric: 'Inter', system-ui, sans-serif;
 
     /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
        the chat greeting ("Good morning, …"). Swap this single value to

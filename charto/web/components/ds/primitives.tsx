@@ -414,6 +414,7 @@ export function Delta({
       className={cn("inline-flex items-center gap-0.5", className)}
       style={{
         fontFamily: "var(--font-numeric)",
+        fontVariantNumeric: "tabular-nums",
         fontWeight: 500,
         fontSize: size,
         letterSpacing: "-0.02em",
@@ -434,9 +435,9 @@ export function Delta({
 }
 
 /**
- * Numeric figure — prices, NAVs, levels. Set in the machine face
- * (--font-numeric → JetBrains Mono): inherently tabular, and it gives
- * every number on the surface the terminal voice.
+ * Numeric figure — prices, NAVs, levels. Set in --font-numeric (Inter, the
+ * app's one face) with tabular figures, so a column of prices still lines up
+ * on the decimal without a second family to load.
  */
 export function Figure({
   size = 15,
@@ -456,6 +457,7 @@ export function Figure({
       className={className}
       style={{
         fontFamily: "var(--font-numeric)",
+        fontVariantNumeric: "tabular-nums",
         fontWeight: weight,
         fontSize: size,
         letterSpacing: "-0.03em",
