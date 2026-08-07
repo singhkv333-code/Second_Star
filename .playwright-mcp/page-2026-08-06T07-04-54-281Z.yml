@@ -1,0 +1,32 @@
+- generic [active] [ref=f8e1]:
+  - banner [ref=f8e2]:
+    - generic [ref=f8e3]: Charto.
+    - generic "Search companies" [ref=f8e5] [cursor=pointer]:
+      - generic [ref=f8e6]: RELIANCE
+      - generic [ref=f8e7]: NSE
+    - button "5m" [ref=f8e10] [cursor=pointer]
+    - button [ref=f8e13] [cursor=pointer]
+    - button "Chart layout" [ref=f8e15] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f8e17] [cursor=pointer]
+    - button "Toggle light / dark" [ref=f8e18] [cursor=pointer]
+    - button [ref=f8e19] [cursor=pointer]
+    - button "Account" [ref=f8e21] [cursor=pointer]
+  - generic [ref=f8e22]:
+    - generic: RELIANCE
+    - toolbar "Panels" [ref=f8e24]
+    - generic "Drag to resize · double-click to reset" [ref=f8e25]
+    - complementary [ref=f8e26]:
+      - generic [ref=f8e27]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f8e31]:
+        - generic [ref=f8e32]:
+          - textbox "Ask about this chart…" [ref=f8e33]
+          - generic [ref=f8e34]:
+            - button "Conversation options" [ref=f8e36] [cursor=pointer]
+            - button "What the conversation is about" [ref=f8e37] [cursor=pointer]
+            - button "Send (Enter)" [ref=f8e38] [cursor=pointer]
+        - generic [ref=f8e39]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f8e40]:
+    - generic [ref=f8e41]: ready
+    - generic [ref=f8e42]: local store · kite 1-min
+    - generic [ref=f8e43]: ·
+    - generic [ref=f8e44]: —

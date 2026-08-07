@@ -1,0 +1,132 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: Charto.
+    - generic "Search companies" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: RELIANCE
+      - generic [ref=e7]: NSE
+    - button "1h" [ref=e10] [cursor=pointer]
+    - button "Indicators" [ref=e13] [cursor=pointer]
+    - button "Undo" [disabled] [ref=e20]
+    - button "Redo" [disabled] [ref=e24]
+    - button "Layout — Single chart" [ref=e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e33] [cursor=pointer]
+    - group "Panels" [ref=e38]:
+      - button "Watchlist" [expanded] [active] [ref=e39] [cursor=pointer]
+      - button "Alerts" [ref=e43] [cursor=pointer]
+    - button "Switch to dark" [ref=e49] [cursor=pointer]
+    - button "Chat" [ref=e52] [cursor=pointer]
+    - button "Sign in to Charto" [ref=e56] [cursor=pointer]
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - button "Cursor / select" [ref=e62] [cursor=pointer]
+      - button "Lines" [ref=e67] [cursor=pointer]
+      - button "Fibonacci" [ref=e73] [cursor=pointer]
+      - button "Shapes" [ref=e76] [cursor=pointer]
+      - button "Measure" [ref=e80] [cursor=pointer]
+      - button "Position" [ref=e88] [cursor=pointer]
+      - button "Annotations" [ref=e93] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e97] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e102] [cursor=pointer]
+      - button "Clear all drawings" [ref=e106] [cursor=pointer]
+    - generic [ref=e111]:
+      - table [ref=e114]:
+        - row [ref=e179]:
+          - cell
+          - cell [ref=e180]
+          - cell [ref=e125]
+        - row [ref=e181]:
+          - cell [ref=e182]
+        - row [ref=e184]:
+          - cell
+          - cell [ref=e185]
+          - cell [ref=e189]
+        - row [ref=e193]:
+          - cell [ref=e194]
+        - row [ref=e196]:
+          - cell
+          - cell [ref=e197]:
+            - link "Charting by TradingView" [ref=e201] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=e206]
+        - row [ref=e129]:
+          - cell
+          - cell [ref=e130]
+          - cell [ref=e134]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e210] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 1h
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic [ref=e211] [cursor=pointer]:
+            - generic [ref=e212]: SMA 20
+            - generic [ref=e213]: ·1,276.94
+          - generic [ref=e214] [cursor=pointer]:
+            - generic [ref=e215]: EMA 21
+            - generic [ref=e216]: ·1,276.85
+          - generic [ref=e217] [cursor=pointer]:
+            - generic [ref=e218]: Supertrend 10 3
+            - generic [ref=e219]: ·1,267.13
+          - button "Hide indicators" [ref=e220] [cursor=pointer]
+      - generic [ref=e223] [cursor=pointer]:
+        - generic [ref=e224]: MACD 12 26 9
+        - generic [ref=e225]: ·-4.84 -4.58
+      - generic [ref=e226] [cursor=pointer]:
+        - generic [ref=e227]: RSI 14
+        - generic [ref=e228]: ·30.70
+    - complementary "Watchlist" [ref=e229]:
+      - generic [ref=e230]:
+        - button "My list" [ref=e231] [cursor=pointer]
+        - button "Add symbol" [ref=e234] [cursor=pointer]
+        - button "Choose columns" [ref=e236] [cursor=pointer]
+        - button "More" [ref=e239] [cursor=pointer]
+      - generic [ref=e244]:
+        - generic [ref=e245]:
+          - generic [ref=e246]: Symbol
+          - generic [ref=e247]: Last
+          - generic [ref=e248]: Chg
+          - generic [ref=e249]: Chg%
+        - button "Indices" [ref=e250] [cursor=pointer]
+        - button "Open NIFTY 50 on the chart" [ref=e254] [cursor=pointer]:
+          - generic "NIFTY 50" [ref=e255]: "N"
+          - generic [ref=e258]: —
+        - button "Open NIFTY BANK on the chart" [ref=e259] [cursor=pointer]:
+          - generic "NIFTY BANK" [ref=e260]: "N"
+          - generic [ref=e263]: —
+        - button "Stocks" [ref=e264] [cursor=pointer]
+        - button "Open RELIANCE on the chart" [ref=e268] [cursor=pointer]:
+          - generic "RELIANCE" [ref=e269]: R
+          - generic [ref=e272]: 1,267.70
+          - generic [ref=e273]: −12.30
+          - generic [ref=e274]: −0.96%
+        - button "Open TCS on the chart" [ref=e275] [cursor=pointer]:
+          - generic "TCS" [ref=e276]: T
+          - generic [ref=e279]: —
+        - button "Open HDFCBANK on the chart" [ref=e280] [cursor=pointer]:
+          - generic "HDFCBANK" [ref=e281]: H
+          - generic [ref=e284]: —
+        - button "Open INFY on the chart" [ref=e285] [cursor=pointer]:
+          - generic "INFY" [ref=e286]: I
+          - generic [ref=e289]: —
+    - generic "Drag to resize · double-click to reset" [ref=e140]
+    - complementary [ref=e141]:
+      - generic [ref=e143]:
+        - generic [ref=e144]:
+          - generic [ref=e145]: old thread
+          - generic [ref=e147]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=e148]: 06 Aug
+            - button "Retry" [ref=e149] [cursor=pointer]
+            - button "Copy prompt" [ref=e153] [cursor=pointer]
+        - generic [ref=e157]:
+          - paragraph [ref=e159]: An answer from before.
+          - generic [ref=e160]:
+            - button "Copy reply" [ref=e161] [cursor=pointer]
+            - generic [ref=e165]: 2.4s
+      - generic [ref=e168]:
+        - textbox "Ask about this chart…" [ref=e169]
+        - generic [ref=e170]:
+          - button "Conversation options" [ref=e172] [cursor=pointer]
+          - button "RELIANCE" [ref=e174] [cursor=pointer]
+          - button "Send (Enter)" [ref=e176] [cursor=pointer]

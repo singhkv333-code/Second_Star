@@ -1,0 +1,52 @@
+- generic [active] [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - generic [ref=f2e3]: Charto.
+  - generic [ref=f2e4]:
+    - generic [ref=f2e6]:
+      - table [ref=f2e9]:
+        - row [ref=f2e10]:
+          - cell
+          - cell [ref=f2e11]:
+            - link "Charting by TradingView" [ref=f2e15] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f2e20]
+        - row [ref=f2e24]:
+          - cell
+          - cell [ref=f2e25]
+          - cell [ref=f2e29]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f2e32] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+      - generic [ref=f2e33]: Loading…
+    - navigation "Chart tools" [ref=f2e35]:
+      - button "RELIANCE" [ref=f2e36] [cursor=pointer]
+      - button "1h" [ref=f2e42] [cursor=pointer]
+      - button "Indicators" [ref=f2e44] [cursor=pointer]
+      - button "Drawings" [ref=f2e48] [cursor=pointer]
+      - button "Watchlist" [ref=f2e52] [cursor=pointer]
+      - button "Alerts" [ref=f2e55] [cursor=pointer]
+      - button "More" [ref=f2e60] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f2e65]
+    - complementary [ref=f2e66]:
+      - generic [ref=f2e68]:
+        - generic [ref=f2e69]:
+          - generic [ref=f2e70]: old thread
+          - generic [ref=f2e72]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=f2e73]: 06 Aug
+            - button "Retry" [ref=f2e74] [cursor=pointer]
+            - button "Copy prompt" [ref=f2e78] [cursor=pointer]
+        - generic [ref=f2e82]:
+          - paragraph [ref=f2e84]: An answer from before.
+          - generic [ref=f2e85]:
+            - button "Copy reply" [ref=f2e86] [cursor=pointer]
+            - generic [ref=f2e90]: 2.4s
+      - generic [ref=f2e93]:
+        - textbox "Ask about this chart…" [ref=f2e94]
+        - generic [ref=f2e95]:
+          - button "Conversation options" [ref=f2e97] [cursor=pointer]
+          - button "The model reads this chart — RELIANCE 5m · click to choose what is in context" [ref=f2e99] [cursor=pointer]
+          - button "Send (Enter)" [ref=f2e100] [cursor=pointer]

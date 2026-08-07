@@ -1,0 +1,170 @@
+- generic [ref=f8e1]:
+  - banner [ref=f8e2]:
+    - generic [ref=f8e3]: Charto.
+    - generic "Search companies" [ref=f8e5] [cursor=pointer]:
+      - generic [ref=f8e6]: RELIANCE
+      - generic [ref=f8e7]: NSE
+    - button "15m" [ref=f8e45] [cursor=pointer]
+    - button "Indicators" [ref=f8e58] [cursor=pointer]
+    - generic [ref=f8e64]: 8 drawn by chat
+    - button "Clear what the chat drew" [ref=f8e65] [cursor=pointer]
+    - generic [ref=f8e14]:
+      - button "Layout — Single chart" [active] [ref=f8e69] [cursor=pointer]
+      - generic [ref=f8e250]:
+        - generic [ref=f8e251]: Layout
+        - generic [ref=f8e252]:
+          - generic [ref=f8e253]: "1"
+          - button "Single chart" [ref=f8e255] [cursor=pointer]
+        - generic [ref=f8e258]:
+          - generic [ref=f8e259]: "2"
+          - generic [ref=f8e260]:
+            - button "Two columns" [ref=f8e261] [cursor=pointer]
+            - button "Two rows" [ref=f8e264] [cursor=pointer]
+        - generic [ref=f8e267]:
+          - generic [ref=f8e268]: "3"
+          - generic [ref=f8e269]:
+            - button "Three columns" [ref=f8e270] [cursor=pointer]
+            - button "Three rows" [ref=f8e273] [cursor=pointer]
+            - button "Left · two right" [ref=f8e276] [cursor=pointer]
+            - button "Two left · right" [ref=f8e279] [cursor=pointer]
+            - button "Two top · bottom" [ref=f8e282] [cursor=pointer]
+            - button "Top · two bottom" [ref=f8e285] [cursor=pointer]
+        - generic [ref=f8e288]:
+          - generic [ref=f8e289]: "4"
+          - generic [ref=f8e290]:
+            - button "2 × 2" [ref=f8e291] [cursor=pointer]
+            - button "Four columns" [ref=f8e294] [cursor=pointer]
+            - button "Four rows" [ref=f8e297] [cursor=pointer]
+            - button "Left · three right" [ref=f8e300] [cursor=pointer]
+            - button "Three left · right" [ref=f8e303] [cursor=pointer]
+            - button "Top · three bottom" [ref=f8e306] [cursor=pointer]
+            - button "Three top · bottom" [ref=f8e309] [cursor=pointer]
+            - button "Three columns · split left" [ref=f8e312] [cursor=pointer]
+            - button "Three columns · split middle" [ref=f8e315] [cursor=pointer]
+            - button "Three columns · split right" [ref=f8e318] [cursor=pointer]
+        - generic [ref=f8e321]:
+          - generic [ref=f8e322]: "5"
+          - generic [ref=f8e323]:
+            - button "Five columns" [ref=f8e324] [cursor=pointer]
+            - button "Five rows" [ref=f8e327] [cursor=pointer]
+            - button "Left · four right" [ref=f8e330] [cursor=pointer]
+            - button "Four left · right" [ref=f8e333] [cursor=pointer]
+            - button "Top · four bottom" [ref=f8e336] [cursor=pointer]
+            - button "Four top · bottom" [ref=f8e339] [cursor=pointer]
+            - button "Two top · three bottom" [ref=f8e342] [cursor=pointer]
+            - button "Three top · two bottom" [ref=f8e345] [cursor=pointer]
+            - button "Left · 2 × 2" [ref=f8e348] [cursor=pointer]
+            - button "2 × 2 · right" [ref=f8e351] [cursor=pointer]
+        - generic [ref=f8e354]:
+          - generic [ref=f8e355]: "6"
+          - generic [ref=f8e356]:
+            - button "2 × 3" [ref=f8e357] [cursor=pointer]
+            - button "3 × 2" [ref=f8e360] [cursor=pointer]
+            - button "Six columns" [ref=f8e363] [cursor=pointer]
+            - button "Six rows" [ref=f8e366] [cursor=pointer]
+            - button "Left · five right" [ref=f8e369] [cursor=pointer]
+            - button "Top · five bottom" [ref=f8e372] [cursor=pointer]
+        - generic [ref=f8e375]:
+          - generic [ref=f8e376]: "7"
+          - generic [ref=f8e377]:
+            - button "2 × 3 · bottom" [ref=f8e378] [cursor=pointer]
+            - button "Seven columns" [ref=f8e381] [cursor=pointer]
+            - button "Left · six right" [ref=f8e384] [cursor=pointer]
+        - generic [ref=f8e387]:
+          - generic [ref=f8e388]: "8"
+          - generic [ref=f8e389]:
+            - button "2 × 4" [ref=f8e390] [cursor=pointer]
+            - button "4 × 2" [ref=f8e393] [cursor=pointer]
+            - button "Eight columns" [ref=f8e396] [cursor=pointer]
+            - button "Eight rows" [ref=f8e399] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f8e17] [cursor=pointer]
+    - button "Switch to dark" [ref=f8e227] [cursor=pointer]
+    - button "Chat" [ref=f8e82] [cursor=pointer]
+    - button "Account — Khushmeet Narwal" [ref=f8e85] [cursor=pointer]: K
+  - generic [ref=f8e22]:
+    - generic [ref=f8e23]:
+      - button "Cursor / select" [ref=f8e86] [cursor=pointer]
+      - button "Lines" [ref=f8e91] [cursor=pointer]
+      - button "Channels" [ref=f8e97] [cursor=pointer]
+      - button "Fibonacci" [ref=f8e103] [cursor=pointer]
+      - button "Shapes" [ref=f8e106] [cursor=pointer]
+      - button "Measure" [ref=f8e110] [cursor=pointer]
+      - button "Position" [ref=f8e118] [cursor=pointer]
+      - button "Annotations" [ref=f8e123] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f8e127] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f8e132] [cursor=pointer]
+      - button "Clear all drawings" [ref=f8e136] [cursor=pointer]
+    - generic [ref=f8e141]:
+      - table [ref=f8e144]:
+        - row "R 1,312.02 · held 4/4 R 1,294.40 · held 3/3 R 1,276.63 · held 2/2 R 1,316.73 · held 2/2 S 1,249.80 · 1 touch falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed" [ref=f8e145]:
+          - cell
+          - cell [ref=f8e146]
+          - cell [ref=f8e150]
+          - generic:
+            - generic [ref=f8e154]: R 1,312.02 · held 4/4
+            - generic [ref=f8e155]: R 1,294.40 · held 3/3
+            - generic [ref=f8e156]: R 1,276.63 · held 2/2
+            - generic [ref=f8e157]: R 1,316.73 · held 2/2
+            - generic [ref=f8e158]: S 1,249.80 · 1 touch
+            - generic [ref=f8e159]: falling wedge · width 2.78 · unresolved
+            - generic [ref=f8e160]: bear flag · pole -6.00 · confirmed
+            - generic [ref=f8e161]: double top · neckline 1,271.00 · confirmed
+        - row [ref=f8e162]:
+          - cell [ref=f8e163]
+        - row [ref=f8e165]:
+          - cell
+          - cell [ref=f8e166]:
+            - link "Charting by TradingView" [ref=f8e230] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f8e175]
+        - row [ref=f8e179]:
+          - cell
+          - cell [ref=f8e180]
+          - cell [ref=f8e184]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f8e187] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 15m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+        - generic:
+          - generic [ref=f8e235] [cursor=pointer]:
+            - generic [ref=f8e236]: SMA 20
+            - generic [ref=f8e237]: ·1,271.97
+          - generic [ref=f8e238] [cursor=pointer]:
+            - generic [ref=f8e239]: EMA 21
+            - generic [ref=f8e240]: ·1,271.88
+          - generic [ref=f8e241] [cursor=pointer]:
+            - generic [ref=f8e242]: Supertrend 10 3
+            - generic [ref=f8e243]: ·1,274.23
+          - button "Hide indicators" [ref=f8e244] [cursor=pointer]
+      - generic [ref=f8e247] [cursor=pointer]:
+        - generic [ref=f8e248]: MACD 12 26 9
+        - generic [ref=f8e249]: ·-2.08 -1.96
+    - toolbar "Panels" [ref=f8e24]:
+      - button "Watchlist" [ref=f8e203] [cursor=pointer]
+      - button "Alerts" [ref=f8e205] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f8e25]
+    - complementary [ref=f8e26]:
+      - generic [ref=f8e27]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f8e31]:
+        - generic [ref=f8e32]:
+          - textbox "Ask about this chart…" [ref=f8e33]
+          - generic [ref=f8e34]:
+            - button "Conversation options" [ref=f8e36] [cursor=pointer]
+            - button "RELIANCE" [ref=f8e210] [cursor=pointer]
+            - button "Send (Enter)" [ref=f8e38] [cursor=pointer]
+        - generic [ref=f8e39]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f8e40]:
+    - generic [ref=f8e41]: "15m: 501 bars in 112ms · last ₹1,267.7"
+    - generic [ref=f8e42]: local store · kite 1-min
+    - generic [ref=f8e43]: ·
+    - generic [ref=f8e44]: 501 × 15m
