@@ -7943,7 +7943,7 @@ def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
     """One layout, spec included, and stamp it as the most recently opened."""
     now = int(time.time())
     with _users_lock:
-        r = _users.execute(f"SELECT {_LAYOUT_COLS}, spec FROM layouts "
+        r = _users.execute(f"SELECT {_LAYOUT_COLS}, spec, thumb FROM layouts "
                            "WHERE user_id=? AND id=?", (uid, lid)).fetchone()
         if not r:
             return 404, {"error": "no such layout"}
@@ -7952,6 +7952,9 @@ def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
         _users.commit()
     out = _layout_row(r)
     out["opened"] = now
+    # presence, not the bytes: the caller is about to draw this layout, not
+    # show a picture of it, and it only needs to know whether to backfill one
+    out["has_thumb"] = bool(r[10])
     try:
         out["spec"] = json.loads(r[9])
     except ValueError:
@@ -8920,6 +8923,23 @@ class Handler(BaseHTTPRequestHandler):
                 if not lid:
                     return 400, {"error": "id required"}
                 return _layout_share(uid, lid, bool(body.get("share")))
+            if "thumb" in body and "spec" not in body:
+                # Picture only. Layouts saved before thumbnails existed have
+                # none, and the client backfills one the first time such a
+                # layout is opened — so it must be impossible for that to
+                # touch the saved workspace. No spec, no symbols, no name.
+                if not lid:
+                    return 400, {"error": "id required"}
+                pic = _clean_thumb(body.get("thumb"))
+                if not pic:
+                    return 400, {"error": "not an inline image"}
+                with _users_lock:
+                    cur = _users.execute("UPDATE layouts SET thumb=? WHERE "
+                                         "user_id=? AND id=?", (pic, uid, lid))
+                    _users.commit()
+                if not cur.rowcount:
+                    return 404, {"error": "no such layout"}
+                return 200, {"id": lid, "thumb": True}
             if "autosave" in body and "spec" not in body:
                 # the toggle on its own — flipping it must not silently write
                 # the current workspace over a layout the user is only arming

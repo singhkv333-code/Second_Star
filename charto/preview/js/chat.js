@@ -1433,8 +1433,14 @@
 
     const rows = list.map((c) => {
       const n = turnsOf(c).length;
+      // Which chart it was about. Conversations are no longer filed per
+      // symbol — one thread can move from RELIANCE to TCS and back, which is
+      // how people actually talk — so the row has to say what it was about
+      // instead of the panel implying it by only showing one company's.
+      const syms = [...new Set(turnsOf(c).map((t) => t.symbol).filter(Boolean))];
       const sub = [
         c.id === activeId ? "Current" : "",
+        syms.slice(0, 2).join(", ") + (syms.length > 2 ? ` +${syms.length - 2}` : ""),
         `${n} message${n === 1 ? "" : "s"}`,
         relTime(c.updated),
       ].filter(Boolean).join(" · ");

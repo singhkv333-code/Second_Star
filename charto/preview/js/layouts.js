@@ -225,6 +225,18 @@ const Layouts = (() => {
       window.Chat.openChat(d.chat_id);
     }
     toast(`Opened “${d.name}”`);
+    // Layouts saved before thumbnails existed have none, and there is no
+    // moment better than this one to make a picture of them: the desk is on
+    // screen because the user just asked for it. Backfilled once, quietly,
+    // through a route that cannot touch the saved workspace — a picture is
+    // never worth the risk of rewriting the thing it is a picture of.
+    if (!d.has_thumb) {
+      setTimeout(() => {
+        const pic = thumbnail();
+        if (!pic || !cur || cur.id !== d.id) return;
+        call("/layouts", { id: d.id, thumb: pic }).catch(() => {});
+      }, 1400);   // after the restore has settled and the chart has painted
+    }
   }
 
   async function createNew() {
