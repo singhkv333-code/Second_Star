@@ -287,12 +287,25 @@ def discover(symbols_nse: list[str], bse: list[tuple[str, str]], per_symbol: int
     rows: list[tuple] = []
     op_bse = FF.bse_op() if bse else None
 
+    def _ts(v):
+        """BSE prints '-' where it has no date, and Postgres refuses it.
+
+        The whole discovery aborted on one such row, mid-insert — five sample
+        companies had never produced one. A missing date is NULL, not an error,
+        and it must never be able to cost 4,500 other companies their place in
+        the queue.
+        """
+        if not v or not isinstance(v, str):
+            return v or None
+        v = v.strip()
+        return v if re.search(r"\d{4}", v) else None
+
     def add(sym, ex, kind, items):
         for it in items:
             u = FF.clean_url(it.get("url"))
             if u:
                 rows.append((u, sym, ex, kind, (it.get("title") or "")[:400],
-                             it.get("period"), it.get("filed_at")))
+                             (it.get("period") or None), _ts(it.get("filed_at"))))
 
     lock = threading.Lock()
 
@@ -320,12 +333,29 @@ def discover(symbols_nse: list[str], bse: list[tuple[str, str]], per_symbol: int
     # statement over an RTT-bound link, and a failure loses all of it.
     n = 0
     for i in range(0, len(rows), 500):
-        with connect() as c, c.cursor() as cur:
-            psycopg2.extras.execute_values(cur, """
-                INSERT INTO filings.queue
-                    (url,symbol,exchange,doc_kind,title,period,filed_at)
-                VALUES %s ON CONFLICT (url) DO NOTHING""", rows[i:i + 500])
-            n += cur.rowcount
+        chunk = rows[i:i + 500]
+        try:
+            with connect() as c, c.cursor() as cur:
+                psycopg2.extras.execute_values(cur, """
+                    INSERT INTO filings.queue
+                        (url,symbol,exchange,doc_kind,title,period,filed_at)
+                    VALUES %s ON CONFLICT (url) DO NOTHING""", chunk)
+                n += cur.rowcount
+        except Exception as exc:  # noqa: BLE001
+            # One malformed row must cost its own chunk at most. Retry the
+            # chunk row-by-row so the other 499 still land, and name the ones
+            # that do not rather than losing them silently.
+            print(f"  chunk {i} failed ({type(exc).__name__}) — retrying singly")
+            for r in chunk:
+                try:
+                    with connect() as c, c.cursor() as cur:
+                        cur.execute("INSERT INTO filings.queue (url,symbol,"
+                                    "exchange,doc_kind,title,period,filed_at) "
+                                    "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                                    "ON CONFLICT (url) DO NOTHING", r)
+                        n += cur.rowcount
+                except Exception as e2:  # noqa: BLE001
+                    print(f"    dropped {r[1]} {r[0][:70]}: {e2}")
     return n
 
 
