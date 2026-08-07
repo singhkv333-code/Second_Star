@@ -272,9 +272,17 @@ const Geo = (() => {
         ctx.stroke();
         break;
       case "vband":
-        ctx.globalAlpha = s.fillAlpha ?? 0.10;
+        // the primitive's own alpha wins, like its own colour does — a strip
+        // the chat drew to shade a session needs more fill and less edge than
+        // one the user dragged out to measure a date range
+        ctx.globalAlpha = prim.fillAlpha ?? s.fillAlpha ?? 0.10;
         ctx.fillRect(px.left, 0, Math.max(2, px.right - px.left), env.h);
         ctx.globalAlpha = 1;
+        // A REGION is its area, not its boundary. The user's own date-range
+        // tool keeps its edges — they are the two handles it is dragged by —
+        // but a dozen shaded sessions with hard edges reads as a picket
+        // fence, and the fence is louder than the price it is drawn over.
+        if (prim.stroke === false) break;
         ctx.beginPath();
         ctx.moveTo(px.left, 0); ctx.lineTo(px.left, env.h);
         ctx.moveTo(px.right, 0); ctx.lineTo(px.right, env.h);

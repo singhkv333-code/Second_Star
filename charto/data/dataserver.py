@@ -40,6 +40,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import indicators   # sibling module: the indicator registry
+import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
@@ -232,17 +233,29 @@ def _scene_add(annotation: dict) -> None:
     # turn would otherwise report "exactly these are drawn" while three more
     # from the first call are still sitting on screen.
     kind = annotation.get("kind")
-    if kind in ("level", "zone", "segment", "vprofile"):
+    # Every kind that puts a visible mark on the chart, not just the four the
+    # detectors happened to emit. A ledger that says "describe these and only
+    # these" while silently omitting the boxes, bands and vlines in the same
+    # call is worse than no ledger: it instructs the model to under-report.
+    if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
+                "vband", "poly", "point", "candle", "label", "markers"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
 
 
 def _drawn_ledger() -> str:
-    led = getattr(_scene, "drawn", None) or []
+    led = [x for x in (getattr(_scene, "drawn", None) or []) if x]
     if not led:
         return ""
-    return ("Everything now on the user's chart: " + "; ".join(led)
+    # One repeated shape is ONE thing to the user — "the first hour of each
+    # of the last five sessions", not five entries. Collapsing here keeps a
+    # session map from filling the ledger with its own copies.
+    seen: dict[str, int] = {}
+    for x in led:
+        seen[x] = seen.get(x, 0) + 1
+    names = [f"{k} (×{n})" if n > 1 else k for k, n in seen.items()]
+    return ("Everything now on the user's chart: " + "; ".join(names)
             + ". Describe these and only these as drawn — anything you drew "
               "earlier in this turn is still there, so include it.")
 
@@ -1628,6 +1641,62 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
             "whenever the user's question was about validity rather than "
             "placement.")
     return out
+
+
+def tool_mark(shapes: list | None = None, interval: str = "1d",
+              lookback_bars: int = 300, pane: str = "price",
+              draw_mode: str = "add") -> dict:
+    """Draw anything, addressed rather than detected.
+
+    draw_shape can only compose points a DETECTOR produced. That covers
+    structure and nothing else — there is no detector for "the first hour of
+    every session", for the day a result landed, for 1,300, for the stretch
+    between two dates. Those are things the model legitimately knows and
+    could not say.
+
+    This is the general capability: the model writes an address, `mark.py`
+    resolves it against the real bars, and every shape the chart can render
+    becomes reachable without a tool per idea. See mark.py for the address
+    grammar — the one rule that matters here is that no coordinate arrives
+    ready-made, so a magnitude slip is caught rather than drawn.
+    """
+    if str(draw_mode or "add").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "all", "owner": "mark"})
+        return {"cleared": True,
+                "_note": "Every mark is removed. Other tools' drawings stay."}
+    if not shapes:
+        return {"error": "no shapes given",
+                "_note": "Pass shapes:[{shape, at|from|to, label}]."}
+
+    rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    out = mark.build(shapes, rows, {"tz_off": _tz_off(),
+                                    "parse_time": _parse_ist, "fmt_time": _ist},
+                     pane=str(pane or "price"))
+    for item in out["items"]:
+        _scene_add(item)
+
+    res: dict = {"drawn": out["report"], "interval": interval,
+                 "window": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} {_tzl()}"}
+    if out["errors"]:
+        res["not_drawn"] = out["errors"]
+    if not out["items"]:
+        res["_note"] = ("Nothing was drawn. Read not_drawn, fix the address, "
+                        "and say plainly what could not be placed.")
+        return res
+    # The provenance line. These marks came from the conversation, not from a
+    # detector — so they are placements, and a placement has no record.
+    res["_note"] = (
+        "Drawn. Every coordinate above is what actually landed on the chart, "
+        "resolved from your address against the real bars — quote these, not "
+        "what you asked for, and name what each mark is FOR. These are marks "
+        "you placed, not structure anything detected: never attach a hit rate, "
+        "a hold record or a strength to them."
+        + (" Some shapes failed — read not_drawn and say which."
+           if out["errors"] else ""))
+    res["ledger"] = _drawn_ledger()
+    return res
 
 
 def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
@@ -6368,6 +6437,68 @@ TOOLS = [
          "draw_mode": {"type": "string", "enum": ["add", "clear"],
                        "description": "'clear' removes every shape previously drawn via draw_shape (other tools' drawings stay) — anchor_ids may be empty then"}},
          "required": ["shape", "anchor_ids", "interval"]}},
+    {"type": "function", "name": "mark",
+     "description": (
+         "Draw ANYTHING by describing where, for everything no detector "
+         "produces: session structure ('shade the first hour of every day', "
+         "'line at each open'), a moment the conversation located ('the day "
+         "the results landed'), a plain number ('a line at 1300'), a stretch "
+         "of time ('shade June'), a note pinned to a point, a forward "
+         "projection. draw_shape composes DETECTED anchors; this is for "
+         "everything else, and you choose the shape that says it most "
+         "precisely. You still never type a coordinate — you write an ADDRESS "
+         "and it is resolved against the real bars.\n"
+         "ADDRESS = '<time>' | '<price>' | '<time> @ <price>'.\n"
+         "  time: '08 Jul 2026 15:25' | '2026-07-08' | '09:15' (time of day) "
+         "| open | close (that day's first/last bar) | first | last | '-20' "
+         "(20 bars back) | '+10' (10 bars forward, into blank chart) | '+1h' "
+         "/ '+30m' / '+2d' (a duration from the address before it, so the "
+         "opening hour is from 'open' to '+1h')\n"
+         "  price: 1300 (a literal — refused if far off the loaded range) | "
+         "high | low | open | close | mid | '+2%' | '-1.5%'\n"
+         "What high/low/mid mean follows the shape: a BOX reads both corners "
+         "off the bars between its two times, so from '09:15 @ high' to "
+         "'10:15 @ low' is the opening range; a LINE (segment/ray/poly) reads "
+         "each point off its own bar, so from '-120 @ low' to '-40 @ low' is "
+         "a trendline through two swing lows; a full-width shape (hline/band) "
+         "reads the whole session or window.\n"
+         "repeat='session' resolves the shape once per trading day — that is "
+         "how you mark every session's open, first hour or close in ONE call "
+         "instead of listing dates.\n"
+         "SHAPES, pick by what you mean: hline (a value across the chart) · "
+         "band (a price zone) · vline (a moment) · vband (a stretch of TIME, "
+         "full height — the shape for sessions, a date range, an event "
+         "window) · segment (two points) · ray (extended right) · box (a "
+         "region in time AND price) · poly (3+ points) · dot (pin one point) "
+         "· candle (a dot above one bar — 'that bar') · note (a text chip at "
+         "a point) · marker (an arrow or circle ON a bar)."),
+     "parameters": {"type": "object", "properties": {
+         "shapes": {"type": "array", "description": "several shapes in one call — always batch",
+                    "items": {"type": "object", "properties": {
+                        "shape": {"type": "string",
+                                  "enum": ["hline", "band", "vline", "vband",
+                                           "segment", "ray", "box", "poly",
+                                           "dot", "candle", "note", "marker"]},
+                        "at": {"type": "string", "description": "address, for a one-point shape"},
+                        "from": {"type": "string", "description": "first address of a two-point shape"},
+                        "to": {"type": "string", "description": "second address"},
+                        "points": {"type": "array", "items": {"type": "string"},
+                                   "description": "3+ addresses, for poly"},
+                        "label": {"type": "string", "description": "short caption — and the text of a note/marker"},
+                        "role": {"type": "string", "enum": ["support", "resistance", "neutral"],
+                                 "description": "colour only: amber above, cyan below, violet otherwise"},
+                        "repeat": {"type": "string", "enum": ["none", "session", "week"],
+                                   "description": "resolve this shape once per trading day / week"},
+                        "sessions": {"type": "integer",
+                                     "description": "how many recent repeats, default 5, max 30"}},
+                        "required": ["shape"]}},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"],
+                      "description": "the timeframe the addresses are resolved on — match the chart"},
+         "lookback_bars": {"type": "integer", "description": "default 300; must reach any date you address"},
+         "pane": {"type": "string", "description": "'price', or an indicator id like 'rsi' (a literal there is an indicator value, not a price)"},
+         "draw_mode": {"type": "string", "enum": ["add", "clear"],
+                       "description": "'clear' removes every mark this tool drew; shapes may be empty"}},
+         "required": ["shapes", "interval"]}},
     {"type": "function", "name": "evaluate_line",
      "description": "Score a line the USER drew: how many swings touched it, how many held vs broke, where it projects now. Use whenever the user asks whether their own trendline is any good, or what its record is. ALWAYS pass drawing_id when the line is one the user drew — the chart context lists every drawing with its ref, and referencing it is checked whereas copying coordinates is not. The message may also name the drawing the user tagged; that ref is the subject. Endpoints are for a line the user described but has not drawn.",
      "parameters": {"type": "object", "properties": {
@@ -6696,6 +6827,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_anchors": tool_get_anchors,
              "get_gaps": tool_get_gaps,
              "draw_shape": tool_draw_shape,
+             "mark": tool_mark,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
@@ -6726,7 +6858,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
 # others by calling the same tools again, and composes the answer itself.
 #
 # Two exclusions, and both are about honesty rather than plumbing:
-#   · the tools that DRAW (draw_shape, plan_position) or score a shape the user
+#   · the tools that DRAW (draw_shape, mark, plan_position) or score a shape the user
 #     drew (evaluate_*) act on the chart the drawings actually live on. Aiming
 #     them elsewhere would compute against one instrument and draw on another.
 #   · get_peers / compare_symbols / screen_universe already name their own
@@ -6762,8 +6894,9 @@ def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
-    # draw_shape / plan_position exist only to draw — the whole call is ink.
-    if name in ("draw_shape", "plan_position") and not getattr(_req, "drawable", True):
+    # draw_shape / mark / plan_position exist only to draw — the whole call
+    # is ink, so there is no version of them that a reference pane can serve.
+    if name in ("draw_shape", "mark", "plan_position") and not getattr(_req, "drawable", True):
         return {"error": "this chart cannot be drawn on",
                 "_note": ("The selected pane is a reference chart; only the "
                           "main chart carries drawings. Give the geometry in "

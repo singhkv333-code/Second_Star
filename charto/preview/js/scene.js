@@ -223,6 +223,27 @@ const Scene = (() => {
     const mine = (a, key) =>
       String(a.pane || "price").split("@")[0] === (key || "price");
 
+    /** A segment's anchor pixels, and the two points it is actually STROKED
+     *  between — different the moment it extends.
+     *
+     *  `extend:"right"` has been in the data since draw_shape learned to
+     *  draw a ray, and this renderer ignored it: every ray stopped dead at
+     *  its second anchor, so the one property that makes it a ray was
+     *  invisible. Clipping is parametric, so a vertical needs no special
+     *  case. The LABEL still hangs off the anchors — a ray's midpoint after
+     *  clipping is somewhere off in blank chart. */
+    function segPx(a, w, h) {
+      const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
+      const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
+      if ([x1, x2, y1, y2].some((q) => q === null)) return null;
+      const draw = (a.extend && a.extend !== "none")
+        ? (Geo.clipToRect(x1, y1, x2, y2, w, h,
+                          a.extend === "right" ? 0 : -1e9, 1e9)
+           || [[x1, y1], [x2, y2]])
+        : [[x1, y1], [x2, y2]];
+      return { a: [x1, y1], b: [x2, y2], draw };
+    }
+
     /* Annotation kinds that are plain geometry — composed by draw_shape from
      * resolved anchors rather than produced by a detector. They render and
      * hit-test through the same algebra as the user's own drawings, so the
@@ -234,6 +255,17 @@ const Scene = (() => {
       box: (a) => [Geo.box(a.a, a.b, { fill: true })],
       vline: (a) => [Geo.vline(a.t)],
       point: (a) => [Geo.point(a.a)],
+      // A stretch of TIME, full height. The primitive existed for the user's
+      // own date-range tool and the scene simply never exposed it, so the
+      // chat could mark a moment but not a span — and a span is what a
+      // session, an event window or a month actually is. A box faked it only
+      // by inventing price bounds it had no business asserting.
+      vband: (a) => [Geo.vband(a.t1, a.t2, { fillAlpha: 0.16, stroke: false })],
+      // Text pinned to a point, with no shape under it. Every other
+      // annotation's label describes the geometry it belongs to; this one IS
+      // the annotation — "results" on the day, and nothing implied about
+      // price there.
+      label: (a) => [Geo.label(a.a, a.text || a.label || "")],
       // fill/solid/stroke let a detector compose TradingView-style pattern
       // geometry: a solid outline through the defining swings plus a
       // stroke-less fill polygon, without double-drawing any edge
@@ -319,10 +351,11 @@ const Scene = (() => {
           const y1 = vToY(a.hi, a.pane), y2 = vToY(a.lo, a.pane);
           if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
         } else if (a.kind === "segment" && x != null) {
-          const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
-          const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
-          if ([x1, x2, y1, y2].every((q) => q !== null)
-              && distSeg(x, y, x1, y1, x2, y2) < HIT) return a;
+          // the DRAWN line answers, not the anchor pair — a ray you can see
+          // but cannot point at is a ray that reads as dead
+          const s = segPx(a, plotW(), env.container.clientHeight);
+          if (s && distSeg(x, y, s.draw[0][0], s.draw[0][1],
+                           s.draw[1][0], s.draw[1][1]) < HIT) return a;
         } else if (a.kind === "candle" && x != null) {
           // the dot answers, the bar under it does not — otherwise a mark
           // would swallow every click on the candle it is pointing at
@@ -532,11 +565,14 @@ const Scene = (() => {
                  m.cy - MARK_DOT - 3, col);
           }
         } else if (a.kind === "segment") {
-          const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
-          const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
-          if ([x1, x2, y1, y2].some((q) => q === null)) continue;
+          const s = segPx(a, w, h);
+          if (!s) continue;
+          const [x1, y1] = s.a, [x2, y2] = s.b;
           ctx.setLineDash(a.dashed ? [7, 4] : []);
-          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(s.draw[0][0], s.draw[0][1]);
+          ctx.lineTo(s.draw[1][0], s.draw[1][1]);
+          ctx.stroke();
           ctx.setLineDash([]);
           // No anchor dots. A segment already ENDS at the swing it was fitted
           // to — where the stroke stops is the claim — so a filled circle
@@ -679,6 +715,7 @@ const Scene = (() => {
         return y1 === null || y2 === null ? null : (y1 + y2) / 2;
       }
       if (a.kind === "vprofile") return vToY(a.poc, a.pane);
+      if (a.kind === "label" || a.kind === "point") return vToY(a.a.v, a.pane);
       if (a.kind === "candle") {
         const m = markDot(a);
         return m ? m.cy : null;
@@ -739,7 +776,8 @@ const Scene = (() => {
         case "segment": case "fib": mv(a.p1, o.p1); mv(a.p2, o.p2); break;
         case "box": mv(a.a, o.a); mv(a.b, o.b); break;
         case "vline": a.t = o.t + dt; break;
-        case "point": mv(a.a, o.a); break;
+        case "vband": a.t1 = o.t1 + dt; a.t2 = o.t2 + dt; break;
+        case "point": case "label": mv(a.a, o.a); break;
         case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
         case "position":
           if (h && h.k === "entry") a.entry = r2(o.entry + dv);
@@ -823,7 +861,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile", "candle"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "markers", "position", "vprofile", "candle", "label"]);
 
     return {
       state,
