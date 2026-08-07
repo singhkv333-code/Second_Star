@@ -408,7 +408,9 @@ def index_nse(symbol, index, quarters):
     out = []
     for r in (j or []):
         u = (r.get("xbrl") or "").strip()
-        if not u:
+        # NSE writes a bare '-' when it has no document, which is truthy and
+        # queues a URL ending in '/-' that can only ever 404.
+        if not u.lower().startswith("http"):
             continue
         d = None
         try:
@@ -532,6 +534,27 @@ def store(conn, job, doc, raw):
     enc, shares = pr.get("enc_total"), pr.get("shares")
     labels = any(h.get("promoter_type") for h in doc["holders"])
 
+    total = whole.get("shares")
+    prom_pct, pub_pct = pr.get("pct"), pu.get("pct")
+    npnp_pct = np_.get("pct")
+
+    # Filers routinely report the non-promoter-non-public SHARE COUNT and
+    # leave its percentage blank — Ion Exchange Mar-2026 files 23,736,140
+    # such shares with no pct. Fill it from the RESIDUAL, not from
+    # shares/total: those shares (GDRs, ESOP trusts) are usually also counted
+    # inside public, so shares/total double-counts. Axis Bank Mar-2025 files
+    # promoter 8.18 + public 91.82 = 100 alongside GDR shares worth 3.33% of
+    # capital; the residual correctly says 0, shares/total says 3.33.
+    if npnp_pct is None and np_.get("shares") and prom_pct is not None \
+            and pub_pct is not None:
+        npnp_pct = max(0.0, 100.0 - prom_pct - pub_pct)
+
+    # pct_sum stays a sum of what was actually FILED, with no derivation, so
+    # it keeps working as an audit handle: it is the answer to "did this
+    # filer's own categories add up", not a restatement of our arithmetic.
+    pct_sum = ((pr.get("pct") or 0) + (pu.get("pct") or 0)
+               + (np_.get("pct") or 0))
+
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO shp.filings
@@ -542,26 +565,49 @@ def store(conn, job, doc, raw):
            has_promoter_labels,n_categories,n_holders,n_sbo,meta)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                 %s,%s,%s,%s,%s,%s)
+        -- EVERY column, or the row becomes a composite of two documents: a
+        -- revision would land its url and filed_at while an earlier partial
+        -- parse kept its pct_sum (Venky's Jun-2026 stored 56.11 + 43.89 with
+        -- a pct_sum of 0). And a filer may revise a quarter weeks later, so
+        -- only a NEWER document may overwrite — otherwise which of the two
+        -- survives depends on which worker happened to finish last.
         ON CONFLICT (isin,quarter_end,source) DO UPDATE SET
-          url=EXCLUDED.url, sha256=EXCLUDED.sha256, meta=EXCLUDED.meta,
+          scripcode=EXCLUDED.scripcode, symbol=EXCLUDED.symbol,
+          company_name=EXCLUDED.company_name, filed_at=EXCLUDED.filed_at,
+          taxonomy=EXCLUDED.taxonomy, url=EXCLUDED.url, sha256=EXCLUDED.sha256,
+          total_shares=EXCLUDED.total_shares,
           promoter_pct=EXCLUDED.promoter_pct, public_pct=EXCLUDED.public_pct,
+          npnp_pct=EXCLUDED.npnp_pct, pct_sum=EXCLUDED.pct_sum,
+          promoter_shares=EXCLUDED.promoter_shares,
           promoter_encumbered=EXCLUDED.promoter_encumbered,
           promoter_encumbered_pct=EXCLUDED.promoter_encumbered_pct,
+          promoter_pledged=EXCLUDED.promoter_pledged,
+          promoter_ndu=EXCLUDED.promoter_ndu,
+          promoter_other_enc=EXCLUDED.promoter_other_enc,
           has_promoter_labels=EXCLUDED.has_promoter_labels,
-          n_holders=EXCLUDED.n_holders, n_sbo=EXCLUDED.n_sbo
+          n_categories=EXCLUDED.n_categories, n_holders=EXCLUDED.n_holders,
+          n_sbo=EXCLUDED.n_sbo, meta=EXCLUDED.meta
+        WHERE shp.filings.url = EXCLUDED.url
+           OR (EXCLUDED.filed_at IS NOT NULL
+               AND (shp.filings.filed_at IS NULL
+                    OR EXCLUDED.filed_at >= shp.filings.filed_at))
         RETURNING id
     """, (isin, code or m.get("scripcode"), sym or m.get("symbol"),
           m.get("company_name"), qend, filed, m.get("taxonomy"), route, url,
           hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest(),
-          whole.get("shares") or m.get("total_shares"),
-          pr.get("pct"), pu.get("pct"), np_.get("pct"),
-          (pr.get("pct") or 0) + (pu.get("pct") or 0) + (np_.get("pct") or 0),
+          total or m.get("total_shares"),
+          prom_pct, pub_pct, npnp_pct, pct_sum,
           shares, enc,
           (100.0 * enc / shares) if (enc and shares) else None,
           pr.get("enc_pledged"), pr.get("enc_ndu"), pr.get("enc_other"),
           labels, len(doc["categories"]), len(doc["holders"]),
           len(doc["sbo"]), Json(m)))
-    fid = cur.fetchone()[0]
+    got = cur.fetchone()
+    if got is None:
+        # A newer revision of this quarter is already stored. Leaving its
+        # child rows untouched is the whole point of the guard.
+        return None
+    fid = got[0]
 
     cur.execute("DELETE FROM shp.category WHERE filing_id=%s", (fid,))
     cur.execute("DELETE FROM shp.holder   WHERE filing_id=%s", (fid,))
