@@ -2827,3 +2827,237 @@ export function fetchSecurityMeta(
     body: { symbols },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Stock detail — deep sections (/api/stock/{symbol}/*)
+//
+// Everything below the fold on the stock page: quarters, annual-report facts,
+// segment mixes, ownership, documents. Served by backend/routers/stock_detail.py
+// across three databases.
+//
+// `getStockSections` comes first and decides the rest: coverage for these
+// assets runs from 99% of the universe down to 12%, so the page asks what a
+// symbol HAS before it renders a single panel. A section with a zero count is
+// not drawn at all — an empty panel reads as a broken page, not as absent data.
+// ---------------------------------------------------------------------------
+
+export type SectionCoverage = {
+  quarters: { count: number; latest: string | null; bases: number };
+  annual_report: {
+    count: number; tasks: number; documents: number; latest_period: string | null;
+  };
+  revenue_mix: { count: number; market_share?: number };
+  ownership: { count: number };
+  documents: { count: number };
+};
+
+export type StockSections = {
+  symbol: string;
+  isin: string | null;
+  sc_id: string | null;
+  name: string | null;
+  bse_scripcode: string | null;
+  coverage: SectionCoverage;
+};
+
+export function getStockSections(symbol: string): Promise<ApiResult<StockSections>> {
+  return request<StockSections>(`/stock/${encodeURIComponent(symbol)}/sections`);
+}
+
+/** One row of `quarterly_metrics`. Every field is PRECOMPUTED in the database —
+ *  margins, YoY, QoQ and TTM included — so nothing here is derived on the
+ *  client. Deriving it twice is how two parts of a product end up quoting
+ *  different numbers for the same quarter. Nulls are common and real:
+ *  operating_margin_pct is filled for ~59% of recent rows, EBITDA ~64%. */
+export type QuarterRow = {
+  period_end: string;
+  period_label: string | null;
+  basis: string;
+  revenue: number | null;
+  total_income: number | null;
+  other_income: number | null;
+  ebitda: number | null;
+  ebit: number | null;
+  depreciation: number | null;
+  interest: number | null;
+  employee_cost: number | null;
+  raw_material: number | null;
+  other_expenses: number | null;
+  provisions: number | null;
+  exceptional: number | null;
+  pbt: number | null;
+  tax: number | null;
+  net_profit: number | null;
+  eps_basic: number | null;
+  eps_diluted: number | null;
+  operating_margin_pct: number | null;
+  ebitda_margin_pct: number | null;
+  net_margin_pct: number | null;
+  pbt_margin_pct: number | null;
+  tax_rate_pct: number | null;
+  interest_coverage: number | null;
+  revenue_yoy_pct: number | null;
+  net_profit_yoy_pct: number | null;
+  ebitda_yoy_pct: number | null;
+  revenue_qoq_pct: number | null;
+  net_profit_qoq_pct: number | null;
+  operating_margin_yoy_bps: number | null;
+  net_margin_yoy_bps: number | null;
+  rev_ttm: number | null;
+  np_ttm: number | null;
+  eps_ttm: number | null;
+  rev_ttm_yoy_pct: number | null;
+  np_ttm_yoy_pct: number | null;
+  gross_npa_pct: number | null;
+  net_npa_pct: number | null;
+  roa_pct: number | null;
+};
+
+export type QuartersResponse = {
+  symbol: string;
+  basis: string;
+  matched_on: "isin" | "sc_id";
+  bases_available: string[];
+  quarters: QuarterRow[];
+};
+
+export function getStockQuarters(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+  limit = 20,
+): Promise<ApiResult<QuartersResponse>> {
+  return request<QuartersResponse>(
+    `/stock/${encodeURIComponent(symbol)}/quarters?basis=${basis}&limit=${limit}`,
+  );
+}
+
+/** A single extracted fact. `page` + `quote` are the point of the section —
+ *  they are what lets a reader check the number against the filed document.
+ *
+ *  `unit_agrees` is a STRING verdict, not a boolean: "agree", "n/a", or
+ *  "DISAGREE model=crore deterministic=million". A disagreement means two
+ *  independent readings of the unit differ — the same class of error that
+ *  produced a 10,000x mistake elsewhere — so it is surfaced, never hidden. */
+export type FilingFact = {
+  task: string;
+  grp: string | null;
+  label: string | null;
+  value_text: string | null;
+  unit_text: string | null;
+  value_crore: number | null;
+  period: string | null;
+  basis: string | null;
+  page: number | null;
+  quote: string | null;
+  grounding: string | null;
+  unit_agrees: string | null;
+  rollup: string | null;
+  note: string | null;
+  doc_sha: string | null;
+};
+
+export type FilingDocument = {
+  sha256: string;
+  title: string | null;
+  period: string | null;
+  filed_at: string | null;
+  url: string | null;
+  pages: number | null;
+};
+
+export type AnnualReportResponse = {
+  symbol: string;
+  documents: FilingDocument[];
+  tasks: {
+    task: string;
+    label: string;
+    count: number;
+    groups: { grp: string; facts: FilingFact[] }[];
+  }[];
+  truncated: boolean;
+};
+
+export function getStockAnnualReport(
+  symbol: string,
+): Promise<ApiResult<AnnualReportResponse>> {
+  return request<AnnualReportResponse>(
+    `/stock/${encodeURIComponent(symbol)}/annual-report`,
+  );
+}
+
+/** Segment splits. `charts` is a LIST because a company has several — Reliance
+ *  carries seven (product, location, operating profit, capex, assets). Each
+ *  carries a current snapshot AND a series per segment, which is what makes it
+ *  worth a chart rather than a donut. */
+export type MixChart = {
+  id: number | null;
+  title: string;
+  current: { name: string; pct: number }[];
+  series: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export type MixResponse = {
+  symbol: string;
+  available: boolean;
+  source_name?: string | null;
+  charts: MixChart[];
+  market_share?: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export function getStockMix(symbol: string): Promise<ApiResult<MixResponse>> {
+  return request<MixResponse>(`/stock/${encodeURIComponent(symbol)}/mix`);
+}
+
+export type OwnershipResponse = {
+  symbol: string;
+  available: boolean;
+  long_business_summary?: string | null;
+  website?: string | null;
+  full_time_employees?: number | null;
+  held_percent_institutions?: number | null;
+  held_percent_insiders?: number | null;
+  institutions_count?: number | null;
+  institutions_float_percent?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+};
+
+export function getStockOwnership(
+  symbol: string,
+): Promise<ApiResult<OwnershipResponse>> {
+  return request<OwnershipResponse>(`/stock/${encodeURIComponent(symbol)}/ownership`);
+}
+
+export type CompanyDocument = {
+  doc_type: string;
+  category: string | null;
+  subcategory: string | null;
+  title: string | null;
+  doc_date: string | null;
+  fin_year: string | null;
+  quarter: string | null;
+  url: string | null;
+  attach_size: string | null;
+};
+
+export type DocumentsResponse = {
+  symbol: string;
+  available: boolean;
+  types: { doc_type: string; n: number }[];
+  documents: CompanyDocument[];
+};
+
+export function getStockDocuments(
+  symbol: string,
+  docType = "",
+  limit = 60,
+): Promise<ApiResult<DocumentsResponse>> {
+  const t = docType ? `&doc_type=${encodeURIComponent(docType)}` : "";
+  return request<DocumentsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/documents?limit=${limit}${t}`,
+  );
+}

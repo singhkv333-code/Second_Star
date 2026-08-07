@@ -67,6 +67,7 @@ import {
   type PriceSeriesDef,
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
+import { DeepSections } from "@/components/stock/DeepSections";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -518,6 +519,16 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
               onBsBasisChange={setBsBasis}
             />
           )}
+
+          {/* Everything the DB gained after this page was built: quarters,
+              annual-report facts, segment mixes, ownership, filed documents.
+              Purely additive — nothing above this line changed. The component
+              asks the API what this company actually HAS and renders only
+              those tabs, so it contributes nothing at all for a symbol with
+              no deep data (and returns null for an index). */}
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <DeepSections symbol={symbol} />
+          )}
         </>
       )}
     </div>
@@ -642,6 +653,12 @@ function PhoneLayout({
           </>
         )
       )}
+
+      {/* Deep sections ride below the phone switch too, rather than inside
+          one of its two tabs — they are neither "overview" nor "financials",
+          and burying them under a tab the reader has to guess at is how a
+          section stops existing. */}
+      {!quote.is_index && <DeepSections symbol={quote.symbol} />}
 
     </div>
   );
