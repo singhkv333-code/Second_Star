@@ -272,7 +272,12 @@ COMMENT ON COLUMN shp.filings.promoter_encumbered_pct IS
  'Encumbered shares as a percentage of the PROMOTER holding, not of the '
  'company. Sums pledge + non-disposal undertaking + other encumbrances: '
  'Vedanta Jun-2026 files pledged=false while carrying 2,032,309,058 shares '
- 'under other encumbrances, so reading pledge alone reports zero.';
+ 'under other encumbrances, so reading pledge alone reports zero. CAN EXCEED '
+ '100 (4 filings do) because the same shares may carry two encumbrance types '
+ 'and the filer adds them: Eureka Forbes Jun-2026 files a non-disposal '
+ 'undertaking over its whole 121,041,730-share promoter stake plus a '
+ '64,950,000 pledge, and reports the 153.66% itself. Stored as filed; cap or '
+ 'take the largest component for display rather than assuming <=100.';
 COMMENT ON COLUMN shp.filings.has_promoter_labels IS
  'False for NSE-sourced filings: NSE masks TypeOfPromoterShareholding to '
  '******, so per-holder promoter/promoter-group labels are unavailable and '
