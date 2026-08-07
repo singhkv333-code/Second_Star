@@ -567,6 +567,126 @@ def _store_facts(sha: str, facts: list, mark_done: bool = False) -> None:
 
 CLAIM_BATCH = int(os.environ.get("PIPE_CLAIM_BATCH", "40"))
 
+# Wave 2 runs the model over text ALREADY on Blob — no re-fetch, no re-extract.
+# Only the tasks named here are run, so the first seven are not paid for twice.
+TASK_FILTER = [t for t in (os.environ.get("PIPE_TASKS") or "").split(",") if t]
+
+REMODEL_DDL = """
+CREATE TABLE IF NOT EXISTS filings.remodel (
+    doc_sha   TEXT PRIMARY KEY REFERENCES filings.documents(sha256) ON DELETE CASCADE,
+    symbol    TEXT NOT NULL,
+    blob_text TEXT NOT NULL,
+    state     TEXT NOT NULL DEFAULT 'pending',
+    error     TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS remodel_state ON filings.remodel(state);
+"""
+
+
+def remodel_seed() -> int:
+    """Queue every completed document for the second task wave."""
+    with connect() as c, c.cursor() as cur:
+        cur.execute(REMODEL_DDL)
+        cur.execute("""INSERT INTO filings.remodel (doc_sha,symbol,blob_text)
+                       SELECT sha256,symbol,blob_text FROM filings.documents
+                       WHERE state='done' AND blob_text IS NOT NULL
+                       ON CONFLICT (doc_sha) DO NOTHING""")
+        n = cur.rowcount
+        cur.execute("""UPDATE filings.remodel SET state='pending'
+                       WHERE state='claimed'
+                         AND updated_at < now() - interval '30 minutes'""")
+    return n
+
+
+def remodel_claim(n: int) -> list[tuple]:
+    with connect() as c, c.cursor() as cur:
+        cur.execute("""
+            UPDATE filings.remodel r SET state='claimed', updated_at=now()
+            WHERE r.doc_sha IN (
+                SELECT doc_sha FROM filings.remodel WHERE state='pending'
+                FOR UPDATE SKIP LOCKED LIMIT %s)
+            RETURNING r.doc_sha, r.symbol, r.blob_text""", (n,))
+        return cur.fetchall()
+
+
+def stage_remodel(row: tuple) -> None:
+    """One document, wave-2 tasks only, text pulled straight from Blob."""
+    sha, sym, blob_text = row
+    dest = WORK / f"rm_{sha}.txt"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest.write_bytes(blob().download_blob(blob_text).readall())
+        d = parse(dest)
+        d.symbol = sym
+        if not d.pages:
+            raise RuntimeError("parsed to 0 pages")
+        tasks = [t for t in L.TASKS if not TASK_FILTER or t.name in TASK_FILTER]
+        facts: list[L.LLMFact] = []
+        with ThreadPoolExecutor(len(tasks)) as tex:
+            for got, err in tex.map(lambda t: L.run_task(d, t), tasks):
+                if err:
+                    STATS.bump("llm_task_error")
+                facts += got
+        kept = [f for f in facts if not f.drop_reason]
+        kept, _ = L.dedupe(kept)
+        L.check_sums(kept)
+        _store_facts(sha, kept)
+        with connect() as c, c.cursor() as cur:
+            cur.execute("UPDATE filings.remodel SET state='done',updated_at=now() "
+                        "WHERE doc_sha=%s", (sha,))
+        STATS.bump("modelled")
+        STATS.bump("facts", len(kept))
+        STATS.bump("dropped", len(facts) - len(kept))
+    except Exception as exc:  # noqa: BLE001
+        with connect() as c, c.cursor() as cur:
+            cur.execute("UPDATE filings.remodel SET state='failed',error=%s,"
+                        "updated_at=now() WHERE doc_sha=%s",
+                        (f"{type(exc).__name__}: {exc}"[:500], sha))
+        STATS.bump("remodel_failed")
+    finally:
+        dest.unlink(missing_ok=True)
+
+
+def run_remodel() -> int:
+    """Model-only pass. One stage, so every worker stays on the model the
+    whole time — there is no fetch or extract phase to idle behind."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    with connect() as c, c.cursor() as cur:
+        cur.execute("SELECT count(*) FROM filings.remodel WHERE state='pending'")
+        n0 = cur.fetchone()[0]
+    tasks = [t.name for t in L.TASKS if not TASK_FILTER or t.name in TASK_FILTER]
+    print(f"remodel  pending={n0}  tasks={tasks}")
+    print(f"  docs-in-flight={LLM_WORKERS}  api-calls="
+          f"{os.environ.get('FILING_LLM_CONCURRENCY','48')}  pg-pool={_POOL_SIZE}")
+    if not n0:
+        print("  nothing to do — run --remodel-seed first")
+        return 0
+    t0 = time.time()
+    with ThreadPoolExecutor(LLM_WORKERS) as ex:
+        futs: list = []
+        while True:
+            batch = remodel_claim(CLAIM_BATCH)
+            if not batch:
+                break
+            futs += [ex.submit(stage_remodel, r) for r in batch]
+            # Keep the pool fed but never let the future list grow without
+            # bound; drain finished work before claiming the next batch.
+            while len(futs) >= LLM_WORKERS * 2:
+                futs = [f for f in futs if not f.done()]
+                time.sleep(0.3)
+            s = STATS.snap()
+            print(f"  [{(time.time()-t0)/60:5.1f}m] modelled={s.get('modelled',0)} "
+                  f"facts={s.get('facts',0)} inflight={len(futs)}", flush=True)
+        for f in futs:
+            f.result()
+    el = time.time() - t0
+    s = STATS.snap()
+    print(f"\n=== REMODEL DONE in {el/60:.1f} min ===")
+    for k in sorted(s):
+        print(f"  {k:18s} {s[k]:,}")
+    return 0
+
 
 def claim(n: int) -> list[dict]:
     """Take n pending rows for THIS process, atomically.
@@ -812,6 +932,10 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int)
     ap.add_argument("--per-symbol", type=int, default=2)
     ap.add_argument("--symbols", help="comma-separated NSE symbols (default: sample)")
+    ap.add_argument("--remodel-seed", action="store_true",
+                    help="queue every done document for the wave-2 tasks")
+    ap.add_argument("--remodel", action="store_true",
+                    help="run wave-2 tasks over text already on Blob")
     ap.add_argument("--universe", action="store_true",
                     help="every listed company from company_identity")
     ap.add_argument("--sme", action="store_true", help="include NSE_SME")
@@ -829,6 +953,10 @@ if __name__ == "__main__":
         n = discover(nse, bse, a.per_symbol)
         print(f"discovered {n} new urls from {len(nse)+len(bse)} companies "
               f"in {time.time()-t:.0f}s")
+    if a.remodel_seed:
+        print(f"queued {remodel_seed()} documents for remodel")
+    if a.remodel:
+        raise SystemExit(run_remodel())
     if a.run:
         raise SystemExit(run(a.limit))
     if a.status:

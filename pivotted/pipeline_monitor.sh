@@ -19,10 +19,19 @@ import filing_pipeline as P
 STATE = pathlib.Path("/tmp/pivot_pipeline_monitor.state")
 now = time.time()
 with P.connect() as c, c.cursor() as cur:
+    cur.execute("SELECT state,count(*) FROM filings.remodel GROUP BY 1")
+    rm = dict(cur.fetchall())
     cur.execute("SELECT state,count(*) FROM filings.documents GROUP BY 1")
     docs = dict(cur.fetchall())
+    if rm:
+        docs = {"done": rm.get("done", 0), "fetched": 0,
+                "extracted": rm.get("claimed", 0), "failed": rm.get("failed", 0)}
+    # Wave 2 works the remodel queue, wave 1 the url queue. Report whichever
+    # is actually running rather than a zero that looks like completion.
+    cur.execute("SELECT count(*) FROM filings.remodel WHERE state='pending'")
+    rm_pending = cur.fetchone()[0]
     cur.execute("SELECT count(*) FROM filings.queue WHERE state='pending'")
-    pending = cur.fetchone()[0]
+    pending = rm_pending or cur.fetchone()[0]
     cur.execute("SELECT count(*),count(DISTINCT symbol) FROM filings.facts")
     nfacts, nsym = cur.fetchone()
     # Quality, not just throughput. A run that speeds up while its grounding

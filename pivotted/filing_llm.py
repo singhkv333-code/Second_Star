@@ -408,7 +408,143 @@ TASKS: list[Task] = [
         "loans given, guarantees, remuneration), plus closing balances "
         "outstanding if printed."),
 ]
+# ── Wave 2 ────────────────────────────────────────────────────────────────
+# The first seven tasks extract LEVELS — a total, a count, a balance. Reading
+# six random reports off Blob showed the richer material is STRUCTURE and
+# CHANGE: which ageing bucket the money sits in, what rate each facility costs,
+# how far a project has slipped, how much a number moved year on year.
+#
+# Most of these are Schedule III "Additional Regulatory Information", mandatory
+# since 2021, so coverage is near-universal and the definitions are prescribed —
+# which makes them comparable across 3,887 companies without normalising anyone's
+# accounting. Several are exception-by-design ("declare if you have a problem"),
+# where the entire signal is in the minority who answer differently.
+TASKS += [
+    Task(
+        "regulatory_flags",
+        ["notes", "auditor_report", "board_report"],
+        [r"wilful defaulter", r"struck off", r"benami", r"title deeds",
+         r"crypto\s*currency|virtual currency", r"charges or satisfaction",
+         r"undisclosed income", r"layers of companies"],
+        "Extract each statutory declaration under Schedule III Additional "
+        "Regulatory Information, one item per declaration: wilful defaulter, "
+        "transactions with struck-off companies, benami property proceedings, "
+        "title deeds of immovable property not held in the company's name, "
+        "dealings in crypto/virtual currency, registration or satisfaction of "
+        "charges pending with the ROC, undisclosed income surrendered in tax "
+        "assessments, and compliance with the number of layers of companies. "
+        "Put the subject in `label` and the company's answer in `note`. Use "
+        "status `nil` when the company declares it has none or has not done it, "
+        "and `reported` when it discloses an actual instance — that distinction "
+        "is the whole point, so be exact about which way each declaration runs."),
+    Task(
+        "cwip_ageing",
+        ["notes", "balance_sheet"],
+        [r"capital work.?in.?progress", r"\bcwip\b",
+         r"intangible assets under development", r"completion is overdue",
+         r"exceeded its cost", r"temporarily suspended"],
+        "Extract the Capital Work-in-Progress (and Intangible Assets under "
+        "Development) ageing schedule: amounts in each bucket (less than 1 "
+        "year, 1-2 years, 2-3 years, more than 3 years) for projects in "
+        "progress and separately for projects temporarily suspended. Then "
+        "extract the separate table of projects whose completion is OVERDUE or "
+        "whose cost has EXCEEDED the original plan, naming each project and its "
+        "expected completion. Use the bucket as `label` and the table as `group`."),
+    Task(
+        "schedule3_ratios",
+        ["notes", "mda"],
+        [r"current ratio", r"debt.equity ratio", r"debt service coverage",
+         r"return on equity", r"inventory turnover", r"trade receivables turnover",
+         r"net capital turnover", r"return on capital employed",
+         r"return on investment", r"net profit ratio"],
+        "Extract the Schedule III mandated ratio table: current ratio, "
+        "debt-equity, debt service coverage, return on equity, inventory "
+        "turnover, trade receivables turnover, trade payables turnover, net "
+        "capital turnover, net profit ratio, return on capital employed and "
+        "return on investment — for BOTH periods printed, each period its own "
+        "item. Where the company gives the mandatory explanation for a variance "
+        "above 25%, put that explanation in `note`; it is the reason attached "
+        "to the number and is worth more than the number."),
+    Task(
+        "receivables_ageing",
+        ["notes", "balance_sheet"],
+        [r"trade receivables ageing", r"ageing schedule",
+         r"undisputed trade receivables", r"disputed trade receivables",
+         r"significant increase in credit risk", r"credit impaired"],
+        "Extract the trade receivables ageing schedule: for each row "
+        "(undisputed considered good, undisputed with significant increase in "
+        "credit risk, undisputed credit impaired, and the disputed equivalents) "
+        "give the amount in every printed bucket — not due, less than 6 months, "
+        "6 months to 1 year, 1-2 years, 2-3 years, more than 3 years, and total. "
+        "Use the row description as `label` and the bucket as part of `group`. "
+        "Do the same for trade payables ageing if it is present."),
+    Task(
+        "debt_terms",
+        ["notes", "balance_sheet"],
+        [r"rate of interest", r"repayable in", r"interest rate of",
+         r"terms of repayment", r"secured by", r"maturity profile",
+         r"undrawn", r"covenant"],
+        "Extract the terms of each borrowing facility separately: lender or "
+        "instrument in `label`, the amount, the interest rate, the repayment "
+        "schedule and the security, with anything else material (prepaid during "
+        "the year, covenant breached or waived, undrawn limits) in `note`. Also "
+        "extract the contractual maturity profile of financial liabilities by "
+        "bucket. Never merge two facilities into one item — a per-facility rate "
+        "is the whole value here."),
+    Task(
+        "credit_rating",
+        ["board_report", "corp_governance", "mda", "notes"],
+        [r"credit rating", r"\bcrisil\b", r"\bicra\b", r"\bcare ratings\b",
+         r"\bind-ra\b|india ratings", r"\bacuite\b", r"\bbrickwork\b",
+         r"revision in .{0,20}rating", r"outlook"],
+        "Extract each credit rating: the instrument rated in `label` (long-term "
+        "facilities, short-term, commercial paper, NCDs), the rating symbol in "
+        "`value_text`, and the agency plus any outlook in `note`. State clearly "
+        "in `note` whether the rating was revised, upgraded, downgraded or "
+        "unchanged during the year — a change is the signal, not the level."),
+    Task(
+        "forex_earned_outgo",
+        ["board_report", "notes"],
+        [r"foreign exchange earn", r"foreign exchange outgo",
+         r"foreign exchange used", r"earnings in foreign",
+         r"expenditure in foreign currency", r"cif value", r"fob value"],
+        "Extract foreign exchange EARNED and foreign exchange USED/OUTGO "
+        "separately, for every period printed — this is a Section 134(3)(m) "
+        "disclosure so both sides are given. Break down by nature where the "
+        "company does (exports on FOB basis, imports on CIF basis, royalty, "
+        "dividend, travel, professional fees). Each period is its own item."),
+    Task(
+        "workforce",
+        ["brsr", "corp_governance", "board_report"],
+        [r"turnover rate", r"attrition", r"permanent employees",
+         r"total employees", r"median remuneration", r"number of employees",
+         r"gender", r"differently abled", r"new hires"],
+        "Extract workforce quantities: total employees and workers split by "
+        "permanent/contract and by gender, employee turnover or attrition rate "
+        "for every year printed and split by gender where given, new hires, "
+        "differently-abled employees, and the ratio of director remuneration to "
+        "median employee remuneration. Attrition is a leading indicator, so "
+        "report each year and each gender as its own item with `period` set."),
+    Task(
+        "cost_structure",
+        ["profit_loss", "notes", "mda"],
+        [r"cost of materials consumed", r"raw material.{0,20}consum",
+         r"employee benefits expense", r"finance cost", r"power and fuel",
+         r"depreciation and amorti", r"other expenses",
+         r"changes in inventories", r"purchases of stock.in.trade"],
+        "Extract the expense side of the profit and loss: cost of materials "
+        "consumed, purchases of stock-in-trade, changes in inventories, "
+        "employee benefits expense, finance costs, depreciation and "
+        "amortisation, power and fuel, and other expenses — for every period "
+        "printed, each its own item. Where the company itemises `other "
+        "expenses` in a note, extract those lines too. This is where the money "
+        "actually goes, so prefer the detailed note over the summary line."),
+]
+
 TASK_BY_NAME = {t.name: t for t in TASKS}
+WAVE2 = ["regulatory_flags", "cwip_ageing", "schedule3_ratios",
+         "receivables_ageing", "debt_terms", "credit_rating",
+         "forex_earned_outgo", "workforce", "cost_structure"]
 
 
 # ────────────────────────────────────────────────────────────── grounding
