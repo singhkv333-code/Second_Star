@@ -554,6 +554,136 @@ select.is-dressed { display: none; }
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
+   The named desk in the header, its menu, its dialogs. Built from the
+   controls already in this file — .dropdown/.item for the menu, .dlg-input
+   and .btn for the dialogs — so this reads as the same app rather than a
+   second one bolted on. Only the switch and the list rows are new shapes. */
+.ly-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 8px 0 10px; max-width: 190px;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--foreground); font: inherit; font-size: var(--text-sm);
+  cursor: pointer; flex: none;
+  transition: background var(--dur) var(--ease-quartr);
+}
+.ly-btn:hover, .menu-wrap:has(.dropdown.open) > .ly-btn { background: var(--accent); }
+.ly-btn .ly-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+/* the unsaved mark: a dot, not the word "unsaved" — it sits next to a name
+   that may already be long, and its whole job is to be noticed, not read */
+.ly-btn .ly-dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--primary);
+}
+.ly-btn svg { flex: none; opacity: .6; }
+.ly-menu { min-width: 268px; padding: 5px; }
+.ly-menu .item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 9px; border-radius: var(--radius-sm);
+}
+.ly-menu .item > svg { flex: none; opacity: .75; }
+.ly-menu .item > span:first-of-type { flex: 1; min-width: 0; }
+.ly-menu kbd {
+  font: inherit; font-size: var(--text-2xs); color: var(--faint);
+  letter-spacing: .04em;
+}
+.ly-menu .sep { height: 1px; margin: 5px 4px; background: var(--border-soft); }
+.ly-menu .head {
+  padding: 7px 9px 5px; font-size: var(--text-2xs); color: var(--faint);
+  text-transform: uppercase; letter-spacing: .07em;
+  font-weight: var(--weight-medium);
+}
+.ly-empty { padding: 8px 9px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
+/* a note glyph that explains a toggle without spending a line on it */
+.ly-note {
+  width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 1px solid var(--faint); color: var(--faint);
+  font-size: 9px; line-height: 12px; text-align: center; font-style: italic;
+  cursor: help;
+}
+/* iOS-shaped switch, in our tokens. The two toggles are STATE, not commands,
+   so they get a control that shows a position rather than a row that fires. */
+.switch {
+  width: 32px; height: 18px; flex: none; border-radius: 999px;
+  background: var(--border); position: relative;
+  transition: background var(--dur) var(--ease-quartr);
+}
+.switch > i {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--background);
+  transition: transform var(--dur) var(--ease-quartr);
+}
+.switch.on { background: var(--primary); }
+.switch.on > i { transform: translateX(14px); }
+.ly-recent { flex-direction: column; align-items: flex-start !important; gap: 1px !important; }
+.ly-recent .ly-rname { font-size: var(--text-sm); }
+.ly-recent .ly-rsub { font-size: var(--text-2xs); color: var(--faint); }
+.ly-recent.on { background: var(--accent); }
+
+/* dialogs — one backdrop, one card, reused by rename / delete / open */
+.ly-back {
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--scrim); display: grid; place-items: center;
+  animation: pop var(--dur) ease-out;
+}
+.ly-dlg {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--menu-shadow);
+  padding: 18px;
+}
+.ly-dlg h3 { margin: 0 0 12px; font-size: var(--text-md); font-weight: var(--weight-semi); }
+.ly-dlg .ly-body { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
+.ly-lab { display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.ly-dlg .dlg-input { width: 100%; }
+.ly-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.ly-list { margin-top: 10px; max-height: min(46vh, 380px); overflow-y: auto; }
+.ly-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.ly-item:hover { background: var(--accent); }
+.ly-item.on { background: var(--accent); box-shadow: inset 2px 0 0 var(--primary); }
+.ly-item-main { flex: 1; min-width: 0; }
+.ly-item-name {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ly-item-sub { font-size: var(--text-2xs); color: var(--faint); margin-top: 2px; }
+.ly-tag {
+  padding: 1px 5px; border-radius: var(--radius-xs);
+  background: var(--primary-soft); color: var(--primary);
+  font-size: 9px; letter-spacing: .04em; text-transform: uppercase;
+  font-weight: var(--weight-medium); flex: none;
+}
+.ly-tag.alt { background: var(--accent); color: var(--muted-foreground); }
+.ly-del {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  background: none; border: 0; border-radius: var(--radius-xs);
+  color: var(--faint); cursor: pointer; opacity: 0;
+}
+.ly-item:hover .ly-del { opacity: 1; }
+.ly-del:hover { color: var(--down); background: var(--background); }
+.btn.danger { background: var(--down); color: #fff; border-color: transparent; }
+
+/* one toast, bottom-centre, for "Saved" and every other one-line outcome */
+.layout-toast {
+  position: fixed; left: 50%; bottom: 26px; z-index: 95;
+  transform: translate(-50%, 12px);
+  padding: 9px 16px; border-radius: var(--radius-pill);
+  background: var(--popover); border: 1px solid var(--border);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--text-xs); color: var(--foreground);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              transform var(--dur) var(--ease-quartr);
+}
+.layout-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* layout picker — a grid of glyphs grouped by pane count, not a list of
    names. Forty-two layouts described in prose would be four screens of
    text about shapes you can read at a glance; the count leads each row in
@@ -3517,6 +3647,20 @@ header > .btn, header > .badge { flex: none; }
     <div class="spacer"></div>
 
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
+    <!-- The SAVED layout: its name, and the menu that manages it. Sits
+         immediately before the pane-grid picker because the grid is one
+         field of what this saves — TradingView's own order. js/layouts.js. -->
+    <div class="menu-wrap">
+      <button class="ly-btn" id="lySaveName" type="button"
+              aria-haspopup="menu" title="Manage layouts">
+        <span class="ly-name">Unnamed</span>
+        <span class="ly-dot" hidden></span>
+        <svg class="icon xs" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+      </button>
+      <div class="dropdown right ly-menu" id="lyMenu" role="menu"></div>
+    </div>
     <div class="menu-wrap">
       <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
       <!-- filled by main.js from the Panes catalogue -->
@@ -3690,8 +3834,9 @@ header > .btn, header > .badge { flex: none; }
   <script src="./js/drawings.js?v=17"></script>
   <script src="./js/scene.js?v=28"></script>
   <script src="./js/panes.js?v=14"></script>
-  <script src="./js/main.js?v=65"></script>
-  <script src="./js/chat.js?v=109"></script>
+  <script src="./js/main.js?v=66"></script>
+  <script src="./js/layouts.js?v=3"></script>
+  <script src="./js/chat.js?v=110"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=4"></script>

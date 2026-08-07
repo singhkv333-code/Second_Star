@@ -7754,6 +7754,25 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS conversations_recent
   ON conversations(user_id, updated DESC);
 """)
+
+# `layouts` predates the save/open/share system and had five columns. Added
+# here rather than in the CREATE above so an existing account keeps its saved
+# work: the CREATE is a no-op once the table exists, so a new column has to
+# arrive as an ALTER or it only ever appears on a fresh database.
+for _col, _decl in (
+        ("created", "INTEGER NOT NULL DEFAULT 0"),
+        ("opened", "INTEGER NOT NULL DEFAULT 0"),      # for RECENTLY USED
+        ("symbols", "TEXT NOT NULL DEFAULT ''"),       # summary line, no parse
+        ("autosave", "INTEGER NOT NULL DEFAULT 0"),
+        ("chat_id", "TEXT NOT NULL DEFAULT ''"),       # the conversation had here
+        ("share_token", "TEXT")):                      # NULL = private
+    try:
+        _users.execute(f"ALTER TABLE layouts ADD COLUMN {_col} {_decl}")
+    except sqlite3.OperationalError:
+        pass                                           # already there
+_users.execute("CREATE UNIQUE INDEX IF NOT EXISTS layouts_share "
+               "ON layouts(share_token) WHERE share_token IS NOT NULL")
+_users.commit()
 _users_lock = threading.Lock()
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
@@ -7877,29 +7896,192 @@ def _ws_put(uid: int, symbol: str, state: dict) -> int:
     return n
 
 
+_LAYOUT_COLS = ("id, name, symbols, created, updated, opened, autosave, "
+                "chat_id, share_token")
+
+
+def _layout_row(r: tuple) -> dict:
+    """A layout WITHOUT its spec — what a list needs and no more.
+
+    The spec is the whole workspace (every pane, every drawing, the scene);
+    forty of them in one response would be megabytes to render a menu.
+    `shared` is a boolean, never the token: a list of layouts is not a place
+    to hand out live links to all of them at once.
+    """
+    return {"id": r[0], "name": r[1], "symbols": [s for s in r[2].split(",") if s],
+            "created": r[3], "updated": r[4], "opened": r[5],
+            "autosave": bool(r[6]), "chat_id": r[7], "shared": bool(r[8])}
+
+
 def _layouts_list(uid: int) -> list[dict]:
     with _users_lock:
         rows = _users.execute(
-            "SELECT id, name, updated FROM layouts WHERE user_id=? "
+            f"SELECT {_LAYOUT_COLS} FROM layouts WHERE user_id=? "
             "ORDER BY updated DESC", (uid,)).fetchall()
-    return [{"id": i, "name": nm, "updated": u} for i, nm, u in rows]
+    return [_layout_row(r) for r in rows]
 
 
-def _layout_save(uid: int, name: str, spec: dict) -> tuple[int, dict]:
-    name = (name or "").strip()
+def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
+    """One layout, spec included, and stamp it as the most recently opened."""
+    now = int(time.time())
+    with _users_lock:
+        r = _users.execute(f"SELECT {_LAYOUT_COLS}, spec FROM layouts "
+                           "WHERE user_id=? AND id=?", (uid, lid)).fetchone()
+        if not r:
+            return 404, {"error": "no such layout"}
+        _users.execute("UPDATE layouts SET opened=? WHERE user_id=? AND id=?",
+                       (now, uid, lid))
+        _users.commit()
+    out = _layout_row(r)
+    out["opened"] = now
+    try:
+        out["spec"] = json.loads(r[9])
+    except ValueError:
+        return 500, {"error": "this layout's saved state is unreadable"}
+    return 200, out
+
+
+def _layout_free_name(uid: int, want: str) -> str:
+    """`want`, or `want (2)`, `want (3)`… — the first one not taken.
+
+    Names are unique per user because that is what makes "save over the one
+    I opened" unambiguous. A copy therefore cannot reuse the name, and
+    failing the request would be a worse answer than picking the obvious
+    next one — which is what every file manager does.
+
+    THE CALLER HOLDS `_users_lock`. Every caller is already inside it to make
+    the check-then-insert atomic, and `_users_lock` is a plain Lock, not an
+    RLock — taking it again here deadlocked the request thread outright.
+    """
+    taken = {n for (n,) in _users.execute(
+        "SELECT name FROM layouts WHERE user_id=?", (uid,))}
+    if want not in taken:
+        return want
+    for i in range(2, 500):
+        cand = f"{want} ({i})"
+        if cand not in taken:
+            return cand
+    return f"{want} {secrets.token_hex(3)}"
+
+
+def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
+                 symbols: list | None = None, autosave: bool | None = None,
+                 chat_id: str = "") -> tuple[int, dict]:
+    """Create or overwrite. `id` given means SAVE OVER that one, even renamed.
+
+    Without an id this is "Create new layout", and a clashing name gets the
+    next free one rather than silently overwriting work the user cannot see.
+    """
+    name = (name or "").strip()[:120]
     if not name:
         return 400, {"error": "a layout needs a name"}
     now = int(time.time())
+    syms = ",".join(dict.fromkeys(str(s).upper()[:24] for s in (symbols or []) if s))
+    blob = json.dumps(spec or {})
     with _users_lock:
+        if lid:
+            owned = _users.execute("SELECT id FROM layouts WHERE user_id=? AND id=?",
+                                   (uid, lid)).fetchone()
+            if not owned:
+                return 404, {"error": "no such layout"}
+            clash = _users.execute("SELECT id FROM layouts WHERE user_id=? AND "
+                                   "name=? AND id<>?", (uid, name, lid)).fetchone()
+            if clash:
+                return 409, {"error": f"you already have a layout called “{name}”"}
+            sets = "name=?, spec=?, symbols=?, updated=?, opened=?"
+            args: list = [name, blob, syms, now, now]
+            if autosave is not None:
+                sets += ", autosave=?"
+                args.append(1 if autosave else 0)
+            if chat_id:
+                sets += ", chat_id=?"
+                args.append(chat_id[:64])
+            _users.execute(f"UPDATE layouts SET {sets} WHERE user_id=? AND id=?",
+                           (*args, uid, lid))
+            _users.commit()
+            new_id = lid
+        else:
+            # A clashing name gets the next free one rather than a 500 from
+            # the UNIQUE index — "Create new layout" while one called Untitled
+            # already exists is the most ordinary thing a user can do, and it
+            # must not fail, nor silently overwrite work they cannot see.
+            name = _layout_free_name(uid, name)
+            _users.execute(
+                "INSERT INTO layouts (user_id, name, spec, symbols, created, "
+                "updated, opened, autosave, chat_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                (uid, name, blob, syms, now, now, now,
+                 1 if autosave else 0, chat_id[:64]))
+            _users.commit()
+            new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND "
+                                    "name=?", (uid, name)).fetchone()[0]
+    return 200, {"id": new_id, "name": name, "updated": now, "opened": now}
+
+
+def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
+    with _users_lock:
+        r = _users.execute("SELECT name, spec, symbols, chat_id FROM layouts "
+                           "WHERE user_id=? AND id=?", (uid, lid)).fetchone()
+    if not r:
+        return 404, {"error": "no such layout"}
+    now = int(time.time())
+    # A copy is NOT shared even if its original is: a share token names one
+    # layout, and duplicating the link along with the contents would publish
+    # something the user only asked to duplicate.
+    with _users_lock:
+        name = _layout_free_name(uid, f"{r[0]} copy")
         _users.execute(
-            "INSERT INTO layouts (user_id, name, spec, updated) VALUES (?,?,?,?) "
-            "ON CONFLICT(user_id, name) DO UPDATE SET "
-            "spec=excluded.spec, updated=excluded.updated",
-            (uid, name, json.dumps(spec or {}), now))
+            "INSERT INTO layouts (user_id, name, spec, symbols, created, "
+            "updated, opened, autosave, chat_id) VALUES (?,?,?,?,?,?,?,0,?)",
+            (uid, name, r[1], r[2], now, now, now, r[3]))
         _users.commit()
-        lid = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
-                             (uid, name)).fetchone()[0]
-    return 200, {"id": lid, "name": name, "updated": now}
+        new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
+                                (uid, name)).fetchone()[0]
+    return 200, {"id": new_id, "name": name, "updated": now}
+
+
+def _layout_share(uid: int, lid: int, on: bool) -> tuple[int, dict]:
+    """Mint or revoke an unlisted read-only link.
+
+    Revoking DELETES the token rather than flagging it, so a link that was
+    turned off is dead the moment it is turned off — a disabled row that
+    still holds a valid-looking token is the shape of an accident.
+    """
+    with _users_lock:
+        if not _users.execute("SELECT 1 FROM layouts WHERE user_id=? AND id=?",
+                              (uid, lid)).fetchone():
+            return 404, {"error": "no such layout"}
+        tok = secrets.token_urlsafe(18) if on else None
+        _users.execute("UPDATE layouts SET share_token=? WHERE user_id=? AND id=?",
+                       (tok, uid, lid))
+        _users.commit()
+    return 200, {"id": lid, "shared": bool(tok), "token": tok}
+
+
+def _layout_shared_get(token: str) -> tuple[int, dict]:
+    """A shared layout, for anyone holding the link. No account needed.
+
+    Read-only and deliberately thin: the workspace and who made it, never the
+    owner's email, their other layouts, or the conversation that was had in
+    it. A shared chart is a chart, not a window into an account.
+    """
+    tok = (token or "").strip()
+    if len(tok) < 16:
+        return 404, {"error": "not found"}
+    with _users_lock:
+        r = _users.execute(
+            "SELECT l.name, l.symbols, l.updated, l.spec, u.name "
+            "FROM layouts l JOIN users u ON u.id = l.user_id "
+            "WHERE l.share_token=?", (tok,)).fetchone()
+    if not r:
+        return 404, {"error": "this link is not active"}
+    try:
+        spec = json.loads(r[3])
+    except ValueError:
+        return 500, {"error": "this layout's saved state is unreadable"}
+    spec.pop("chat", None)          # never travels with a link
+    return 200, {"name": r[0], "symbols": [s for s in r[1].split(",") if s],
+                 "updated": r[2], "by": r[4] or "a Charto user",
+                 "read_only": True, "spec": spec}
 
 
 _CONV_KEEP = 200          # conversations retained per user
@@ -8677,14 +8859,47 @@ class Handler(BaseHTTPRequestHandler):
                 return 400, {"error": "chats[] required"}
             return 200, _conv_sync(me[0], chats)
         if path == "/layouts":
+            uid = me[0]
+            lid = int(body["id"]) if str(body.get("id") or "").isdigit() else None
             if body.get("delete"):
                 with _users_lock:
-                    _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
-                                   (me[0], str(body.get("name") or "")))
+                    if lid:
+                        _users.execute("DELETE FROM layouts WHERE user_id=? AND id=?",
+                                       (uid, lid))
+                    else:       # the pre-id call site, kept working
+                        _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
+                                       (uid, str(body.get("name") or "")))
                     _users.commit()
                 return 200, {"ok": True}
-            return _layout_save(me[0], str(body.get("name") or ""),
-                                body.get("spec") or {})
+            if body.get("copy"):
+                if not lid:
+                    return 400, {"error": "id required"}
+                return _layout_copy(uid, lid)
+            if "share" in body:
+                if not lid:
+                    return 400, {"error": "id required"}
+                return _layout_share(uid, lid, bool(body.get("share")))
+            if "autosave" in body and "spec" not in body:
+                # the toggle on its own — flipping it must not silently write
+                # the current workspace over a layout the user is only arming
+                if not lid:
+                    return 400, {"error": "id required"}
+                with _users_lock:
+                    cur = _users.execute("UPDATE layouts SET autosave=? WHERE "
+                                         "user_id=? AND id=?",
+                                         (1 if body["autosave"] else 0, uid, lid))
+                    _users.commit()
+                # 0 rows means it is not theirs (or gone). Answering 200 said
+                # "armed" for a layout that does not exist, and the toggle
+                # would have sat on in a UI backed by nothing.
+                if not cur.rowcount:
+                    return 404, {"error": "no such layout"}
+                return 200, {"id": lid, "autosave": bool(body["autosave"])}
+            return _layout_save(
+                uid, str(body.get("name") or ""), body.get("spec") or {},
+                lid=lid, symbols=body.get("symbols") or [],
+                autosave=body.get("autosave"),
+                chat_id=str(body.get("chat_id") or ""))
         return 404, {"error": "not found"}
 
     def _send_events(self, events) -> None:
@@ -8973,6 +9188,12 @@ class Handler(BaseHTTPRequestHandler):
                 if q.get("only") == "history":
                     return self._send(200, company_history(symbol, rng))
                 return self._send(200, company_page(symbol, rng))
+            if u.path == "/shared":
+                # No account: whoever holds the link. The only unauthenticated
+                # read of user-created content in the server, which is why the
+                # helper hands back the workspace and nothing else about the
+                # person who made it.
+                return self._send(*_layout_shared_get(q.get("token", "")))
             if u.path in ("/auth/me", "/workspace", "/layouts"):
                 me = _auth_user(self.headers)
                 if not me:
@@ -8986,6 +9207,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"user": _user_public(me)})
                 if u.path == "/layouts":
                     q = parse_qs(u.query)
+                    lid = (q.get("id") or [""])[0]
+                    if lid.isdigit():
+                        return self._send(*_layout_get(me[0], int(lid)))
                     name = (q.get("name") or [""])[0]
                     if not name:
                         return self._send(200, {"layouts": _layouts_list(me[0])})

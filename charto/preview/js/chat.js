@@ -1700,4 +1700,15 @@
     chatToggle.classList.toggle("on", !hidden);
   });
   chatToggle.classList.add("on");
+
+  /* The three things a saved LAYOUT needs from the conversation: which one is
+   * open (it is stored with the layout), and the two ways of changing that.
+   * Deliberately thin — a layout does not own the thread, it remembers which
+   * thread it was had in, and reuses the same two functions the history
+   * panel drives so there is one path in and out of a conversation. */
+  window.Chat = {
+    activeId: () => activeId,
+    newChat: newConversation,
+    openChat: openConversation,
+  };
 })();

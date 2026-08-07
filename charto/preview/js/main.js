@@ -24,6 +24,10 @@
   const IST = Sym.tz;
   const SYMBOL = (new URLSearchParams(location.search).get("symbol")
                   || "RELIANCE").toUpperCase();
+  // {read, write} for the four sets an edit edits — bound once the boot
+  // restore has put everything back. Null until then, which is exactly what
+  // stops a layout being saved from a half-restored chart.
+  let workspace = null;
   const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
 
@@ -2377,14 +2381,20 @@
      * them because the profile's MENU TICK is a claim about a scene item, and
      * putting the histogram back without the tick would leave the menu lying
      * about what is on screen. */
-    Undo.bind({
-      read: () => ({
-        drawings: draw.state.drawings,
-        scene: scene.state.items,
-        indicators: [...ind.active.keys()],
-        vp: state.vp || null,
-      }),
-      write: async (s) => {
+    /* The workspace, as one readable/writable value.
+     *
+     * Undo has always defined it — these four sets ARE what an edit edits —
+     * and a saved layout is the same snapshot kept under a name instead of on
+     * a stack. So layouts.js reuses this pair rather than growing a second
+     * opinion about what a workspace is; anything undo learns to cover, a
+     * layout stores for free. */
+    const wsRead = () => ({
+      drawings: draw.state.drawings,
+      scene: scene.state.items,
+      indicators: [...ind.active.keys()],
+      vp: state.vp || null,
+    });
+    const wsWrite = (async (s) => {
         draw.setAll(s.drawings);
         scene.setItems(s.scene);          // fires onChange → may null state.vp
         // Indicators are a SET, restored by difference: dropping and re-adding
@@ -2406,8 +2416,10 @@
         Store.set("vp", state.vp);
         renderIndMenu();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
-      },
     });
+    Undo.bind({ read: wsRead, write: wsWrite });
+    workspace = { read: wsRead, write: wsWrite };
+    document.dispatchEvent(new CustomEvent("charto:workspace-ready"));
 
     /* The fold is restored LAST — after the scene, the profile and the undo
      * bind, so `sceneCount` starts from what is actually on the chart and the
@@ -2530,5 +2542,11 @@
   })();
 
   window.__charto = { chart, candle, state, draw, ind, scene, pins,
-                      getChartContext, charts: chartList, panes: Panes };
+                      getChartContext, charts: chartList, panes: Panes,
+                      // set once the boot restore has finished — layouts.js
+                      // waits on charto:workspace-ready rather than polling
+                      get workspace() { return workspace; },
+                      get symbol() { return SYMBOL; },
+                      get interval() { return state.interval; },
+                      loadInterval };
 })();
