@@ -65,7 +65,12 @@ STATE.write_text(json.dumps({"t": now, "done": done}))
 # samples. Stalled and starting are opposite conditions and must never share
 # a label — this is the same silence-looks-like-progress failure the pipeline
 # itself had when a killed thread left a queue waiting on a sentinel.
-if first:
+if pending == 0 and docs.get("fetched", 0) == 0 and docs.get("extracted", 0) == 0:
+    # Finished and stalled both show a rate of zero, and calling a completed
+    # run STALLED is the same mislabel in the other direction as calling a
+    # dead one "(first sample)". Nothing pending and nothing in flight is DONE.
+    note = "*** COMPLETE — nothing pending, nothing in flight ***"
+elif first:
     note = "(first sample — no rate yet)"
 elif rate == 0:
     note = "*** STALLED — zero documents completed since the last tick ***"

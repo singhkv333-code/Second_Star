@@ -544,16 +544,24 @@ COLS = ("doc_sha symbol task grp label kind rollup value_text unit_text period "
         "unit_source unit_agrees period_ambiguous partial_table model").split()
 
 
+def _nul(v):
+    """Postgres refuses NUL (0x00) inside a text value, and PDF text layers
+    carry them — 8 documents failed the whole insert on one stray byte in a
+    quote. Strip rather than drop: the fact is fine, the byte is not."""
+    return v.replace("\x00", "") if isinstance(v, str) else v
+
+
 def _store_facts(sha: str, facts: list, mark_done: bool = False) -> None:
     rows = []
     for f in facts:
         a = asdict(f)
-        rows.append((sha, a["symbol"], a["task"], a["group"], a["label"], a["kind"],
-                     a["rollup"], a["value_text"], a["unit_text"], a["period"],
-                     a["basis"], a["note"], a["quote"], a["status"], a["value_raw"],
-                     a["unit"], a["value_crore"], a["page"], a["grounding"],
-                     a["unit_source"], a["unit_agrees"], a["period_ambiguous"],
-                     a["partial_table"], L.LLM_MODEL))
+        rows.append(tuple(_nul(x) for x in (
+            sha, a["symbol"], a["task"], a["group"], a["label"], a["kind"],
+            a["rollup"], a["value_text"], a["unit_text"], a["period"],
+            a["basis"], a["note"], a["quote"], a["status"], a["value_raw"],
+            a["unit"], a["value_crore"], a["page"], a["grounding"],
+            a["unit_source"], a["unit_agrees"], a["period_ambiguous"],
+            a["partial_table"], L.LLM_MODEL)))
     with connect() as c, c.cursor() as cur:
         if rows:
             psycopg2.extras.execute_values(
