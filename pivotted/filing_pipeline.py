@@ -430,12 +430,18 @@ def stage_model(job: dict) -> None:
     if not d.pages:
         _doc_state(job["sha256"], "failed", "parsed to 0 pages")
         return
+    # The seven tasks fan out rather than queue. Sequentially they made one
+    # document 7 x 22s = ~156s of wall time, which pinned a parsed report in
+    # memory for the whole of it; total API concurrency then equalled the
+    # number of documents resident. filing_llm's global semaphore is what
+    # actually bounds calls against the deployment's TPM, so tasks are free to
+    # run together and a document now clears in roughly the time of one call.
     facts: list[L.LLMFact] = []
-    for t in L.TASKS:
-        got, err = L.run_task(d, t)
-        if err:
-            STATS.bump("llm_task_error")
-        facts += got
+    with ThreadPoolExecutor(len(L.TASKS)) as tex:
+        for got, err in tex.map(lambda t: L.run_task(d, t), L.TASKS):
+            if err:
+                STATS.bump("llm_task_error")
+            facts += got
     kept = [f for f in facts if not f.drop_reason]
     kept, _ = L.dedupe(kept)
     L.check_sums(kept)           # sets period_ambiguous / partial_table flags
@@ -520,8 +526,10 @@ def run(limit: int | None) -> int:
     print(f"pipeline  pending_urls={len(pending)}  resume_extracted={len(resume)}"
           f"  resume_fetched={len(refetch)}")
     print(f"  fetch={FETCH_WORKERS}t (NSE {NSE_CONC}/BSE {BSE_CONC})  "
-          f"extract={EXTRACT_WORKERS}t  model={LLM_WORKERS}t  "
-          f"queues={Q_DEPTH}  model={L.LLM_MODEL}@{L.LLM_EFFORT}")
+          f"extract={EXTRACT_WORKERS}t  docs-in-flight={LLM_WORKERS}  "
+          f"api-calls={os.environ.get('FILING_LLM_CONCURRENCY','48')}  "
+          f"pg-pool={_POOL_SIZE}  queues={Q_DEPTH}  "
+          f"{L.LLM_MODEL}@{L.LLM_EFFORT}")
     if not pending and not resume and not refetch:
         print("  nothing to do — run --discover first")
         return 0
@@ -585,8 +593,18 @@ def run(limit: int | None) -> int:
     def model_loop():
         with ThreadPoolExecutor(LLM_WORKERS) as ex:
             futs = []
-            for sha, sym, _bt in resume:
+            for sha, sym, blob_text in resume:
+                # The local text is deleted once it is safely in Blob, so a
+                # resume that only looked on disk would find nothing and skip
+                # every document silently — the same failure as the 'fetched'
+                # resume. Pull it back from Blob instead.
                 p = WORK / f"{sha}.txt"
+                if not p.exists() and blob_text:
+                    try:
+                        p.write_bytes(blob().download_blob(blob_text).readall())
+                    except Exception as exc:  # noqa: BLE001
+                        _doc_state(sha, "failed", f"blob text re-read: {exc}")
+                        continue
                 if p.exists():
                     futs.append(ex.submit(stage_model,
                                           {"sha256": sha, "symbol": sym, "text_path": p}))

@@ -49,6 +49,7 @@ import re
 import sqlite3
 import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -77,6 +78,20 @@ LLM_WORKERS = int(os.environ.get("FILING_LLM_WORKERS", "12"))
 # workers it uses. That isolation is worth more than any per-token saving.
 LLM_MODEL = os.environ.get("FILING_LLM_MODEL") or ds.LLM_DEPLOYMENT
 _TIMEOUT = 180
+
+# API concurrency is a GLOBAL property, not a per-caller one. Azure's limit is
+# tokens per minute across the deployment, so the thing worth bounding is the
+# number of calls in flight anywhere in the process — not the number of threads
+# any one stage happens to use.
+#
+# Keeping these separate is what makes going wide affordable. The pipeline used
+# to run a document's seven tasks one after another, so one worker meant one
+# call in flight AND one parsed report held in memory for 7 x 22s. Reaching 400
+# concurrent calls that way needs 400 documents resident, about 4GB. Bounding
+# calls here instead lets a handful of documents each fan out across their seven
+# tasks: the same API concurrency, a fraction of the memory.
+_API_SLOTS = threading.Semaphore(
+    int(os.environ.get("FILING_LLM_CONCURRENCY", "48")))
 
 
 def _ssl_ctx():
@@ -674,8 +689,10 @@ def call_model(system: str, user: str) -> tuple[list[dict], str | None]:
         method="POST")
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT, context=_ssl_ctx()) as r:
-                j = json.loads(r.read())
+            with _API_SLOTS:
+                with urllib.request.urlopen(req, timeout=_TIMEOUT,
+                                            context=_ssl_ctx()) as r:
+                    j = json.loads(r.read())
             break
         except urllib.error.HTTPError as e:
             body = e.read().decode()[:300]
