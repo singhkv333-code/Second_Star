@@ -21,34 +21,28 @@
 import * as React from "react";
 
 import {
-  getStockAnnualReport, getStockDocuments, getStockMix, getStockOwnership,
-  getStockQuarters, getStockSections,
-  type AnnualReportResponse, type DocumentsResponse, type MixResponse,
-  type OwnershipResponse, type QuartersResponse, type StockSections,
+  getStockMix, getStockQuarters, getStockSections,
+  type MixResponse, type QuartersResponse, type StockSections,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
-import { AnnualReportPanel } from "./AnnualReportPanel";
-import { DocumentsPanel } from "./DocumentsPanel";
 import { MixPanel } from "./MixPanel";
-import { OwnershipPanel } from "./OwnershipPanel";
 import { QuartersPanel } from "./QuartersPanel";
 import { EmptyNote, PanelSkeleton } from "./chrome";
 
-type TabId = "quarters" | "annual_report" | "revenue_mix" | "ownership" | "documents";
+type TabId = "quarters" | "revenue_mix";
 
 const TAB_LABEL: Record<TabId, string> = {
   quarters: "Quarters",
-  annual_report: "Annual report",
   revenue_mix: "Segments",
-  ownership: "Ownership",
-  documents: "Documents",
 };
 
-// Reading order, not coverage order: a person works down from the numbers to
-// the narrative to the paperwork.
-const TAB_ORDER: TabId[] = [
-  "quarters", "annual_report", "revenue_mix", "ownership", "documents",
-];
+// Numbers first, then what produced them.
+//
+// The annual-report, ownership and documents panels were cut from the page
+// (see git history — the API endpoints and typed client for all three are
+// still in place, so restoring one is a tab entry and an import, not a
+// rebuild).
+const TAB_ORDER: TabId[] = ["quarters", "revenue_mix"];
 
 export function DeepSections({ symbol }: { symbol: string }): React.ReactElement | null {
   const [sections, setSections] = React.useState<StockSections | null>(null);
@@ -56,20 +50,15 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
   const [tab, setTab] = React.useState<TabId | null>(null);
 
   const [basis, setBasis] = React.useState<"consolidated" | "standalone">("consolidated");
-  const [docFilter, setDocFilter] = React.useState("");
 
   const [quarters, setQuarters] = React.useState<QuartersResponse | null>(null);
-  const [report, setReport] = React.useState<AnnualReportResponse | null>(null);
   const [mix, setMix] = React.useState<MixResponse | null>(null);
-  const [own, setOwn] = React.useState<OwnershipResponse | null>(null);
-  const [docs, setDocs] = React.useState<DocumentsResponse | null>(null);
 
   // ── coverage ─────────────────────────────────────────────────────────────
   React.useEffect(() => {
     let dead = false;
     setSections(null); setFailed(false); setTab(null);
-    setQuarters(null); setReport(null); setMix(null); setOwn(null); setDocs(null);
-    setDocFilter("");
+    setQuarters(null); setMix(null);
     getStockSections(symbol)
       .then((r) => {
         if (dead) return;
@@ -105,14 +94,6 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
     return () => { dead = true; };
   }, [tab, symbol, basis]);
 
-  React.useEffect(() => {
-    if (tab !== "annual_report" || report) return;
-    let dead = false;
-    getStockAnnualReport(symbol)
-      .then((r) => { if (!dead && !isError(r)) setReport(r.data); })
-      .catch(() => {});
-    return () => { dead = true; };
-  }, [tab, symbol, report]);
 
   React.useEffect(() => {
     if (tab !== "revenue_mix" || mix) return;
@@ -123,24 +104,7 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
     return () => { dead = true; };
   }, [tab, symbol, mix]);
 
-  React.useEffect(() => {
-    if (tab !== "ownership" || own) return;
-    let dead = false;
-    getStockOwnership(symbol)
-      .then((r) => { if (!dead && !isError(r)) setOwn(r.data); })
-      .catch(() => {});
-    return () => { dead = true; };
-  }, [tab, symbol, own]);
 
-  React.useEffect(() => {
-    if (tab !== "documents") return;
-    let dead = false;
-    setDocs(null);
-    getStockDocuments(symbol, docFilter, 60)
-      .then((r) => { if (!dead && !isError(r)) setDocs(r.data); })
-      .catch(() => {});
-    return () => { dead = true; };
-  }, [tab, symbol, docFilter]);
 
   // A company with none of this data gets nothing rather than an empty shell —
   // the page above still stands on its own.
@@ -223,23 +187,12 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
             : <PanelSkeleton rows={8} />
         ) : null}
 
-        {tab === "annual_report" ? (
-          report ? <AnnualReportPanel data={report} /> : <PanelSkeleton rows={8} />
-        ) : null}
 
         {tab === "revenue_mix" ? (
           mix ? <MixPanel data={mix} /> : <PanelSkeleton rows={6} />
         ) : null}
 
-        {tab === "ownership" ? (
-          own ? <OwnershipPanel data={own} /> : <PanelSkeleton rows={6} />
-        ) : null}
 
-        {tab === "documents" ? (
-          docs
-            ? <DocumentsPanel data={docs} filter={docFilter} onFilterChange={setDocFilter} />
-            : <PanelSkeleton rows={8} />
-        ) : null}
 
         {sections && tab === null && available.length === 0 ? (
           <EmptyNote>Nothing further on file for this company yet.</EmptyNote>

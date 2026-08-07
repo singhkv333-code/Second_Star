@@ -31,9 +31,20 @@ const EChart = dynamic(() => import("./EChart"), {
 
 export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
   const charts = data.charts ?? [];
-  const [id, setId] = React.useState<string>(String(charts[0]?.id ?? "0"));
+  // Open on the breakdown that says the most, not the one that happens to be
+  // first. TCS's "Product Wise Break-Up" is a 98/2 split — technically a
+  // breakdown, visually a solid block — while "Verticals" carries eight
+  // segments and the actual shape of the business. Segment count is a decent
+  // proxy for information here, and ties keep source order.
+  const richest = React.useMemo(
+    () => charts.reduce<MixChart | undefined>(
+      (best, c) => (!best || c.series.length > best.series.length ? c : best),
+      undefined),
+    [charts],
+  );
+  const [id, setId] = React.useState<string>(String(richest?.id ?? charts[0]?.id ?? "0"));
   const chart: MixChart | undefined =
-    charts.find((c) => String(c.id) === id) ?? charts[0];
+    charts.find((c) => String(c.id) === id) ?? richest ?? charts[0];
 
   const option = React.useMemo(() => (chart ? stackedOption(chart) : null), [chart]);
 
@@ -186,12 +197,14 @@ function stackedOption(chart: MixChart): Record<string, unknown> {
     const m = new Map(s.points.map((p) => [p.t, p.pct]));
     return times.map((t) => (m.has(t) ? m.get(t)! : null));
   };
-  // en-IN renders September as "Sept" while every other month is three
-  // characters, which makes one axis label sit wider than the rest. en-GB is
-  // uniformly three.
+  // Both en-IN and en-GB render September as "Sept" while every other month
+  // is three characters, so one axis label sits wider than the rest. Sliced
+  // rather than switching locale again — the width has to be uniform whatever
+  // ICU decides a short month is.
   const labels = times.map((t) => {
     const d = new Date(t);
-    return `${d.toLocaleString("en-GB", { month: "short" })} '${String(d.getFullYear()).slice(2)}`;
+    const m = d.toLocaleString("en-GB", { month: "short" }).slice(0, 3);
+    return `${m} '${String(d.getFullYear()).slice(2)}`;
   });
 
   return {

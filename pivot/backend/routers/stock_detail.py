@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Bump the version whenever a payload SHAPE changes — a cached v1 body served
 # to v2 client code is a KeyError, not a stale number.
-_CACHE_PREFIX = "stockdetail:v2:"
+_CACHE_PREFIX = "stockdetail:v3:"
 _CACHE_TTL = 6 * 3600          # fundamentals move quarterly; 6h is generous
 _MAX_QUARTERS = 40
 _MAX_FACTS = 1200
@@ -368,14 +368,21 @@ def get_mix(symbol: str, authorization: Optional[str] = Header(None)) -> dict:
         for block in (row["revenue_mix"] or []):
             if not isinstance(block, dict):
                 continue
-            current = [{"name": n, "pct": float(p)}
+            # `> 0` is not the right floor. The source carries values like
+            # 1.42e-14 — floating-point residue from a share that is actually
+            # zero — which passes a bare positivity test and then renders as
+            # "Others 0.0%", a segment that does not exist. A tenth of a
+            # percent is below anything a reader can act on anyway.
+            current = [{"name": n, "pct": round(float(p), 2)}
                        for n, p in (block.get("current") or [])
-                       if p is not None and float(p) > 0]
+                       if p is not None and float(p) >= 0.05]
             series = []
             for seg in (block.get("segments") or []):
-                pts = [{"t": int(t), "pct": float(v)}
+                pts = [{"t": int(t), "pct": round(float(v), 2)}
                        for t, v in (seg.get("series") or []) if v is not None]
-                if pts:
+                # A band that is zero at every point is an empty legend entry
+                # and an invisible layer — drop the series, not just its label.
+                if pts and any(p["pct"] >= 0.05 for p in pts):
                     series.append({"name": seg.get("fieldname") or "—", "points": pts})
             if current or series:
                 charts.append({

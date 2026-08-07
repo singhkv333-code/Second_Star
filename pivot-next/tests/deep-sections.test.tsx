@@ -35,25 +35,44 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("DeepSections coverage rule", () => {
   it("renders a tab only for sections that have data", async () => {
+    // Quarters present, Segments absent. The page carries two sections now —
+    // annual report, ownership and documents were cut — so this pins that a
+    // zero-count section produces no tab, not a disabled or empty one.
     vi.spyOn(api, "getStockSections").mockResolvedValue({
-      data: sections(coverage({
-        annual_report: { count: 236, tasks: 10, documents: 2, latest_period: "2025-2026" },
-        ownership: { count: 1 },
-      })),
+      data: sections(coverage({ quarters: { count: 175, latest: "2026-06-30", bases: 2 } })),
     } as never);
-    vi.spyOn(api, "getStockAnnualReport").mockResolvedValue({
-      data: { symbol: "TEST", documents: [], tasks: [], truncated: false },
+    vi.spyOn(api, "getStockQuarters").mockResolvedValue({
+      data: {
+        symbol: "TEST", basis: "consolidated", matched_on: "isin",
+        bases_available: ["consolidated"], quarters: [],
+      },
     } as never);
 
     render(<DeepSections symbol="TEST" />);
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: /Annual report/ })).toBeTruthy());
-    expect(screen.getByRole("tab", { name: /Ownership/ })).toBeTruthy();
-    // The three with zero coverage must not exist at all — not disabled, not
-    // empty, absent.
-    expect(screen.queryByRole("tab", { name: /Quarters/ })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Quarters/ })).toBeTruthy());
     expect(screen.queryByRole("tab", { name: /Segments/ })).toBeNull();
+    // The removed sections must not reappear even when the API still reports
+    // coverage for them — the API keeps serving all five.
+    expect(screen.queryByRole("tab", { name: /Annual report/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Ownership/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Documents/ })).toBeNull();
+  });
+
+  it("ignores coverage for sections the page no longer renders", async () => {
+    // The endpoints still exist and /sections still counts them. A company
+    // with ONLY removed-section data must render nothing at all rather than
+    // an empty shell.
+    vi.spyOn(api, "getStockSections").mockResolvedValue({
+      data: sections(coverage({
+        annual_report: { count: 236, tasks: 10, documents: 2, latest_period: "2025-2026" },
+        ownership: { count: 1 },
+        documents: { count: 127 },
+      })),
+    } as never);
+
+    const { container } = render(<DeepSections symbol="TEST" />);
+    await waitFor(() => expect(container.querySelector("section")).toBeNull());
   });
 
   it("renders nothing at all when the company has none of this data", async () => {
@@ -76,23 +95,22 @@ describe("DeepSections coverage rule", () => {
 
   it("opens the first AVAILABLE tab, not a fixed default", async () => {
     // Quarters is first in reading order but absent here, so Segments — the
-    // first that exists — must be the one that opens. A fixed default would
-    // open a tab that is not on screen and show an empty panel.
+    // first that exists — must open. A fixed default would select a tab that
+    // is not on screen and render an empty panel.
     vi.spyOn(api, "getStockSections").mockResolvedValue({
-      data: sections(coverage({ revenue_mix: { count: 1 }, documents: { count: 12 } })),
+      data: sections(coverage({ revenue_mix: { count: 1 } })),
     } as never);
     const mix = vi.spyOn(api, "getStockMix").mockResolvedValue({
       data: { symbol: "TEST", available: true, charts: [] },
     } as never);
-    const docs = vi.spyOn(api, "getStockDocuments").mockResolvedValue({
-      data: { symbol: "TEST", available: true, types: [], documents: [] },
-    } as never);
+    const quarters = vi.spyOn(api, "getStockQuarters");
 
     render(<DeepSections symbol="TEST" />);
 
     await waitFor(() => expect(mix).toHaveBeenCalled());
     expect(screen.getByRole("tab", { name: /Segments/ }).getAttribute("aria-selected")).toBe("true");
-    // Lazy: the tab that was not opened has not been fetched.
-    expect(docs).not.toHaveBeenCalled();
+    // Lazy, and correct: Quarters is first in reading order but has no data,
+    // so it is neither rendered nor fetched.
+    expect(quarters).not.toHaveBeenCalled();
   });
 });
