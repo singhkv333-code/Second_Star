@@ -69,6 +69,13 @@ import dataserver as ds  # noqa: E402  — one Azure key for the whole repo
 
 LLM_EFFORT = os.environ.get("FILING_LLM_EFFORT", "low")
 LLM_WORKERS = int(os.environ.get("FILING_LLM_WORKERS", "12"))
+# Deliberately NOT the deployment the live product uses. Each Azure deployment
+# carries its own quota bucket — measured: gpt-5.4-mini 5,000 RPM / 5,000,000
+# TPM, gpt-5.6-luna 7,000 RPM / 7,000,000 TPM. Pivot's chat backend and Charto
+# both run on luna, so putting a 21,000-call corpus scan on a SEPARATE
+# deployment means the scan cannot throttle the product no matter how many
+# workers it uses. That isolation is worth more than any per-token saving.
+LLM_MODEL = os.environ.get("FILING_LLM_MODEL") or ds.LLM_DEPLOYMENT
 _TIMEOUT = 180
 
 
@@ -649,7 +656,7 @@ _USAGE = {"in": 0, "out": 0, "calls": 0, "fail": 0}
 
 def call_model(system: str, user: str) -> tuple[list[dict], str | None]:
     payload = {
-        "model": ds.LLM_DEPLOYMENT,
+        "model": LLM_MODEL,
         "input": [{"role": "system", "content": system},
                   {"role": "user", "content": user}],
         # RELIANCE's Key Audit Matters ran past 6000 and came back `incomplete`,
@@ -880,7 +887,7 @@ def main(sample_dir: Path, only: list[str] | None, limit: int | None,
     if limit:
         rows = rows[:limit]
     tasks = [t for t in TASKS if not only or t.name in only]
-    print(f"model stage  dir={sample_dir.name}  model={ds.LLM_DEPLOYMENT} "
+    print(f"model stage  dir={sample_dir.name}  model={LLM_MODEL} "
           f"effort={LLM_EFFORT}  docs={len(rows)}  tasks={len(tasks)}  "
           f"workers={LLM_WORKERS}")
 
