@@ -312,52 +312,85 @@ const Geo = (() => {
         chip(ctx, prim.text, Math.max(0, Math.min(x, env.w - w)), px.p[1] + 6, col);
         break;
       }
+      /* The position plan, TradingView's way round: the SHAPE is always on,
+       * the NUMBERS are only there when you are looking at it.
+       *
+       * A plan is two coloured zones and an entry line — that is the whole
+       * reading at a glance, and it is what the chart is for. The three
+       * labels (target, stop, the centre chip) are the second reading, and
+       * left on they cover the candles the plan was drawn against: three
+       * opaque plates stacked down the middle of the very bars you are
+       * trying to judge it by. So they come up on `s.detail`, which the
+       * owner sets when the pointer is over the shape, when it is selected,
+       * and while it is being drawn — see js/drawings.js. */
       case "position": {
         const GREEN = "#089981", RED = "#f23645";
+        const detail = !!s.detail;
         const w = px.x1 - px.x0, cx = (px.x0 + px.x1) / 2;
         const yFar = px.yT.length ? px.yT[px.yT.length - 1] : px.yE;
         ctx.setLineDash([]);
-        ctx.fillStyle = rgba(GREEN, 0.16);
+        // the hover lift is on the FILL, not on a new edge: the zones are
+        // the shape, so the shape is what should answer the pointer
+        ctx.fillStyle = rgba(GREEN, detail ? 0.2 : 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, yFar), w, Math.abs(yFar - px.yE));
-        ctx.fillStyle = rgba(RED, 0.16);
+        ctx.fillStyle = rgba(RED, detail ? 0.2 : 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, px.yS), w, Math.abs(px.yS - px.yE));
-        // intermediate target boundaries inside the reward zone
-        ctx.strokeStyle = rgba(GREEN, 0.55); ctx.lineWidth = 1;
-        for (const y of px.yT.slice(0, -1)) {
+        // Every target line, and the stop — the outer two are the edges of
+        // the plan, so they are drawn even with the labels away. Without
+        // them a zone fades into the chart background and the level it is
+        // claiming has to be read off the axis.
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(GREEN, 0.5);
+        for (const y of px.yT) {
           ctx.beginPath(); ctx.moveTo(px.x0, y); ctx.lineTo(px.x1, y); ctx.stroke();
         }
+        ctx.strokeStyle = rgba(RED, 0.5);
+        ctx.beginPath(); ctx.moveTo(px.x0, px.yS); ctx.lineTo(px.x1, px.yS); ctx.stroke();
+        // The entry, dashed. TradingView's neutral grey, not a near-white:
+        // #e6e8ee is a dark-theme colour, and on a light chart it was a
+        // dashed line the same value as the paper under it.
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = rgba("#e6e8ee", 0.85);
+        ctx.strokeStyle = rgba("#787b86", 0.95);
         ctx.beginPath(); ctx.moveTo(px.x0, px.yE); ctx.lineTo(px.x1, px.yE); ctx.stroke();
         ctx.setLineDash([]);
+        if (!detail) break;
+
+        /* Tighter than they were — 8px of side padding on a 20px pill, 4px
+         * radius — because three of these sit within 40px of each other and
+         * the old 18/22/6 read as buttons. Text is white on both fills at
+         * this size in either theme. */
         const pill = (text, y, bg, above) => {
           ctx.font = `11px ${FONT}`;
-          const pw = ctx.measureText(text).width + 18, ph = 22;
+          const pw = Math.round(ctx.measureText(text).width) + 16, ph = 20;
           const x = Math.max(4, Math.min(cx - pw / 2, env.w - pw - 4));
-          const py = above ? y - ph - 4 : y + 4;
+          const py = above ? y - ph - 3 : y + 3;
           ctx.fillStyle = bg;
-          ctx.beginPath(); ctx.roundRect(x, py, pw, ph, 6); ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.fillText(text, x + 9, py + 15);
+          ctx.beginPath(); ctx.roundRect(x, py, pw, ph, 4); ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(text, x + 8, py + 14);
         };
         px.yT.forEach((y, i) => {
           const tp = prim.targets[i];
           if (tp.text) pill(tp.text, y, GREEN, y <= px.yE);
         });
         if (prim.stop.text) pill(prim.stop.text, px.yS, RED, px.yS < px.yE);
-        const lines = prim.center || [];
+
+        /* The centre chip, on the entry line. Flat slate, no border — the
+         * white 1.2px ring it used to wear was the loudest mark on the
+         * chart, and a chip that outshouts the candles is the opposite of
+         * what a plan overlay is for. Slate rather than the old bottle
+         * green so it does not read as a third zone. */
+        const lines = (prim.center || []).filter(Boolean);
         if (lines.length) {
           ctx.font = `11px ${FONT}`;
-          const lw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
-          const lh = lines.length * 15 + 12;
+          const lw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 22;
+          const lh = lines.length * 15 + 11;
           const x = Math.max(4, Math.min(cx - lw / 2, env.w - lw - 4));
           const y = px.yE - lh / 2;
-          ctx.fillStyle = rgba("#0d3a32", 0.95);
-          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.fill();
-          ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2;
-          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.stroke();
-          ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-          lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 17 + i * 15));
+          ctx.fillStyle = rgba("#131722", 0.92);
+          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 5); ctx.fill();
+          ctx.fillStyle = "#ffffff"; ctx.textAlign = "center";
+          lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 16 + i * 15));
           ctx.textAlign = "left";
         }
         break;

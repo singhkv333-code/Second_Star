@@ -131,6 +131,7 @@ const Tools = (() => {
 
     // ── channels ─────────────────────────────────────────
     channel: { label: "Parallel channel", anchors: 3, group: "lines", section: "channels",
+      key: "P",
       // third anchor sets the width; the copy keeps the SAME data-space
       // slope, so the two edges stay parallel at every zoom level
       build: (a) => {
@@ -219,6 +220,7 @@ const Tools = (() => {
 
     // ── fib ──────────────────────────────────────────────
     fib: { label: "Fib retracement", anchors: 2, group: "fib",
+      key: "F",
       build: (a, c) => {
         const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 })];
         for (const [i, lv] of G.ladder(a[0].v, a[1].v, FIB).entries()) {
@@ -286,11 +288,16 @@ const Tools = (() => {
     const rr = G.riskReward(entry.v, target.v, stop.v);
     const pct = (v) => Math.abs((v - entry.v) / entry.v * 100).toFixed(2);
     const dist = (v) => c.fmt(Math.abs(v - entry.v));
-    // breakeven hit rate 1/(1+RR): the win rate this shape silently demands
-    const center = rr === null
-      ? [`${side === "long" ? "Long" : "Short"}`, "Risk/reward ratio: —"]
-      : [`${side === "long" ? "Long" : "Short"} · needs ${Math.round(100 / (1 + rr))}% to break even`,
-         `Risk/reward ratio: ${rr.toFixed(2)}`];
+    /* Two lines, TradingView's two: the side, and the ratio. The first line
+     * used to carry the breakeven hit rate as well — 1/(1+RR), the win rate
+     * the shape silently demands — which is a true and useful number and the
+     * wrong place for it. It doubled the chip's width, so the chip covered
+     * twice the candles, and the reader had to parse a sentence to find the
+     * one figure they opened the tool for. */
+    const center = [
+      side === "long" ? "Long" : "Short",
+      `Risk/reward ratio: ${rr === null ? "—" : rr.toFixed(2)}`,
+    ];
     return [G.position(
       { t: Math.min(entry.t, target.t, stop.t), v: entry.v },
       { v: stop.v, text: `Stop: ${c.fmt(stop.v)} (${pct(stop.v)}%) ${dist(stop.v)}` },
