@@ -195,11 +195,25 @@
     const armed = document.querySelector(".rail .item[data-tool].on");
     const grid = sBody.querySelector("#drawGrid");
     if (!grid) return;
-    grid.innerHTML = Object.entries(Tools.SPECS)
-      .filter(([, s]) => s.group === g.id)
-      .map(([id, s]) => tile(`data-tool="${id}"`, lift(railTool(id), g.icon), s.label,
-                             armed && armed.dataset.tool === id ? "on" : ""))
-      .join("");
+    const all = Object.entries(Tools.SPECS).filter(([, s]) => s.group === g.id);
+    const tiles = (rows) => rows.map(([id, s]) =>
+      tile(`data-tool="${id}"`, lift(railTool(id), g.icon), s.label,
+           armed && armed.dataset.tool === id ? "on" : "")).join("");
+    // A sectioned group (Lines, seventeen tools) is banded here exactly as
+    // it is in the rail's flyout — seventeen unlabelled tiles in one grid is
+    // a wall, and the phone has the same three names available to break it.
+    // The container stops being the grid in that case and becomes the column
+    // the per-section grids stack in.
+    grid.className = g.sections ? "" : "sheet-grid";
+    grid.innerHTML = g.sections
+      ? g.sections.map(([sid, slabel]) => {
+          const rows = all.filter(([, s]) => (s.section || g.id) === sid);
+          return rows.length
+            ? `<div class="sheet-sec">${slabel}</div>`
+              + `<div class="sheet-grid">${tiles(rows)}</div>`
+            : "";
+        }).join("")
+      : tiles(all);
   }
   function paintDrawActs() {
     const acts = sBody.querySelector("#drawActs");
@@ -238,6 +252,7 @@
     const drawn = el("sceneClear").style.display !== "none";
     b.innerHTML =
       '<div class="sheet-sec">Chart</div><div class="sheet-grid">' +
+        tile('data-more="settings"', Icons.svg("settings"), "Settings") +
         tile('data-more="layout"', lift(el("layoutBtn"), "panelRight"), "Layout") +
         tile('data-more="shotFull"', Icons.svg("camera"), "Screenshot") +
         tile('data-more="shotRegion"', Icons.svg("rect"), "Select area") +
@@ -320,6 +335,9 @@
     const m = e.target.closest("[data-more]");
     if (!m) return;
     switch (m.dataset.more) {
+      // a modal over the chart, not a sheet: it is the header's own dialog,
+      // so the sheet gets out of its way first
+      case "settings": return act(el("settingsBtn"));
       case "layout": return openSheet("layout");
       case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
@@ -390,7 +408,9 @@
         (logo ? `<img class="co-logo" src="${logo}" alt="" onerror="this.remove()"/>`
               : Icons.svg("search")) + `<span>${sym}</span>`;
     }
-    const iv = el("intervalMenu").querySelector("button.active");
+    // `.on` — the one class every menu in this app marks its current row
+    // with. The interval list used to say `.active`; see markInterval().
+    const iv = el("intervalMenu").querySelector("button.on");
     const ivl = iv ? iv.dataset.short : "—";
     if (shown.iv !== ivl) {
       shown.iv = ivl;

@@ -174,6 +174,33 @@ const Drawings = (() => {
     const buildCtx = {
       fmt,
       fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,
+      // seconds per bar. A tool that has to point somewhere OFF the loaded
+      // range — a ray's far end — needs the axis's own step to do it; a
+      // literal number of seconds would mean something different on a 1m
+      // chart and on a daily one.
+      get iv() { return env.getIntervalSec(); },
+      /* The ONE screen-space reading a tool may take, and the only place in
+       * the catalogue that is allowed to see pixels.
+       *
+       * An angle on a price chart has no data-space meaning: price over time
+       * is not a ratio of like quantities, so "38° " is a statement about the
+       * two axes' current scales and nothing else. Expressing it as
+       * percent-per-bar instead — which this tool tried first — is arithmetic
+       * that is correct and useless: a line a reader would call 45° came back
+       * as 1.4°, because a percent and a bar are not the same size.
+       *
+       * So the tool reads the projection, exactly as TradingView's does, and
+       * the number moves when you zoom. That is not a bug in the reading; it
+       * is what the reading IS. Anchors stay in data space (see the module
+       * header) — this reads the pane, it does not store anything from it. */
+      degrees(p, q, pane) {
+        const x0 = tToX(p.t), x1 = tToX(q.t);
+        const y0 = vToY(p.v, pane || "price"), y1 = vToY(q.v, pane || "price");
+        if ([x0, x1, y0, y1].some((n) => n === null || n === undefined)) return null;
+        if (x0 === x1 && y0 === y1) return null;
+        // screen y grows downward; a rising line has to read as a positive angle
+        return (Math.atan2(y0 - y1, x1 - x0) * 180) / Math.PI;
+      },
       barsBetween(t0, t1) {
         return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
       },
@@ -521,8 +548,18 @@ const Drawings = (() => {
      * the anchor, in the size and position the finished chip will occupy —
      * so what you type is already the drawing. It is placed in the CHIP's
      * own geometry (see G.chip: 11px type, a 15px band, 6px of side padding,
-     * offset +4/-9 from the anchor), which is what makes it WYSIWYG rather
-     * than merely nearby.
+     * offset +4/-9 from the anchor) AND in the chip's own colours, which is
+     * what makes it WYSIWYG rather than merely nearby. The ink and the plate
+     * are read from the same palette G.chip paints with, at open time, so
+     * the preview cannot be a different colour from the result and cannot go
+     * stale across a theme toggle.
+     *
+     * There is no placeholder in the box. "Add text" set in grey inside a
+     * framed field was the one thing in there that could never become the
+     * drawing, and it is what made the editor read as a form control pasted
+     * onto the chart. The caret says the box is waiting; what to do with it
+     * goes to the status strip, where this app already keeps a tool's
+     * running instructions.
      *
      * Enter or a click away keeps it; Escape or an empty box throws it away.
      * The chart is frozen while it is open — a pan under a fixed-position
@@ -544,26 +581,38 @@ const Drawings = (() => {
       const cr = el.getBoundingClientRect();
       const pr = (paneEl || el).getBoundingClientRect();
 
+      // the ink the finished chip will use — the drawing's own colour, or
+      // the chart accent every drawing falls back to (see styleOf)
+      const col = d.color || Theme.c("accent");
+
       const box = document.createElement("input");
       box.className = "text-box";
       box.type = "text";
-      box.placeholder = "Add text";
       box.spellcheck = false;
       box.style.left = Math.round(cr.left + x + 4) + "px";
       box.style.top = Math.round(pr.top + y - 9) + "px";
+      // `color` drives the caret and, through currentColor, nothing else —
+      // the frame is deliberately weaker than the text. At full strength a
+      // 1px rectangle is more ink than the eleven-point glyphs inside it,
+      // and the frame would read as the subject.
+      box.style.color = col;
+      box.style.borderColor = G.rgba(col, 0.55);
+      box.style.background = Theme.c("chipBg");
       document.body.appendChild(box);
 
       const font = getComputedStyle(box).font;
-      // 62 is the stylesheet's own min-width: setting a narrower inline
-      // width would just be overridden, and the two would disagree about
-      // how wide an empty box is
+      // +14, not +16: the chip's plate is textWidth + 12, and the box wears
+      // a 1px frame on each side that the plate does not. 46 is the
+      // stylesheet's own min-width — setting a narrower inline width would
+      // just be overridden, and the two would disagree about how wide an
+      // empty box is.
       const fit = () => {
-        const w = textWidth(box.value || box.placeholder, font);
-        box.style.width = Math.max(62, Math.ceil(w + 16)) + "px";
+        box.style.width = Math.max(46, Math.ceil(textWidth(box.value, font) + 14)) + "px";
       };
       fit();
       box.focus();
 
+      env.setStatus("type the label — Enter to place, Esc to cancel");
       setScroll(false);
       let closed = false;
       const close = (txt) => {
