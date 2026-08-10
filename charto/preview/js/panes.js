@@ -266,6 +266,23 @@ const Panes = (() => {
 
     const sub = { root, chart, candle, volume, interval, destroyed: false,
                   bars: [], symbol: (symbol || Sym.name).toUpperCase() };
+    /* A secondary pane is a chart like any other, so the gear reaches it too:
+     * one edit lands on every chart on screen, which is the whole point of a
+     * split showing the same instrument twice. `label` is read at paint time
+     * because this pane's symbol can change under it. */
+    sub.settings = {
+      chart, candle, volume,
+      // a secondary pane is built smaller than the primary on purpose, and
+      // "Default" in the dialog has to mean THESE, not the primary's
+      defaults: { fontSize: 11, rightOffset: 4 },
+      label: () => sub.symbol,
+      repaint() {
+        if (!sub.bars.length) return;
+        candle.setData(ChartSettings.candlePoints(sub.bars));
+        volume.setData(ChartSettings.volumePoints(sub.bars));
+      },
+    };
+    ChartSettings.register(sub.settings);
     // Indicators are a property of the CHART, not of the app: the one toolbar
     // adds to whichever pane is selected, and each pane keeps what it was
     // given. Settings still live in one place per indicator, so an EMA styled
@@ -321,11 +338,10 @@ const Panes = (() => {
         const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
         if (sub.destroyed) return;
         sub.bars = bars;
-        candle.setData(bars.map(({ time, open, high, low, close }) =>
-          ({ time, open, high, low, close })));
-        volume.setData(bars.map(({ time, volume: v, open, close }) => ({
-          time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
-        })));
+        // the settings module builds both series — see the note beside
+        // main.js's paint(): one place decides what a green bar is
+        candle.setData(ChartSettings.candlePoints(bars));
+        volume.setData(ChartSettings.volumePoints(bars));
         chart.applyOptions({
           timeScale: { timeVisible: !["D", "W", "M"].includes(iv) },
         });
@@ -366,15 +382,17 @@ const Panes = (() => {
 
     sub.retheme = () => {
       chart.applyOptions(chartOpts());
-      candle.applyOptions({
-        upColor: Theme.c("up"), downColor: Theme.c("down"),
-        wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-      });
+      // the candles are the settings module's to colour — the theme is only
+      // its default, so re-applying it here is what puts an explicit choice
+      // back over the palette this line just wrote
+      ChartSettings.applyTo(sub.settings);
       sub.ind.retheme(sub.bars);
       load(sub.interval);   // volume bar colours are per-point, so repaint
     };
     sub.destroy = () => {
       sub.destroyed = true;
+      // first: a settings edit must never reach a chart that is going away
+      ChartSettings.unregister(sub.settings);
       // before the chart goes: the legend holds a sink on the manager and
       // floating boxes parented to `root`, and a torn-down chart cannot
       // answer the crosshair subscription still pointed at it

@@ -252,6 +252,7 @@
     const drawn = el("sceneClear").style.display !== "none";
     b.innerHTML =
       '<div class="sheet-sec">Chart</div><div class="sheet-grid">' +
+        tile('data-more="settings"', Icons.svg("settings"), "Settings") +
         tile('data-more="layout"', lift(el("layoutBtn"), "panelRight"), "Layout") +
         tile('data-more="shotFull"', Icons.svg("camera"), "Screenshot") +
         tile('data-more="shotRegion"', Icons.svg("rect"), "Select area") +
@@ -334,6 +335,9 @@
     const m = e.target.closest("[data-more]");
     if (!m) return;
     switch (m.dataset.more) {
+      // a modal over the chart, not a sheet: it is the header's own dialog,
+      // so the sheet gets out of its way first
+      case "settings": return act(el("settingsBtn"));
       case "layout": return openSheet("layout");
       case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
