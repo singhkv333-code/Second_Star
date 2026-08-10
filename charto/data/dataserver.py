@@ -6356,6 +6356,64 @@ TOOLS = [
          "scope": {"type": "string", "enum": ["events", "full"],
                    "description": "'events' (default): dated happenings in the window. 'full': ALSO scans for open unresolved company situations (leadership, regulatory, legal, deals) and scheduled upcoming events, concurrently at no extra latency — use it for open-ended asks ('what does the news suggest', 'why is it weak lately') and whenever the day's events fail to explain the move."}},
       "required": ["frm"]}},
+    {"type": "function", "name": "set_alert",
+     "description": (
+         "Arm a server-side alert on the chart's instrument. Use it whenever the "
+         "user asks to be TOLD or NOTIFIED about something — 'tell me if', 'let "
+         "me know when', 'alert me', 'watch for'. It notifies only; it never "
+         "places an order. The alert is a COMPOSED expression: a list of "
+         "conditions, each `left <op> right`, where both sides are addresses "
+         "resolved against the real bars. Addresses: close/open/high/low/volume "
+         "(current bar), close[1] (n bars back), day.high/pday.close (session "
+         "fields), 20d.high/52w.low (windows), any indicator as rsi(14) / "
+         "sma(200) / vwap() / macd().signal / bbands(20).upper, avg(volume,20) "
+         "(a mean baseline), poc/vah/val (volume profile), draw:D3 (one of the "
+         "user's own drawings — re-priced every bar, so a trendline's level "
+         "moves with time), pattern(bullish_engulfing) or divergence(rsi) with "
+         "op=is_true (fires on COMPLETION on a closed bar, never on approach). "
+         "`x` multiplies the right side and `plus_pct` offsets it, so 'volume "
+         "above twice its average' is {left:'volume', op:'above', "
+         "right:'avg(volume,20)', x:2}. Several conditions with all=true is an "
+         "AND — that is how a confirmed breakout is expressed in one alert. If "
+         "an address or op is wrong the engine refuses and hands back the whole "
+         "grammar; re-call with the names it lists rather than guessing again."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"],
+                      "description": "the bars the rule is evaluated on; also what 'per bar' means"},
+         "when": {"type": "array", "description": "1-4 conditions",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string", "description": "an address, e.g. 'close' or 'rsi(14)'"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number", "description": "multiply the right side"},
+                      "plus_pct": {"type": "number", "description": "offset the right side by a percentage"},
+                      "within": {"type": "integer", "description": "bars, for the _pct ops"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true (default) = AND, false = OR"},
+         "freq": {"type": "string",
+                  "enum": ["once", "per_bar", "per_bar_close", "per_day"],
+                  "description": "'once' (default) fires a single time on the forming bar; 'per_bar_close' waits for the confirmed close, which is the honest choice for an indicator or a setup"},
+         "expires_in_days": {"type": "integer", "description": "0 = open-ended"},
+         "note": {"type": "string", "description": "why the user is watching it"}},
+      "required": ["when"]}},
+    {"type": "function", "name": "list_alerts",
+     "description": ("The user's own alerts and the most recent things that "
+                     "fired, with the value each one actually saw. Use it for "
+                     "'what am I watching', 'did anything trigger', or before "
+                     "cancelling one so the id is real."),
+     "parameters": {"type": "object", "properties": {}}},
+    {"type": "function", "name": "cancel_alert",
+     "description": ("Delete one alert by id. Call list_alerts first unless the "
+                     "id is already known from this conversation."),
+     "parameters": {"type": "object", "properties": {
+         "alert_id": {"type": "integer"}},
+      "required": ["alert_id"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
@@ -6846,6 +6904,25 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_deals": tool_get_deals,
              "recall_conversations": tool_recall_conversations,
              "open_chart": tool_open_chart}
+
+# The watcher's three, added only when alerts.py is loaded. `user_id` is NOT a
+# tool parameter and never appears in the schema: it is read off the request's
+# own bearer token, so the model has no way to address another account's alerts
+# even if it invents the argument.
+def _alert_tool(name: str):
+    def call(**args):
+        if _alerts is None:
+            return {"error": "the alert engine is not loaded on this server"}
+        # `_req.user` is already set per chat request for recall_conversations —
+        # (id, email, name) or None. Reusing it beats a second identity field,
+        # and signed out resolves to 0, which the tool answers honestly.
+        who = getattr(_req, "user", None)
+        return getattr(_alerts, name)(user_id=(who[0] if who else 0), **args)
+    return call
+
+
+for _n in ("set_alert", "list_alerts", "cancel_alert"):
+    _DISPATCH[_n] = _alert_tool("tool_" + _n)
 
 
 # ── which chart a tool reads ────────────────────────────────────────────────
@@ -8563,6 +8640,38 @@ def _live_push(sym: str, form: list, closed: bool) -> None:
                     st["subs"].remove(q)
 
 
+# ── the watcher ───────────────────────────────────────────────────
+# Set by the boot block below, which imports alerts.py AFTER the module alias
+# is in place — the same requirement kite_stream has, and for the same reason:
+# a second copy of this module would hold a second _LIVE and the hook would
+# feed a watcher nothing. None means the routes answer 501 rather than 500.
+_alerts = None
+
+
+# ── the watcher's seam ────────────────────────────────────────────
+# alerts.py registers here at boot. It stays None on a build without that
+# module, and it is called through _bar_hook rather than directly for one
+# reason: an exception raised into _live_on_tick would abort the tick, and the
+# forming bar it was in the middle of maintaining is how minutes get stored.
+# A watcher bug must cost an alert, never a candle.
+_ON_BAR = None
+
+
+def register_bar_hook(fn) -> None:
+    global _ON_BAR
+    _ON_BAR = fn
+
+
+def _bar_hook(sym: str, form: list, closed: bool) -> None:
+    fn = _ON_BAR
+    if fn is None:
+        return
+    try:
+        fn(sym, form, closed)
+    except Exception:                                 # noqa: BLE001
+        logging.warning("charto bar hook failed on %s", sym, exc_info=True)
+
+
 def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
     """The one seam every tick source calls. ts = the tick's epoch second."""
     sess = session_for(sym)
@@ -8613,7 +8722,11 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
         # the minute's FINAL state must always reach the chart — a throttled
         # drop here would leave a permanently wrong candle on screen
         _live_push(sym, closed_bar, True)
+        _bar_hook(sym, closed_bar, True)
     _live_push(sym, snap, False)
+    # The watcher sees exactly what the chart sees, at exactly the same
+    # cadence: ≤4 snapshots/sec plus every close, never more.
+    _bar_hook(sym, snap, False)
 
 
 def _merge_form_intraday(rows: list, form: list) -> None:
@@ -8747,19 +8860,30 @@ _VENUES = {"coinbase": ("crypto_stream", "CryptoStream"),
 
 
 def _venue_symbols(venue: str) -> list[str]:
-    """The pairs a venue owns that this store actually has history for.
+    """The instruments a venue owns that this store actually has history for.
 
-    Taken from backfill_crypto's own lists rather than a second hardcoded copy,
-    then intersected with `bars` — subscribing to a pair with no local history
-    writes today's minutes onto nothing and draws a chart that looks live and
-    is one minute long.
+    Taken from each venue's own source of truth rather than a second hardcoded
+    copy, then intersected with `bars` — subscribing to a symbol with no local
+    history writes today's minutes onto nothing and draws a chart that looks
+    live and is one minute long.
+
+    `kite` used to fall through this function to `[]`, which meant
+    CHARTO_LIVE_VENUES could arm the two crypto venues and never the Indian
+    one: `symbols=ALL` 400'd, so the NSE feed existed only because somebody
+    curled /live by hand — and deploy.sh restarts this service on any backend
+    change. The store's own 1-minute coverage is the honest list: everything
+    `bars` holds that is not a crypto pair, which is exactly the set
+    kite_stream's plan() is willing to stream. It still refuses per symbol
+    there, so this being generous costs nothing.
     """
+    have = _symbols_with_bars()
+    if venue == "kite":
+        return sorted(s for s in have if scope_for(s) != "crypto")
     try:
         import backfill_crypto as bc
         listed = {"coinbase": bc.COINBASE, "bybit": bc.BYBIT}.get(venue, [])
     except Exception:                                 # noqa: BLE001
         return []
-    have = _symbols_with_bars()
     return [s for s, _ in listed if s in have]
 
 
@@ -9145,6 +9269,36 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001
                 pass
 
+    def _send_alerts(self, uid: int) -> None:
+        """SSE of this user's fired alerts. The same shape as _send_live and for
+        the same reasons — one queue per subscriber, a slow reader dropped so
+        its socket closes and the browser reconnects, and a 15s keepalive so a
+        quiet market is not mistaken for a dead connection."""
+        q = _alerts.subscribe(uid)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            while not q.dead:
+                try:
+                    ev = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(
+                        f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto alerts sse failed: %s", exc)
+        finally:
+            _alerts.unsubscribe(uid, q)
+
     def _send_live(self, symbol: str) -> None:
         """SSE of forming bars. One queue per subscriber; a client that stops
         reading is dropped rather than back-pressuring the tick loop."""
@@ -9389,6 +9543,19 @@ class Handler(BaseHTTPRequestHandler):
                 # helper hands back the workspace and nothing else about the
                 # person who made it.
                 return self._send(*_layout_shared_get(q.get("token", "")))
+            if u.path in ("/alerts", "/alerts/stream"):
+                # Alerts are per-user by construction — they run on the server
+                # so they can fire while the browser is shut, which means they
+                # belong to an account and not to a tab.
+                if _alerts is None:
+                    return self._send(501, {"error": "the alert engine is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use alerts"})
+                if u.path == "/alerts/stream":
+                    return self._send_alerts(me[0])
+                return self._send(*_alerts.api_list(me[0]))
             if u.path in ("/auth/me", "/workspace", "/layouts"):
                 me = _auth_user(self.headers)
                 if not me:
@@ -9447,6 +9614,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path == "/alerts" or u.path.startswith("/alerts/"):
+            if _alerts is None:
+                return self._send(501, {"error": "the alert engine is not "
+                                                 "loaded on this server"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use alerts"})
+            tail = u.path[len("/alerts"):].strip("/")
+            if not tail:
+                return self._send(*_alerts.api_create(me[0], body))
+            if tail == "check":
+                return self._send(*_alerts.api_check(me[0], body))
+            if tail == "seen":
+                return self._send(*_alerts.api_seen(me[0]))
+            if tail.isdigit():
+                # patch, pause/resume, re-arm, or {delete:true} — the shape
+                # /layouts already uses, so the server keeps two verbs
+                return self._send(*_alerts.api_patch(me[0], int(tail), body))
+            return self._send(404, {"error": f"no alerts route '{tail}'"})
         if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts",
                                                      "/conversations"):
             try:
@@ -9557,6 +9748,21 @@ if __name__ == "__main__":
         except Exception as _exc:                              # noqa: BLE001
             # Never let a venue keep the chart server down — data first.
             print(f"charto live autostart {_v} FAILED: {_exc}")
+
+    # The watcher, after the alias and after the venues: catch_up() replays the
+    # window this process was down for, and a feed that is already connecting
+    # means fewer minutes for it to have to replay. Never fatal — the chart is
+    # the product and it must come up even if the alert engine cannot.
+    try:
+        import alerts as _alerts_mod
+        _alerts = _alerts_mod
+        _alerts_mod.register_hook()
+        _boot = _alerts_mod.start()
+        print(f"charto alerts: {_boot.get('armed', 0)} armed on "
+              f"{_boot.get('symbols', 0)} symbol(s), "
+              f"catch-up {_boot.get('catch_up')}")
+    except Exception as _exc:                                  # noqa: BLE001
+        print(f"charto alerts UNAVAILABLE: {_exc}")
 
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

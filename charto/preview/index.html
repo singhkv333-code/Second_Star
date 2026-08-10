@@ -3075,6 +3075,26 @@ body.two-columns .readout .row { display: none; }
   .al-acts { display: flex; }
 }
 
+/* A reason a rule is paused, printed under it. The engine pauses a rule whose
+   address stopped resolving rather than leaving it armed and silently never
+   firing, and a paused row with no stated reason reads as one the user
+   paused. */
+.al-meta.warn { color: var(--ann-res); }
+
+/* The feed line, above the list. Not an error and not styled as one: the
+   alerts are intact, it is the PRICES that are not arriving, and that is a
+   sentence the panel has to be able to say. */
+.al-feednote {
+  padding: 8px 10px; font-size: var(--text-sm); line-height: 1.4;
+  color: var(--muted-foreground); background: var(--accent);
+  border-bottom: 1px solid var(--seam);
+}
+
+/* The filter row. It only exists while it is being used — a permanent search
+   box over six rows is furniture. */
+.al-searchbar { padding: 6px 8px; border-bottom: 1px solid var(--seam); }
+.al-searchbar .dlg-input { width: 100%; }
+
 /* ── the log ──────────────────────────────────────────────────────────────
    The alerts list is standing RULES; the log is MOMENTS, so it is grouped by
    day and led by the clock. The day heading sticks, so a long scroll always
@@ -3098,6 +3118,149 @@ body.two-columns .readout .row { display: none; }
 .lg-msg b { font-weight: var(--weight-medium); }
 .lg-meta { margin-top: 3px; font-size: var(--text-sm); color: var(--muted-foreground); }
 .lg-meta .val { color: var(--foreground); font-variant-numeric: tabular-nums; }
+/* "found late" — the engine replayed stored bars after being down and found
+   this cross there. A fact about the READING, so it sits on the reading; the
+   alternative is a log that quietly implies everything was seen live. */
+.lg-late {
+  margin-left: 4px; font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: .02em; color: var(--faint);
+}
+
+/* ══ the create/edit dialog ════════════════════════════════════════════════
+   The one screen the fixture never had. It rides the shared .dlg shell
+   (js/dlgkit.js), so it drags, centres and clamps like the indicator and
+   chart dialogs — this block is only what is new inside it.
+
+   The condition is ONE LINE reading left to right, because that is the
+   sentence the alert is: `close · crossing up · 1,420`. Fields are part
+   dropdown and part free text on purpose: the selects carry what people ask
+   for daily, and the text accepts any address the engine's grammar knows, so
+   this dialog can never become the ceiling on what the engine can express. */
+/* The shell caps at min(560px, 100vw-24px) and its width is max-content, so a
+   condition row wider than the cap does not widen the card — it gets CLIPPED,
+   which is how "Expires" and half the resolved-value line went missing. So
+   nothing in here has a fixed width: the row's fields flex down to a floor and
+   wrap to a second line rather than running off the edge. */
+.al-dlg { width: min(560px, calc(100vw - 24px)); }
+/* The shared .dlg-body is a GRID of `max-content 1fr` — a label column and a
+   control column, which is exactly right for the indicator dialog's rows and
+   exactly wrong here. This dialog's body is one block, so it landed in the
+   max-content column and took its own content width (674px) inside a 558px
+   card, and the row overflowed instead of wrapping. Reverting it to a block for
+   THIS dialog only leaves the other two untouched. */
+.al-dlg .dlg-body { display: block; padding: 0; }
+.al-dlg-body { padding: 14px 20px 4px; min-width: 0; }
+
+.al-cond-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.al-cond-row .al-f {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  flex: 1 1 auto;
+}
+/* BOTH class names, and that is not belt-and-braces: DlgKit.dressSelects()
+   hides the real <select> and inserts a button whose class is the select's with
+   `dlg-select` REPLACED by `select-btn`. Styling only `.dlg-select` therefore
+   styles the invisible element — which is why these rows overflowed the card
+   by 119px while every rule here looked correct. .select-btn also ships a hard
+   `width: 100px`, so the flex basis has to override it explicitly. */
+.al-cond-row .dlg-select.left, .al-cond-row .select-btn.left {
+  flex: 1 1 106px; width: auto; min-width: 0; max-width: 150px;
+}
+/* "crossing down" is the longest label and must not truncate — the op IS the
+   sentence, and "crossin…" beside a level does not say which direction. */
+.al-cond-row .dlg-select.op, .al-cond-row .select-btn.op {
+  flex: 0 0 auto; width: auto; min-width: 132px;
+}
+/* an address is longer than a price — "avg(volume,20)" has to be readable */
+.al-cond-row .dlg-input.right { flex: 1 1 118px; min-width: 78px; }
+/* the three settings selects, same trap */
+.al-grid .dlg-select, .al-grid .select-btn { width: 100%; min-width: 0; }
+.al-cond-row .dlg-input.tiny { flex: 0 0 46px; width: 46px; text-align: center; }
+.al-unit { font-size: var(--text-sm); color: var(--faint); white-space: nowrap; }
+
+/* the AND/OR between two conditions, and the only place the rule's shape is
+   visible at a glance */
+.al-join {
+  padding: 5px 0 5px 2px; font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: .04em; color: var(--faint);
+}
+
+.al-mini {
+  width: 24px; height: 24px; flex: none; padding: 0; border: 0;
+  border-radius: var(--radius-xs); background: transparent;
+  color: var(--muted-foreground); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--text-xl); line-height: 1;
+}
+.al-mini:hover { background: var(--hover-fill); color: var(--foreground); }
+.al-mini.danger:hover { background: var(--down-soft); color: var(--down); }
+.al-mini-gap { width: 24px; flex: none; }
+
+.al-addrow { display: flex; gap: 10px; margin: 8px 0 14px; }
+.al-add {
+  display: inline-flex; align-items: center; gap: 5px; padding: 0;
+  border: 0; background: transparent; cursor: pointer;
+  font-size: var(--text-sm); color: var(--primary);
+}
+.al-add:hover { text-decoration: underline; }
+
+.al-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+}
+.al-grid label, .al-note {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: var(--text-sm); color: var(--muted-foreground);
+}
+.al-note { margin-top: 10px; }
+
+/* WHAT IT IS LOOKING AT RIGHT NOW. The most load-bearing element in the
+   dialog: it is the difference between a rule you typed and a rule you can
+   see resolving, and it is where an unreadable address is refused — here,
+   rather than at 09:20 by never firing. */
+.al-check {
+  margin: 12px 0 4px; min-height: 20px; padding: 8px 10px;
+  border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.45;
+  background: var(--accent); color: var(--muted-foreground);
+}
+.al-check:empty { display: none; }
+.al-check.busy { opacity: .6; }
+.al-check.bad {
+  background: color-mix(in srgb, var(--down) 12%, transparent); color: var(--down);
+}
+.al-check-now { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.al-check-warn, .al-check-feed { margin-top: 4px; }
+.al-check-warn { color: var(--ann-res); }
+
+/* The grammar, folded away. Progressive disclosure rather than a wall: the
+   selects answer the common case, and this is here for the day you want
+   `avg(volume,20)` and need to know it exists. Rendered from the SERVER's own
+   copy of the vocabulary, so it cannot drift from what the engine accepts. */
+.al-help { margin: 6px 0 10px; font-size: var(--text-sm); }
+.al-help summary {
+  cursor: pointer; color: var(--muted-foreground); padding: 4px 0;
+}
+.al-help summary:hover { color: var(--foreground); }
+.al-help dl {
+  margin: 6px 0 0; max-height: 190px; overflow-y: auto;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px;
+}
+.al-help dt {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm); color: var(--foreground);
+  /* "<indicator>(<period>).<line>" is one unbreakable token to the line
+     breaker, and the shell CLIPS rather than widens — so it has to be told it
+     may break anywhere. */
+  overflow-wrap: anywhere;
+}
+.al-help dd {
+  margin: 1px 0 0; color: var(--muted-foreground); line-height: 1.4;
+}
+
+@media (max-width: 560px) {
+  .al-grid { grid-template-columns: minmax(0, 1fr); }
+  .al-cond-row .dlg-select.left, .al-cond-row .dlg-select.op { max-width: none; }
+}
 
 /* ── a panel head's menus ──────────────────────────────────────────────────
    The app's own dropdown, hung off a 28px head button and appended to <body>
@@ -4244,14 +4407,19 @@ body.two-columns .readout .row { display: none; }
   <script src="./js/drawings.js?v=19"></script>
   <script src="./js/scene.js?v=30"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=68"></script>
+  <script src="./js/main.js?v=69"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=6"></script>
   <script src="./js/chat.js?v=111"></script>
+  <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
+       initialises. After auth.js and dlgkit.js, whose token and dialog shell it
+       uses. Everything it needs from main.js (SYMBOL) and panels.js
+       (openWidget) is read inside handlers, so those may come later. -->
+  <script src="./js/alerts.js?v=4"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=4"></script>
+  <script src="./js/panels.js?v=5"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=9"></script>
 </body>

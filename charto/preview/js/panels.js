@@ -6,12 +6,12 @@
  * can never quote different numbers. A symbol the store holds nothing for
  * shows an em dash, never a filler number.
  *
- * ALERTS IS STILL A LOOK. Every alert and log line below is fixture data in
- * this file's MOCK block, and its create/pause/edit/delete controls are drawn
- * at full fidelity and deliberately do nothing — there is no alert engine to
- * wire them to, and a half-wired button that half-works is a worse answer
- * than one that plainly doesn't. The bell on a watchlist row belongs to that
- * unbuilt widget and is inert for the same reason.
+ * ALERTS IS REAL TOO, as of the watcher. Its rules and its log come from
+ * data/alerts.py through js/alerts.js, its controls all do the thing they say,
+ * and the bell on a watchlist row opens the create dialog with that instrument
+ * filled in. What is NOT claimed anywhere: that a fired alert reaches you with
+ * the browser shut. It does not — the log and the bell are waiting when you
+ * return, and the panel says as much rather than implying a push.
  *
  * THE SHAPE, and why it is this one. TradingView keeps a permanent strip of
  * widget icons on the outer edge and opens ONE widget panel beside it, and
@@ -37,55 +37,6 @@ const Panels = (() => {
   // same-origin behind a proxy, explicit port in local dev (see main.js)
   const API = ["localhost", "127.0.0.1"].includes(location.hostname)
     ? "http://127.0.0.1:5174" : "";
-
-  /* ══ fixture data — ALERTS ONLY ════════════════════════════════════════
-   * Real NSE/MCX instruments at plausible levels, so the rows are read at
-   * the width they will really be read at — a panel mocked with "AAA 100.00"
-   * looks roomy and then ships broken.
-   */
-  const MOCK = {
-    /* `state` is one of: armed (live, watching) · paused (kept, not
-     * watching) · fired (it happened; the rule stopped itself). */
-    alerts: [
-      { sym: "RELIANCE", ex: "NSE", state: "armed",
-        cond: "Crossing up", level: "1,420.00",
-        meta: "Once per bar close · 5m", when: "12 Jul" },
-      { sym: "NIFTY 50", ex: "NSE", state: "armed",
-        cond: "Crossing down", level: "24,800.00",
-        meta: "Only once · 15m", when: "28 Jul" },
-      { sym: "BANKNIFTY", ex: "NSE", state: "armed",
-        cond: "Volume above", level: "2× average",
-        meta: "Once per bar · 1h", when: "31 Jul" },
-      { sym: "HDFCBANK", ex: "NSE", state: "fired",
-        cond: "Crossing up", level: "1,655.00",
-        meta: "Only once · 5m", when: "09:41" },
-      { sym: "TCS", ex: "NSE", state: "paused",
-        cond: "RSI(14) crossing down", level: "30",
-        meta: "Once per bar close · 1h", when: "04 Aug" },
-      { sym: "INFY", ex: "NSE", state: "paused",
-        cond: "Moving down", level: "2% in 1D",
-        meta: "Once per day · 1D", when: "22 Jul" },
-    ],
-
-    log: [
-      { day: "Today", items: [
-        { time: "09:41", sym: "HDFCBANK", verb: "crossed above", level: "1,655.00",
-          meta: "5m · price", val: "1,656.20" },
-        { time: "09:18", sym: "NIFTY 50", verb: "crossed below", level: "24,800.00",
-          meta: "15m · index", val: "24,794.55" },
-      ] },
-      { day: "Yesterday", items: [
-        { time: "15:22", sym: "TCS", verb: "RSI(14) crossed below", level: "30",
-          meta: "1h · RSI", val: "28.4" },
-        { time: "11:05", sym: "RELIANCE", verb: "crossed above", level: "1,420.00",
-          meta: "5m · price", val: "1,421.75" },
-      ] },
-      { day: "Fri, 31 Jul", items: [
-        { time: "14:47", sym: "BANKNIFTY", verb: "volume rose above", level: "2× average",
-          meta: "1h · volume", val: "3.1×" },
-      ] },
-    ],
-  };
 
   /* ══ shared bits ═══════════════════════════════════════════════════════ */
 
@@ -133,14 +84,18 @@ const Panels = (() => {
     // opened elsewhere) while this node is still parked in the DOM. That is a
     // CLOSED menu, so re-clicking its button must reopen it, not toggle a
     // hidden thing shut and make the first click look ignored.
+    // `data-al` as well as `data-wl`: the alerts head hangs its own two menus
+    // here, and keying only off the watchlist's attribute made both of them
+    // read as "no anchor", so the lit button could not be clicked shut.
+    const key = anchor.dataset.wl || anchor.dataset.al || "";
     const again = popEl && popEl.classList.contains("open")
-      && popEl.dataset.for === anchor.dataset.wl;
+      && popEl.dataset.for === key;
     closePopup();
     if (again) return;                       // clicking the lit button closes
     if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
     const pop = document.createElement("div");
     pop.className = "dropdown floating open wl-menu";
-    pop.dataset.for = anchor.dataset.wl || "";
+    pop.dataset.for = key;
     pop.innerHTML = html;
     document.body.appendChild(pop);
     popEl = pop;
@@ -343,13 +298,15 @@ const Panels = (() => {
       (c.chg ? `<span class="wl-chg"></span>` : "") +
       (c.pct ? `<span class="wl-pct"></span>` : "") +
       `<span class="wl-acts">` +
-        // Drawn, disabled, and honestly labelled: the Alerts widget beside
-        // this one is still fixture data, so there is nothing behind this
-        // button. It stays in the row because that is where it belongs the
-        // day there is — a control that half-works would be the worse answer.
+        // Awake now. It opens the create dialog with this instrument already
+        // filled in, which is the whole reason the button lives in the row
+        // rather than only in the alerts panel. Signed out it stays visibly
+        // unavailable and says why, rather than opening a dialog that could
+        // only end in a refusal.
         iconBtn("al-act", "bell",
-                `Add an alert on ${esc(sym)} — alerts are not wired yet`,
-                "disabled") +
+                Auth.user ? `Add an alert on ${esc(sym)}`
+                          : `Sign in to add an alert on ${esc(sym)}`,
+                Auth.user ? 'data-wl="alert"' : "disabled") +
         // Plain, not `danger`: a × is a dismissal, not a warning, and red on
         // this page means the price went down. Dropping a symbol from a list
         // is one click to put back. `.al-act.danger` stays for the alert
@@ -676,55 +633,147 @@ const Panels = (() => {
    * Two tabs of one subject: the standing RULES, and the MOMENTS they fired.
    * Rules are ordered armed → fired → paused, the order the eye wants: what
    * is live, what just happened, what is merely kept.
+   *
+   * Every row below is now the SERVER's, through js/alerts.js — the fixture
+   * this section used to carry is gone, and so is the note explaining why the
+   * buttons did nothing. The rendering is unchanged on purpose: the fixture was
+   * written at the real width with real instruments precisely so that the day
+   * an engine arrived, the markup would not have to.
    */
   let alertTab = "alerts";
+  let alertQuery = "";
+  let alertSort = "state";
+  let alertSearchOpen = false;
   const RANK = { armed: 0, fired: 1, paused: 2 };
+
+  /** A creation date, or the time it fired — the row's right-hand cell. */
+  function whenOf(a) {
+    const ts = a.state === "fired" && a.fired_at ? a.fired_at : a.created;
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit",
+                                        hour12: false })
+      : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  }
 
   function alertRow(a) {
     // A fired alert says so where the others say when they were made; the
     // pill is the one place a state is written out rather than dotted.
     const right = a.state === "fired"
       ? '<span class="al-pill">Fired</span>'
-      : `<span class="al-when">${a.when}</span>`;
+      : `<span class="al-when">${esc(whenOf(a))}</span>`;
     // pause/resume reads off the state, so the glyph cannot contradict the
     // dot beside it
     const toggle = a.state === "paused"
-      ? iconBtn("al-act", "play", "Resume alert")
-      : iconBtn("al-act", "pause", "Pause alert");
-    return `<div class="al-row" data-state="${a.state}">` +
+      ? iconBtn("al-act", "play", "Resume alert", 'data-al="toggle"')
+      : iconBtn("al-act", "pause", "Pause alert", 'data-al="toggle"');
+    // A rule the engine paused because an address stopped resolving carries
+    // the reason in its note. That belongs on the row: a paused alert with no
+    // stated reason reads as one the user paused.
+    const why = /\[paused: /.test(a.note || "")
+      ? `<div class="al-meta warn">${esc((a.note.match(/\[paused: ([^\]]+)\]/)
+                                          || [, ""])[1])}</div>` : "";
+    return `<div class="al-row" data-state="${esc(a.state)}" ` +
+      `data-id="${a.id}" data-sym="${esc(a.symbol)}">` +
       `<span class="al-dot"></span>` +
       `<div class="al-main">` +
-        `<div class="al-sym">${a.sym}<span class="ex">${a.ex}</span></div>` +
-        `<div class="al-cond">${a.cond} <b>${a.level}</b></div>` +
-        `<div class="al-meta">${a.meta}</div>` +
+        `<div class="al-sym">${esc(a.symbol)}` +
+          `<span class="ex">${esc(Sym.of(a.symbol).venue)}</span></div>` +
+        `<div class="al-cond">${esc(a.cond)} <b>${esc(a.level)}</b></div>` +
+        `<div class="al-meta">${esc(a.meta)}</div>${why}` +
       `</div>` +
       `<div class="al-side">${right}<div class="al-acts">${toggle}` +
-        iconBtn("al-act", "pen", "Edit alert") +
-        iconBtn("al-act danger", "trash", "Delete alert") +
+        iconBtn("al-act", "pen", "Edit alert", 'data-al="edit"') +
+        iconBtn("al-act danger", "trash", "Delete alert", 'data-al="del"') +
       `</div></div></div>`;
   }
 
+  /* The log line is the EVIDENCE record: what fired, against what level, and
+   * the value it actually saw. `late` means the engine found it on a catch-up
+   * scan rather than live — a fact about the reading, so it is on the reading. */
   const logRow = (l) =>
-    `<div class="lg-row"><span class="lg-time">${l.time}</span><div>` +
-      `<div class="lg-msg"><b>${l.sym}</b> ${l.verb} ${l.level}</div>` +
-      `<div class="lg-meta">${l.meta} <span class="val">${l.val}</span></div>` +
-    `</div></div>`;
+    `<div class="lg-row" data-sym="${esc(l.symbol)}">` +
+      `<span class="lg-time">${esc(hhmm(l.ts))}</span><div>` +
+      `<div class="lg-msg"><b>${esc(l.symbol)}</b> ${esc(l.verb)} ` +
+        `${esc(l.level)}</div>` +
+      `<div class="lg-meta">${esc(l.meta)} ` +
+        `<span class="val">${esc(fmtVal(l.value))}</span>` +
+        (l.late ? ` <span class="lg-late">found late</span>` : "") +
+      `</div></div></div>`;
+
+  const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString("en-IN",
+    { hour: "2-digit", minute: "2-digit", hour12: false });
+  const fmtVal = (v) => (v == null ? "—"
+    : Number(v).toLocaleString("en-IN", { maximumFractionDigits: 4 }));
+
+  /** Day headings, computed rather than stored — "Today" has to still say
+   *  Today tomorrow, which a server-side string could not. */
+  function logGroups(rows) {
+    const out = [];
+    let last = null;
+    for (const l of rows) {
+      const d = new Date(l.ts * 1000);
+      const key = d.toDateString();
+      if (key !== last) {
+        const days = Math.round((Date.now() - d.getTime()) / 86400000);
+        out.push({ day: d.toDateString() === new Date().toDateString() ? "Today"
+                   : days <= 1 ? "Yesterday"
+                   : d.toLocaleDateString("en-IN", { weekday: "short",
+                       day: "2-digit", month: "short" }), items: [] });
+        last = key;
+      }
+      out[out.length - 1].items.push(l);
+    }
+    return out;
+  }
+
+  function visibleAlerts() {
+    const q = alertQuery.trim().toLowerCase();
+    let rows = Alerts.state.alerts.filter((a) => !q
+      || (a.symbol + " " + a.cond + " " + a.level + " " + (a.note || ""))
+         .toLowerCase().includes(q));
+    rows = [...rows];
+    if (alertSort === "symbol") rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    else if (alertSort === "created") rows.sort((a, b) => b.created - a.created);
+    else rows.sort((a, b) => (RANK[a.state] - RANK[b.state])
+                            || b.created - a.created);
+    return rows;
+  }
 
   /** Only the body and the tab states change when a tab is clicked — the
    *  head and the strip itself are not rebuilt, so nothing flickers. */
   function paintAlertBody() {
     const body = el("alertBody");
     if (!body) return;
-    if (alertTab === "alerts") {
-      body.innerHTML = MOCK.alerts.length
-        ? [...MOCK.alerts].sort((a, b) => RANK[a.state] - RANK[b.state])
-            .map(alertRow).join("")
-        : empty("alertPlus",
-                "Alerts notify you the moment your conditions are met. " +
-                "Create one to get started.", "Create alert");
+    const st = Alerts.state;
+    if (!Auth.user) {
+      // The same boundary layouts already draw, and for the same reason: an
+      // alert runs on the server so it can fire while this browser is shut,
+      // which makes it a thing an ACCOUNT owns and not a tab.
+      body.innerHTML = empty("bell",
+        "Alerts run on the server, so they watch while your browser is " +
+        "closed. Sign in to create one.", "Sign in", 'data-al="signin"');
+    } else if (!st.loaded) {
+      body.innerHTML = `<div class="side-empty"><p>Loading…</p></div>`;
+    } else if (st.error) {
+      body.innerHTML = `<div class="side-empty"><p>${esc(st.error)}</p></div>`;
+    } else if (alertTab === "alerts") {
+      const rows = visibleAlerts();
+      body.innerHTML = rows.length
+        ? rows.map(alertRow).join("")
+        : (st.alerts.length
+           ? `<div class="side-empty"><p>No alert matches “${esc(alertQuery)}”.</p></div>`
+           : empty("alertPlus",
+                   "Alerts notify you the moment your conditions are met. " +
+                   "Create one to get started.", "Create alert",
+                   'data-al="new"'));
     } else {
-      body.innerHTML = MOCK.log.length
-        ? MOCK.log.map((g) => `<div class="lg-day">${g.day}</div>` +
+      const groups = logGroups(st.log);
+      body.innerHTML = groups.length
+        ? groups.map((g) => `<div class="lg-day">${esc(g.day)}</div>` +
             g.items.map(logRow).join("")).join("")
         : empty("clock",
                 "Nothing has fired yet. Alerts that trigger are listed here " +
@@ -742,19 +791,37 @@ const Panels = (() => {
    * is which of the two lists you want. Under it the same 38px toolbar the
    * watchlist head is — create on the left, the list's own controls right. */
   function renderAlerts(panel) {
-    const nLog = MOCK.log.reduce((n, g) => n + g.items.length, 0);
+    const st = Alerts.state;
+    // The feed line, when there is something to say. A watcher whose prices
+    // stopped arriving must never look like a watcher that saw nothing happen.
+    const streams = (st.feed && st.feed.streams) || {};
+    const live = Object.keys(streams).some((v) => streams[v].connected);
+    const feedNote = (Auth.user && st.alerts.some((a) => a.state === "armed")
+                      && !live)
+      ? `<div class="al-feednote">No live price feed is connected right now — ` +
+        `armed alerts will be checked against stored bars when it returns.</div>`
+      : "";
     panel.innerHTML =
       `<div class="seg-tabs" role="tablist">` +
         `<button type="button" class="seg-tab" role="tab" data-tab="alerts">` +
-          `Alerts <span class="n">${MOCK.alerts.length}</span></button>` +
+          `Alerts <span class="n">${st.alerts.length}</span></button>` +
         `<button type="button" class="seg-tab" role="tab" data-tab="log">` +
-          `Log <span class="n">${nLog}</span></button>` +
+          `Log <span class="n">${st.log.length}</span></button>` +
       `</div>` +
-      head(act("plus", "Create alert") + `<div class="spacer"></div>`,
-           act("search", "Search alerts") + act("sort", "Sort") +
-           act("more", "More")) +
+      head(iconBtn("side-act", "plus", "Create alert", 'data-al="new"') +
+           `<div class="spacer"></div>`,
+           iconBtn("side-act", "search", "Search alerts", 'data-al="search"') +
+           iconBtn("side-act", "sort", "Sort", 'data-al="sort"') +
+           iconBtn("side-act", "more", "More", 'data-al="more"')) +
+      (alertQuery || alertSearchOpen
+        ? `<div class="al-searchbar"><input id="alSearch" class="dlg-input" ` +
+          `placeholder="Filter by symbol or condition" ` +
+          `value="${esc(alertQuery)}" autocomplete="off"></div>` : "") +
+      feedNote +
       `<div class="side-body" id="alertBody"></div>`;
     paintAlertBody();
+    const s = el("alSearch");
+    if (s && alertSearchOpen) s.focus();
   }
 
   /* ══ the widget list ═══════════════════════════════════════════════════ */
@@ -794,12 +861,31 @@ const Panels = (() => {
    *  width, the header's named button. */
   const ctrls = (id) => [el(`wb-${id}`), el(`wt-${id}`)].filter(Boolean);
 
-  // the fixture log has something in it from today, so the bell starts marked
-  if (MOCK.log.length && MOCK.log[0].day === "Today") {
-    for (const b of ctrls("alerts")) b.classList.add("has-new");
+  /** The bell's dot is the UNSEEN COUNT, not "there is a log" — the fixture
+   *  version marked it whenever today had a row, which meant it lit again on
+   *  every reload of something already read. */
+  function syncBell() {
+    const on = Alerts.state.unseen > 0;
+    for (const b of ctrls("alerts")) b.classList.toggle("has-new", on);
   }
 
+
   let openId = null;
+
+  /* One subscription, three jobs: keep the bell honest, keep an open panel
+   * current, and keep a watchlist row's bell in step with being signed in.
+   * Registered AFTER openId exists, and it only re-renders the panel that is
+   * actually on screen — repainting a hidden 302px column on every fire would
+   * be work nobody can see. */
+  Alerts.onChange(() => {
+    syncBell();
+    if (openId === "alerts") renderAlerts(el("alertsPanel"));
+  });
+  Auth.onChange(() => {
+    syncBell();
+    if (openId === "alerts") renderAlerts(el("alertsPanel"));
+    if (openId === "watch") repaint(true);        // the bells' enabled state
+  });
 
   // the breakpoint the stylesheet stacks at — below it the shell is a column
   const stackMq = window.matchMedia("(max-width: 820px) and (orientation: portrait)");
@@ -846,8 +932,10 @@ const Panels = (() => {
     // keeps costing after you look away, so it stops with the panel.
     polling(id === "watch");
     if (id !== "watch") closePopup();
-    // looking at the alerts spends the "something fired" dot
-    if (id === "alerts") for (const b of ctrls("alerts")) b.classList.remove("has-new");
+    // Opening the panel asks the server for the current truth — a tab that was
+    // in the background through a fire has a stale list, and the stream only
+    // carries what happened WHILE it was connected.
+    if (id === "alerts" && Auth.user) Alerts.load();
     // Stacked, there is room for the chart and ONE panel. The conversation
     // goes away through its own toggle rather than by being hidden here, so
     // the chat button's state stays true.
@@ -895,6 +983,12 @@ const Panels = (() => {
         saveWL();
         return repaint(true);
       }
+      if (what === "alert") {
+        // the bell sits inside the row, and the row navigates — arming an
+        // alert must not also switch the chart
+        e.stopPropagation();
+        return Alerts.open({ symbol: btn.closest(".wl-row").dataset.sym });
+      }
       if (what === "drop") {
         // the × sits inside the row, and the row navigates — removing an
         // instrument must not also open it
@@ -916,11 +1010,110 @@ const Panels = (() => {
     openSymbol(row.dataset.sym);
   });
 
+  /* The alerts panel, wired. Same delegated shape as the watchlist's, for the
+   * same reason: the body is rebuilt on every render and a listener per row
+   * would be a listener per repaint. */
   el("alertsPanel").addEventListener("click", (e) => {
     const t = e.target.closest(".seg-tab");
-    if (t) { alertTab = t.dataset.tab; paintAlertBody(); }
-    // everything else in this panel is unhandled ON PURPOSE — see the head
+    if (t) {
+      alertTab = t.dataset.tab;
+      paintAlertBody();
+      // Opening the log is what READS it, so that is where the dot is spent —
+      // not on opening the panel, which may well be the rules you wanted.
+      if (alertTab === "log") Alerts.markSeen();
+      return;
+    }
+    const btn = e.target.closest("[data-al]");
+    if (btn) {
+      const what = btn.dataset.al;
+      const row = btn.closest(".al-row");
+      const id = row ? Number(row.dataset.id) : 0;
+      if (what === "new") return Alerts.open({ symbol: currentSymbol() });
+      if (what === "signin") {
+        e.stopPropagation();
+        const b = el("authBtn") || el("signInBtn");
+        return b ? b.click() : Alerts.toast("Use the account button to sign in");
+      }
+      if (what === "search") {
+        e.stopPropagation();
+        alertSearchOpen = !alertSearchOpen;
+        if (!alertSearchOpen) alertQuery = "";
+        return renderAlerts(el("alertsPanel"));
+      }
+      if (what === "sort") {
+        e.stopPropagation();
+        return sortMenu(btn);
+      }
+      if (what === "more") {
+        e.stopPropagation();
+        return alertsMoreMenu(btn);
+      }
+      // The three row controls. Each one is confirmed by the list changing
+      // under it, so none of them needs a spinner — but a failure has to say
+      // so rather than leaving a row that silently did not move.
+      const fail = (err) => Alerts.toast(err.message || String(err));
+      if (what === "toggle") {
+        const a = Alerts.state.alerts.find((x) => x.id === id);
+        return a && Alerts.toggle(a).catch(fail);
+      }
+      if (what === "edit") return Alerts.open({ edit: id });
+      if (what === "del") return Alerts.remove(id).catch(fail);
+    }
+    // A row that is not a control is a way to the instrument it is about —
+    // the same thing a watchlist row does, and the reason the log carries a
+    // symbol at all.
+    const r = e.target.closest(".al-row[data-sym], .lg-row[data-sym]");
+    if (r && !e.target.closest(".al-acts")) openSymbol(r.dataset.sym);
   });
+
+  el("alertsPanel").addEventListener("input", (e) => {
+    if (e.target.id !== "alSearch") return;
+    alertQuery = e.target.value;
+    paintAlertBody();
+  });
+
+  /* Two small menus, hung off the head the way the watchlist's are and
+   * appended to <body> for the same reason — a 302px column with its own
+   * scroller would clip them. */
+  function sortMenu(anchor) {
+    const pick = (v, label) =>
+      `<div class="item" data-pick="sort:${v}">` +
+      `<span class="tick">${alertSort === v ? Icons.svg("check", "xs") : ""}</span>` +
+      `<span class="lead">${label}</span></div>`;
+    popup(anchor,
+      `<div class="head">Sort by</div>` + pick("state", "State") +
+      pick("symbol", "Symbol") + pick("created", "Newest first"),
+      (v) => { alertSort = v.split(":")[1]; paintAlertBody(); });
+  }
+
+  function alertsMoreMenu(anchor) {
+    const n = (s) => Alerts.state.alerts.filter((a) => a.state === s).length;
+    const armed = n("armed"), paused = n("paused"), fired = n("fired");
+    const item = (act, label, off) =>
+      `<div class="item${off ? " off" : ""}" ` +
+      `${off ? "" : `data-pick="${act}"`}><span class="lead">${label}</span></div>`;
+    popup(anchor,
+      item("pause-all", `Pause all (${armed})`, !armed) +
+      item("arm-all", `Resume all (${paused})`, !paused) +
+      `<div class="sep"></div>` +
+      item("clear-fired", `Delete the ${fired} fired`, !fired) +
+      item("mark-seen", "Mark the log read", !Alerts.state.unseen),
+      async (act) => {
+        try {
+          if (act === "mark-seen") return await Alerts.markSeen();
+          // Sequential, not Promise.all: these are writes to one SQLite file
+          // and firing thirty at once buys nothing but lock contention.
+          for (const a of [...Alerts.state.alerts]) {
+            if (act === "pause-all" && a.state === "armed")
+              await Alerts.patch(a.id, { state: "paused" });
+            if (act === "arm-all" && a.state === "paused")
+              await Alerts.patch(a.id, { state: "armed" });
+            if (act === "clear-fired" && a.state === "fired")
+              await Alerts.remove(a.id);
+          }
+        } catch (err) { Alerts.toast(err.message || String(err)); }
+      });
+  }
 
   /* ══ the phone's one-panel rule ════════════════════════════════════════ */
 
@@ -960,6 +1153,9 @@ const Panels = (() => {
 
   return {
     show, toggle, widgets: () => WIDGETS.map((w) => w.id),
+    // which panel is on screen — js/alerts.js asks so it can skip the OS
+    // notification for a fire you are already looking at
+    openWidget: () => openId,
     // the chat and the chart can put an instrument on the list without
     // knowing how one is stored
     watch: addSymbol,

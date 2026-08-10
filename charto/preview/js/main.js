@@ -2107,6 +2107,63 @@
     downInPrice = paneAtClient(e.clientY) === "price";
   }, true);
 
+  /* ── right-click to arm an alert ──────────────────────────────────────────
+   * The price under the cursor, not a number typed into a form. This is the
+   * ergonomic every chart tool with alerts has and the reason a level set here
+   * is right the first time: you are pointing at it.
+   *
+   * The second entry is the differentiated one. A selected trendline becomes
+   * `draw:<ref>`, which the engine re-prices at every bar — so the level slopes
+   * with the line, and moving the line on screen moves what is being watched.
+   * A typed number cannot do either.
+   */
+  chartEl.addEventListener("contextmenu", (e) => {
+    if (draw.state.tool !== "cursor") return;   // mid-drawing: leave it alone
+    if (paneAtClient(e.clientY) !== "price") return;   // prices live in pane 0
+    const y = yInPane(e.clientY, "price");
+    const px = y === null ? null : candle.coordinateToPrice(y);
+    if (px == null || !isFinite(px)) return;
+    e.preventDefault();
+    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    const sel = draw.state.drawings.find((d) => d.id === draw.state.selId);
+    const level = Number(Sym.of(SYMBOL).num(px, { maximumFractionDigits: 2 })
+                         .replace(/,/g, ""));
+    const menu = document.createElement("div");
+    menu.className = "dropdown floating open";
+    menu.style.minWidth = "212px";
+    menu.innerHTML =
+      `<div class="item" data-al="level"><span class="lead">Add alert at ` +
+        `${Sym.of(SYMBOL).price(px, { maximumFractionDigits: 2 })}</span></div>` +
+      (sel
+        ? `<div class="item" data-al="draw"><span class="lead">Alert on ` +
+          `${sel.ref || sel.id}</span></div>`
+        : "") +
+      `<div class="sep"></div>` +
+      `<div class="item" data-al="open"><span class="lead">All alerts…</span></div>`;
+    document.body.appendChild(menu);
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.min(e.clientX, innerWidth - w - 8) + "px";
+    menu.style.top = Math.min(e.clientY, innerHeight - h - 8) + "px";
+    const shut = () => { menu.remove(); document.removeEventListener("mousedown", off, true); };
+    const off = (ev) => { if (!menu.contains(ev.target)) shut(); };
+    setTimeout(() => document.addEventListener("mousedown", off, true), 0);
+    menu.addEventListener("click", (ev) => {
+      const it = ev.target.closest("[data-al]");
+      if (!it) return;
+      const what = it.dataset.al;
+      shut();
+      if (what === "open") return Panels.show("alerts");
+      // `last` is what tells the dialog which SIDE you are coming from —
+      // above or below is a fact about where price is, not a preference, and
+      // guessing it wrong arms a rule that fires instantly or never.
+      Alerts.open(what === "draw"
+        ? { symbol: SYMBOL, left: "close", op: "cross",
+            right: `draw:${sel.ref || sel.id}`, interval: state.interval }
+        : { symbol: SYMBOL, level, last: lastBar ? lastBar.close : null,
+            interval: state.interval });
+    });
+  });
+
   chart.subscribeClick((param) => {
     if (!param || !param.time || !param.seriesData) return hideProvenance();
     if (downTool !== "cursor") return;                // drawing takes precedence
