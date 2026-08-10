@@ -338,6 +338,16 @@ const Alerts = (() => {
     changes_pct: "Moving by %", enters: "Entering range",
     exits: "Leaving range", is_true: "Completes",
   };
+  /* A picture of what each operator does, drawn in js/icons.js to one grammar:
+   * the dashed line is the level, the solid stroke is the price. Read down the
+   * menu's left edge, the difference between crossing up, greater than and
+   * entering a range is visible before the words are. */
+  const OPICON = {
+    cross: "opCross", cross_up: "opCrossUp", cross_down: "opCrossDown",
+    above: "opAbove", below: "opBelow",
+    rises_pct: "opRise", falls_pct: "opFall", changes_pct: "opMove",
+    enters: "opEnter", exits: "opExit", is_true: "opCompletes",
+  };
   const FREQS = [["once", "Once only"], ["per_bar", "Once per bar"],
                  ["per_bar_close", "Once per bar close"],
                  ["per_day", "Once per day"]];
@@ -353,10 +363,14 @@ const Alerts = (() => {
     when: [{ left: "close", op: "cross_up", right: "" }],
   });
 
-  function sel(name, opts, value, cls = "") {
+  /** A dressed select. `icons` maps a value to a glyph, which DlgKit draws
+   *  before the label in both the list and the closed control. */
+  function sel(name, opts, value, cls = "", icons = null) {
     return `<select class="dlg-select ${cls}" data-f="${name}">` + opts.map(([v, l]) =>
-      `<option value="${esc(v)}"${String(v) === String(value) ? " selected" : ""}>` +
-      `${esc(l)}</option>`).join("") + `</select>`;
+      `<option value="${esc(v)}"` +
+      (icons && icons[v] ? ` data-icon="${esc(icons[v])}"` : "") +
+      (String(v) === String(value) ? " selected" : "") +
+      `>${esc(l)}</option>`).join("") + `</select>`;
   }
 
   /* ── the address field ────────────────────────────────────────────────────
@@ -507,7 +521,8 @@ const Alerts = (() => {
           : ""}
       </div>
       <div class="al-line">
-        ${sel("op", Object.keys(OPLABEL).map((k) => [k, OPLABEL[k]]), c.op, "op")}
+        ${sel("op", Object.keys(OPLABEL).map((k) => [k, OPLABEL[k]]), c.op,
+              "op", OPICON)}
       </div>
       ${isBool ? `<div class="al-line"><span class="al-unit">on a closed bar</span></div>`
         : (isMove

@@ -2124,45 +2124,91 @@
     plusPrice = null;
   }
 
-  function syncPlus(clientY) {
+  /** The ⊕ is a DRAWING, not a control. `pointer-events: none`, no listener of
+   *  its own, and the click is caught on the chart instead.
+   *
+   *  It was a real <button> first and could not be clicked, for a reason worth
+   *  recording. The chart library owns several stacked canvases here and binds
+   *  its own mouse handling to them; a 22px button floating over that is at the
+   *  mercy of whichever element the browser decides the press landed on, and
+   *  measured in Chrome it lost — mousedown went to the canvas while
+   *  elementFromPoint over the same pixel returned the button's own icon. Every
+   *  fix for that is a fight with hit-testing.
+   *
+   *  Owning the click on chartEl removes the fight: the pointer's position is
+   *  compared against the mark's rectangle, which is arithmetic and cannot be
+   *  intercepted. The mark is then free to be what it should have been — a
+   *  picture of where the alert would go.
+   */
+  const PLUS_PAD = 5;          // a 22px target is small; forgive a few pixels
+
+  function makePlus() {
+    const b = document.createElement("div");
+    b.className = "alert-plus";
+    b.innerHTML = Icons.svg("alertPlus", "xs");
+    chartEl.appendChild(b);
+    return b;
+  }
+
+  /** Is this pointer position on the mark? */
+  function onPlus(x, y) {
+    if (!alertPlus || !alertPlus.classList.contains("show")) return false;
+    const r = alertPlus.getBoundingClientRect();
+    return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
+        && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
+  }
+
+  function syncPlus(clientX, clientY) {
+    // coordinateToPrice answers null until the series has data and the price
+    // scale has been laid out, so for the first moment after a load there is
+    // simply no price under the pointer to offer. Nothing to report: the mark
+    // stays away and appears as soon as there is.
     if (!Auth.user || draw.state.tool !== "cursor"
         || paneAtClient(clientY) !== "price") return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return hidePlus();
-    if (!alertPlus) {
-      alertPlus = document.createElement("button");
-      alertPlus.type = "button";
-      alertPlus.className = "alert-plus";
-      alertPlus.innerHTML = Icons.svg("alertPlus", "xs");
-      // The chart is the element being hovered, so the button must not be able
-      // to take a pointerdown that the chart's own drag logic is expecting —
-      // it listens for `click` only, and stops that one.
-      alertPlus.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const at = plusPrice;
-        if (at == null) return;
-        hidePlus();
-        try {
-          await Alerts.quick(SYMBOL, at, state.interval);
-        } catch (err) { Alerts.toast(err.message || String(err)); }
-      });
-      el("stage").appendChild(alertPlus);
-    }
+    // isConnected, not a null check: the chart library owns this container and
+    // rebuilds its contents, so the node we made can be gone while the variable
+    // still holds it.
+    if (!alertPlus || !alertPlus.isConnected) alertPlus = makePlus();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    const stage = el("stage").getBoundingClientRect();
-    alertPlus.style.top = (clientY - stage.top) + "px";
+    alertPlus.style.top =
+      (clientY - chartEl.getBoundingClientRect().top) + "px";
     alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
       { maximumFractionDigits: 2 })}`;
     alertPlus.classList.add("show");
+    // it cannot have a :hover state of its own, so it is told when it is under
+    // the pointer — otherwise the one control on the chart gives no feedback
+    alertPlus.classList.toggle("hot", onPlus(clientX, clientY));
   }
 
-  chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientY));
+  chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
   chartEl.addEventListener("mouseleave", hidePlus);
-  // A drag is a pan, not a hover: the button would otherwise sit under the
-  // pointer through the whole gesture and be clicked on release.
-  chartEl.addEventListener("mousedown", hidePlus, true);
   document.addEventListener("charto:draw-select", hidePlus);
+
+  /* Capture phase, so it runs before the library's own canvas handlers and can
+   * stop the click from also pinning the candle underneath. */
+  chartEl.addEventListener("click", (e) => {
+    if (!onPlus(e.clientX, e.clientY)) return;
+    const at = plusPrice;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hidePlus();
+    if (at == null) return;
+    Alerts.quick(SYMBOL, at, state.interval)
+      .catch((err) => Alerts.toast(err.message || String(err)));
+  }, true);
+  // A press on the mark is ours too — swallowed so a click on it can never be
+  // read as the start of a pan or a drawing.
+  chartEl.addEventListener("mousedown", (e) => {
+    if (onPlus(e.clientX, e.clientY)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+  }, true);
 
   /* ── right-click to arm an alert ──────────────────────────────────────────
    * The price under the cursor, not a number typed into a form. This is the

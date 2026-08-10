@@ -69,6 +69,46 @@ const Icons = (() => {
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+
+    /* ── what an alert operator DOES ───────────────────────────────────────
+     * One picture per operator, drawn to the same grammar so the list can be
+     * read down its left edge: the dashed horizontal IS the level, and the
+     * solid stroke is the price doing the thing being described. Direction is
+     * carried by an arrow head, never by colour — the menu is monochrome and
+     * these have to survive it.
+     */
+    // either direction through the level: one stroke, a head at each end
+    opCross: '<path d="M3 12h18" stroke-dasharray="2.5 2.5"/>' +
+             '<path d="M12 3.5v17"/><path d="M9 6.5 12 3.5l3 3"/>' +
+             '<path d="M9 17.5l3 3 3-3"/>',
+    opCrossUp: '<path d="M3 12h18" stroke-dasharray="2.5 2.5"/>' +
+               '<path d="M6.5 19 16.5 6"/><path d="M16.5 6h-4"/>' +
+               '<path d="M16.5 6v4"/>',
+    opCrossDown: '<path d="M3 12h18" stroke-dasharray="2.5 2.5"/>' +
+                 '<path d="M6.5 5 16.5 18"/><path d="M16.5 18h-4"/>' +
+                 '<path d="M16.5 18v-4"/>',
+    /* A STATE, not an event, so nothing crosses anything: the level, and price
+     * standing entirely on one side of it. Drawn as a chevron rather than a
+     * candle zigzag — measured at 17px, a zigzag over a dashed line turns into
+     * a single grey smudge and the two operators stop being distinguishable. */
+    opAbove: '<path d="M3 16.5h18" stroke-dasharray="2.5 2.5"/>' +
+             '<path d="M5.5 11 12 4.5 18.5 11"/>',
+    opBelow: '<path d="M3 7.5h18" stroke-dasharray="2.5 2.5"/>' +
+             '<path d="M5.5 13 12 19.5 18.5 13"/>',
+    // a MOVE over a window: the span is the stroke, the head says which way
+    opRise: '<path d="M4 19 12 8l4 4 4-7"/><path d="M20 5h-3.6"/><path d="M20 5v3.6"/>',
+    opFall: '<path d="M4 5 12 16l4-4 4 7"/><path d="M20 19h-3.6"/><path d="M20 19v-3.6"/>',
+    opMove: '<path d="M12 4v16"/><path d="M8.4 7.6 12 4l3.6 3.6"/>' +
+            '<path d="M8.4 16.4 12 20l3.6-3.6"/>',
+    /* A BAND as a solid rectangle, not two dashed rules — at this size the two
+     * rules merge and the band disappears. The arrow says in or out. */
+    opEnter: '<rect x="3" y="9.5" width="18" height="7" rx="1.5"/>' +
+             '<path d="M12 2.5v5.5"/><path d="M9.2 5.2 12 8l2.8-2.8"/>',
+    opExit: '<rect x="3" y="13" width="18" height="7" rx="1.5"/>' +
+            '<path d="M12 10.5V5"/><path d="M9.2 7.8 12 5l2.8 2.8"/>',
+    // a shape finishing: bars, and a tick that it did
+    opCompletes: '<path d="M4.5 16V7"/><path d="M9.5 16v-5"/><path d="M14.5 16V5"/>' +
+                 '<path d="M11.5 19.5 14 22l5.5-6"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
     moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
