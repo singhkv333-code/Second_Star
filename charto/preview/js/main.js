@@ -2107,6 +2107,63 @@
     downInPrice = paneAtClient(e.clientY) === "price";
   }, true);
 
+  /* ── the ⊕ on the price axis: one click, one alert ────────────────────────
+   * It follows the pointer's PRICE along the right edge of the price pane and
+   * arms a crossing alert at that level on a single click. This is the fastest
+   * path there is — no dialog, no typing, and the level is exactly the one being
+   * pointed at rather than one transcribed into a field.
+   *
+   * Only in the price pane, only with the cursor tool, and only signed in: an
+   * alert lives on the server, so offering the button to a signed-out user could
+   * only end in a refusal. It hides the moment the pointer leaves.
+   */
+  let alertPlus = null, plusPrice = null;
+
+  function hidePlus() {
+    if (alertPlus) alertPlus.classList.remove("show");
+    plusPrice = null;
+  }
+
+  function syncPlus(clientY) {
+    if (!Auth.user || draw.state.tool !== "cursor"
+        || paneAtClient(clientY) !== "price") return hidePlus();
+    const y = yInPane(clientY, "price");
+    const px = y === null ? null : candle.coordinateToPrice(y);
+    if (px == null || !isFinite(px)) return hidePlus();
+    if (!alertPlus) {
+      alertPlus = document.createElement("button");
+      alertPlus.type = "button";
+      alertPlus.className = "alert-plus";
+      alertPlus.innerHTML = Icons.svg("alertPlus", "xs");
+      // The chart is the element being hovered, so the button must not be able
+      // to take a pointerdown that the chart's own drag logic is expecting —
+      // it listens for `click` only, and stops that one.
+      alertPlus.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const at = plusPrice;
+        if (at == null) return;
+        hidePlus();
+        try {
+          await Alerts.quick(SYMBOL, at, state.interval);
+        } catch (err) { Alerts.toast(err.message || String(err)); }
+      });
+      el("stage").appendChild(alertPlus);
+    }
+    plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
+    const stage = el("stage").getBoundingClientRect();
+    alertPlus.style.top = (clientY - stage.top) + "px";
+    alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
+      { maximumFractionDigits: 2 })}`;
+    alertPlus.classList.add("show");
+  }
+
+  chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientY));
+  chartEl.addEventListener("mouseleave", hidePlus);
+  // A drag is a pan, not a hover: the button would otherwise sit under the
+  // pointer through the whole gesture and be clicked on release.
+  chartEl.addEventListener("mousedown", hidePlus, true);
+  document.addEventListener("charto:draw-select", hidePlus);
+
   /* ── right-click to arm an alert ──────────────────────────────────────────
    * The price under the cursor, not a number typed into a form. This is the
    * ergonomic every chart tool with alerts has and the reason a level set here

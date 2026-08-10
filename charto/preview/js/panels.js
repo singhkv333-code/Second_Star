@@ -754,8 +754,8 @@ const Panels = (() => {
       // alert runs on the server so it can fire while this browser is shut,
       // which makes it a thing an ACCOUNT owns and not a tab.
       body.innerHTML = empty("bell",
-        "Alerts run on the server, so they watch while your browser is " +
-        "closed. Sign in to create one.", "Sign in", 'data-al="signin"');
+        "Alerts run on the server and keep watching while you are away. " +
+        "Sign in to create one.", "Sign in", 'data-al="signin"');
     } else if (!st.loaded) {
       body.innerHTML = `<div class="side-empty"><p>Loading…</p></div>`;
     } else if (st.error) {
@@ -798,8 +798,8 @@ const Panels = (() => {
     const live = Object.keys(streams).some((v) => streams[v].connected);
     const feedNote = (Auth.user && st.alerts.some((a) => a.state === "armed")
                       && !live)
-      ? `<div class="al-feednote">No live price feed is connected right now — ` +
-        `armed alerts will be checked against stored bars when it returns.</div>`
+      ? `<div class="al-feednote">No price feed is connected. Alerts will be ` +
+        `checked when one reconnects.</div>`
       : "";
     panel.innerHTML =
       `<div class="seg-tabs" role="tablist">` +

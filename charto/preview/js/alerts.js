@@ -214,6 +214,25 @@ const Alerts = (() => {
     return d;
   }
 
+  /** One click, one alert, no dialog — what the ⊕ on the price axis does.
+   *
+   * `crossing` in EITHER direction on purpose: the click says "this level
+   * matters", not which side it will be approached from, and picking a side for
+   * the user is how an instant alert ends up armed the wrong way round. The
+   * dialog is still there for anything more specific, and this rule can be
+   * edited into one.
+   */
+  async function quick(symbol, level, interval) {
+    const d = await create({
+      symbol, interval, freq: "once",
+      when: [{ left: "close", op: "cross", right: Number(level) }],
+    });
+    const feed = d.feed && d.feed.symbol;
+    toast(`Alert set: ${d.alert.symbol} crossing ${d.alert.level}` +
+          (feed && !feed.streaming ? " — not being watched live yet" : ""));
+    return d;
+  }
+
   const remove = (id) => patch(id, { delete: true });
   const toggle = (a) =>
     patch(a.id, { state: a.state === "paused" ? "armed" : "paused" });
@@ -242,57 +261,55 @@ const Alerts = (() => {
    * black panel over half the dialog, and no stylesheet can reach it.
    */
   const CATALOG = [
-    ["This bar", [
-      ["close", "the close, forming bar included"], ["open", "the open"],
-      ["high", "the high"], ["low", "the low"],
-      ["close[1]", "the last CLOSED bar's close"],
-      ["hl2", "(high + low) / 2"], ["hlc3", "(high + low + close) / 3"],
+    ["Price", [
+      ["close", "Close"], ["open", "Open"], ["high", "High"], ["low", "Low"],
+      ["close[1]", "Previous bar close"],
+      ["hl2", "Median price"], ["hlc3", "Typical price"],
     ]],
     ["Volume", [
-      ["volume", "this bar's volume"],
-      ["avg(volume,20)", "average volume over 20 bars"],
+      ["volume", "Volume"],
+      ["avg(volume,20)", "Average volume, 20 bars"],
     ]],
-    ["The session", [
-      ["day.high", "today's high"], ["day.low", "today's low"],
-      ["day.open", "today's open"],
-      ["pday.close", "yesterday's close"], ["pday.high", "yesterday's high"],
-      ["pday.low", "yesterday's low"],
+    ["Session", [
+      ["day.open", "Day open"], ["day.high", "Day high"], ["day.low", "Day low"],
+      ["pday.close", "Previous day close"],
+      ["pday.high", "Previous day high"], ["pday.low", "Previous day low"],
     ]],
-    ["Range", [
-      ["52w.high", "the 52-week high"], ["52w.low", "the 52-week low"],
-      ["20d.high", "the 20-day high"], ["20d.low", "the 20-day low"],
+    ["Highs and lows", [
+      ["52w.high", "52-week high"], ["52w.low", "52-week low"],
+      ["20d.high", "20-day high"], ["20d.low", "20-day low"],
     ]],
     ["Moving averages", [
       ["sma(20)", "SMA 20"], ["sma(50)", "SMA 50"], ["sma(200)", "SMA 200"],
-      ["ema(21)", "EMA 21"], ["vwap()", "VWAP, from the session open"],
+      ["ema(21)", "EMA 21"], ["vwap()", "VWAP"],
     ]],
-    ["Momentum & volatility", [
-      ["rsi(14)", "RSI 14"], ["macd().macd", "the MACD line"],
-      ["macd().signal", "the MACD signal line"], ["atr(14)", "ATR 14"],
-      ["bbands(20).upper", "upper Bollinger band"],
-      ["bbands(20).lower", "lower Bollinger band"],
+    ["Indicators", [
+      ["rsi(14)", "RSI 14"], ["macd().macd", "MACD"],
+      ["macd().signal", "MACD signal"], ["atr(14)", "ATR 14"],
+      ["bbands(20).upper", "Bollinger upper"],
+      ["bbands(20).lower", "Bollinger lower"],
       ["stoch(14).k", "Stochastic %K"], ["supertrend(10)", "Supertrend"],
     ]],
-    ["Value area", [
-      ["poc", "the point of control"], ["vah", "value-area high"],
-      ["val", "value-area low"],
+    ["Volume profile", [
+      ["poc", "Point of control"], ["vah", "Value area high"],
+      ["val", "Value area low"],
     ]],
   ];
 
-  /* Completions are LEFT-hand subjects only — they pair with `completes`, which
-   * has no right side. Kept out of the shared catalogue so the right-hand menu
+  /* Patterns are LEFT-hand subjects only — they pair with `completes`, which has
+   * no right side. Kept out of the shared catalogue so the right-hand menu
    * cannot offer something that can never be a target. */
-  const COMPLETIONS = ["Completes on a closed bar", [
-    ["pattern(bullish_engulfing)", "a bullish engulfing candle"],
-    ["pattern(bearish_engulfing)", "a bearish engulfing candle"],
-    ["pattern(hammer)", "a hammer"],
-    ["pattern(morning_star)", "a morning star"],
-    ["pattern(double_bottom)", "a double bottom"],
-    ["pattern(double_top)", "a double top"],
-    ["pattern(falling_wedge)", "a falling wedge"],
-    ["pattern(bull_flag)", "a bull flag"],
-    ["divergence(rsi)", "an RSI divergence"],
-    ["results()", "quarterly results land today"],
+  const COMPLETIONS = ["Patterns", [
+    ["pattern(bullish_engulfing)", "Bullish engulfing"],
+    ["pattern(bearish_engulfing)", "Bearish engulfing"],
+    ["pattern(hammer)", "Hammer"],
+    ["pattern(morning_star)", "Morning star"],
+    ["pattern(double_bottom)", "Double bottom"],
+    ["pattern(double_top)", "Double top"],
+    ["pattern(falling_wedge)", "Falling wedge"],
+    ["pattern(bull_flag)", "Bull flag"],
+    ["divergence(rsi)", "RSI divergence"],
+    ["results()", "Results day"],
   ]];
 
   /** The user's own drawings, offered as addresses. Read from the key
@@ -315,13 +332,13 @@ const Alerts = (() => {
     return rows.length ? ["Your drawings", rows] : null;
   }
   const OPLABEL = {
-    cross: "crossing", cross_up: "crossing up", cross_down: "crossing down",
-    above: "above", below: "below",
-    rises_pct: "rising % over", falls_pct: "falling % over",
-    changes_pct: "moving % over", enters: "entering the band",
-    exits: "leaving the band", is_true: "completes",
+    cross: "Crossing", cross_up: "Crossing up", cross_down: "Crossing down",
+    above: "Greater than", below: "Less than",
+    rises_pct: "Rising by %", falls_pct: "Falling by %",
+    changes_pct: "Moving by %", enters: "Entering range",
+    exits: "Leaving range", is_true: "Completes",
   };
-  const FREQS = [["once", "Only once"], ["per_bar", "Once per bar"],
+  const FREQS = [["once", "Once only"], ["per_bar", "Once per bar"],
                  ["per_bar_close", "Once per bar close"],
                  ["per_day", "Once per day"]];
   const IVS = ["1m", "3m", "5m", "15m", "30m", "1h", "1d"];
@@ -388,8 +405,12 @@ const Alerts = (() => {
       .filter(([, rows]) => rows.length);
   }
 
-  function openCombo(input, side) {
-    const groups = comboGroups(side, input.value);
+  /** `typed` distinguishes the two ways this opens. Focusing a field that
+   *  already holds "close" must show the WHOLE list — filtering by the current
+   *  value there hides every other choice, which is the opposite of what
+   *  opening a list is for. Filtering starts when the user actually types. */
+  function openCombo(input, side, typed = false) {
+    const groups = comboGroups(side, typed ? input.value : "");
     // Nothing matched, and that is not an error: what was typed may well be a
     // valid address this shortlist does not carry. An empty menu would say the
     // opposite, so none is opened and the preview line does the judging.
@@ -471,12 +492,26 @@ const Alerts = (() => {
     const isBand = ["enters", "exits"].includes(c.op);
     const isBool = c.op === "is_true";
     const showX = wantsX(c);
+    /* One condition, STACKED — the subject, then the operator, then the target,
+     * each on its own line. It was one horizontal line before, which is where
+     * every layout problem came from: five controls plus two units in 528px,
+     * wrapping unpredictably as the operator changed the field set. A column
+     * reads as a sentence, never wraps, and is the shape every charting tool
+     * settled on for the same reason. */
     return `<div class="al-cond-row" data-i="${i}">
-      ${combo("left", c.left, "close, rsi(14), …")}
-      ${sel("op", Object.keys(OPLABEL).map((k) => [k, OPLABEL[k]]), c.op, "op")}
-      ${isBool ? `<span class="al-unit grow">on a closed bar</span>`
+      <div class="al-line">
+        ${combo("left", c.left, "close, rsi(14), …")}
+        ${draft.when.length > 1
+          ? `<button type="button" class="al-mini danger" data-act="drop-cond"
+               title="Remove this condition">${Icons.svg("x", "xs")}</button>`
+          : ""}
+      </div>
+      <div class="al-line">
+        ${sel("op", Object.keys(OPLABEL).map((k) => [k, OPLABEL[k]]), c.op, "op")}
+      </div>
+      ${isBool ? `<div class="al-line"><span class="al-unit">on a closed bar</span></div>`
         : (isMove
-          ? `<div class="al-f">
+          ? `<div class="al-line">
                <input class="dlg-input tiny" data-f="right"
                  value="${esc(c.right ?? "")}" placeholder="2" title="percent">
                <span class="al-unit">% within</span>
@@ -484,57 +519,56 @@ const Alerts = (() => {
                  value="${esc(c.within || 1)}" title="bars">
                <span class="al-unit">bars</span>
              </div>`
-          : `<div class="al-f">
+          : `<div class="al-line">
                ${combo("right", c.right, "a price, or an address")}
-               ${isBand ? `<span class="al-unit">to</span>
-                 <input class="dlg-input" data-f="right2"
-                   value="${esc(c.right2 ?? "")}" placeholder="upper">` : ""}
                ${showX ? `<span class="al-unit">×</span>
                  <input class="dlg-input tiny" data-f="x" value="${esc(c.x ?? "")}"
                    placeholder="1"
                    title="multiply the right side — 2 means twice it">` : ""}
-             </div>`)}
-      ${draft.when.length > 1
-        ? `<button type="button" class="al-mini danger" data-act="drop-cond"
-             title="Remove this condition">${Icons.svg("x", "xs")}</button>`
-        : `<span class="al-mini-gap"></span>`}
+             </div>
+             ${isBand ? `<div class="al-line">
+               <span class="al-unit">to</span>
+               <input class="dlg-input" data-f="right2"
+                 value="${esc(c.right2 ?? "")}" placeholder="upper">
+             </div>` : ""}`)}
     </div>`;
   }
 
-  /* Two labelled sections and nothing else: WHEN it fires, and HOW it watches.
-   * The grammar reference that used to sit at the bottom is gone — it was a
-   * wall of monospace under a dialog whose job is one sentence, and everything
-   * it listed is now one click away inside the field it belongs to. */
+  /* A label column and a control column, one setting per line — the shape the
+   * shared .dlg-body grid was built for, and the shape every charting tool's
+   * alert dialog uses. It replaced a sectioned block layout that crammed a
+   * condition onto one horizontal line.
+   *
+   * The grammar reference that used to sit at the bottom is gone: it was a wall
+   * of monospace under a dialog whose job is one sentence, and everything it
+   * listed is now one click away inside the field it belongs to. */
   function body() {
+    const row = (label, ctl) =>
+      `<div class="dlg-row"><label>${label}</label>${ctl}</div>`;
     return `
-      <div class="al-dlg-body">
-        <div class="al-sec">When</div>
-        <div class="al-when">${draft.when.map(condRow).join(
-          `<div class="al-join">${draft.all ? "and" : "or"}</div>`)}</div>
-        <div class="al-addrow">
-          <button type="button" class="al-add" data-act="add-cond">
-            ${Icons.svg("plus", "xs")} Add a condition</button>
-          ${draft.when.length > 1
-            // Reads as the ACTION, not as a label: "needs all of them" beside a
-            // list already showing AND says nothing and looks like a statement
-            // you cannot act on.
-            ? `<button type="button" class="al-add" data-act="flip-all">
-                 fire on ${draft.all ? "any one instead" : "all of them instead"}
-               </button>` : ""}
+      <div class="dlg-row al-condrow">
+        <label>Condition</label>
+        <div class="al-stack">
+          ${draft.when.map(condRow).join(
+            `<div class="al-join">${draft.all ? "and" : "or"}</div>`)}
+          <div class="al-addrow">
+            <button type="button" class="al-add" data-act="add-cond">
+              ${Icons.svg("plus", "xs")} Add condition</button>
+            ${draft.when.length > 1
+              // Reads as the ACTION, not as a label: "needs all of them" beside
+              // a list already showing AND says nothing and looks like a
+              // statement you cannot act on.
+              ? `<button type="button" class="al-add" data-act="flip-all">
+                   fire on ${draft.all ? "any one" : "all"}</button>` : ""}
+          </div>
         </div>
-
-        <div class="al-sec">How</div>
-        <div class="al-grid">
-          <label>Interval${sel("interval", IVS.map((v) => [v, v]), draft.interval)}</label>
-          <label>Trigger${sel("freq", FREQS, draft.freq)}</label>
-          <label>Expires${sel("expires_days", EXPIRY, draft.expires_days)}</label>
-        </div>
-        <label class="al-note">Note
-          <input class="dlg-input" data-f="note" value="${esc(draft.note)}"
-                 placeholder="why you are watching this — optional"></label>
-
-        <div class="al-check" id="alCheck"></div>
-      </div>`;
+      </div>
+      <div class="dlg-sep"></div>
+      ${row("Interval", sel("interval", IVS.map((v) => [v, v]), draft.interval))}
+      ${row("Trigger", sel("freq", FREQS, draft.freq))}
+      ${row("Expires", sel("expires_days", EXPIRY, draft.expires_days))}
+      ${row("Note", `<input class="dlg-input wide" data-f="note" ` +
+            `value="${esc(draft.note)}" placeholder="Optional">`)}`;
   }
 
   function paint() {
@@ -574,15 +608,14 @@ const Alerts = (() => {
     try {
       const d = await call("/alerts/check", rule);
       const lines = d.conditions.map((c) =>
-        `${c.left} ${fmtNum(c.value)} vs ${fmtNum(c.target)}` +
-        (c.true_now ? " — true now" : ""));
+        `${c.left} ${fmtNum(c.value)} vs ${fmtNum(c.target)}`);
       const feed = (d.feed && d.feed.symbol && d.feed.symbol.note) || "";
       box.className = "al-check ok";
       box.innerHTML =
-        `<div class="al-check-now">Right now: ${esc(lines.join(" · "))}</div>` +
+        `<div class="al-check-now">Now: ${esc(lines.join(" · "))}</div>` +
         (d.already_true
-          ? `<div class="al-check-warn">This is already true — the alert will
-             wait for it to reset and happen again.</div>` : "") +
+          ? `<div class="al-check-warn">Already true. The alert will wait for ` +
+            `this to reset before it can fire.</div>` : "") +
         (feed ? `<div class="al-check-feed">${esc(feed)}</div>` : "");
     } catch (e) {
       box.className = "al-check bad";
@@ -630,6 +663,13 @@ const Alerts = (() => {
           <button class="btn icon" data-act="close" title="Close"></button>
         </header>
         <div class="dlg-body"></div>
+        <!-- OUTSIDE the body, deliberately. It is a status line about the whole
+             rule rather than one of its settings, so it belongs above the
+             buttons and must stay put when the form scrolls. It also cannot be
+             a row of that grid: as a full-width item among label/control pairs
+             it landed in the same row band as the last field and drew over it.
+             Filled by runCheck(), so a repaint of the form never clears it. -->
+        <div class="al-check" id="alCheck"></div>
         <footer class="dlg-foot">
           <span class="spacer"></span>
           <button class="btn outline" data-act="cancel">Cancel</button>
@@ -685,7 +725,7 @@ const Alerts = (() => {
       // keep the open menu filtered to what has been typed so far — but never
       // re-open the one a pick just closed
       if (f.dataset.combo && e.type === "input" && !picking) {
-        openCombo(f, f.dataset.combo);
+        openCombo(f, f.dataset.combo, true);
       }
       // the op decides which fields exist, so changing it has to redraw
       if (key === "op") return paint();
@@ -819,7 +859,7 @@ const Alerts = (() => {
   return {
     state,
     onChange(fn) { listeners.push(fn); },
-    load, open, patch, remove, toggle, markSeen, toast,
+    load, open, quick, patch, remove, toggle, markSeen, toast,
     get unseen() { return state.unseen; },
   };
 })();

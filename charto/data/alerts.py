@@ -201,14 +201,16 @@ _VERB = {
     "rises_pct": "rose", "falls_pct": "fell", "changes_pct": "moved",
     "enters": "entered", "exits": "left", "is_true": "completed",
 }
+# The row's own sentence. Kept in step with the labels the dialog offers, so a
+# rule does not read one way while you build it and another way once it is armed.
 _PHRASE = {
     "cross": "Crossing", "cross_up": "Crossing up", "cross_down": "Crossing down",
-    "above": "Above", "below": "Below",
-    "rises_pct": "Moving up", "falls_pct": "Moving down",
-    "changes_pct": "Moving", "enters": "Entering", "exits": "Leaving",
+    "above": "Greater than", "below": "Less than",
+    "rises_pct": "Rising by", "falls_pct": "Falling by",
+    "changes_pct": "Moving by", "enters": "Entering", "exits": "Leaving",
     "is_true": "",
 }
-FREQ_LABEL = {"once": "Only once", "per_bar": "Once per bar",
+FREQ_LABEL = {"once": "Once only", "per_bar": "Once per bar",
               "per_bar_close": "Once per bar close", "per_day": "Once per day"}
 
 
@@ -1719,14 +1721,14 @@ def feed_health(symbol: str = "") -> dict:
             "symbol": sym,
             "streaming": sym in live,
             "has_minutes": _has_minutes(sym),
-            # An honest sentence the UI can print verbatim rather than compose
-            # from three booleans and get subtly wrong.
-            "note": ("watched live" if sym in live else
-                     "not being watched live — no venue feed is subscribed to "
-                     "it right now; it will be checked when the feed returns"
+            # One short sentence the UI prints verbatim, rather than composing
+            # it from three booleans and getting it subtly wrong.
+            "note": ("Watched live." if sym in live else
+                     "Not watched live yet — no price feed is connected. "
+                     "It will be checked when one is."
                      if _has_minutes(sym) else
-                     "this symbol is stored as daily bars only, so a rule on "
-                     "it is evaluated at end of day, not live"),
+                     "This symbol has daily bars only, so it is checked at the "
+                     "end of each day rather than live."),
         }
     return out
 

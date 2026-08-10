@@ -3075,6 +3075,31 @@ body.two-columns .readout .row { display: none; }
   .al-acts { display: flex; }
 }
 
+/* ── the ⊕ on the price axis ───────────────────────────────────────────────
+   Follows the pointer's price down the right edge of the price pane; one click
+   arms a crossing alert at that level. Sits just inside the axis, where the
+   price it refers to is written, and never over the candles it would obscure.
+   Its own transition is on opacity alone — animating `top` would make it lag
+   the crosshair it is supposed to be level with. */
+.alert-plus {
+  position: absolute; right: 62px; z-index: 6;
+  width: 22px; height: 22px; margin-top: -11px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--background); color: var(--muted-foreground);
+  cursor: pointer; opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr);
+}
+.alert-plus.show { opacity: 1; pointer-events: auto; }
+.alert-plus:hover {
+  color: var(--primary); border-color: var(--primary); background: var(--primary-soft);
+}
+.alert-plus svg.icon { width: 13px; height: 13px; }
+/* A touch screen has no hover to reveal it, and a permanent circle floating on
+   the chart is clutter — the row of tools and the right-click menu are the
+   paths there instead. */
+@media (hover: none) { .alert-plus { display: none; } }
+
 /* A reason a rule is paused, printed under it. The engine pauses a rule whose
    address stopped resolving rather than leaving it armed and silently never
    firing, and a paused row with no stated reason reads as one the user
@@ -3142,31 +3167,22 @@ body.two-columns .readout .row { display: none; }
    nothing in here has a fixed width: the row's fields flex down to a floor and
    wrap to a second line rather than running off the edge. */
 .al-dlg { width: min(560px, calc(100vw - 24px)); }
-/* The shared .dlg-body is a GRID of `max-content 1fr` — a label column and a
-   control column, which is exactly right for the indicator dialog's rows and
-   exactly wrong here. This dialog's body is one block, so it landed in the
-   max-content column and took its own content width (674px) inside a 558px
-   card, and the row overflowed instead of wrapping. Reverting it to a block for
-   THIS dialog only leaves the other two untouched. */
-.al-dlg .dlg-body { display: block; padding: 0; }
-.al-dlg-body { padding: 14px 20px 4px; min-width: 0; }
+/* This dialog USES the shared .dlg-body grid — `max-content 1fr`, a label
+   column and a control column — rather than overriding it to a block. That is
+   what it was built for, and it is the shape every charting tool's alert dialog
+   has: one setting per line, labels aligned down the left. An earlier version
+   overrode it to lay a whole condition across one horizontal line, which is
+   where every wrapping and clipping problem came from. */
+.al-dlg { width: min(468px, calc(100vw - 24px)); }
+/* the label of a stacked condition aligns to its FIRST control, not to the
+   middle of the stack */
+.al-condrow > label { align-self: start; padding-top: 16px; }
+.al-stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
+.al-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.al-line .al-combo, .al-line .dlg-select, .al-line .select-btn { flex: 1 1 auto; }
+.dlg-row > .dlg-input.wide { width: 100%; }
 
-/* A section label, the app's own micro-heading. Two of them — When and How —
-   because a dialog of eight controls in one column is a form, and a dialog of
-   two named groups is a sentence and its settings. */
-.al-sec {
-  margin: 2px 0 7px; font-size: var(--text-2xs); font-weight: var(--weight-medium);
-  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
-}
-.al-sec:not(:first-child) { margin-top: 16px; }
-
-.al-cond-row {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
-.al-cond-row .al-f {
-  display: flex; align-items: center; gap: 4px; min-width: 0;
-  flex: 1 1 auto;
-}
+.al-cond-row { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
 /* ── an address field ──────────────────────────────────────────────────────
    An input with a caret, and the app's own menu behind it. It replaced a native
@@ -3174,11 +3190,7 @@ body.two-columns .readout .row { display: none; }
    BLACK panel across half the dialog, and no stylesheet can reach inside a
    native control. The field stays free text — the menu is a shortcut, never the
    set of legal values. */
-.al-combo { position: relative; display: flex; flex: 1 1 118px; min-width: 92px; }
-/* The subject holds ONE width whether its row wrapped or not, so two stacked
-   conditions read as a column instead of two differently-shaped sentences.
-   Only the target flexes. */
-.al-cond-row > .al-combo:first-child { flex: 0 1 152px; }
+.al-combo { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
 .al-combo .dlg-input { width: 100%; min-width: 0; padding-right: 24px; }
 .al-caret {
   position: absolute; right: 1px; top: 1px; bottom: 1px; width: 22px;
@@ -3230,23 +3242,15 @@ body.two-columns .readout .row { display: none; }
 }
 /* BOTH class names, and that is not belt-and-braces: DlgKit.dressSelects()
    hides the real <select> and inserts a button whose class is the select's with
-   `dlg-select` REPLACED by `select-btn`. Styling only `.dlg-select` therefore
-   styles the invisible element — which is why these rows overflowed the card
-   by 119px while every rule here looked correct. .select-btn also ships a hard
-   `width: 100px`, so the flex basis has to override it explicitly. */
-.al-cond-row .dlg-select.left, .al-cond-row .select-btn.left {
-  flex: 1 1 106px; width: auto; min-width: 0; max-width: 150px;
+   `dlg-select` REPLACED by `select-btn`. Styling only `.dlg-select` styles the
+   invisible element. .select-btn also ships a hard `width: 100px`, so a stacked
+   control has to override it to fill its line. */
+.al-line .dlg-select, .al-line .select-btn,
+.dlg-row > .dlg-select, .dlg-row > .select-btn {
+  width: 100%; min-width: 0;
 }
-/* "crossing down" is the longest label and must not truncate — the op IS the
-   sentence, and "crossin…" beside a level does not say which direction. */
-.al-cond-row .dlg-select.op, .al-cond-row .select-btn.op {
-  flex: 0 0 auto; width: auto; min-width: 132px;
-}
-.al-cond-row .dlg-input.tiny, .al-cond-row .al-unit { flex: none; }
-.al-unit.grow { flex: 1 1 auto; }
-/* the three settings selects, same trap */
-.al-grid .dlg-select, .al-grid .select-btn { width: 100%; min-width: 0; }
-.al-cond-row .dlg-input.tiny { flex: 0 0 46px; width: 46px; text-align: center; }
+.al-line .dlg-input.tiny, .al-line .al-unit { flex: 0 0 auto; }
+.al-line .dlg-input.tiny { width: 52px; text-align: center; }
 .al-unit { font-size: var(--text-sm); color: var(--faint); white-space: nowrap; }
 
 /* the AND/OR between two conditions, and the only place the rule's shape is
@@ -3265,9 +3269,8 @@ body.two-columns .readout .row { display: none; }
 }
 .al-mini:hover { background: var(--hover-fill); color: var(--foreground); }
 .al-mini.danger:hover { background: var(--down-soft); color: var(--down); }
-.al-mini-gap { width: 24px; flex: none; }
 
-.al-addrow { display: flex; gap: 10px; margin: 8px 0 14px; }
+.al-addrow { display: flex; gap: 12px; margin: 2px 0 4px; }
 .al-add {
   display: inline-flex; align-items: center; gap: 5px; padding: 0;
   border: 0; background: transparent; cursor: pointer;
@@ -3275,21 +3278,12 @@ body.two-columns .readout .row { display: none; }
 }
 .al-add:hover { text-decoration: underline; }
 
-.al-grid {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
-}
-.al-grid label, .al-note {
-  display: flex; flex-direction: column; gap: 4px;
-  font-size: var(--text-sm); color: var(--muted-foreground);
-}
-.al-note { margin-top: 10px; }
-
 /* WHAT IT IS LOOKING AT RIGHT NOW. The most load-bearing element in the
    dialog: it is the difference between a rule you typed and a rule you can
    see resolving, and it is where an unreadable address is refused — here,
    rather than at 09:20 by never firing. */
 .al-check {
-  margin: 12px 0 4px; min-height: 20px; padding: 8px 10px;
+  flex: none; margin: 0 20px; padding: 9px 11px;
   border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.45;
   background: var(--accent); color: var(--muted-foreground);
 }
@@ -3308,9 +3302,13 @@ body.two-columns .readout .row { display: none; }
    (see .al-menu). A reference nobody opens is furniture; a reference inside the
    control is discoverability. */
 
-@media (max-width: 560px) {
-  .al-grid { grid-template-columns: minmax(0, 1fr); }
-  .al-cond-row .dlg-select.left, .al-cond-row .dlg-select.op { max-width: none; }
+/* On a phone the label column stops earning its width: the shared grid is
+   `max-content 1fr`, and two columns inside 340px leave the controls too narrow
+   to read a level in. Labels go above their control. */
+@media (max-width: 480px) {
+  .al-dlg .dlg-body { grid-template-columns: minmax(0, 1fr); }
+  .al-dlg .dlg-row > label { min-height: 0; padding: 10px 0 2px; }
+  .al-condrow > label { padding-top: 10px; }
 }
 
 /* ── a panel head's menus ──────────────────────────────────────────────────
@@ -4458,7 +4456,7 @@ body.two-columns .readout .row { display: none; }
   <script src="./js/drawings.js?v=19"></script>
   <script src="./js/scene.js?v=30"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=69"></script>
+  <script src="./js/main.js?v=70"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=6"></script>
@@ -4467,10 +4465,10 @@ body.two-columns .readout .row { display: none; }
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=7"></script>
+  <script src="./js/alerts.js?v=11"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=5"></script>
+  <script src="./js/panels.js?v=6"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=9"></script>
 </body>
