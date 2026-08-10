@@ -231,27 +231,89 @@ const Alerts = (() => {
    * centres and clamps the way the indicator and chart dialogs do.
    */
 
-  // The everyday shortlist. NOT the vocabulary — `custom` is the door to the
-  // rest of it, and the hint under the field is the server's own list.
-  const LEFTS = [
-    ["close", "Price"], ["high", "Bar high"], ["low", "Bar low"],
-    ["volume", "Volume"],
-    ["rsi(14)", "RSI (14)"], ["macd().macd", "MACD line"],
-    ["sma(50)", "SMA (50)"], ["sma(200)", "SMA (200)"],
-    ["vwap()", "VWAP"], ["atr(14)", "ATR (14)"],
-    ["day.high", "Today's high"], ["day.low", "Today's low"],
+  /* ── the address catalogue ────────────────────────────────────────────────
+   * Grouped and ordered the way the eye wants them, and it is a SHORTLIST, not
+   * the vocabulary: both fields are free text, so anything the engine's grammar
+   * knows can be typed whether it is listed here or not. That is deliberate —
+   * a fixed menu would quietly become the ceiling on what the engine expresses.
+   *
+   * Rendered in the app's own dropdown. The first version used a native
+   * <datalist>, which the OS paints itself: on a light page it dropped a tall
+   * black panel over half the dialog, and no stylesheet can reach it.
+   */
+  const CATALOG = [
+    ["This bar", [
+      ["close", "the close, forming bar included"], ["open", "the open"],
+      ["high", "the high"], ["low", "the low"],
+      ["close[1]", "the last CLOSED bar's close"],
+      ["hl2", "(high + low) / 2"], ["hlc3", "(high + low + close) / 3"],
+    ]],
+    ["Volume", [
+      ["volume", "this bar's volume"],
+      ["avg(volume,20)", "average volume over 20 bars"],
+    ]],
+    ["The session", [
+      ["day.high", "today's high"], ["day.low", "today's low"],
+      ["day.open", "today's open"],
+      ["pday.close", "yesterday's close"], ["pday.high", "yesterday's high"],
+      ["pday.low", "yesterday's low"],
+    ]],
+    ["Range", [
+      ["52w.high", "the 52-week high"], ["52w.low", "the 52-week low"],
+      ["20d.high", "the 20-day high"], ["20d.low", "the 20-day low"],
+    ]],
+    ["Moving averages", [
+      ["sma(20)", "SMA 20"], ["sma(50)", "SMA 50"], ["sma(200)", "SMA 200"],
+      ["ema(21)", "EMA 21"], ["vwap()", "VWAP, from the session open"],
+    ]],
+    ["Momentum & volatility", [
+      ["rsi(14)", "RSI 14"], ["macd().macd", "the MACD line"],
+      ["macd().signal", "the MACD signal line"], ["atr(14)", "ATR 14"],
+      ["bbands(20).upper", "upper Bollinger band"],
+      ["bbands(20).lower", "lower Bollinger band"],
+      ["stoch(14).k", "Stochastic %K"], ["supertrend(10)", "Supertrend"],
+    ]],
+    ["Value area", [
+      ["poc", "the point of control"], ["vah", "value-area high"],
+      ["val", "value-area low"],
+    ]],
   ];
-  const RIGHTS = [
-    ["", "a price or value…"],
-    ["sma(50)", "SMA (50)"], ["sma(200)", "SMA (200)"], ["vwap()", "VWAP"],
-    ["avg(volume,20)", "average volume (20)"],
-    ["pday.close", "yesterday's close"], ["pday.high", "yesterday's high"],
-    ["pday.low", "yesterday's low"],
-    ["day.high", "today's high"], ["day.low", "today's low"],
-    ["52w.high", "the 52-week high"], ["52w.low", "the 52-week low"],
-    ["poc", "the point of control"], ["vah", "value-area high"],
-    ["val", "value-area low"], ["macd().signal", "the MACD signal line"],
-  ];
+
+  /* Completions are LEFT-hand subjects only — they pair with `completes`, which
+   * has no right side. Kept out of the shared catalogue so the right-hand menu
+   * cannot offer something that can never be a target. */
+  const COMPLETIONS = ["Completes on a closed bar", [
+    ["pattern(bullish_engulfing)", "a bullish engulfing candle"],
+    ["pattern(bearish_engulfing)", "a bearish engulfing candle"],
+    ["pattern(hammer)", "a hammer"],
+    ["pattern(morning_star)", "a morning star"],
+    ["pattern(double_bottom)", "a double bottom"],
+    ["pattern(double_top)", "a double top"],
+    ["pattern(falling_wedge)", "a falling wedge"],
+    ["pattern(bull_flag)", "a bull flag"],
+    ["divergence(rsi)", "an RSI divergence"],
+    ["results()", "quarterly results land today"],
+  ]];
+
+  /** The user's own drawings, offered as addresses. Read from the key
+   *  drawings.js persists under, because the drawing layer lives inside
+   *  main.js's closure and is not reachable from here — and a stale read is
+   *  harmless, since the engine re-resolves the ref against the live row and
+   *  refuses one that is gone. */
+  function drawingGroup(symbol) {
+    let items = [];
+    try {
+      const raw = localStorage.getItem(
+        "charto_drawings_v2_" + String(symbol).toUpperCase());
+      items = JSON.parse(raw || "[]") || [];
+    } catch { items = []; }
+    const rows = items
+      .filter((d) => (d.ref || d.id) && (d.pts || []).length)
+      .map((d) => [`draw:${d.ref || d.id}`,
+                   `your ${String(d.type || "drawing").replace(/_/g, " ")}` +
+                   ((d.pts || []).length > 1 ? " — tracks the line" : "")]);
+    return rows.length ? ["Your drawings", rows] : null;
+  }
   const OPLABEL = {
     cross: "crossing", cross_up: "crossing up", cross_down: "crossing down",
     above: "above", below: "below",
@@ -280,42 +342,158 @@ const Alerts = (() => {
       `${esc(l)}</option>`).join("") + `</select>`;
   }
 
+  /* ── the address field ────────────────────────────────────────────────────
+   * An input with the app's own menu behind it: focusing or typing opens a
+   * grouped, filtered list, and picking one fills the field. The field stays
+   * free text throughout, so the menu is a shortcut and never a constraint.
+   */
+  function combo(side, value, placeholder) {
+    return `<div class="al-combo">` +
+      `<input class="dlg-input ${side}" data-f="${side}" data-combo="${side}" ` +
+        `value="${esc(value ?? "")}" placeholder="${esc(placeholder)}" ` +
+        `autocomplete="off" spellcheck="false">` +
+      `<button type="button" class="al-caret" data-act="pick-${side}" ` +
+        `tabindex="-1" aria-label="Choose">${Icons.svg("chevronDown", "xs")}` +
+      `</button></div>`;
+  }
+
+  let comboMenu = null, comboOff = null, comboFor = null;
+  // Set while a pick is being applied. The pick fires `input` so the rest of the
+  // dialog reacts exactly as it does to typing — and without this flag that
+  // same event immediately re-opened the menu the pick had just closed.
+  let picking = false, suppressOpen = false;
+
+  function closeCombo() {
+    if (!comboMenu) return;
+    comboMenu.remove();
+    comboMenu = comboFor = null;
+    document.removeEventListener("pointerdown", comboOff, true);
+    removeEventListener("resize", closeCombo);
+    comboOff = null;
+  }
+
+  /** Groups for one side, filtered by what has been typed so far. Matching on
+   *  BOTH the address and its description: someone typing "yesterday" is
+   *  looking for pday.close and has no reason to know that. */
+  function comboGroups(side, query) {
+    const groups = CATALOG.slice();
+    const drawn = drawingGroup(draft.symbol);
+    if (drawn) groups.push(drawn);
+    if (side === "left") groups.push(COMPLETIONS);
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return groups;
+    return groups
+      .map(([name, rows]) => [name, rows.filter(([a, d]) =>
+        a.toLowerCase().includes(q) || d.toLowerCase().includes(q))])
+      .filter(([, rows]) => rows.length);
+  }
+
+  function openCombo(input, side) {
+    const groups = comboGroups(side, input.value);
+    // Nothing matched, and that is not an error: what was typed may well be a
+    // valid address this shortlist does not carry. An empty menu would say the
+    // opposite, so none is opened and the preview line does the judging.
+    if (!groups.length) return closeCombo();
+    if (comboMenu && comboFor === input) {
+      comboMenu.innerHTML = comboHTML(groups);
+      DlgKit.place(comboMenu, input);
+      return;
+    }
+    closeCombo();
+    const m = document.createElement("div");
+    // NOT `.dropdown`, deliberately. Three things go wrong when it is: main.js
+    // strips `.open` from every `.dropdown.open` on any document click (and the
+    // click that focuses this field is one), `.dropdown.floating` is declared
+    // inside a media query so it outranks anything written here, and
+    // `.dropdown .head` is styled for ONE heading at the top of a menu — this
+    // one has seven. Self-contained styling, same design tokens.
+    m.className = "al-menu";
+    m.innerHTML = comboHTML(groups);
+    document.body.appendChild(m);
+    comboMenu = m;
+    comboFor = input;
+    DlgKit.place(m, input);
+    // mousedown must not blur the input — the pick handler needs it
+    m.addEventListener("pointerdown", (e) => e.preventDefault());
+    m.addEventListener("click", (e) => {
+      const it = e.target.closest("[data-addr]");
+      if (!it) return;
+      input.value = it.dataset.addr;
+      closeCombo();
+      picking = true;
+      try {
+        // the same two events a keystroke fires, so nothing downstream needs to
+        // know the value came from a menu
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      } finally {
+        picking = false;
+      }
+      // Focus goes back to the field this pick belongs to — `input`, not a
+      // re-query by side, which would find the FIRST such field and put the
+      // caret in the wrong row of a two-condition rule. The menu stays shut:
+      // the pick was the answer to the question it was asking, and focusin
+      // would otherwise re-open it immediately.
+      suppressOpen = true;
+      input.focus();
+      setTimeout(() => { suppressOpen = false; }, 0);
+    });
+    comboOff = (ev) => {
+      if (!m.contains(ev.target) && ev.target !== input) closeCombo();
+    };
+    setTimeout(() => document.addEventListener("pointerdown", comboOff, true), 0);
+    addEventListener("resize", closeCombo);
+  }
+
+  const comboHTML = (groups) => groups.map(([name, rows]) =>
+    `<div class="grp">${esc(name)}</div>` + rows.map(([addr, desc]) =>
+      `<div class="row" data-addr="${esc(addr)}" role="button" tabindex="-1">` +
+        `<b>${esc(addr)}</b><span>${esc(desc)}</span></div>`).join("")).join("");
+
+  /** Does this condition want the × field?
+   *
+   * Only where a multiplier MEANS something: scaling a moving baseline ("twice
+   * the average volume") is the whole point of it, and scaling a literal you
+   * typed is just a second way to type a different literal. Keeping it off the
+   * common row is also what makes the line fit — the label plus the field cost
+   * ~80px against a card capped at 560. One predicate, because the row that
+   * draws it and the handler that decides to redraw must never disagree.
+   */
+  const wantsX = (c) => {
+    if (["rises_pct", "falls_pct", "changes_pct", "enters", "exits", "is_true"]
+        .includes(c.op)) return false;
+    const s = String(c.right ?? "").trim();
+    return (s !== "" && !isFinite(Number(s))) || c.x != null;
+  };
+
   function condRow(c, i) {
-    const custom = !LEFTS.some(([v]) => v === c.left);
     const isMove = ["rises_pct", "falls_pct", "changes_pct"].includes(c.op);
     const isBand = ["enters", "exits"].includes(c.op);
     const isBool = c.op === "is_true";
-    // The multiplier only appears where it MEANS something: scaling a moving
-    // baseline ("twice the average volume") is the whole point of it, and
-    // scaling a literal you typed is just a second way to type a different
-    // literal. Keeping it off the common row is also what makes the line fit —
-    // the label plus the field cost ~80px, and the card is capped at 560.
-    const rightIsAddr = String(c.right ?? "").trim() !== ""
-      && !isFinite(Number(c.right));
-    const showX = !isMove && !isBand && (rightIsAddr || c.x != null);
+    const showX = wantsX(c);
     return `<div class="al-cond-row" data-i="${i}">
-      <div class="al-f">
-        ${sel("left", LEFTS.concat(custom ? [[c.left, c.left]] : []), c.left, "left")}
-        <button type="button" class="al-mini" data-act="custom-left"
-          title="Type any address the engine knows — rsi(14), avg(volume,20), draw:D3"
-          aria-label="Type a custom address">${Icons.svg("pen", "xs")}</button>
-      </div>
+      ${combo("left", c.left, "close, rsi(14), …")}
       ${sel("op", Object.keys(OPLABEL).map((k) => [k, OPLABEL[k]]), c.op, "op")}
-      ${isBool ? "" : `<div class="al-f">
-        <input class="dlg-input right" data-f="right" value="${esc(c.right ?? "")}"
-          placeholder="${isMove ? "percent" : "price, or an address"}"
-          list="alRightList" autocomplete="off">
-        ${isMove ? `<span class="al-unit">% in</span>
-          <input class="dlg-input tiny" data-f="within" value="${esc(c.within || 1)}"
-            title="bars">` : ""}
-        ${isBand ? `<span class="al-unit">to</span>
-          <input class="dlg-input" data-f="right2" value="${esc(c.right2 ?? "")}"
-            placeholder="upper">` : ""}
-        ${showX ? `<span class="al-unit">×</span>
-          <input class="dlg-input tiny" data-f="x" value="${esc(c.x ?? "")}"
-            placeholder="1" title="multiply the right side — 2 means twice it">`
-          : ""}
-      </div>`}
+      ${isBool ? `<span class="al-unit grow">on a closed bar</span>`
+        : (isMove
+          ? `<div class="al-f">
+               <input class="dlg-input tiny" data-f="right"
+                 value="${esc(c.right ?? "")}" placeholder="2" title="percent">
+               <span class="al-unit">% within</span>
+               <input class="dlg-input tiny" data-f="within"
+                 value="${esc(c.within || 1)}" title="bars">
+               <span class="al-unit">bars</span>
+             </div>`
+          : `<div class="al-f">
+               ${combo("right", c.right, "a price, or an address")}
+               ${isBand ? `<span class="al-unit">to</span>
+                 <input class="dlg-input" data-f="right2"
+                   value="${esc(c.right2 ?? "")}" placeholder="upper">` : ""}
+               ${showX ? `<span class="al-unit">×</span>
+                 <input class="dlg-input tiny" data-f="x" value="${esc(c.x ?? "")}"
+                   placeholder="1"
+                   title="multiply the right side — 2 means twice it">` : ""}
+             </div>`)}
       ${draft.when.length > 1
         ? `<button type="button" class="al-mini danger" data-act="drop-cond"
              title="Remove this condition">${Icons.svg("x", "xs")}</button>`
@@ -323,10 +501,14 @@ const Alerts = (() => {
     </div>`;
   }
 
+  /* Two labelled sections and nothing else: WHEN it fires, and HOW it watches.
+   * The grammar reference that used to sit at the bottom is gone — it was a
+   * wall of monospace under a dialog whose job is one sentence, and everything
+   * it listed is now one click away inside the field it belongs to. */
   function body() {
-    const grammar = (state.vocab && state.vocab.operands) || {};
     return `
       <div class="al-dlg-body">
+        <div class="al-sec">When</div>
         <div class="al-when">${draft.when.map(condRow).join(
           `<div class="al-join">${draft.all ? "and" : "or"}</div>`)}</div>
         <div class="al-addrow">
@@ -341,6 +523,7 @@ const Alerts = (() => {
                </button>` : ""}
         </div>
 
+        <div class="al-sec">How</div>
         <div class="al-grid">
           <label>Interval${sel("interval", IVS.map((v) => [v, v]), draft.interval)}</label>
           <label>Trigger${sel("freq", FREQS, draft.freq)}</label>
@@ -351,14 +534,7 @@ const Alerts = (() => {
                  placeholder="why you are watching this — optional"></label>
 
         <div class="al-check" id="alCheck"></div>
-        <details class="al-help">
-          <summary>What can go in a field</summary>
-          <dl>${Object.keys(grammar).map((k) =>
-            `<dt>${esc(k)}</dt><dd>${esc(grammar[k])}</dd>`).join("")}</dl>
-        </details>
-      </div>
-      <datalist id="alRightList">${RIGHTS.filter(([v]) => v).map(([v, l]) =>
-        `<option value="${esc(v)}">${esc(l)}</option>`).join("")}</datalist>`;
+      </div>`;
   }
 
   function paint() {
@@ -466,6 +642,26 @@ const Alerts = (() => {
     dlg.addEventListener("click", onClick);
     dlg.addEventListener("input", onEdit);
     dlg.addEventListener("change", onEdit);
+    // The address fields open their menu on focus and keep it filtered as you
+    // type. `focusin` rather than `focus` because the row is rebuilt on every
+    // repaint and this listener lives on the dialog, not on the input.
+    dlg.addEventListener("focusin", (e) => {
+      const f = e.target.closest("[data-combo]");
+      if (f && !suppressOpen) openCombo(f, f.dataset.combo);
+      else if (!f) closeCombo();
+    });
+    dlg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && comboMenu) {
+        // the menu goes first — Escape with a list open means "close the list",
+        // not "throw away the alert I am halfway through writing"
+        e.stopPropagation();
+        return closeCombo();
+      }
+      if (e.key === "Enter" && e.target.closest("[data-combo]")) {
+        e.preventDefault();
+        closeCombo();
+      }
+    });
     card = DlgKit.draggable(dlg, dlg.querySelector(".dlg-head"));
     wrap.addEventListener("pointerdown", (e) => { if (e.target === wrap) close(); });
     addEventListener("keydown", (e) => {
@@ -485,16 +681,23 @@ const Alerts = (() => {
     const key = f.dataset.f, val = f.value;
     const c = rowOf(f);
     if (c) {
-      const wasAddr = String(c[key] ?? "").trim() !== "" && !isFinite(Number(c[key]));
       c[key] = val;
+      // keep the open menu filtered to what has been typed so far — but never
+      // re-open the one a pick just closed
+      if (f.dataset.combo && e.type === "input" && !picking) {
+        openCombo(f, f.dataset.combo);
+      }
       // the op decides which fields exist, so changing it has to redraw
-      if (key === "op" || key === "left") return paint();
-      // The × field appears once the right side becomes an ADDRESS. Redrawn on
-      // `change` (blur/Enter), never on `input` — rebuilding the row under a
-      // pointer mid-word would take the caret with it.
-      const isAddr = String(val).trim() !== "" && !isFinite(Number(val));
-      if (key === "right" && e.type === "change" && isAddr !== wasAddr) {
-        return paint();
+      if (key === "op") return paint();
+      // The × field appears once the right side becomes an address. Compared
+      // against WHAT IS ON SCREEN, not against the model: the model was already
+      // updated by the `input` event that preceded this one, so a model-vs-model
+      // comparison always found them equal and the field never appeared.
+      // Redrawn on `change` (blur/Enter/pick) and never on `input` — rebuilding
+      // the row mid-word would take the caret with it.
+      if (key === "right" && e.type === "change") {
+        const row = f.closest(".al-cond-row");
+        if (row && wantsX(c) !== !!row.querySelector('[data-f="x"]')) return paint();
       }
       return scheduleCheck();
     }
@@ -518,19 +721,19 @@ const Alerts = (() => {
       return paint();
     }
     if (act === "flip-all") { draft.all = !draft.all; return paint(); }
-    if (act === "custom-left") {
-      const c = rowOf(b);
-      const got = prompt(
-        "Address for the left side.\n\nAnything the grammar accepts — " +
-        "close, high[1], rsi(14), macd().signal, avg(volume,20), day.high, " +
-        "52w.high, poc, draw:D3, pattern(bullish_engulfing)", c.left);
-      if (got != null && got.trim()) { c.left = got.trim(); paint(); }
-      return;
+    if (act === "pick-left" || act === "pick-right") {
+      // the caret is a second door to the same menu the field opens on focus
+      const side = act.slice(5);
+      const input = b.closest(".al-combo").querySelector("[data-combo]");
+      if (comboMenu && comboFor === input) return closeCombo();
+      input.focus();
+      return openCombo(input, side);
     }
     if (act === "ok") return commit(b);
   }
 
   async function commit(btn) {
+    closeCombo();
     btn.disabled = true;
     const was = btn.textContent;
     btn.textContent = editing ? "Saving…" : "Creating…";
@@ -557,6 +760,7 @@ const Alerts = (() => {
   }
 
   function close() {
+    closeCombo();
     if (wrap) wrap.classList.remove("open");
     editing = null;
     clearTimeout(checkTimer);

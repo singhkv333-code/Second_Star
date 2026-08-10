@@ -383,14 +383,20 @@ class Ctx:
 
     `rows` is fetched at most once per pass and shared by every rule on that
     pair — the difference between one folded read and one per rule.
+
+    `forming` says whether the LAST row is a bar still in progress. It is a
+    property of the rows, not of the tick that triggered the pass: the tick
+    engine closes MINUTES, and whether the alert's own 5-minute or daily bar has
+    closed is a different question. Confusing the two is what made a
+    `per_bar_close` alert on 5m fire at the first minute-close inside the bar.
     """
 
-    __slots__ = ("symbol", "interval", "rows", "closed", "_ind", "_vp",
+    __slots__ = ("symbol", "interval", "rows", "forming", "_ind", "_vp",
                  "_draw", "_tick")
 
-    def __init__(self, symbol: str, interval: str, rows: list, closed: bool):
-        self.symbol, self.interval, self.rows, self.closed = \
-            symbol, interval, rows, closed
+    def __init__(self, symbol: str, interval: str, rows: list, forming: bool):
+        self.symbol, self.interval, self.rows, self.forming = \
+            symbol, interval, rows, forming
         self._ind: dict = {}
         self._vp: dict | None = None
         self._draw: dict | None = None
@@ -674,13 +680,22 @@ def _magnitude_guard(c: dict, ctx: Ctx) -> None:
     w = ctx.rows[-500:]
     lo = min(r[3] for r in w)
     hi = max(r[2] for r in w)
-    span = (hi - lo) or (abs(hi) or 1) * 0.02
-    # Generous on purpose — a level well outside the loaded window is a normal
-    # thing to watch for. This is a magnitude check, not a plausibility one:
-    # twenty windows away is a slipped decimal, not a target.
-    if not (lo - span * 20 <= lit <= hi + span * 20):
+    if lo <= 0:
+        return
+    # The tolerance scales with the price LEVEL, not with the window's range.
+    # A span-based band came first and let 14 through beside a price of 100 —
+    # one volatile bar widened the span until twenty spans reached zero. A
+    # slipped decimal is a FACTOR error, so a factor is what bounds it.
+    #
+    # Five-fold, not ten: the slip is a factor off the value the user MEANT, not
+    # off the price. Someone at 100 who meant 140 and typed 14 is 7x from the
+    # price, so a ten-fold band would still admit it. Five admits everything
+    # anyone really watches for — a 40% crash, a doubling — and the asymmetry
+    # settles it: a false refusal is one sentence in the preview and is retyped
+    # in seconds, while a false accept arms a rule that silently never fires.
+    if not (lo / 5 <= lit <= hi * 5):
         raise Unspeakable(
-            f"{_fmt(lit)} is far outside {ctx.symbol}'s loaded range "
+            f"{_fmt(lit)} is far outside {ctx.symbol}'s range "
             f"({_fmt(lo)}–{_fmt(hi)}) — check the magnitude")
 
 
@@ -803,7 +818,7 @@ def _detector(family: str, kind: str, ctx: Ctx) -> float:
     rows = [r for r in ctx.rows]
     # drop the forming bar: a pattern on a bar that is still moving is a claim
     # the next tick can withdraw
-    if not ctx.closed and rows:
+    if ctx.forming and rows:
         rows = rows[:-1]
     if len(rows) < 60:
         raise Unspeakable(
@@ -958,7 +973,9 @@ def evaluate(rule: Rule, ctx: Ctx, *, late: bool = False) -> dict | None:
     Raises Unspeakable when an address stops being readable — the caller
     pauses the rule and says why rather than letting it silently never fire.
     """
-    if rule.closed_only and not ctx.closed:
+    # A confirmed-close rule must never see a bar that is still moving. The
+    # caller hands it a closed view; this is the belt.
+    if rule.closed_only and ctx.forming:
         return None
     # `once` means once, and this is where that is enforced rather than in the
     # index. _fire flips the state and _load_index drops the rule, but those are
@@ -1129,7 +1146,41 @@ def _rows_for(symbol: str, interval: str) -> list:
     return rows
 
 
-def _run_symbol(symbol: str, closed: bool) -> None:
+def _is_forming(symbol: str) -> bool:
+    """Is the last bar get_bars returns a bar still in progress?
+
+    get_bars merges the live forming minute into whatever interval it folds, so
+    a live symbol's last bar is always partial — at every interval, daily
+    included. With no feed running, every stored bar is complete.
+    """
+    return ds._live_view(symbol) is not None
+
+
+def _ctx_for(symbol: str, interval: str, want_closed: bool,
+             cache: dict) -> Ctx | None:
+    """The rows one rule needs, built at most once per (interval, view).
+
+    Two views of the same interval, and the difference is the whole meaning of
+    `per_bar_close`: the LIVE view ends on the bar being formed, the CLOSED view
+    ends on the last bar that finished.
+    """
+    key = (interval, want_closed)
+    got = cache.get(key)
+    if got is not None:
+        return got or None
+    rows = _rows_for(symbol, interval)
+    forming = _is_forming(symbol) and bool(rows)
+    if want_closed and forming:
+        rows = rows[:-1]
+        forming = False
+    if not rows:
+        cache[key] = False
+        return None
+    ctx = cache[key] = Ctx(symbol, interval, rows, forming)
+    return ctx
+
+
+def _run_symbol(symbol: str, closed_minute: bool) -> None:
     with _INDEX_LOCK:
         rules = list(_BY_SYM.get(symbol) or [])
     if not rules:
@@ -1138,19 +1189,26 @@ def _run_symbol(symbol: str, closed: bool) -> None:
     # what lets this worker use ds's own symbol-scoped helpers unchanged.
     ds._req.symbol = symbol
     now = int(time.time())
-    ctxs: dict[str, Ctx] = {}
+    ctxs: dict = {}
     for r in rules:
         if r.expires and r.expires <= now:
             _set_state(r.id, "paused", why="expired")
             continue
-        if r.closed_only and not closed:
+        # A minute closing is only the CUE to look. Whether this rule's own bar
+        # closed is decided below, against its own interval.
+        if r.closed_only and not closed_minute:
             continue
         try:
-            ctx = ctxs.get(r.interval)
+            ctx = _ctx_for(symbol, r.interval, r.closed_only, ctxs)
             if ctx is None:
-                ctx = ctxs[r.interval] = Ctx(
-                    symbol, r.interval, _rows_for(symbol, r.interval), closed)
-            if not ctx.rows:
+                continue
+            # THE `per_bar_close` GATE. The rule is evaluated once the interval's
+            # bar is finished and not before: if the newest closed bar is one it
+            # has already read, nothing has closed since and there is nothing to
+            # confirm. Without this the rule ran on every minute-close inside the
+            # bar and fired up to four minutes early on a 5m alert — the exact
+            # opposite of what "once per bar close" promises.
+            if r.closed_only and ctx.rows[-1][0] <= r.last_eval_ts:
                 continue
             STATS["evals"] += 1
             hit = evaluate(r, ctx)
@@ -1319,7 +1377,8 @@ def catch_up() -> dict:
                 first = len(rows) - _CATCHUP_MAX_MIN
             for i in range(first, len(rows)):
                 out["scanned"] += 1
-                ctx = Ctx(symbol, r.interval, rows[:i + 1], True)
+                # every bar in a replay slice is finished by definition
+                ctx = Ctx(symbol, r.interval, rows[:i + 1], False)
                 try:
                     hit = evaluate(r, ctx, late=True)
                 except Unspeakable as exc:
@@ -1347,7 +1406,13 @@ def _seed(r: Rule) -> None:
     rows = _rows_for(r.symbol, r.interval)
     if not rows:
         raise Unspeakable(f"{r.symbol} has no {r.interval} bars to arm against")
-    ctx = Ctx(r.symbol, r.interval, rows, True)
+    forming = _is_forming(r.symbol)
+    # A confirmed-close rule is armed against the last CLOSED bar, so its
+    # watermark is a closed bar's timestamp and the gate in _run_symbol lets it
+    # run at the very next close rather than skipping one.
+    if r.closed_only and forming and len(rows) > 1:
+        rows, forming = rows[:-1], False
+    ctx = Ctx(r.symbol, r.interval, rows, forming)
     sides = []
     for c in r.when:
         got = _eval_condition(c, {}, ctx, r)
@@ -1606,7 +1671,10 @@ def api_check(uid: int, body: dict) -> tuple[int, dict]:
         return 400, {"error": f"{symbol} has no {interval} bars"}
     fake = Rule((0, uid, symbol, interval, json.dumps(spec), freq, "armed", "",
                  int(time.time()), expires, "[]", 0, 0, 0))
-    ctx = Ctx(symbol, interval, rows, True)
+    # The preview shows what the rule sees RIGHT NOW, forming bar included —
+    # that is the honest answer to "what is it looking at", even for a rule that
+    # will only ever act on a closed bar.
+    ctx = Ctx(symbol, interval, rows, _is_forming(symbol))
     out = []
     for c in fake.when:
         try:

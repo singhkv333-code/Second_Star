@@ -3151,12 +3151,82 @@ body.two-columns .readout .row { display: none; }
 .al-dlg .dlg-body { display: block; padding: 0; }
 .al-dlg-body { padding: 14px 20px 4px; min-width: 0; }
 
+/* A section label, the app's own micro-heading. Two of them — When and How —
+   because a dialog of eight controls in one column is a form, and a dialog of
+   two named groups is a sentence and its settings. */
+.al-sec {
+  margin: 2px 0 7px; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+.al-sec:not(:first-child) { margin-top: 16px; }
+
 .al-cond-row {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
 }
 .al-cond-row .al-f {
   display: flex; align-items: center; gap: 4px; min-width: 0;
   flex: 1 1 auto;
+}
+
+/* ── an address field ──────────────────────────────────────────────────────
+   An input with a caret, and the app's own menu behind it. It replaced a native
+   <datalist>, which the OS paints itself: on this light page it dropped a tall
+   BLACK panel across half the dialog, and no stylesheet can reach inside a
+   native control. The field stays free text — the menu is a shortcut, never the
+   set of legal values. */
+.al-combo { position: relative; display: flex; flex: 1 1 118px; min-width: 92px; }
+/* The subject holds ONE width whether its row wrapped or not, so two stacked
+   conditions read as a column instead of two differently-shaped sentences.
+   Only the target flexes. */
+.al-cond-row > .al-combo:first-child { flex: 0 1 152px; }
+.al-combo .dlg-input { width: 100%; min-width: 0; padding-right: 24px; }
+.al-caret {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; cursor: pointer; padding: 0;
+  color: var(--muted-foreground); border-radius: 0 5px 5px 0;
+}
+.al-caret:hover { color: var(--foreground); }
+
+/* The menu itself, styled from the same tokens as the app's dropdowns but NOT
+   built on `.dropdown` — see the note in js/alerts.js for the three reasons.
+   Two lines per row: the address in ink, what it means in grey, because
+   "pday.close" is not a word anyone knows and "yesterday's close" cannot be
+   typed into the field. */
+.al-menu {
+  position: fixed; z-index: 240;        /* over .dlg-wrap's 200 */
+  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
+  padding: var(--menu-pad);
+  min-width: 264px; max-width: 320px;
+  max-height: min(340px, 60vh); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.al-menu::-webkit-scrollbar { width: 6px; }
+.al-menu::-webkit-scrollbar-track { background: transparent; }
+.al-menu::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: var(--radius-2xs);
+}
+/* a group heading, not a menu head: no rail, no negative margins — there are
+   seven of them down the list, not one at the top */
+.al-menu .grp {
+  padding: 8px var(--menu-inset) 4px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+.al-menu .grp:first-child { padding-top: 3px; }
+.al-menu .row {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 5px var(--menu-inset); border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.al-menu .row:hover { background: var(--accent); }
+.al-menu .row b {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  color: var(--foreground); overflow-wrap: anywhere;
+}
+.al-menu .row span {
+  font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.35;
 }
 /* BOTH class names, and that is not belt-and-braces: DlgKit.dressSelects()
    hides the real <select> and inserts a button whose class is the select's with
@@ -3172,8 +3242,8 @@ body.two-columns .readout .row { display: none; }
 .al-cond-row .dlg-select.op, .al-cond-row .select-btn.op {
   flex: 0 0 auto; width: auto; min-width: 132px;
 }
-/* an address is longer than a price — "avg(volume,20)" has to be readable */
-.al-cond-row .dlg-input.right { flex: 1 1 118px; min-width: 78px; }
+.al-cond-row .dlg-input.tiny, .al-cond-row .al-unit { flex: none; }
+.al-unit.grow { flex: 1 1 auto; }
 /* the three settings selects, same trap */
 .al-grid .dlg-select, .al-grid .select-btn { width: 100%; min-width: 0; }
 .al-cond-row .dlg-input.tiny { flex: 0 0 46px; width: 46px; text-align: center; }
@@ -3232,30 +3302,11 @@ body.two-columns .readout .row { display: none; }
 .al-check-warn, .al-check-feed { margin-top: 4px; }
 .al-check-warn { color: var(--ann-res); }
 
-/* The grammar, folded away. Progressive disclosure rather than a wall: the
-   selects answer the common case, and this is here for the day you want
-   `avg(volume,20)` and need to know it exists. Rendered from the SERVER's own
-   copy of the vocabulary, so it cannot drift from what the engine accepts. */
-.al-help { margin: 6px 0 10px; font-size: var(--text-sm); }
-.al-help summary {
-  cursor: pointer; color: var(--muted-foreground); padding: 4px 0;
-}
-.al-help summary:hover { color: var(--foreground); }
-.al-help dl {
-  margin: 6px 0 0; max-height: 190px; overflow-y: auto;
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px;
-}
-.al-help dt {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-sm); color: var(--foreground);
-  /* "<indicator>(<period>).<line>" is one unbreakable token to the line
-     breaker, and the shell CLIPS rather than widens — so it has to be told it
-     may break anywhere. */
-  overflow-wrap: anywhere;
-}
-.al-help dd {
-  margin: 1px 0 0; color: var(--muted-foreground); line-height: 1.4;
-}
+/* The grammar reference that used to live here is GONE. It was a wall of
+   monospace definitions under a dialog whose whole job is one sentence, and
+   every address it listed is now one click away inside the field it belongs to
+   (see .al-menu). A reference nobody opens is furniture; a reference inside the
+   control is discoverability. */
 
 @media (max-width: 560px) {
   .al-grid { grid-template-columns: minmax(0, 1fr); }
@@ -4416,7 +4467,7 @@ body.two-columns .readout .row { display: none; }
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=4"></script>
+  <script src="./js/alerts.js?v=7"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=5"></script>
