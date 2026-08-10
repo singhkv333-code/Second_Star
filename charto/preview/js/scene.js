@@ -185,13 +185,18 @@ const Scene = (() => {
           a.qty ? `Qty: ${a.qty}` + (a.risk_amount ? ` · Risk: ${inr(a.risk_amount)}` : "")
                 : (a.side === "short" ? "Short" : "Long"),
           `Risk/reward ratio: ${a.rr ?? "—"}`];
+        // The centre chip takes the colour of the half the market is in —
+        // the same reading, off the same last close, as the user's own
+        // long/short tool. See the `tone` note in js/geometry.js.
+        const bars = env.getBars();
+        const last = bars.length ? bars[bars.length - 1].close : null;
         return [Geo.position(
           { t: a.t0, v: a.entry },
           { v: a.stop, text: `Stop: ${a.stop.toFixed(2)} (${pct(a.stop)}%) ${dst(a.stop)}`
                              + (a.risk_amount ? `, Amount: ${inr(a.risk_amount)}` : "") },
           (a.targets || []).map((tp, i) => ({
             v: tp, text: `Target: ${tp.toFixed(2)} (${pct(tp)}%) ${dst(tp)}${amt(i)}` })),
-          { t1: a.t1, center })];
+          { t1: a.t1, center, tone: Geo.positionTone(a.entry, last, a.side) })];
       },
       fib: (a) => {
         const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];

@@ -120,6 +120,23 @@ const Geo = (() => {
     return risk ? reward / risk : null;
   }
 
+  /** Which half of a plan the market is currently in: "up" for the reward
+   *  side, "down" for the risk side, null when there is no price to read.
+   *
+   *  Sign-aware, because for a SHORT the reward half is the one BELOW the
+   *  entry — a plan that went green because the price rose would be telling
+   *  the reader the opposite of what happened. Null is a real answer and not
+   *  a failure: with nothing to compare against, the chip paints neutral
+   *  rather than picking a side it cannot back up. */
+  function positionTone(entry, price, side) {
+    if (price == null || entry == null) return null;
+    // lower-cased, not compared as-is: the user's own tool says "short" and
+    // a plan off the wire may say "Short", and getting that wrong paints a
+    // losing position green — the one mistake this chip must not make
+    const short = String(side).toLowerCase() === "short";
+    return (short ? price <= entry : price >= entry) ? "up" : "down";
+  }
+
   // ── projection: data space → pixel space ────────────────
   /** env: { tToX(t), vToY(v), w, h } — supplied per pane by the caller. */
   function project(prim, env) {
@@ -329,11 +346,14 @@ const Geo = (() => {
         const w = px.x1 - px.x0, cx = (px.x0 + px.x1) / 2;
         const yFar = px.yT.length ? px.yT[px.yT.length - 1] : px.yE;
         ctx.setLineDash([]);
-        // the hover lift is on the FILL, not on a new edge: the zones are
-        // the shape, so the shape is what should answer the pointer
-        ctx.fillStyle = rgba(GREEN, detail ? 0.2 : 0.14);
+        /* The zones do NOT answer the pointer. Hover used to lift both fills
+         * from .14 to .20, and a fifth more green over a pale chart reads as
+         * a colour CHANGE rather than as emphasis — the reward box turned
+         * visibly blue under the pointer. Hovering adds the labels; it does
+         * not restate the plan in a second palette. */
+        ctx.fillStyle = rgba(GREEN, 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, yFar), w, Math.abs(yFar - px.yE));
-        ctx.fillStyle = rgba(RED, detail ? 0.2 : 0.14);
+        ctx.fillStyle = rgba(RED, 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, px.yS), w, Math.abs(px.yS - px.yE));
         // Every target line, and the stop — the outer two are the edges of
         // the plan, so they are drawn even with the labels away. Without
@@ -375,11 +395,20 @@ const Geo = (() => {
         });
         if (prim.stop.text) pill(prim.stop.text, px.yS, RED, px.yS < px.yE);
 
-        /* The centre chip, on the entry line. Flat slate, no border — the
-         * white 1.2px ring it used to wear was the loudest mark on the
-         * chart, and a chip that outshouts the candles is the opposite of
-         * what a plan overlay is for. Slate rather than the old bottle
-         * green so it does not read as a third zone. */
+        /* The centre chip, on the entry line — flat, no border. The white
+         * 1.2px ring it used to wear was the loudest mark on the chart, and
+         * a chip that outshouts the candles is the opposite of what a plan
+         * overlay is for.
+         *
+         * It takes the colour of the zone the market is CURRENTLY in, which
+         * is TradingView's rule: green while the plan is in its reward half,
+         * red once price has crossed into the risk half. That makes the chip
+         * the one part of a static drawing that still says something as the
+         * bars move — you can see which side of your own entry you are on
+         * without reading the axis. `tone` is null when there is no price to
+         * judge by (an empty chart, a plan the chat drew with no bars behind
+         * it), and then the chip is slate: neutral is the honest answer, not
+         * a coin-flip between two colours that both mean something. */
         const lines = (prim.center || []).filter(Boolean);
         if (lines.length) {
           ctx.font = `11px ${FONT}`;
@@ -387,7 +416,11 @@ const Geo = (() => {
           const lh = lines.length * 15 + 11;
           const x = Math.max(4, Math.min(cx - lw / 2, env.w - lw - 4));
           const y = px.yE - lh / 2;
-          ctx.fillStyle = rgba("#131722", 0.92);
+          // Solid, not the zones' 14% wash: this is a plate carrying white
+          // text, and a tint that pale would leave the candles legible
+          // through the letters.
+          ctx.fillStyle = prim.tone === "up" ? GREEN
+            : prim.tone === "down" ? RED : rgba("#131722", 0.92);
           ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 5); ctx.fill();
           ctx.fillStyle = "#ffffff"; ctx.textAlign = "center";
           lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 16 + i * 15));
@@ -414,6 +447,6 @@ const Geo = (() => {
     point, hline, vline, segment, band, vband, box, poly, label, position,
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
-    linearFit, valueAt, ladder, riskReward,
+    linearFit, valueAt, ladder, riskReward, positionTone,
   };
 })();

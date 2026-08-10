@@ -210,6 +210,15 @@ const Drawings = (() => {
       barsBetween(t0, t1) {
         return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
       },
+      /** The last loaded close — where the market actually IS. Only the
+       *  position tool asks: it is what decides whether a plan is currently
+       *  in its reward half or its risk half, which is the one thing about a
+       *  plan that changes without anybody dragging it. Null on an empty
+       *  chart, and the tool paints its neutral state rather than guessing. */
+      get last() {
+        const bars = env.getBars();
+        return bars.length ? bars[bars.length - 1].close : null;
+      },
       valuesBetween(t0, t1) {
         const bars = env.getBars();
         const lo = Math.min(t0, t1), hi = Math.max(t0, t1);
