@@ -598,9 +598,15 @@ const Scene = (() => {
             // by ratio, and repainting it all one role colour loses that
             // ?? not ||: an explicit empty dash means SOLID — a pattern
             // outline through real swings is an assertion, not a suggestion
+            // `detail` is the position tool's second reading — its target,
+            // stop and R:R plates. Same rule as the user's own long/short
+            // tool (js/drawings.js): the plan's SHAPE is always on, its
+            // NUMBERS come up when the pointer is on it, so a plan the chat
+            // drew does not sit on the candles it was drawn against.
             Geo.paint(ctx, prim, px,
                       { color: prim.color || col, width: hot ? 2 : 1.5,
-                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12 }, e);
+                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12,
+                        detail: hot }, e);
             if (!anchor) anchor = px;
           }
           // a position paints its own pills and centre chip — the generic
