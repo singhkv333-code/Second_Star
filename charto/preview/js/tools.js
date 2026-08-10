@@ -302,7 +302,8 @@ const Tools = (() => {
       { t: Math.min(entry.t, target.t, stop.t), v: entry.v },
       { v: stop.v, text: `Stop: ${c.fmt(stop.v)} (${pct(stop.v)}%) ${dist(stop.v)}` },
       [{ v: target.v, text: `Target: ${c.fmt(target.v)} (${pct(target.v)}%) ${dist(target.v)}` }],
-      { t1: Math.max(entry.t, target.t, stop.t), center })];
+      { t1: Math.max(entry.t, target.t, stop.t), center,
+        tone: G.positionTone(entry.v, c.last, side) })];
   }
 
   /* A GROUP is one rail button and one flyout. A SECTION is a labelled band
