@@ -508,11 +508,22 @@ const Scene = (() => {
         ctx.strokeStyle = col;
         ctx.fillStyle = col;
         ctx.lineWidth = hot ? 2 : 1.5;
-        // Hover reads as a HALO rather than a half-pixel of extra weight —
-        // at 1.5px a width bump is invisible on a busy chart, and the whole
-        // point of the hover is to answer "which one am I pointing at?".
-        ctx.shadowColor = hot ? rgba(col, 0.55) : "transparent";
-        ctx.shadowBlur = hot ? 9 : 0;
+        /* Hover reads as a HALO rather than a half-pixel of extra weight —
+         * at 1.5px a width bump is invisible on a busy chart, and the whole
+         * point of the hover is to answer "which one am I pointing at?".
+         *
+         * That reasoning is about HAIRLINES, and it does not survive contact
+         * with a filled shape. A canvas shadow applies to fillRect as much as
+         * to stroke, so a trade plan — two big filled zones — was casting a
+         * 9px wash of the role colour around and into its own boxes: a blue
+         * rim around the whole shape and a dirty edge over the green and the
+         * red. The plan does not need a halo to be findable; it answers the
+         * pointer by putting up its target, stop and R:R plates, which is a
+         * far louder answer than a glow. So it opts out, and hover on a plan
+         * changes nothing but the cards. */
+        const halo = hot && a.kind !== "position";
+        ctx.shadowColor = halo ? rgba(col, 0.55) : "transparent";
+        ctx.shadowBlur = halo ? 9 : 0;
 
         if (a.kind === "vprofile") {
           // Volume at price: a histogram hanging off the right edge, so it
