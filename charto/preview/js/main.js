@@ -112,6 +112,24 @@
   });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
+  /* The header's gear edits THIS chart too. Registering hands the settings
+   * module the two series it paints and a cheap way to re-colour the bars —
+   * `repaint` re-sets the data it already has, so a colour change is never a
+   * refetch and never touches the indicators. The theme still supplies every
+   * default; see js/chartsettings.js. */
+  ChartSettings.register({
+    chart, candle, volume,
+    // what "Default" means for this chart's two sized knobs — the values it
+    // was built with, twelve lines up
+    defaults: { fontSize: 12, rightOffset: 5 },
+    label: () => SYMBOL,
+    repaint() {
+      if (!state.bars.length) return;
+      candle.setData(ChartSettings.candlePoints(state.bars));
+      volume.setData(ChartSettings.volumePoints(state.bars));
+    },
+  });
+
   // ── data client ───────────────────────────────────────
   async function fetchBars(interval, toRaw, limit) {
     const qs = new URLSearchParams({ symbol: SYMBOL, interval, limit: String(limit) });
@@ -128,10 +146,12 @@
   }
 
   function paint() {
-    candle.setData(state.bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-    volume.setData(state.bars.map(({ time, volume: v, open, close }) => ({
-      time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
-    })));
+    // Both series are built by js/chartsettings.js, never here: the bar
+    // colours are a setting (and, with "colour bars based on previous
+    // close", a per-POINT one), and a second place deciding what green means
+    // is a second place to get it wrong.
+    candle.setData(ChartSettings.candlePoints(state.bars));
+    volume.setData(ChartSettings.volumePoints(state.bars));
     // A new interval can move an indicator in or out of the timeframes its
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
@@ -253,9 +273,11 @@
       if (last && last.time === bar.time) state.bars[state.bars.length - 1] = bar;
       else if (last && bar.time < last.time) return;   // stale/out-of-order
       else state.bars.push(bar);
-      candle.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
-      volume.update({ time: bar.time, value: bar.volume,
-        color: bar.close >= bar.open ? Theme.c("volUp") : Theme.c("volDown") });
+      // the bar BEFORE the forming one — the previous-close colouring rule
+      // needs it, and on a replaced last bar that is two back
+      const prev = state.bars[state.bars.length - 2] || null;
+      candle.update(ChartSettings.candlePoint(bar, prev));
+      volume.update(ChartSettings.volumePoint(bar, prev));
       lastBar = bar;
       paintReadout(lastBar);
       // Anything else on the page showing this instrument's PRICE. The event
@@ -2272,6 +2294,17 @@
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
 
+  // ── chart settings ────────────────────────────────────
+  // One button, one dialog, every chart on screen: js/chartsettings.js holds
+  // the model and applies each edit to whatever is registered, so the gear
+  // is not aimed at the selected pane the way the indicator toolbar is.
+  el("settingsBtn").innerHTML = Icons.svg("settings", "sm");
+  el("settingsBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus();
+    ChartSettings.open();
+  });
+
   el("shotBtn").innerHTML = Icons.svg("camera", "sm");
   el("shotBtn").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2296,19 +2329,18 @@
   Theme.onChange(() => {
     paintThemeBtn();
     chart.applyOptions(chartTheme());
-    candle.applyOptions({
-      upColor: Theme.c("up"), downColor: Theme.c("down"),
-      wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-    });
     if (state.bars.length) {          // a toggle mid-load must not wipe series
-      volume.setData(state.bars.map(({ time, volume: v, open, close }) => ({
-        time, value: v, color: close >= open ? Theme.c("volUp") : Theme.c("volDown"),
-      })));
       // retheme repaints the LINES and re-emits the legend, whose row colours
       // are baked in at render time — without that pass a name kept the other
       // theme's palette, dark goldenrod on a near-black chart.
       ind.retheme(state.bars);
     }
+    // LAST, and on every chart: the line above has just written the theme's
+    // palette over the colours the user chose in Settings, and this is what
+    // puts an explicit choice back on top. The candles are not re-themed by
+    // hand at all — they are the settings module's, with the theme as their
+    // default — and the repaint it does is what recolours the volume bars.
+    ChartSettings.apply();
     draw.requestUpdate();
     scene.requestUpdate();
   });

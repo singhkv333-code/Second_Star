@@ -445,7 +445,7 @@ select.is-dressed { display: none; }
 :root[data-nav="kbd"] .select-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 /* The option list is the app's menu, not the OS's. Two classes deep so it
    outranks .dropdown's own `position: absolute; top: calc(100% + 6px)` —
-   this one is placed in viewport coordinates by indsettings.js. */
+   this one is placed in viewport coordinates by js/dlgkit.js. */
 .dropdown.select-menu {
   position: fixed; top: auto; left: auto; z-index: 220; padding: var(--menu-pad);
   border-radius: 6px; box-shadow: none; max-height: 280px; min-width: 132px;
@@ -498,9 +498,14 @@ select.is-dressed { display: none; }
   align-items: center; justify-content: center;
 }
 .swatch:hover, .dlg-swatch:hover { border-color: var(--faint); }
-/* the chip inside shows the colour over a checker so an alpha reads as one */
+/* The chip inside shows the colour over a checker so an alpha reads as one.
+   It nearly fills the box, TradingView's proportion: at 15px in a 32px well
+   the frame was reading as the control and the colour as a dot inside it,
+   which is backwards — the COLOUR is the thing being chosen, and the well is
+   only the box it sits in. 4px of surround on each side, so the frame still
+   separates two swatches sitting side by side. */
 .swatch span, .dlg-swatch span {
-  width: 15px; height: 15px; border-radius: var(--radius-2xs); background: var(--sw);
+  width: 22px; height: 22px; border-radius: var(--radius-2xs); background: var(--sw);
   box-shadow: inset 0 0 0 1px var(--swatch-ring);
 }
 
@@ -792,6 +797,92 @@ select.is-dressed { display: none; }
 .dlg-foot .btn { height: 34px; border-radius: 6px; font-size: 14px; padding: 0 11px; font-weight: 400; }
 /* the Defaults control is a 100px field, the same box as an input */
 .dlg-foot .dlg-def .btn { width: 100px; justify-content: space-between; }
+
+/* ── the chart-settings dialog ─────────────────────────────────────────────
+   The same card as the indicator dialog with its tab strip replaced by a
+   left-hand LIST. TradingView makes the same split, and for the same reason:
+   three tabs fit on a line, seven sections do not, and a vertical list can
+   carry an icon and a two-word name without either being abbreviated.
+   Fixed width, unlike the indicator dialog — that one is content-sized
+   because its tabs differ wildly in width; these four sections all hold the
+   same two-column table, and a card that resized as you moved down the list
+   would be the jumping this layout exists to avoid. */
+/* A FIXED card, TradingView's own: Canvas holds three rows and Symbol holds
+   nine, and a dialog that resized as you moved down the list would move the
+   list itself under the pointer — the same jump the indicator dialog's
+   pinning exists to prevent. The section scrolls inside instead. */
+.dlg.settings {
+  width: min(660px, calc(100vw - 24px));
+  height: min(620px, 88vh); height: min(620px, 88dvh);
+  min-width: 0; max-width: none;
+}
+.dlg-cols { display: flex; flex: 1; min-height: 0; }
+.dlg-side {
+  flex: none; width: 200px; padding: 2px 10px 16px 16px;
+  display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.dlg-nav {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  height: 42px; padding: 0 12px; width: 100%;
+  background: none; border: 1px solid transparent; border-radius: 8px;
+  color: var(--muted-foreground); font-size: 14px; text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.dlg-nav:hover { background: var(--accent); color: var(--foreground); }
+.dlg-nav:focus { outline: none; }
+:root[data-nav="kbd"] .dlg-nav:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* The selected section is said in INK and the faintest of plates — no ring.
+   A coloured outline on a settings list reads as focus, which is a state the
+   keyboard already owns two lines up, and a plate strong enough to see from
+   across the card competes with the section it is naming. The weight and the
+   full-strength label are what carry it; --muted is the softest lift the
+   token set has, and it sits UNDER the pointer's own --accent so hovering
+   another row is still legible beside the selected one. */
+.dlg-nav.active {
+  background: var(--muted); border-color: transparent;
+  color: var(--foreground); font-weight: var(--weight-medium);
+}
+.dlg-nav.active svg { color: var(--foreground); }
+.dlg-nav svg { width: 17px; height: 17px; flex: none; }
+.dlg.settings .dlg-body { padding-top: 2px; }
+/* A band of small caps naming what the rows under it are — TradingView's
+   CANDLES / DATA MODIFICATION. It spans the table, and the first one in a
+   section does not push the list down from the top of the card. */
+.dlg-group {
+  grid-column: 1 / -1;
+  font-size: var(--text-3xs); letter-spacing: .09em; text-transform: uppercase;
+  color: var(--faint); font-weight: var(--weight-medium);
+  margin: 18px 0 2px;
+}
+.dlg-body > .dlg-group:first-child { margin-top: 6px; }
+.dlg.settings .dlg-note { margin: 2px 0 6px; }
+.dlg.settings .dlg-input { width: 92px; }
+/* A settings row has a whole column to itself, so its fields are wider than
+   the indicator dialog's 100px default — a date format truncated to
+   "17 Feb '…" is a value nobody can read. `.tight` is what sits three-to-a-
+   row (the crosshair's colour, width and style). */
+.dlg.settings .select-btn { width: 136px; }
+.dlg.settings .select-btn.tight { width: 96px; }
+
+/* Narrow enough that a 200px column of section names is most of the card:
+   the list lies down and becomes a strip you flick, exactly as the phone's
+   drawing sheet does with its tool groups. Same control, same order, one
+   line instead of one column. */
+@media (max-width: 620px) {
+  .dlg.settings { width: calc(100vw - 24px); }
+  .dlg-cols { flex-direction: column; }
+  .dlg-side {
+    width: auto; flex-direction: row; gap: 6px;
+    padding: 0 16px 10px; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .dlg-side::-webkit-scrollbar { display: none; }
+  .dlg-nav { width: auto; height: 34px; padding: 0 12px; white-space: nowrap; }
+  .dlg-nav svg { width: 15px; height: 15px; }
+}
 
 /* popover — the colour picker. --popover paper (not the card paper: this
    floats OVER the dialog, so it needs its own step), a hairline, the medium
@@ -1308,13 +1399,37 @@ header > .btn, header > .badge { flex: none; }
 .readout .row i { font-style: normal; }
 .readout .sep { margin: 0 5px; color: var(--faint); font-weight: 400; }
 .readout b { font-weight: var(--weight-medium); }
-.readout b.up { color: var(--up); }
-.readout b.down { color: var(--down); }
+/* The figures follow the CANDLES, not the app's market palette: recolour the
+   bars in Settings and the numbers describing them follow, which is what
+   TradingView does and the only way a blue/orange chart doesn't keep a
+   green/red legend. --candle-up/down are set on <html> by
+   js/chartsettings.js; until it has run, the app's own tokens stand in. */
+.readout b.up { color: var(--candle-up, var(--up)); }
+.readout b.down { color: var(--candle-down, var(--down)); }
 /* The candle's own change, set apart from the five OHLC figures it is
    derived from — same weight as the numbers, its own colour by direction. */
 .readout .chg { font-weight: var(--weight-medium); }
-.readout .chg.up { color: var(--up); }
-.readout .chg.down { color: var(--down); }
+.readout .chg.up { color: var(--candle-up, var(--up)); }
+.readout .chg.down { color: var(--candle-down, var(--down)); }
+
+/* ── what the status line shows ────────────────────────────────────────────
+   One class per field, set on <html> from the Settings dialog's Status line
+   section. It lives at the root rather than on each legend because the
+   primary readout and every pane legend are the SAME row — a split must not
+   be able to show two differently-dressed charts. Hiding only; nothing here
+   re-lays the legend out, so a field coming back needs no repaint. */
+:root.sl-no-symbol .readout .title { display: none; }
+:root.sl-no-ohlc .readout .row .ro-o,
+:root.sl-no-ohlc .readout .row .ro-h,
+:root.sl-no-ohlc .readout .row .ro-l,
+:root.sl-no-ohlc .readout .row .ro-c { display: none; }
+:root.sl-no-volume .readout .row .ro-v { display: none; }
+:root.sl-no-change .readout .chg { display: none; }
+:root.sl-no-indname .ind-name { display: none; }
+/* the reading leads with a middle dot that separates it FROM the name */
+:root.sl-no-indname .ind-vals .sep { display: none; }
+:root.sl-no-indvals .ind-vals { display: none; }
+:root.sl-no-indbtns .ind-acts { display: none; }
 
 /* ── two sidebars: the figures stand down ─────────────────────────────────
    `.two-columns` is set on <body> by js/panels.js whenever a widget panel
@@ -3745,6 +3860,11 @@ body.two-columns .readout .row { display: none; }
     <div class="spacer"></div>
 
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
+    <!-- The gear, where TradingView keeps it: with the controls that change
+         how the chart is DRAWN (layout, screenshot), not with the ones that
+         change what is on it. js/chartsettings.js owns the dialog. -->
+    <button class="btn icon" id="settingsBtn" type="button"
+            title="Chart settings" aria-label="Chart settings"></button>
     <div class="menu-wrap">
       <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
       <!-- filled by main.js from the Panes catalogue -->
@@ -3911,18 +4031,24 @@ body.two-columns .readout .row { display: none; }
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
   <script src="./js/indlegend.js?v=2"></script>
-  <script src="./js/indsettings.js?v=6"></script>
+  <!-- before either dialog: both are built out of its colour picker, its
+       dressed selects and its card positioning -->
+  <script src="./js/dlgkit.js?v=1"></script>
+  <script src="./js/indsettings.js?v=7"></script>
+  <!-- before panes.js and main.js: both register their charts with it as
+       they build them, and read their series colours out of it -->
+  <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=8"></script>
   <script src="./js/tools.js?v=11"></script>
   <script src="./js/drawings.js?v=18"></script>
   <script src="./js/scene.js?v=24"></script>
-  <script src="./js/panes.js?v=14"></script>
-  <script src="./js/main.js?v=66"></script>
+  <script src="./js/panes.js?v=15"></script>
+  <script src="./js/main.js?v=67"></script>
   <script src="./js/chat.js?v=106"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=4"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=8"></script>
+  <script src="./js/mobile.js?v=9"></script>
 </body>
 </html>
