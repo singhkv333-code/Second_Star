@@ -29,6 +29,7 @@
     role: t.role, content: t.content,
     ...(t.image ? { image: t.image } : {}),
     ...(t.drawing ? { drawing: t.drawing } : {}),
+    ...(t.journal ? { journal: t.journal } : {}),
   }));
 
   /* ── the archive ─────────────────────────────────────────────────────────
@@ -142,22 +143,64 @@
   let lastBlock = "";   // what the model was actually told, for the inspector
   let pendingImage = null;   // a captured screenshot waiting to ride the next send
   let pendingDraw = null;    // the drawing this message is about, by ref
+  let pendingJournal = null; // an exact journal record, attached deliberately
+
+  function journalTagInner(j, removable) {
+    const t = j.trade || j;
+    const result = t.net_pnl == null ? "Open" : `${t.net_pnl >= 0 ? "+" : ""}${Number(t.net_pnl).toLocaleString("en-IN")}`;
+    return `<span class="draw-tag-mark">${Icons.svg("fileText", "sm")}</span>`
+      + `<span class="draw-tag-copy"><strong>${drawEsc(t.symbol || "Journal trade")}</strong>`
+      + `<small>${drawEsc(`${t.side || ""} · ${result} · Trade #${t.id || "new"}`)}</small></span>`
+      + (removable ? `<button type="button" class="x" data-unjournal="1" aria-label="Remove journal attachment">${Icons.svg("x", "xs")}</button>` : "");
+  }
+  function setJournalTag(j) {
+    pendingJournal = j;
+    let row = el("journalTagRow");
+    if (!row) { row = document.createElement("div"); row.id = "journalTagRow"; row.className = "draw-tag-row"; el("drawTagRow").after(row); }
+    row.style.display = j ? "" : "none";
+    row.innerHTML = j ? `<span class="draw-tag journal-tag">${journalTagInner(j, true)}</span>` : "";
+  }
+  document.addEventListener("charto:journal-chat", (e) => {
+    setJournalTag(e.detail); panel.classList.remove("hidden"); el("splitter").classList.remove("hidden");
+    el("chatToggle").classList.add("on"); input.placeholder = "Ask about this trade…"; input.focus();
+  });
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-unjournal]")) { setJournalTag(null); input.placeholder = "Ask about this chart…"; } });
 
   // ── drawing tag ───────────────────────────────────────
   // Selecting a shape offers it as the subject of the next question, the same
   // way pinning a candle does. The message then carries the drawing's REF, so
   // the tools resolve exact geometry instead of the model guessing which
   // shape "this" meant and retyping its coordinates.
+  const drawEsc = (v) => String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const drawIcon = (type) => ({
+    level: "hline", hline: "hline", vline: "vline",
+    zone: "rect", box: "rect", rect: "rect",
+    segment: "trend", poly: "disjointChannel", trend: "trend",
+    fib: "fib", position: "position", channel: "channel",
+  }[type] || "trend");
+  function drawTagInner(d, removable) {
+    // Detector labels often carry measurements after a middle dot. Those
+    // facts belong in the chart card; the attachment needs only identity.
+    const rawName = String(d.label || d.type || "Drawing").split("·")[0].trim();
+    const name = rawName ? rawName[0].toUpperCase() + rawName.slice(1) : "Drawing";
+    const meta = [d.origin === "chat" ? "Chart analysis" : "Drawing", d.ref,
+                  d.pane && d.pane !== "price" ? `on ${d.pane}` : ""]
+      .filter(Boolean).join(" · ");
+    return `<span class="draw-tag-mark">${Icons.svg(drawIcon(d.type), "sm")}</span>`
+      + `<span class="draw-tag-copy"><strong>${drawEsc(name)}</strong>`
+      + `<small>${drawEsc(meta)}</small></span>`
+      + (removable
+        ? `<button type="button" class="x" data-untag="1" aria-label="Remove drawing attachment" title="Remove attachment">${Icons.svg("x", "xs")}</button>`
+        : "");
+  }
   function setDrawTag(d) {
     pendingDraw = d;
     const row = el("drawTagRow");
     row.style.display = d ? "" : "none";
     if (!d) return;
-    const on = d.pane && d.pane !== "price" ? ` · on ${d.pane}` : "";
-    row.innerHTML = `<span class="draw-tag"><span class="ref">${d.ref}</span>`
-      + `${d.label.toLowerCase()}${on}`
-      + `<span class="x" data-untag="1" title="Don't ask about this">`
-      + `${Icons.svg("x", "xs")}</span></span>`;
+    row.innerHTML = `<span class="draw-tag">${drawTagInner(d, true)}</span>`;
   }
   // Only an explicit "Ask in chat" on the drawing's card tags it — selecting
   // a shape to drag or edit must never attach it to the conversation.
@@ -425,7 +468,7 @@
     return meta;
   }
 
-  function addUserTurn(text, image, drawing, ts) {
+  function addUserTurn(text, image, drawing, ts, journal) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn user";
@@ -436,9 +479,12 @@
       // shape a past answer was about, not just that one was tagged
       const tg = document.createElement("div");
       tg.className = "bubble-tag";
-      tg.textContent = `${drawing.ref} · ${String(drawing.label).toLowerCase()}`
-        + (drawing.pane && drawing.pane !== "price" ? ` on ${drawing.pane}` : "");
+      tg.innerHTML = drawTagInner(drawing, false);
       b.appendChild(tg);
+    }
+    if (journal) {
+      const tg = document.createElement("div"); tg.className = "bubble-tag";
+      tg.innerHTML = journalTagInner(journal, false); b.appendChild(tg);
     }
     if (image) {
       const img = document.createElement("img");
@@ -549,25 +595,48 @@
     }
     push(STEP_SCRIPT[0]);
 
-    const clock = setInterval(() => {
-      secs.textContent = Math.max(0, Math.round((performance.now() - t0) / 1000)) + "s";
-    }, 250);
-    const walk = setInterval(() => {
-      if (cursor >= STEP_SCRIPT.length) return;   // hold on the last line
-      push(STEP_SCRIPT[cursor++]);
-    }, 2600);
+    // The two intervals are started and stopped together, and more than once:
+    // the wait stands down while the answer is streaming and comes back if
+    // the turn goes back to work. Ticking a counter behind a hidden element
+    // is a timer nobody reads.
+    let clock = 0, walk = 0;
+    function run() {
+      if (clock) return;
+      clock = setInterval(() => {
+        secs.textContent = Math.max(0, Math.round((performance.now() - t0) / 1000)) + "s";
+      }, 250);
+      walk = setInterval(() => {
+        if (cursor >= STEP_SCRIPT.length) return;   // hold on the last line
+        push(STEP_SCRIPT[cursor++]);
+      }, 2600);
+    }
+    function halt() {
+      clearInterval(clock); clearInterval(walk);
+      clock = walk = 0;
+    }
+    run();
 
     return {
       /** A tool landed. Once per tool: a turn that reads three intervals of
-       *  bars did one kind of work, not three. */
+       *  bars did one kind of work, not three. A tool AFTER the answer began
+       *  means the turn narrated and then went back to work, so the wait
+       *  comes back with it. */
       tool(name) {
         if (seen.has(name)) return;
         seen.add(name);
+        if (host.hidden) { host.hidden = false; run(); }
         push(toolStep(name));
       },
-      /** The first token of the answer arrived. */
-      writing() { push({ word: "Writing", detail: "the answer" }); },
-      stop() { clearInterval(clock); clearInterval(walk); host.remove(); },
+      /** The answer is arriving. Two live animations at once read as two
+       *  things happening at once, so the wait steps aside the moment there
+       *  is text — the caret in the prose is the only thing still moving.
+       *  Idempotent: every delta calls it, only the first one does work. */
+      writing() {
+        if (host.hidden) return;
+        halt();
+        host.hidden = true;
+      },
+      stop() { halt(); host.remove(); },
     };
   }
 
@@ -644,7 +713,10 @@
         let ev;
         try { ev = JSON.parse(line.slice(5)); } catch { continue; }
         if (ev.type === "delta") {
-          if (!text && turn.__wait) turn.__wait.writing();
+          // every delta, not just the first: a round that narrated before
+          // calling a tool brought the wait back, and the round after it has
+          // to send it away again
+          if (turn.__wait) turn.__wait.writing();
           text += ev.text;
           paint();
         } else if (ev.type === "tool") {
@@ -862,6 +934,44 @@
    */
   function clearSuggest() {
     msgsEl.querySelectorAll(".suggest").forEach((n) => n.remove());
+    // The saved copy goes with the row. An offer is spent the moment
+    // something else is asked, and one that outlived its turn in storage
+    // would come back on the next reload under a reply nobody is reading.
+    let dropped = false;
+    for (const t of turns) if (t.sugg) { delete t.sugg; dropped = true; }
+    if (dropped) saveTurns();
+  }
+
+  /** The row under `turn`, made if it isn't there yet. */
+  function suggestBox(turn) {
+    let box = turn.querySelector(".suggest");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "suggest";
+      turn.appendChild(box);
+    }
+    return box;
+  }
+
+  /** Fill `box` with `lines`. The ONE place a suggestion becomes a button —
+   *  the live stream and a restored thread both come through here, so the two
+   *  cannot drift. Rows are reused rather than rebuilt: a list still arriving
+   *  a line at a time must not replace the buttons already under the pointer. */
+  function paintSuggest(box, lines) {
+    lines.slice(0, 3).forEach((q, i) => {
+      while (box.children.length <= i) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "suggest-row";
+        b.addEventListener("click", () => {
+          const asked = b.textContent.trim();
+          if (asked) { clearSuggest(); send(asked); }
+        });
+        box.appendChild(b);
+      }
+      const b = box.children[i];
+      if (b.textContent !== q) { b.textContent = q; b.title = q; }
+    });
   }
 
   /** The server's suggest_clean, verbatim. Both ends apply it — this one to
@@ -873,31 +983,14 @@
 
   async function suggestAfter(turn) {
     clearSuggest();
-    const box = document.createElement("div");
-    box.className = "suggest";
-    turn.appendChild(box);
+    const box = suggestBox(turn);
+    // The record the row belongs to, taken now: the request outlives this
+    // frame, and `turns` will have grown by the time it lands.
+    const rec = turns[turns.length - 1];
     // Stale before it was ever shown: by now the user may have asked
     // something else, switched chats, or cleared the thread.
     const dead = () => !turn.isConnected || !box.isConnected || pending;
-    const rowAt = (i) => {
-      while (box.children.length <= i) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "suggest-row";
-        b.addEventListener("click", () => {
-          const q = b.textContent.trim();
-          if (q) { clearSuggest(); send(q); }
-        });
-        box.appendChild(b);
-      }
-      return box.children[i];
-    };
-    const paint = (lines) => {
-      lines.slice(0, 3).forEach((q, i) => {
-        const b = rowAt(i);
-        if (b.textContent !== q) { b.textContent = q; b.title = q; }
-      });
-    };
+    const paint = (lines) => paintSuggest(box, lines);
 
     let acc = "";
     try {
@@ -931,6 +1024,10 @@
             if (picks.length !== 3 || dead()) { box.remove(); return; }
             paint(picks);
             while (box.children.length > 3) box.lastChild.remove();
+            // File them with the turn. The row is part of the reply, not a
+            // decoration on top of it — a reload repaints the thread from
+            // `turns`, and unsaved questions would vanish with it.
+            if (rec && rec.role === "assistant") { rec.sugg = picks; saveTurns(); }
             toBottom(true);
             return;
           }
@@ -994,8 +1091,13 @@
       return;
     }
     for (const t of turns) {
-      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts); continue; }
-      finishTurn(addAssistantTurn(false), t.content, t.meta || [], t.acts || []);
+      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal); continue; }
+      const turn = addAssistantTurn(false);
+      finishTurn(turn, t.content, t.meta || [], t.acts || []);
+      // The questions offered under that reply come back with it. Only the
+      // newest turn can be carrying any — clearSuggest drops the rest the
+      // moment something else is asked.
+      if (t.sugg && t.sugg.length) paintSuggest(suggestBox(turn), t.sugg);
     }
     toBottom();
   }
@@ -1014,9 +1116,12 @@
     clearSuggest();          // the offer is spent the moment anything is asked
     const image = retry ? null : pendingImage;
     const drawing = retry ? null : pendingDraw;
+    const journal = retry ? null : pendingJournal;
     if (!retry) {
       setAttachment(null);
       setDrawTag(null);
+      setJournalTag(null);
+      input.placeholder = "Ask about this chart…";
       input.value = "";
       autoGrow();
     }
@@ -1025,8 +1130,9 @@
 
     const ts = Date.now();
     turns.push({ role: "user", content: text, ts,
-                 ...(image ? { image } : {}), ...(drawing ? { drawing } : {}) });
-    addUserTurn(text, image, drawing, ts);
+                 ...(image ? { image } : {}), ...(drawing ? { drawing } : {}),
+                 ...(journal ? { journal } : {}) });
+    addUserTurn(text, image, drawing, ts, journal);
     const turn = addAssistantTurn();
     const t0 = performance.now();
 
@@ -1036,8 +1142,9 @@
       // rather than from whatever happens to be selected now, and what came
       // back is recorded: a layout change can retire a chosen pane, and the
       // fallback has to be visible rather than silent.
-      const context = ctxOn && window.__charto
+      let context = ctxOn && window.__charto
         ? window.__charto.getChartContext(chosen) : null;
+      if (journal) context = Object.assign({}, context || {}, { journal });
       // Stamp the turn with what was on screen when it was asked. Only the
       // mirrored archive uses it, so a later session can find "that ITC
       // conversation" without reading every word of every one.
@@ -1065,6 +1172,17 @@
       if (d.error) throw new Error(d.error);
       lastBlock = d.context_preview || "(no chart context sent)";
 
+      // File the reply BEFORE touching the workspace. `open_chart` with
+      // replace on the main chart navigates the page (that is how an
+      // instrument becomes the main chart), and a navigation between here and
+      // the save below took the answer with it — the reload came back to a
+      // thread missing the turn that had just asked for the chart.
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      const meta = [`${secs}s`];
+      const acts = chartActions(d.scene_patch);
+      turns.push({ role: "assistant", content: d.text, meta, acts });
+      saveTurns();
+
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
       // chart this same turn opened, and applying the patch first would draw
       // it onto whatever pane happened to be there.
@@ -1079,19 +1197,21 @@
         }
       }
 
-      // apply anything the model chose to draw
+      // Apply anything the model chose to draw. Guarded like the open above:
+      // the answer is already written and filed, and a patch that throws must
+      // cost the drawing, never the reply.
       if (d.scene_patch && d.scene_patch.length && window.__charto) {
-        window.__charto.scene.apply(d.scene_patch);
+        try {
+          window.__charto.scene.apply(d.scene_patch);
+        } catch (e) {
+          console.warn("[charto] scene patch failed", e);
+        }
       }
 
-      // How long it took, and nothing else. The token count used to ride
-      // here too; it is a fact about the bill rather than about the answer,
-      // and the row it sat in is otherwise entirely about what you just read.
-      const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      const meta = [`${secs}s`];
-      const acts = chartActions(d.scene_patch);
-      turns.push({ role: "assistant", content: d.text, meta, acts });
-      saveTurns();
+      // The footer carries how long it took, and nothing else. The token count
+      // used to ride here too; it is a fact about the bill rather than about
+      // the answer, and the row it sits in is otherwise entirely about what
+      // you just read.
       finishTurn(turn, d.text, meta, acts);
       suggestAfter(turn);    // deliberately not awaited — the turn is done
     } catch (e) {

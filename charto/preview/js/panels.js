@@ -667,8 +667,8 @@ const Panels = (() => {
       : `<span class="al-when">${esc(whenOf(a))}</span>`;
     // pause/resume reads off the state, so the glyph cannot contradict the
     // dot beside it
-    const toggle = a.state === "paused"
-      ? iconBtn("al-act", "play", "Resume alert", 'data-al="toggle"')
+    const toggle = a.state === "paused" || a.state === "fired"
+      ? iconBtn("al-act", "play", a.state === "fired" ? "Re-arm alert" : "Resume alert", 'data-al="toggle"')
       : iconBtn("al-act", "pause", "Pause alert", 'data-al="toggle"');
     // A rule the engine paused because an address stopped resolving carries
     // the reason in its note. That belongs on the row: a paused alert with no

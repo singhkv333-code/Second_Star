@@ -44,7 +44,191 @@ const Alerts = (() => {
     feed: null, vocab: null, error: "",
   };
   const listeners = [];
-  const emit = () => listeners.forEach((f) => { try { f(state); } catch {} });
+  const chartLines = new Map();
+  // Lightweight Charts LineStyle enum values. The library alias is scoped to
+  // main.js, while these option values are part of its public API.
+  const LINE_DOTTED = 1, LINE_DASHED = 2;
+  let selectedLine = null, lineDrag = null;
+
+  /** A chart-created alert is also a chart fact. Keep one server-backed price
+   *  line for every alert whose leading condition targets a literal price.
+   *  Anything indicator-, volume-, drawing- or expression-based stays in the
+   *  Alerts panel because putting it on the price scale would be a lie. */
+  function alertPrice(a) {
+    if (!a || a.symbol !== window.__charto?.symbol || !Array.isArray(a.when)) {
+      return null;
+    }
+    const c = a.when[0] || {};
+    if (!["close", "last", "price", "open", "high", "low"].includes(c.left)) {
+      return null;
+    }
+    const right = Number(c.right);
+    if (!Number.isFinite(right)) return null;
+    const multiple = c.x == null ? 1 : Number(c.x);
+    const price = right * multiple;
+    return Number.isFinite(price) && price > 0 ? price : null;
+  }
+
+  function syncChartLines() {
+    const series = window.__charto?.candle;
+    if (!series || !series.createPriceLine || !series.removePriceLine) return;
+    const keep = new Set();
+    for (const a of state.alerts) {
+      const price = alertPrice(a);
+      if (price == null) continue;
+      keep.add(a.id);
+      const selected = selectedLine === a.id;
+      const stateKey = `${price}|${a.state}|${a.note || ""}|${Theme.mode}|${selected}`;
+      const old = chartLines.get(a.id);
+      if (old && old.key === stateKey) continue;
+      if (old) series.removePriceLine(old.line);
+      const active = a.state === "armed";
+      const label = active ? "Alert" : a.state === "fired" ? "Alert fired" : "Alert paused";
+      const line = series.createPriceLine({
+        price,
+        color: selected ? Theme.c("annNeutral")
+                        : active ? Theme.c("accent") : Theme.c("legend"),
+        lineWidth: selected ? 3 : active ? 2 : 1,
+        lineStyle: selected ? 0 : active ? LINE_DASHED : LINE_DOTTED,
+        axisLabelVisible: true,
+        title: a.note ? `${selected ? "● " : ""}${label} · ${a.note}`
+                      : `${selected ? "● " : ""}${label}`,
+      });
+      chartLines.set(a.id, { line, key: stateKey });
+    }
+    for (const [id, old] of chartLines) {
+      if (keep.has(id)) continue;
+      series.removePriceLine(old.line);
+      chartLines.delete(id);
+    }
+  }
+
+  const emit = () => {
+    syncChartLines();
+    listeners.forEach((f) => { try { f(state); } catch {} });
+  };
+  Theme.onChange(syncChartLines);
+
+  /** Price lines are canvas objects, so Lightweight Charts does not emit a
+   *  DOM click for them. Hit-test their y coordinate against the price pane,
+   *  then keep the interaction entirely in this module: select, drag, save. */
+  function pricePane() {
+    const series = window.__charto?.candle;
+    const pane = series?.getPane && series.getPane();
+    const node = pane?.getHTMLElement && pane.getHTMLElement();
+    return series && node ? { series, node, rect: node.getBoundingClientRect() } : null;
+  }
+
+  function lineHit(clientY, tolerance = 7) {
+    const pp = pricePane();
+    if (!pp || clientY < pp.rect.top || clientY > pp.rect.bottom) return null;
+    let best = null, distance = Infinity;
+    for (const a of state.alerts) {
+      const price = alertPrice(a);
+      if (price == null) continue;
+      const y = pp.series.priceToCoordinate(price);
+      if (y == null) continue;
+      const d = Math.abs(clientY - (pp.rect.top + y));
+      if (d <= tolerance && d < distance) { best = a; distance = d; }
+    }
+    return best;
+  }
+
+  function selectLine(id) {
+    if (selectedLine === id) return;
+    selectedLine = id;
+    syncChartLines();
+  }
+
+  function bindChartLineEditing() {
+    const host = el("chart");
+    if (!host) return;
+
+    host.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("input, textarea, select, button")) return;
+      const a = lineHit(e.clientY);
+      if (!a) { selectLine(null); return; }
+      const pp = pricePane();
+      const item = chartLines.get(a.id);
+      if (!pp || !item) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // The axis hover affordance belongs to creating a new alert. Once an
+      // existing line is grabbed it would otherwise stay frozen at the old y
+      // until the next ordinary chart move and look like a duplicate marker.
+      document.querySelector(".alert-plus")?.classList.remove("show", "hot");
+      selectLine(a.id);
+      lineDrag = { id: a.id, pointer: e.pointerId, oldPrice: alertPrice(a),
+                   price: alertPrice(a), moved: false };
+      host.setPointerCapture(e.pointerId);
+      host.style.cursor = "ns-resize";
+    }, true);
+
+    host.addEventListener("pointermove", (e) => {
+      if (!lineDrag || e.pointerId !== lineDrag.pointer) {
+        const hit = lineHit(e.clientY);
+        if (hit) host.style.cursor = "ns-resize";
+        else if (host.style.cursor === "ns-resize") host.style.cursor = "";
+        return;
+      }
+      const pp = pricePane();
+      const item = chartLines.get(lineDrag.id);
+      if (!pp || !item) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const raw = pp.series.coordinateToPrice(e.clientY - pp.rect.top);
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      lineDrag.price = Number(Number(raw).toFixed(4));
+      lineDrag.moved = Math.abs(lineDrag.price - lineDrag.oldPrice) > 1e-8;
+      item.line.applyOptions({ price: lineDrag.price });
+    }, true);
+
+    const finish = async (e, cancelled = false) => {
+      if (!lineDrag || e.pointerId !== lineDrag.pointer) return;
+      const drag = lineDrag;
+      lineDrag = null;
+      if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
+      host.style.cursor = "";
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const item = chartLines.get(drag.id);
+      if (cancelled || !drag.moved) {
+        if (item) item.line.applyOptions({ price: drag.oldPrice });
+        return;
+      }
+      const a = state.alerts.find((x) => x.id === drag.id);
+      if (!a) return;
+      const when = a.when.map((c) => Object.assign({}, c));
+      const multiple = when[0].x == null ? 1 : Number(when[0].x);
+      when[0].right = Number((drag.price / multiple).toFixed(6));
+      try {
+        await patch(a.id, { when });
+        toast(`Alert moved to ${drag.price.toLocaleString("en-IN")}`);
+      } catch (err) {
+        if (item) item.line.applyOptions({ price: drag.oldPrice });
+        toast(err.message || "Could not move alert");
+      }
+    };
+    host.addEventListener("pointerup", (e) => finish(e), true);
+    host.addEventListener("pointercancel", (e) => finish(e, true), true);
+
+    document.addEventListener("pointerdown", (e) => {
+      if (!host.contains(e.target) && !e.target.closest("#alertsPanel")) selectLine(null);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!selectedLine) return;
+      const target = e.target;
+      if (target?.matches?.("input, textarea, select") || target?.isContentEditable) return;
+      if (e.key === "Escape") { selectLine(null); return; }
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const id = selectedLine;
+      selectLine(null);
+      remove(id).catch((err) => toast(err.message || "Could not delete alert"));
+    }, true);
+  }
+  bindChartLineEditing();
 
   async function call(path, body, opts = {}) {
     const res = await fetch(API + path, {
@@ -87,15 +271,21 @@ const Alerts = (() => {
 
   /* ── the stream ──────────────────────────────────────────────────────── */
 
-  let streaming = false, backoff = 2000;
+  let streaming = false, backoff = 2000, streamAbort = null;
 
   async function stream() {
     if (streaming || !Auth.user) return;
     streaming = true;
+    const mine = streamAbort = new AbortController();
     try {
-      const res = await fetch(API + "/alerts/stream", { headers: Auth.headers() });
+      const res = await fetch(API + "/alerts/stream", {
+        headers: Auth.headers(), signal: mine.signal,
+      });
       if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
       backoff = 2000;                       // a connection that opened is proof
+      // The durable log is the recovery channel. Reconcile immediately after
+      // every reconnect before waiting for future SSE events.
+      await load();
       const rd = res.body.getReader(), dec = new TextDecoder();
       let buf = "";
       for (;;) {
@@ -115,8 +305,12 @@ const Alerts = (() => {
     } catch {
       /* a dropped stream is normal — reconnect below */
     } finally {
-      streaming = false;
-      if (Auth.user) {
+      const stillMine = streamAbort === mine;
+      if (stillMine) {
+        streamAbort = null;
+        streaming = false;
+      }
+      if (stillMine && Auth.user && !mine.signal.aborted) {
         setTimeout(stream, backoff);
         backoff = Math.min(backoff * 2, 60000);
       }
@@ -235,7 +429,8 @@ const Alerts = (() => {
 
   const remove = (id) => patch(id, { delete: true });
   const toggle = (a) =>
-    patch(a.id, { state: a.state === "paused" ? "armed" : "paused" });
+    patch(a.id, { state: a.state === "paused" || a.state === "fired"
+      ? "armed" : "paused" });
 
   async function markSeen() {
     if (!state.unseen) return;
@@ -356,7 +551,7 @@ const Alerts = (() => {
                   ["30", "In a month"]];
 
   let wrap = null, dlg = null, card = null, draft = null, editing = null;
-  let checkTimer = null;
+  let checkTimer = null, checkSeq = 0, checkReady = false;
 
   const blank = (symbol) => ({
     symbol, interval: "5m", freq: "once", all: true, note: "", expires_days: "0",
@@ -581,7 +776,7 @@ const Alerts = (() => {
       <div class="dlg-sep"></div>
       ${row("Interval", sel("interval", IVS.map((v) => [v, v]), draft.interval))}
       ${row("Trigger", sel("freq", FREQS, draft.freq))}
-      ${row("Expires", sel("expires_days", EXPIRY, draft.expires_days))}
+      ${row("Expires", sel("expires_days", expiryOptions(), draft.expires_days))}
       ${row("Note", `<input class="dlg-input wide" data-f="note" ` +
             `value="${esc(draft.note)}" placeholder="Optional">`)}`;
   }
@@ -597,6 +792,8 @@ const Alerts = (() => {
     // centring and stuck it in the top-left corner. A centred card needs no
     // reclamp: the flexbox re-centres it for free when its height changes.
     if (card && card.pinned()) card.reclamp();
+    checkReady = false;
+    setCommitReady(false);
     scheduleCheck();
   }
 
@@ -605,10 +802,18 @@ const Alerts = (() => {
    *  refused here rather than at 09:20 by never firing. */
   function scheduleCheck() {
     clearTimeout(checkTimer);
-    checkTimer = setTimeout(runCheck, 350);
+    const seq = ++checkSeq;
+    checkReady = false;
+    setCommitReady(false);
+    checkTimer = setTimeout(() => runCheck(seq), 350);
   }
 
-  async function runCheck() {
+  function setCommitReady(ready) {
+    const b = dlg && dlg.querySelector('[data-act="ok"]');
+    if (b) b.disabled = !ready;
+  }
+
+  async function runCheck(seq) {
     const box = el("alCheck");
     if (!box) return;
     const rule = toRule();
@@ -616,12 +821,14 @@ const Alerts = (() => {
                               && (c.right === "" || c.right == null))) {
       box.className = "al-check";
       box.textContent = "";
+      if (seq === checkSeq) setCommitReady(false);
       return;
     }
     box.className = "al-check busy";
     box.textContent = "checking…";
     try {
       const d = await call("/alerts/check", rule);
+      if (seq !== checkSeq) return;
       const lines = d.conditions.map((c) =>
         `${c.left} ${fmtNum(c.value)} vs ${fmtNum(c.target)}`);
       const feed = (d.feed && d.feed.symbol && d.feed.symbol.note) || "";
@@ -632,9 +839,14 @@ const Alerts = (() => {
           ? `<div class="al-check-warn">Already true. The alert will wait for ` +
             `this to reset before it can fire.</div>` : "") +
         (feed ? `<div class="al-check-feed">${esc(feed)}</div>` : "");
+      checkReady = true;
+      setCommitReady(true);
     } catch (e) {
+      if (seq !== checkSeq) return;
       box.className = "al-check bad";
       box.textContent = e.message;
+      checkReady = false;
+      setCommitReady(false);
     }
   }
 
@@ -663,9 +875,20 @@ const Alerts = (() => {
         return o;
       }),
     };
-    const days = Number(draft.expires_days || 0);
-    if (days) out.expires = Math.floor(Date.now() / 1000) + days * 86400;
+    if (draft.expires_days !== "keep") {
+      const days = Number(draft.expires_days || 0);
+      if (days) out.expires = Math.floor(Date.now() / 1000) + days * 86400;
+      else if (editing) out.expires = null;
+    }
     return out;
+  }
+
+  function expiryOptions() {
+    if (!editing || !draft.expires) return EXPIRY;
+    const label = new Date(draft.expires * 1000).toLocaleDateString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+    return [["keep", `Keep · ${label}`], ...EXPIRY];
   }
 
   function build() {
@@ -788,6 +1011,7 @@ const Alerts = (() => {
   }
 
   async function commit(btn) {
+    if (!checkReady) return;
     closeCombo();
     btn.disabled = true;
     const was = btn.textContent;
@@ -795,9 +1019,12 @@ const Alerts = (() => {
     try {
       if (editing) {
         const r = toRule();
-        await patch(editing, { when: r.when, all: r.all, interval: r.interval,
-                               freq: r.freq, note: r.note,
-                               expires: r.expires || null });
+        const changes = { when: r.when, all: r.all, interval: r.interval,
+                          freq: r.freq, note: r.note };
+        if (Object.prototype.hasOwnProperty.call(r, "expires")) {
+          changes.expires = r.expires;
+        }
+        await patch(editing, changes);
         toast("Alert updated");
       } else {
         const d = await create(toRule());
@@ -819,6 +1046,7 @@ const Alerts = (() => {
     if (wrap) wrap.classList.remove("open");
     editing = null;
     clearTimeout(checkTimer);
+    checkSeq++;
   }
 
   /** open({symbol, level, edit}) — the one entry point. `level` prefills the
@@ -834,7 +1062,8 @@ const Alerts = (() => {
       editing = a.id;
       draft = {
         symbol: a.symbol, interval: a.interval, freq: a.freq, all: a.all !== false,
-        note: a.note || "", expires_days: "0",
+        note: a.note || "", expires: a.expires || null,
+        expires_days: a.expires ? "keep" : "0",
         when: (a.when || []).map((c) => Object.assign({}, c)),
       };
     } else {
@@ -860,7 +1089,7 @@ const Alerts = (() => {
     }
     paint();
     dlg.querySelector('[data-act="ok"]').textContent = editing ? "Save" : "Create";
-    dlg.querySelector('[data-act="ok"]').disabled = false;
+    dlg.querySelector('[data-act="ok"]').disabled = true;
     wrap.classList.add("open");
     if (card) card.centre();          // after .open, so the flex centring applies
     const first = dlg.querySelector(".dlg-input.right");
@@ -869,7 +1098,21 @@ const Alerts = (() => {
 
   /* ── boot ────────────────────────────────────────────────────────────── */
 
-  Auth.onChange(() => { load(); stream(); });
+  Auth.onChange(() => {
+    if (streamAbort) streamAbort.abort();
+    streaming = false;
+    backoff = 2000;
+    load();
+    stream();
+  });
+
+  // Feed health and missed fires are server facts, not SSE-only facts. Refresh
+  // while the page is usable; a hidden/offline tab waits until it returns.
+  setInterval(() => {
+    if (Auth.user && document.visibilityState === "visible" && navigator.onLine) {
+      load();
+    }
+  }, 30000);
 
   return {
     state,

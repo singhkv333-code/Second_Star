@@ -94,6 +94,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import queue
 import re
 import threading
@@ -108,7 +109,9 @@ log = logging.getLogger("charto.alerts")
 MAX_PER_USER = 200          # TradingView's own ceiling is this order
 MAX_CONDITIONS = 4          # a rule nobody can read is a rule nobody trusts
 MAX_LOG_ROWS = 500          # per user, trimmed on write
-_ROWS_LIMIT = 320           # bars fetched per (symbol, interval) evaluation
+# avg(...,500) needs 500 CLOSED bars plus the current/forming one. Keep the
+# advertised grammar and the data window in agreement.
+_ROWS_LIMIT = 600           # bars fetched per (symbol, interval) evaluation
 _ROWS_TTL = 1.0             # seconds a folded-rows read is reused for
 _TICK_TTL = 3600.0          # min-tick is a listing fact; measure it hourly
 _QUEUE_MAX = 2048
@@ -573,7 +576,7 @@ def _resolve(addr, ctx: Ctx, rule: Rule) -> float:
                 f"{ctx.interval}. Put the rule on 1d, or address "
                 f"high[n]/low[n] on this interval instead")
         w = ctx.rows[-bars:]
-        if len(w) < min(bars, 20):
+        if len(w) < bars:
             raise Unspeakable(f"'{s}' needs {bars} daily bars, have {len(w)}")
         return max(r[2] for r in w) if side == "high" else min(r[3] for r in w)
 
@@ -1221,7 +1224,10 @@ def _run_symbol(symbol: str, closed_minute: bool) -> None:
             STATS["refusals"] += 1
             _set_state(r.id, "paused", why=str(exc))
             _load_index()
-            return
+            # One broken rule must not starve every other user's rule on the
+            # same symbol. `rules` is our snapshot; continue through it even
+            # though the live index has just dropped the paused rule.
+            continue
         except Exception:                                   # noqa: BLE001
             log.warning("alerts: rule %s errored", r.id, exc_info=True)
             continue
@@ -1374,7 +1380,10 @@ def catch_up() -> dict:
             fresh = [i for i, b in enumerate(rows) if b[0] > r.last_eval_ts]
             if not fresh:
                 continue
-            first = max(fresh[0], 30)
+            # `rows[:i + 1]` already carries all history before the first
+            # unseen bar. Jumping to index 30 discarded real unseen crosses
+            # whenever a watermark happened to sit earlier in the store.
+            first = fresh[0]
             if (len(rows) - first) > _CATCHUP_MAX_MIN:
                 first = len(rows) - _CATCHUP_MAX_MIN
             for i in range(first, len(rows)):
@@ -1464,17 +1473,48 @@ def _validate(body: dict, uid: int) -> tuple[dict, str, str, str, int | None]:
         if op in _BAND_OPS and c.get("right2") in (None, ""):
             raise Unspeakable(f"{op} needs a band — give right and right2")
         out = {"left": c.get("left"), "op": op}
-        for k in ("right", "right2", "x", "plus_pct", "within"):
+        for k in ("right", "right2"):
             if c.get(k) not in (None, ""):
                 out[k] = c[k]
+        for k in ("x", "plus_pct"):
+            if c.get(k) in (None, ""):
+                continue
+            try:
+                n = float(c[k])
+            except (TypeError, ValueError):
+                raise Unspeakable(f"{k} must be a finite number") from None
+            if not math.isfinite(n):
+                raise Unspeakable(f"{k} must be a finite number")
+            out[k] = n
+        if c.get("within") not in (None, ""):
+            try:
+                within = int(c["within"])
+            except (TypeError, ValueError):
+                raise Unspeakable("within must be a whole number of bars") from None
+            if isinstance(c["within"], float) and not c["within"].is_integer():
+                raise Unspeakable("within must be a whole number of bars")
+            if within < 1 or within > 500:
+                raise Unspeakable("within must be between 1 and 500 bars")
+            out["within"] = within
         if op in _MOVE_OPS and "within" not in out:
             out["within"] = 1
         clean.append(out)
     spec = {"when": clean, "all": bool(body.get("all", True))}
     if body.get("vp_sessions"):
-        spec["vp_sessions"] = int(body["vp_sessions"])
+        try:
+            vp_sessions = int(body["vp_sessions"])
+        except (TypeError, ValueError):
+            raise Unspeakable("vp_sessions must be a whole number") from None
+        # vp_screen is deliberately a fixed 20-session sweep. Accepting any
+        # other value would store a preference that evaluation silently ignores.
+        if vp_sessions != 20:
+            raise Unspeakable("poc/vah/val currently use the fixed 20-session profile")
+        spec["vp_sessions"] = vp_sessions
     expires = body.get("expires")
-    expires = int(expires) if expires else None
+    try:
+        expires = int(expires) if expires else None
+    except (TypeError, ValueError):
+        raise Unspeakable("expires must be a Unix timestamp") from None
     if expires and expires <= int(time.time()):
         raise Unspeakable("expires is in the past")
     return spec, symbol, interval, freq, expires
@@ -1595,17 +1635,39 @@ def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
         sets.append("state=?")
         args.append(want)
         if want == "armed":
+            effective_exp = body.get("expires", cur.expires)
+            try:
+                effective_exp = int(effective_exp) if effective_exp else None
+            except (TypeError, ValueError):
+                return 400, {"error": "expires must be a Unix timestamp"}
+            if effective_exp and effective_exp <= int(time.time()):
+                return 400, {"error": "extend or clear the expired date before re-arming"}
             # re-arming after a pause or a fire must re-seed, or it inherits a
             # side that is now months old
-            sets += ["cstate=?", "all_ok=?", "last_eval_ts=?"]
-            args += ["[]", 0, 0]
+            sets += ["cstate=?", "all_ok=?", "last_eval_ts=?",
+                     "last_fired_bkt=?"]
+            args += ["[]", 0, 0, 0]
+            # Engine pause reasons are carried in the legacy note column. Once
+            # the user explicitly re-arms, that old reason is no longer the
+            # current state and must not keep rendering under an armed row.
+            if "note" not in body:
+                cleaned = re.sub(r"\s*\[paused: [^\]]+\]", "", cur.note).strip()
+                if cleaned != cur.note:
+                    sets.append("note=?")
+                    args.append(cleaned)
     if "note" in body:
         sets.append("note=?")
         args.append(str(body["note"] or "")[:400])
     if "expires" in body:
         exp = body["expires"]
+        try:
+            exp = int(exp) if exp else None
+        except (TypeError, ValueError):
+            return 400, {"error": "expires must be a Unix timestamp"}
+        if exp and exp <= int(time.time()):
+            return 400, {"error": "expires is in the past"}
         sets.append("expires=?")
-        args.append(int(exp) if exp else None)
+        args.append(exp)
     if "freq" in body:
         if str(body["freq"]).lower() not in FREQS:
             return 400, {"error": f"freq — one of {', '.join(FREQS)}"}
@@ -1703,10 +1765,22 @@ def feed_health(symbol: str = "") -> dict:
     needs to be able to say "not being watched right now" with.
     """
     streams = ds._live_status()
+    subscribed: set[str] = set()
     live: set[str] = set()
-    for st in streams.values():
-        for s in (st.get("symbols") or []):
-            live.add(s)
+    symbol_venue: dict[str, str] = {}
+    for venue, st in streams.items():
+        syms = set(st.get("symbols") or [])
+        subscribed.update(syms)
+        for s in syms:
+            symbol_venue[s] = venue
+        # A socket in the registry is not proof of a feed. Both drivers expose
+        # a data-age clock; require a connected socket and a recent message.
+        age = st.get("last_tick_age_s")
+        if age is None:
+            age = st.get("last_message_age_s")
+        healthy = bool(st.get("connected")) and age is not None and age <= 120
+        if healthy:
+            live.update(syms)
     out = {"streams": {v: {"connected": bool(s.get("connected")),
                            "symbols": len(s.get("symbols") or []),
                            "last_tick_age_s": s.get("last_tick_age_s"),
@@ -1717,18 +1791,41 @@ def feed_health(symbol: str = "") -> dict:
            "engine": dict(STATS)}
     if symbol:
         sym = symbol.upper()
+        venue = symbol_venue.get(sym)
+        st = streams.get(venue, {}) if venue else {}
+        age = st.get("last_tick_age_s")
+        if age is None:
+            age = st.get("last_message_age_s")
+        is_subscribed = sym in subscribed
+        is_live = sym in live
+        if is_live:
+            status, note = "live", "Watched live."
+        elif is_subscribed and st.get("connected"):
+            status = "stale"
+            note = ("Feed connected but no recent prices have arrived. The alert "
+                    "stays armed and stored bars are checked when prices resume.")
+        elif is_subscribed:
+            status = "disconnected"
+            note = ("Price feed disconnected. The alert stays armed; stored bars "
+                    "are replayed on recovery so a crossing is not silently lost.")
+        elif _has_minutes(sym):
+            status = "not_subscribed"
+            note = ("Not watched live — this symbol is not on a connected venue "
+                    "stream. The alert remains armed but cannot fire live yet.")
+        else:
+            status = "end_of_day"
+            note = ("This symbol has daily bars only, so it is checked at the end "
+                    "of each day rather than live.")
         out["symbol"] = {
             "symbol": sym,
-            "streaming": sym in live,
+            "streaming": is_live,
+            "subscribed": is_subscribed,
+            "connected": bool(st.get("connected")),
+            "status": status,
+            "venue": venue,
+            "last_tick_age_s": age,
             "has_minutes": _has_minutes(sym),
-            # One short sentence the UI prints verbatim, rather than composing
-            # it from three booleans and getting it subtly wrong.
-            "note": ("Watched live." if sym in live else
-                     "Not watched live yet — no price feed is connected. "
-                     "It will be checked when one is."
-                     if _has_minutes(sym) else
-                     "This symbol has daily bars only, so it is checked at the "
-                     "end of each day rather than live."),
+            "note": note,
         }
     return out
 
@@ -1748,12 +1845,7 @@ def ensure_feed(symbol: str) -> dict:
     subscribe into a live socket. It reports the truth instead of pretending —
     the create response carries it, and the UI says it.
     """
-    sym = symbol.upper()
-    streams = ds._live_status()
-    for st in streams.values():
-        if sym in (st.get("symbols") or []):
-            return {"streaming": True}
-    return {"streaming": False, "has_minutes": _has_minutes(sym)}
+    return feed_health(symbol.upper()).get("symbol", {})
 
 
 # ══ lifecycle ══════════════════════════════════════════════════════════════

@@ -1197,6 +1197,11 @@
         // and the tools enforce it: a reference pane has no drawing layer, so
         // "drawn" must never be said about one
         drawable: false,
+        // WHICH chart is the drawable one. Without this the envelope says only
+        // that this pane cannot be drawn on, and the model has to guess where
+        // ink could go — it guessed "click this pane", which is the one thing
+        // that never works. The main chart is the page's own symbol.
+        main_chart: SYMBOL,
         indicators: sub.ind.snapshot(w.first.time).map((x) => ({
           label: x.label, now: r2(x.now),
           at_window_start: x.at === null ? null : r2(x.at),
@@ -1247,6 +1252,10 @@
 
     return {
       ...w0.env,
+      // This IS the main chart — the only one with a drawing layer. Said on
+      // both branches so the backend never has to infer it from which keys
+      // happen to be present.
+      main_chart: SYMBOL,
       indicators: ind.snapshot(first.time).map((x) => ({
         label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
       })),
@@ -2075,6 +2084,31 @@
   prov.addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (!act) return;   // the card has no pin state to promote to
+    if (act === "ask" && provFor) {
+      const a = scene.state.items.find((item) => item.id === provFor);
+      if (a) {
+        // Chat-created annotations are addressable by their scene id in the
+        // backend, exactly as user drawings are addressable by D-refs. Send
+        // the id instead of copying geometry into prose: the next turn's
+        // chart envelope carries the current annotation and the model remains
+        // free to decide which tool, if any, is appropriate.
+        document.dispatchEvent(new CustomEvent("charto:draw-tag", {
+          detail: {
+            id: a.id,
+            ref: a.id,
+            type: a.kind,
+            pane: a.pane || "price",
+            label: a.label || a.kind || "annotation",
+            origin: "chat",
+          },
+        }));
+      }
+      return hideProvenance();
+    }
+    if (act === "remove" && provFor) {
+      scene.remove(provFor);
+      return hideProvenance();
+    }
     if (act === "ask-draw" && provDraw) {
       // THIS is the moment the drawing joins the conversation — an explicit
       // ask, not a side effect of having clicked the shape
@@ -2087,9 +2121,7 @@
       provDraw = null;
       return hideProvenance();
     }
-    // A chat-drawn annotation's card is evidence only — it is raised by
-    // hover and reads as a label, so it carries no actions of its own. Close
-    // is the whole interaction; the chat removes what the chat drew.
+    // Close and any unknown action simply dismiss the card.
     hideProvenance();
   });
 
@@ -2197,8 +2229,11 @@
     e.stopImmediatePropagation();
     hidePlus();
     if (at == null) return;
-    Alerts.quick(SYMBOL, at, state.interval)
-      .catch((err) => Alerts.toast(err.message || String(err)));
+    // The axis mark chooses the exact price; the compact widget confirms the
+    // direction, frequency and expiry before anything is registered.
+    const last = state.bars.length ? state.bars[state.bars.length - 1] : null;
+    Alerts.open({ symbol: SYMBOL, level: at,
+                  last: last ? last.close : null, interval: state.interval });
   }, true);
   // A press on the mark is ours too — swallowed so a click on it can never be
   // read as the start of a pan or a drawing.

@@ -44,7 +44,7 @@ import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
-PORT = 5174
+PORT = int(environ.get("CHARTO_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
 # Read from pivot/.env so the key never lands in browser-served files.
@@ -5673,13 +5673,41 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
     if layout:
         op["layout"] = layout
     _view_add(op)
-    return {"opened": sym, "interval": iv,
-            "placement": "replaced the focused chart" if replace
-                         else "added a pane; the layout grows to fit",
+    # Which of the two placements you chose decides whether anything can ever
+    # be drawn on the result, and nothing here used to say so: an added pane is
+    # a reference chart with no drawing layer, and "opened" read as done to a
+    # model that had just promised to draw.
+    on_main = bool(getattr(_req, "drawable", True))
+    if replace and on_main:
+        placement = (f"swapped the main chart — {sym} IS the main chart now, "
+                     f"so it is drawable")
+        read = ("The workspace RELOADS onto this chart, so this must be the "
+                "last thing you do this turn: say the chart is open and that "
+                "you can mark levels on it when asked. Do not draw in this "
+                "same turn — the reload would discard the drawing while your "
+                "reply claimed it landed.")
+    elif replace:
+        placement = ("swapped the focused reference pane; the main chart is "
+                     "unchanged, so this chart still cannot be drawn on")
+        read = ("A reference pane has no drawing layer. If the user wants "
+                "something drawn here, say the chart would have to be opened "
+                "as the main chart, and that selecting the main chart first is "
+                "what makes that possible.")
+    else:
+        placement = ("added a REFERENCE pane; the layout grows to fit. It can "
+                     "be read but never drawn on")
+        read = ("Reading it works; drawing on it does not — only the main "
+                "chart carries drawings. If the ask was to DRAW something for "
+                "this symbol, this was not the call: it has to become the main "
+                "chart (open_chart replace=true while the main chart is in "
+                "focus). Say that plainly rather than reporting it as drawn.")
+    return {"opened": sym, "interval": iv, "placement": placement,
+            "drawable": bool(replace and on_main),
+            "main_chart": str(getattr(_req, "main_chart", "") or ""),
             "_read": "The chart is now on screen. Say so in a few words and "
                      "answer whatever was actually asked — do not describe the "
                      "layout mechanics, and do not claim to see anything on it "
-                     "that you have not read with a tool."}
+                     "that you have not read with a tool. " + read}
 
 
 # ── search_news: the outside world, behind a thin function tool ────────────
@@ -6332,7 +6360,7 @@ TOOLS = [
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "open_chart",
-     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. DRAWABILITY decides which one you want: an added pane can be read but NEVER drawn on, because only the main chart carries drawings. So if the user wants levels, marks or a plan DRAWN for a symbol that is not the main chart, the only route is replace=true while the main chart is in focus — that makes the symbol the main chart (the workspace reloads onto it, so end the turn there and draw when next asked). The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
@@ -6414,6 +6442,17 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "alert_id": {"type": "integer"}},
       "required": ["alert_id"]}},
+    {"type": "function", "name": "update_journal_trade",
+     "description": ("Apply a user-requested edit to an attached journal trade. "
+                     "Use only when the user clearly asks to save/change a field, "
+                     "not when they merely ask for feedback. plan, review, tags and "
+                     "custom are deliberately open structures: preserve existing "
+                     "fields by including them in full when replacing one. Execution "
+                     "facts remain numeric. The tool writes an audited revision."),
+     "parameters": {"type": "object", "properties": {
+         "trade_id": {"type": "integer"},
+         "changes": {"type": "object", "description": "fields to update; flexible plan/review/custom objects are accepted"}},
+      "required": ["trade_id", "changes"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
@@ -6925,6 +6964,24 @@ for _n in ("set_alert", "list_alerts", "cancel_alert"):
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
 
 
+def _journal_update_tool(trade_id: int, changes: dict):
+    who = getattr(_req, "user", None)
+    if not who:
+        return {"error": "sign in before changing a journal trade"}
+    if _journal is None:
+        return {"error": "the journal is unavailable"}
+    if not isinstance(changes, dict):
+        return {"error": "changes must be an object"}
+    # The public patch path already validates ownership, numeric facts and
+    # flexible objects. Chat is an origin, not a second write implementation.
+    status, payload = _journal.api_patch(who[0], int(trade_id),
+                                         {**changes, "origin": "chat"})
+    return payload if status < 400 else {"error": payload.get("error", "update failed")}
+
+
+_DISPATCH["update_journal_trade"] = _journal_update_tool
+
+
 # ── which chart a tool reads ────────────────────────────────────────────────
 #
 # The screen can hold several charts, and the model can now aim ANY chart-
@@ -6967,6 +7024,45 @@ def _wants_ink(args: dict) -> list:
     return [k for k in _INK_ARGS if args.get(k)]
 
 
+def _no_ink_note(want: str = "") -> str:
+    """Why this cannot be drawn, and the route that actually exists.
+
+    The drawing layer belongs to ONE chart — the page's main chart. A
+    secondary pane has none at all. So "click the {want} pane and I'll draw
+    it there" is never true: on a secondary pane it fails again with the same
+    refusal, and when {want} has no pane it names something that isn't on
+    screen. Both were being said, because the refusal knew what it could not
+    do and not where the ink could go. It knows now (`_req.main_chart`).
+    """
+    main = str(getattr(_req, "main_chart", "") or getattr(_req, "symbol", "") or "")
+    # No symbol argument means the working chart — which, on a reference pane,
+    # is still not the main chart. Without this default the note fell back to
+    # "select the main chart", i.e. draw THIS pane's levels onto a different
+    # instrument: the same mistake in the other direction.
+    want = str(want or getattr(_req, "symbol", "") or "").upper()
+    lead = (f"Only the main chart carries drawings, and the main chart is "
+            f"{main}. A secondary pane has no drawing layer, so clicking one "
+            f"never makes it drawable — do not tell the user to click a pane "
+            f"to get this drawn.")
+    if want and main and want != main.upper():
+        # The one real route: that symbol has to BECOME the main chart.
+        # open_chart(replace=true) swaps the FOCUSED chart, so it only reaches
+        # the main chart while the main chart is the focused one — which is
+        # exactly the case where drawing was refused for the symbol alone.
+        if getattr(_req, "drawable", True):
+            return (lead + f" To draw {want} it has to become the main chart: "
+                    f"say so and offer it, and if the user agrees call "
+                    f"open_chart with symbol='{want}' and replace=true, then "
+                    f"draw. Otherwise quote the {want} values in the reply.")
+        return (lead + f" The focused pane is a reference chart, so nothing "
+                f"can be drawn from here at all. Quote the {want} values, and "
+                f"say {want} would have to be opened as the main chart for "
+                f"them to be drawn.")
+    return (lead + " The focused pane is a reference chart. Quote the values "
+            "in the reply, and say the user can select the main chart to have "
+            "them drawn there.")
+
+
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
@@ -6975,10 +7071,7 @@ def run_tool(name: str, args: dict) -> dict:
     # is ink, so there is no version of them that a reference pane can serve.
     if name in ("draw_shape", "mark", "plan_position") and not getattr(_req, "drawable", True):
         return {"error": "this chart cannot be drawn on",
-                "_note": ("The selected pane is a reference chart; only the "
-                          "main chart carries drawings. Give the geometry in "
-                          "the reply, and say the user can click the main "
-                          "chart to have it drawn.")}
+                "_note": _no_ink_note(str((args or {}).get("symbol") or ""))}
     # `symbol` is routing, not a parameter of the computation: the tools that
     # take it in their own signature (get_peers) keep it, and for everything
     # else it swaps the request's working chart for the length of this one
@@ -6994,10 +7087,7 @@ def run_tool(name: str, args: dict) -> dict:
     # appears on a different chart than the one it was computed from.
     if not getattr(_req, "drawable", True) and _wants_ink(args):
         return {"error": "this chart cannot be drawn on",
-                "_note": ("The selected pane is a reference chart — drawings, "
-                          "marks and indicator panes only exist on the main "
-                          "chart. Quote the values instead, and say the user "
-                          "can click the main chart if they want it drawn.")}
+                "_note": _no_ink_note(want)}
     if want and want != prev:
         # An unloaded chart must say so. Answering from the focused chart
         # under another chart's name is the one failure that cannot be caught
@@ -7017,11 +7107,9 @@ def run_tool(name: str, args: dict) -> dict:
         drawing = _wants_ink(args)
         if drawing:
             return {"error": f"cannot draw on {want} from here",
-                    "_note": (f"{prev} is the chart in focus and the only one "
-                              f"that can be drawn on. Reading {want} works — "
-                              f"drop {', '.join(drawing)} and quote the values, "
-                              f"or tell the user to click the {want} pane first "
-                              f"if they want it drawn there.")}
+                    "_note": (f"Reading {want} works — drop "
+                              f"{', '.join(drawing)} and the same call returns "
+                              f"the values. " + _no_ink_note(want))}
         _req.symbol = want
     try:
         out = _run_tool(name, fn, args)
@@ -7139,13 +7227,26 @@ def build_context_block(ctx: dict | None) -> str:
     """
     if not ctx:
         return ""
+    journal_ctx = ctx.get("journal") if isinstance(ctx, dict) else None
+    journal_block = ""
+    if isinstance(journal_ctx, dict):
+        trade = journal_ctx.get("trade") or journal_ctx
+        # The record is server-owned data relayed through the client. It may
+        # guide interpretation, but numbers are facts and edits must use the
+        # journal tool rather than being merely claimed in prose.
+        journal_block = ("## Journal trade attached\n"
+                         + json.dumps(trade, ensure_ascii=False, separators=(",", ":"))
+                         + "\nDiscuss any field freely. Use update_journal_trade for changes; "
+                           "never say a journal change was saved unless that tool succeeds.")
     stub = ("## Chart the user is viewing\n"
             "The chart has not finished loading — you cannot see it yet. "
             "Say so if asked about it.")
     if ctx.get("status") == "loading":
-        return stub
+        return "\n\n".join(x for x in (stub, journal_block) if x)
+    if not ctx.get("symbol"):
+        return journal_block
     try:
-        return _render_context(ctx)
+        return "\n\n".join(x for x in (_render_context(ctx), journal_block) if x)
     except Exception as exc:  # noqa: BLE001 — never break the reply on a bad envelope
         logging.warning("charto: malformed chart context (%s)", exc)
         return stub
@@ -7172,12 +7273,24 @@ def _render_context(ctx: dict) -> str:
         block += "\n\n" + "\n\n".join(_render_chart(c, focused=False) for c in others)
         names = ", ".join(f"{c['symbol']} ({c['interval']})"
                           for c in [ctx] + others)
+        # Focus and drawability are two different things, and saying "the
+        # focused chart is the one carrying drawings" made them one: a focused
+        # SECONDARY pane carries none of it, and the chart that does may not be
+        # the one in focus at all.
+        main = str(ctx.get("main_chart") or "")
+        named = f" ({main})" if main else ""
+        owns = (f"It is also the main chart, so it is the one carrying drawings, "
+                f"chat annotations and pinned bars."
+                if ctx.get("drawable") is not False else
+                f"It is a reference pane: the drawings, chat annotations and "
+                f"pinned bars live on the main chart{named}, the only chart "
+                f"anything can be drawn on.")
         block += (
             f"\n\nThe user has {len(others) + 1} charts in this conversation: {names}. "
             f"Every chart-reading tool takes `symbol` — pass one of these to aim it at "
             f"that chart, and call it once per chart when a question spans them. "
-            f"{ctx.get('symbol')} is the one in focus and the only one carrying "
-            f"drawings, chat annotations and pinned bars; a bare 'this chart' means it. "
+            f"{ctx.get('symbol')} is the one in focus; a bare 'this chart' means it. "
+            f"{owns} "
             f"Attribute every number to the chart it came from.")
     return block + "\n" + _CONTEXT_CONTRACT
 
@@ -7225,6 +7338,25 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
     # would invite the model to reason about their absence.
     if not focused:
         return "\n".join(L)
+
+    # Where ink can land, said on the way in rather than only as a refusal.
+    # "The chart in focus is the drawable one" is false twice over — a focused
+    # secondary pane has no drawing layer, and a question about a symbol that
+    # is not the main chart cannot be drawn at all — and the model, left to
+    # fill the gap, sent users to click panes that could never take the ink.
+    main = str(ctx.get("main_chart") or "")
+    if ctx.get("drawable") is False:
+        L.append(f"NOT DRAWABLE: this is a reference pane and has no drawing "
+                 f"layer. The only chart that can be drawn on is the main "
+                 f"chart{f' ({main})' if main else ''}. If something is asked "
+                 f"to be drawn, give the geometry in words and say it can be "
+                 f"drawn on the main chart — clicking this pane will not make "
+                 f"it drawable.")
+    elif main:
+        L.append(f"Drawings land on the main chart ({main}) and nowhere else. "
+                 f"Levels read from another symbol cannot be drawn here — "
+                 f"quote them, or offer to open that symbol as the main chart "
+                 f"(open_chart replace=true) and draw them there.")
 
     if ctx.get("pins"):
         for p in ctx["pins"]:
@@ -7914,9 +8046,14 @@ _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 # localStorage is readable by any XSS on the page, where an HttpOnly cookie
 # would not be. For a locally-served analysis tool that is the right side of
 # the trade; if this is ever hosted for real, revisit it.
-_USERS_PATH = Path(__file__).parent / "charto_users.db"
+# Test/dev can isolate account state while reading the same immutable market
+# store. Production keeps the adjacent durable DB unless explicitly overridden.
+_USERS_PATH = Path(environ.get("CHARTO_USERS_DB")
+                   or Path(__file__).parent / "charto_users.db")
 _users = sqlite3.connect(_USERS_PATH, check_same_thread=False)
 _users.execute("PRAGMA journal_mode=WAL")
+_users.execute("PRAGMA foreign_keys=ON")
+_users.execute("PRAGMA busy_timeout=10000")
 _users.executescript("""
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7985,6 +8122,15 @@ _users.execute("CREATE UNIQUE INDEX IF NOT EXISTS layouts_share "
                "ON layouts(share_token) WHERE share_token IS NOT NULL")
 _users.commit()
 _users_lock = threading.Lock()
+
+# Loaded only after the users table exists: journal.py adds foreign-keyed
+# records to this same durable account database. A broken optional feature
+# must not stop charts, chat or auth from starting.
+try:
+    import journal as _journal
+except Exception as _journal_exc:  # noqa: BLE001
+    logging.warning("charto journal unavailable: %s", _journal_exc)
+    _journal = None
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
 _SESSION_TTL = 30 * 86400
@@ -9556,6 +9702,18 @@ class Handler(BaseHTTPRequestHandler):
                 if u.path == "/alerts/stream":
                     return self._send_alerts(me[0])
                 return self._send(*_alerts.api_list(me[0]))
+            if u.path == "/journal" or u.path.startswith("/journal/"):
+                if _journal is None:
+                    return self._send(501, {"error": "journal is unavailable"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use the journal"})
+                tail = u.path[len("/journal"):].strip("/")
+                if not tail or tail == "bootstrap":
+                    return self._send(*_journal.api_bootstrap(me[0]))
+                if tail.startswith("trades/") and tail.split("/")[-1].isdigit():
+                    return self._send(*_journal.api_get(me[0], int(tail.split("/")[-1])))
+                return self._send(404, {"error": f"no journal route '{tail}'"})
             if u.path in ("/auth/me", "/workspace", "/layouts"):
                 me = _auth_user(self.headers)
                 if not me:
@@ -9614,6 +9772,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path == "/journal" or u.path.startswith("/journal/"):
+            if _journal is None:
+                return self._send(501, {"error": "journal is unavailable"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use the journal"})
+            tail = u.path[len("/journal"):].strip("/")
+            if tail == "trades":
+                return self._send(*_journal.api_create(me[0], body))
+            if tail.startswith("trades/") and tail.split("/")[-1].isdigit():
+                return self._send(*_journal.api_patch(me[0], int(tail.split("/")[-1]), body))
+            if tail == "playbooks":
+                return self._send(*_journal.api_playbook(me[0], body))
+            if tail.startswith("playbooks/") and tail.split("/")[-1].isdigit():
+                return self._send(*_journal.api_playbook(me[0], body, int(tail.split("/")[-1])))
+            return self._send(404, {"error": f"no journal route '{tail}'"})
         if u.path == "/alerts" or u.path.startswith("/alerts/"):
             if _alerts is None:
                 return self._send(501, {"error": "the alert engine is not "
@@ -9701,6 +9880,12 @@ class Handler(BaseHTTPRequestHandler):
             # a reference pane has no drawing layer; the envelope says which
             # kind of chart is in focus and the tools honour it
             _req.drawable = ctx.get("drawable") is not False
+            # WHICH chart owns that drawing layer. Refusing a draw is only half
+            # an answer — the other half is where ink can actually go, and
+            # without this the model invented a route ("click that pane") that
+            # cannot work. Older frontends don't send it; the focused chart is
+            # then the best available answer and matches the old behaviour.
+            _req.main_chart = str(ctx.get("main_chart") or sym or "").upper()
             if body.get("stream"):
                 return self._send_stream(messages, ctx)
             return self._send(200, llm_chat(messages, ctx))
