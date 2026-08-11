@@ -527,6 +527,12 @@ select.is-dressed { display: none; }
    head already says it, and says it better; the tooltip stands down while the
    menu is up. */
 .tool-wrap.menu-open .tool .tip { opacity: 0; }
+/* The trash's menu is not a flyout inside a wrap — it floats off <body>, so
+   it has no wrap to carry the state and the button wears it directly. Same
+   rule, same reason: the pointer is still on the button that opened the menu,
+   and "Remove objects…" printed across the list of what would be removed is
+   the tooltip arguing with the answer to its own question. */
+.tool.menu-open .tip { opacity: 0; }
 
 /* ─── 4 · SURFACES ─────────────────────────────────────────────────────── */
 
@@ -1404,6 +1410,15 @@ header > .btn, header > .badge { flex: none; }
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
 .tool:hover { background: var(--hover-fill); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
+/* An empty chart has nothing to remove, and the trash says so by going out
+   rather than by opening a menu with no rows in it. The whole button stands
+   down — no hover fill, no glyph lift, no tooltip — because every one of
+   those is a promise that a press will do something. TradingView greys the
+   same control for the same reason. */
+.tool:disabled { opacity: .3; cursor: default; }
+.tool:disabled:hover { background: transparent; }
+.tool:disabled:hover svg.icon { transform: none; }
+.tool:disabled .tip { opacity: 0; }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
 .rail-spacer { flex: 1; }
@@ -1510,6 +1525,17 @@ header > .btn, header > .badge { flex: none; }
   opacity: .45;
 }
 .tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
+
+/* ── the trash's "remove what?" menu ──────────────────────────────────────
+   TradingView's own: one row per layer, each carrying that layer's count,
+   and a last row for all of them together. It sizes to its longest row
+   rather than to a fixed width — the combined row spells out every layer
+   ("Remove 2 drawings, 4 annotations & 2 indicators"), and a count that
+   wrapped onto a second line would be a number you had to reassemble before
+   you could trust the click. Floating, so the rail's 46px column and its
+   overflow have no say in how wide it gets. */
+.trash-menu { min-width: 0; width: max-content; max-width: min(360px, 60vw); }
+.trash-menu .item { white-space: nowrap; }
 
 /* ── the text annotation's own box ────────────────────────────────────────
    Not a dialog, and not a form field either. It opens ON the chart at the
@@ -2594,24 +2620,37 @@ body.two-columns .readout .row { display: none; }
   border-radius: var(--radius-pill) var(--radius-xs) var(--radius-xs) var(--radius-pill);
 }
 
-/* drawing references carried into the composer */
+/* drawing references carried into the composer.
+
+   A QUIET plate, unframed and unaccented. The chip wore three pieces of the
+   accent at once — a 2px teal rule down its left edge, a teal glyph on a
+   --primary-soft tile, and a frame around the lot — which made the thing you
+   had merely POINTED AT the loudest object above the composer, louder than
+   the message you were about to write in it. The accent is this app's "you
+   are on this" colour, spent on the current tool and the active study; a
+   subject waiting to be asked about is not a state the app is in.
+
+   The frame goes with it. A plate needs contrast, not an outline, to read as
+   an object, and the wash here is mixed FROM the ink — which separates it
+   from the composer on either theme, where --card could not: in dark --card
+   and the panel behind it are near enough to identical that the border was
+   the only thing holding the chip together, which is exactly why it was
+   there. Same mix as the provenance card's footer buttons. The glyph keeps
+   its tile, one step deeper than the plate it sits on, so the icon still
+   reads as a mark rather than as loose art beside the words. */
 .draw-tag-row { margin-bottom: 6px; }
 .draw-tag {
   position: relative; display: inline-flex; gap: 9px; align-items: center;
   min-width: 210px; max-width: min(360px, 100%); height: 44px;
   padding: 5px 7px 5px 6px; overflow: hidden;
-  color: var(--foreground); background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
-}
-.draw-tag::before {
-  content: ""; position: absolute; inset: 7px auto 7px 0; width: 2px;
-  border-radius: 0 2px 2px 0; background: var(--primary);
+  color: var(--foreground); border: 0; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .draw-tag-mark {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 32px; height: 32px; border-radius: var(--radius-xs);
-  color: var(--primary); background: var(--primary-soft);
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
 }
 .draw-tag-mark svg.icon { width: 17px; height: 17px; stroke-width: 1.7; }
 .draw-tag-copy {
@@ -2628,11 +2667,17 @@ body.two-columns .readout .row { display: none; }
 }
 .draw-tag > .x { margin-left: auto; border: 0; padding: 0; background: transparent; }
 .draw-tag > .x svg.icon { width: 13px; height: 13px; }
+/* …and the same attachment once the message is sent, at the head of its
+   bubble so scrolling back shows WHICH shape a past answer was about. It
+   follows the composer chip off the frame and the accent, and its plate is
+   mixed from the ink for a second reason on top of the first: the bubble is
+   already --muted, and a --card pill on it differed by a shade or two, so
+   the border was doing all the work of saying where the tag ended. */
 .bubble-tag {
   display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
   min-height: 34px; padding: 4px 9px 4px 4px; margin-bottom: 7px;
-  color: var(--foreground); background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  color: var(--foreground); border: 0; border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .bubble-tag .draw-tag-mark { width: 26px; height: 26px; }
 .bubble-tag .draw-tag-mark svg.icon { width: 14px; height: 14px; }

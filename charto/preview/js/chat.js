@@ -185,8 +185,16 @@
     // facts belong in the chart card; the attachment needs only identity.
     const rawName = String(d.label || d.type || "Drawing").split("·")[0].trim();
     const name = rawName ? rawName[0].toUpperCase() + rawName.slice(1) : "Drawing";
-    const meta = [d.origin === "chat" ? "Chart analysis" : "Drawing", d.ref,
-                  d.pane && d.pane !== "price" ? `on ${d.pane}` : ""]
+    // A user's drawing wears its REF — "D3" is the handle they see on the
+    // chart and the one the chat writes back. A chat-drawn annotation has no
+    // such handle: its id is a scene key minted by the detector, and printing
+    // that under the name would be showing plumbing where the drawing shows
+    // an address. The id still travels on the wire; it is just not something
+    // to read.
+    const meta = [d.origin === "chat" ? "Chart analysis" : "Drawing",
+                  d.origin === "chat" ? "" : d.ref,
+                  d.on ? `on ${d.on}`
+                       : (d.pane && d.pane !== "price" ? `on ${d.pane}` : "")]
       .filter(Boolean).join(" · ");
     return `<span class="draw-tag-mark">${Icons.svg(drawIcon(d.type), "sm")}</span>`
       + `<span class="draw-tag-copy"><strong>${drawEsc(name)}</strong>`
