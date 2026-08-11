@@ -30,6 +30,12 @@ const Drawings = (() => {
       magnet: false,
       drawings: load(),
       selId: null,
+      /* Which shape the pointer is over, in cursor mode. Already computed
+       * once per mousemove for the grab cursor (see the .overdraw toggle) —
+       * keeping the answer is what lets a shape paint a hover state, which
+       * the position tool uses to hold its numbers back until you look at
+       * it. Presentation only: nothing here is saved or undoable. */
+      hoverId: null,
       draft: null,
       drag: null,
       mouse: null,
@@ -204,6 +210,15 @@ const Drawings = (() => {
       barsBetween(t0, t1) {
         return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
       },
+      /** The last loaded close — where the market actually IS. Only the
+       *  position tool asks: it is what decides whether a plan is currently
+       *  in its reward half or its risk half, which is the one thing about a
+       *  plan that changes without anybody dragging it. Null on an empty
+       *  chart, and the tool paints its neutral state rather than guessing. */
+      get last() {
+        const bars = env.getBars();
+        return bars.length ? bars[bars.length - 1].close : null;
+      },
       valuesBetween(t0, t1) {
         const bars = env.getBars();
         const lo = Math.min(t0, t1), hi = Math.max(t0, t1);
@@ -226,8 +241,14 @@ const Drawings = (() => {
         width: prim.width || (selected ? 2 : 1.5),
         dash: isDraft ? [4, 4] : (prim.dash || d.dash || []),
         fillAlpha: prim.fillAlpha,
-        // a position's numbers ride on selection — see geometry's `position`
-        detail: selected || isDraft,
+        /* "Show me the numbers." A shape that has a second, wordier reading
+         * paints it only when the reader is actually on it — under the
+         * pointer, selected, or being placed. While it is being placed it is
+         * ALWAYS on: the numbers are the reason you are dragging. A position's
+         * numbers ride on selection for the same reason (see geometry's
+         * `position`); the pointer is the third way onto them, not a
+         * replacement for it. */
+        detail: isDraft || selected || d.id === state.hoverId,
       };
     }
 
@@ -437,6 +458,20 @@ const Drawings = (() => {
       _ru();
     });
 
+    /** Record which shape the pointer is over, and repaint only when the
+     *  answer CHANGED — a mouse move across an empty chart is null → null
+     *  sixty times a second, and asking the panes to redraw for each of them
+     *  would cost more than the hover state is worth. */
+    function setHover(id) {
+      if (state.hoverId === (id || null)) return;
+      state.hoverId = id || null;
+      _ru();
+    }
+
+    // Off the chart entirely — the pointer cannot be over anything, and the
+    // last shape it touched must not keep its numbers up.
+    el.addEventListener("mouseleave", () => setHover(null));
+
     el.addEventListener("mousemove", (e2) => {
       const forced = state.draft ? state.draft.pane : (state.drag ? state.drag.pane : null);
       const a = anchorAt(e2, forced);
@@ -444,10 +479,15 @@ const Drawings = (() => {
       const r = el.getBoundingClientRect();
       state.mouse = [e2.clientX - r.left, yInPane(e2.clientY, a.key)];
 
-      if (env.stage && state.tool === "cursor" && !state.drag && !state.draft) {
+      if (state.tool === "cursor" && !state.drag && !state.draft) {
+        // ONE hit test, two consumers: the grab cursor and the hover state
+        // shapes paint from. Run twice it would be the same walk over every
+        // drawing on every mouse move, for the same answer.
+        const over = inPlot(e2)
+          ? hitTest(state.mouse[0], state.mouse[1], a.key) : null;
         // over an axis the cursor must not promise a grab it won't honour
-        env.stage.classList.toggle("overdraw", inPlot(e2) &&
-          hitTest(state.mouse[0], state.mouse[1], a.key) !== null);
+        if (env.stage) env.stage.classList.toggle("overdraw", over !== null);
+        setHover(over);
       }
 
       if (state.drag) {
@@ -684,6 +724,7 @@ const Drawings = (() => {
       const next = !!v;
       if (state.hidden === next) return next;
       state.hidden = next;
+      state.hoverId = null;   // nothing folded away is under the pointer
       if (next && state.selId) { state.selId = null; emitSelect(); }
       _ru();
       return next;
@@ -696,6 +737,10 @@ const Drawings = (() => {
       setTool(tool) {
         state.tool = tool;
         state.draft = null;
+        // hover is a CURSOR-mode reading; arming a tool ends it, and the
+        // .overdraw grab cursor comes off with it
+        state.hoverId = null;
+        if (env.stage) env.stage.classList.remove("overdraw");
         // Arming a tool un-folds. Drawing a trendline onto a chart that is
         // hiding its trendlines would put the new one straight into the hole
         // the old ones are in — the gesture would look like it failed.

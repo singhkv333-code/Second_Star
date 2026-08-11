@@ -991,18 +991,25 @@ select.is-dressed { display: none; }
 .dlg-nav:hover { background: var(--accent); color: var(--foreground); }
 .dlg-nav:focus { outline: none; }
 :root[data-nav="kbd"] .dlg-nav:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-/* The selected section is said in INK and the faintest of plates — no ring.
-   A coloured outline on a settings list reads as focus, which is a state the
-   keyboard already owns two lines up, and a plate strong enough to see from
-   across the card competes with the section it is naming. The weight and the
-   full-strength label are what carry it; --muted is the softest lift the
-   token set has, and it sits UNDER the pointer's own --accent so hovering
-   another row is still legible beside the selected one. */
+/* The selected section is said in INK and a TEAL plate — no ring. A coloured
+   outline on a settings list reads as focus, which is a state the keyboard
+   already owns two lines up.
+
+   It used to be --muted, chosen as "the softest lift the token set has". It
+   was softer than that: --muted and --card are the SAME value in dark
+   (#1c1c1d) and a point-and-a-half apart in light, and .dlg paints on --card
+   — so the plate was invisible in one theme and nearly so in the other, and
+   a row the pointer had merely brushed (--accent) looked more selected than
+   the one that was. --primary-soft is the mark this app already uses for
+   "the current one" (.lay-opt.on, .dropdown .item.on): a tint that cannot
+   collide with the paper it sits on, and a teal glyph beside a full-strength
+   label. Declared AFTER :hover so brushing the selected row does not
+   downgrade it to the pointer's own plate. */
 .dlg-nav.active {
-  background: var(--muted); border-color: transparent;
+  background: var(--primary-soft); border-color: transparent;
   color: var(--foreground); font-weight: var(--weight-medium);
 }
-.dlg-nav.active svg { color: var(--foreground); }
+.dlg-nav.active svg { color: var(--primary); }
 .dlg-nav svg { width: 17px; height: 17px; flex: none; }
 .dlg.settings .dlg-body { padding-top: 2px; }
 /* A band of small caps naming what the rows under it are — TradingView's
@@ -1040,6 +1047,90 @@ select.is-dressed { display: none; }
   .dlg-nav { width: auto; height: 34px; padding: 0 12px; white-space: nowrap; }
   .dlg-nav svg { width: 15px; height: 15px; }
 }
+
+/* ── the keyboard shortcuts sheet ────────────────────────────────────────
+   The settings dialog's card, its scrolling body and its small-caps group
+   bands, with the grid turned round: a settings row is `max-content 1fr`
+   because every control has to start at the same x, and a shortcut row is
+   `1fr max-content` because the KEYS are the column being scanned. A reader
+   looking for "which key hides my drawings" runs a finger down the right
+   edge, so the right edge is where the caps are flushed.
+
+   No footer. There is nothing here to commit or cancel — the sheet is a
+   thing to read, and a pair of buttons under it would imply otherwise. */
+.dlg.shortcuts { min-width: 452px; }
+/* The gutter is the LABEL's padding, not a column-gap: a gap would break
+   each row's rule into two segments with a 28px hole between them, and a
+   list of forty half-rules reads as damage rather than as separation. */
+.dlg.shortcuts .dlg-body {
+  grid-template-columns: 1fr max-content; column-gap: 0;
+  padding-top: 4px; padding-bottom: 20px;
+}
+.sc-row { display: contents; }
+/* The rule is under BOTH cells rather than around the row: a row is two
+   grid cells with a 28px gutter between them, and a border on a wrapper
+   would have to be a wrapper — which is exactly what `display: contents`
+   gave up to let the two columns line up across sections. */
+.sc-row > .sc-label,
+.sc-row > .sc-keys {
+  min-height: 42px; display: flex; align-items: center; padding: 7px 0;
+  /* --border, not --border-soft: soft is a hairline for seams INSIDE a
+     control, and at #1a1a1a on a #1c1c1d card it is a rule nobody can see.
+     A list whose rows do not separate is a wall of text. */
+  border-bottom: 1px solid var(--border);
+}
+.sc-row > .sc-label {
+  font-size: 14px; color: var(--foreground); padding-right: 28px;
+}
+.sc-row > .sc-keys { justify-content: flex-end; gap: 5px; }
+/* the last row of the sheet has nothing under it to be separated from */
+.sc-row:last-child > .sc-label, .sc-row:last-child > .sc-keys { border-bottom: 0; }
+/* A cap, not a button: --hover-fill is the one neutral lift that is a real
+   step away from the card in BOTH themes (--muted is the card's own value in
+   dark, which is how the settings list lost its selected row). */
+.dlg.shortcuts kbd {
+  min-width: 27px; height: 27px; padding: 0 8px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--hover-fill); border: 1px solid var(--border);
+  border-radius: var(--radius-xs); color: var(--foreground);
+  font-family: var(--font); font-size: var(--text-md);
+  font-weight: var(--weight-medium); line-height: 1;
+}
+.sc-or { font-size: var(--text-sm); color: var(--faint); padding: 0 3px; }
+/* The two rows that are a way of TYPING rather than a chord. Sentence case
+   in the muted ink, because a cap around "Type any letter" would be a lie
+   about which key to press. */
+.sc-free { font-size: var(--text-sm); color: var(--muted-foreground); }
+
+@media (max-width: 620px) {
+  .dlg.shortcuts { min-width: 0; width: calc(100vw - 24px); }
+  .dlg.shortcuts .dlg-body { column-gap: 14px; }
+}
+
+/* ── the interval quick-entry ────────────────────────────────────────────
+   TradingView's box: type 1 5 Enter. It floats over the chart rather than
+   living in the header, because it is a thing you summoned with the
+   keyboard and will dismiss with the keyboard — parking it in the toolbar
+   would make it look like a control that was always there and is now
+   waiting on you. Bottom centre, out of the price action, above the time
+   axis. */
+.sc-iv {
+  position: absolute; z-index: 30; left: 50%; bottom: 74px;
+  transform: translateX(-50%);
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 10px 16px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow);
+  animation: pop var(--dur) var(--ease-quartr);
+  pointer-events: none;   /* it is a readout of the keyboard, not a target */
+}
+.sc-iv .sc-iv-in {
+  font-size: 20px; font-weight: var(--weight-semi); letter-spacing: .02em;
+  color: var(--foreground); font-variant-numeric: tabular-nums;
+  min-width: 22px; text-align: center;
+}
+.sc-iv .sc-iv-note { font-size: var(--text-md); color: var(--muted-foreground); }
+.sc-iv .sc-iv-note.bad { color: var(--down); }
 
 /* popover — the colour picker. --popover paper (not the card paper: this
    floats OVER the dialog, so it needs its own step), a hairline, the medium
@@ -1377,8 +1468,10 @@ header > .btn, header > .badge { flex: none; }
    following a rule, and needs the air a heading gets above it. */
 .dropdown.side .sep + .head { padding-top: 7px; }
 /* The shortcut a row advertises. Faint and tabular — it is a reference, not
-   a value, and it must never out-weigh the tool's own name. */
-.dropdown.side .item .sc {
+   a value, and it must never out-weigh the tool's own name. Not scoped to
+   the tool flyout: the account menu's "Keyboard shortcuts" row carries its
+   own chord in exactly the same slot, for exactly the same reason. */
+.dropdown .item .sc {
   font-size: var(--text-2xs); color: var(--faint); flex: none;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
@@ -4664,7 +4757,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <script src="./js/store.js?v=12"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=19"></script>
+  <script src="./js/icons.js?v=20"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -4682,15 +4775,19 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
        dressed selects and its card positioning -->
   <script src="./js/dlgkit.js?v=2"></script>
   <script src="./js/indsettings.js?v=7"></script>
+  <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
+       the kit) and before main.js, which registers what every row of its
+       catalogue MEANS the moment it boots -->
+  <script src="./js/shortcuts.js?v=1"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=10"></script>
-  <script src="./js/tools.js?v=11"></script>
-  <script src="./js/drawings.js?v=19"></script>
-  <script src="./js/scene.js?v=30"></script>
+  <script src="./js/tools.js?v=13"></script>
+  <script src="./js/drawings.js?v=21"></script>
+  <script src="./js/scene.js?v=31"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=77"></script>
+  <script src="./js/main.js?v=78"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=6"></script>

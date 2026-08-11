@@ -291,13 +291,18 @@ const Scene = (() => {
           a.qty ? `Qty: ${a.qty}` + (a.risk_amount ? ` · Risk: ${inr(a.risk_amount)}` : "")
                 : (a.side === "short" ? "Short" : "Long"),
           `Risk/reward ratio: ${a.rr ?? "—"}`];
+        // The centre chip takes the colour of the half the market is in —
+        // the same reading, off the same last close, as the user's own
+        // long/short tool. See the `tone` note in js/geometry.js.
+        const bars = env.getBars();
+        const last = bars.length ? bars[bars.length - 1].close : null;
         return [Geo.position(
           { t: a.t0, v: a.entry },
           { v: a.stop, text: `Stop: ${a.stop.toFixed(2)} (${pct(a.stop)}%) ${dst(a.stop)}`
                              + (a.risk_amount ? `, Amount: ${inr(a.risk_amount)}` : "") },
           (a.targets || []).map((tp, i) => ({
             v: tp, text: `Target: ${tp.toFixed(2)} (${pct(tp)}%) ${dst(tp)}${amt(i)}` })),
-          { t1: a.t1, center })];
+          { t1: a.t1, center, tone: Geo.positionTone(a.entry, last, a.side) })];
       },
       fib: (a) => {
         const out = [Geo.segment(a.p1, a.p2, { dash: [3, 3], width: 1 })];
@@ -615,11 +620,22 @@ const Scene = (() => {
         ctx.strokeStyle = col;
         ctx.fillStyle = col;
         ctx.lineWidth = hot ? 2 : 1.5;
-        // Hover reads as a HALO rather than a half-pixel of extra weight —
-        // at 1.5px a width bump is invisible on a busy chart, and the whole
-        // point of the hover is to answer "which one am I pointing at?".
-        ctx.shadowColor = hot ? rgba(col, 0.55) : "transparent";
-        ctx.shadowBlur = hot ? 9 : 0;
+        /* Hover reads as a HALO rather than a half-pixel of extra weight —
+         * at 1.5px a width bump is invisible on a busy chart, and the whole
+         * point of the hover is to answer "which one am I pointing at?".
+         *
+         * That reasoning is about HAIRLINES, and it does not survive contact
+         * with a filled shape. A canvas shadow applies to fillRect as much as
+         * to stroke, so a trade plan — two big filled zones — was casting a
+         * 9px wash of the role colour around and into its own boxes: a blue
+         * rim around the whole shape and a dirty edge over the green and the
+         * red. The plan does not need a halo to be findable; it answers the
+         * pointer by putting up its target, stop and R:R plates, which is a
+         * far louder answer than a glow. So it opts out, and hover on a plan
+         * changes nothing but the cards. */
+        const halo = hot && a.kind !== "position";
+        ctx.shadowColor = halo ? rgba(col, 0.55) : "transparent";
+        ctx.shadowBlur = halo ? 9 : 0;
 
         if (a.kind === "vprofile") {
           // Volume at price: a histogram hanging off the right edge, so it
@@ -726,9 +742,14 @@ const Scene = (() => {
             // by ratio, and repainting it all one role colour loses that
             // ?? not ||: an explicit empty dash means SOLID — a pattern
             // outline through real swings is an assertion, not a suggestion
-            // `detail` is hover here, not selection: clicking a scene
-            // annotation opens nothing (main.js's onSelect is empty), so
-            // pointing at one IS how this layer is addressed.
+            // `detail` is the position tool's second reading — its target,
+            // stop and R:R plates. Same rule as the user's own long/short
+            // tool (js/drawings.js): the plan's SHAPE is always on, its
+            // NUMBERS come up when the pointer is on it, so a plan the chat
+            // drew does not sit on the candles it was drawn against. Here it
+            // is hover and never selection: clicking a scene annotation opens
+            // nothing (main.js's onSelect is empty), so pointing at one IS how
+            // this layer is addressed.
             Geo.paint(ctx, prim, px,
                       { color: prim.color || col, width: hot ? 2 : 1.5,
                         dash: prim.dash ?? [7, 4], fillAlpha: 0.12,

@@ -120,6 +120,23 @@ const Geo = (() => {
     return risk ? reward / risk : null;
   }
 
+  /** Which half of a plan the market is currently in: "up" for the reward
+   *  side, "down" for the risk side, null when there is no price to read.
+   *
+   *  Sign-aware, because for a SHORT the reward half is the one BELOW the
+   *  entry — a plan that went green because the price rose would be telling
+   *  the reader the opposite of what happened. Null is a real answer and not
+   *  a failure: with nothing to compare against, the chip paints neutral
+   *  rather than picking a side it cannot back up. */
+  function positionTone(entry, price, side) {
+    if (price == null || entry == null) return null;
+    // lower-cased, not compared as-is: the user's own tool says "short" and
+    // a plan off the wire may say "Short", and getting that wrong paints a
+    // losing position green — the one mistake this chip must not make
+    const short = String(side).toLowerCase() === "short";
+    return (short ? price <= entry : price >= entry) ? "up" : "down";
+  }
+
   // ── projection: data space → pixel space ────────────────
   /** env: { tToX(t), vToY(v), w, h } — supplied per pane by the caller. */
   function project(prim, env) {
@@ -320,33 +337,65 @@ const Geo = (() => {
         chip(ctx, prim.text, Math.max(0, Math.min(x, env.w - w)), px.p[1] + 6, col);
         break;
       }
+      /* The position plan, TradingView's way round: the SHAPE is always on,
+       * the NUMBERS are only there when you are looking at it.
+       *
+       * A plan is two coloured zones and an entry line — that is the whole
+       * reading at a glance, and it is what the chart is for. The three
+       * labels (target, stop, the centre chip) are the second reading, and
+       * left on they cover the candles the plan was drawn against: three
+       * opaque plates stacked down the middle of the very bars you are
+       * trying to judge it by. So they come up on `s.detail`, which the
+       * owner sets when the pointer is over the shape, when it is selected,
+       * and while it is being drawn — see js/drawings.js. */
       case "position": {
         const GREEN = "#089981", RED = "#f23645";
+        const detail = !!s.detail;
         const w = px.x1 - px.x0, cx = (px.x0 + px.x1) / 2;
         const yFar = px.yT.length ? px.yT[px.yT.length - 1] : px.yE;
         ctx.setLineDash([]);
-        ctx.fillStyle = rgba(GREEN, 0.16);
+        /* The zones do NOT answer the pointer. Hover used to lift both fills
+         * from .14 to .20, and a fifth more green over a pale chart reads as
+         * a colour CHANGE rather than as emphasis — the reward box turned
+         * visibly blue under the pointer. Hovering adds the labels; it does
+         * not restate the plan in a second palette. */
+        ctx.fillStyle = rgba(GREEN, 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, yFar), w, Math.abs(yFar - px.yE));
-        ctx.fillStyle = rgba(RED, 0.16);
+        ctx.fillStyle = rgba(RED, 0.14);
         ctx.fillRect(px.x0, Math.min(px.yE, px.yS), w, Math.abs(px.yS - px.yE));
-        // intermediate target boundaries inside the reward zone
-        ctx.strokeStyle = rgba(GREEN, 0.55); ctx.lineWidth = 1;
-        for (const y of px.yT.slice(0, -1)) {
+        // Every target line, and the stop — the outer two are the edges of
+        // the plan, so they are drawn even with the labels away. Without
+        // them a zone fades into the chart background and the level it is
+        // claiming has to be read off the axis.
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(GREEN, 0.5);
+        for (const y of px.yT) {
           ctx.beginPath(); ctx.moveTo(px.x0, y); ctx.lineTo(px.x1, y); ctx.stroke();
         }
+        ctx.strokeStyle = rgba(RED, 0.5);
+        ctx.beginPath(); ctx.moveTo(px.x0, px.yS); ctx.lineTo(px.x1, px.yS); ctx.stroke();
+        // The entry, dashed. TradingView's neutral grey, not a near-white:
+        // #e6e8ee is a dark-theme colour, and on a light chart it was a
+        // dashed line the same value as the paper under it.
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = rgba("#e6e8ee", 0.85);
+        ctx.strokeStyle = rgba("#787b86", 0.95);
         ctx.beginPath(); ctx.moveTo(px.x0, px.yE); ctx.lineTo(px.x1, px.yE); ctx.stroke();
         ctx.setLineDash([]);
+        if (!detail) break;
+
+        /* Tighter than they were — 8px of side padding on a 20px pill, 4px
+         * radius — because three of these sit within 40px of each other and
+         * the old 18/22/6 read as buttons. Text is white on both fills at
+         * this size in either theme. */
         const pill = (text, y, bg, above) => {
           ctx.font = `11px ${FONT}`;
-          const pw = ctx.measureText(text).width + 18, ph = 22;
+          const pw = Math.round(ctx.measureText(text).width) + 16, ph = 20;
           const x = Math.max(4, Math.min(cx - pw / 2, env.w - pw - 4));
-          const py = above ? y - ph - 4 : y + 4;
+          const py = above ? y - ph - 3 : y + 3;
           ctx.fillStyle = bg;
-          ctx.beginPath(); ctx.roundRect(x, py, pw, ph, 6); ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.fillText(text, x + 9, py + 15);
+          ctx.beginPath(); ctx.roundRect(x, py, pw, ph, 4); ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(text, x + 8, py + 14);
         };
         // The arithmetic appears when you POINT at the plan, not before.
         // Entry, stop, target, percentage, distance, quantity, risk, R:R and
@@ -361,19 +410,36 @@ const Geo = (() => {
           if (tp.text) pill(tp.text, y, GREEN, y <= px.yE);
         });
         if (prim.stop.text) pill(prim.stop.text, px.yS, RED, px.yS < px.yE);
-        const lines = prim.center || [];
+
+        /* The centre chip, on the entry line — flat, no border. The white
+         * 1.2px ring it used to wear was the loudest mark on the chart, and
+         * a chip that outshouts the candles is the opposite of what a plan
+         * overlay is for.
+         *
+         * It takes the colour of the zone the market is CURRENTLY in, which
+         * is TradingView's rule: green while the plan is in its reward half,
+         * red once price has crossed into the risk half. That makes the chip
+         * the one part of a static drawing that still says something as the
+         * bars move — you can see which side of your own entry you are on
+         * without reading the axis. `tone` is null when there is no price to
+         * judge by (an empty chart, a plan the chat drew with no bars behind
+         * it), and then the chip is slate: neutral is the honest answer, not
+         * a coin-flip between two colours that both mean something. */
+        const lines = (prim.center || []).filter(Boolean);
         if (lines.length) {
           ctx.font = `11px ${FONT}`;
-          const lw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
-          const lh = lines.length * 15 + 12;
+          const lw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 22;
+          const lh = lines.length * 15 + 11;
           const x = Math.max(4, Math.min(cx - lw / 2, env.w - lw - 4));
           const y = px.yE - lh / 2;
-          ctx.fillStyle = rgba("#0d3a32", 0.95);
-          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.fill();
-          ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2;
-          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 8); ctx.stroke();
-          ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-          lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 17 + i * 15));
+          // Solid, not the zones' 14% wash: this is a plate carrying white
+          // text, and a tint that pale would leave the candles legible
+          // through the letters.
+          ctx.fillStyle = prim.tone === "up" ? GREEN
+            : prim.tone === "down" ? RED : rgba("#131722", 0.92);
+          ctx.beginPath(); ctx.roundRect(x, y, lw, lh, 5); ctx.fill();
+          ctx.fillStyle = "#ffffff"; ctx.textAlign = "center";
+          lines.forEach((t, i) => ctx.fillText(t, x + lw / 2, y + 16 + i * 15));
           ctx.textAlign = "left";
         }
         break;
@@ -397,6 +463,6 @@ const Geo = (() => {
     point, hline, vline, segment, band, vband, box, poly, label, position,
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
-    linearFit, valueAt, ladder, riskReward,
+    linearFit, valueAt, ladder, riskReward, positionTone,
   };
 })();

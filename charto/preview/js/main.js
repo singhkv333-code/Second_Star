@@ -864,21 +864,10 @@
     selectTool(id);
   }
 
-  /* The shortcuts the flyout advertises. Matched on e.code, not e.key: with
-   * Alt held, a Windows layout reports `e.key` as the composed character
-   * (and a dead key on several European layouts), so the physical key is the
-   * only thing that means "T" everywhere the app runs. */
-  addEventListener("keydown", (e) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey) return;
-    const t = e.target;
-    if (t && (/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
-    const found = Object.entries(Tools.SPECS)
-      .find(([, s]) => s.key && e.code === `Key${s.key}`);
-    if (!found) return;
-    e.preventDefault();
-    closeToolMenus();
-    armTool(found[0]);
-  });
+  /* The shortcuts the flyout advertises are dispatched by js/shortcuts.js —
+   * one catalogue for the keyboard and for the sheet that lists it, so a
+   * binding cannot move without the sheet moving with it. This file only
+   * says what "arm a tool" MEANS; see the registrations at the foot. */
 
   // ── panes ─────────────────────────────────────────────
   // Every pane you can interact with, keyed by something stable. Indicator
@@ -1445,18 +1434,10 @@
     redoBtn.disabled = !s.canRedo;
   });
   /* Ctrl+Z / Ctrl+Shift+Z, and Ctrl+Y for the Windows hand that reaches for
-   * it. Capture phase so nothing downstream eats the chord — but never taken
-   * from a field the user is typing in, where the browser's own undo is the
-   * right one and the only one that knows about their half-written sentence. */
-  addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-    const k = String(e.key || "").toLowerCase();
-    if (k !== "z" && k !== "y") return;
-    const t = e.target;
-    if (t && (/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
-    e.preventDefault();
-    if (k === "y" || e.shiftKey) Undo.redo(); else Undo.undo();
-  }, true);
+   * it, are dispatched by js/shortcuts.js along with everything else the
+   * sheet prints — including the guard that keeps the chord out of a field
+   * the user is typing in, where the browser's own undo is the right one and
+   * the only one that knows about their half-written sentence. */
   document.addEventListener("charto:indicators-changed", () => {
     // marks on a pane whose indicator is gone are orphans: invisible, yet
     // still counted by the badge and revived if the pane ever returns —
@@ -2572,6 +2553,18 @@
     return s ? esc(s[0].toUpperCase()) : "?";
   };
 
+  /* The keyboard, behind the avatar — TradingView's place for it, and the
+   * right one: the shortcuts sheet is not about the chart, it is about the
+   * app, which is the whole reason this menu sits outside the chart's own
+   * controls. Signed in or out, because a chart you can use without an
+   * account is a chart you can drive from the keyboard without one. The
+   * chord rides in the row's trailing slot, the way the tool flyouts
+   * advertise theirs. */
+  const SHORTCUT_ROW =
+    `<div class="item" data-acct="shortcuts"><span class="lead">`
+    + Icons.svg("keyboard", "xs") + `Keyboard shortcuts</span>`
+    + `<span class="sc">Ctrl + /</span></div>`;
+
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);
     acctBtn.innerHTML = u ? initialOf(u) : Icons.svg("user");
@@ -2587,6 +2580,8 @@
         + `<div class="acct-note">Layouts, drawings and conversations are `
         + `saved to this account.</div>`
         + `<div class="sep"></div>`
+        + SHORTCUT_ROW
+        + `<div class="sep"></div>`
         + `<div class="item" data-acct="logout"><span class="lead">`
         + Icons.svg("logOut", "xs") + `Sign out</span></div>`
       : `<div class="acct-id"><span class="disc">${Icons.svg("user")}</span>`
@@ -2594,6 +2589,8 @@
         + `<span class="em">Working in this browser</span></span></div>`
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
+        + `<div class="sep"></div>`
+        + SHORTCUT_ROW
         + `<div class="sep"></div>`
         + `<div class="acct-note">Your charts, drawings and chats stay in this `
         + `browser until you sign in.</div>`;
@@ -2609,6 +2606,7 @@
     const it = e.target.closest("[data-acct]");
     if (!it) return;
     closeMenus(null);
+    if (it.dataset.acct === "shortcuts") return Shortcuts.open();
     if (it.dataset.acct === "logout") {
       await Auth.logout();
       // Signing out changes WHOSE work this is, and the modules holding that
@@ -2844,6 +2842,81 @@
       if (!menu.contains(e.target) && !e.target.closest("#symbolPill")) {
         menu.classList.remove("open");
       }
+    });
+  })();
+
+  // ── the keyboard ──────────────────────────────────────
+  /* js/shortcuts.js owns WHICH key — one catalogue, printed on the sheet and
+   * parsed by the dispatcher, so the two cannot drift. This owns what each
+   * verb MEANS, which is the only half of it this file is entitled to an
+   * opinion about.
+   *
+   * Most of these go through the control the mouse would have used rather
+   * than the function behind it. A shortcut that calls captureChart() past
+   * the camera button is a second code path to keep in step with the first;
+   * a shortcut that CLICKS the camera button is the same path, so the menu
+   * closes, the toggled state paints and the status line says what it always
+   * said. Where there is no button — reset, invert — the work is here.
+   */
+  (function bindShortcuts() {
+    /** The chart the one toolbar is aimed at: the selected secondary pane,
+     *  or the primary when none is. Same rule the interval pill follows —
+     *  a keyboard that acted on pane 1 while the reader was working in pane
+     *  3 would be a shortcut for the wrong chart. */
+    const aimed = () => {
+      const s = Panes.activeSub();
+      return s ? s.chart : chart;
+    };
+
+    Shortcuts.on("tool", (id) => { closeToolMenus(); armTool(id); });
+    Shortcuts.on("magnet", () => el("tool-magnet").click());
+    Shortcuts.on("undo", () => Undo.undo());
+    Shortcuts.on("redo", () => Undo.redo());
+    Shortcuts.on("fold", () => toggleDrawFold());
+    Shortcuts.on("snapshot", () => { closeMenus(null); captureChart(null); });
+    Shortcuts.on("chat", () => el("chatToggle").click());
+    Shortcuts.on("watchlist", () => Panels.toggle("watch"));
+    Shortcuts.on("alerts", () => Panels.toggle("alerts"));
+
+    // The picker opens and takes the typing from there — the letter that
+    // summoned it is deliberately not seeded into the field (see the note
+    // in js/shortcuts.js).
+    Shortcuts.on("symbol", () => { closeMenus(null); el("symbolPill").click(); });
+
+    /* The quick-entry hands over an interval id and reads the answer: false
+     * means "this chart cannot fetch that", and the box stays up saying so
+     * rather than the chart quietly landing on something else. The row is
+     * the same one the pill's menu offers, so the pane routing, the tick and
+     * the chat's subject chip all move exactly as they do on a click. */
+    Shortcuts.on("interval", (iv) => {
+      const row = ivMenu.querySelector(`[data-iv="${iv}"]`);
+      if (!row) return false;
+      row.click();
+      return true;
+    });
+
+    /* Alt+R — back to the default zoom, at the live edge, with the price
+     * scale free again. Three separate things a chart drifts away from, and
+     * a "reset" that fixed only the first would leave the reader hunting the
+     * other two.
+     *
+     * No status line on this one or the next, for the reason undo already
+     * gives a few hundred lines up: they SHOW their result. A message saying
+     * "view reset" beside a chart that visibly reset is narration. */
+    Shortcuts.on("reset-view", () => {
+      const t = aimed();
+      t.timeScale().resetTimeScale();
+      t.timeScale().scrollToRealTime();
+      try { t.priceScale("right").applyOptions({ autoScale: true }); } catch {}
+    });
+
+    /* Alt+I — the price scale upside down, which is how a trader looks at a
+     * short. Read back off the scale rather than tracked here: the chart is
+     * the one that knows, and a flag in this file would be wrong the first
+     * time anything else touched the option. */
+    Shortcuts.on("invert", () => {
+      const ps = aimed().priceScale("right");
+      ps.applyOptions({ invertScale: !ps.options().invertScale });
     });
   })();
 
