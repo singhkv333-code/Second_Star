@@ -4385,7 +4385,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
 .jq-tab { position:relative; border:0; background:transparent; padding:0 11px; font:inherit; font-size:11px; color:var(--muted-foreground); cursor:pointer; }
 .jq-tab:hover { color:var(--foreground); }
 .jq-tab.active { color:var(--foreground); font-weight:600; }
-.jq-tab.active::after { content:''; position:absolute; left:10px;right:10px;bottom:-1px;height:2px;background:var(--primary);border-radius:2px 2px 0 0; }
+.jq-tab.active::after { content:none; }
 .jq-head .spacer { flex:1; }
 .jq-full { min-height:28px; border:1px solid var(--border); border-radius:5px; padding:0 9px; display:flex; align-items:center; gap:6px; color:var(--foreground); background:var(--card); font:inherit; font-size:10px; cursor:pointer; }
 .jq-full:hover { border-color:var(--muted-foreground); }
@@ -4394,12 +4394,12 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
 .jq-close:hover { background:var(--muted);color:var(--foreground); }
 .jq-body { flex:1; overflow:auto; min-height:0; padding:0; background:var(--background); }
 .jq-metrics { display:grid; grid-template-columns:repeat(6,minmax(112px,1fr)); border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--card) 96%,var(--primary) 4%); overflow:auto; }
-.jq-metric { position:relative; min-height:52px; padding:8px 18px 7px; border-right:1px solid var(--border-soft); }
+.jq-metric { position:relative; min-height:40px; padding:5px 18px 4px; border-right:1px solid var(--border-soft); }
 .jq-metric:first-child::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--primary); }
 .jq-metric:last-child { border-right:0; }
-.jq-metric span { display:block; font-size:9px; color:var(--muted-foreground); margin-bottom:4px; letter-spacing:.025em; }
-.jq-metric b { font-size:14px; line-height:1; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.015em; }
-.jq-table-wrap { overflow:auto; background:var(--card); height:calc(100% - 53px); scrollbar-gutter:stable; }
+.jq-metric span { display:block; font-size:8px; line-height:1.2; color:var(--muted-foreground); margin-bottom:3px; letter-spacing:.025em; }
+.jq-metric b { font-size:12px; line-height:1; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.jq-table-wrap { overflow:auto; background:var(--card); height:calc(100% - 41px); scrollbar-gutter:stable; }
 .jq-table { width:max(100%,1488px); border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:10px; }
 .jq-table col.jq-col-symbol{width:118px}.jq-table col.jq-col-side{width:82px}.jq-table col.jq-col-date{width:122px}.jq-table col.jq-col-qty{width:70px}.jq-table col.jq-col-money{width:106px}.jq-table col.jq-col-fees{width:78px}.jq-table col.jq-col-risk{width:102px}.jq-table col.jq-col-pnl{width:108px}.jq-table col.jq-col-r{width:88px}.jq-table col.jq-col-playbook{width:164px}.jq-table col.jq-col-tags{width:150px}.jq-table col.jq-col-review{width:108px}
 .jq-table th { position:sticky;top:0;z-index:2;height:32px;padding:0 12px;color:var(--muted-foreground);background:color-mix(in srgb,var(--muted) 72%,var(--card));text-align:left;font-size:9px;font-weight:600;letter-spacing:.025em;border-bottom:1px solid var(--border);white-space:nowrap; }
@@ -4766,7 +4766,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=19"></script>
+  <script src="./js/indicators.js?v=20"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -4787,11 +4787,11 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <script src="./js/drawings.js?v=21"></script>
   <script src="./js/scene.js?v=31"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=78"></script>
+  <script src="./js/main.js?v=79"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=6"></script>
-  <script src="./js/chat.js?v=114"></script>
+  <script src="./js/chat.js?v=116"></script>
   <script src="./js/journal.js?v=1"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

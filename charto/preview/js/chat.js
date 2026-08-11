@@ -1160,7 +1160,16 @@
       }
       const res = await fetch(`${API}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The turn rides the account's token. The server reads WHO is asking
+        // off these headers, and the tools that own something — the alerts a
+        // rule is armed under, the archive recall_conversations searches — are
+        // scoped by it. Sent without one, every such tool answered "you need
+        // an account" to a user who was looking at their own name in the
+        // corner. `Auth.headers` adds nothing when signed out, which is the
+        // honest state for a browser that has no session.
+        headers: typeof Auth !== "undefined"
+          ? Auth.headers({ "Content-Type": "application/json" })
+          : { "Content-Type": "application/json" },
         // chat_id is what lets recall_conversations EXCLUDE this conversation
         // from a search of the earlier ones — its turns are already in
         // `messages`, and finding them twice would read as two occasions.
@@ -1186,14 +1195,31 @@
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
       // chart this same turn opened, and applying the patch first would draw
       // it onto whatever pane happened to be there.
-      if (d.view_ops && d.view_ops.length && window.__charto?.panes) {
+      if (d.view_ops && d.view_ops.length) {
+        // An alert armed in conversation is a row in the widget and a line on
+        // the price axis, and this tab holds its own copy of both — so a turn
+        // that touched the watcher re-reads it. Once per turn however many
+        // alerts the turn changed: three edits are one refresh.
+        let alertsStale = false;
         for (const op of d.view_ops) {
-          if (op.kind !== "open_chart") continue;
+          if (op.kind === "alerts_changed") { alertsStale = true; continue; }
+          if (op.kind !== "open_chart" || !window.__charto?.panes) continue;
           try {
             window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
           } catch (e) {
             console.warn("[charto] open_chart failed", op, e);
           }
+        }
+        // After the opens: an alert on a symbol this same turn put on screen
+        // has no line to draw until that chart exists.
+        //
+        // `typeof`, not `window.Alerts`: js/alerts.js declares its module as a
+        // top-level `const`, which never becomes a window property — and this
+        // file loads BEFORE it, so the name only has to exist by the time a
+        // turn comes back, not now.
+        if (alertsStale && typeof Alerts !== "undefined") {
+          Promise.resolve(Alerts.load()).catch((e) =>
+            console.warn("[charto] alert refresh failed", e));
         }
       }
 

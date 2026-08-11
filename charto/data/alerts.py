@@ -1885,6 +1885,49 @@ def stop() -> None:
 
 # ══ the chat surface ═══════════════════════════════════════════════════════
 # The model composes; this engine owns the firing. CHARTO.md §3's line exactly.
+#
+# Every capability the widget has is reachable from here, and by the same
+# route the widget takes: these functions call api_create / api_patch /
+# api_check / api_list and nothing else. There is no chat-only path into the
+# table, so a rule armed by conversation and a rule armed by the dialog are
+# the same row, seeded the same way, with the same ceiling and the same
+# refusals. What chat adds is composition, not a second engine.
+#
+# Nothing here reads the user's words. There is no verb list, no "alert me"
+# detector, no phrase table that turns a sentence into a condition: the model
+# writes the addresses and the ops, this side resolves them against real bars
+# and refuses — with the whole grammar attached — what it cannot speak. A
+# keyword path would be a second, dumber parser competing with the one that
+# can actually read "volume above twice its average while price breaks the
+# 200-day", and it would silently win on the sentences it happened to match.
+
+
+def _touch_chart() -> None:
+    """Tell the browser that its copy of the alert state is stale.
+
+    An alert is a row in the widget AND a line on the price axis, and neither
+    exists in the tab until it re-reads /alerts — so an alert armed by chat
+    used to be invisible until a reload, which reads as "it didn't work". The
+    turn already carries a channel for "the workspace moved" (view_ops), so
+    the refresh rides that rather than inventing a second one.
+
+    Never raises: a hint that the screen should refresh must not be able to
+    fail the tool call that earned it.
+    """
+    try:
+        ds._view_add({"kind": "alerts_changed"})
+    except Exception:                                       # noqa: BLE001
+        log.debug("alerts: no view channel on this request", exc_info=True)
+
+
+# Delivery is in-app and only in-app. Said on every armed rule because the one
+# thing a user cannot check for themselves is whether closing the tab still
+# gets them the alert — and an alert believed to be an SMS is worse than none.
+_DELIVERY = ("Delivery is in-app: the fire lands in the alert log and the "
+             "bell, and is pushed live to an open tab. There is no email, SMS "
+             "or phone push — say so rather than implying the user will be "
+             "reached away from Charto.")
+
 
 def tool_set_alert(symbol: str = "", interval: str = "5m",
                    when: list | None = None, all: bool = True,
@@ -1903,22 +1946,151 @@ def tool_set_alert(symbol: str = "", interval: str = "5m",
     if code != 200:
         return out
     a = out["alert"]
+    _touch_chart()
     return {"alert": a, "_render_hint": "alert_card",
-            "_note": (f"Armed: {a['cond']} {a['level']} on {a['symbol']} "
-                      f"{a['interval']} ({a['meta']}). "
+            "_note": (f"Armed as alert {a['id']}: {a['cond']} {a['level']} on "
+                      f"{a['symbol']} {a['interval']} ({a['meta']}). It is on "
+                      f"the user's screen already — the widget lists it and, "
+                      f"for a plain price level on the chart's own symbol, the "
+                      f"price axis carries a draggable line. Do not tell them "
+                      f"to add it anywhere. " + _DELIVERY + " "
                       + (out.get("feed", {}).get("symbol", {}).get("note") or ""))}
 
 
-def tool_list_alerts(user_id: int = 0) -> dict:
+def tool_check_alert(symbol: str = "", interval: str = "5m",
+                     when: list | None = None, all: bool = True,
+                     user_id: int = 0) -> dict:
+    """Resolve a rule against real bars WITHOUT arming it.
+
+    The dry run the create dialog does before it commits, given to chat for
+    the same reason: an address that will not resolve should fail while the
+    two of you are still talking about it, not at 09:20 on a rule the user
+    believes is watching. It also answers the question the user actually
+    asks first — "where is it now, relative to that?" — with the observed
+    value beside the resolved target, per condition.
+
+    Signed out on purpose: nothing is written, so an expression can be
+    checked and quoted before the account conversation happens at all.
+    """
+    code, out = api_check(user_id, {
+        "symbol": symbol or ds._sym(), "interval": interval,
+        "when": when or [], "all": all})
+    if code != 200:
+        return out
+    hot = out.get("already_true")
+    return {**out, "_note": (
+        "Nothing is armed — this is the rule resolved against the bars right "
+        "now. Quote the value beside the target for each condition. "
+        + ("It is ALREADY true at this moment: an alert armed on it now waits "
+           "for the condition to reset before it can fire, so say that rather "
+           "than implying it would fire immediately. "
+           if hot else "It is not true right now. ")
+        + "Call set_alert to actually arm it.")}
+
+
+def tool_list_alerts(user_id: int = 0, symbol: str = "", state: str = "",
+                     mark_seen: bool = False) -> dict:
+    """Everything the widget shows: the rules, what fired, the unseen count.
+
+    `symbol` and `state` narrow it because the ceiling is 200 rules and a
+    reply about one chart should not carry the other 199. `mark_seen` is the
+    bell's own "I have read these" — an explicit argument rather than a side
+    effect of looking, because clearing a badge nobody asked to clear loses
+    the user a notification they had not seen yet.
+    """
     if not user_id:
         return {"error": "alerts need an account"}
     _code, out = api_list(user_id)
-    return {"alerts": out["alerts"], "log": out["log"][:20],
-            "unseen": out["unseen"]}
+    alerts, logs = out["alerts"], out["log"]
+    sym = str(symbol or "").upper().strip()
+    if sym:
+        alerts = [a for a in alerts if a["symbol"] == sym]
+        logs = [l for l in logs if l["symbol"] == sym]
+    st = str(state or "").lower().strip()
+    if st:
+        if st not in STATES:
+            return vocab(f"state '{st}' — one of {', '.join(STATES)}")
+        alerts = [a for a in alerts if a["state"] == st]
+    seen_note = ""
+    if mark_seen and out["unseen"]:
+        api_seen(user_id)
+        seen_note = (f" The {out['unseen']} unseen fire(s) are now marked "
+                     f"read and the bell is clear.")
+        _touch_chart()
+    return {"alerts": alerts, "log": logs[:20], "unseen": out["unseen"],
+            "showing": {"symbol": sym or "all", "state": st or "all",
+                        "of_total": len(out["alerts"])},
+            "_note": ("Each alert's `id` is what update_alert and cancel_alert "
+                      "take. `cond`/`level`/`meta` are the row as the widget "
+                      "prints it — quote those rather than rebuilding the "
+                      "phrasing. A log entry's `value` is what was actually "
+                      "observed and `level` the target as resolved at that "
+                      "instant; `late` means it fired from the replay after a "
+                      "restart, stamped with the bar's own time." + seen_note)}
+
+
+def tool_update_alert(alert_id: int = 0, state: str = "", freq: str = "",
+                      note: str | None = None, when: list | None = None,
+                      interval: str = "", all: bool | None = None,
+                      expires_in_days: int | None = None,
+                      user_id: int = 0) -> dict:
+    """Change a live rule: pause it, re-arm it, or rewrite what it watches.
+
+    One tool rather than four verbs, because the engine has one patch path
+    and every field on it goes through the same validation and the same
+    re-seed. Only the arguments actually passed are sent — a rule's note is
+    not cleared by an ask to pause it.
+    """
+    if not user_id:
+        return {"error": "alerts need an account"}
+    if not alert_id:
+        return {"error": "which alert? call list_alerts for the ids"}
+    body: dict = {}
+    if state:
+        body["state"] = str(state).lower().strip()
+    if freq:
+        body["freq"] = str(freq).lower().strip()
+    if note is not None:
+        body["note"] = note
+    if when:
+        body["when"] = when
+    if interval:
+        body["interval"] = str(interval).lower().strip()
+    if all is not None:
+        body["all"] = bool(all)
+    if expires_in_days is not None:
+        # 0 clears the expiry; a positive number sets it that many days out.
+        body["expires"] = (int(time.time()) + int(expires_in_days) * 86400
+                           if int(expires_in_days) else None)
+    if not body:
+        return {"error": "nothing to change",
+                "_note": ("Name what should change — state, freq, when, "
+                          "interval, all, note or expires_in_days.")}
+    code, out = api_patch(user_id, int(alert_id), body)
+    if code != 200:
+        return out
+    _touch_chart()
+    a = out.get("alert") or {}
+    re_armed = body.get("state") == "armed"
+    return {**out, "_note": (
+        f"Alert {alert_id} is now {a.get('state', '?')}: {a.get('cond', '')} "
+        f"{a.get('level', '')} ({a.get('meta', '')}). The widget and the "
+        f"chart line have been updated. "
+        + ("Re-arming re-seeds the crossing side against the current bar, so "
+           "it watches from here rather than firing on a move it already "
+           "missed. " if re_armed else "")
+        + ("The conditions were replaced, not merged — this rule now watches "
+           "exactly what was passed. " if when else ""))}
 
 
 def tool_cancel_alert(alert_id: int = 0, user_id: int = 0) -> dict:
     if not user_id:
         return {"error": "alerts need an account"}
     code, out = api_patch(user_id, int(alert_id), {"delete": True})
-    return out if code == 200 else out
+    if code == 200:
+        _touch_chart()
+        return {**out, "_note": (f"Alert {alert_id} is deleted — it is off the "
+                                 f"widget and its line is off the chart. This "
+                                 f"is not recoverable; a rule the user may "
+                                 f"want back should have been paused instead.")}
+    return out

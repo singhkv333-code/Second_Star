@@ -6430,15 +6430,91 @@ TOOLS = [
          "expires_in_days": {"type": "integer", "description": "0 = open-ended"},
          "note": {"type": "string", "description": "why the user is watching it"}},
       "required": ["when"]}},
+    {"type": "function", "name": "check_alert",
+     "description": (
+         "Resolve an alert expression against the real bars WITHOUT arming it. "
+         "Takes exactly what set_alert takes and returns, per condition, the "
+         "value observed right now beside the target as resolved, plus whether "
+         "the rule is already true. Two uses: answering 'where is it now "
+         "relative to that?', and proving an address resolves before you "
+         "promise the user it is being watched. Prefer it over guessing when "
+         "the expression is unusual — a refusal here is a sentence in the "
+         "conversation, a refusal at 09:20 is an alert that never fired. It "
+         "also works signed out, so an expression can be shown to someone who "
+         "has not made an account yet."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"]},
+         "when": {"type": "array", "description": "the same conditions set_alert takes",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number"},
+                      "plus_pct": {"type": "number"},
+                      "within": {"type": "integer"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true (default) = AND, false = OR"}},
+      "required": ["when"]}},
     {"type": "function", "name": "list_alerts",
      "description": ("The user's own alerts and the most recent things that "
                      "fired, with the value each one actually saw. Use it for "
                      "'what am I watching', 'did anything trigger', or before "
-                     "cancelling one so the id is real."),
-     "parameters": {"type": "object", "properties": {}}},
+                     "updating or cancelling one so the id is real. Narrow with "
+                     "`symbol` or `state` when the question is about one chart "
+                     "or only the paused ones. `mark_seen` clears the bell's "
+                     "unseen count — pass it only when the user is actually "
+                     "acknowledging the fires, never merely to look."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "restrict to one instrument"},
+         "state": {"type": "string", "enum": ["armed", "paused", "fired"]},
+         "mark_seen": {"type": "boolean",
+                       "description": "mark fired entries read (clears the bell)"}}}},
+    {"type": "function", "name": "update_alert",
+     "description": (
+         "Change an alert that already exists: pause it (state='paused'), put "
+         "it back to work (state='armed'), or rewrite what it watches. Pass "
+         "only the fields that change — the others are left alone. Re-arming "
+         "re-seeds the crossing side against the current bar, so a re-armed "
+         "rule watches from now rather than firing on a move it slept through. "
+         "`when` REPLACES the condition list rather than merging into it, so "
+         "send every condition the rule should end up with. Prefer pausing to "
+         "cancelling when the user may want it back: a delete is final."),
+     "parameters": {"type": "object", "properties": {
+         "alert_id": {"type": "integer"},
+         "state": {"type": "string", "enum": ["armed", "paused"],
+                   "description": "'fired' is a state the engine sets, never you"},
+         "freq": {"type": "string",
+                  "enum": ["once", "per_bar", "per_bar_close", "per_day"]},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"]},
+         "when": {"type": "array", "description": "the complete new condition list",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number"},
+                      "plus_pct": {"type": "number"},
+                      "within": {"type": "integer"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true = AND, false = OR"},
+         "expires_in_days": {"type": "integer", "description": "0 clears the expiry"},
+         "note": {"type": "string", "description": "why the user is watching it"}},
+      "required": ["alert_id"]}},
     {"type": "function", "name": "cancel_alert",
-     "description": ("Delete one alert by id. Call list_alerts first unless the "
-                     "id is already known from this conversation."),
+     "description": ("Delete one alert by id, permanently. Call list_alerts "
+                     "first unless the id is already known from this "
+                     "conversation. If the user only wants it to stop for now, "
+                     "update_alert with state='paused' keeps the rule."),
      "parameters": {"type": "object", "properties": {
          "alert_id": {"type": "integer"}},
       "required": ["alert_id"]}},
@@ -6960,7 +7036,8 @@ def _alert_tool(name: str):
     return call
 
 
-for _n in ("set_alert", "list_alerts", "cancel_alert"):
+for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
+           "cancel_alert"):
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
 
 
