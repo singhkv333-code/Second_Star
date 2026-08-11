@@ -6982,7 +6982,29 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
         # fact of the turn, so "is this any good?" has an unambiguous referent
         # instead of the model guessing which shape "this" means
         tag = m.get("drawing")
-        if tag and tag.get("ref"):
+        if tag and tag.get("annotation"):
+            # An annotation the CHAT drew, tagged from its card's "Ask about
+            # this" — the same gesture as tagging a drawing, on the other
+            # layer. Only SOME of these have a scoring path: a level, a zone,
+            # a segment, a fib and a position convert to something the
+            # evaluate tools understand (see _chat_drawing_as_user), and a
+            # pattern's polygon does not. The frontend sends a ref only for
+            # the first set, so this never sends the model after a handle
+            # that cannot resolve — which would come back an error instead of
+            # an answer about the shape the user is pointing at.
+            what = tag.get("label") or tag.get("kind") or "annotation"
+            where = f", on {tag['on']}" if tag.get("on") else ""
+            facts = f" — {tag['detail']}" if tag.get("detail") else ""
+            how = (f" Score it by passing drawing_id={tag['ref']}, never by "
+                   f"retyping its coordinates."
+                   if tag.get("ref") else
+                   " It has no scoring method of its own, so answer from what "
+                   "the chart context and your tools say about that region — "
+                   "and never invent coordinates for it.")
+            txt = (f"[the user tagged the annotation you drew: {what}{where}"
+                   f"{facts}. That annotation is what this message is about, "
+                   f"and it is still on the chart.{how}]\n" + txt)
+        elif tag and tag.get("ref"):
             txt = (f"[the user tagged drawing {tag['ref']} "
                    f"({tag.get('label') or tag.get('type') or 'drawing'}) — "
                    f"this drawing is what the message is about; score it by "

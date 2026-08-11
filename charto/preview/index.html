@@ -527,6 +527,12 @@ select.is-dressed { display: none; }
    head already says it, and says it better; the tooltip stands down while the
    menu is up. */
 .tool-wrap.menu-open .tool .tip { opacity: 0; }
+/* The trash's menu is not a flyout inside a wrap — it floats off <body>, so
+   it has no wrap to carry the state and the button wears it directly. Same
+   rule, same reason: the pointer is still on the button that opened the menu,
+   and "Remove objects…" printed across the list of what would be removed is
+   the tooltip arguing with the answer to its own question. */
+.tool.menu-open .tip { opacity: 0; }
 
 /* ─── 4 · SURFACES ─────────────────────────────────────────────────────── */
 
@@ -1247,6 +1253,15 @@ header > .btn, header > .badge { flex: none; }
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
 .tool:hover { background: var(--hover-fill); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
+/* An empty chart has nothing to remove, and the trash says so by going out
+   rather than by opening a menu with no rows in it. The whole button stands
+   down — no hover fill, no glyph lift, no tooltip — because every one of
+   those is a promise that a press will do something. TradingView greys the
+   same control for the same reason. */
+.tool:disabled { opacity: .3; cursor: default; }
+.tool:disabled:hover { background: transparent; }
+.tool:disabled:hover svg.icon { transform: none; }
+.tool:disabled .tip { opacity: 0; }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
 .rail-spacer { flex: 1; }
@@ -1353,6 +1368,17 @@ header > .btn, header > .badge { flex: none; }
   opacity: .45;
 }
 .tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
+
+/* ── the trash's "remove what?" menu ──────────────────────────────────────
+   TradingView's own: one row per layer, each carrying that layer's count,
+   and a last row for all of them together. It sizes to its longest row
+   rather than to a fixed width — the combined row spells out every layer
+   ("Remove 2 drawings, 4 annotations & 2 indicators"), and a count that
+   wrapped onto a second line would be a number you had to reassemble before
+   you could trust the click. Floating, so the rail's 46px column and its
+   overflow have no say in how wide it gets. */
+.trash-menu { min-width: 0; width: max-content; max-width: min(360px, 60vw); }
+.trash-menu .item { white-space: nowrap; }
 
 /* ── the text annotation's own box ────────────────────────────────────────
    Not a dialog, and not a form field either. It opens ON the chart at the
@@ -2403,23 +2429,51 @@ body.two-columns .readout .row { display: none; }
   border-radius: var(--radius-pill) var(--radius-xs) var(--radius-xs) var(--radius-pill);
 }
 
-/* drawing references carried into the composer */
+/* drawing references carried into the composer.
+
+   A QUIET plate, unframed. This chip used to wear the accent — a teal border
+   over --primary-soft — which made the thing you had merely pointed at the
+   loudest object above the composer, louder than the message you were about
+   to write in it. The accent is this app's "you are on this" colour, spent on
+   the current tool and the active study; a subject waiting to be asked about
+   is not a state, and the chip only has to say "this is coming with it".
+
+   The frame goes for the same reason the readout's chips have none: at 26px
+   the border was half the chip's visual weight and it drew a box around a
+   word. The wash is mixed FROM the ink rather than taken from --muted,
+   because in dark --muted and --card are the same #1c1c1d and a muted plate
+   over the composer would have no fill at all. Same mix as the provenance
+   card's footer buttons — one quiet-plate recipe, two places. */
 .draw-tag-row { margin-bottom: 6px; }
 .draw-tag {
   display: inline-flex; gap: 6px; align-items: center; height: 26px;
   font-size: var(--text-xs); color: var(--foreground);
-  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
-  background: var(--primary-soft); border-radius: var(--radius-pill);
-  padding: 0 5px;
+  border: 0; border-radius: var(--radius-pill); padding: 0 5px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
+/* The ref is a HANDLE, not the subject — the same demotion .prov .draw-ref
+   documents. In the accent it was the brightest thing in the chip, which read
+   as "D3" being what you tagged rather than the shape D3 names. */
 .draw-tag .ref {
-  font: var(--text-3xs) var(--mono); font-weight: var(--weight-semi); color: var(--primary);
+  font: var(--text-3xs) var(--mono); font-weight: var(--weight-semi);
+  color: var(--muted-foreground);
   background: var(--background); border-radius: var(--radius-pill); padding: 2px 6px;
   letter-spacing: .02em;
 }
+/* …and the same tag once the message is sent, standing at the head of its
+   bubble so scrolling back shows WHICH shape a past answer was about.
+
+   It follows the composer chip off the accent for the same reason: this is a
+   caption on a message, not a state the app is in, and in teal it outweighed
+   the sentence underneath it — the loudest thing in the bubble was the label,
+   not the question. Ink at the app's quietest weight, on a plate mixed from
+   the ink rather than --background: the bubble is already --muted, and in
+   light the two are near enough that a --background pill on it read as a hole
+   punched in the bubble. */
 .bubble-tag {
   display: inline-block; font: var(--text-3xs) var(--mono); letter-spacing: .02em;
-  color: var(--primary); background: var(--background);
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
   border-radius: var(--radius-pill); padding: 2px 8px; margin-bottom: 6px;
 }
 

@@ -772,8 +772,14 @@
     '<div class="rail-spacer"></div>' +
     `<button class="tool" id="tool-export" data-tool="export" data-kind="action">` +
     `${Icons.svg("download")}<span class="tip">Export drawings JSON</span></button>` +
-    `<button class="tool" id="tool-trash" data-tool="trash" data-kind="action">` +
-    `${Icons.svg("trash")}<span class="tip">Clear all drawings</span></button>`);
+    // "Remove objects", not "clear all drawings": the button opens a menu that
+    // names each layer and its count, and a tooltip promising to clear one
+    // layer over a control that offers three was the narrower of two lies.
+    // Born disabled, and switched on by the first sync once the restore has
+    // put the session back: a chart with nothing on it yet must not offer to
+    // remove things from it, and "yet" includes the first frame.
+    `<button class="tool" id="tool-trash" data-tool="trash" data-kind="action" disabled>` +
+    `${Icons.svg("trash")}<span class="tip">Remove objects…</span></button>`);
 
   /** Open or close one group's flyout. The wrap gets the state too, because
    *  the button's tooltip has to know: both land in the same slot beside the
@@ -912,7 +918,6 @@
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());
 
-  let trashArmed = false;
   function selectTool(id) {
     draw.setTool(id);
     el("tool-cursor").classList.toggle("active", id === "cursor");
@@ -926,8 +931,139 @@
       ? `${spec.label} — ${spec.anchors === "free" ? "drag to draw"
           : `click ${spec.anchors} point${spec.anchors > 1 ? "s" : ""}`}`
       : "");
-    trashArmed = false;
   }
+
+  /* ── the trash: which objects, said before they go ──────────────────────
+   *
+   * TradingView's trash does not clear the chart — it ASKS. Its menu is one
+   * row per layer with that layer's own count ("Remove 2 drawings", "Remove 2
+   * indicators") and a last row for both together, so a destructive click
+   * states its exact scope before it happens and you never have to guess
+   * which of the things on screen the button considered yours.
+   *
+   * This replaces an arm-then-confirm double click, which had two problems
+   * the menu does not. Its confirmation was a line of text in a status strip
+   * this chart no longer has — so the first click asked a question nothing on
+   * screen printed, and the second answered it blind. And the promise it
+   * confirmed was only ever the DRAWING layer, while the chart plainly also
+   * carried the chat's annotations and the studies. A button that says "clear
+   * all" and clears a third of what you can see is worse than one that asks.
+   *
+   * Charto's chart holds three sets of objects rather than TradingView's two:
+   * what you drew, what the chat drew, and the indicators. The fold control
+   * deliberately merges the first two — someone who wants to see the candles
+   * does not care whose line is covering them — but delete cannot: which of
+   * those two goes is exactly the distinction worth a row here.
+   *
+   * The menu is BUILT FROM WHAT IS ON THE CHART. An empty layer gets no row,
+   * because a row that removes nothing is a control that lies about having
+   * done something; on a chart with nothing on it the button itself goes out
+   * (syncTrashBtn). The combined row appears only when there are two or more
+   * layers for it to combine.
+   */
+  const TRASH_LAYERS = [
+    { key: "drawings", icon: "pen", one: "drawing", many: "drawings",
+      count: () => draw.count(),
+      clear: () => draw.clearAll() },
+    { key: "annotations", icon: "chat", one: "annotation", many: "annotations",
+      count: () => scene.count(),
+      clear: () => scene.clear() },
+    { key: "indicators", icon: "indicators", one: "indicator", many: "indicators",
+      count: () => ind.active.size,
+      clear: () => {
+        // A copy of the keys, because remove() deletes from the map we'd be
+        // iterating. The event is what saves the set, repaints the menu and
+        // hands the whole removal to the undo stack as one step.
+        for (const id of [...ind.active.keys()]) ind.remove(id);
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      } },
+  ];
+  /** "1 drawing" / "4 drawings" — the count leads, as it does in TradingView's
+   *  own rows, because the number is the thing you are checking. */
+  const trashPhrase = (l, n) => `${n} ${n === 1 ? l.one : l.many}`;
+  /** "2 drawings, 4 annotations & 2 indicators" — commas, then an ampersand
+   *  for the last pair, which is how the combined row reads at two items and
+   *  still reads at three. */
+  const trashList = (parts) => (parts.length < 2 ? parts.join("")
+    : `${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}`);
+  /** Every layer with something in it, and how much. */
+  const trashLive = () =>
+    TRASH_LAYERS.map((l) => ({ l, n: l.count() })).filter((x) => x.n > 0);
+
+  /** Remove the named layers in one go — one gesture, one undo step. */
+  function trashClear(live) {
+    if (!live.length) return;
+    for (const x of live) x.l.clear();
+  }
+
+  /** The button goes out when the chart is empty.
+   *
+   *  A trash that opens an empty menu — or worse, opens nothing at all — is a
+   *  control that answers a press with silence, and the chart has no status
+   *  strip left to explain itself in. Greyed, the button has already said it,
+   *  and it says it before the press rather than after. */
+  function syncTrashBtn() {
+    const b = el("tool-trash");
+    if (!b) return;
+    const empty = !trashLive().length;
+    b.disabled = empty;
+    if (empty) closeTrashMenu();   // the last object can go while the menu is up
+  }
+  // Drawings and the scene both land in syncDrawToggle; the studies announce
+  // themselves. Between them every path that adds or removes an object is
+  // covered, including the chat's and the undo stack's.
+  document.addEventListener("charto:indicators-changed", syncTrashBtn);
+
+  /* Appended to <body>, like the legend's ⋯ menu: the rail is a 46px column
+   * with its own overflow, and a menu that has to be wider than its anchor
+   * cannot live inside one. */
+  let trashMenu = null;
+  function closeTrashMenu() {
+    if (!trashMenu) return;
+    trashMenu.remove();
+    trashMenu = null;
+    el("tool-trash").classList.remove("menu-open");
+  }
+  document.addEventListener("click", closeTrashMenu);
+
+  function openTrashMenu(anchor) {
+    closeTrashMenu();
+    closeToolMenus();
+    closeMenus(null);
+    const live = trashLive();
+    if (!live.length) return;      // the button is already out; belt and braces
+
+    const pop = document.createElement("div");
+    pop.className = "dropdown floating open trash-menu";
+    pop.innerHTML = live.map((x, i) =>
+      `<div class="item danger" data-trash="${i}"><span class="lead">` +
+      `${Icons.svg(x.l.icon, "sm")}Remove ${trashPhrase(x.l, x.n)}</span></div>`).join("")
+      + (live.length > 1
+        ? `<div class="sep"></div><div class="item danger" data-trash="all">` +
+          `<span class="lead">${Icons.svg("trash", "sm")}Remove ` +
+          `${trashList(live.map((x) => trashPhrase(x.l, x.n)))}</span></div>` : "");
+    document.body.appendChild(pop);
+    trashMenu = pop;
+    anchor.classList.add("menu-open");   // the tooltip stands down
+
+    // The trash is the LAST button on the rail, so the menu is hung off its
+    // BOTTOM edge and grows upward — anchored to the top it would open into
+    // the time axis and off the foot of the window.
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = `${r.right + 12}px`;
+    pop.style.bottom = `${Math.max(8, innerHeight - r.bottom - 4)}px`;
+
+    pop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const it = e.target.closest("[data-trash]");
+      if (!it) return;
+      closeTrashMenu();
+      // The counts were read when the menu opened; nothing can have changed
+      // them while it was up, since the menu takes every click.
+      trashClear(it.dataset.trash === "all" ? live : [live[+it.dataset.trash]]);
+    });
+  }
+
   rail.addEventListener("click", (e) => {
     const b = e.target.closest(".tool");
     if (!b) return;
@@ -943,15 +1079,11 @@
       return;
     }
     if (id === "trash") {
-      if (!trashArmed) {
-        trashArmed = true;
-        setText("drawStatus", `click trash again to clear ${draw.count()} drawings`);
-        setTimeout(() => { trashArmed = false; }, 3000);
-      } else {
-        draw.clearAll();
-        trashArmed = false;
-        setText("drawStatus", "all drawings cleared");
-      }
+      // …or the document handler above would shut the menu in the same click
+      // that opened it. The two closes openTrashMenu makes are what this
+      // gives up by stopping here.
+      e.stopPropagation();
+      openTrashMenu(b);
     }
   });
   selectTool("cursor");
@@ -1500,6 +1632,9 @@
    *  placed, dragged or deleted on the drawing layer, which scene.js has no
    *  way to hear about but which its count includes. */
   function syncDrawToggle() {
+    // Every path that changes the drawing or the scene layer ends here, which
+    // makes it the one place the trash can hear about either of them.
+    syncTrashBtn();
     // Nothing left to fold — so the fold goes too, in storage as well as in
     // memory. A chart must never sit in a hidden state with no control on
     // screen to reverse it, and a flag left set would re-hide the next
@@ -1542,6 +1677,116 @@
   const prov = el("provCard");
   let provFor = null;
   let peekTimer = 0;
+  // The annotation the card is currently describing. The card's own actions
+  // need the object, not just its id — and it is deliberately separate from
+  // `provDraw` (the user's own shape), because the two cards remove different
+  // things from different layers and must never be able to fire each other's.
+  let provAnn = null;
+
+  /** A pattern's label, split into the segments the detector packed into it:
+   *  "falling wedge · width 40.81 · unresolved" → the name, then its facts.
+   *
+   *  A formation is drawn as several linked pieces — outline, fill, upper and
+   *  lower edge, neckline — and only some carry the label. Hovering the fill
+   *  must still say "falling wedge", so the name is resolved across the whole
+   *  `link` group rather than off the piece under the pointer. */
+  function patternParts(a) {
+    const kin = a.link
+      ? scene.state.items.filter((q) => q.link === a.link && q.label)
+      : (a.label ? [a] : []);
+    const named = kin.find((q) => q.label) || a;
+    return String(named.label || "").split("·")
+      .map((x) => x.trim()).filter(Boolean);
+  }
+
+  /** What this annotation is CALLED — the name its card is titled with, and
+   *  the name the composer's chip wears when you ask about it. One function,
+   *  so the two can never disagree about what you clicked. */
+  function annName(a) {
+    const s = a.source || {};
+    if (s.tool === "get_patterns") return patternParts(a)[0] || "Pattern";
+    if (s.tool === "get_trendlines") return "Trendline";
+    if (s.tool === "get_divergences") {
+      return `${String(s.strength || "").replace(/_/g, " ").trim()} divergence`.trim();
+    }
+    return a.role === "resistance" ? "Resistance"
+      : a.role === "support" ? "Support" : (a.label || "Annotation");
+  }
+
+  /** The card's title LINE — the name and, where the card prints one, the
+   *  number beside it. "Resistance" alone does not identify anything on a
+   *  chart carrying three of them; "Resistance 1,282.50" does, which is why
+   *  the card's header has always had two slots. Anything named after itself
+   *  (a wedge, a divergence) needs no number and is given none. */
+  function annTitle(a) {
+    const num = (n) => (Number.isFinite(Number(n))
+      ? Sym.num(n, { minimumFractionDigits: 2 }) : null);
+    const n = a.kind === "level" ? num(a.price)
+      : a.kind === "zone" && num(a.lo) && num(a.hi) ? `${num(a.lo)}–${num(a.hi)}`
+        : null;
+    return [annName(a), n].filter(Boolean).join(" ");
+  }
+
+  /* Kinds the backend can resolve BY ID out of the chart envelope — the
+   * strong form of the tag, where the model scores the object itself instead
+   * of working from a description of it. Everything else (a pattern's
+   * polygon, a marker run, a box) has no evaluator behind it, so it travels
+   * as prose and is not offered as a handle that would fail to resolve.
+   * Mirrors data/dataserver.py's `_chat_drawing_as_user`. */
+  const ANN_ADDRESSABLE = new Set(["level", "zone", "segment", "fib", "position"]);
+
+  /** Can this annotation be handed to the evaluate tools by id?
+   *
+   *  A `link` is what says the piece under the pointer is one leg of a
+   *  FORMATION — a wedge is an upper edge, a lower edge and a fill; a head
+   *  and shoulders is an outline, three marked peaks and a neckline. Those
+   *  legs are individually addressable kinds, so without this a wedge tagged
+   *  by its edge would ask for a trendline to be scored and the same wedge
+   *  tagged by its fill would not — the same object producing two different
+   *  questions depending on which pixel raised the card. And the trendline
+   *  answer would be the wrong one anyway: nothing scores a formation, and
+   *  scoring one of its edges is not a smaller version of doing so. A
+   *  formation travels as prose; a level, a zone, a plan or a lone line
+   *  travels as a handle. */
+  const annScoreable = (a) => !a.link && ANN_ADDRESSABLE.has(a.kind);
+
+  /** The annotation as the composer's tag: what to call it, what it is worth
+   *  saying about it, and — where one exists — the handle the evaluate tools
+   *  resolve it by. */
+  function annTag(a) {
+    const s = a.source || {};
+    const title = annTitle(a);
+    // The detector's own label is richer than the name it starts with; the
+    // span is the other half of what identifies one formation among several
+    // of the same kind on one chart.
+    const facts = [];
+    // Resolved across the `link` group, exactly as the card's title is: a
+    // formation's measurements sit on whichever of its legs carries the
+    // label, and tagging it by an unlabelled edge must not lose them.
+    const label = a.label || (a.link
+      ? (scene.state.items.find((q) => q.link === a.link && q.label) || {}).label
+      : "") || "";
+    if (label) {
+      // A detector's label often LEADS with the name the title already
+      // carries — "falling wedge · width 40.81 · unresolved" under the title
+      // "falling wedge" — and repeating it makes the tag stutter. Only what
+      // the title has not already said travels.
+      const rest = label.startsWith(title)
+        ? label.slice(title.length).replace(/^\s*·\s*/, "") : label;
+      if (rest && rest !== title) facts.push(rest);
+    }
+    if (s.first_touch) {
+      facts.push(s.last_touch && s.last_touch !== s.first_touch
+        ? `${s.first_touch} → ${s.last_touch}` : s.first_touch);
+    }
+    return {
+      annotation: true, id: a.id, kind: a.kind, label: title,
+      ref: annScoreable(a) ? a.id : undefined,
+      on: a.pane && a.pane !== "price"
+        ? ((ind.CATALOG.find((c) => c.id === a.pane) || {}).label || a.pane) : undefined,
+      detail: facts.join(" · ") || undefined,
+    };
+  }
 
   /** Park the card in its bottom-left dock.
    *
@@ -1560,6 +1805,7 @@
     // no way out but Escape.
     prov.classList.remove("open", "peek");
     provFor = null;
+    provAnn = null;
     // Dismissing the card ends the whole hover conversation — leaving the
     // chat mention lit after its card is gone strands a highlight with
     // nothing pointing at it.
@@ -1627,18 +1873,13 @@
       // and lower edge, neckline — and only some carry the label. Hovering
       // the fill must still say "double top", so the name is resolved across
       // the whole `link` group rather than off the piece under the pointer.
-      const kin = a.link
-        ? scene.state.items.filter((q) => q.link === a.link && q.label)
-        : (a.label ? [a] : []);
-      const named = kin.find((q) => q.label) || a;
       // The label carries the detector's OWN facts — "falling wedge · width
       // 2.78 · unresolved", "double top · neckline 1,271.00 · confirmed".
       // Only the first segment was being read, as the name, and the rest was
       // dropped, which is why a pattern card had less to say than the chat
       // message that drew the pattern. Each remaining segment is either a
       // measurement ("<name> <number>") or the formation's state.
-      const parts = String(named.label || "").split("·")
-        .map((x) => x.trim()).filter(Boolean);
+      const parts = patternParts(a);
       kindName = parts.shift() || "Pattern";
       const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
       let stated = false;
@@ -1713,6 +1954,10 @@
   /** The annotation card. Raised by hover, dismissed by leaving — there is
    *  no second, pinned variant of it. */
   function peekProvenance(a) {
+    // The subject is re-taken even on the early return: the card can already
+    // be up on this annotation from a hover that arrived before the drag that
+    // moved it, and its buttons act on the object, not on the markup.
+    provAnn = a;
     if (provFor === a.id && prov.classList.contains("open")) return;
     provFor = a.id;
     prov.innerHTML = provHTML(a);
@@ -1930,6 +2175,7 @@
   let provDraw = null;
   function showDrawingCard(d, y) {
     provDraw = d;
+    provAnn = null;        // this card describes the other layer
     provFor = d.id;
     const T = (t) => fmtIST(t + IST, !DAILY.has(state.interval));
     // Two decimals, like every other price in the app. Raw drawing geometry
@@ -2060,9 +2306,30 @@
       provDraw = null;
       return hideProvenance();
     }
-    // A chat-drawn annotation's card is evidence only — it is raised by
-    // hover and reads as a label, so it carries no actions of its own. Close
-    // is the whole interaction; the chat removes what the chat drew.
+    /* The chat-drawn annotation's two. They had been drawn since the card was
+     * written and wired to nothing — the card fell through to Close, so the
+     * only way to get a pattern off the chart was to clear every annotation
+     * on it, and the only way to ask about one was to describe it back to the
+     * chat in words it had just used itself.
+     *
+     * They are the SAME two actions the drawing card offers, on the other
+     * layer: ask puts the object in the composer, remove takes it off the
+     * chart. Nothing about the card is a second opinion — both act on the
+     * annotation the card is currently describing. */
+    if (act === "ask" && provAnn) {
+      document.dispatchEvent(new CustomEvent("charto:draw-tag",
+                                             { detail: annTag(provAnn) }));
+      return hideProvenance();
+    }
+    if (act === "remove" && provAnn) {
+      // scene.remove() takes the whole `link` group, so removing the fill of
+      // a wedge removes the wedge rather than leaving its edges behind. The
+      // scene's own onChange saves it and hands it to the undo stack.
+      // No message: the shape leaves the chart and the card closes over it,
+      // which is the same result said twice if anything narrates it.
+      scene.remove(provAnn.id);
+      return hideProvenance();
+    }
     hideProvenance();
   });
 
@@ -2710,5 +2977,20 @@
   })();
 
   window.__charto = { chart, candle, state, draw, ind, scene, pins,
-                      getChartContext, charts: chartList, panes: Panes };
+                      getChartContext, charts: chartList, panes: Panes,
+                      /* The trash's model, so the phone's sheet offers the same
+                       * choices the rail's menu does rather than a "clear all"
+                       * that means something narrower. One definition of what a
+                       * layer is and what clearing it does; two ways in. */
+                      objects: {
+                        live: () => trashLive().map((x) => ({
+                          key: x.l.key, n: x.n,
+                          label: `Remove ${trashPhrase(x.l, x.n)}`,
+                          icon: x.l.icon,
+                        })),
+                        clear(keys) {
+                          const want = new Set([].concat(keys));
+                          trashClear(trashLive().filter((x) => want.has(x.l.key)));
+                        },
+                      } };
 })();

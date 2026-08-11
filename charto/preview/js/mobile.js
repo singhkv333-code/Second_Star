@@ -186,7 +186,6 @@
    * exact path a mouse takes (including the rail remembering it as that
    * group's last tool). */
   let drawTab = (Tools.GROUPS[0] || {}).id;
-  let trashArmed = false, trashTimer = null;
 
   const railTool = (id) => document.querySelector(`.rail .item[data-tool="${id}"]`);
 
@@ -215,20 +214,32 @@
         }).join("")
       : tiles(all);
   }
+  /* The rail's trash opens a menu naming exactly what would go — "Remove 2
+   * drawings", "Remove 4 annotations" — instead of clearing on trust. A phone
+   * has no room for a menu hanging off a tile, and it does not need one: the
+   * sheet IS the menu, so each of those rows becomes its own tile and the
+   * choice is made in the same tap. The model behind them is main.js's
+   * (window.__charto.objects), so a layer cannot exist here and not there. */
+  const objects = () => (window.__charto && window.__charto.objects) || null;
+
   function paintDrawActs() {
     const acts = sBody.querySelector("#drawActs");
     if (!acts) return;
+    const o = objects();
+    const live = o ? o.live() : [];
     acts.innerHTML =
       tile('data-tool="cursor"', Icons.svg("crosshair"), "Cursor",
            el("tool-cursor").classList.contains("active") ? "on" : "") +
       tile('data-act="magnet"', Icons.svg("magnet"), "Magnet",
            el("tool-magnet").classList.contains("toggled") ? "on" : "") +
       tile('data-act="export"', Icons.svg("download"), "Export") +
-      // The rail's clear-all arms on the first click and confirms in the
-      // status strip — which a sheet is sitting on top of. So the tile says
-      // it itself: a phone cannot be asked to read a line it cannot see.
-      tile('data-act="trash"', Icons.svg("trash"),
-           trashArmed ? "Tap again to clear" : "Clear all", "danger");
+      // Nothing on the chart, no tile: a "Clear all" on an empty chart is a
+      // button that can only ever do nothing.
+      live.map((x) => tile(`data-clear="${x.key}"`, Icons.svg(x.icon),
+                           x.label, "danger")).join("") +
+      (live.length > 1
+        ? tile(`data-clear="${live.map((x) => x.key).join(" ")}"`,
+               Icons.svg("trash"), "Remove all", "danger") : "");
   }
 
   SHEETS.drawings = { title: "Drawings", fill(b) {
@@ -313,20 +324,21 @@
     const tool = e.target.closest("[data-tool]");
     if (tool) return act(railTool(tool.dataset.tool) || el(`tool-${tool.dataset.tool}`));
 
+    // The sheet stays open and repaints: the tile that was just used is gone
+    // (its layer is empty now) and the counts on the others are still true,
+    // which is the confirmation — nothing has to be read off the status strip
+    // the sheet is covering.
+    const rm = e.target.closest("[data-clear]");
+    if (rm) {
+      const o = objects();
+      if (o) o.clear(rm.dataset.clear.split(" "));
+      return paintDrawActs();
+    }
+
     const a = e.target.closest("[data-act]");
     if (a) {
       if (a.dataset.act === "magnet") {
         el("tool-magnet").click();
-        return paintDrawActs();
-      }
-      if (a.dataset.act === "trash") {
-        el("tool-trash").click();          // first arms, second clears
-        trashArmed = !trashArmed;
-        clearTimeout(trashTimer);
-        // the rail disarms itself after 3s; the label has to say the same
-        if (trashArmed) {
-          trashTimer = setTimeout(() => { trashArmed = false; paintDrawActs(); }, 3000);
-        }
         return paintDrawActs();
       }
       return act(el(`tool-${a.dataset.act}`));

@@ -111,19 +111,29 @@
   // way pinning a candle does. The message then carries the drawing's REF, so
   // the tools resolve exact geometry instead of the model guessing which
   // shape "this" meant and retyping its coordinates.
+  //
+  // The chat's OWN annotations ride the same rail. "Ask about this" on a
+  // pattern card is the same gesture on the other layer, and it arrives here
+  // in the same shape — so there is one chip, one wire field and one place
+  // that decides what a tagged object looks like in the thread. What differs
+  // is the handle: a drawing wears its short ref (D3), and an annotation
+  // wears its own name, because a scene id is not something to show anybody.
   function setDrawTag(d) {
     pendingDraw = d;
     const row = el("drawTagRow");
     row.style.display = d ? "" : "none";
     if (!d) return;
-    const on = d.pane && d.pane !== "price" ? ` · on ${d.pane}` : "";
-    row.innerHTML = `<span class="draw-tag"><span class="ref">${d.ref}</span>`
-      + `${d.label.toLowerCase()}${on}`
+    const on = d.on || (d.pane && d.pane !== "price" ? d.pane : "");
+    row.innerHTML = `<span class="draw-tag">`
+      + (d.annotation ? "" : `<span class="ref">${esc(d.ref)}</span>`)
+      + `${esc(String(d.label || d.kind || "drawing").toLowerCase())}`
+      + (on ? ` · on ${esc(on)}` : "")
       + `<span class="x" data-untag="1" title="Don't ask about this">`
       + `${Icons.svg("x", "xs")}</span></span>`;
   }
-  // Only an explicit "Ask in chat" on the drawing's card tags it — selecting
-  // a shape to drag or edit must never attach it to the conversation.
+  // Only an explicit "Ask in chat" / "Ask about this" on the object's card
+  // tags it — selecting a shape to drag or edit, or hovering an annotation to
+  // read its card, must never attach anything to the conversation.
   document.addEventListener("charto:draw-tag", (e) => {
     setDrawTag(e.detail);
     input.focus();
@@ -399,8 +409,11 @@
       // shape a past answer was about, not just that one was tagged
       const tg = document.createElement("div");
       tg.className = "bubble-tag";
-      tg.textContent = `${drawing.ref} · ${String(drawing.label).toLowerCase()}`
-        + (drawing.pane && drawing.pane !== "price" ? ` on ${drawing.pane}` : "");
+      const on = drawing.on
+        || (drawing.pane && drawing.pane !== "price" ? drawing.pane : "");
+      tg.textContent = (drawing.annotation ? "" : `${drawing.ref} · `)
+        + String(drawing.label || drawing.kind || "drawing").toLowerCase()
+        + (on ? ` on ${on}` : "");
       b.appendChild(tg);
     }
     if (image) {
