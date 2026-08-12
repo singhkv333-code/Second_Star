@@ -142,6 +142,13 @@
   --seam: var(--border);
   --seam-strong: var(--muted-foreground);
 
+  /* The header's height, as a number the rest of the app can read. Anything
+     that hangs BELOW the header — the journal's editor drawer is the first —
+     was writing `48px` again from memory, which is a measurement that goes
+     stale silently: change the strip and the drawer keeps the old offset,
+     leaving a hairline of chart showing above it. */
+  --header-h: 48px;
+
   /* Motion. Three durations, not six. --dur is the default for every
      colour/background transition; --dur-fast is for transforms that
      should feel instant; --dur-slow is for surfaces entering. */
@@ -1278,7 +1285,7 @@ select.is-dressed { display: none; }
    rule was painting it white with a hairline under it — a second surface
    colour inside one card, and a line TradingView does not draw. */
 body > header {
-  display: flex; align-items: center; gap: 8px; height: 48px;
+  display: flex; align-items: center; gap: 8px; height: var(--header-h);
   padding: 0 10px 0 12px; border-bottom: var(--seam-w) solid var(--seam);
   background: var(--background); z-index: 20; flex: none;
 }
@@ -4427,165 +4434,562 @@ svg.icon.op {
 
 /* ══ JOURNAL — a full desk, not another narrow widget ═════════════════════
    The live chart remains mounted underneath; opening this workspace changes
-   what is visible, not what exists, so returning restores the exact view. */
-#journalBtn { gap: 7px; padding-inline: 10px; }
-#journalBtn svg { width: 16px; height: 16px; }
-body.journal-open > header > :not(.brand):not(#journalBack):not(.spacer):not(.menu-wrap:last-child) { display:none; }
-#journalBack { display:none; gap:7px; }
-body.journal-open #journalBack { display:flex; }
-body.journal-open .main { display:none; }
-.journal { display:none; flex:1; min-height:0; background:var(--background); color:var(--foreground); }
-body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,1fr); }
-.j-side { padding:24px 16px; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:24px; background:color-mix(in srgb,var(--card) 88%,var(--background)); }
-.j-kicker { padding:0 10px; font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted-foreground); }
-.j-nav { display:grid; gap:4px; }
-.j-nav button { border:0; background:transparent; color:var(--muted-foreground); min-height:42px; border-radius:9px; padding:0 10px; display:flex; align-items:center; gap:11px; font:inherit; font-size:13px; cursor:pointer; text-align:left; }
-.j-nav button svg { width:17px; height:17px; }
-.j-nav button:hover { background:var(--muted); color:var(--foreground); }
-.j-nav button.active { color:var(--foreground); background:var(--card); box-shadow:0 1px 0 var(--border),0 6px 20px rgba(15,23,42,.05); }
-.j-side-note { margin-top:auto; padding:14px; border:1px solid var(--border); border-radius:11px; background:var(--card); font-size:12px; line-height:1.55; color:var(--muted-foreground); }
-.j-side-note strong { display:block; color:var(--foreground); margin-bottom:3px; }
-.j-main { overflow:auto; min-width:0; }
-.j-shell { width:min(1220px,calc(100% - 56px)); margin:0 auto; padding:30px 0 64px; }
-.j-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:26px; }
-.j-eyebrow { font-size:12px; color:var(--primary); font-weight:600; margin-bottom:6px; }
-.j-head h1 { margin:0; font-family:Georgia,'Times New Roman',serif; font-size:34px; letter-spacing:-.035em; font-weight:500; }
-.j-head p { color:var(--muted-foreground); margin:7px 0 0; font-size:13px; }
-.j-actions { display:flex; gap:8px; align-items:center; }
-.j-action { min-height:40px; border:1px solid var(--border); background:var(--card); color:var(--foreground); border-radius:9px; padding:0 14px; font:inherit; font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer; }
-.j-action:hover { border-color:var(--muted-foreground); }
-.j-action.primary { background:var(--foreground); color:var(--background); border-color:var(--foreground); }
-.j-action svg { width:16px; height:16px; }
-.j-filters { display:flex; gap:8px; margin-bottom:18px; }
-.j-search { position:relative; flex:1; }
-.j-search svg { position:absolute; left:12px; top:12px; width:16px; color:var(--muted-foreground); }
-.j-search input,.j-select { width:100%; height:40px; border:1px solid var(--border); border-radius:9px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
-.j-search input { padding:0 12px 0 38px; }
-.j-select { width:auto; min-width:130px; padding:0 32px 0 11px; }
-.j-search input:focus,.j-select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.j-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:18px; }
-.j-metric { min-height:122px; border:1px solid var(--border); border-radius:12px; padding:17px; background:var(--card); position:relative; overflow:hidden; }
-.j-metric::after { content:''; position:absolute; right:-30px; bottom:-45px; width:100px; height:100px; border-radius:50%; background:var(--primary-soft); opacity:.55; }
-.j-metric label { font-size:12px; color:var(--muted-foreground); display:block; }
-.j-metric b { display:block; margin-top:18px; font-size:25px; font-weight:550; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
-.j-metric small { color:var(--muted-foreground); font-size:11px; position:relative; z-index:1; }
-.j-grid { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(260px,.8fr); gap:12px; }
-.j-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
-.j-card-head { min-height:54px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-soft); }
-.j-card-head strong { font-size:13px; font-weight:600; }
-.j-card-head span { font-size:11px; color:var(--muted-foreground); }
-.j-equity { height:220px; padding:22px 18px 10px; position:relative; }
-.j-equity svg { width:100%; height:100%; overflow:visible; }
-.j-equity .zero { stroke:var(--border); stroke-dasharray:4 5; }
-.j-equity .line { fill:none; stroke:var(--primary); stroke-width:2.2; vector-effect:non-scaling-stroke; }
-.j-equity .area { fill:url(#jArea); opacity:.36; }
-.j-empty { min-height:210px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); padding:30px; font-size:13px; line-height:1.55; }
-.j-calendar { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; padding:14px; }
-.j-day { aspect-ratio:1; min-width:0; border:1px solid var(--border-soft); border-radius:7px; padding:6px; font-size:10px; color:var(--muted-foreground); display:flex; flex-direction:column; justify-content:space-between; }
-.j-day b { color:var(--foreground); font-size:11px; font-variant-numeric:tabular-nums; }
-.j-day.up { background:color-mix(in srgb,var(--up) 10%,var(--card)); }
-.j-day.down { background:color-mix(in srgb,var(--down) 9%,var(--card)); }
-.j-table-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
-.j-table { width:100%; border-collapse:collapse; font-size:12px; }
-.j-table th { color:var(--muted-foreground); font-weight:500; text-align:left; height:39px; padding:0 14px; border-bottom:1px solid var(--border); }
-.j-table td { height:54px; padding:0 14px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; }
-.j-table tr:last-child td { border-bottom:0; }
-.j-table tbody tr { cursor:pointer; }
-.j-table tbody tr:hover { background:var(--muted); }
-.j-symbol { font-weight:650; letter-spacing:.01em; }
-.j-side-pill { padding:4px 7px; border-radius:999px; font-size:10px; text-transform:uppercase; letter-spacing:.06em; background:var(--muted); }
-.j-pnl.up { color:var(--up); } .j-pnl.down { color:var(--down); }
-.j-tag { display:inline-flex; padding:3px 7px; border:1px solid var(--border); border-radius:999px; color:var(--muted-foreground); margin-right:4px; font-size:10px; }
-.j-review-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--border); margin-right:6px; }
-.j-review-dot.done { background:var(--primary); }
-.j-books { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-.j-book { min-height:180px; border:1px solid var(--border); background:var(--card); border-radius:12px; padding:18px; cursor:pointer; }
-.j-book:hover { transform:translateY(-2px); box-shadow:0 10px 25px rgba(15,23,42,.07); }
-.j-book .mark { width:32px;height:4px;border-radius:99px;background:var(--primary);margin-bottom:28px; }
-.j-book h3 { margin:0 0 8px; font-size:15px; }
-.j-book p { margin:0; color:var(--muted-foreground); font-size:12px; line-height:1.55; }
-.j-book small { display:block; margin-top:22px; color:var(--muted-foreground); }
-.j-drawer { position:fixed; z-index:100; inset:48px 0 0 auto; width:min(580px,100vw); background:var(--background); border-left:1px solid var(--border); box-shadow:-22px 0 55px rgba(15,23,42,.12); transform:translateX(104%); transition:transform .25s ease-out; display:flex; flex-direction:column; }
-.j-drawer.open { transform:none; }
-.j-drawer-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-.j-drawer-title b { display:block; font-size:18px; }.j-drawer-title span { font-size:11px;color:var(--muted-foreground); }
-.j-drawer-body { padding:22px; overflow:auto; display:grid; gap:22px; }
-.j-section { display:grid; gap:12px; }
-.j-section h3 { margin:0; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted-foreground); }
-.j-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.j-field { display:grid; gap:6px; }
-.j-field.wide { grid-column:1/-1; }
-.j-field label { font-size:11px; color:var(--muted-foreground); }
-.j-field input,.j-field select,.j-field textarea { width:100%; min-height:40px; border:1px solid var(--border); border-radius:8px; padding:9px 10px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
-.j-field textarea { min-height:82px; resize:vertical; line-height:1.5; }
-.j-field input:focus,.j-field textarea:focus,.j-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.j-drawer-foot { margin-top:auto; padding:14px 22px; border-top:1px solid var(--border); display:flex; justify-content:space-between; gap:8px; background:var(--card); }
-.j-toast { position:fixed; z-index:130; left:50%; bottom:24px; transform:translate(-50%,20px); opacity:0; padding:10px 14px; border-radius:9px; background:var(--foreground); color:var(--background); font-size:12px; transition:.2s; pointer-events:none; }
-.j-toast.show { opacity:1; transform:translate(-50%,0); }
+   what is visible, not what exists, so returning restores the exact view.
 
-/* Compact journal — anchored to the chart, with detail delegated to the full
-   workspace. The chart stays mounted and visible around the sheet. */
-.stage.journal-pane-open #chart { bottom:var(--journal-pane-h,260px); }
-.stage.journal-pane-open .prov { bottom:calc(var(--journal-pane-h,260px) + 10px); }
-.jq { position:absolute; z-index:42; left:0; right:0; bottom:0;
-  height:var(--journal-pane-h,260px); min-height:150px; max-height:72%;
-  display:none; flex-direction:column; background:var(--background);
-  border-top:1px solid var(--seam-strong); overflow:hidden; }
-.jq.open { display:flex; }
-.jq-grip { position:absolute;z-index:3;left:0;right:0;top:-5px;height:10px;cursor:row-resize;background:transparent; }
-.jq-grip:hover,.jq-grip.dragging { background:color-mix(in srgb,var(--primary) 45%,transparent); }
-.jq-head { min-height:42px; height:42px; padding:0 12px 0 18px; display:flex; align-items:center; gap:18px; border-bottom:1px solid var(--border); flex:none; background:var(--card); }
-.jq-title { min-width:125px; }
-.jq-title strong { display:block; font:650 13px/1.2 var(--font); letter-spacing:-.01em; }
-.jq-title span { display:block; margin-top:1px; color:var(--muted-foreground); font-size:9px; }
-.jq-tabs { align-self:stretch; display:flex; align-items:stretch; gap:2px; }
-.jq-tab { position:relative; border:0; background:transparent; padding:0 11px; font:inherit; font-size:11px; color:var(--muted-foreground); cursor:pointer; }
-.jq-tab:hover { color:var(--foreground); }
-.jq-tab.active { color:var(--foreground); font-weight:600; }
-.jq-tab.active::after { content:''; position:absolute; left:10px;right:10px;bottom:-1px;height:2px;background:var(--primary);border-radius:2px 2px 0 0; }
-.jq-head .spacer { flex:1; }
-.jq-full { min-height:28px; border:1px solid var(--border); border-radius:5px; padding:0 9px; display:flex; align-items:center; gap:6px; color:var(--foreground); background:var(--card); font:inherit; font-size:10px; cursor:pointer; }
-.jq-full:hover { border-color:var(--muted-foreground); }
-.jq-full svg,.jq-close svg { width:14px;height:14px; }
-.jq-close { width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer; }
-.jq-close:hover { background:var(--muted);color:var(--foreground); }
-.jq-body { flex:1; overflow:auto; min-height:0; padding:0; background:var(--background); }
-.jq-metrics { display:grid; grid-template-columns:repeat(6,minmax(112px,1fr)); border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--card) 96%,var(--primary) 4%); overflow:auto; }
-.jq-metric { position:relative; min-height:52px; padding:8px 18px 7px; border-right:1px solid var(--border-soft); }
-.jq-metric:first-child::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--primary); }
-.jq-metric:last-child { border-right:0; }
-.jq-metric span { display:block; font-size:9px; color:var(--muted-foreground); margin-bottom:4px; letter-spacing:.025em; }
-.jq-metric b { font-size:14px; line-height:1; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.015em; }
-.jq-table-wrap { overflow:auto; background:var(--card); height:calc(100% - 53px); scrollbar-gutter:stable; }
-.jq-table { width:max(100%,1488px); border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:10px; }
-.jq-table col.jq-col-symbol{width:118px}.jq-table col.jq-col-side{width:82px}.jq-table col.jq-col-date{width:122px}.jq-table col.jq-col-qty{width:70px}.jq-table col.jq-col-money{width:106px}.jq-table col.jq-col-fees{width:78px}.jq-table col.jq-col-risk{width:102px}.jq-table col.jq-col-pnl{width:108px}.jq-table col.jq-col-r{width:88px}.jq-table col.jq-col-playbook{width:164px}.jq-table col.jq-col-tags{width:150px}.jq-table col.jq-col-review{width:108px}
-.jq-table th { position:sticky;top:0;z-index:2;height:32px;padding:0 12px;color:var(--muted-foreground);background:color-mix(in srgb,var(--muted) 72%,var(--card));text-align:left;font-size:9px;font-weight:600;letter-spacing:.025em;border-bottom:1px solid var(--border);white-space:nowrap; }
-.jq-table th[data-qsort]{cursor:pointer}.jq-table th[data-qsort]:hover{color:var(--foreground);background:var(--muted)}
-.jq-table td { height:42px; padding:0 12px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.jq-table tbody tr { cursor:pointer; transition:background-color .12s ease; }.jq-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--muted) 28%,transparent)}.jq-table tbody tr:hover { background:color-mix(in srgb,var(--primary) 7%,var(--card)); }
-.jq-table th:nth-child(n+5):nth-child(-n+11),.jq-table td:nth-child(n+5):nth-child(-n+11){text-align:right}.jq-table .jq-symbol{font-size:10.5px;font-weight:680;letter-spacing:.01em}.jq-table .jq-review{text-align:left!important;color:var(--muted-foreground)}
-.jq-table .j-side-pill{display:inline;padding:0;border:0;border-radius:0;background:transparent;color:var(--foreground);font-size:9px;font-weight:560;letter-spacing:.055em;line-height:1}
-.jq-table .j-side-pill::before{content:none}
-.jq-table td:nth-child(2){text-align:left}
-.jq-date{display:flex;align-items:baseline;gap:6px}.jq-date b{font-size:9.5px;font-weight:560}.jq-date small{font-size:8px;color:var(--muted-foreground)}.jq-date.empty{color:var(--muted-foreground)}
-.jq-table th:first-child,.jq-table td:first-child{position:sticky;left:0;z-index:1;background:var(--card)}.jq-table th:first-child{z-index:4;background:var(--muted)}
-.jq-table th:nth-child(2),.jq-table td:nth-child(2){position:sticky;left:118px;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--border),8px 0 12px -12px color-mix(in srgb,var(--foreground) 45%,transparent)}.jq-table th:nth-child(2){z-index:4;background:var(--muted)}
-.jq-table tbody tr:nth-child(even) td:first-child,.jq-table tbody tr:nth-child(even) td:nth-child(2){background:color-mix(in srgb,var(--muted) 28%,var(--card))}.jq-table tbody tr:hover td:first-child,.jq-table tbody tr:hover td:nth-child(2){background:color-mix(in srgb,var(--primary) 7%,var(--card))}
-.jq-empty { min-height:92px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); font-size:11px; line-height:1.5; }
-.jq-form { display:grid; grid-template-columns:1.1fr .7fr .8fr 1fr 1fr .7fr .8fr auto; gap:0; align-items:end; padding:12px; }
-.jq-field { display:grid; gap:5px; min-width:0; }
-.jq-field label { color:var(--muted-foreground); font-size:9px; padding-left:8px; }
-.jq-field input,.jq-field select { width:100%; height:34px; min-width:0; border:1px solid var(--border); border-right:0; border-radius:0; padding:0 8px; background:var(--card); color:var(--foreground); font:inherit; font-size:11px; outline:none; }
-.jq-field:first-child input{border-radius:5px 0 0 5px}.jq-field:nth-child(7) input{border-right:1px solid var(--border)}
-.jq-field input:focus,.jq-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.jq-submit { height:34px; margin-left:8px; border:1px solid var(--foreground); border-radius:5px; background:var(--foreground);color:var(--background);font:inherit;font-size:10px;font-weight:600;cursor:pointer;padding:0 14px; }
-.jq-submit:disabled { opacity:.45;cursor:not-allowed; }
-.jq-note { margin:0 12px; padding-top:8px; border-top:1px solid var(--border-soft); color:var(--muted-foreground); font-size:9px; display:flex;align-items:center;gap:6px; }
-.jq-note svg { width:13px;height:13px; }
-@media(max-width:820px){.stage.journal-pane-open #chart{bottom:min(var(--journal-pane-h,260px),190px)}.stage.journal-pane-open .prov{bottom:200px}.jq{height:min(var(--journal-pane-h,260px),190px);max-height:55%}.jq-title{min-width:0}.jq-title span{display:none}.jq-head{padding-inline:7px;gap:4px}.jq-full span{display:none}.jq-full{width:30px;padding:0;justify-content:center}.jq-metrics{grid-template-columns:repeat(6,minmax(100px,1fr))}.jq-form{grid-template-columns:1fr 1fr;padding:10px;gap:8px}.jq-field:first-child{grid-column:1/-1}.jq-field input,.jq-field select{border:1px solid var(--border);border-radius:5px!important}.jq-submit{grid-column:1/-1;margin:0}.jq-note{margin:0 10px}.jq-table{width:1120px}}
-@media(max-width:900px){body.journal-open .journal{grid-template-columns:1fr}.j-side{display:none}.j-shell{width:calc(100% - 28px);padding-top:20px}.j-metrics{grid-template-columns:1fr 1fr}.j-grid{grid-template-columns:1fr}.j-books{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.j-head{display:grid}.j-head h1{font-size:29px}.j-actions{width:100%}.j-action{flex:1;justify-content:center}.j-metrics{grid-template-columns:1fr}.j-filters{flex-wrap:wrap}.j-select{flex:1}.j-table th:nth-child(3),.j-table td:nth-child(3),.j-table th:nth-child(5),.j-table td:nth-child(5){display:none}.j-books{grid-template-columns:1fr}.j-form-grid{grid-template-columns:1fr}.j-field.wide{grid-column:auto}}
-@media(prefers-reduced-motion:reduce){.j-drawer,.j-book,.j-toast{transition:none}}
+   This block used to be written in raw pixels, and that was the whole of
+   what was wrong with it: thirty-odd type sizes that are not on the
+   twelve-step scale, five radii the token file does not name, a slate-blue
+   shadow (rgba(15,23,42,…)) that appears in neither theme's palette, Georgia
+   where the app sets its serif in Newsreader, and a teal halo on every
+   focused field — the one thing §PRIMITIVES says a focused field must NOT
+   do. None of those was wrong on its own. Together they made the journal
+   read as a second product bolted onto the side of the first.
+
+   Everything below is spelled in the app's own tokens and primitives. A
+   control here is the same 34px box as a control in the indicator dialog; a
+   micro-label is the .micro spec; a button is .btn; focus darkens an edge.
+   And the two accents this app allows are the only two spent: INK for a
+   commit, TEAL for "you are here". */
+
+/* One voice with Watchlist and Alerts beside it. It read in full-strength ink
+   while its two neighbours were muted, which made the header look as though
+   the journal were already open — the darkest label in a row is the selected
+   one everywhere else in this app. Muted at rest, ink on hover, and the same
+   teal plate as `.wtabs .wtab.active` when its pane is showing. */
+#journalBtn { gap: 7px; padding-inline: 10px; color: var(--muted-foreground); }
+#journalBtn:hover { color: var(--foreground); }
+#journalBtn.active { color: var(--primary); background: var(--primary-soft); }
+#journalBtn svg { width: 16px; height: 16px; }
+body.journal-open > header > :not(.brand):not(#journalBack):not(.spacer):not(.menu-wrap:last-child) { display: none; }
+#journalBack { display: none; gap: 7px; }
+body.journal-open #journalBack { display: flex; }
+body.journal-open .main { display: none; }
+
+.journal { display: none; flex: 1; min-height: 0; background: var(--background); color: var(--foreground); }
+body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(0, 1fr); }
+
+/* The journal's buttons ARE .btn — the app's button, not a private copy of
+   one that happened to be a pixel taller and a radius rounder. They take the
+   34px/6px size the app already uses wherever a button sits in a body of
+   content rather than in the header strip (.dlg-foot .btn, .side-empty .btn),
+   so a Save here and a Save in the settings dialog are the same object. */
+.journal .btn, .j-drawer .btn, .jq .btn {
+  height: 34px; border-radius: 6px;
+  font-size: var(--text-xl); font-weight: var(--weight-medium);
+}
+.journal .btn svg, .j-drawer .btn svg, .jq .btn svg { width: 16px; height: 16px; }
+.j-drawer .btn.icon { width: 32px; height: 32px; border-radius: var(--radius); }
+/* Delete is the layout dialog's delete, not a solid red slab: an outline
+   that finds its colour under the pointer. See .ly-del. */
+.j-drawer [data-delete]:hover { color: var(--down); border-color: var(--down); background: transparent; }
+
+/* ── the rail ─────────────────────────────────────────────────────────────
+   The same list a header menu is: short rows on --radius-xs plates, muted at
+   rest, full ink under the pointer. The current view is marked the way every
+   "you are here" in this app is marked — accent text on the soft accent
+   plate (.btn.on, .wtabs .wtab.active, #journalBtn.active) — rather than, as
+   it was, a white card lifted on a shadow no other surface here casts. */
+.j-side {
+  padding: 16px 8px; border-right: var(--seam-w) solid var(--seam);
+  display: flex; flex-direction: column; gap: 14px; background: var(--background);
+}
+.j-kicker {
+  padding: 0 9px; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-nav { display: grid; gap: 1px; }
+.j-nav button {
+  border: 0; background: transparent; color: var(--muted-foreground);
+  height: 32px; border-radius: var(--radius-xs); padding: 0 9px;
+  display: flex; align-items: center; gap: var(--menu-lead-gap);
+  font: inherit; font-size: var(--text-base); cursor: pointer; text-align: left;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.j-nav button svg { width: 16px; height: 16px; }
+.j-nav button:hover { background: var(--accent); color: var(--foreground); }
+.j-nav button.active { color: var(--primary); background: var(--primary-soft); }
+:root[data-nav="kbd"] .j-nav button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.j-side-note {
+  margin-top: auto; padding: 11px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--card); font-size: var(--text-xs); line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.j-side-note strong { display: block; color: var(--foreground); font-weight: var(--weight-medium); margin-bottom: 3px; }
+/* the same note inside a form, where there is no rail to pin it to */
+.j-side-note.j-inline-note { margin-top: 0; }
+
+/* ── the page ─────────────────────────────────────────────────────────────
+   One column of content on the app's own reading measure. The title is the
+   wordmark's face — Newsreader through --font-serif, at --weight-display —
+   because the brand mark two inches above it is, and a page that answers a
+   serif logotype in Georgia is telling you it was built by someone else. */
+.j-main { overflow: auto; min-width: 0; }
+.j-shell { width: min(1180px, calc(100% - 56px)); margin: 0 auto; padding: 28px 0 64px; }
+.j-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.j-eyebrow {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  margin-bottom: 7px;
+}
+.j-head h1 {
+  margin: 0; font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: 30px; line-height: 1.15; letter-spacing: -.03em;
+}
+.j-head p { color: var(--muted-foreground); margin: 7px 0 0; font-size: var(--text-lg); line-height: 1.5; }
+.j-actions { display: flex; gap: 8px; align-items: center; flex: none; }
+
+/* A band title over a run of content — the same words a .j-card-head carries,
+   with no card under them. It replaces three copies of an inline style. */
+.j-rule {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 0 2px 9px;
+}
+.j-rule strong { font-size: var(--text-lg); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-rule span { font-size: var(--text-xs); color: var(--faint); }
+.j-gap { height: 22px; }
+
+/* The filter row: one height, one type size. It was a 40px search box beside
+   a 40px select wearing the operating system's chevron — two boxes from two
+   different design systems on one line. Both are the app's controls now. */
+.j-filters { display: flex; gap: 8px; margin-bottom: 16px; }
+.j-search { flex: 1; }
+.j-search input { height: 34px; padding-block: 0; }
+.j-select {
+  width: auto; min-width: 138px; height: 34px; padding: 0 28px 0 9px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input) var(--chevron) no-repeat right 9px center;
+  color: var(--foreground); font: inherit; font-size: var(--text-base);
+  appearance: none; -webkit-appearance: none; outline: none;
+  transition: border-color var(--dur) var(--ease-quartr);
+}
+.j-select:hover { border-color: var(--faint); }
+.j-select:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .j-select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* ── the four numbers ─────────────────────────────────────────────────────
+   These carried a decorative teal disc bleeding out of the bottom-right
+   corner — the only ornament anywhere in this app, on the one card whose
+   whole job is to state a figure plainly. The figure is the ornament. */
+.j-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+.j-metric {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 14px 15px 13px; background: var(--card);
+}
+.j-metric label {
+  display: block; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-metric b {
+  display: block; margin: 12px 0 5px;
+  font-size: 24px; font-weight: var(--weight-display);
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.j-metric small { font-size: var(--text-xs); color: var(--muted-foreground); }
+
+/* ── cards ────────────────────────────────────────────────────────────── */
+.j-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, .8fr); gap: 10px; }
+.j-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-card-head {
+  height: 44px; padding: 0 15px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-soft);
+}
+.j-card-head strong { font-size: var(--text-lg); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-card-head span { font-size: var(--text-xs); color: var(--faint); }
+.j-equity { height: 214px; padding: 20px 16px 8px; }
+.j-equity svg { width: 100%; height: 100%; overflow: visible; }
+.j-equity .zero { stroke: var(--border); stroke-dasharray: 4 5; }
+.j-equity .line { fill: none; stroke: var(--primary); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.j-equity .area { fill: url(#jArea); opacity: .3; }
+
+/* An empty state is a full-ink sentence, not a muted footnote — .side-empty's
+   rule, at this surface's scale. */
+.j-empty {
+  min-height: 214px; display: grid; place-items: center; text-align: center;
+  padding: 34px 30px; color: var(--muted-foreground);
+  font-size: var(--text-lg); line-height: 1.6;
+}
+.j-empty svg.icon { display: block; width: 38px; height: 38px; stroke-width: 1; color: var(--foreground); opacity: .5; margin: 0 auto 13px; }
+.j-empty strong { display: block; color: var(--foreground); font-size: var(--text-2xl); font-weight: var(--weight-medium); margin-bottom: 6px; }
+.j-empty .btn { display: flex; width: max-content; margin: 16px auto 0; }
+
+/* The calendar reads by TINT, so the day cell carries no border of its own —
+   a ruled grid over a tinted grid is two grids. A day with no trade in it is
+   a wash of the page's own grey rather than --muted, which in the dark theme
+   is the same colour as the card these cells sit on. */
+/* The cell used to be `aspect-ratio: 1`, which is right in the overview's
+   370px card (a ~48px square) and absurd in the Calendar VIEW, whose card is
+   the full 1180px measure: seven 165px columns meant ten weeks of squares ran
+   four screens deep, each day a tile the size of a playing card. A fixed ROW
+   HEIGHT instead — the cell fills whatever column it is given and the grid is
+   the same height in both places, which is how a month grid behaves. */
+.j-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 60px; gap: 4px; padding: 13px; }
+.j-day {
+  min-width: 0; border-radius: var(--radius-xs); padding: 6px;
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent); color: var(--faint);
+  font-size: var(--text-3xs); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.j-day b { color: var(--foreground); font-size: var(--text-2xs); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.j-day.up { background: var(--up-soft); }
+.j-day.up b { color: var(--up); }
+.j-day.down { background: var(--down-soft); }
+.j-day.down b { color: var(--down); }
+
+/* ── the trade table ──────────────────────────────────────────────────── */
+.j-table-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
+.j-table th {
+  height: 34px; padding: 0 14px; text-align: left; border-bottom: 1px solid var(--border);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  white-space: nowrap;
+}
+.j-table td { height: 48px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); font-variant-numeric: tabular-nums; }
+.j-table tr:last-child td { border-bottom: 0; }
+.j-table tbody tr { cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
+.j-table tbody tr:hover { background: var(--accent); }
+.j-table td:has(.j-empty) { height: auto; padding: 0; }
+.j-symbol { font-weight: var(--weight-semi); letter-spacing: -.01em; }
+/* Side is a fact about the position, not a price change — so it stays off
+   the up/down palette, which on this page means one thing only. */
+.j-side-pill {
+  display: inline-block; padding: 3px 8px; border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; line-height: 1.2;
+}
+.j-pnl.up { color: var(--up); } .j-pnl.down { color: var(--down); }
+/* Both chips are washes of the page's grey, the way .al-pill is a wash of the
+   amber. They were --muted, which the dark theme defines as the SAME hex as
+   --card — so on dark they were invisible plates behind grey words. */
+.j-tag {
+  display: inline-block; margin-right: 4px; padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted-foreground) 13%, transparent);
+  color: var(--muted-foreground); font-size: var(--text-2xs); line-height: 1.2;
+}
+/* the alert list's state dot, same size and same reading: filled = done,
+   hollow = still open */
+.j-review-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle;
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.j-review-dot.done { background: var(--primary); box-shadow: none; }
+
+/* ── playbooks ────────────────────────────────────────────────────────── */
+.j-books { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.j-book {
+  min-height: 168px; border: 1px solid var(--border); background: var(--card);
+  border-radius: var(--radius-md); padding: 17px; cursor: pointer;
+  text-align: left; font: inherit; color: var(--foreground);
+  display: flex; flex-direction: column;
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
+}
+/* Hover changes the SURFACE, not the geometry. A card that lifts 2px on a
+   drop shadow is the only element in this app that moves under the pointer,
+   and in a grid of them the whole page twitches as you cross it. */
+.j-book:hover { background: var(--accent); border-color: var(--faint); }
+:root[data-nav="kbd"] .j-book:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.j-book .mark { width: 26px; height: 3px; border-radius: var(--radius-pill); background: var(--primary); margin-bottom: 22px; }
+.j-book h3 { margin: 0 0 7px; font-size: var(--text-h3); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-book p { margin: 0; color: var(--muted-foreground); font-size: var(--text-base); line-height: 1.55; }
+.j-book small { display: block; margin-top: auto; padding-top: 18px; color: var(--faint); font-size: var(--text-xs); }
+
+/* ── the editor drawer ────────────────────────────────────────────────────
+   It sits under the header, so it measures the header rather than repeating
+   its height as a literal — see --header-h. Its width is the dialog's own
+   ceiling, and its fields are the app's 34px control. */
+.j-drawer {
+  position: fixed; z-index: 100; inset: var(--header-h) 0 0 auto;
+  width: min(560px, 100vw); background: var(--background);
+  border-left: var(--seam-w) solid var(--seam); box-shadow: var(--shadow);
+  transform: translateX(104%); transition: transform var(--dur-slow) var(--ease-quartr);
+  display: flex; flex-direction: column;
+}
+.j-drawer.open { transform: none; }
+.j-drawer-head {
+  flex: none; padding: 15px 14px 15px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.j-drawer-title b { display: block; font-size: var(--text-h1); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-drawer-title span { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.j-drawer-body { padding: 20px; overflow: auto; display: grid; gap: 22px; align-content: start; }
+.j-drawer-body::-webkit-scrollbar { width: 6px; }
+.j-drawer-body::-webkit-scrollbar-track { background: transparent; }
+.j-drawer-body::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-2xs); }
+.j-section { display: grid; gap: 11px; }
+.j-section h3 {
+  margin: 0; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.j-field { display: grid; gap: 6px; min-width: 0; }
+.j-field.wide { grid-column: 1 / -1; }
+.j-field label { font-size: var(--text-xs); color: var(--muted-foreground); }
+.j-field input, .j-field select, .j-field textarea {
+  width: 100%; height: 34px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input); color: var(--foreground);
+  font: inherit; font-size: var(--text-xl); font-variant-numeric: tabular-nums;
+  outline: none; transition: border-color var(--dur) var(--ease-quartr);
+}
+.j-field select {
+  padding-right: 26px; cursor: pointer; appearance: none; -webkit-appearance: none;
+  background: var(--input) var(--chevron) no-repeat right 9px center;
+}
+.j-field textarea { height: auto; min-height: 78px; padding: 8px; resize: vertical; line-height: 1.5; }
+/* Focus darkens the field's own edge — the app's rule for every input it
+   owns. The teal halo this used to paint sat outside the box and nudged the
+   row, and on a form of eleven fields it read as eleven error states. */
+.j-field input:focus, .j-field select:focus, .j-field textarea:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .j-field input:focus-visible,
+:root[data-nav="kbd"] .j-field select:focus-visible,
+:root[data-nav="kbd"] .j-field textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.j-drawer-foot {
+  margin-top: auto; flex: none; padding: 12px 20px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--card);
+}
+.j-foot-acts { display: flex; gap: 8px; }
+
+/* the app already has a toast — this is it, at the journal's z-index */
+.j-toast {
+  position: fixed; z-index: 130; left: 50%; bottom: 26px;
+  transform: translate(-50%, 12px);
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--popover); border: 1px solid var(--border);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--text-xs); color: var(--foreground); line-height: 1.35;
+  white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              transform var(--dur) var(--ease-quartr);
+}
+.j-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ══ the compact journal ══════════════════════════════════════════════════
+   Anchored to the chart, with interpretation delegated to the full workspace.
+   The chart stays mounted and visible around the sheet.
+
+   Its type used to run 8px–10.5px — three sizes BELOW the smallest step on
+   the scale, set on a table you are meant to read numbers off. Nothing about
+   a docked pane requires miniature text; the pane is short, not small. Every
+   size here is now a scale step, and the columns were re-measured to hold
+   the larger figures rather than clipping them. */
+.stage.journal-pane-open #chart { bottom: var(--journal-pane-h, 260px); }
+.stage.journal-pane-open .prov { bottom: calc(var(--journal-pane-h, 260px) + 10px); }
+.jq {
+  position: absolute; z-index: 42; left: 0; right: 0; bottom: 0;
+  height: var(--journal-pane-h, 260px); min-height: 150px; max-height: 72%;
+  display: none; flex-direction: column; background: var(--background);
+  border-top: var(--seam-w) solid var(--seam-strong); overflow: hidden;
+}
+.jq.open { display: flex; }
+.jq-grip { position: absolute; z-index: 3; left: 0; right: 0; top: -5px; height: 10px; cursor: row-resize; background: transparent; }
+.jq-grip:hover, .jq-grip.dragging { background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.jq-head {
+  flex: none; height: 42px; padding: 0 8px 0 14px;
+  display: flex; align-items: center; gap: 14px;
+  border-bottom: 1px solid var(--border); background: var(--background);
+}
+.jq-title { min-width: 118px; }
+.jq-title strong { display: block; font-size: var(--text-md); font-weight: var(--weight-semi); letter-spacing: -.01em; line-height: 1.2; }
+.jq-title span { display: block; margin-top: 1px; color: var(--faint); font-size: var(--text-3xs); }
+/* The pane's two views are the dialog's tab strip at the pane's scale: a
+   rounded RAIL under the whole strip with the active tab painting its own
+   segment over it in ink. It used to be a bare 2px teal underline — a rule
+   the app draws nowhere else, and it spent the accent on a tab. See
+   .dlg-tabs, which this is the small version of. */
+.jq-tabs { position: relative; display: flex; align-items: stretch; gap: 16px; height: 26px; flex: none; }
+.jq-tabs::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; border-radius: 2px; background: var(--rail);
+}
+.jq-tab {
+  position: relative; z-index: 1;
+  border: 0; background: none; cursor: pointer; padding: 0 0 6px;
+  font: inherit; font-size: var(--text-md); color: var(--muted-foreground);
+  transition: color var(--dur) var(--ease-quartr);
+}
+.jq-tab:focus { outline: none; }
+.jq-tab:hover { color: var(--foreground); }
+.jq-tab.active { color: var(--foreground); font-weight: var(--weight-medium); }
+.jq-tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; border-radius: 2px; background: var(--foreground);
+}
+:root[data-nav="kbd"] .jq-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.jq-head .spacer { flex: 1; }
+.jq-full {
+  height: 28px; border: 1px solid var(--border); border-radius: 6px; padding: 0 9px;
+  display: flex; align-items: center; gap: 6px; flex: none;
+  color: var(--foreground); background: transparent; font: inherit; font-size: var(--text-xs);
+  cursor: pointer; transition: border-color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
+}
+.jq-full:hover { border-color: var(--faint); background: var(--accent); }
+.jq-full svg, .jq-close svg { width: 14px; height: 14px; }
+.jq-close {
+  width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted-foreground);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.jq-close:hover { background: var(--accent); color: var(--foreground); }
+:root[data-nav="kbd"] .jq-full:focus-visible,
+:root[data-nav="kbd"] .jq-close:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.jq-body { flex: 1; overflow: auto; min-height: 0; background: var(--background); }
+
+/* Six figures on one strip. The teal bar that used to sit on the first cell
+   marked nothing — the first column of six is not a selection. */
+.jq-metrics {
+  display: grid; grid-template-columns: repeat(6, minmax(134px, 1fr));
+  border-bottom: 1px solid var(--border); background: var(--card); overflow: auto;
+}
+.jq-metric { min-height: 54px; padding: 9px 14px 8px; border-right: 1px solid var(--border-soft); }
+.jq-metric:last-child { border-right: 0; }
+/* One line, always. "Rule adherence" wrapping to two pushed its own figure a
+   line lower than the five beside it, and a strip of six numbers on two
+   different baselines is not a strip. */
+.jq-metric span {
+  display: block; margin-bottom: 5px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jq-metric b { font-size: var(--text-h3); line-height: 1; font-weight: var(--weight-semi); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
+.jq-table-wrap { overflow: auto; background: var(--card); height: calc(100% - 55px); scrollbar-gutter: stable; }
+.jq-table { width: max(100%, 1590px); border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: var(--text-sm); }
+.jq-table col.jq-col-symbol { width: 124px; } .jq-table col.jq-col-side { width: 76px; }
+.jq-table col.jq-col-date { width: 132px; } .jq-table col.jq-col-qty { width: 74px; }
+.jq-table col.jq-col-money { width: 112px; } .jq-table col.jq-col-fees { width: 84px; }
+.jq-table col.jq-col-risk { width: 110px; } .jq-table col.jq-col-pnl { width: 116px; }
+.jq-table col.jq-col-r { width: 92px; } .jq-table col.jq-col-playbook { width: 164px; }
+.jq-table col.jq-col-tags { width: 150px; } .jq-table col.jq-col-review { width: 112px; }
+/* An OPAQUE band, mixed off the page's own grey rather than set to --muted:
+   the head is sticky, so it must hide the rows passing under it, and on dark
+   --muted and --card are the same hex — the head vanished into the table. */
+.jq-table th {
+  position: sticky; top: 0; z-index: 2; height: 30px; padding: 0 12px;
+  text-align: left; white-space: nowrap;
+  background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card));
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.jq-table th[data-qsort] { cursor: pointer; transition: color var(--dur) var(--ease-quartr); }
+.jq-table th[data-qsort]:hover { color: var(--foreground); }
+.jq-table td {
+  height: 34px; padding: 0 12px; border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jq-table tbody tr { cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
+.jq-table tbody tr:hover { background: var(--accent); }
+.jq-table th:nth-child(n+5):nth-child(-n+11),
+.jq-table td:nth-child(n+5):nth-child(-n+11) { text-align: right; }
+.jq-table td:nth-child(2) { text-align: left; }
+.jq-table .jq-symbol { font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.jq-table .jq-review { text-align: left !important; color: var(--muted-foreground); }
+/* the pane's side cell is a word in a dense row, not a pill — a lozenge on a
+   34px line is furniture */
+.jq-table .j-side-pill {
+  display: inline; padding: 0; border-radius: 0; background: transparent;
+  color: var(--muted-foreground); font-size: var(--text-2xs); line-height: 1;
+}
+.jq-date { display: flex; align-items: baseline; gap: 6px; }
+.jq-date b { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.jq-date small { font-size: var(--text-3xs); color: var(--faint); }
+.jq-date.empty { color: var(--faint); }
+/* The instrument and its side ride with the horizontal scroll — they are what
+   tells you which row you are reading once the money columns come past. */
+.jq-table th:first-child, .jq-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); }
+.jq-table th:first-child { z-index: 4; background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card)); }
+.jq-table th:nth-child(2), .jq-table td:nth-child(2) {
+  position: sticky; left: 124px; z-index: 1; background: var(--card);
+  box-shadow: 1px 0 0 var(--border), 8px 0 12px -12px color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+.jq-table th:nth-child(2) { z-index: 4; background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card)); }
+/* the frozen cells cannot inherit the row's hover — --accent is translucent,
+   and a translucent sticky cell shows the columns sliding under it */
+.jq-table tbody tr:hover td:first-child,
+.jq-table tbody tr:hover td:nth-child(2) { background: color-mix(in srgb, var(--foreground) 5%, var(--card)); }
+.jq-empty { min-height: 92px; display: grid; place-items: center; text-align: center; color: var(--muted-foreground); font-size: var(--text-md); line-height: 1.55; padding: 22px; }
+.jq-empty .btn { display: flex; width: max-content; margin: 12px auto 0; }
+
+/* Capture, on one line. The fields were welded into a single segmented bar
+   by cancelling every inner border — a control the app builds nowhere else,
+   and one that gave the row a left cap, a right cap and no way to add an
+   eighth field. They are the app's fields, spaced. */
+.jq-form { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 12px 14px; }
+.jq-field { display: grid; gap: 5px; min-width: 0; }
+.jq-field label { color: var(--muted-foreground); font-size: var(--text-2xs); }
+.jq-field input, .jq-field select {
+  width: 100%; min-width: 0; height: 30px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--input); color: var(--foreground);
+  font: inherit; font-size: var(--text-base); font-variant-numeric: tabular-nums;
+  outline: none; transition: border-color var(--dur) var(--ease-quartr);
+}
+.jq-field select { padding-right: 24px; cursor: pointer; appearance: none; -webkit-appearance: none; background: var(--input) var(--chevron) no-repeat right 7px center; }
+.jq-field input:focus, .jq-field select:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .jq-field input:focus-visible,
+:root[data-nav="kbd"] .jq-field select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.jq .btn.jq-submit { height: 30px; border-radius: var(--radius-xs); font-size: var(--text-base); }
+.jq-note {
+  margin: 0 14px; padding-top: 9px; border-top: 1px solid var(--border-soft);
+  color: var(--faint); font-size: var(--text-3xs);
+  display: flex; align-items: center; gap: 6px;
+}
+.jq-note svg { width: 13px; height: 13px; }
+
+@media (max-width: 820px) {
+  .stage.journal-pane-open #chart { bottom: min(var(--journal-pane-h, 260px), 190px); }
+  .stage.journal-pane-open .prov { bottom: 200px; }
+  .jq { height: min(var(--journal-pane-h, 260px), 190px); max-height: 55%; }
+  .jq-title { min-width: 0; }
+  .jq-title span { display: none; }
+  .jq-head { padding-inline: 7px; gap: 6px; }
+  .jq-full span { display: none; }
+  .jq-full { width: 30px; padding: 0; justify-content: center; }
+  .jq-metrics { grid-template-columns: repeat(6, minmax(104px, 1fr)); }
+  .jq-form { grid-template-columns: 1fr 1fr; padding: 10px; }
+  .jq-field:first-child { grid-column: 1 / -1; }
+  .jq .btn.jq-submit { grid-column: 1 / -1; }
+  .jq-note { margin: 0 10px; }
+}
+@media (max-width: 900px) {
+  body.journal-open .journal { grid-template-columns: 1fr; }
+  .j-side { display: none; }
+  .j-shell { width: calc(100% - 28px); padding-top: 20px; }
+  .j-metrics { grid-template-columns: 1fr 1fr; }
+  .j-grid { grid-template-columns: 1fr; }
+  .j-books { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  /* `justify-content` survives the switch from flex to grid, where it packs
+     the COLUMN rather than the items — so space-between left the stacked
+     actions row sized to its two buttons instead of to the page. */
+  .j-head { display: grid; justify-content: stretch; gap: 16px; }
+  .j-head h1 { font-size: 26px; }
+  .j-actions { width: 100%; }
+  .j-actions .btn { flex: 1; justify-content: center; }
+  .j-metrics { grid-template-columns: 1fr; }
+  /* the search takes its own line — squeezed onto one row beside two selects
+     it was narrower than either of them */
+  .j-filters { flex-wrap: wrap; }
+  .j-search { flex: 1 1 100%; }
+  .j-select { flex: 1; }
+  .j-table th:nth-child(3), .j-table td:nth-child(3),
+  .j-table th:nth-child(5), .j-table td:nth-child(5) { display: none; }
+  .j-books { grid-template-columns: 1fr; }
+  .j-form-grid { grid-template-columns: 1fr; }
+  .j-field.wide { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .j-drawer, .j-book, .j-toast { transition: none; } }
 
 </style>
 </head>
@@ -4951,7 +5355,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
   <script src="./js/chat.js?v=114"></script>
-  <script src="./js/journal.js?v=3"></script>
+  <script src="./js/journal.js?v=4"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
