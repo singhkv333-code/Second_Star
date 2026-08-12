@@ -64,6 +64,11 @@
       layout: {
         background: { color: P.chartBg }, textColor: P.axisText,
         panes: { separatorColor: P.separator, enableResize: true },
+        // The chart library signs its own work bottom-left. Pivot's mark
+        // stands there instead — see `.chart-mark` below. The library ships
+        // this switch for exactly this; the credit to TradingView belongs in
+        // the About sheet with the rest of the colophon, not on the candles.
+        attributionLogo: false,
       },
       grid: { vertLines: { color: P.grid }, horzLines: { color: P.grid } },
       rightPriceScale: { borderColor: P.border },
@@ -105,6 +110,49 @@
     crosshair: { ...T0.crosshair, mode: LWC.CrosshairMode.Normal },
     autoSize: true,
   });
+
+  /* Pivot's mark, bottom-left, standing where the chart library used to sign
+   * its own — same corner, so the chart keeps a signature and only the name on
+   * it changes.
+   *
+   * A DECORATION, appended once and never rebuilt: the library owns this
+   * container and appends to it, so a sibling node survives every redraw.
+   * `pointer-events: none` keeps it out of the way of the crosshair, which
+   * reaches this corner constantly. */
+  const brandMark = document.createElement("div");
+  brandMark.className = "chart-mark";
+  brandMark.setAttribute("aria-hidden", "true");
+  chartEl.appendChild(brandMark);
+
+  /* Two measurements the stylesheet cannot take, published to it as custom
+   * properties on the chart element.
+   *
+   * `--time-axis-h` is what the mark stands on. The library's own logo lived
+   * inside the last PANE — above the time axis — while this container runs to
+   * the bottom of the axis, so a flat `bottom: 10px` dropped the mark a whole
+   * axis lower than the one it replaced.
+   *
+   * `--axis-w` is where the alert ⊕ sits: centred on the price scale's left
+   * edge, half over the chart and half over the label, which is TradingView's
+   * placement. Both numbers move on their own — the scale re-sizes itself
+   * around a wider price the moment the symbol changes — so neither can be a
+   * constant in the stylesheet, which is what `right: 62px` used to be. */
+  const metrics = { ts: 0, ps: 0 };
+  function syncChartMetrics() {
+    let ts = 0, ps = 0;
+    try { ts = chart.timeScale().height(); } catch { /* not laid out yet */ }
+    try { ps = chart.priceScale("right").width(); } catch { /* ditto */ }
+    if (ts && ts !== metrics.ts) {
+      metrics.ts = ts;
+      chartEl.style.setProperty("--time-axis-h", ts + "px");
+    }
+    if (ps && ps !== metrics.ps) {
+      metrics.ps = ps;
+      chartEl.style.setProperty("--axis-w", ps + "px");
+    }
+  }
+  syncChartMetrics();
+  new ResizeObserver(syncChartMetrics).observe(chartEl);
 
   const candle = chart.addSeries(LWC.CandlestickSeries, {
     upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
@@ -2395,10 +2443,16 @@
    */
   const PLUS_PAD = 5;          // a 22px target is small; forgive a few pixels
 
+  /* A PLAIN plus in the circle — TradingView's own axis mark, which is what a
+   * reader arrives here expecting. `alertPlus` (the open clock face with the +
+   * standing in its gap) is a 74px illustration for the empty panel: at 13px
+   * on the axis its hands and its arc gap collapse into a smudge, and the one
+   * stroke that has to read — the + — is the smallest thing in it. That glyph
+   * keeps its job in js/panels.js. */
   function makePlus() {
     const b = document.createElement("div");
     b.className = "alert-plus";
-    b.innerHTML = Icons.svg("alertPlus", "xs");
+    b.innerHTML = Icons.svg("plus", "xs");
     chartEl.appendChild(b);
     return b;
   }
@@ -2425,6 +2479,11 @@
     // rebuilds its contents, so the node we made can be gone while the variable
     // still holds it.
     if (!alertPlus || !alertPlus.isConnected) alertPlus = makePlus();
+    // The scale widens and narrows with the price it is printing, and the mark
+    // is pinned to its edge — so re-read it here rather than only on a resize
+    // of the container, which a symbol change does not cause. Guarded against
+    // no-op writes inside, so this is a measurement, not a style recalc.
+    syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
     alertPlus.style.top =
       (clientY - chartEl.getBoundingClientRect().top) + "px";
