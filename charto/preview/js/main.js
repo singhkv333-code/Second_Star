@@ -24,6 +24,10 @@
   const IST = Sym.tz;
   const SYMBOL = (new URLSearchParams(location.search).get("symbol")
                   || "RELIANCE").toUpperCase();
+  // {read, write} for the four sets an edit edits — bound once the boot
+  // restore has put everything back. Null until then, which is exactly what
+  // stops a layout being saved from a half-restored chart.
+  let workspace = null;
   const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
 
@@ -1314,6 +1318,11 @@
         // and the tools enforce it: a reference pane has no drawing layer, so
         // "drawn" must never be said about one
         drawable: false,
+        // WHICH chart is the drawable one. Without this the envelope says only
+        // that this pane cannot be drawn on, and the model has to guess where
+        // ink could go — it guessed "click this pane", which is the one thing
+        // that never works. The main chart is the page's own symbol.
+        main_chart: SYMBOL,
         indicators: sub.ind.snapshot(w.first.time).map((x) => ({
           label: x.label, now: r2(x.now),
           at_window_start: x.at === null ? null : r2(x.at),
@@ -1364,6 +1373,10 @@
 
     return {
       ...w0.env,
+      // This IS the main chart — the only one with a drawing layer. Said on
+      // both branches so the backend never has to infer it from which keys
+      // happen to be present.
+      main_chart: SYMBOL,
       indicators: ind.snapshot(first.time).map((x) => ({
         label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
       })),
@@ -1677,11 +1690,6 @@
   const prov = el("provCard");
   let provFor = null;
   let peekTimer = 0;
-  // The annotation the card is currently describing. The card's own actions
-  // need the object, not just its id — and it is deliberately separate from
-  // `provDraw` (the user's own shape), because the two cards remove different
-  // things from different layers and must never be able to fire each other's.
-  let provAnn = null;
 
   /** A pattern's label, split into the segments the detector packed into it:
    *  "falling wedge · width 40.81 · unresolved" → the name, then its facts.
@@ -1780,7 +1788,14 @@
         ? `${s.first_touch} → ${s.last_touch}` : s.first_touch);
     }
     return {
-      annotation: true, id: a.id, kind: a.kind, label: title,
+      // `origin` and `type` are the composer chip's vocabulary, not this
+      // function's: chat.js draws one attachment for both layers and reads
+      // those two keys to decide what it says ("Chart analysis") and which
+      // glyph it wears. Its icon map is already keyed by the scene's own
+      // kinds, so a level arrives as a horizontal line and a pattern as a
+      // channel rather than everything falling back to a trendline.
+      annotation: true, origin: "chat", type: a.kind,
+      id: a.id, kind: a.kind, label: title,
       ref: annScoreable(a) ? a.id : undefined,
       on: a.pane && a.pane !== "price"
         ? ((ind.CATALOG.find((c) => c.id === a.pane) || {}).label || a.pane) : undefined,
@@ -1805,7 +1820,6 @@
     // no way out but Escape.
     prov.classList.remove("open", "peek");
     provFor = null;
-    provAnn = null;
     // Dismissing the card ends the whole hover conversation — leaving the
     // chat mention lit after its card is gone strands a highlight with
     // nothing pointing at it.
@@ -1954,10 +1968,6 @@
   /** The annotation card. Raised by hover, dismissed by leaving — there is
    *  no second, pinned variant of it. */
   function peekProvenance(a) {
-    // The subject is re-taken even on the early return: the card can already
-    // be up on this annotation from a hover that arrived before the drag that
-    // moved it, and its buttons act on the object, not on the markup.
-    provAnn = a;
     if (provFor === a.id && prov.classList.contains("open")) return;
     provFor = a.id;
     prov.innerHTML = provHTML(a);
@@ -2096,7 +2106,11 @@
         `(?<![\\w.])(${pairs.map(([s]) => escRe(s)).join("|")})(?![\\w])`, "gi");
 
       const walker = document.createTreeWalker(threadEl, NodeFilter.SHOW_TEXT, {
+        // Never inside the follow-up suggestions: those are questions the
+        // user has not asked yet, so a price in one refers to nothing on the
+        // chart and marking it as a live reference is simply false.
         acceptNode: (n) => (n.parentElement && !n.parentElement.closest("span.ann-ref")
+          && !n.parentElement.closest(".suggest")
           && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
       });
       const nodes = [];
@@ -2175,7 +2189,6 @@
   let provDraw = null;
   function showDrawingCard(d, y) {
     provDraw = d;
-    provAnn = null;        // this card describes the other layer
     provFor = d.id;
     const T = (t) => fmtIST(t + IST, !DAILY.has(state.interval));
     // Two decimals, like every other price in the app. Raw drawing geometry
@@ -2294,6 +2307,29 @@
   prov.addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (!act) return;   // the card has no pin state to promote to
+    if (act === "ask" && provFor) {
+      const a = scene.state.items.find((item) => item.id === provFor);
+      if (a) {
+        // Chat-created annotations are addressable by their scene id in the
+        // backend, exactly as user drawings are addressable by D-refs. Send
+        // the id instead of copying geometry into prose: the next turn's
+        // chart envelope carries the current annotation and the model remains
+        // free to decide which tool, if any, is appropriate.
+        //
+        // What to CALL it, and whether that id is a scoring handle at all,
+        // are annTag's two jobs — see there. The tag was built inline here
+        // from `a.label || a.kind`, which named a wedge "segment" whenever
+        // the leg you happened to hover was one of the unlabelled ones, and
+        // offered its id as a drawing_id for kinds no evaluator can convert.
+        document.dispatchEvent(new CustomEvent("charto:draw-tag",
+                                               { detail: annTag(a) }));
+      }
+      return hideProvenance();
+    }
+    if (act === "remove" && provFor) {
+      scene.remove(provFor);
+      return hideProvenance();
+    }
     if (act === "ask-draw" && provDraw) {
       // THIS is the moment the drawing joins the conversation — an explicit
       // ask, not a side effect of having clicked the shape
@@ -2306,30 +2342,7 @@
       provDraw = null;
       return hideProvenance();
     }
-    /* The chat-drawn annotation's two. They had been drawn since the card was
-     * written and wired to nothing — the card fell through to Close, so the
-     * only way to get a pattern off the chart was to clear every annotation
-     * on it, and the only way to ask about one was to describe it back to the
-     * chat in words it had just used itself.
-     *
-     * They are the SAME two actions the drawing card offers, on the other
-     * layer: ask puts the object in the composer, remove takes it off the
-     * chart. Nothing about the card is a second opinion — both act on the
-     * annotation the card is currently describing. */
-    if (act === "ask" && provAnn) {
-      document.dispatchEvent(new CustomEvent("charto:draw-tag",
-                                             { detail: annTag(provAnn) }));
-      return hideProvenance();
-    }
-    if (act === "remove" && provAnn) {
-      // scene.remove() takes the whole `link` group, so removing the fill of
-      // a wedge removes the wedge rather than leaving its edges behind. The
-      // scene's own onChange saves it and hands it to the undo stack.
-      // No message: the shape leaves the chart and the card closes over it,
-      // which is the same result said twice if anything narrates it.
-      scene.remove(provAnn.id);
-      return hideProvenance();
-    }
+    // Close and any unknown action simply dismiss the card.
     hideProvenance();
   });
 
@@ -2346,6 +2359,169 @@
     // a whole: a pin is a candle, and candles only exist in the price pane.
     downInPrice = paneAtClient(e.clientY) === "price";
   }, true);
+
+  /* ── the ⊕ on the price axis: one click, one alert ────────────────────────
+   * It follows the pointer's PRICE along the right edge of the price pane and
+   * arms a crossing alert at that level on a single click. This is the fastest
+   * path there is — no dialog, no typing, and the level is exactly the one being
+   * pointed at rather than one transcribed into a field.
+   *
+   * Only in the price pane, only with the cursor tool, and only signed in: an
+   * alert lives on the server, so offering the button to a signed-out user could
+   * only end in a refusal. It hides the moment the pointer leaves.
+   */
+  let alertPlus = null, plusPrice = null;
+
+  function hidePlus() {
+    if (alertPlus) alertPlus.classList.remove("show");
+    plusPrice = null;
+  }
+
+  /** The ⊕ is a DRAWING, not a control. `pointer-events: none`, no listener of
+   *  its own, and the click is caught on the chart instead.
+   *
+   *  It was a real <button> first and could not be clicked, for a reason worth
+   *  recording. The chart library owns several stacked canvases here and binds
+   *  its own mouse handling to them; a 22px button floating over that is at the
+   *  mercy of whichever element the browser decides the press landed on, and
+   *  measured in Chrome it lost — mousedown went to the canvas while
+   *  elementFromPoint over the same pixel returned the button's own icon. Every
+   *  fix for that is a fight with hit-testing.
+   *
+   *  Owning the click on chartEl removes the fight: the pointer's position is
+   *  compared against the mark's rectangle, which is arithmetic and cannot be
+   *  intercepted. The mark is then free to be what it should have been — a
+   *  picture of where the alert would go.
+   */
+  const PLUS_PAD = 5;          // a 22px target is small; forgive a few pixels
+
+  function makePlus() {
+    const b = document.createElement("div");
+    b.className = "alert-plus";
+    b.innerHTML = Icons.svg("alertPlus", "xs");
+    chartEl.appendChild(b);
+    return b;
+  }
+
+  /** Is this pointer position on the mark? */
+  function onPlus(x, y) {
+    if (!alertPlus || !alertPlus.classList.contains("show")) return false;
+    const r = alertPlus.getBoundingClientRect();
+    return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
+        && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
+  }
+
+  function syncPlus(clientX, clientY) {
+    // coordinateToPrice answers null until the series has data and the price
+    // scale has been laid out, so for the first moment after a load there is
+    // simply no price under the pointer to offer. Nothing to report: the mark
+    // stays away and appears as soon as there is.
+    if (!Auth.user || draw.state.tool !== "cursor"
+        || paneAtClient(clientY) !== "price") return hidePlus();
+    const y = yInPane(clientY, "price");
+    const px = y === null ? null : candle.coordinateToPrice(y);
+    if (px == null || !isFinite(px)) return hidePlus();
+    // isConnected, not a null check: the chart library owns this container and
+    // rebuilds its contents, so the node we made can be gone while the variable
+    // still holds it.
+    if (!alertPlus || !alertPlus.isConnected) alertPlus = makePlus();
+    plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
+    alertPlus.style.top =
+      (clientY - chartEl.getBoundingClientRect().top) + "px";
+    alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
+      { maximumFractionDigits: 2 })}`;
+    alertPlus.classList.add("show");
+    // it cannot have a :hover state of its own, so it is told when it is under
+    // the pointer — otherwise the one control on the chart gives no feedback
+    alertPlus.classList.toggle("hot", onPlus(clientX, clientY));
+  }
+
+  chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
+  chartEl.addEventListener("mouseleave", hidePlus);
+  document.addEventListener("charto:draw-select", hidePlus);
+
+  /* Capture phase, so it runs before the library's own canvas handlers and can
+   * stop the click from also pinning the candle underneath. */
+  chartEl.addEventListener("click", (e) => {
+    if (!onPlus(e.clientX, e.clientY)) return;
+    const at = plusPrice;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hidePlus();
+    if (at == null) return;
+    // The axis mark chooses the exact price; the compact widget confirms the
+    // direction, frequency and expiry before anything is registered.
+    const last = state.bars.length ? state.bars[state.bars.length - 1] : null;
+    Alerts.open({ symbol: SYMBOL, level: at,
+                  last: last ? last.close : null, interval: state.interval });
+  }, true);
+  // A press on the mark is ours too — swallowed so a click on it can never be
+  // read as the start of a pan or a drawing.
+  chartEl.addEventListener("mousedown", (e) => {
+    if (onPlus(e.clientX, e.clientY)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+  }, true);
+
+  /* ── right-click to arm an alert ──────────────────────────────────────────
+   * The price under the cursor, not a number typed into a form. This is the
+   * ergonomic every chart tool with alerts has and the reason a level set here
+   * is right the first time: you are pointing at it.
+   *
+   * The second entry is the differentiated one. A selected trendline becomes
+   * `draw:<ref>`, which the engine re-prices at every bar — so the level slopes
+   * with the line, and moving the line on screen moves what is being watched.
+   * A typed number cannot do either.
+   */
+  chartEl.addEventListener("contextmenu", (e) => {
+    if (draw.state.tool !== "cursor") return;   // mid-drawing: leave it alone
+    if (paneAtClient(e.clientY) !== "price") return;   // prices live in pane 0
+    const y = yInPane(e.clientY, "price");
+    const px = y === null ? null : candle.coordinateToPrice(y);
+    if (px == null || !isFinite(px)) return;
+    e.preventDefault();
+    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    const sel = draw.state.drawings.find((d) => d.id === draw.state.selId);
+    const level = Number(Sym.of(SYMBOL).num(px, { maximumFractionDigits: 2 })
+                         .replace(/,/g, ""));
+    const menu = document.createElement("div");
+    menu.className = "dropdown floating open";
+    menu.style.minWidth = "212px";
+    menu.innerHTML =
+      `<div class="item" data-al="level"><span class="lead">Add alert at ` +
+        `${Sym.of(SYMBOL).price(px, { maximumFractionDigits: 2 })}</span></div>` +
+      (sel
+        ? `<div class="item" data-al="draw"><span class="lead">Alert on ` +
+          `${sel.ref || sel.id}</span></div>`
+        : "") +
+      `<div class="sep"></div>` +
+      `<div class="item" data-al="open"><span class="lead">All alerts…</span></div>`;
+    document.body.appendChild(menu);
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.min(e.clientX, innerWidth - w - 8) + "px";
+    menu.style.top = Math.min(e.clientY, innerHeight - h - 8) + "px";
+    const shut = () => { menu.remove(); document.removeEventListener("mousedown", off, true); };
+    const off = (ev) => { if (!menu.contains(ev.target)) shut(); };
+    setTimeout(() => document.addEventListener("mousedown", off, true), 0);
+    menu.addEventListener("click", (ev) => {
+      const it = ev.target.closest("[data-al]");
+      if (!it) return;
+      const what = it.dataset.al;
+      shut();
+      if (what === "open") return Panels.show("alerts");
+      // `last` is what tells the dialog which SIDE you are coming from —
+      // above or below is a fact about where price is, not a preference, and
+      // guessing it wrong arms a rule that fires instantly or never.
+      Alerts.open(what === "draw"
+        ? { symbol: SYMBOL, left: "close", op: "cross",
+            right: `draw:${sel.ref || sel.id}`, interval: state.interval }
+        : { symbol: SYMBOL, level, last: lastBar ? lastBar.close : null,
+            interval: state.interval });
+    });
+  });
 
   chart.subscribeClick((param) => {
     if (!param || !param.time || !param.seriesData) return hideProvenance();
@@ -2748,14 +2924,20 @@
      * them because the profile's MENU TICK is a claim about a scene item, and
      * putting the histogram back without the tick would leave the menu lying
      * about what is on screen. */
-    Undo.bind({
-      read: () => ({
-        drawings: draw.state.drawings,
-        scene: scene.state.items,
-        indicators: [...ind.active.keys()],
-        vp: state.vp || null,
-      }),
-      write: async (s) => {
+    /* The workspace, as one readable/writable value.
+     *
+     * Undo has always defined it — these four sets ARE what an edit edits —
+     * and a saved layout is the same snapshot kept under a name instead of on
+     * a stack. So layouts.js reuses this pair rather than growing a second
+     * opinion about what a workspace is; anything undo learns to cover, a
+     * layout stores for free. */
+    const wsRead = () => ({
+      drawings: draw.state.drawings,
+      scene: scene.state.items,
+      indicators: [...ind.active.keys()],
+      vp: state.vp || null,
+    });
+    const wsWrite = (async (s) => {
         draw.setAll(s.drawings);
         scene.setItems(s.scene);          // fires onChange → may null state.vp
         // Indicators are a SET, restored by difference: dropping and re-adding
@@ -2777,8 +2959,10 @@
         Store.set("vp", state.vp);
         renderIndMenu();
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
-      },
     });
+    Undo.bind({ read: wsRead, write: wsWrite });
+    workspace = { read: wsRead, write: wsWrite };
+    document.dispatchEvent(new CustomEvent("charto:workspace-ready"));
 
     /* The fold is restored LAST — after the scene, the profile and the undo
      * bind, so `sceneCount` starts from what is actually on the chart and the
@@ -2992,5 +3176,11 @@
                           const want = new Set([].concat(keys));
                           trashClear(trashLive().filter((x) => want.has(x.l.key)));
                         },
-                      } };
+                      },
+                      // set once the boot restore has finished — layouts.js
+                      // waits on charto:workspace-ready rather than polling
+                      get workspace() { return workspace; },
+                      get symbol() { return SYMBOL; },
+                      get interval() { return state.interval; },
+                      loadInterval };
 })();

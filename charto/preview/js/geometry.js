@@ -289,9 +289,17 @@ const Geo = (() => {
         ctx.stroke();
         break;
       case "vband":
-        ctx.globalAlpha = s.fillAlpha ?? 0.10;
+        // the primitive's own alpha wins, like its own colour does — a strip
+        // the chat drew to shade a session needs more fill and less edge than
+        // one the user dragged out to measure a date range
+        ctx.globalAlpha = prim.fillAlpha ?? s.fillAlpha ?? 0.10;
         ctx.fillRect(px.left, 0, Math.max(2, px.right - px.left), env.h);
         ctx.globalAlpha = 1;
+        // A REGION is its area, not its boundary. The user's own date-range
+        // tool keeps its edges — they are the two handles it is dragged by —
+        // but a dozen shaded sessions with hard edges reads as a picket
+        // fence, and the fence is louder than the price it is drawn over.
+        if (prim.stroke === false) break;
         ctx.beginPath();
         ctx.moveTo(px.left, 0); ctx.lineTo(px.left, env.h);
         ctx.moveTo(px.right, 0); ctx.lineTo(px.right, env.h);
@@ -389,6 +397,14 @@ const Geo = (() => {
           ctx.fillStyle = "#ffffff";
           ctx.fillText(text, x + 8, py + 14);
         };
+        // The arithmetic appears when you POINT at the plan, not before.
+        // Entry, stop, target, percentage, distance, quantity, risk, R:R and
+        // rupee P&L is nine values in four pills sitting over the candles; as
+        // a permanent fixture it is a wall of text on a chart whose job is to
+        // show the shape of the trade. The shape stays — zones, boundaries,
+        // entry line — and the numbers are one hover or one selection away,
+        // in the reply, and in the plan card.
+        if (!s.detail) break;
         px.yT.forEach((y, i) => {
           const tp = prim.targets[i];
           if (tp.text) pill(tp.text, y, GREEN, y <= px.yE);

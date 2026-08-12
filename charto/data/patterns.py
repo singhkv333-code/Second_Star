@@ -91,7 +91,12 @@ def _trend_before(rows: list[tuple], i: int, n: int = _TREND_BARS,
 # ── candlesticks ──────────────────────────────────────────────────
 def candlesticks(rows: list[tuple], atr_series: list, ist,
                  kinds: set | None = None, limit: int = 40) -> list[dict]:
-    """Every named candle formation in `rows`, newest last.
+    """Every named candle formation in `rows`, NEWEST FIRST.
+
+    Ordered by bars_ago ascending and truncated to `limit` at the end, so
+    `limit` drops the OLDEST — out[0] is the most recent bar that qualified.
+    (This said "newest last" for a long time and was wrong; a caller that
+    trusted it took a slice off the wrong end of the list.)
 
     One bar can carry more than one name (a doji is often also a spinning
     top); all of them are reported rather than silently picking a winner,

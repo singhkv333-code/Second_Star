@@ -132,7 +132,8 @@ NSE_CLOSE_MIN = 15 * 60 + 29
 # with no Kite session and no backend env, and importing dataserver opens the
 # 11 GB store with a 4 GB mmap window just to answer "is this a stock?".
 _MCX = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
-        "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"}
+        "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM",
+        "LEAD", "NICKEL", "COTTON", "MENTHAOIL"}
 _FX = {"USDINR", "EURINR", "GBPINR", "JPYINR"}
 _INDEX_TOKENS = ("NIFTY", "SENSEX", "BANKEX", "INDIA VIX")
 

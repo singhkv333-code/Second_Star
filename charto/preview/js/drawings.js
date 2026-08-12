@@ -244,7 +244,10 @@ const Drawings = (() => {
         /* "Show me the numbers." A shape that has a second, wordier reading
          * paints it only when the reader is actually on it — under the
          * pointer, selected, or being placed. While it is being placed it is
-         * ALWAYS on: the numbers are the reason you are dragging. */
+         * ALWAYS on: the numbers are the reason you are dragging. A position's
+         * numbers ride on selection for the same reason (see geometry's
+         * `position`); the pointer is the third way onto them, not a
+         * replacement for it. */
         detail: isDraft || selected || d.id === state.hoverId,
       };
     }
@@ -307,14 +310,18 @@ const Drawings = (() => {
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
         if (lp && lp.pane === rec.pane) continue;
-        try { rec.pane.detachPrimitive(rec.prim); } catch {}
+        try { rec.host.detachPrimitive(rec.prim); } catch {}
         attached.delete(key); rus.delete(key);
       }
       for (const p of live) {
         if (attached.has(p.key)) continue;
         const prim = makePrimitive(p.key);
-        p.pane.attachPrimitive(prim);
-        attached.set(p.key, { pane: p.pane, prim });
+        // The series, not the pane — see the same line in scene.js. A pane
+        // primitive shares the candles' canvas; a series primitive gets the
+        // overlay above it. The user's own shapes were behind the bars too.
+        const host = p.series || p.pane;
+        host.attachPrimitive(prim);
+        attached.set(p.key, { pane: p.pane, host, prim });
       }
       _ru();
     }

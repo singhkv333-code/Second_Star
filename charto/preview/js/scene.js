@@ -147,8 +147,103 @@ const Scene = (() => {
       return logicalToX(lo + (ct - bars[lo].time) / span);
     }
 
+    /* ── marking a bar ────────────────────────────────────────────────────
+     * A `candle` annotation is ONE DOT, sitting above the bar's high and
+     * centred on it. It says "this one" without covering the bar it points
+     * at — with a candlestick pattern the body against the wick IS the
+     * evidence, so anything drawn over it hides the reason it qualified.
+     *
+     * The gap is PIXELS, not price: a fixed price offset drifts with the
+     * scale and stops looking like the same distance the moment the axis is
+     * log or the range changes. */
+    const MARK_GAP = 6;        // px from the bar's high to its dot
+    const MARK_DOT = 2.3;      // dot radius — a pointer, not a bullet
+
+    /** The loaded bar at a detector time, or null when this interval has no
+     *  bar there — a daily pattern viewed on 5m has no 5m bar at that stamp.
+     *  Only ever a FALLBACK: an annotation that carries its own hi/lo keeps
+     *  its geometry across interval changes, which is why the drawer sends
+     *  them. */
+    function barAt(t) {
+      const bars = env.getBars();
+      if (!bars.length) return null;
+      const ct = env.toChartTime ? env.toChartTime(t) : t;
+      let lo = 0, hi = bars.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (bars[mid].time <= ct) lo = mid; else hi = mid;
+      }
+      for (const k of [lo, hi]) if (bars[k] && bars[k].time === ct) return bars[k];
+      return null;
+    }
+
+    /** A plan projects into blank chart to the RIGHT of the last bar, and the
+     *  chart leaves five bars of it. Widen the margin so the window the trade
+     *  would live in is actually on screen.
+     *
+     *  Outward only, and bounded: this moves the user's view, so it may open
+     *  room that was not there and must never take room away or push the
+     *  candles into a corner. */
+    function fitProjection() {
+      const bars = env.getBars();
+      if (bars.length < 2) return;
+      const last = bars[bars.length - 1].time;
+      const span = Math.max(1, last - bars[bars.length - 2].time);
+      let need = 0;
+      for (const a of state.items) {
+        if (a.kind !== "position" || a.t1 == null) continue;
+        const ct = env.toChartTime ? env.toChartTime(a.t1) : a.t1;
+        need = Math.max(need, Math.ceil((ct - last) / span));
+      }
+      if (need <= 0) return;
+      const ts = chart.timeScale();
+      const want = Math.min(need + 2, 40);
+      if (want > (ts.options().rightOffset || 0)) {
+        ts.applyOptions({ rightOffset: want });
+      }
+    }
+
+    /** Where a candle mark's dot goes. One function, so the renderer and the
+     *  hit-tester can never disagree about where the mark is.
+     *
+     *  A multi-bar pattern (an engulfing is two bars, a morning star three)
+     *  centres its dot over the SPAN and hangs it off the highest of those
+     *  bars — one mark for one pattern, rather than a dot per bar, which
+     *  would read as several findings. */
+    function markDot(a) {
+      const c1 = tToX(a.t1), c2 = tToX(a.t2 == null ? a.t1 : a.t2);
+      if (c1 === null || c2 === null) return null;
+      const bar = a.hi == null ? barAt(a.t1) : null;
+      const hiV = a.hi == null ? (bar && bar.high) : a.hi;
+      if (hiV == null) return null;
+      const yH = vToY(hiV, a.pane);
+      if (yH === null) return null;
+      return { cx: (c1 + c2) / 2, cy: yH - MARK_GAP - MARK_DOT };
+    }
+
     const mine = (a, key) =>
       String(a.pane || "price").split("@")[0] === (key || "price");
+
+    /** A segment's anchor pixels, and the two points it is actually STROKED
+     *  between — different the moment it extends.
+     *
+     *  `extend:"right"` has been in the data since draw_shape learned to
+     *  draw a ray, and this renderer ignored it: every ray stopped dead at
+     *  its second anchor, so the one property that makes it a ray was
+     *  invisible. Clipping is parametric, so a vertical needs no special
+     *  case. The LABEL still hangs off the anchors — a ray's midpoint after
+     *  clipping is somewhere off in blank chart. */
+    function segPx(a, w, h) {
+      const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
+      const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
+      if ([x1, x2, y1, y2].some((q) => q === null)) return null;
+      const draw = (a.extend && a.extend !== "none")
+        ? (Geo.clipToRect(x1, y1, x2, y2, w, h,
+                          a.extend === "right" ? 0 : -1e9, 1e9)
+           || [[x1, y1], [x2, y2]])
+        : [[x1, y1], [x2, y2]];
+      return { a: [x1, y1], b: [x2, y2], draw };
+    }
 
     /* Annotation kinds that are plain geometry — composed by draw_shape from
      * resolved anchors rather than produced by a detector. They render and
@@ -161,6 +256,17 @@ const Scene = (() => {
       box: (a) => [Geo.box(a.a, a.b, { fill: true })],
       vline: (a) => [Geo.vline(a.t)],
       point: (a) => [Geo.point(a.a)],
+      // A stretch of TIME, full height. The primitive existed for the user's
+      // own date-range tool and the scene simply never exposed it, so the
+      // chat could mark a moment but not a span — and a span is what a
+      // session, an event window or a month actually is. A box faked it only
+      // by inventing price bounds it had no business asserting.
+      vband: (a) => [Geo.vband(a.t1, a.t2, { fillAlpha: 0.16, stroke: false })],
+      // Text pinned to a point, with no shape under it. Every other
+      // annotation's label describes the geometry it belongs to; this one IS
+      // the annotation — "results" on the day, and nothing implied about
+      // price there.
+      label: (a) => [Geo.label(a.a, a.text || a.label || "")],
       // fill/solid/stroke let a detector compose TradingView-style pattern
       // geometry: a solid outline through the defining swings plus a
       // stroke-less fill polygon, without double-drawing any edge
@@ -251,10 +357,16 @@ const Scene = (() => {
           const y1 = vToY(a.hi, a.pane), y2 = vToY(a.lo, a.pane);
           if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
         } else if (a.kind === "segment" && x != null) {
-          const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
-          const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
-          if ([x1, x2, y1, y2].every((q) => q !== null)
-              && distSeg(x, y, x1, y1, x2, y2) < HIT) return a;
+          // the DRAWN line answers, not the anchor pair — a ray you can see
+          // but cannot point at is a ray that reads as dead
+          const s = segPx(a, plotW(), env.container.clientHeight);
+          if (s && distSeg(x, y, s.draw[0][0], s.draw[0][1],
+                           s.draw[1][0], s.draw[1][1]) < HIT) return a;
+        } else if (a.kind === "candle" && x != null) {
+          // the dot answers, the bar under it does not — otherwise a mark
+          // would swallow every click on the candle it is pointing at
+          const m = markDot(a);
+          if (m && Math.hypot(x - m.cx, y - m.cy) < HIT) return a;
         } else if (SHAPES[a.kind] && x != null) {
           // shapes composed via draw_shape share the drawing layer's algebra
           const e = geoEnv(a.pane);
@@ -586,17 +698,33 @@ const Scene = (() => {
           ctx.moveTo(0, y1 + hgt); ctx.lineTo(w, y1 + hgt); ctx.stroke();
           ctx.fillStyle = col;
           chip(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, 8, y1, col);
-        } else if (a.kind === "segment") {
-          const x1 = tToX(a.p1.t), x2 = tToX(a.p2.t);
-          const y1 = vToY(a.p1.v, a.pane), y2 = vToY(a.p2.v, a.pane);
-          if ([x1, x2, y1, y2].some((q) => q === null)) continue;
-          ctx.setLineDash(a.dashed ? [7, 4] : []);
-          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        } else if (a.kind === "candle") {
+          const m = markDot(a);
+          if (!m) continue;
           ctx.setLineDash([]);
-          // anchors, so you can see the swings it was fitted to
-          for (const [px, py] of [[x1, y1], [x2, y2]]) {
-            ctx.beginPath(); ctx.arc(px, py, hot ? 3.5 : 2.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath();
+          ctx.arc(m.cx, m.cy, hot ? MARK_DOT + 1.2 : MARK_DOT, 0, Math.PI * 2);
+          ctx.fill();
+          if (a.label) {
+            const lw = ctx.measureText(a.label).width + 12;
+            chip(a.label, Math.min(Math.max(m.cx - lw / 2, 8), w - lw - 4),
+                 m.cy - MARK_DOT - 3, col);
           }
+        } else if (a.kind === "segment") {
+          const s = segPx(a, w, h);
+          if (!s) continue;
+          const [x1, y1] = s.a, [x2, y2] = s.b;
+          ctx.setLineDash(a.dashed ? [7, 4] : []);
+          ctx.beginPath();
+          ctx.moveTo(s.draw[0][0], s.draw[0][1]);
+          ctx.lineTo(s.draw[1][0], s.draw[1][1]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // No anchor dots. A segment already ENDS at the swing it was fitted
+          // to — where the stroke stops is the claim — so a filled circle
+          // there restates it and nothing more. On a pattern like a wedge,
+          // whose two legs are two segments, it put four dots on the chart
+          // that read as handles you could grab and cannot.
           if (a.label) {
             // clamp by the MEASURED label width — a fixed margin let long
             // pattern labels run under the price axis
@@ -618,7 +746,10 @@ const Scene = (() => {
             // stop and R:R plates. Same rule as the user's own long/short
             // tool (js/drawings.js): the plan's SHAPE is always on, its
             // NUMBERS come up when the pointer is on it, so a plan the chat
-            // drew does not sit on the candles it was drawn against.
+            // drew does not sit on the candles it was drawn against. Here it
+            // is hover and never selection: clicking a scene annotation opens
+            // nothing (main.js's onSelect is empty), so pointing at one IS how
+            // this layer is addressed.
             Geo.paint(ctx, prim, px,
                       { color: prim.color || col, width: hot ? 2 : 1.5,
                         dash: prim.dash ?? [7, 4], fillAlpha: 0.12,
@@ -669,14 +800,24 @@ const Scene = (() => {
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
         if (lp && lp.pane === rec.pane) continue;
-        try { rec.pane.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
+        try { rec.host.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
         attached.delete(key); rus.delete(key); dropOverlay(key);
       }
       for (const p of live) {
         if (attached.has(p.key)) continue;
         const prim = makePrimitive(p.key);
-        p.pane.attachPrimitive(prim);
-        attached.set(p.key, { pane: p.pane, prim });
+        // Attach to the SERIES, not the pane. Both accept a primitive and
+        // both honour zOrder "top", but they paint on DIFFERENT canvases: a
+        // pane primitive lands on the same canvas as the candles (z-index 1)
+        // and competes with them there, while a series primitive lands on the
+        // overlay canvas above it (z-index 2). Measured, both ways, by
+        // filling an opaque rect from each and reading the pixels back.
+        //
+        // That is why a plan overlay was disappearing behind the very bars it
+        // was drawn across: half of it was under the wicks.
+        const host = p.series || p.pane;
+        host.attachPrimitive(prim);
+        attached.set(p.key, { pane: p.pane, host, prim });
       }
       _ru();
     }
@@ -725,6 +866,11 @@ const Scene = (() => {
         return y1 === null || y2 === null ? null : (y1 + y2) / 2;
       }
       if (a.kind === "vprofile") return vToY(a.poc, a.pane);
+      if (a.kind === "label" || a.kind === "point") return vToY(a.a.v, a.pane);
+      if (a.kind === "candle") {
+        const m = markDot(a);
+        return m ? m.cy : null;
+      }
       return vToY(a.kind === "zone" ? a.hi : a.price, a.pane);
     }
 
@@ -781,7 +927,8 @@ const Scene = (() => {
         case "segment": case "fib": mv(a.p1, o.p1); mv(a.p2, o.p2); break;
         case "box": mv(a.a, o.a); mv(a.b, o.b); break;
         case "vline": a.t = o.t + dt; break;
-        case "point": mv(a.a, o.a); break;
+        case "vband": a.t1 = o.t1 + dt; a.t2 = o.t2 + dt; break;
+        case "point": case "label": mv(a.a, o.a); break;
         case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
         case "position":
           if (h && h.k === "entry") a.entry = r2(o.entry + dv);
@@ -818,8 +965,11 @@ const Scene = (() => {
       const a = hitAt(p.y, p.key, p.x);
       // A computed profile has no geometry the user owns — dragging it would
       // mean nothing and would stamp it "adjusted", so it is hoverable but
-      // not movable, like markers.
-      if (!a || a.kind === "markers" || a.kind === "vprofile") return;
+      // not movable, like markers. A candle mark is the same: its geometry
+      // IS a particular bar, so dragging it off that bar destroys its only
+      // claim.
+      if (!a || a.kind === "markers" || a.kind === "vprofile"
+          || a.kind === "candle") return;
       const l0 = chart.timeScale().coordinateToLogical(p.x);
       drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
                orig: JSON.parse(JSON.stringify(a)),
@@ -862,7 +1012,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "point", "poly", "fib", "markers", "position", "vprofile"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "markers", "position", "vprofile", "candle", "label"]);
 
     return {
       state,
@@ -948,7 +1098,7 @@ const Scene = (() => {
           if (i >= 0) state.items[i] = a; else state.items.push(a);
           drew++;
         }
-        if (drew) { syncMarkers(); _ru(); env.onChange(count()); }
+        if (drew) { syncMarkers(); fitProjection(); _ru(); env.onChange(count()); }
         return drew;
       },
       clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },

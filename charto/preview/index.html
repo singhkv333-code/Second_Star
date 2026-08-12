@@ -625,6 +625,163 @@ select.is-dressed { display: none; }
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
+   The named desk in the header, its menu, its dialogs. Built from the
+   controls already in this file — .dropdown/.item for the menu, .dlg-input
+   and .btn for the dialogs — so this reads as the same app rather than a
+   second one bolted on. Only the switch and the list rows are new shapes. */
+.ly-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 8px 0 10px; max-width: 190px;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--foreground); font: inherit; font-size: var(--text-sm);
+  cursor: pointer; flex: none;
+  transition: background var(--dur) var(--ease-quartr);
+}
+.ly-btn:hover, .menu-wrap:has(.dropdown.open) > .ly-btn { background: var(--accent); }
+.ly-btn .ly-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+/* the unsaved mark: a dot, not the word "unsaved" — it sits next to a name
+   that may already be long, and its whole job is to be noticed, not read */
+.ly-btn .ly-dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--primary);
+}
+.ly-btn svg { flex: none; opacity: .6; }
+/* Slimmer than it was: the widest row is "Download chart data…" and 268px
+   left it swimming in space to the right, which read as a dialog rather than
+   a menu. Type is untouched — only the box moved in around it. */
+.ly-menu { min-width: 224px; padding: 5px; }
+.ly-menu .item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 8px; border-radius: var(--radius-sm);
+}
+.ly-menu .item > svg { flex: none; opacity: .75; }
+.ly-menu .item > span:first-of-type { flex: 1; min-width: 0; }
+.ly-menu kbd {
+  font: inherit; font-size: var(--text-2xs); color: var(--faint);
+  letter-spacing: .04em;
+}
+.ly-menu .sep { height: 1px; margin: 5px 4px; background: var(--border-soft); }
+.ly-menu .head {
+  padding: 7px 8px 5px; font-size: var(--text-2xs); color: var(--faint);
+  text-transform: uppercase; letter-spacing: .07em;
+  font-weight: var(--weight-medium);
+}
+.ly-empty { padding: 8px 8px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
+/* a note glyph that explains a toggle without spending a line on it */
+.ly-note {
+  width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 1px solid var(--faint); color: var(--faint);
+  font-size: 9px; line-height: 12px; text-align: center; font-style: italic;
+  cursor: help;
+}
+/* iOS-shaped switch, in our tokens. The two toggles are STATE, not commands,
+   so they get a control that shows a position rather than a row that fires. */
+.switch {
+  width: 32px; height: 18px; flex: none; border-radius: 999px;
+  background: var(--border); position: relative;
+  transition: background var(--dur) var(--ease-quartr);
+}
+.switch > i {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--background);
+  transition: transform var(--dur) var(--ease-quartr);
+}
+.switch.on { background: var(--primary); }
+.switch.on > i { transform: translateX(14px); }
+.ly-recent { flex-direction: column; align-items: flex-start !important; gap: 1px !important; }
+.ly-recent .ly-rname { font-size: var(--text-sm); }
+.ly-recent .ly-rsub { font-size: var(--text-2xs); color: var(--faint); }
+.ly-recent.on { background: var(--accent); }
+
+/* dialogs — one backdrop, one card, reused by rename / delete / open */
+.ly-back {
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--scrim); display: grid; place-items: center;
+  animation: pop var(--dur) ease-out;
+}
+.ly-dlg {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--menu-shadow);
+  padding: 18px;
+}
+/* the picker holds a grid of chart previews, so it gets room the rename and
+   delete dialogs have no use for */
+.ly-dlg.wide { width: min(760px, calc(100vw - 32px)); }
+.ly-dlg h3 { margin: 0 0 12px; font-size: var(--text-md); font-weight: var(--weight-semi); }
+.ly-dlg .ly-body { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
+.ly-lab { display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.ly-dlg .dlg-input { width: 100%; }
+.ly-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.ly-list { margin-top: 12px; max-height: min(58vh, 520px); overflow-y: auto; margin-right: -6px; padding-right: 6px; }
+/* Cards, two up. A layout is recognised by its CHART, not its name, so the
+   picture leads and the words sit quietly underneath it. Two columns is the
+   most that keeps the image big enough to read a trend off. */
+.ly-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ly-card {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  overflow: hidden; cursor: pointer; background: var(--card);
+  transition: border-color var(--dur) var(--ease-quartr),
+              box-shadow var(--dur) var(--ease-quartr);
+}
+.ly-card:hover { border-color: var(--muted-foreground); }
+.ly-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+/* 16:10 — near enough to a chart's own proportions that the thumbnail is
+   not letterboxed, and short enough that two rows fit without scrolling */
+.ly-shot { position: relative; aspect-ratio: 16 / 10; background: var(--chart-bg); }
+.ly-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.ly-noshot {
+  position: absolute; inset: 0; display: grid; place-content: center;
+  justify-items: center; gap: 6px; color: var(--faint);
+  font-size: var(--text-2xs);
+}
+.ly-meta { padding: 9px 10px 10px; border-top: 1px solid var(--border-soft); }
+.ly-dotsep { opacity: .5; margin: 0 2px; }
+.ly-item-name {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ly-item-sub { font-size: var(--text-2xs); color: var(--faint); margin-top: 2px; }
+.ly-tag {
+  padding: 1px 5px; border-radius: var(--radius-xs);
+  background: var(--primary-soft); color: var(--primary);
+  font-size: 9px; letter-spacing: .04em; text-transform: uppercase;
+  font-weight: var(--weight-medium); flex: none;
+}
+.ly-tag.alt { background: var(--accent); color: var(--muted-foreground); }
+.ly-del {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  background: none; border: 0; border-radius: var(--radius-xs);
+  color: var(--faint); cursor: pointer; opacity: 0;
+}
+.ly-item:hover .ly-del { opacity: 1; }
+.ly-del:hover { color: var(--down); background: var(--background); }
+.btn.danger { background: var(--down); color: #fff; border-color: transparent; }
+
+/* one toast, bottom-centre, for "Saved" and every other one-line outcome.
+   A CARD, not a pill: the pill radius made a short message look like a
+   lozenge floating over the candles, and every other surface in this app —
+   menu, dialog, popover — is a rectangle with the same soft corner. It
+   should read as the app speaking, not as a badge. */
+.layout-toast {
+  position: fixed; left: 50%; bottom: 26px; z-index: 95;
+  transform: translate(-50%, 12px);
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--popover); border: 1px solid var(--border);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--text-xs); color: var(--foreground);
+  line-height: 1.35; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              transform var(--dur) var(--ease-quartr);
+}
+.layout-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
 /* layout picker — a grid of glyphs grouped by pane count, not a list of
    names. Forty-two layouts described in prose would be four screens of
    text about shapes you can read at a glance; the count leads each row in
@@ -2043,13 +2200,12 @@ body.two-columns .readout .row { display: none; }
 }
 
 /* chart ⇄ chat cross-highlight. A mention of something drawn on the chart,
-   quiet until it matters. A real text-decoration, not a bottom border: a
-   border is an edge of a BOX, so border-radius curled its ends upward and
-   the mention looked like it was sitting in a tray. */
+   quiet until it matters — and at REST it matters not at all, so it carries
+   no mark. A dotted rule under every price in a reply is a lot of ink spent
+   telling you something you find out for free by pointing at one; a reply
+   with six levels in it read as though the model had underlined its own
+   homework. The link is still live, it just no longer announces itself. */
 .ann-ref {
-  text-decoration: underline dotted var(--foreground);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
   cursor: default;
   /* No transition. Crossing in and out of a small inline target fades the
      state in and out repeatedly, which reads as jitter — it should be
@@ -2159,6 +2315,37 @@ body.two-columns .readout .row { display: none; }
    indicator chips. */
 .prose strong, .prose code, .prose td, .turn-meta { font-variant-numeric: tabular-nums; }
 
+/* ── three things worth asking next ──────────────────────────────────────
+ *
+ * No card, no rule, no header. They sit in the reply's own column on the
+ * reply's own surface, because they are the tail of reading the answer
+ * rather than a widget parked underneath it — a bordered panel here reads as
+ * a second thing on the page and breaks the thread in half.
+ *
+ * So the ONLY thing marking them is what has to: quieter ink than the prose,
+ * warming to full and gaining a little weight when reached. One line each,
+ * ellipsised — three rows of ragged heights is the sloppy version of this.
+ */
+.suggest {
+  margin: 5px 0 2px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  max-width: 100%;
+}
+.suggest-row {
+  display: block; max-width: 100%; padding: 3px 0;
+  font: inherit; font-size: var(--text-xs); line-height: 1.5;
+  text-align: left; color: var(--muted-foreground);
+  background: none; border: 0; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 400;
+  transition: color var(--dur-fast) var(--ease-quartr);
+}
+.suggest-row:empty { display: none; }   /* a row waiting on its first token */
+.suggest-row:hover, .suggest-row:focus-visible {
+  color: var(--foreground); outline: none;
+  font-weight: var(--weight-medium);
+}
+
 /* per-turn footnotes: provenance + timing, quiet until hovered */
 .turn-meta {
   margin-top: 10px; font-size: var(--text-2xs); color: var(--faint);
@@ -2223,6 +2410,10 @@ body.two-columns .readout .row { display: none; }
    counter, because the one question a wait actually raises is "how long has
    this been going". */
 .wait { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* The wait stands down while the answer streams. An author `display` beats the
+   UA's `[hidden]` rule no matter the specificity, so the class has to opt out
+   of itself — without this line `host.hidden` would hide nothing. */
+.wait[hidden] { display: none; }
 .wait-head {
   display: flex; align-items: center; gap: 10px;
   font-size: var(--text-xs); color: var(--muted-foreground);
@@ -2431,50 +2622,70 @@ body.two-columns .readout .row { display: none; }
 
 /* drawing references carried into the composer.
 
-   A QUIET plate, unframed. This chip used to wear the accent — a teal border
-   over --primary-soft — which made the thing you had merely pointed at the
-   loudest object above the composer, louder than the message you were about
-   to write in it. The accent is this app's "you are on this" colour, spent on
-   the current tool and the active study; a subject waiting to be asked about
-   is not a state, and the chip only has to say "this is coming with it".
+   A QUIET plate, unframed and unaccented. The chip wore three pieces of the
+   accent at once — a 2px teal rule down its left edge, a teal glyph on a
+   --primary-soft tile, and a frame around the lot — which made the thing you
+   had merely POINTED AT the loudest object above the composer, louder than
+   the message you were about to write in it. The accent is this app's "you
+   are on this" colour, spent on the current tool and the active study; a
+   subject waiting to be asked about is not a state the app is in.
 
-   The frame goes for the same reason the readout's chips have none: at 26px
-   the border was half the chip's visual weight and it drew a box around a
-   word. The wash is mixed FROM the ink rather than taken from --muted,
-   because in dark --muted and --card are the same #1c1c1d and a muted plate
-   over the composer would have no fill at all. Same mix as the provenance
-   card's footer buttons — one quiet-plate recipe, two places. */
+   The frame goes with it. A plate needs contrast, not an outline, to read as
+   an object, and the wash here is mixed FROM the ink — which separates it
+   from the composer on either theme, where --card could not: in dark --card
+   and the panel behind it are near enough to identical that the border was
+   the only thing holding the chip together, which is exactly why it was
+   there. Same mix as the provenance card's footer buttons. The glyph keeps
+   its tile, one step deeper than the plate it sits on, so the icon still
+   reads as a mark rather than as loose art beside the words. */
 .draw-tag-row { margin-bottom: 6px; }
 .draw-tag {
-  display: inline-flex; gap: 6px; align-items: center; height: 26px;
-  font-size: var(--text-xs); color: var(--foreground);
-  border: 0; border-radius: var(--radius-pill); padding: 0 5px;
-  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  position: relative; display: inline-flex; gap: 9px; align-items: center;
+  min-width: 210px; max-width: min(360px, 100%); height: 44px;
+  padding: 5px 7px 5px 6px; overflow: hidden;
+  color: var(--foreground); border: 0; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
-/* The ref is a HANDLE, not the subject — the same demotion .prov .draw-ref
-   documents. In the accent it was the brightest thing in the chip, which read
-   as "D3" being what you tagged rather than the shape D3 names. */
-.draw-tag .ref {
-  font: var(--text-3xs) var(--mono); font-weight: var(--weight-semi);
+.draw-tag-mark {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: var(--radius-xs);
   color: var(--muted-foreground);
-  background: var(--background); border-radius: var(--radius-pill); padding: 2px 6px;
-  letter-spacing: .02em;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
 }
-/* …and the same tag once the message is sent, standing at the head of its
-   bubble so scrolling back shows WHICH shape a past answer was about.
-
-   It follows the composer chip off the accent for the same reason: this is a
-   caption on a message, not a state the app is in, and in teal it outweighed
-   the sentence underneath it — the loudest thing in the bubble was the label,
-   not the question. Ink at the app's quietest weight, on a plate mixed from
-   the ink rather than --background: the bubble is already --muted, and in
-   light the two are near enough that a --background pill on it read as a hole
-   punched in the bubble. */
+.draw-tag-mark svg.icon { width: 17px; height: 17px; stroke-width: 1.7; }
+.draw-tag-copy {
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 0; line-height: 1.15;
+}
+.draw-tag-copy strong {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-xs); font-weight: var(--weight-semi);
+}
+.draw-tag-copy small {
+  margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--faint); font: var(--text-3xs) var(--mono); letter-spacing: .01em;
+}
+.draw-tag > .x { margin-left: auto; border: 0; padding: 0; background: transparent; }
+.draw-tag > .x svg.icon { width: 13px; height: 13px; }
+/* …and the same attachment once the message is sent, at the head of its
+   bubble so scrolling back shows WHICH shape a past answer was about. It
+   follows the composer chip off the frame and the accent, and its plate is
+   mixed from the ink for a second reason on top of the first: the bubble is
+   already --muted, and a --card pill on it differed by a shade or two, so
+   the border was doing all the work of saying where the tag ended. */
 .bubble-tag {
-  display: inline-block; font: var(--text-3xs) var(--mono); letter-spacing: .02em;
-  color: var(--muted-foreground);
-  background: color-mix(in srgb, var(--foreground) 7%, transparent);
-  border-radius: var(--radius-pill); padding: 2px 8px; margin-bottom: 6px;
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  min-height: 34px; padding: 4px 9px 4px 4px; margin-bottom: 7px;
+  color: var(--foreground); border: 0; border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.bubble-tag .draw-tag-mark { width: 26px; height: 26px; }
+.bubble-tag .draw-tag-mark svg.icon { width: 14px; height: 14px; }
+.bubble-tag .draw-tag-copy strong { font-size: var(--text-2xs); }
+.bubble-tag .draw-tag-copy small { font-size: 9px; }
+.bubble-tag + * { margin-top: 1px; }
+.bubble-tag {
+  font-family: var(--font); letter-spacing: 0;
 }
 
 /* pinned bars — clicked candles, shown above the composer.
@@ -3035,6 +3246,58 @@ body.two-columns .readout .row { display: none; }
   .al-acts { display: flex; }
 }
 
+/* ── the ⊕ on the price axis ───────────────────────────────────────────────
+   Follows the pointer's price down the right edge of the price pane; one click
+   arms a crossing alert at that level. Sits just inside the axis, where the
+   price it refers to is written, and never over the candles it would obscure.
+   Its own transition is on opacity alone — animating `top` would make it lag
+   the crosshair it is supposed to be level with. */
+.alert-plus {
+  /* z-index 6 clears the chart's own canvases, which sit at 2. `pointer-events:
+     none` is permanent and load-bearing: this is a MARK, not a control — the
+     click is caught on the chart and resolved against this rectangle, because a
+     22px button floating over the library's canvases loses the hit-test to them
+     (measured). See makePlus in js/main.js. */
+  position: absolute; right: 62px; z-index: 6;
+  width: 22px; height: 22px; margin-top: -11px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--background); color: var(--muted-foreground);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr);
+}
+.alert-plus.show { opacity: 1; }
+/* `hot` is the hover state, set from JS — an element that takes no pointer
+   events can never match :hover. */
+.alert-plus.hot {
+  color: var(--primary); border-color: var(--primary); background: var(--primary-soft);
+}
+.alert-plus svg.icon { width: 13px; height: 13px; }
+/* A touch screen has no hover to reveal it, and a permanent circle floating on
+   the chart is clutter — the row of tools and the right-click menu are the
+   paths there instead. */
+@media (hover: none) { .alert-plus { display: none; } }
+
+/* A reason a rule is paused, printed under it. The engine pauses a rule whose
+   address stopped resolving rather than leaving it armed and silently never
+   firing, and a paused row with no stated reason reads as one the user
+   paused. */
+.al-meta.warn { color: var(--ann-res); }
+
+/* The feed line, above the list. Not an error and not styled as one: the
+   alerts are intact, it is the PRICES that are not arriving, and that is a
+   sentence the panel has to be able to say. */
+.al-feednote {
+  padding: 8px 10px; font-size: var(--text-sm); line-height: 1.4;
+  color: var(--muted-foreground); background: var(--accent);
+  border-bottom: 1px solid var(--seam);
+}
+
+/* The filter row. It only exists while it is being used — a permanent search
+   box over six rows is furniture. */
+.al-searchbar { padding: 6px 8px; border-bottom: 1px solid var(--seam); }
+.al-searchbar .dlg-input { width: 100%; }
+
 /* ── the log ──────────────────────────────────────────────────────────────
    The alerts list is standing RULES; the log is MOMENTS, so it is grouped by
    day and led by the clock. The day heading sticks, so a long scroll always
@@ -3058,6 +3321,191 @@ body.two-columns .readout .row { display: none; }
 .lg-msg b { font-weight: var(--weight-medium); }
 .lg-meta { margin-top: 3px; font-size: var(--text-sm); color: var(--muted-foreground); }
 .lg-meta .val { color: var(--foreground); font-variant-numeric: tabular-nums; }
+/* "found late" — the engine replayed stored bars after being down and found
+   this cross there. A fact about the READING, so it sits on the reading; the
+   alternative is a log that quietly implies everything was seen live. */
+.lg-late {
+  margin-left: 4px; font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: .02em; color: var(--faint);
+}
+
+/* ══ the create/edit dialog ════════════════════════════════════════════════
+   The one screen the fixture never had. It rides the shared .dlg shell
+   (js/dlgkit.js), so it drags, centres and clamps like the indicator and
+   chart dialogs — this block is only what is new inside it.
+
+   Each condition is a compact rounded group that still reads top-to-bottom as
+   one sentence: `close · crossing up · 1,420`. Fields are part dropdown and
+   part free text on purpose: the selects carry what people ask for daily, and
+   text accepts any address the engine's grammar knows, so the widget never
+   becomes the ceiling on what the engine can express. */
+/* This dialog USES the shared .dlg-body grid — `max-content 1fr`, a label
+   column and a control column — rather than overriding it to a block. That is
+   what it was built for, and it is the shape every charting tool's alert dialog
+   has: one setting per line, labels aligned down the left. An earlier version
+   overrode it to lay a whole condition across one horizontal line, which is
+   where every wrapping and clipping problem came from. */
+.al-dlg {
+  width: min(430px, calc(100vw - 24px));
+  border-radius: 14px;
+  box-shadow: 0 18px 54px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+/* the label of a stacked condition aligns to its FIRST control, not to the
+   middle of the stack */
+.al-condrow > label { align-self: start; padding-top: 16px; }
+.al-stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
+.al-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.al-line .al-combo, .al-line .dlg-select, .al-line .select-btn { flex: 1 1 auto; }
+.dlg-row > .dlg-input.wide { width: 100%; }
+
+.al-cond-row {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 8px; border: 1px solid var(--border-soft);
+  border-radius: 10px; background: color-mix(in srgb, var(--card) 78%, transparent);
+}
+
+/* ── an address field ──────────────────────────────────────────────────────
+   An input with a caret, and the app's own menu behind it. It replaced a native
+   <datalist>, which the OS paints itself: on this light page it dropped a tall
+   BLACK panel across half the dialog, and no stylesheet can reach inside a
+   native control. The field stays free text — the menu is a shortcut, never the
+   set of legal values. */
+.al-combo { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+.al-combo .dlg-input { width: 100%; min-width: 0; padding-right: 24px; }
+.al-caret {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; cursor: pointer; padding: 0;
+  color: var(--muted-foreground); border-radius: 0 5px 5px 0;
+}
+.al-caret:hover { color: var(--foreground); }
+
+/* The menu itself, styled from the same tokens as the app's dropdowns but NOT
+   built on `.dropdown` — see the note in js/alerts.js for the three reasons.
+   Two lines per row: the address in ink, what it means in grey, because
+   "pday.close" is not a word anyone knows and "yesterday's close" cannot be
+   typed into the field. */
+.al-menu {
+  position: fixed; z-index: 240;        /* over .dlg-wrap's 200 */
+  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
+  padding: var(--menu-pad);
+  min-width: 264px; max-width: 320px;
+  max-height: min(340px, 60vh); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.al-menu::-webkit-scrollbar { width: 6px; }
+.al-menu::-webkit-scrollbar-track { background: transparent; }
+.al-menu::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: var(--radius-2xs);
+}
+/* a group heading, not a menu head: no rail, no negative margins — there are
+   seven of them down the list, not one at the top */
+.al-menu .grp {
+  padding: 8px var(--menu-inset) 4px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+.al-menu .grp:first-child { padding-top: 3px; }
+.al-menu .row {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 5px var(--menu-inset); border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.al-menu .row:hover { background: var(--accent); }
+.al-menu .row b {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  color: var(--foreground); overflow-wrap: anywhere;
+}
+.al-menu .row span {
+  font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.35;
+}
+/* BOTH class names, and that is not belt-and-braces: DlgKit.dressSelects()
+   hides the real <select> and inserts a button whose class is the select's with
+   `dlg-select` REPLACED by `select-btn`. Styling only `.dlg-select` styles the
+   invisible element. .select-btn also ships a hard `width: 100px`, so a stacked
+   control has to override it to fill its line. */
+.al-line .dlg-select, .al-line .select-btn,
+.dlg-row > .dlg-select, .dlg-row > .select-btn {
+  width: 100%; min-width: 0;
+}
+/* An operator's glyph, in the list and in the closed control. A hair lighter
+   than a UI icon: it is a diagram of price against a level, and at 1.95 stroke
+   the dashes in it close up into a solid line. */
+svg.icon.op {
+  width: 17px; height: 17px; flex: none; stroke-width: 1.5;
+  color: var(--muted-foreground);
+}
+.dropdown .item.on svg.icon.op, .select-btn svg.icon.op { color: inherit; }
+/* the label cell of any select that carries glyphs — icon, then text */
+.select-btn .val, .dropdown .item .lead {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.select-btn .val > span, .dropdown .item .lead > span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.al-line .dlg-input.tiny, .al-line .al-unit { flex: 0 0 auto; }
+.al-line .dlg-input.tiny { width: 52px; text-align: center; }
+.al-unit { font-size: var(--text-sm); color: var(--faint); white-space: nowrap; }
+
+/* the AND/OR between two conditions, and the only place the rule's shape is
+   visible at a glance */
+.al-join {
+  padding: 5px 0 5px 2px; font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: .04em; color: var(--faint);
+}
+
+.al-mini {
+  width: 24px; height: 24px; flex: none; padding: 0; border: 0;
+  border-radius: var(--radius-xs); background: transparent;
+  color: var(--muted-foreground); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--text-xl); line-height: 1;
+}
+.al-mini:hover { background: var(--hover-fill); color: var(--foreground); }
+.al-mini.danger:hover { background: var(--down-soft); color: var(--down); }
+
+.al-addrow { display: flex; gap: 12px; margin: 2px 0 4px; }
+.al-add {
+  display: inline-flex; align-items: center; gap: 5px; padding: 0;
+  border: 0; background: transparent; cursor: pointer;
+  font-size: var(--text-sm); color: var(--primary);
+}
+.al-add:hover { text-decoration: underline; }
+
+/* WHAT IT IS LOOKING AT RIGHT NOW. The most load-bearing element in the
+   dialog: it is the difference between a rule you typed and a rule you can
+   see resolving, and it is where an unreadable address is refused — here,
+   rather than at 09:20 by never firing. */
+.al-check {
+  flex: none; margin: 0 20px; padding: 9px 11px;
+  border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.45;
+  background: var(--accent); color: var(--muted-foreground);
+}
+.al-check:empty { display: none; }
+.al-check.busy { opacity: .6; }
+.al-check.bad {
+  background: color-mix(in srgb, var(--down) 12%, transparent); color: var(--down);
+}
+.al-check-now { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.al-check-warn, .al-check-feed { margin-top: 4px; }
+.al-check-warn { color: var(--ann-res); }
+
+/* The grammar reference that used to live here is GONE. It was a wall of
+   monospace definitions under a dialog whose whole job is one sentence, and
+   every address it listed is now one click away inside the field it belongs to
+   (see .al-menu). A reference nobody opens is furniture; a reference inside the
+   control is discoverability. */
+
+/* On a phone the label column stops earning its width: the shared grid is
+   `max-content 1fr`, and two columns inside 340px leave the controls too narrow
+   to read a level in. Labels go above their control. */
+@media (max-width: 480px) {
+  .al-dlg .dlg-body { grid-template-columns: minmax(0, 1fr); }
+  .al-dlg .dlg-row > label { min-height: 0; padding: 10px 0 2px; }
+  .al-condrow > label { padding-top: 10px; }
+}
 
 /* ── a panel head's menus ──────────────────────────────────────────────────
    The app's own dropdown, hung off a 28px head button and appended to <body>
@@ -3865,6 +4313,168 @@ body.two-columns .readout .row { display: none; }
   .auth-col { padding: 32px 56px; }
 }
 
+/* ══ JOURNAL — a full desk, not another narrow widget ═════════════════════
+   The live chart remains mounted underneath; opening this workspace changes
+   what is visible, not what exists, so returning restores the exact view. */
+#journalBtn { gap: 7px; padding-inline: 10px; }
+#journalBtn svg { width: 16px; height: 16px; }
+body.journal-open > header > :not(.brand):not(#journalBack):not(.spacer):not(.menu-wrap:last-child) { display:none; }
+#journalBack { display:none; gap:7px; }
+body.journal-open #journalBack { display:flex; }
+body.journal-open .main { display:none; }
+.journal { display:none; flex:1; min-height:0; background:var(--background); color:var(--foreground); }
+body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,1fr); }
+.j-side { padding:24px 16px; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:24px; background:color-mix(in srgb,var(--card) 88%,var(--background)); }
+.j-kicker { padding:0 10px; font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted-foreground); }
+.j-nav { display:grid; gap:4px; }
+.j-nav button { border:0; background:transparent; color:var(--muted-foreground); min-height:42px; border-radius:9px; padding:0 10px; display:flex; align-items:center; gap:11px; font:inherit; font-size:13px; cursor:pointer; text-align:left; }
+.j-nav button svg { width:17px; height:17px; }
+.j-nav button:hover { background:var(--muted); color:var(--foreground); }
+.j-nav button.active { color:var(--foreground); background:var(--card); box-shadow:0 1px 0 var(--border),0 6px 20px rgba(15,23,42,.05); }
+.j-side-note { margin-top:auto; padding:14px; border:1px solid var(--border); border-radius:11px; background:var(--card); font-size:12px; line-height:1.55; color:var(--muted-foreground); }
+.j-side-note strong { display:block; color:var(--foreground); margin-bottom:3px; }
+.j-main { overflow:auto; min-width:0; }
+.j-shell { width:min(1220px,calc(100% - 56px)); margin:0 auto; padding:30px 0 64px; }
+.j-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:26px; }
+.j-eyebrow { font-size:12px; color:var(--primary); font-weight:600; margin-bottom:6px; }
+.j-head h1 { margin:0; font-family:Georgia,'Times New Roman',serif; font-size:34px; letter-spacing:-.035em; font-weight:500; }
+.j-head p { color:var(--muted-foreground); margin:7px 0 0; font-size:13px; }
+.j-actions { display:flex; gap:8px; align-items:center; }
+.j-action { min-height:40px; border:1px solid var(--border); background:var(--card); color:var(--foreground); border-radius:9px; padding:0 14px; font:inherit; font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer; }
+.j-action:hover { border-color:var(--muted-foreground); }
+.j-action.primary { background:var(--foreground); color:var(--background); border-color:var(--foreground); }
+.j-action svg { width:16px; height:16px; }
+.j-filters { display:flex; gap:8px; margin-bottom:18px; }
+.j-search { position:relative; flex:1; }
+.j-search svg { position:absolute; left:12px; top:12px; width:16px; color:var(--muted-foreground); }
+.j-search input,.j-select { width:100%; height:40px; border:1px solid var(--border); border-radius:9px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
+.j-search input { padding:0 12px 0 38px; }
+.j-select { width:auto; min-width:130px; padding:0 32px 0 11px; }
+.j-search input:focus,.j-select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
+.j-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:18px; }
+.j-metric { min-height:122px; border:1px solid var(--border); border-radius:12px; padding:17px; background:var(--card); position:relative; overflow:hidden; }
+.j-metric::after { content:''; position:absolute; right:-30px; bottom:-45px; width:100px; height:100px; border-radius:50%; background:var(--primary-soft); opacity:.55; }
+.j-metric label { font-size:12px; color:var(--muted-foreground); display:block; }
+.j-metric b { display:block; margin-top:18px; font-size:25px; font-weight:550; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+.j-metric small { color:var(--muted-foreground); font-size:11px; position:relative; z-index:1; }
+.j-grid { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(260px,.8fr); gap:12px; }
+.j-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
+.j-card-head { min-height:54px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-soft); }
+.j-card-head strong { font-size:13px; font-weight:600; }
+.j-card-head span { font-size:11px; color:var(--muted-foreground); }
+.j-equity { height:220px; padding:22px 18px 10px; position:relative; }
+.j-equity svg { width:100%; height:100%; overflow:visible; }
+.j-equity .zero { stroke:var(--border); stroke-dasharray:4 5; }
+.j-equity .line { fill:none; stroke:var(--primary); stroke-width:2.2; vector-effect:non-scaling-stroke; }
+.j-equity .area { fill:url(#jArea); opacity:.36; }
+.j-empty { min-height:210px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); padding:30px; font-size:13px; line-height:1.55; }
+.j-calendar { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; padding:14px; }
+.j-day { aspect-ratio:1; min-width:0; border:1px solid var(--border-soft); border-radius:7px; padding:6px; font-size:10px; color:var(--muted-foreground); display:flex; flex-direction:column; justify-content:space-between; }
+.j-day b { color:var(--foreground); font-size:11px; font-variant-numeric:tabular-nums; }
+.j-day.up { background:color-mix(in srgb,var(--up) 10%,var(--card)); }
+.j-day.down { background:color-mix(in srgb,var(--down) 9%,var(--card)); }
+.j-table-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
+.j-table { width:100%; border-collapse:collapse; font-size:12px; }
+.j-table th { color:var(--muted-foreground); font-weight:500; text-align:left; height:39px; padding:0 14px; border-bottom:1px solid var(--border); }
+.j-table td { height:54px; padding:0 14px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; }
+.j-table tr:last-child td { border-bottom:0; }
+.j-table tbody tr { cursor:pointer; }
+.j-table tbody tr:hover { background:var(--muted); }
+.j-symbol { font-weight:650; letter-spacing:.01em; }
+.j-side-pill { padding:4px 7px; border-radius:999px; font-size:10px; text-transform:uppercase; letter-spacing:.06em; background:var(--muted); }
+.j-pnl.up { color:var(--up); } .j-pnl.down { color:var(--down); }
+.j-tag { display:inline-flex; padding:3px 7px; border:1px solid var(--border); border-radius:999px; color:var(--muted-foreground); margin-right:4px; font-size:10px; }
+.j-review-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--border); margin-right:6px; }
+.j-review-dot.done { background:var(--primary); }
+.j-books { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.j-book { min-height:180px; border:1px solid var(--border); background:var(--card); border-radius:12px; padding:18px; cursor:pointer; }
+.j-book:hover { transform:translateY(-2px); box-shadow:0 10px 25px rgba(15,23,42,.07); }
+.j-book .mark { width:32px;height:4px;border-radius:99px;background:var(--primary);margin-bottom:28px; }
+.j-book h3 { margin:0 0 8px; font-size:15px; }
+.j-book p { margin:0; color:var(--muted-foreground); font-size:12px; line-height:1.55; }
+.j-book small { display:block; margin-top:22px; color:var(--muted-foreground); }
+.j-drawer { position:fixed; z-index:100; inset:48px 0 0 auto; width:min(580px,100vw); background:var(--background); border-left:1px solid var(--border); box-shadow:-22px 0 55px rgba(15,23,42,.12); transform:translateX(104%); transition:transform .25s ease-out; display:flex; flex-direction:column; }
+.j-drawer.open { transform:none; }
+.j-drawer-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.j-drawer-title b { display:block; font-size:18px; }.j-drawer-title span { font-size:11px;color:var(--muted-foreground); }
+.j-drawer-body { padding:22px; overflow:auto; display:grid; gap:22px; }
+.j-section { display:grid; gap:12px; }
+.j-section h3 { margin:0; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted-foreground); }
+.j-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.j-field { display:grid; gap:6px; }
+.j-field.wide { grid-column:1/-1; }
+.j-field label { font-size:11px; color:var(--muted-foreground); }
+.j-field input,.j-field select,.j-field textarea { width:100%; min-height:40px; border:1px solid var(--border); border-radius:8px; padding:9px 10px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
+.j-field textarea { min-height:82px; resize:vertical; line-height:1.5; }
+.j-field input:focus,.j-field textarea:focus,.j-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
+.j-drawer-foot { margin-top:auto; padding:14px 22px; border-top:1px solid var(--border); display:flex; justify-content:space-between; gap:8px; background:var(--card); }
+.j-toast { position:fixed; z-index:130; left:50%; bottom:24px; transform:translate(-50%,20px); opacity:0; padding:10px 14px; border-radius:9px; background:var(--foreground); color:var(--background); font-size:12px; transition:.2s; pointer-events:none; }
+.j-toast.show { opacity:1; transform:translate(-50%,0); }
+
+/* Compact journal — anchored to the chart, with detail delegated to the full
+   workspace. The chart stays mounted and visible around the sheet. */
+.stage.journal-pane-open #chart { bottom:var(--journal-pane-h,260px); }
+.stage.journal-pane-open .prov { bottom:calc(var(--journal-pane-h,260px) + 10px); }
+.jq { position:absolute; z-index:42; left:0; right:0; bottom:0;
+  height:var(--journal-pane-h,260px); min-height:150px; max-height:72%;
+  display:none; flex-direction:column; background:var(--background);
+  border-top:1px solid var(--seam-strong); overflow:hidden; }
+.jq.open { display:flex; }
+.jq-grip { position:absolute;z-index:3;left:0;right:0;top:-5px;height:10px;cursor:row-resize;background:transparent; }
+.jq-grip:hover,.jq-grip.dragging { background:color-mix(in srgb,var(--primary) 45%,transparent); }
+.jq-head { min-height:42px; height:42px; padding:0 12px 0 18px; display:flex; align-items:center; gap:18px; border-bottom:1px solid var(--border); flex:none; background:var(--card); }
+.jq-title { min-width:125px; }
+.jq-title strong { display:block; font:650 13px/1.2 var(--font); letter-spacing:-.01em; }
+.jq-title span { display:block; margin-top:1px; color:var(--muted-foreground); font-size:9px; }
+.jq-tabs { align-self:stretch; display:flex; align-items:stretch; gap:2px; }
+.jq-tab { position:relative; border:0; background:transparent; padding:0 11px; font:inherit; font-size:11px; color:var(--muted-foreground); cursor:pointer; }
+.jq-tab:hover { color:var(--foreground); }
+.jq-tab.active { color:var(--foreground); font-weight:600; }
+.jq-tab.active::after { content:''; position:absolute; left:10px;right:10px;bottom:-1px;height:2px;background:var(--primary);border-radius:2px 2px 0 0; }
+.jq-head .spacer { flex:1; }
+.jq-full { min-height:28px; border:1px solid var(--border); border-radius:5px; padding:0 9px; display:flex; align-items:center; gap:6px; color:var(--foreground); background:var(--card); font:inherit; font-size:10px; cursor:pointer; }
+.jq-full:hover { border-color:var(--muted-foreground); }
+.jq-full svg,.jq-close svg { width:14px;height:14px; }
+.jq-close { width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer; }
+.jq-close:hover { background:var(--muted);color:var(--foreground); }
+.jq-body { flex:1; overflow:auto; min-height:0; padding:0; background:var(--background); }
+.jq-metrics { display:grid; grid-template-columns:repeat(6,minmax(112px,1fr)); border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--card) 96%,var(--primary) 4%); overflow:auto; }
+.jq-metric { position:relative; min-height:52px; padding:8px 18px 7px; border-right:1px solid var(--border-soft); }
+.jq-metric:first-child::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--primary); }
+.jq-metric:last-child { border-right:0; }
+.jq-metric span { display:block; font-size:9px; color:var(--muted-foreground); margin-bottom:4px; letter-spacing:.025em; }
+.jq-metric b { font-size:14px; line-height:1; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.015em; }
+.jq-table-wrap { overflow:auto; background:var(--card); height:calc(100% - 53px); scrollbar-gutter:stable; }
+.jq-table { width:max(100%,1488px); border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:10px; }
+.jq-table col.jq-col-symbol{width:118px}.jq-table col.jq-col-side{width:82px}.jq-table col.jq-col-date{width:122px}.jq-table col.jq-col-qty{width:70px}.jq-table col.jq-col-money{width:106px}.jq-table col.jq-col-fees{width:78px}.jq-table col.jq-col-risk{width:102px}.jq-table col.jq-col-pnl{width:108px}.jq-table col.jq-col-r{width:88px}.jq-table col.jq-col-playbook{width:164px}.jq-table col.jq-col-tags{width:150px}.jq-table col.jq-col-review{width:108px}
+.jq-table th { position:sticky;top:0;z-index:2;height:32px;padding:0 12px;color:var(--muted-foreground);background:color-mix(in srgb,var(--muted) 72%,var(--card));text-align:left;font-size:9px;font-weight:600;letter-spacing:.025em;border-bottom:1px solid var(--border);white-space:nowrap; }
+.jq-table th[data-qsort]{cursor:pointer}.jq-table th[data-qsort]:hover{color:var(--foreground);background:var(--muted)}
+.jq-table td { height:42px; padding:0 12px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.jq-table tbody tr { cursor:pointer; transition:background-color .12s ease; }.jq-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--muted) 28%,transparent)}.jq-table tbody tr:hover { background:color-mix(in srgb,var(--primary) 7%,var(--card)); }
+.jq-table th:nth-child(n+5):nth-child(-n+11),.jq-table td:nth-child(n+5):nth-child(-n+11){text-align:right}.jq-table .jq-symbol{font-size:10.5px;font-weight:680;letter-spacing:.01em}.jq-table .jq-review{text-align:left!important;color:var(--muted-foreground)}
+.jq-table .j-side-pill{display:inline;padding:0;border:0;border-radius:0;background:transparent;color:var(--foreground);font-size:9px;font-weight:560;letter-spacing:.055em;line-height:1}
+.jq-table .j-side-pill::before{content:none}
+.jq-table td:nth-child(2){text-align:left}
+.jq-date{display:flex;align-items:baseline;gap:6px}.jq-date b{font-size:9.5px;font-weight:560}.jq-date small{font-size:8px;color:var(--muted-foreground)}.jq-date.empty{color:var(--muted-foreground)}
+.jq-table th:first-child,.jq-table td:first-child{position:sticky;left:0;z-index:1;background:var(--card)}.jq-table th:first-child{z-index:4;background:var(--muted)}
+.jq-table th:nth-child(2),.jq-table td:nth-child(2){position:sticky;left:118px;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--border),8px 0 12px -12px color-mix(in srgb,var(--foreground) 45%,transparent)}.jq-table th:nth-child(2){z-index:4;background:var(--muted)}
+.jq-table tbody tr:nth-child(even) td:first-child,.jq-table tbody tr:nth-child(even) td:nth-child(2){background:color-mix(in srgb,var(--muted) 28%,var(--card))}.jq-table tbody tr:hover td:first-child,.jq-table tbody tr:hover td:nth-child(2){background:color-mix(in srgb,var(--primary) 7%,var(--card))}
+.jq-empty { min-height:92px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); font-size:11px; line-height:1.5; }
+.jq-form { display:grid; grid-template-columns:1.1fr .7fr .8fr 1fr 1fr .7fr .8fr auto; gap:0; align-items:end; padding:12px; }
+.jq-field { display:grid; gap:5px; min-width:0; }
+.jq-field label { color:var(--muted-foreground); font-size:9px; padding-left:8px; }
+.jq-field input,.jq-field select { width:100%; height:34px; min-width:0; border:1px solid var(--border); border-right:0; border-radius:0; padding:0 8px; background:var(--card); color:var(--foreground); font:inherit; font-size:11px; outline:none; }
+.jq-field:first-child input{border-radius:5px 0 0 5px}.jq-field:nth-child(7) input{border-right:1px solid var(--border)}
+.jq-field input:focus,.jq-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
+.jq-submit { height:34px; margin-left:8px; border:1px solid var(--foreground); border-radius:5px; background:var(--foreground);color:var(--background);font:inherit;font-size:10px;font-weight:600;cursor:pointer;padding:0 14px; }
+.jq-submit:disabled { opacity:.45;cursor:not-allowed; }
+.jq-note { margin:0 12px; padding-top:8px; border-top:1px solid var(--border-soft); color:var(--muted-foreground); font-size:9px; display:flex;align-items:center;gap:6px; }
+.jq-note svg { width:13px;height:13px; }
+@media(max-width:820px){.stage.journal-pane-open #chart{bottom:min(var(--journal-pane-h,260px),190px)}.stage.journal-pane-open .prov{bottom:200px}.jq{height:min(var(--journal-pane-h,260px),190px);max-height:55%}.jq-title{min-width:0}.jq-title span{display:none}.jq-head{padding-inline:7px;gap:4px}.jq-full span{display:none}.jq-full{width:30px;padding:0;justify-content:center}.jq-metrics{grid-template-columns:repeat(6,minmax(100px,1fr))}.jq-form{grid-template-columns:1fr 1fr;padding:10px;gap:8px}.jq-field:first-child{grid-column:1/-1}.jq-field input,.jq-field select{border:1px solid var(--border);border-radius:5px!important}.jq-submit{grid-column:1/-1;margin:0}.jq-note{margin:0 10px}.jq-table{width:1120px}}
+@media(max-width:900px){body.journal-open .journal{grid-template-columns:1fr}.j-side{display:none}.j-shell{width:calc(100% - 28px);padding-top:20px}.j-metrics{grid-template-columns:1fr 1fr}.j-grid{grid-template-columns:1fr}.j-books{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.j-head{display:grid}.j-head h1{font-size:29px}.j-actions{width:100%}.j-action{flex:1;justify-content:center}.j-metrics{grid-template-columns:1fr}.j-filters{flex-wrap:wrap}.j-select{flex:1}.j-table th:nth-child(3),.j-table td:nth-child(3),.j-table th:nth-child(5),.j-table td:nth-child(5){display:none}.j-books{grid-template-columns:1fr}.j-form-grid{grid-template-columns:1fr}.j-field.wide{grid-column:auto}}
+@media(prefers-reduced-motion:reduce){.j-drawer,.j-book,.j-toast{transition:none}}
+
 </style>
 </head>
 <body>
@@ -4005,6 +4615,7 @@ body.two-columns .readout .row { display: none; }
             title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
 
     <div class="spacer"></div>
+    <button class="btn" id="journalBack" type="button"></button>
 
     <button class="btn icon" id="sceneClear" style="display:none" title="Clear what the chat drew"></button>
     <!-- The gear, where TradingView keeps it: with the controls that change
@@ -4012,6 +4623,20 @@ body.two-columns .readout .row { display: none; }
          change what is on it. js/chartsettings.js owns the dialog. -->
     <button class="btn icon" id="settingsBtn" type="button"
             title="Chart settings" aria-label="Chart settings"></button>
+    <!-- The SAVED layout: its name, and the menu that manages it. Sits
+         immediately before the pane-grid picker because the grid is one
+         field of what this saves — TradingView's own order. js/layouts.js. -->
+    <div class="menu-wrap">
+      <button class="ly-btn" id="lySaveName" type="button"
+              aria-haspopup="menu" title="Manage layouts">
+        <span class="ly-name">Unnamed</span>
+        <span class="ly-dot" hidden></span>
+        <svg class="icon xs" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+      </button>
+      <div class="dropdown right ly-menu" id="lyMenu" role="menu"></div>
+    </div>
     <div class="menu-wrap">
       <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
       <!-- filled by main.js from the Panes catalogue -->
@@ -4032,6 +4657,7 @@ body.two-columns .readout .row { display: none; }
     <div class="vsep" id="wtabsSep"></div>
     <div class="wtabs" id="wtabs" role="group" aria-label="Panels"></div>
     <div class="vsep" id="wtabsSep2"></div>
+    <button class="btn" id="journalBtn" type="button" title="Open trade journal"></button>
     <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
     <button class="btn outline" id="chatToggle"></button>
     <!-- The account, last — TradingView's place for it, and the only control
@@ -4059,6 +4685,7 @@ body.two-columns .readout .row { display: none; }
       </div>
       <div class="prov" id="provCard"></div>
       <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
+      <section class="jq" id="journalQuick" aria-label="Journal summary" aria-hidden="true"></section>
     </div>
 
     <!-- The phone's chart toolbar. Empty here and filled by js/mobile.js,
@@ -4160,11 +4787,22 @@ body.two-columns .readout .row { display: none; }
     </aside>
   </div>
 
+  <section class="journal" id="journal" aria-label="Trade journal">
+    <aside class="j-side">
+      <div class="j-kicker">Trade journal</div>
+      <nav class="j-nav" id="journalNav"></nav>
+      <div class="j-side-note"><strong>Your method, not ours.</strong>Playbooks, tags and review fields stay flexible. Charto only computes the numbers.</div>
+    </aside>
+    <main class="j-main" id="journalMain" tabindex="-1"></main>
+  </section>
+  <aside class="j-drawer" id="journalDrawer" aria-label="Trade editor" aria-hidden="true"></aside>
+  <div class="j-toast" id="journalToast" role="status" aria-live="polite"></div>
+
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/store.js?v=11"></script>
+  <script src="./js/store.js?v=12"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=18"></script>
+  <script src="./js/icons.js?v=20"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -4180,7 +4818,7 @@ body.two-columns .readout .row { display: none; }
   <script src="./js/indlegend.js?v=2"></script>
   <!-- before either dialog: both are built out of its colour picker, its
        dressed selects and its card positioning -->
-  <script src="./js/dlgkit.js?v=1"></script>
+  <script src="./js/dlgkit.js?v=2"></script>
   <script src="./js/indsettings.js?v=7"></script>
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
@@ -4191,14 +4829,23 @@ body.two-columns .readout .row { display: none; }
   <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=10"></script>
   <script src="./js/tools.js?v=13"></script>
-  <script src="./js/drawings.js?v=20"></script>
-  <script src="./js/scene.js?v=27"></script>
+  <script src="./js/drawings.js?v=21"></script>
+  <script src="./js/scene.js?v=31"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=68"></script>
-  <script src="./js/chat.js?v=106"></script>
+  <script src="./js/main.js?v=78"></script>
+  <!-- after main.js: it restores into the chart main.js has already built,
+       and its save path reads that chart's state -->
+  <script src="./js/layouts.js?v=6"></script>
+  <script src="./js/chat.js?v=114"></script>
+  <script src="./js/journal.js?v=1"></script>
+  <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
+       initialises. After auth.js and dlgkit.js, whose token and dialog shell it
+       uses. Everything it needs from main.js (SYMBOL) and panels.js
+       (openWidget) is read inside handlers, so those may come later. -->
+  <script src="./js/alerts.js?v=12"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=4"></script>
+  <script src="./js/panels.js?v=6"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=9"></script>
 </body>

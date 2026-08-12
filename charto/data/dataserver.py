@@ -26,6 +26,7 @@ import hmac
 import json
 import logging
 import queue
+import re
 import secrets
 import sqlite3
 import sys
@@ -39,10 +40,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import indicators   # sibling module: the indicator registry
+import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
 DB_PATH = Path(__file__).parent / "charto_bars.db"
-PORT = 5174
+PORT = int(environ.get("CHARTO_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
 # Read from pivot/.env so the key never lands in browser-served files.
@@ -231,17 +233,29 @@ def _scene_add(annotation: dict) -> None:
     # turn would otherwise report "exactly these are drawn" while three more
     # from the first call are still sitting on screen.
     kind = annotation.get("kind")
-    if kind in ("level", "zone", "segment", "vprofile"):
+    # Every kind that puts a visible mark on the chart, not just the four the
+    # detectors happened to emit. A ledger that says "describe these and only
+    # these" while silently omitting the boxes, bands and vlines in the same
+    # call is worse than no ledger: it instructs the model to under-report.
+    if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
+                "vband", "poly", "point", "candle", "label", "markers"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
 
 
 def _drawn_ledger() -> str:
-    led = getattr(_scene, "drawn", None) or []
+    led = [x for x in (getattr(_scene, "drawn", None) or []) if x]
     if not led:
         return ""
-    return ("Everything now on the user's chart: " + "; ".join(led)
+    # One repeated shape is ONE thing to the user — "the first hour of each
+    # of the last five sessions", not five entries. Collapsing here keeps a
+    # session map from filling the ledger with its own copies.
+    seen: dict[str, int] = {}
+    for x in led:
+        seen[x] = seen.get(x, 0) + 1
+    names = [f"{k} (×{n})" if n > 1 else k for k, n in seen.items()]
+    return ("Everything now on the user's chart: " + "; ".join(names)
             + ". Describe these and only these as drawn — anything you drew "
               "earlier in this turn is still there, so include it.")
 
@@ -1486,7 +1500,21 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
 
 
 _SHAPES = {"segment": 2, "ray": 2, "box": 2, "band": 2, "hline": 1,
-           "vline": 1, "polyline": 3, "point": 1, "fib": 2}
+           "vline": 1, "polyline": 3, "point": 1, "fib": 2, "candle": 1}
+
+
+def _candle_hl(ts: int, interval: str, lookback_bars: int) -> dict:
+    """The high and low of the bar at `ts`, for a candle mark.
+
+    Resolved HERE rather than left to the client. The client can fall back to
+    the bar it has loaded, but only while the chart is on the interval the
+    anchor came from — send the real extremes and the mark stays correct when
+    the user switches to 5m and no bar carries this stamp at all.
+    """
+    for r in _rows(interval, max(60, min(int(lookback_bars or 300), 1500))):
+        if r[0] == ts:
+            return {"hi": r[2], "lo": r[3]}
+    return {}
 
 
 def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
@@ -1553,6 +1581,9 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                 one.update(kind="level", price=a["value"])
             elif shape == "vline":
                 one.update(kind="vline", t=a["_ts"])
+            elif shape == "candle":
+                one.update(kind="candle", t1=a["_ts"], t2=a["_ts"],
+                           **_candle_hl(a["_ts"], interval, lookback_bars))
             else:
                 one.update(kind="point", a={"t": a["_ts"], "v": a["value"]})
             _scene_add(one)
@@ -1581,6 +1612,9 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
         ann.update(kind="vline", t=pts[0]["t"])
     elif shape == "point":
         ann.update(kind="point", a={"t": pts[0]["t"], "v": pts[0]["v"]})
+    elif shape == "candle":
+        ann.update(kind="candle", t1=pts[0]["t"], t2=pts[0]["t"],
+                   **_candle_hl(pts[0]["t"], interval, lookback_bars))
     elif shape == "polyline":
         ann.update(kind="poly", pts=[{"t": p["t"], "v": p["v"]} for p in pts])
     elif shape == "fib":
@@ -1607,6 +1641,62 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
             "whenever the user's question was about validity rather than "
             "placement.")
     return out
+
+
+def tool_mark(shapes: list | None = None, interval: str = "1d",
+              lookback_bars: int = 300, pane: str = "price",
+              draw_mode: str = "add") -> dict:
+    """Draw anything, addressed rather than detected.
+
+    draw_shape can only compose points a DETECTOR produced. That covers
+    structure and nothing else — there is no detector for "the first hour of
+    every session", for the day a result landed, for 1,300, for the stretch
+    between two dates. Those are things the model legitimately knows and
+    could not say.
+
+    This is the general capability: the model writes an address, `mark.py`
+    resolves it against the real bars, and every shape the chart can render
+    becomes reachable without a tool per idea. See mark.py for the address
+    grammar — the one rule that matters here is that no coordinate arrives
+    ready-made, so a magnitude slip is caught rather than drawn.
+    """
+    if str(draw_mode or "add").lower() == "clear":
+        _scene_add({"kind": "clear", "scope": "all", "owner": "mark"})
+        return {"cleared": True,
+                "_note": "Every mark is removed. Other tools' drawings stay."}
+    if not shapes:
+        return {"error": "no shapes given",
+                "_note": "Pass shapes:[{shape, at|from|to, label}]."}
+
+    rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    out = mark.build(shapes, rows, {"tz_off": _tz_off(),
+                                    "parse_time": _parse_ist, "fmt_time": _ist},
+                     pane=str(pane or "price"))
+    for item in out["items"]:
+        _scene_add(item)
+
+    res: dict = {"drawn": out["report"], "interval": interval,
+                 "window": f"{_ist(rows[0][0])} → {_ist(rows[-1][0])} {_tzl()}"}
+    if out["errors"]:
+        res["not_drawn"] = out["errors"]
+    if not out["items"]:
+        res["_note"] = ("Nothing was drawn. Read not_drawn, fix the address, "
+                        "and say plainly what could not be placed.")
+        return res
+    # The provenance line. These marks came from the conversation, not from a
+    # detector — so they are placements, and a placement has no record.
+    res["_note"] = (
+        "Drawn. Every coordinate above is what actually landed on the chart, "
+        "resolved from your address against the real bars — quote these, not "
+        "what you asked for, and name what each mark is FOR. These are marks "
+        "you placed, not structure anything detected: never attach a hit rate, "
+        "a hold record or a strength to them."
+        + (" Some shapes failed — read not_drawn and say which."
+           if out["errors"] else ""))
+    res["ledger"] = _drawn_ledger()
+    return res
 
 
 def tool_get_gaps(interval: str = "1d", lookback_bars: int = 400,
@@ -2433,7 +2523,7 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
                        qty: int | None = None, risk_amount: float | None = None,
                        capital: float | None = None, risk_pct: float | None = None,
                        side: str = "", drawing_id: str = "", interval: str = "1d",
-                       draw_mode: str = "add") -> dict:
+                       draw_mode: str = "add", basis: str = "") -> dict:
     """The user's trade plan as an overlay plus its risk arithmetic.
 
     Everything here is derived from the handful of numbers the user gave —
@@ -2559,19 +2649,45 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
     hist["_basis"] = (f"entry→first target vs stop on {len(rows)} {interval} "
                       f"bars; see evaluate_drawing for the full method")
 
-    t0 = rows[max(0, len(rows) - 40)][0]
+    # A plan is about what happens NEXT.
+    #
+    # This overlay used to start 40 bars in the PAST and end at the last bar,
+    # so the risk and reward boxes were painted over price that has already
+    # printed — the one stretch of chart the plan can say nothing about. It
+    # read as though the trade had been running all along, and it hid the
+    # candles it was drawn over for no gain.
+    #
+    # It now starts AT the entry bar and projects forward into the blank chart
+    # on the right. The width is the same horizon the history above was
+    # measured over, so the box covers exactly the window those win/loss
+    # numbers came from — bounded, so it stays near the viewport.
+    #
+    # The step is the last bar gap, not a median, because that is the number
+    # the client extrapolates with: matching it makes the box land exactly
+    # `ahead` bars past the last one, weekend gap or not.
+    step = rows[-1][0] - rows[-2][0] if len(rows) > 1 else 86400
+    ahead = max(6, min(int(p["horizon_bars"]), 30))
+    t0 = rows[-1][0]
     _scene_add({"kind": "position", "id": "plan", "pane": "price",
                 "side": plan["side"], "entry": plan["entry"],
                 "stop": plan["stop"], "targets": [t["price"] for t in tgt],
                 "pnl": [t.get("pnl") for t in tgt] if qty else None,
                 "risk_amount": plan.get("risk_amount"),
-                "qty": qty, "rr": tgt[0]["rr"], "t0": t0, "t1": rows[-1][0],
+                "qty": qty, "rr": tgt[0]["rr"],
+                "t0": t0, "t1": t0 + step * ahead,
                 "label": (f"{plan['side']} · R:R {tgt[0]['rr']}"
-                          + (f" · qty {qty}" if qty else "")),
-                "source": {"tool": "plan_position", "interval": interval}})
+                          + (f" · qty {qty}" if qty else "")
+                          + (f" · {basis}" if basis else "")),
+                "source": {"tool": "plan_position", "interval": interval,
+                           **({"basis": basis} if basis else {})}})
 
     return {"plan": plan, "history": hist, "_note": (
-        "Drawn on the chart; a new plan_position call replaces it, "
+        "Drawn on the chart, projecting FORWARD from the latest bar — it "
+        "marks the window the trade would run in, so never describe it as "
+        "something the chart has already done. Name the level or pattern each "
+        "of entry, stop and target came from; a plan whose numbers have no "
+        "stated origin is a guess wearing arithmetic. "
+        "A new plan_position call replaces it, "
         "draw_mode=clear removes it. Quote these figures exactly, and always "
         "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
         "rate without that benchmark reads as an edge it may not be (within "
@@ -3965,7 +4081,8 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
-                      draw_ids: list | None = None, draw_mode: str = "add") -> dict:
+                      draw_ids: list | None = None, draw_mode: str = "add",
+                      mark_limit: int = 5) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -4022,7 +4139,22 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         missing = sorted(wanted - set(by_id))
     elif draw:
         picked = charts[:3]
-    if picked and mode == "replace":
+    # Candlesticks get marked too, and draw_ids addresses chart patterns only,
+    # so an explicit id list means "just those" and leaves the candles alone.
+    #
+    # `cands` is already NEWEST FIRST — patterns.candlesticks sorts on
+    # bars_ago ascending — so taking them in order fills the cap with the most
+    # recent bars. Do not reverse it: its docstring used to claim "newest
+    # last", and the version that believed it marked the OLDEST three while
+    # the reply's table listed the newest three. The chart and the text
+    # disagreed and neither was obviously wrong to read.
+    #
+    # The cap is `mark_limit`, an argument with a default — not a slice buried
+    # in this loop. It has to be nameable, changeable and REPORTED, or the
+    # reply invents a rule to explain why the chart shows fewer than the list.
+    cpicked = cands if (draw and not draw_ids) else []
+    n_marks = max(0, int(mark_limit if mark_limit is not None else 5))
+    if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
     for p in picked:
         # Draw the pattern's ACTUAL geometry — the polyline through its
@@ -4052,12 +4184,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
             _scene_add({"kind": "poly", "id": link + "-o", "link": link,
                         "pane": "price", "role": role, "pts": o,
                         "solid": True, "source": src})
-            if "head_and_shoulders" in p["pattern"] and len(o) == 5:
-                for idx, tag in ((0, "left shoulder"), (2, "head"),
-                                 (4, "right shoulder")):
-                    _scene_add({"kind": "point", "id": f"{link}-t{idx}",
-                                "link": link, "pane": "price", "role": role,
-                                "a": o[idx], "label": tag, "source": src})
+            # No dots on the shoulders and head. The outline already turns at
+            # each of them — a five-point zigzag IS a left shoulder, a head
+            # and a right shoulder, in that order, and naming them with a
+            # filled circle adds a mark the user can't grab and doesn't need.
+            # A point annotation still exists for the one case that means it:
+            # get_indicator's mark_points, where the dot IS the answer.
             if base:
                 _scene_add({"kind": "poly", "id": link + "-f", "link": link,
                             "pane": "price", "role": role,
@@ -4107,6 +4239,52 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                         "a": pt(*g["box"][0]), "b": pt(*g["box"][1]),
                         "source": src})
 
+    # ── drawing: a candlestick has no geometry to trace — it IS the bar
+    #
+    # So the mark points at it from OUTSIDE rather than drawing over it: one
+    # dot, above the high, centred on the bar. An outline or a box would hide
+    # the very anatomy (body against wick) that made the pattern qualify.
+    #
+    # What crosses the wire is the bar span and its TRUE high/low, not screen
+    # geometry — the client owns the gap in pixels, so the mark stays put
+    # through zoom, and stays correct through an interval change that leaves
+    # no bar at this exact stamp.
+    marks: dict[tuple, dict] = {}
+    for c in cpicked:
+        i = len(rows) - 1 - c["bars_ago"]
+        if not 0 <= i < len(rows):
+            continue                       # bars_ago out of range: mark nothing
+        seg = rows[max(0, i - max(1, c["bars"]) + 1):i + 1]
+        span = (seg[0][0], seg[-1][0])
+        name = c["pattern"].replace("_", " ")
+        if span in marks:
+            # One bar often carries several names — a doji is usually also a
+            # long-legged doji. Two dots land on the same pixels and say
+            # nothing the first didn't; the label carries both names. This
+            # costs no slot: it is the same mark.
+            marks[span]["label"] += " · " + name
+            c["drawn_as"] = marks[span]["id"]
+            continue
+        if len(marks) >= n_marks:
+            continue                       # cap reached — older bars go unmarked
+        cid = "K" + "".join(w[0] for w in c["pattern"].split("_")).upper() \
+              + str(c["bars_ago"])
+        marks[span] = {
+            "kind": "candle", "id": cid, "pane": "price",
+            "role": {"bullish": "support", "bearish": "resistance"}.get(
+                c["direction"], "neutral"),
+            "t1": span[0], "t2": span[1],
+            "hi": max(r[2] for r in seg), "lo": min(r[3] for r in seg),
+            "label": name,
+            "source": {"tool": "get_patterns",
+                       "method": "bar anatomy against the disclosed thresholds",
+                       "interval": interval, "bars_scanned": len(rows),
+                       "strength": "detected",
+                       "first_touch": c["t"], "last_touch": c["t"]}}
+        c["drawn_as"] = cid
+    for m in marks.values():
+        _scene_add(m)
+
     for c in charts:                       # geometry is for the chart, not
         c.pop("_geometry", None)           # the model — keep the payload lean
     res: dict = _not_found_note(missing, "pattern", interval, lookback_bars,
@@ -4117,9 +4295,21 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         res["chart_patterns"] = charts
     if want_s and struct:
         res["market_structure"] = struct
-    if picked:
-        res["drawn"] = [p["id"] for p in picked]
+    if picked or marks:
+        res["drawn"] = [p["id"] for p in picked] + [m["id"] for m in marks.values()]
         res["_drawn_note"] = _drawn_ledger()
+    if marks:
+        shown = sum(1 for c in cands if c.get("drawn_as"))
+        res["_marked_note"] = (
+            f"{len(marks)} bar(s) marked with a dot above the high, carrying "
+            f"{shown} of the {len(cands)} candlestick pattern(s) listed. "
+            + (f"The chart shows the {len(marks)} most recent; the older "
+               f"{len(cands) - shown} are in `candlesticks` and were NOT "
+               "drawn — say so plainly if it matters, and re-call with a "
+               f"higher mark_limit (now {n_marks}) to draw more. "
+               if shown < len(cands) else "Every pattern found is drawn. ")
+            + "Say which bar carries which pattern; the dot is a pointer, "
+            "not a finding.")
 
     # A specific ask that found nothing must come back as a plain NO.
     if asked:
@@ -5483,13 +5673,41 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
     if layout:
         op["layout"] = layout
     _view_add(op)
-    return {"opened": sym, "interval": iv,
-            "placement": "replaced the focused chart" if replace
-                         else "added a pane; the layout grows to fit",
+    # Which of the two placements you chose decides whether anything can ever
+    # be drawn on the result, and nothing here used to say so: an added pane is
+    # a reference chart with no drawing layer, and "opened" read as done to a
+    # model that had just promised to draw.
+    on_main = bool(getattr(_req, "drawable", True))
+    if replace and on_main:
+        placement = (f"swapped the main chart — {sym} IS the main chart now, "
+                     f"so it is drawable")
+        read = ("The workspace RELOADS onto this chart, so this must be the "
+                "last thing you do this turn: say the chart is open and that "
+                "you can mark levels on it when asked. Do not draw in this "
+                "same turn — the reload would discard the drawing while your "
+                "reply claimed it landed.")
+    elif replace:
+        placement = ("swapped the focused reference pane; the main chart is "
+                     "unchanged, so this chart still cannot be drawn on")
+        read = ("A reference pane has no drawing layer. If the user wants "
+                "something drawn here, say the chart would have to be opened "
+                "as the main chart, and that selecting the main chart first is "
+                "what makes that possible.")
+    else:
+        placement = ("added a REFERENCE pane; the layout grows to fit. It can "
+                     "be read but never drawn on")
+        read = ("Reading it works; drawing on it does not — only the main "
+                "chart carries drawings. If the ask was to DRAW something for "
+                "this symbol, this was not the call: it has to become the main "
+                "chart (open_chart replace=true while the main chart is in "
+                "focus). Say that plainly rather than reporting it as drawn.")
+    return {"opened": sym, "interval": iv, "placement": placement,
+            "drawable": bool(replace and on_main),
+            "main_chart": str(getattr(_req, "main_chart", "") or ""),
             "_read": "The chart is now on screen. Say so in a few words and "
                      "answer whatever was actually asked — do not describe the "
                      "layout mechanics, and do not claim to see anything on it "
-                     "that you have not read with a tool."}
+                     "that you have not read with a tool. " + read}
 
 
 # ── search_news: the outside world, behind a thin function tool ────────────
@@ -6142,7 +6360,7 @@ TOOLS = [
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "open_chart",
-     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. DRAWABILITY decides which one you want: an added pane can be read but NEVER drawn on, because only the main chart carries drawings. So if the user wants levels, marks or a plan DRAWN for a symbol that is not the main chart, the only route is replace=true while the main chart is in focus — that makes the symbol the main chart (the workspace reloads onto it, so end the turn there and draw when next asked). The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
@@ -6166,6 +6384,75 @@ TOOLS = [
          "scope": {"type": "string", "enum": ["events", "full"],
                    "description": "'events' (default): dated happenings in the window. 'full': ALSO scans for open unresolved company situations (leadership, regulatory, legal, deals) and scheduled upcoming events, concurrently at no extra latency — use it for open-ended asks ('what does the news suggest', 'why is it weak lately') and whenever the day's events fail to explain the move."}},
       "required": ["frm"]}},
+    {"type": "function", "name": "set_alert",
+     "description": (
+         "Arm a server-side alert on the chart's instrument. Use it whenever the "
+         "user asks to be TOLD or NOTIFIED about something — 'tell me if', 'let "
+         "me know when', 'alert me', 'watch for'. It notifies only; it never "
+         "places an order. The alert is a COMPOSED expression: a list of "
+         "conditions, each `left <op> right`, where both sides are addresses "
+         "resolved against the real bars. Addresses: close/open/high/low/volume "
+         "(current bar), close[1] (n bars back), day.high/pday.close (session "
+         "fields), 20d.high/52w.low (windows), any indicator as rsi(14) / "
+         "sma(200) / vwap() / macd().signal / bbands(20).upper, avg(volume,20) "
+         "(a mean baseline), poc/vah/val (volume profile), draw:D3 (one of the "
+         "user's own drawings — re-priced every bar, so a trendline's level "
+         "moves with time), pattern(bullish_engulfing) or divergence(rsi) with "
+         "op=is_true (fires on COMPLETION on a closed bar, never on approach). "
+         "`x` multiplies the right side and `plus_pct` offsets it, so 'volume "
+         "above twice its average' is {left:'volume', op:'above', "
+         "right:'avg(volume,20)', x:2}. Several conditions with all=true is an "
+         "AND — that is how a confirmed breakout is expressed in one alert. If "
+         "an address or op is wrong the engine refuses and hands back the whole "
+         "grammar; re-call with the names it lists rather than guessing again."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"],
+                      "description": "the bars the rule is evaluated on; also what 'per bar' means"},
+         "when": {"type": "array", "description": "1-4 conditions",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string", "description": "an address, e.g. 'close' or 'rsi(14)'"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number", "description": "multiply the right side"},
+                      "plus_pct": {"type": "number", "description": "offset the right side by a percentage"},
+                      "within": {"type": "integer", "description": "bars, for the _pct ops"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true (default) = AND, false = OR"},
+         "freq": {"type": "string",
+                  "enum": ["once", "per_bar", "per_bar_close", "per_day"],
+                  "description": "'once' (default) fires a single time on the forming bar; 'per_bar_close' waits for the confirmed close, which is the honest choice for an indicator or a setup"},
+         "expires_in_days": {"type": "integer", "description": "0 = open-ended"},
+         "note": {"type": "string", "description": "why the user is watching it"}},
+      "required": ["when"]}},
+    {"type": "function", "name": "list_alerts",
+     "description": ("The user's own alerts and the most recent things that "
+                     "fired, with the value each one actually saw. Use it for "
+                     "'what am I watching', 'did anything trigger', or before "
+                     "cancelling one so the id is real."),
+     "parameters": {"type": "object", "properties": {}}},
+    {"type": "function", "name": "cancel_alert",
+     "description": ("Delete one alert by id. Call list_alerts first unless the "
+                     "id is already known from this conversation."),
+     "parameters": {"type": "object", "properties": {
+         "alert_id": {"type": "integer"}},
+      "required": ["alert_id"]}},
+    {"type": "function", "name": "update_journal_trade",
+     "description": ("Apply a user-requested edit to an attached journal trade. "
+                     "Use only when the user clearly asks to save/change a field, "
+                     "not when they merely ask for feedback. plan, review, tags and "
+                     "custom are deliberately open structures: preserve existing "
+                     "fields by including them in full when replacing one. Execution "
+                     "facts remain numeric. The tool writes an audited revision."),
+     "parameters": {"type": "object", "properties": {
+         "trade_id": {"type": "integer"},
+         "changes": {"type": "object", "description": "fields to update; flexible plan/review/custom objects are accepted"}},
+      "required": ["trade_id", "changes"]}},
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
@@ -6233,10 +6520,10 @@ TOOLS = [
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Giving a 1-anchor shape (hline/vline/point) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib, candle. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
      "parameters": {"type": "object", "properties": {
-         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib"],
-                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%)"},
+         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib", "candle"],
+                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' dots the bar an anchor sits on, just above its high"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
@@ -6247,6 +6534,68 @@ TOOLS = [
          "draw_mode": {"type": "string", "enum": ["add", "clear"],
                        "description": "'clear' removes every shape previously drawn via draw_shape (other tools' drawings stay) — anchor_ids may be empty then"}},
          "required": ["shape", "anchor_ids", "interval"]}},
+    {"type": "function", "name": "mark",
+     "description": (
+         "Draw ANYTHING by describing where, for everything no detector "
+         "produces: session structure ('shade the first hour of every day', "
+         "'line at each open'), a moment the conversation located ('the day "
+         "the results landed'), a plain number ('a line at 1300'), a stretch "
+         "of time ('shade June'), a note pinned to a point, a forward "
+         "projection. draw_shape composes DETECTED anchors; this is for "
+         "everything else, and you choose the shape that says it most "
+         "precisely. You still never type a coordinate — you write an ADDRESS "
+         "and it is resolved against the real bars.\n"
+         "ADDRESS = '<time>' | '<price>' | '<time> @ <price>'.\n"
+         "  time: '08 Jul 2026 15:25' | '2026-07-08' | '09:15' (time of day) "
+         "| open | close (that day's first/last bar) | first | last | '-20' "
+         "(20 bars back) | '+10' (10 bars forward, into blank chart) | '+1h' "
+         "/ '+30m' / '+2d' (a duration from the address before it, so the "
+         "opening hour is from 'open' to '+1h')\n"
+         "  price: 1300 (a literal — refused if far off the loaded range) | "
+         "high | low | open | close | mid | '+2%' | '-1.5%'\n"
+         "What high/low/mid mean follows the shape: a BOX reads both corners "
+         "off the bars between its two times, so from '09:15 @ high' to "
+         "'10:15 @ low' is the opening range; a LINE (segment/ray/poly) reads "
+         "each point off its own bar, so from '-120 @ low' to '-40 @ low' is "
+         "a trendline through two swing lows; a full-width shape (hline/band) "
+         "reads the whole session or window.\n"
+         "repeat='session' resolves the shape once per trading day — that is "
+         "how you mark every session's open, first hour or close in ONE call "
+         "instead of listing dates.\n"
+         "SHAPES, pick by what you mean: hline (a value across the chart) · "
+         "band (a price zone) · vline (a moment) · vband (a stretch of TIME, "
+         "full height — the shape for sessions, a date range, an event "
+         "window) · segment (two points) · ray (extended right) · box (a "
+         "region in time AND price) · poly (3+ points) · dot (pin one point) "
+         "· candle (a dot above one bar — 'that bar') · note (a text chip at "
+         "a point) · marker (an arrow or circle ON a bar)."),
+     "parameters": {"type": "object", "properties": {
+         "shapes": {"type": "array", "description": "several shapes in one call — always batch",
+                    "items": {"type": "object", "properties": {
+                        "shape": {"type": "string",
+                                  "enum": ["hline", "band", "vline", "vband",
+                                           "segment", "ray", "box", "poly",
+                                           "dot", "candle", "note", "marker"]},
+                        "at": {"type": "string", "description": "address, for a one-point shape"},
+                        "from": {"type": "string", "description": "first address of a two-point shape"},
+                        "to": {"type": "string", "description": "second address"},
+                        "points": {"type": "array", "items": {"type": "string"},
+                                   "description": "3+ addresses, for poly"},
+                        "label": {"type": "string", "description": "short caption — and the text of a note/marker"},
+                        "role": {"type": "string", "enum": ["support", "resistance", "neutral"],
+                                 "description": "colour only: amber above, cyan below, violet otherwise"},
+                        "repeat": {"type": "string", "enum": ["none", "session", "week"],
+                                   "description": "resolve this shape once per trading day / week"},
+                        "sessions": {"type": "integer",
+                                     "description": "how many recent repeats, default 5, max 30"}},
+                        "required": ["shape"]}},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"],
+                      "description": "the timeframe the addresses are resolved on — match the chart"},
+         "lookback_bars": {"type": "integer", "description": "default 300; must reach any date you address"},
+         "pane": {"type": "string", "description": "'price', or an indicator id like 'rsi' (a literal there is an indicator value, not a price)"},
+         "draw_mode": {"type": "string", "enum": ["add", "clear"],
+                       "description": "'clear' removes every mark this tool drew; shapes may be empty"}},
+         "required": ["shapes", "interval"]}},
     {"type": "function", "name": "evaluate_line",
      "description": "Score a line the USER drew: how many swings touched it, how many held vs broke, where it projects now. Use whenever the user asks whether their own trendline is any good, or what its record is. ALWAYS pass drawing_id when the line is one the user drew — the chart context lists every drawing with its ref, and referencing it is checked whereas copying coordinates is not. The message may also name the drawing the user tagged; that ref is the subject. Endpoints are for a line the user described but has not drawn.",
      "parameters": {"type": "object", "properties": {
@@ -6270,7 +6619,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -6282,6 +6631,7 @@ TOOLS = [
          "draw": {"type": "boolean", "description": "mark the top chart patterns"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the chart_patterns list, to mark exactly those"},
+         "mark_limit": {"type": "integer", "description": "how many candlestick BARS to mark, most recent first — default 5. Raise it when the user asks for all of them ('mark every candle pattern'); the result says how many were found versus drawn."},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_pattern",
@@ -6354,6 +6704,13 @@ TOOLS = [
          "sort": {"type": "string", "description": "feature to rank by; defaults to the first filter's"},
          "limit": {"type": "integer", "description": "rows returned, 1-50, default 15"}},
          "required": []}},
+    {"type": "function", "name": "recall_conversations",
+     "description": "Search the user's EARLIER conversations — the ones from previous sessions, stored against their account. Call it ONLY when the user refers to something outside this conversation: 'what did we say about ITC last week', 'the level I asked about yesterday', 'have I looked at this before', 'remind me what my plan was'. NEVER call it for anything said in the current conversation — every turn of that is already in front of you, and re-fetching it wastes a round trip and makes one remark look like two. Omit `query` to list recent conversations (an index: title, date, symbols); pass `query` and/or `symbol` to search their text and get the matching passages back. Nothing is stored for a signed-out user, and the result says so — relay that rather than recalling anything yourself. An empty result is an ANSWER ('no earlier conversation mentions it'), not a reason to hedge. Old conversations record what was SAID; current prices and levels still come from the data tools.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "words to look for in what was said, e.g. 'stop loss' or 'wedge breakout'. Omit to list recent conversations."},
+         "symbol": {"type": "string", "description": "narrow to a symbol the conversation was about, e.g. 'ITC'"},
+         "limit": {"type": "integer", "description": "conversations returned, 1-10, default 5"}},
+         "required": []}},
     {"type": "function", "name": "plan_position",
      "description": (
          "Draw or update the trade-plan overlay (entry/stop/targets) and return "
@@ -6362,7 +6719,12 @@ TOOLS = [
          "and the historical entry→target-vs-stop record. Expresses the USER'S "
          "stated idea — never invent a trade unprompted. Entry defaults to the "
          "last close. A new call replaces the plan; draw_mode=clear removes it. "
-         "To size a position the user DREW, pass its ref as drawing_id."),
+         "To size a position the user DREW, pass its ref as drawing_id. "
+         "The overlay projects FORWARD from the entry bar into blank chart — "
+         "it is the window the trade would live in, not a record of the past. "
+         "Whenever the levels come from something already on the chart — a "
+         "wedge edge, a support level, a neckline — pass `basis` so the plan "
+         "carries what it was built on, and name those levels in the reply."),
      "parameters": {"type": "object", "properties": {
          "entry": {"type": "number"}, "stop": {"type": "number"},
          "stop_atr": {"type": "number",
@@ -6385,6 +6747,7 @@ TOOLS = [
                       "description": "with capital: risk_amount = capital × risk_pct/100"},
          "side": {"type": "string", "enum": ["long", "short"]},
          "drawing_id": {"type": "string"},
+         "basis": {"type": "string", "description": "the chart feature these levels came from, a few words — 'falling wedge upper edge 1,318.15', 'support 1,271 · 4 touches'. Rides on the overlay so the plan says what it was built on. Leave empty only when the user gave bare numbers with no reason."},
          "interval": {"type": "string",
                       "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
          "draw_mode": {"type": "string", "enum": ["add", "clear"]}},
@@ -6477,6 +6840,83 @@ TOOLS = [
       "required": []}},
 ]
 
+def tool_recall_conversations(query: str = "", symbol: str = "",
+                              limit: int = 5) -> dict:
+    """Search the user's EARLIER conversations. Never this one.
+
+    Two exclusions do that, and both are load-bearing:
+
+      · the conversation open right now is filtered out by chat_id. Its turns
+        are already in the model's context — every one of them — so returning
+        them here would spend tokens re-reading what it just read, and worse,
+        the same sentence arriving twice from two places reads as two
+        occasions on which it was said.
+      · nothing is stored for a signed-out user, so there is nothing to leak
+        between people sharing a browser.
+
+    A miss is an ANSWER: "you have no earlier conversations mentioning X" is
+    a fact worth relaying, not a reason to hedge or to invent a recollection.
+    """
+    me = getattr(_req, "user", None)
+    if not me:
+        return {"available": False, "_note": (
+            "Conversation history is stored per ACCOUNT and this user is not "
+            "signed in, so there is nothing to search. Say exactly that — "
+            "signed out, so earlier chats were never saved — and do not "
+            "recall anything from memory.")}
+    uid, cur = me[0], str(getattr(_req, "chat_id", "") or "")
+    terms = [w for w in re.split(r"\W+", f"{query} {symbol}".lower()) if len(w) > 2]
+
+    with _users_lock:
+        rows = _users.execute(
+            "SELECT chat_id, title, symbols, started, updated, turns "
+            "FROM conversations WHERE user_id=? AND chat_id<>? "
+            "ORDER BY updated DESC LIMIT 400", (uid, cur)).fetchall()
+    if not rows:
+        return {"conversations": [], "searched": 0, "_note": (
+            "This account has no EARLIER conversations — only the one in "
+            "progress, which is already in context. Say so plainly.")}
+
+    lim = max(1, min(int(limit or 5), 10))
+    out = []
+    for cid, title, syms, started, updated, blob in rows:
+        try:
+            turns = json.loads(blob)
+        except json.JSONDecodeError:
+            continue
+        rec = {"when": _ist(updated, False), "title": title,
+               "symbols": [s for s in syms.split(",") if s],
+               "turns": len(turns)}
+        if not terms:
+            out.append(rec)                       # no query: just the index
+        else:
+            # Score on TURNS, not the blob, so the excerpt returned is the
+            # passage that matched rather than a conversation-shaped guess.
+            hits = [t for t in turns
+                    if any(w in t["content"].lower() for w in terms)]
+            if not hits:
+                continue
+            rec["matched_turns"] = len(hits)
+            rec["excerpt"] = [{"role": t["role"], "said": t["content"][:600]}
+                              for t in hits[:6]]
+            out.append(rec)
+        if len(out) >= lim:
+            break
+
+    note = ("Everything here is from an EARLIER conversation, not this one. "
+            "Date each recollection ('on 22 Jul you asked…') so the user can "
+            "tell a memory from something said a moment ago, and quote rather "
+            "than paraphrase — these are their own words. What the CHART "
+            "shows now still comes from the tools; an old conversation is a "
+            "record of what was said, never a source of current prices.")
+    if terms and not out:
+        note = (f"Searched {len(rows)} earlier conversation(s) and none "
+                f"mentions {' or '.join(terms[:3])}. That is the answer: say "
+                "there is no earlier discussion of it rather than hedging.")
+    return {"conversations": out, "searched": len(rows),
+            "query": " ".join(terms), "_note": note}
+
+
 _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_indicator": tool_get_indicator,
              "get_trendlines": tool_get_trendlines,
@@ -6484,6 +6924,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_anchors": tool_get_anchors,
              "get_gaps": tool_get_gaps,
              "draw_shape": tool_draw_shape,
+             "mark": tool_mark,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
@@ -6500,7 +6941,45 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "search_news": tool_search_news,
              "get_flows": tool_get_flows,
              "get_deals": tool_get_deals,
+             "recall_conversations": tool_recall_conversations,
              "open_chart": tool_open_chart}
+
+# The watcher's three, added only when alerts.py is loaded. `user_id` is NOT a
+# tool parameter and never appears in the schema: it is read off the request's
+# own bearer token, so the model has no way to address another account's alerts
+# even if it invents the argument.
+def _alert_tool(name: str):
+    def call(**args):
+        if _alerts is None:
+            return {"error": "the alert engine is not loaded on this server"}
+        # `_req.user` is already set per chat request for recall_conversations —
+        # (id, email, name) or None. Reusing it beats a second identity field,
+        # and signed out resolves to 0, which the tool answers honestly.
+        who = getattr(_req, "user", None)
+        return getattr(_alerts, name)(user_id=(who[0] if who else 0), **args)
+    return call
+
+
+for _n in ("set_alert", "list_alerts", "cancel_alert"):
+    _DISPATCH[_n] = _alert_tool("tool_" + _n)
+
+
+def _journal_update_tool(trade_id: int, changes: dict):
+    who = getattr(_req, "user", None)
+    if not who:
+        return {"error": "sign in before changing a journal trade"}
+    if _journal is None:
+        return {"error": "the journal is unavailable"}
+    if not isinstance(changes, dict):
+        return {"error": "changes must be an object"}
+    # The public patch path already validates ownership, numeric facts and
+    # flexible objects. Chat is an origin, not a second write implementation.
+    status, payload = _journal.api_patch(who[0], int(trade_id),
+                                         {**changes, "origin": "chat"})
+    return payload if status < 400 else {"error": payload.get("error", "update failed")}
+
+
+_DISPATCH["update_journal_trade"] = _journal_update_tool
 
 
 # ── which chart a tool reads ────────────────────────────────────────────────
@@ -6513,7 +6992,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
 # others by calling the same tools again, and composes the answer itself.
 #
 # Two exclusions, and both are about honesty rather than plumbing:
-#   · the tools that DRAW (draw_shape, plan_position) or score a shape the user
+#   · the tools that DRAW (draw_shape, mark, plan_position) or score a shape the user
 #     drew (evaluate_*) act on the chart the drawings actually live on. Aiming
 #     them elsewhere would compute against one instrument and draw on another.
 #   · get_peers / compare_symbols / screen_universe already name their own
@@ -6545,17 +7024,54 @@ def _wants_ink(args: dict) -> list:
     return [k for k in _INK_ARGS if args.get(k)]
 
 
+def _no_ink_note(want: str = "") -> str:
+    """Why this cannot be drawn, and the route that actually exists.
+
+    The drawing layer belongs to ONE chart — the page's main chart. A
+    secondary pane has none at all. So "click the {want} pane and I'll draw
+    it there" is never true: on a secondary pane it fails again with the same
+    refusal, and when {want} has no pane it names something that isn't on
+    screen. Both were being said, because the refusal knew what it could not
+    do and not where the ink could go. It knows now (`_req.main_chart`).
+    """
+    main = str(getattr(_req, "main_chart", "") or getattr(_req, "symbol", "") or "")
+    # No symbol argument means the working chart — which, on a reference pane,
+    # is still not the main chart. Without this default the note fell back to
+    # "select the main chart", i.e. draw THIS pane's levels onto a different
+    # instrument: the same mistake in the other direction.
+    want = str(want or getattr(_req, "symbol", "") or "").upper()
+    lead = (f"Only the main chart carries drawings, and the main chart is "
+            f"{main}. A secondary pane has no drawing layer, so clicking one "
+            f"never makes it drawable — do not tell the user to click a pane "
+            f"to get this drawn.")
+    if want and main and want != main.upper():
+        # The one real route: that symbol has to BECOME the main chart.
+        # open_chart(replace=true) swaps the FOCUSED chart, so it only reaches
+        # the main chart while the main chart is the focused one — which is
+        # exactly the case where drawing was refused for the symbol alone.
+        if getattr(_req, "drawable", True):
+            return (lead + f" To draw {want} it has to become the main chart: "
+                    f"say so and offer it, and if the user agrees call "
+                    f"open_chart with symbol='{want}' and replace=true, then "
+                    f"draw. Otherwise quote the {want} values in the reply.")
+        return (lead + f" The focused pane is a reference chart, so nothing "
+                f"can be drawn from here at all. Quote the {want} values, and "
+                f"say {want} would have to be opened as the main chart for "
+                f"them to be drawn.")
+    return (lead + " The focused pane is a reference chart. Quote the values "
+            "in the reply, and say the user can select the main chart to have "
+            "them drawn there.")
+
+
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
-    # draw_shape / plan_position exist only to draw — the whole call is ink.
-    if name in ("draw_shape", "plan_position") and not getattr(_req, "drawable", True):
+    # draw_shape / mark / plan_position exist only to draw — the whole call
+    # is ink, so there is no version of them that a reference pane can serve.
+    if name in ("draw_shape", "mark", "plan_position") and not getattr(_req, "drawable", True):
         return {"error": "this chart cannot be drawn on",
-                "_note": ("The selected pane is a reference chart; only the "
-                          "main chart carries drawings. Give the geometry in "
-                          "the reply, and say the user can click the main "
-                          "chart to have it drawn.")}
+                "_note": _no_ink_note(str((args or {}).get("symbol") or ""))}
     # `symbol` is routing, not a parameter of the computation: the tools that
     # take it in their own signature (get_peers) keep it, and for everything
     # else it swaps the request's working chart for the length of this one
@@ -6571,10 +7087,7 @@ def run_tool(name: str, args: dict) -> dict:
     # appears on a different chart than the one it was computed from.
     if not getattr(_req, "drawable", True) and _wants_ink(args):
         return {"error": "this chart cannot be drawn on",
-                "_note": ("The selected pane is a reference chart — drawings, "
-                          "marks and indicator panes only exist on the main "
-                          "chart. Quote the values instead, and say the user "
-                          "can click the main chart if they want it drawn.")}
+                "_note": _no_ink_note(want)}
     if want and want != prev:
         # An unloaded chart must say so. Answering from the focused chart
         # under another chart's name is the one failure that cannot be caught
@@ -6594,11 +7107,9 @@ def run_tool(name: str, args: dict) -> dict:
         drawing = _wants_ink(args)
         if drawing:
             return {"error": f"cannot draw on {want} from here",
-                    "_note": (f"{prev} is the chart in focus and the only one "
-                              f"that can be drawn on. Reading {want} works — "
-                              f"drop {', '.join(drawing)} and quote the values, "
-                              f"or tell the user to click the {want} pane first "
-                              f"if they want it drawn there.")}
+                    "_note": (f"Reading {want} works — drop "
+                              f"{', '.join(drawing)} and the same call returns "
+                              f"the values. " + _no_ink_note(want))}
         _req.symbol = want
     try:
         out = _run_tool(name, fn, args)
@@ -6716,13 +7227,26 @@ def build_context_block(ctx: dict | None) -> str:
     """
     if not ctx:
         return ""
+    journal_ctx = ctx.get("journal") if isinstance(ctx, dict) else None
+    journal_block = ""
+    if isinstance(journal_ctx, dict):
+        trade = journal_ctx.get("trade") or journal_ctx
+        # The record is server-owned data relayed through the client. It may
+        # guide interpretation, but numbers are facts and edits must use the
+        # journal tool rather than being merely claimed in prose.
+        journal_block = ("## Journal trade attached\n"
+                         + json.dumps(trade, ensure_ascii=False, separators=(",", ":"))
+                         + "\nDiscuss any field freely. Use update_journal_trade for changes; "
+                           "never say a journal change was saved unless that tool succeeds.")
     stub = ("## Chart the user is viewing\n"
             "The chart has not finished loading — you cannot see it yet. "
             "Say so if asked about it.")
     if ctx.get("status") == "loading":
-        return stub
+        return "\n\n".join(x for x in (stub, journal_block) if x)
+    if not ctx.get("symbol"):
+        return journal_block
     try:
-        return _render_context(ctx)
+        return "\n\n".join(x for x in (_render_context(ctx), journal_block) if x)
     except Exception as exc:  # noqa: BLE001 — never break the reply on a bad envelope
         logging.warning("charto: malformed chart context (%s)", exc)
         return stub
@@ -6749,12 +7273,24 @@ def _render_context(ctx: dict) -> str:
         block += "\n\n" + "\n\n".join(_render_chart(c, focused=False) for c in others)
         names = ", ".join(f"{c['symbol']} ({c['interval']})"
                           for c in [ctx] + others)
+        # Focus and drawability are two different things, and saying "the
+        # focused chart is the one carrying drawings" made them one: a focused
+        # SECONDARY pane carries none of it, and the chart that does may not be
+        # the one in focus at all.
+        main = str(ctx.get("main_chart") or "")
+        named = f" ({main})" if main else ""
+        owns = (f"It is also the main chart, so it is the one carrying drawings, "
+                f"chat annotations and pinned bars."
+                if ctx.get("drawable") is not False else
+                f"It is a reference pane: the drawings, chat annotations and "
+                f"pinned bars live on the main chart{named}, the only chart "
+                f"anything can be drawn on.")
         block += (
             f"\n\nThe user has {len(others) + 1} charts in this conversation: {names}. "
             f"Every chart-reading tool takes `symbol` — pass one of these to aim it at "
             f"that chart, and call it once per chart when a question spans them. "
-            f"{ctx.get('symbol')} is the one in focus and the only one carrying "
-            f"drawings, chat annotations and pinned bars; a bare 'this chart' means it. "
+            f"{ctx.get('symbol')} is the one in focus; a bare 'this chart' means it. "
+            f"{owns} "
             f"Attribute every number to the chart it came from.")
     return block + "\n" + _CONTEXT_CONTRACT
 
@@ -6802,6 +7338,25 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
     # would invite the model to reason about their absence.
     if not focused:
         return "\n".join(L)
+
+    # Where ink can land, said on the way in rather than only as a refusal.
+    # "The chart in focus is the drawable one" is false twice over — a focused
+    # secondary pane has no drawing layer, and a question about a symbol that
+    # is not the main chart cannot be drawn at all — and the model, left to
+    # fill the gap, sent users to click panes that could never take the ink.
+    main = str(ctx.get("main_chart") or "")
+    if ctx.get("drawable") is False:
+        L.append(f"NOT DRAWABLE: this is a reference pane and has no drawing "
+                 f"layer. The only chart that can be drawn on is the main "
+                 f"chart{f' ({main})' if main else ''}. If something is asked "
+                 f"to be drawn, give the geometry in words and say it can be "
+                 f"drawn on the main chart — clicking this pane will not make "
+                 f"it drawable.")
+    elif main:
+        L.append(f"Drawings land on the main chart ({main}) and nowhere else. "
+                 f"Levels read from another symbol cannot be drawn here — "
+                 f"quote them, or offer to open that symbol as the main chart "
+                 f"(open_chart replace=true) and draw them there.")
 
     if ctx.get("pins"):
         for p in ctx["pins"]:
@@ -6879,6 +7434,130 @@ _CONTEXT_CONTRACT = (
         "the levels and what would invalidate them, and say plainly that this is "
         "analysis, not advice. Be concise and concrete."
 )
+
+
+SUGGEST_PROMPT = (
+    "You write the three questions a user is most likely to want to ask NEXT, "
+    "given the conversation so far.\n\n"
+    "This is a chart-analysis chat for Indian markets (NSE/BSE equities, "
+    "indices, MCX commodities, crypto). It can answer from bars: price and "
+    "volume history, indicators, candlestick and chart patterns, support and "
+    "resistance levels, trendlines, divergences, gaps, volume profile, "
+    "correlations and comparisons between symbols, peers, company "
+    "fundamentals, bulk and block deal disclosures, and it can draw on the "
+    "chart. It cannot place orders, hold a portfolio, or predict.\n\n"
+    "Rules:\n"
+    "- Each must be answerable by this app from chart or company data. Never "
+    "suggest a prediction, a recommendation, a buy/sell, a target, or "
+    "anything about a market it does not carry.\n"
+    "- Follow the thread. Prefer the obvious next step from what was just "
+    "answered, and the loose end left earlier in the conversation that was "
+    "never picked up.\n"
+    "- Three DIFFERENT directions — not three rewordings of one. Going "
+    "deeper, widening to another symbol or timeframe, and testing what was "
+    "claimed are good axes.\n"
+    "- Write them as the user would type them: first person, plain, no "
+    "pleasantries. Name the actual symbol under discussion rather than "
+    "'this stock'.\n"
+    "- Under 60 characters each. Short enough to read at a glance.\n\n"
+    "A question about what WILL happen is the easy mistake, and it is always "
+    "wrong here — rewrite it as the measurable thing underneath:\n"
+    "  'Will RELIANCE break out of the wedge?' -> 'Where are the wedge's "
+    "edges now?'\n"
+    "  'Is this a good entry?' -> 'How often has this pattern held on "
+    "RELIANCE?'\n"
+    "  'Should I wait for confirmation?' -> 'What would confirm the "
+    "breakout?'\n\n"
+    "Return exactly three lines. One question per line. No numbering, no "
+    "bullets, no quotes, no commentary."
+)
+
+
+def suggest_clean(raw: str) -> str:
+    """One suggestion line, as it should be shown.
+
+    Shared with the client, which applies the SAME two rules to the partial
+    line it is drawing mid-stream. If the two disagreed, every suggestion
+    would visibly twitch the moment the final list replaced the streamed one.
+    """
+    # the model still sometimes numbers them despite being told not to
+    line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
+    return line.strip("\"'").strip()
+
+
+def _suggest_stream(messages: list[dict]):
+    """Yield SSE events for three follow-ups: deltas, then a final list.
+
+    An isolated sub-call, deliberately: the main turn is already streamed and
+    finished by the time this runs, and giving the chat agent a fourth job
+    would put these words through the whole tool loop and the system contract
+    to produce thirty tokens.
+
+    It STREAMS for the same reason the answer above it does — the first
+    question is readable about a second in, rather than three lines appearing
+    at once when the call returns. There is no typewriter here: what arrives
+    is what the model has actually written so far.
+
+    Every failure path ends in a `done` carrying [] and the row simply never
+    appears. A suggestion is a convenience; nothing here may cost an answer.
+    """
+    tail = []
+    for m in messages[-8:]:
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        body = str(m.get("content") or "")[:1200]
+        if body.strip():
+            tail.append({"role": role, "content": body})
+    if not tail:
+        yield {"type": "done", "suggestions": []}
+        return
+    payload = {
+        "model": LLM_DEPLOYMENT,
+        "input": [{"role": "system", "content": SUGGEST_PROMPT}, *tail],
+        "max_output_tokens": 700,
+        "reasoning": {"effort": "low"},
+        "service_tier": LLM_SERVICE_TIER,
+        "stream": True,
+    }
+    req = urllib.request.Request(
+        f"{AZURE_ENDPOINT}/responses",
+        data=json.dumps(payload).encode(),
+        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+        method="POST")
+    text = []
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                body = line[5:].strip()
+                if not body or body == "[DONE]":
+                    continue
+                try:
+                    ev = json.loads(body)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("type") == "response.output_text.delta":
+                    d = ev.get("delta") or ""
+                    if d:
+                        text.append(d)
+                        yield {"type": "delta", "text": d}
+    except Exception as exc:  # noqa: BLE001 — a dead suggest must not surface
+        logging.info("suggest failed: %s", exc)
+        yield {"type": "done", "suggestions": []}
+        return
+    out, seen = [], set()
+    for raw in "".join(text).splitlines():
+        line = suggest_clean(raw)
+        if not line or len(line) > 90 or line.lower() in seen:
+            continue
+        seen.add(line.lower())
+        out.append(line)
+        if len(out) == 3:
+            break
+    yield {"type": "done", "suggestions": out if len(out) == 3 else []}
 
 
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
@@ -7212,7 +7891,8 @@ UTC_SESSION = (0, 0)                 # 24/7 crypto, 24/5 FX
 MCX_SESSION = (9 * 60, IST_OFF)      # MCX opens 09:00 IST, runs to 23:30
 
 _MCX_SYMBOLS = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
-                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"}
+                "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM",
+                "LEAD", "NICKEL", "COTTON", "MENTHAOIL"}
 
 
 def session_for(symbol: str) -> tuple[int, int]:
@@ -7270,7 +7950,8 @@ _SCOPE_BY_INDUSTRY = {
     "volatility": "volatility_in", "cryptocurrency": "crypto",
     "commoditypreciousmetals": "commodity_in",
     "commoditybasemetals": "commodity_in",
-    "commodityenergy": "commodity_in", "currency": "fx_in",
+    "commodityenergy": "commodity_in",
+    "commoditysoft": "commodity_in", "currency": "fx_in",
 }
 
 # India VIX started out pooled with the indices — it is quoted by the same
@@ -7387,9 +8068,14 @@ _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 # localStorage is readable by any XSS on the page, where an HttpOnly cookie
 # would not be. For a locally-served analysis tool that is the right side of
 # the trade; if this is ever hosted for real, revisit it.
-_USERS_PATH = Path(__file__).parent / "charto_users.db"
+# Test/dev can isolate account state while reading the same immutable market
+# store. Production keeps the adjacent durable DB unless explicitly overridden.
+_USERS_PATH = Path(environ.get("CHARTO_USERS_DB")
+                   or Path(__file__).parent / "charto_users.db")
 _users = sqlite3.connect(_USERS_PATH, check_same_thread=False)
 _users.execute("PRAGMA journal_mode=WAL")
+_users.execute("PRAGMA foreign_keys=ON")
+_users.execute("PRAGMA busy_timeout=10000")
 _users.executescript("""
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7421,8 +8107,52 @@ CREATE TABLE IF NOT EXISTS layouts (
   spec TEXT NOT NULL,
   updated INTEGER NOT NULL,
   UNIQUE (user_id, name));
+-- Past conversations, so "what did we decide about ITC last week" has an
+-- answer. TEXT ONLY: no images, no chart context, no scene patches. This
+-- exists to be READ BACK by recall_conversations, and a stored screenshot
+-- would be a large private thing kept for a feature that cannot use it.
+CREATE TABLE IF NOT EXISTS conversations (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  chat_id TEXT NOT NULL,
+  title   TEXT NOT NULL,
+  symbols TEXT NOT NULL DEFAULT '',   -- comma-separated, for "that TCS chat"
+  started INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  turns   TEXT NOT NULL,              -- JSON [{role, content}]
+  PRIMARY KEY (user_id, chat_id));
+CREATE INDEX IF NOT EXISTS conversations_recent
+  ON conversations(user_id, updated DESC);
 """)
+
+# `layouts` predates the save/open/share system and had five columns. Added
+# here rather than in the CREATE above so an existing account keeps its saved
+# work: the CREATE is a no-op once the table exists, so a new column has to
+# arrive as an ALTER or it only ever appears on a fresh database.
+for _col, _decl in (
+        ("created", "INTEGER NOT NULL DEFAULT 0"),
+        ("opened", "INTEGER NOT NULL DEFAULT 0"),      # for RECENTLY USED
+        ("symbols", "TEXT NOT NULL DEFAULT ''"),       # summary line, no parse
+        ("autosave", "INTEGER NOT NULL DEFAULT 0"),
+        ("chat_id", "TEXT NOT NULL DEFAULT ''"),       # the conversation had here
+        ("thumb", "TEXT NOT NULL DEFAULT ''"),         # data: URI, ~30 KB JPEG
+        ("share_token", "TEXT")):                      # NULL = private
+    try:
+        _users.execute(f"ALTER TABLE layouts ADD COLUMN {_col} {_decl}")
+    except sqlite3.OperationalError:
+        pass                                           # already there
+_users.execute("CREATE UNIQUE INDEX IF NOT EXISTS layouts_share "
+               "ON layouts(share_token) WHERE share_token IS NOT NULL")
+_users.commit()
 _users_lock = threading.Lock()
+
+# Loaded only after the users table exists: journal.py adds foreign-keyed
+# records to this same durable account database. A broken optional feature
+# must not stop charts, chat or auth from starting.
+try:
+    import journal as _journal
+except Exception as _journal_exc:  # noqa: BLE001
+    logging.warning("charto journal unavailable: %s", _journal_exc)
+    _journal = None
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
 _SESSION_TTL = 30 * 86400
@@ -7545,29 +8275,292 @@ def _ws_put(uid: int, symbol: str, state: dict) -> int:
     return n
 
 
-def _layouts_list(uid: int) -> list[dict]:
+_LAYOUT_COLS = ("id, name, symbols, created, updated, opened, autosave, "
+                "chat_id, share_token")
+
+
+def _layout_row(r: tuple) -> dict:
+    """A layout WITHOUT its spec — what a list needs and no more.
+
+    The spec is the whole workspace (every pane, every drawing, the scene);
+    forty of them in one response would be megabytes to render a menu.
+    `shared` is a boolean, never the token: a list of layouts is not a place
+    to hand out live links to all of them at once.
+    """
+    return {"id": r[0], "name": r[1], "symbols": [s for s in r[2].split(",") if s],
+            "created": r[3], "updated": r[4], "opened": r[5],
+            "autosave": bool(r[6]), "chat_id": r[7], "shared": bool(r[8])}
+
+
+_THUMB_MAX = 220_000     # a 480px JPEG is ~30 KB; this is the runaway guard
+
+
+def _layouts_list(uid: int, thumbs: bool = False) -> list[dict]:
+    """The index. Thumbnails only when asked for, and that is the point.
+
+    A picture per layout is 30 KB. Forty of them is over a megabyte, which is
+    the wrong price for opening a dropdown — so the menu asks without them and
+    the Open dialog, where a user has deliberately gone to LOOK at their
+    layouts, asks with.
+    """
+    cols = _LAYOUT_COLS + (", thumb" if thumbs else "")
     with _users_lock:
         rows = _users.execute(
-            "SELECT id, name, updated FROM layouts WHERE user_id=? "
+            f"SELECT {cols} FROM layouts WHERE user_id=? "
             "ORDER BY updated DESC", (uid,)).fetchall()
-    return [{"id": i, "name": nm, "updated": u} for i, nm, u in rows]
+    out = []
+    for r in rows:
+        rec = _layout_row(r)
+        if thumbs:
+            rec["thumb"] = r[9]
+        out.append(rec)
+    return out
 
 
-def _layout_save(uid: int, name: str, spec: dict) -> tuple[int, dict]:
-    name = (name or "").strip()
+def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
+    """One layout, spec included, and stamp it as the most recently opened."""
+    now = int(time.time())
+    with _users_lock:
+        r = _users.execute(f"SELECT {_LAYOUT_COLS}, spec, thumb FROM layouts "
+                           "WHERE user_id=? AND id=?", (uid, lid)).fetchone()
+        if not r:
+            return 404, {"error": "no such layout"}
+        _users.execute("UPDATE layouts SET opened=? WHERE user_id=? AND id=?",
+                       (now, uid, lid))
+        _users.commit()
+    out = _layout_row(r)
+    out["opened"] = now
+    # presence, not the bytes: the caller is about to draw this layout, not
+    # show a picture of it, and it only needs to know whether to backfill one
+    out["has_thumb"] = bool(r[10])
+    try:
+        out["spec"] = json.loads(r[9])
+    except ValueError:
+        return 500, {"error": "this layout's saved state is unreadable"}
+    return 200, out
+
+
+def _layout_free_name(uid: int, want: str) -> str:
+    """`want`, or `want (2)`, `want (3)`… — the first one not taken.
+
+    Names are unique per user because that is what makes "save over the one
+    I opened" unambiguous. A copy therefore cannot reuse the name, and
+    failing the request would be a worse answer than picking the obvious
+    next one — which is what every file manager does.
+
+    THE CALLER HOLDS `_users_lock`. Every caller is already inside it to make
+    the check-then-insert atomic, and `_users_lock` is a plain Lock, not an
+    RLock — taking it again here deadlocked the request thread outright.
+    """
+    taken = {n for (n,) in _users.execute(
+        "SELECT name FROM layouts WHERE user_id=?", (uid,))}
+    if want not in taken:
+        return want
+    for i in range(2, 500):
+        cand = f"{want} ({i})"
+        if cand not in taken:
+            return cand
+    return f"{want} {secrets.token_hex(3)}"
+
+
+def _clean_thumb(v) -> str:
+    """A layout thumbnail, or "". Only a small inline JPEG/PNG is accepted.
+
+    This column is echoed straight back into an <img src>, so it must not be
+    able to carry anything else — a `javascript:` or `data:text/html` URI
+    would execute in the picker. Prefix-checked and size-capped rather than
+    trusted because the client sent it.
+    """
+    s = str(v or "")
+    if not s.startswith(("data:image/jpeg;base64,", "data:image/png;base64,")):
+        return ""
+    return s if len(s) <= _THUMB_MAX else ""
+
+
+def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
+                 symbols: list | None = None, autosave: bool | None = None,
+                 chat_id: str = "", thumb: str = "") -> tuple[int, dict]:
+    """Create or overwrite. `id` given means SAVE OVER that one, even renamed.
+
+    Without an id this is "Create new layout", and a clashing name gets the
+    next free one rather than silently overwriting work the user cannot see.
+    """
+    name = (name or "").strip()[:120]
     if not name:
         return 400, {"error": "a layout needs a name"}
     now = int(time.time())
+    syms = ",".join(dict.fromkeys(str(s).upper()[:24] for s in (symbols or []) if s))
+    blob = json.dumps(spec or {})
     with _users_lock:
+        if lid:
+            owned = _users.execute("SELECT id FROM layouts WHERE user_id=? AND id=?",
+                                   (uid, lid)).fetchone()
+            if not owned:
+                return 404, {"error": "no such layout"}
+            clash = _users.execute("SELECT id FROM layouts WHERE user_id=? AND "
+                                   "name=? AND id<>?", (uid, name, lid)).fetchone()
+            if clash:
+                return 409, {"error": f"you already have a layout called “{name}”"}
+            sets = "name=?, spec=?, symbols=?, updated=?, opened=?"
+            args: list = [name, blob, syms, now, now]
+            pic = _clean_thumb(thumb)
+            if pic:
+                # only when one was sent — a save from a chart that could not
+                # be captured must not blank the picture already stored
+                sets += ", thumb=?"
+                args.append(pic)
+            if autosave is not None:
+                sets += ", autosave=?"
+                args.append(1 if autosave else 0)
+            if chat_id:
+                sets += ", chat_id=?"
+                args.append(chat_id[:64])
+            _users.execute(f"UPDATE layouts SET {sets} WHERE user_id=? AND id=?",
+                           (*args, uid, lid))
+            _users.commit()
+            new_id = lid
+        else:
+            # A clashing name gets the next free one rather than a 500 from
+            # the UNIQUE index — "Create new layout" while one called Untitled
+            # already exists is the most ordinary thing a user can do, and it
+            # must not fail, nor silently overwrite work they cannot see.
+            name = _layout_free_name(uid, name)
+            _users.execute(
+                "INSERT INTO layouts (user_id, name, spec, symbols, created, "
+                "updated, opened, autosave, chat_id, thumb) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (uid, name, blob, syms, now, now, now,
+                 1 if autosave else 0, chat_id[:64], _clean_thumb(thumb)))
+            _users.commit()
+            new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND "
+                                    "name=?", (uid, name)).fetchone()[0]
+    return 200, {"id": new_id, "name": name, "updated": now, "opened": now}
+
+
+def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
+    with _users_lock:
+        r = _users.execute("SELECT name, spec, symbols, chat_id, thumb "
+                           "FROM layouts WHERE user_id=? AND id=?",
+                           (uid, lid)).fetchone()
+    if not r:
+        return 404, {"error": "no such layout"}
+    now = int(time.time())
+    # A copy is NOT shared even if its original is: a share token names one
+    # layout, and duplicating the link along with the contents would publish
+    # something the user only asked to duplicate.
+    with _users_lock:
+        name = _layout_free_name(uid, f"{r[0]} copy")
         _users.execute(
-            "INSERT INTO layouts (user_id, name, spec, updated) VALUES (?,?,?,?) "
-            "ON CONFLICT(user_id, name) DO UPDATE SET "
-            "spec=excluded.spec, updated=excluded.updated",
-            (uid, name, json.dumps(spec or {}), now))
+            "INSERT INTO layouts (user_id, name, spec, symbols, created, "
+            "updated, opened, autosave, chat_id, thumb) "
+            "VALUES (?,?,?,?,?,?,?,0,?,?)",
+            (uid, name, r[1], r[2], now, now, now, r[3], r[4]))
         _users.commit()
-        lid = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
-                             (uid, name)).fetchone()[0]
-    return 200, {"id": lid, "name": name, "updated": now}
+        new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
+                                (uid, name)).fetchone()[0]
+    return 200, {"id": new_id, "name": name, "updated": now}
+
+
+def _layout_share(uid: int, lid: int, on: bool) -> tuple[int, dict]:
+    """Mint or revoke an unlisted read-only link.
+
+    Revoking DELETES the token rather than flagging it, so a link that was
+    turned off is dead the moment it is turned off — a disabled row that
+    still holds a valid-looking token is the shape of an accident.
+    """
+    with _users_lock:
+        if not _users.execute("SELECT 1 FROM layouts WHERE user_id=? AND id=?",
+                              (uid, lid)).fetchone():
+            return 404, {"error": "no such layout"}
+        tok = secrets.token_urlsafe(18) if on else None
+        _users.execute("UPDATE layouts SET share_token=? WHERE user_id=? AND id=?",
+                       (tok, uid, lid))
+        _users.commit()
+    return 200, {"id": lid, "shared": bool(tok), "token": tok}
+
+
+def _layout_shared_get(token: str) -> tuple[int, dict]:
+    """A shared layout, for anyone holding the link. No account needed.
+
+    Read-only and deliberately thin: the workspace and who made it, never the
+    owner's email, their other layouts, or the conversation that was had in
+    it. A shared chart is a chart, not a window into an account.
+    """
+    tok = (token or "").strip()
+    if len(tok) < 16:
+        return 404, {"error": "not found"}
+    with _users_lock:
+        r = _users.execute(
+            "SELECT l.name, l.symbols, l.updated, l.spec, u.name "
+            "FROM layouts l JOIN users u ON u.id = l.user_id "
+            "WHERE l.share_token=?", (tok,)).fetchone()
+    if not r:
+        return 404, {"error": "this link is not active"}
+    try:
+        spec = json.loads(r[3])
+    except ValueError:
+        return 500, {"error": "this layout's saved state is unreadable"}
+    spec.pop("chat", None)          # never travels with a link
+    return 200, {"name": r[0], "symbols": [s for s in r[1].split(",") if s],
+                 "updated": r[2], "by": r[4] or "a Charto user",
+                 "read_only": True, "spec": spec}
+
+
+_CONV_KEEP = 200          # conversations retained per user
+_CONV_TURNS = 80          # turns retained per conversation
+_CONV_CHARS = 4000        # characters retained per turn
+
+
+def _conv_sync(uid: int, chats: list) -> dict:
+    """Mirror the browser's conversation archive into the DB.
+
+    The browser is the OWNER of a conversation while it is being had — this is
+    a copy kept so a LATER session can be asked about an earlier one, which is
+    the only thing that needs it. So it is a plain upsert of whatever the
+    client sends, not a merge: the client's copy is the one the user has been
+    reading.
+
+    Stripped to text on the way in. A turn carries a screenshot, a chart
+    context envelope and a scene patch; none of that can be read back by a
+    recall, and keeping a user's screenshots on a server for a feature that
+    cannot use them is a cost with no matching benefit.
+    """
+    now, wrote = int(time.time()), 0
+    with _users_lock:
+        for c in chats[:_CONV_KEEP]:
+            cid = str((c or {}).get("id") or "").strip()[:64]
+            turns = [t for t in ((c or {}).get("turns") or [])
+                     if isinstance(t, dict) and t.get("role") in ("user", "assistant")
+                     and str(t.get("content") or "").strip()]
+            if not cid or not turns:
+                continue          # an empty conversation is not a record
+            lean = [{"role": t["role"],
+                     "content": str(t["content"])[:_CONV_CHARS]}
+                    for t in turns[-_CONV_TURNS:]]
+            # The title is the first thing the user said, which is what they
+            # will recognise it by — never the model's opening line.
+            first = next((t["content"] for t in lean if t["role"] == "user"), "")
+            _users.execute(
+                "INSERT INTO conversations "
+                "(user_id, chat_id, title, symbols, started, updated, turns) "
+                "VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(user_id, chat_id) DO UPDATE SET "
+                "title=excluded.title, symbols=excluded.symbols, "
+                "updated=excluded.updated, turns=excluded.turns",
+                (uid, cid, str(first)[:200],
+                 ",".join(sorted({str(s).upper()[:24]
+                                  for s in ((c or {}).get("symbols") or [])})),
+                 int((c or {}).get("created") or now * 1000) // 1000,
+                 int((c or {}).get("updated") or now * 1000) // 1000,
+                 json.dumps(lean)))
+            wrote += 1
+        # Keep the archive bounded per user, oldest first.
+        _users.execute(
+            "DELETE FROM conversations WHERE user_id=? AND chat_id NOT IN ("
+            "  SELECT chat_id FROM conversations WHERE user_id=? "
+            "  ORDER BY updated DESC LIMIT ?)", (uid, uid, _CONV_KEEP))
+        _users.commit()
+    return {"saved": wrote}
 
 
 def _ist_day(ts: int, tz_off: int = IST_OFF) -> int:
@@ -7815,6 +8808,38 @@ def _live_push(sym: str, form: list, closed: bool) -> None:
                     st["subs"].remove(q)
 
 
+# ── the watcher ───────────────────────────────────────────────────
+# Set by the boot block below, which imports alerts.py AFTER the module alias
+# is in place — the same requirement kite_stream has, and for the same reason:
+# a second copy of this module would hold a second _LIVE and the hook would
+# feed a watcher nothing. None means the routes answer 501 rather than 500.
+_alerts = None
+
+
+# ── the watcher's seam ────────────────────────────────────────────
+# alerts.py registers here at boot. It stays None on a build without that
+# module, and it is called through _bar_hook rather than directly for one
+# reason: an exception raised into _live_on_tick would abort the tick, and the
+# forming bar it was in the middle of maintaining is how minutes get stored.
+# A watcher bug must cost an alert, never a candle.
+_ON_BAR = None
+
+
+def register_bar_hook(fn) -> None:
+    global _ON_BAR
+    _ON_BAR = fn
+
+
+def _bar_hook(sym: str, form: list, closed: bool) -> None:
+    fn = _ON_BAR
+    if fn is None:
+        return
+    try:
+        fn(sym, form, closed)
+    except Exception:                                 # noqa: BLE001
+        logging.warning("charto bar hook failed on %s", sym, exc_info=True)
+
+
 def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
     """The one seam every tick source calls. ts = the tick's epoch second."""
     sess = session_for(sym)
@@ -7865,7 +8890,11 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
         # the minute's FINAL state must always reach the chart — a throttled
         # drop here would leave a permanently wrong candle on screen
         _live_push(sym, closed_bar, True)
+        _bar_hook(sym, closed_bar, True)
     _live_push(sym, snap, False)
+    # The watcher sees exactly what the chart sees, at exactly the same
+    # cadence: ≤4 snapshots/sec plus every close, never more.
+    _bar_hook(sym, snap, False)
 
 
 def _merge_form_intraday(rows: list, form: list) -> None:
@@ -7999,19 +9028,30 @@ _VENUES = {"coinbase": ("crypto_stream", "CryptoStream"),
 
 
 def _venue_symbols(venue: str) -> list[str]:
-    """The pairs a venue owns that this store actually has history for.
+    """The instruments a venue owns that this store actually has history for.
 
-    Taken from backfill_crypto's own lists rather than a second hardcoded copy,
-    then intersected with `bars` — subscribing to a pair with no local history
-    writes today's minutes onto nothing and draws a chart that looks live and
-    is one minute long.
+    Taken from each venue's own source of truth rather than a second hardcoded
+    copy, then intersected with `bars` — subscribing to a symbol with no local
+    history writes today's minutes onto nothing and draws a chart that looks
+    live and is one minute long.
+
+    `kite` used to fall through this function to `[]`, which meant
+    CHARTO_LIVE_VENUES could arm the two crypto venues and never the Indian
+    one: `symbols=ALL` 400'd, so the NSE feed existed only because somebody
+    curled /live by hand — and deploy.sh restarts this service on any backend
+    change. The store's own 1-minute coverage is the honest list: everything
+    `bars` holds that is not a crypto pair, which is exactly the set
+    kite_stream's plan() is willing to stream. It still refuses per symbol
+    there, so this being generous costs nothing.
     """
+    have = _symbols_with_bars()
+    if venue == "kite":
+        return sorted(s for s in have if scope_for(s) != "crypto")
     try:
         import backfill_crypto as bc
         listed = {"coinbase": bc.COINBASE, "bybit": bc.BYBIT}.get(venue, [])
     except Exception:                                 # noqa: BLE001
         return []
-    have = _symbols_with_bars()
     return [s for s, _ in listed if s in have]
 
 
@@ -8282,16 +9322,95 @@ class Handler(BaseHTTPRequestHandler):
             if not sym:
                 return 400, {"error": "symbol required"}
             return 200, {"saved": _ws_put(me[0], sym, body.get("state") or {})}
+        if path == "/conversations":
+            chats = body.get("chats")
+            if not isinstance(chats, list):
+                return 400, {"error": "chats[] required"}
+            return 200, _conv_sync(me[0], chats)
         if path == "/layouts":
+            uid = me[0]
+            lid = int(body["id"]) if str(body.get("id") or "").isdigit() else None
             if body.get("delete"):
                 with _users_lock:
-                    _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
-                                   (me[0], str(body.get("name") or "")))
+                    if lid:
+                        _users.execute("DELETE FROM layouts WHERE user_id=? AND id=?",
+                                       (uid, lid))
+                    else:       # the pre-id call site, kept working
+                        _users.execute("DELETE FROM layouts WHERE user_id=? AND name=?",
+                                       (uid, str(body.get("name") or "")))
                     _users.commit()
                 return 200, {"ok": True}
-            return _layout_save(me[0], str(body.get("name") or ""),
-                                body.get("spec") or {})
+            if body.get("copy"):
+                if not lid:
+                    return 400, {"error": "id required"}
+                return _layout_copy(uid, lid)
+            if "share" in body:
+                if not lid:
+                    return 400, {"error": "id required"}
+                return _layout_share(uid, lid, bool(body.get("share")))
+            if "thumb" in body and "spec" not in body:
+                # Picture only. Layouts saved before thumbnails existed have
+                # none, and the client backfills one the first time such a
+                # layout is opened — so it must be impossible for that to
+                # touch the saved workspace. No spec, no symbols, no name.
+                if not lid:
+                    return 400, {"error": "id required"}
+                pic = _clean_thumb(body.get("thumb"))
+                if not pic:
+                    return 400, {"error": "not an inline image"}
+                with _users_lock:
+                    cur = _users.execute("UPDATE layouts SET thumb=? WHERE "
+                                         "user_id=? AND id=?", (pic, uid, lid))
+                    _users.commit()
+                if not cur.rowcount:
+                    return 404, {"error": "no such layout"}
+                return 200, {"id": lid, "thumb": True}
+            if "autosave" in body and "spec" not in body:
+                # the toggle on its own — flipping it must not silently write
+                # the current workspace over a layout the user is only arming
+                if not lid:
+                    return 400, {"error": "id required"}
+                with _users_lock:
+                    cur = _users.execute("UPDATE layouts SET autosave=? WHERE "
+                                         "user_id=? AND id=?",
+                                         (1 if body["autosave"] else 0, uid, lid))
+                    _users.commit()
+                # 0 rows means it is not theirs (or gone). Answering 200 said
+                # "armed" for a layout that does not exist, and the toggle
+                # would have sat on in a UI backed by nothing.
+                if not cur.rowcount:
+                    return 404, {"error": "no such layout"}
+                return 200, {"id": lid, "autosave": bool(body["autosave"])}
+            return _layout_save(
+                uid, str(body.get("name") or ""), body.get("spec") or {},
+                lid=lid, symbols=body.get("symbols") or [],
+                autosave=body.get("autosave"),
+                chat_id=str(body.get("chat_id") or ""),
+                thumb=str(body.get("thumb") or ""))
         return 404, {"error": "not found"}
+
+    def _send_events(self, events) -> None:
+        """Pump an already-built event generator down an SSE response.
+
+        The headers are the load-bearing part — see _send_stream — so both
+        streams set them in one place rather than each remembering
+        X-Accel-Buffering for itself.
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            for ev in events:
+                self.wfile.write(f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto sse failed: %s", exc)
 
     def _send_stream(self, messages: list, context: dict | None) -> None:
         """SSE. No Content-Length and no buffering — the whole point is that
@@ -8317,6 +9436,36 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _send_alerts(self, uid: int) -> None:
+        """SSE of this user's fired alerts. The same shape as _send_live and for
+        the same reasons — one queue per subscriber, a slow reader dropped so
+        its socket closes and the browser reconnects, and a 15s keepalive so a
+        quiet market is not mistaken for a dead connection."""
+        q = _alerts.subscribe(uid)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            while not q.dead:
+                try:
+                    ev = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(
+                        f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("charto alerts sse failed: %s", exc)
+        finally:
+            _alerts.unsubscribe(uid, q)
 
     def _send_live(self, symbol: str) -> None:
         """SSE of forming bars. One queue per subscriber; a client that stops
@@ -8474,13 +9623,30 @@ class Handler(BaseHTTPRequestHandler):
                                              q.get("source", ""), **extra)
                 except ValueError as exc:
                     return self._send(400, {"error": str(exc)})
-                # emitted as {time, value} pairs, nulls dropped — the chart
-                # series API wants gaps absent rather than null-valued
+                # LEADING nulls are dropped; INTERIOR nulls become whitespace
+                # points — {time} with no value — which is the series API's
+                # actual mechanism for a gap.
+                #
+                # Dropping them all was wrong in a way that only shows on an
+                # indicator whose line legitimately stops and restarts.
+                # Supertrend is exactly that: it publishes supertrend_up on
+                # up-bars and supertrend_down on down-bars, each None on the
+                # other's bars. With those points simply absent, the series had
+                # holes in TIME, and a line series joins its neighbours across a
+                # hole — so every trend flip drew a long diagonal straight
+                # through the candles, which is what made the indicator look
+                # wrong. TradingView breaks the line there; so does this now.
+                def _pts(series: list) -> list[dict]:
+                    first = next((i for i, v in enumerate(series) if v is not None), None)
+                    if first is None:
+                        return []
+                    return [{"time": rows[i][0]} if v is None
+                            else {"time": rows[i][0], "value": round(v, 6)}
+                            for i, v in enumerate(series[first:], start=first)]
+
                 return self._send(200, {
                     "name": name, "spec": res["spec"],
-                    "lines": {ln: [{"time": rows[i][0], "value": round(v, 6)}
-                                   for i, v in enumerate(series) if v is not None]
-                              for ln, series in res["lines"].items()},
+                    "lines": {ln: _pts(series) for ln, series in res["lines"].items()},
                 })
             if u.path == "/volume_profile":
                 # The manual path into the same tool chat calls. It returns
@@ -8539,6 +9705,37 @@ class Handler(BaseHTTPRequestHandler):
                 if q.get("only") == "history":
                     return self._send(200, company_history(symbol, rng))
                 return self._send(200, company_page(symbol, rng))
+            if u.path == "/shared":
+                # No account: whoever holds the link. The only unauthenticated
+                # read of user-created content in the server, which is why the
+                # helper hands back the workspace and nothing else about the
+                # person who made it.
+                return self._send(*_layout_shared_get(q.get("token", "")))
+            if u.path in ("/alerts", "/alerts/stream"):
+                # Alerts are per-user by construction — they run on the server
+                # so they can fire while the browser is shut, which means they
+                # belong to an account and not to a tab.
+                if _alerts is None:
+                    return self._send(501, {"error": "the alert engine is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use alerts"})
+                if u.path == "/alerts/stream":
+                    return self._send_alerts(me[0])
+                return self._send(*_alerts.api_list(me[0]))
+            if u.path == "/journal" or u.path.startswith("/journal/"):
+                if _journal is None:
+                    return self._send(501, {"error": "journal is unavailable"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use the journal"})
+                tail = u.path[len("/journal"):].strip("/")
+                if not tail or tail == "bootstrap":
+                    return self._send(*_journal.api_bootstrap(me[0]))
+                if tail.startswith("trades/") and tail.split("/")[-1].isdigit():
+                    return self._send(*_journal.api_get(me[0], int(tail.split("/")[-1])))
+                return self._send(404, {"error": f"no journal route '{tail}'"})
             if u.path in ("/auth/me", "/workspace", "/layouts"):
                 me = _auth_user(self.headers)
                 if not me:
@@ -8552,9 +9749,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"user": _user_public(me)})
                 if u.path == "/layouts":
                     q = parse_qs(u.query)
+                    lid = (q.get("id") or [""])[0]
+                    if lid.isdigit():
+                        return self._send(*_layout_get(me[0], int(lid)))
                     name = (q.get("name") or [""])[0]
                     if not name:
-                        return self._send(200, {"layouts": _layouts_list(me[0])})
+                        thumbs = (q.get("thumbs") or [""])[0] in ("1", "true")
+                        return self._send(200, {
+                            "layouts": _layouts_list(me[0], thumbs)})
                     with _users_lock:
                         row = _users.execute(
                             "SELECT name, spec, updated FROM layouts "
@@ -8592,13 +9794,72 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
-        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts"):
+        if u.path == "/journal" or u.path.startswith("/journal/"):
+            if _journal is None:
+                return self._send(501, {"error": "journal is unavailable"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use the journal"})
+            tail = u.path[len("/journal"):].strip("/")
+            if tail == "trades":
+                return self._send(*_journal.api_create(me[0], body))
+            if tail.startswith("trades/") and tail.split("/")[-1].isdigit():
+                return self._send(*_journal.api_patch(me[0], int(tail.split("/")[-1]), body))
+            if tail == "playbooks":
+                return self._send(*_journal.api_playbook(me[0], body))
+            if tail.startswith("playbooks/") and tail.split("/")[-1].isdigit():
+                return self._send(*_journal.api_playbook(me[0], body, int(tail.split("/")[-1])))
+            return self._send(404, {"error": f"no journal route '{tail}'"})
+        if u.path == "/alerts" or u.path.startswith("/alerts/"):
+            if _alerts is None:
+                return self._send(501, {"error": "the alert engine is not "
+                                                 "loaded on this server"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use alerts"})
+            tail = u.path[len("/alerts"):].strip("/")
+            if not tail:
+                return self._send(*_alerts.api_create(me[0], body))
+            if tail == "check":
+                return self._send(*_alerts.api_check(me[0], body))
+            if tail == "seen":
+                return self._send(*_alerts.api_seen(me[0]))
+            if tail.isdigit():
+                # patch, pause/resume, re-arm, or {delete:true} — the shape
+                # /layouts already uses, so the server keeps two verbs
+                return self._send(*_alerts.api_patch(me[0], int(tail), body))
+            return self._send(404, {"error": f"no alerts route '{tail}'"})
+        if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts",
+                                                     "/conversations"):
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")
             except (ValueError, TypeError):
                 return self._send(400, {"error": "bad JSON body"})
             return self._send(*self._account_post(u.path, body))
+        if u.path == "/suggest":
+            # Separate from /chat on purpose. It runs AFTER the reply has
+            # landed, so it can never delay one — and a `done` carrying an
+            # empty list is a normal answer, not a failure to handle.
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            msgs = body.get("messages")
+            if not isinstance(msgs, list):
+                return self._send(400, {"error": "messages[] required"})
+            return self._send_events(_suggest_stream(msgs))
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:
@@ -8610,6 +9871,13 @@ class Handler(BaseHTTPRequestHandler):
             ctx = body.get("context") or {}
             sym = str(ctx.get("symbol") or "RELIANCE").upper()
             _req.symbol = sym
+            # Who is asking, and which conversation this is. Both exist for
+            # recall_conversations and nothing else: the user scopes the
+            # archive, and the chat_id is what EXCLUDES the conversation
+            # already in context from a search of the earlier ones. A signed
+            # out request sets user None and the tool says so honestly.
+            _req.user = _auth_user(self.headers)
+            _req.chat_id = str(body.get("chat_id") or "")[:64]
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
@@ -8634,6 +9902,12 @@ class Handler(BaseHTTPRequestHandler):
             # a reference pane has no drawing layer; the envelope says which
             # kind of chart is in focus and the tools honour it
             _req.drawable = ctx.get("drawable") is not False
+            # WHICH chart owns that drawing layer. Refusing a draw is only half
+            # an answer — the other half is where ink can actually go, and
+            # without this the model invented a route ("click that pane") that
+            # cannot work. Older frontends don't send it; the focused chart is
+            # then the best available answer and matches the old behaviour.
+            _req.main_chart = str(ctx.get("main_chart") or sym or "").upper()
             if body.get("stream"):
                 return self._send_stream(messages, ctx)
             return self._send(200, llm_chat(messages, ctx))
@@ -8681,6 +9955,21 @@ if __name__ == "__main__":
         except Exception as _exc:                              # noqa: BLE001
             # Never let a venue keep the chart server down — data first.
             print(f"charto live autostart {_v} FAILED: {_exc}")
+
+    # The watcher, after the alias and after the venues: catch_up() replays the
+    # window this process was down for, and a feed that is already connecting
+    # means fewer minutes for it to have to replay. Never fatal — the chart is
+    # the product and it must come up even if the alert engine cannot.
+    try:
+        import alerts as _alerts_mod
+        _alerts = _alerts_mod
+        _alerts_mod.register_hook()
+        _boot = _alerts_mod.start()
+        print(f"charto alerts: {_boot.get('armed', 0)} armed on "
+              f"{_boot.get('symbols', 0)} symbol(s), "
+              f"catch-up {_boot.get('catch_up')}")
+    except Exception as _exc:                                  # noqa: BLE001
+        print(f"charto alerts UNAVAILABLE: {_exc}")
 
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

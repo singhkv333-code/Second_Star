@@ -122,7 +122,11 @@ const DlgKit = (() => {
       btn.innerHTML = `<span class="val"></span>${Icons.svg("chevronDown", "xs")}`;
       const paint = () => {
         const o = sel.options[sel.selectedIndex];
-        btn.querySelector(".val").textContent = o ? o.textContent : "";
+        const v = btn.querySelector(".val");
+        // the closed control shows the same glyph the list did, so picking one
+        // does not lose the thing that made it recognisable
+        v.innerHTML = (o && o.dataset.icon ? Icons.svg(o.dataset.icon, "op") : "")
+          + `<span>${esc(o ? o.textContent : "")}</span>`;
       };
       paint();
       sel.after(btn);
@@ -139,9 +143,15 @@ const DlgKit = (() => {
     closeSelectMenu();
     selectMenu = document.createElement("div");
     selectMenu.className = "dropdown select-menu open";
+    // `data-icon` on an <option> draws that glyph before the label. Optional
+    // everywhere, so every existing select is unchanged — but where the choices
+    // are geometric (what an alert operator DOES) a picture says it faster than
+    // the words can.
     selectMenu.innerHTML = [...sel.options].map((o, i) =>
       `<div class="item${i === sel.selectedIndex ? " on" : ""}" data-i="${i}">` +
-      `<span class="lead">${esc(o.textContent)}</span>` +
+      `<span class="lead">` +
+        (o.dataset.icon ? Icons.svg(o.dataset.icon, "op") : "") +
+        `<span>${esc(o.textContent)}</span></span>` +
       `${i === sel.selectedIndex ? Icons.svg("check", "xs") : ""}</div>`).join("");
     document.body.appendChild(selectMenu);
     selectMenu.style.minWidth = `${Math.max(btn.offsetWidth, 132)}px`;

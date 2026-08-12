@@ -69,17 +69,60 @@ const Store = (() => {
   // "vp" rides with "scene" because it IS scene state: a volume profile is a
   // window over one instrument's own bars. Left unscoped it followed the user
   // from symbol to symbol and drew an uninvited profile on the next chart.
-  // "chats"/"chatid" are the conversation ARCHIVE and the one that is open —
-  // scoped with "chat" (the single-thread key they replace) for the same
-  // reason: a company's conversations belong to that company.
   // "draw_collapsed" is scoped for the same reason: the shapes it folds away
   // belong to one instrument (drawings.js keys its own store per symbol, and
   // "scene" is scoped right here), so a chart tidied on RELIANCE must not
   // open TCS with its levels already hidden and no obvious reason why.
-  const SCOPED = new Set(["chat", "chats", "chatid", "scene", "vp",
-                          "draw_collapsed"]);
+  //
+  // "chats"/"chatid" are NOT scoped, and used to be. A conversation is not a
+  // property of an instrument: you ask about RELIANCE, then about TCS, and it
+  // is the same conversation with the same person. Scoped, every symbol
+  // change wiped the thread and the history panel could only show the chats
+  // held on the chart you happened to be looking at — a record of your own
+  // questions that hid most of itself. What the chat drew stays scoped
+  // ("scene"), because that IS about one instrument's bars.
+  const SCOPED = new Set(["chat", "scene", "vp", "draw_collapsed"]);
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
+
+  /* One-time: un-scoping "chats" would ORPHAN every conversation.
+   *
+   * A browser that has been used holds "charto:TCS:chats" beside
+   * "charto:chats". Simply removing the key from SCOPED makes the reader
+   * look only at the unscoped one — the others stay in localStorage forever,
+   * read by nothing, and to the user their history has been deleted.
+   *
+   * So merge them all, newest wins on a duplicate id, then delete the old
+   * keys. Deleting them is what makes this run exactly once.
+   */
+  (() => {
+    try {
+      const olds = Object.keys(localStorage)
+        .filter((key) => /^charto:[A-Z0-9.\-]+:chats$/.test(key));
+      if (!olds.length) return;
+      const byId = new Map();
+      const add = (arr) => {
+        for (const c of arr || []) {
+          if (!c || !c.id) continue;
+          const prev = byId.get(c.id);
+          if (!prev || (c.updated || 0) > (prev.updated || 0)) byId.set(c.id, c);
+        }
+      };
+      try { add(JSON.parse(localStorage.getItem(PREFIX + "chats") || "[]")); } catch {}
+      for (const key of olds) {
+        try { add(JSON.parse(localStorage.getItem(key) || "[]")); } catch {}
+        localStorage.removeItem(key);
+        localStorage.removeItem(key.replace(/chats$/, "chatid"));
+      }
+      const merged = [...byId.values()]
+        .filter((c) => Array.isArray(c.turns) && c.turns.length)
+        .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+        .slice(0, 60);
+      localStorage.setItem(PREFIX + "chats", JSON.stringify(merged));
+      console.info(`[charto] merged ${olds.length} per-symbol chat archive(s)`
+                   + ` → ${merged.length} conversations`);
+    } catch { /* a failed merge must never stop the app booting */ }
+  })();
 
   return {
     get(key, fallback) {
