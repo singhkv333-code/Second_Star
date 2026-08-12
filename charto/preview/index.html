@@ -659,18 +659,16 @@ select.is-dressed { display: none; }
 .ly-btn svg { flex: none; opacity: .6; }
 /* Slimmer than it was: the widest row is "Download chart data…" and 268px
    left it swimming in space to the right, which read as a dialog rather than
-   a menu. Type is untouched — only the box moved in around it. */
+   a menu. Type is untouched — only the box moved in around it.
+
+   Rows are .dropdown's own — a .lead holding glyph and label, one trailing
+   slot for whatever the row says about itself — so this menu is built from
+   the same parts as the rail's tool flyout and the account menu. It used to
+   override .dropdown .item with a flat icon+span flex of its own, which is
+   why its shortcut needed a <kbd> nothing else in the app has: there was no
+   trailing slot for the .sc every other menu prints a chord in. */
 .ly-menu { min-width: 224px; padding: 5px; }
-.ly-menu .item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 8px; border-radius: var(--radius-sm);
-}
-.ly-menu .item > svg { flex: none; opacity: .75; }
-.ly-menu .item > span:first-of-type { flex: 1; min-width: 0; }
-.ly-menu kbd {
-  font: inherit; font-size: var(--text-2xs); color: var(--faint);
-  letter-spacing: .04em;
-}
+.ly-menu .item .lead { flex: 1; min-width: 0; }
 .ly-menu .sep { height: 1px; margin: 5px 4px; background: var(--border-soft); }
 .ly-menu .head {
   padding: 7px 8px 5px; font-size: var(--text-2xs); color: var(--faint);
@@ -678,13 +676,25 @@ select.is-dressed { display: none; }
   font-weight: var(--weight-medium);
 }
 .ly-empty { padding: 8px 8px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
-/* a note glyph that explains a toggle without spending a line on it */
+/* The glyph that explains a toggle without spending a line on it. It is a
+   real icon now (Icons "info"), where it used to be a bordered 14px box with
+   an italic letter i set inside it — a circle drawn by border-radius, whose
+   weight came from the font rather than from the icon grid, and which sat a
+   hair off the cap height of the label beside it. It reads as a mark you may
+   press, not as a stray character. */
 .ly-note {
-  width: 14px; height: 14px; flex: none; border-radius: 50%;
-  border: 1px solid var(--faint); color: var(--faint);
-  font-size: 9px; line-height: 12px; text-align: center; font-style: italic;
-  cursor: help;
+  display: inline-flex; flex: none; cursor: help; color: var(--faint);
+  transition: color var(--dur) var(--ease-quartr);
 }
+/* the ⓘ is a footnote on the label, not a second item in the row — the 9px
+   of --menu-lead-gap that separates a glyph from a label reads as two
+   things when it sits between a word and its own annotation */
+.ly-toggle .lead { gap: 5px; }
+.ly-note > svg { display: block; }
+.ly-note:hover { color: var(--muted-foreground); }
+/* it lives inside .lead, which paints its icons like a row's own glyph — this
+   one is a footnote about the row, and must stay quieter than the label */
+.ly-menu .item .lead .ly-note svg { color: inherit; }
 /* iOS-shaped switch, in our tokens. The two toggles are STATE, not commands,
    so they get a control that shows a position rather than a row that fires. */
 .switch {
@@ -699,10 +709,27 @@ select.is-dressed { display: none; }
 }
 .switch.on { background: var(--primary); }
 .switch.on > i { transform: translateX(14px); }
-.ly-recent { flex-direction: column; align-items: flex-start !important; gap: 1px !important; }
-.ly-recent .ly-rname { font-size: var(--text-sm); }
-.ly-recent .ly-rsub { font-size: var(--text-2xs); color: var(--faint); }
-.ly-recent.on { background: var(--accent); }
+/* A recently-used layout is ONE row, the same height as every other row in
+   this menu: the name, and the instruments it is about at the row's end.
+
+   It was a two-line card — name over subtitle, stacked by a column-direction
+   flex with two !important overrides to beat .dropdown .item — which made
+   each entry twice the height of the commands above it. Five of them turned
+   the bottom half of the menu into a panel that had been pasted into a list.
+
+   The symbol sits in the trailing slot the shortcut and the switch use, so
+   the menu has one right-hand column all the way down rather than three
+   different ideas about what the far edge of a row is for. */
+.ly-recent .lead { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.ly-recent .ly-rsym {
+  font-size: var(--text-2xs); color: var(--faint); flex: none;
+  max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The one you are sitting in, marked the way this app marks a current row
+   everywhere else — see .dropdown .item.on. It used to carry an --accent
+   FILL, which is the same paint .dropdown .item:hover uses, so the current
+   layout and the row under the pointer were indistinguishable. */
+.ly-recent.on .ly-rsym { color: var(--primary); opacity: .75; }
 
 /* dialogs — one backdrop, one card, reused by rename / delete / open */
 .ly-back {
@@ -722,7 +749,6 @@ select.is-dressed { display: none; }
 .ly-dlg h3 { margin: 0 0 12px; font-size: var(--text-md); font-weight: var(--weight-semi); }
 .ly-dlg .ly-body { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .ly-lab { display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
-.ly-dlg .dlg-input { width: 100%; }
 .ly-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ly-list { margin-top: 12px; max-height: min(58vh, 520px); overflow-y: auto; margin-right: -6px; padding-right: 6px; }
 /* Cards, two up. A layout is recognised by its CHART, not its name, so the
@@ -732,11 +758,16 @@ select.is-dressed { display: none; }
 .ly-card {
   border: 1px solid var(--border); border-radius: var(--radius-md);
   overflow: hidden; cursor: pointer; background: var(--card);
-  transition: border-color var(--dur) var(--ease-quartr),
-              box-shadow var(--dur) var(--ease-quartr);
+  transition: border-color var(--dur) var(--ease-quartr);
 }
 .ly-card:hover { border-color: var(--muted-foreground); }
-.ly-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+/* The one you are in gets NO border and NO ring. It carried a teal edge plus
+   a 1px teal box-shadow outside it — two rings around a picture, which read
+   as a focus state on the thumbnail rather than as "this is the desk you are
+   already sitting at", and it fought the chart's own colours for attention.
+   The name in the accent is how every other current thing in this app is
+   marked (see .dropdown .item.on); a card is no different. */
+.ly-card.on .ly-item-name { color: var(--primary); }
 /* 16:10 — near enough to a chart's own proportions that the thumbnail is
    not letterboxed, and short enough that two rows fit without scrolling */
 .ly-shot { position: relative; aspect-ratio: 16 / 10; background: var(--chart-bg); }
@@ -761,13 +792,25 @@ select.is-dressed { display: none; }
   font-weight: var(--weight-medium); flex: none;
 }
 .ly-tag.alt { background: var(--accent); color: var(--muted-foreground); }
+/* The trash, on the picture's top-right corner. It sits over a chart
+   screenshot rather than over the app's own surface, so it brings its own
+   plate — a bare glyph on candles is unreadable at either end of the theme.
+
+   It reveals on the CARD's hover. It was keyed to `.ly-item:hover`, and
+   there is no .ly-item in this dialog — the rows became .ly-card and the
+   hover selector did not follow, so the button held opacity: 0 in every
+   state and deleting a layout from the picker was not possible at all. */
 .ly-del {
+  position: absolute; top: 6px; right: 6px;
   width: 26px; height: 26px; flex: none; display: grid; place-items: center;
-  background: none; border: 0; border-radius: var(--radius-xs);
-  color: var(--faint); cursor: pointer; opacity: 0;
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--muted-foreground); cursor: pointer; opacity: 0;
+  transition: opacity var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
 }
-.ly-item:hover .ly-del { opacity: 1; }
-.ly-del:hover { color: var(--down); background: var(--background); }
+.ly-card:hover .ly-del, .ly-del:focus-visible { opacity: 1; }
+.ly-del:hover { color: var(--down); border-color: var(--down); }
 .btn.danger { background: var(--down); color: #fff; border-color: transparent; }
 
 /* one toast, bottom-centre, for "Saved" and every other one-line outcome.
@@ -2823,32 +2866,37 @@ body.two-columns .readout .row { display: none; }
 }
 .searchfield:focus-within > svg.icon { color: var(--foreground); }
 /* ONE rule, keyed off the wrapper — not a list of the places that happen to
-   have a search box in them. That list was the bug: a filter added later (the
-   alerts one, the journal one) could only join the family by editing this
-   selector, so it opened as a bare unstyled input with the magnifier sitting
-   on top of its own placeholder. `Icons.field()` IS the look now, and a field
-   this branch has not written yet is already styled. The three original
-   members stay named so nothing that is not wrapped loses its box. */
-.searchfield input,
-.chat-history input,
-#symbolMenu input, .sym-picker .pick-search {
+   have a search box in them. That list was the bug: a new filter (the alerts
+   one, the journal one) could only join the family by editing this selector,
+   so both grew their own box instead — a bordered numeric cell in one place,
+   a 40px carded field in another. Now `Icons.field()` IS the look, and a
+   field the app has not written yet is already styled. */
+.searchfield input {
   width: 100%; background: var(--muted); border: 0;
   border-radius: var(--radius-xs); padding: 8px 11px 8px 30px;
   color: var(--foreground);
   font: inherit; font-size: var(--text-base); outline: none;
 }
+/* THE SAME BOX WITHOUT THE GLYPH — a name, not a filter.
+   The app had no such thing: .dlg-input is the settings dialog's 34px
+   numeric cell (hairline border, tabular figures, sized for a period or an
+   offset), and the layout dialogs stretched one across 380px to hold a
+   name. Same fill, same radius, same type as the search fields above, so a
+   dialog that asks for a word and one that asks you to find a word are
+   recognisably the same app. */
+.textfield {
+  width: 100%; background: var(--muted); border: 0;
+  border-radius: var(--radius-xs); padding: 9px 11px;
+  color: var(--foreground);
+  font: inherit; font-size: var(--text-base); outline: none;
+}
 .searchfield input::placeholder,
-.chat-history input::placeholder,
-#symbolMenu input::placeholder,
-.sym-picker .pick-search::placeholder { color: var(--faint); }
+.textfield::placeholder { color: var(--faint); }
 /* type=search paints a UA cancel button in WebKit — a second × in a box the
    app never asked for one in, and it sits where nothing else in the app does */
-.searchfield input::-webkit-search-cancel-button,
-.chat-history input::-webkit-search-cancel-button { -webkit-appearance: none; }
-:root[data-nav="kbd"] .searchfield input:focus-visible,
-:root[data-nav="kbd"] .chat-history input:focus-visible,
-:root[data-nav="kbd"] #symbolMenu input:focus-visible,
-:root[data-nav="kbd"] .sym-picker .pick-search:focus-visible {
+.searchfield input::-webkit-search-cancel-button { -webkit-appearance: none; }
+:root[data-nav="kbd"] .textfield:focus-visible,
+:root[data-nav="kbd"] .searchfield input:focus-visible {
   outline: 2px solid var(--ring); outline-offset: 1px;
 }
 .hist-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
@@ -5272,7 +5320,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=12"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=20"></script>
+  <script src="./js/icons.js?v=21"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5293,7 +5341,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
-  <script src="./js/shortcuts.js?v=1"></script>
+  <script src="./js/shortcuts.js?v=2"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
@@ -5305,9 +5353,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/main.js?v=78"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=6"></script>
+  <script src="./js/layouts.js?v=7"></script>
   <script src="./js/chat.js?v=114"></script>
-  <script src="./js/journal.js?v=2"></script>
+  <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js

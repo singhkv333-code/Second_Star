@@ -208,7 +208,18 @@ const Journal = (() => {
   async function saveBook(){const f=new FormData(el("playbookForm")),b=active?.value,name=String(f.get("book_name")||"").trim();if(!name){toast("Give the playbook a name");return}const spec={...(b?.spec||{}),checklist:String(f.get("book_rules")||"").split("\n").map(x=>x.trim()).filter(Boolean),invalidation:String(f.get("book_invalidation")||"").trim()};try{await call(b?`/journal/playbooks/${b.id}`:"/journal/playbooks",{name,description:String(f.get("book_desc")||"").trim(),spec});closeDrawer();await load();toast("Playbook saved")}catch(e){toast(e.message)}}
   function importCsv(){const input=document.createElement("input");input.type="file";input.accept=".csv,text/csv";input.onchange=async()=>{const file=input.files?.[0];if(!file)return;const lines=(await file.text()).replace(/\r/g,"").split("\n").filter(Boolean),heads=(lines.shift()||"").split(",").map(x=>x.trim().toLowerCase());let added=0;for(const line of lines){const cells=line.split(",").map(x=>x.trim().replace(/^"|"$/g,"")),row=Object.fromEntries(heads.map((h,i)=>[h,cells[i]]));try{await call("/journal/trades",{symbol:row.symbol||row.instrument,side:(row.side||"long").toLowerCase(),opened_at:Math.floor(new Date(row.opened_at||row.opened||Date.now()).getTime()/1000),closed_at:row.closed_at?Math.floor(new Date(row.closed_at).getTime()/1000):null,quantity:Number(row.quantity||row.qty),entry_price:Number(row.entry_price||row.entry),exit_price:row.exit_price?Number(row.exit_price):null,fees:Number(row.fees||0),initial_risk:row.initial_risk?Number(row.initial_risk):null,source:"csv",external_id:row.id||`${file.name}:${added}:${row.symbol}`});added++}catch{}}await load();toast(`${added} trade${added===1?"":"s"} imported`)};input.click()}
 
+  /* Delegated from the document because the journal rebuilds its own markup
+   * constantly — but SCOPED to the journal's three roots, which it was not.
+   *
+   * Every hook below is a plain English word: data-new, data-close, data-save,
+   * data-delete, data-view, data-import. Unscoped, this handler answered them
+   * anywhere on the page, and js/layouts.js's "Create new…" button — reasonably
+   * named data-new — opened the New trade drawer over the layout dialog.
+   * Nothing about that was the layouts module's mistake; a listener bound to
+   * the whole document owns names it did not choose. */
+  const ROOTS = "#journal, #journalQuick, #journalDrawer";
   document.addEventListener("click",(e)=>{
+    if(!e.target.closest(ROOTS))return;
     const qt=e.target.closest("[data-qtab]");if(qt){quickTab=qt.dataset.qtab;renderQuick();return}
     const qs=e.target.closest("[data-qsort]");if(qs){const k=qs.dataset.qsort;quickSort={key:k,dir:quickSort.key===k?-quickSort.dir:-1};renderQuick();return}
     if(e.target.closest("[data-close-quick]")){toggleQuick(false);return}
