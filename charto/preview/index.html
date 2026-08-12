@@ -2822,6 +2822,14 @@ body.two-columns .readout .row { display: none; }
   transition: color var(--dur) var(--ease-quartr);
 }
 .searchfield:focus-within > svg.icon { color: var(--foreground); }
+/* ONE rule, keyed off the wrapper — not a list of the places that happen to
+   have a search box in them. That list was the bug: a filter added later (the
+   alerts one, the journal one) could only join the family by editing this
+   selector, so it opened as a bare unstyled input with the magnifier sitting
+   on top of its own placeholder. `Icons.field()` IS the look now, and a field
+   this branch has not written yet is already styled. The three original
+   members stay named so nothing that is not wrapped loses its box. */
+.searchfield input,
 .chat-history input,
 #symbolMenu input, .sym-picker .pick-search {
   width: 100%; background: var(--muted); border: 0;
@@ -2829,12 +2837,15 @@ body.two-columns .readout .row { display: none; }
   color: var(--foreground);
   font: inherit; font-size: var(--text-base); outline: none;
 }
+.searchfield input::placeholder,
 .chat-history input::placeholder,
 #symbolMenu input::placeholder,
 .sym-picker .pick-search::placeholder { color: var(--faint); }
 /* type=search paints a UA cancel button in WebKit — a second × in a box the
    app never asked for one in, and it sits where nothing else in the app does */
+.searchfield input::-webkit-search-cancel-button,
 .chat-history input::-webkit-search-cancel-button { -webkit-appearance: none; }
+:root[data-nav="kbd"] .searchfield input:focus-visible,
 :root[data-nav="kbd"] .chat-history input:focus-visible,
 :root[data-nav="kbd"] #symbolMenu input:focus-visible,
 :root[data-nav="kbd"] .sym-picker .pick-search:focus-visible {
