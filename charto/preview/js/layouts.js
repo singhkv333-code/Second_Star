@@ -400,17 +400,44 @@ const Layouts = (() => {
     renderMenu();
   }
 
-  function row(icon, label, extra = "") {
-    return `<div class="item" ${extra}>${Icons.svg(icon, "xs")}`
-      + `<span>${esc(label)}</span></div>`;
+  /* One menu row, in the shape every other menu in this app uses: a `.lead`
+   * holding the glyph and the label, and one trailing slot for whatever the
+   * row has to say about itself — a shortcut, a switch, a symbol. The rows
+   * here used to be a flat icon+span with their own flex rules, which is why
+   * the shortcut needed a <kbd> of its own instead of the `.sc` the toolbar's
+   * flyout already prints its Alt-chords in. */
+  function row(icon, label, extra = "", trail = "") {
+    return `<div class="item" ${extra}><span class="lead">`
+      + `${Icons.svg(icon, "xs")}${esc(label)}</span>${trail}</div>`;
   }
 
+  /* A switch row. `note` is the caveat that does not fit in the label — it
+   * hangs off a real ⓘ from the icon set, and clicking it is NOT clicking the
+   * row: `data-note` is how the menu's handler tells "explain this" from
+   * "flip this", so reaching for the explanation cannot arm the thing being
+   * explained. */
   function toggleRow(id, label, on, note) {
     return `<div class="item ly-toggle" data-act="${id}">`
-      + `<span>${esc(label)}</span>`
-      + (note ? `<span class="ly-note" title="${esc(note)}">i</span>` : "")
+      + `<span class="lead">${esc(label)}`
+      + (note ? `<span class="ly-note" data-note title="${esc(note)}">`
+                + `${Icons.svg("info", "xs")}</span>` : "")
+      + `</span>`
       + `<span class="switch${on ? " on" : ""}"><i></i></span></div>`;
   }
+
+  /* A layout you were recently in, on ONE line: the name, and the instruments
+   * it is about at the row's end. It was two stacked lines — a name over a
+   * subtitle, in a card twice the height of every other row in the menu — and
+   * the section read as a panel that had been pasted into a list.
+   *
+   * The one you are sitting in is marked the way this app marks a current row
+   * everywhere else: the name in the accent, no fill (see .dropdown .item.on
+   * in the stylesheet). */
+  const recentRow = (L) =>
+    `<div class="item ly-recent${cur && cur.id === L.id ? " on" : ""}" `
+    + `data-open="${L.id}" title="${esc(L.name)}">`
+    + `<span class="lead">${esc(L.name)}</span>`
+    + `<span class="ly-rsym">${esc(L.symbols.join(" · ") || "—")}</span></div>`;
 
   function renderMenu() {
     const m = menu();
@@ -423,9 +450,13 @@ const Layouts = (() => {
       return;
     }
     const recent = list.slice(0, 5);
+    // The chord comes from the shortcuts catalogue, not from a string typed
+    // here — this menu used to print ⌘S to a Windows reader whose keyboard
+    // has no such key.
+    const key = Shortcuts.chord("save-layout");
     m.innerHTML =
-      row("download", "Save layout", 'data-act="save" data-key="⌘S"')
-        .replace("</div>", `<kbd>⌘S</kbd></div>`)
+      row("download", "Save layout", 'data-act="save"',
+          key ? `<span class="sc">${esc(key)}</span>` : "")
       + toggleRow("autosave", "Autosave", !!(cur && cur.autosave))
       + toggleRow("share", "Share layout", !!(cur && cur.shared),
                   "Anyone with the link can view this layout, read-only.")
@@ -437,11 +468,7 @@ const Layouts = (() => {
       + row("plus", "Create new layout…", 'data-act="new"')
       + (recent.length
         ? `<div class="sep"></div><div class="head">Recently used</div>`
-          + recent.map((L) => `<div class="item ly-recent`
-            + `${cur && cur.id === L.id ? " on" : ""}" data-open="${L.id}">`
-            + `<span class="ly-rname">${esc(L.name)}</span>`
-            + `<span class="ly-rsub">${esc(L.symbols.join(", ") || "—")}</span>`
-            + `</div>`).join("")
+          + recent.map(recentRow).join("")
         : "")
       + `<div class="sep"></div>`
       + row("list", "Open layout…", 'data-act="openall"');
@@ -466,8 +493,15 @@ const Layouts = (() => {
     return new Promise((res) => {
       const { back, close } = dlg(
         `<h3>${esc(title)}</h3>`
-        + `<label class="ly-lab">${esc(label)}</label>`
-        + `<input class="dlg-input" id="lyIn" value="${esc(value || "")}">`
+        + `<label class="ly-lab" for="lyIn">${esc(label)}</label>`
+        // .textfield, not .dlg-input: the latter is the settings dialog's
+        // 34px numeric cell — tabular figures, a hairline border, sized for
+        // a period or an offset. Stretched to the full width of a dialog to
+        // hold a layout's NAME it read as a form control borrowed from
+        // somewhere else. This is the filled, borderless box the app's other
+        // text entries wear.
+        + `<input class="textfield" id="lyIn" value="${esc(value || "")}" `
+        + `placeholder="${esc(UNTITLED)}" autocomplete="off" spellcheck="false">`
         + `<div class="ly-actions"><button class="btn" data-x>Cancel</button>`
         + `<button class="btn primary" data-ok>Save</button></div>`);
       const inp = back.querySelector("#lyIn");
@@ -534,15 +568,30 @@ const Layouts = (() => {
     await refresh(true);
     openDlg = dlg(
       `<h3>Open layout</h3>`
-      + `<input class="dlg-input" id="lyq" placeholder="Search layouts or symbols">`
+      // The app's search box, from the one place that draws it: a filled
+      // field with the magnifier that goes from grey to ink when the field
+      // is live. It was a bare .dlg-input — a bordered numeric cell with a
+      // placeholder in it, and the only "type to filter this list" box in
+      // charto that did not look like the others or say it was focused.
+      + Icons.field(`<input id="lyq" type="search" autocomplete="off"`
+                    + ` placeholder="Search layouts or symbols">`)
       + `<div class="ly-list" id="lylist"></div>`
+      // `data-ly-new`, NOT `data-new` — see the click handler below.
       + `<div class="ly-actions"><button class="btn" data-x>Close</button>`
-      + `<button class="btn primary" data-new>Create new…</button></div>`,
+      + `<button class="btn primary" data-ly-new>Create new…</button></div>`,
       "wide");
     renderOpen();
     openDlg.back.querySelector("#lyq").addEventListener("input", renderOpen);
     openDlg.back.querySelector("[data-x]").onclick = () => { openDlg.close(); openDlg = null; };
-    openDlg.back.querySelector("[data-new]").onclick = () => {
+    /* This button was `data-new`, and js/journal.js listens for that attribute
+     * on the DOCUMENT — its "Add trade" button wears the same name. So "Create
+     * new layout" opened the New trade drawer on top of the layout prompt: two
+     * dialogs, one click, and the one in front was about a trade.
+     *
+     * Scoping journal's listener to its own roots is the real fix and is done
+     * there. This name is prefixed as well, because `data-new` is exactly the
+     * kind of generic hook a third module will reach for next. */
+    openDlg.back.querySelector("[data-ly-new]").onclick = () => {
       openDlg.close(); openDlg = null; createNew();
     };
     openDlg.back.addEventListener("click", (e) => {
@@ -573,8 +622,24 @@ const Layouts = (() => {
       m.classList.toggle("open", opening);
     });
     m.addEventListener("click", async (e) => {
+      /* THIS MENU CLOSES ITSELF, and nothing else may close it.
+       *
+       * js/main.js dismisses every open .dropdown on any document click, and
+       * that listener is what was shutting the menu the instant a switch was
+       * flipped: the toggle branch below deliberately does not close, and
+       * then the click bubbled up and closed it anyway. Reading the switch's
+       * new position meant reopening the menu to look.
+       *
+       * Stopping here covers the dead clicks too — a press on a heading or a
+       * rule is not a command, and a menu that vanishes when you click its
+       * own chrome feels like it was dismissed by accident. */
+      e.stopPropagation();
       const openRow = e.target.closest("[data-open]");
       if (openRow) { m.classList.remove("open"); return open(Number(openRow.dataset.open)); }
+      // The ⓘ explains its row; it does not fire it. Its tooltip is the whole
+      // interaction, and flipping sharing ON because someone reached for the
+      // reason not to would be the worst possible reading of that gesture.
+      if (e.target.closest("[data-note]")) return;
       const it = e.target.closest("[data-act]");
       if (!it) return;
       const act = it.dataset.act;
@@ -601,13 +666,13 @@ const Layouts = (() => {
     });
 
     // ⌘S / Ctrl+S — TradingView's shortcut, and the browser's Save Page is
-    // not a thing anyone wants on a chart.
-    document.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "s" || e.key === "S")) {
-        e.preventDefault();
-        save();
-      }
-    });
+    // not a thing anyone wants on a chart. Registered as a VERB against the
+    // shortcuts catalogue rather than bound here: that is what puts the row
+    // on the sheet, prints the right cap per platform in the menu above, and
+    // applies the guard every other chord gets — this used to fire mid-word
+    // in the chat composer, because a hand-rolled keydown does not know what
+    // the reader is typing into.
+    Shortcuts.on("save-layout", () => save());
 
     // Everything that edits the workspace already announces itself; autosave
     // and the unsaved dot both ride on those rather than on a poll.
