@@ -57,7 +57,10 @@ const Voice = (() => {
 
     const paint = (label) => {
       btn.dataset.state = state;
-      btn.innerHTML = Icons.svg(state === "error" ? "micOff" : "mic", "sm");
+      // Pivot's three glyphs: a spinner while it uploads, a struck mic while
+      // a failure is still on screen, the plain mic the rest of the time.
+      btn.innerHTML = Icons.svg(
+        state === "busy" ? "loader" : state === "error" ? "micOff" : "mic", "sm");
       btn.title = label || (state === "recording" ? "Stop recording"
         : state === "busy" ? "Transcribing…" : "Speak instead of typing");
       btn.setAttribute("aria-label", btn.title);

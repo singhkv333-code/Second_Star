@@ -2508,19 +2508,40 @@ body.two-columns .readout .row { display: none; }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
-/* The mic says its state in ink, the way the wait's shimmer does: red while
-   it is listening, red-struck while a failure is still on screen. A pulse
-   rather than a spinner for recording — a spinner would claim work is being
-   done, and nothing is being done except listening. */
-.cbtn.mic[data-state="recording"] {
-  color: var(--negative, #e5484d); border-color: currentColor;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  animation: micPulse 1.4s ease-in-out infinite;
+
+/* The mic, exactly as Pivot's composer wears it: NO border and no plate —
+   a bare glyph in tertiary ink that darkens on hover. It sits beside a
+   bordered "+" and a filled send button, and a third bordered circle between
+   them read as a third command; the point of this control is that it is
+   quieter than both. 28px box around a 16px glyph, pill radius, and every
+   state said in colour alone.
+
+   Recording is the destructive red over its own 12% tint, and the GLYPH
+   pulses rather than the button — the same shape Pivot ships (Tailwind's
+   animate-pulse on the icon). Busy is a spinner, because uploading and
+   transcribing is work being done, unlike listening. */
+.mic-btn {
+  width: 28px; height: 28px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--radius-pill);
+  color: var(--faint); cursor: pointer; padding: 0;
+  transition: color .18s var(--ease-quartr),
+              background-color .2s var(--ease-quartr);
 }
-.cbtn.mic[data-state="error"] { color: var(--negative, #e5484d); }
-.cbtn.mic[data-state="busy"] { cursor: wait; opacity: .65; }
-@keyframes micPulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
-@media (prefers-reduced-motion: reduce) { .cbtn.mic { animation: none; } }
+/* 16px at stroke 2 — Pivot's own size, not the app's 19px `sm`. The glyph is
+   deliberately smaller than the controls either side of it. */
+.mic-btn svg.icon { width: 16px; height: 16px; stroke-width: 2; }
+.mic-btn:hover { color: var(--foreground); }
+.mic-btn[data-state="recording"] { color: var(--down); background: var(--down-soft); }
+.mic-btn[data-state="recording"] svg { animation: micPulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+.mic-btn[data-state="error"] { color: var(--down); }
+.mic-btn[data-state="busy"] { cursor: wait; }
+.mic-btn[data-state="busy"] svg { animation: micSpin .9s linear infinite; }
+@keyframes micPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes micSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn svg { animation: none; }
+}
 /* The subject chip: which instrument this conversation is about. It carries
    the mark, the ticker and the interval of the chart the model reads, so the
    composer says WHAT is in context rather than merely that something is. */
@@ -4720,7 +4741,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
               <!-- Left of send, because it is a way of FILLING the box rather
                    than a way of sending it. Hidden by js/voice.js on a browser
                    with no MediaRecorder, so no layout carries a dead control. -->
-              <button type="button" class="cbtn mic" id="micBtn" hidden
+              <button type="button" class="mic-btn" id="micBtn" hidden
                       title="Speak instead of typing"></button>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
@@ -4775,7 +4796,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <script src="./js/store.js?v=12"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=21"></script>
+  <script src="./js/icons.js?v=22"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -4810,8 +4831,8 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=6"></script>
   <!-- before chat.js: the composer wires its mic on boot -->
-  <script src="./js/voice.js?v=1"></script>
-  <script src="./js/chat.js?v=117"></script>
+  <script src="./js/voice.js?v=2"></script>
+  <script src="./js/chat.js?v=118"></script>
   <script src="./js/journal.js?v=1"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
