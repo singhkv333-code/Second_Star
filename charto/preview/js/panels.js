@@ -813,10 +813,14 @@ const Panels = (() => {
            iconBtn("side-act", "search", "Search alerts", 'data-al="search"') +
            iconBtn("side-act", "sort", "Sort", 'data-al="sort"') +
            iconBtn("side-act", "more", "More", 'data-al="more"')) +
+      // The same box the symbol search is — Icons.field(), not a bordered
+      // .dlg-input. A filter is a filter wherever it opens.
       (alertQuery || alertSearchOpen
-        ? `<div class="al-searchbar"><input id="alSearch" class="dlg-input" ` +
-          `placeholder="Filter by symbol or condition" ` +
-          `value="${esc(alertQuery)}" autocomplete="off"></div>` : "") +
+        ? `<div class="al-searchbar">` +
+          Icons.field(`<input id="alSearch" type="search" ` +
+            `placeholder="Filter by symbol or condition" ` +
+            `value="${esc(alertQuery)}" autocomplete="off" spellcheck="false">`) +
+          `</div>` : "") +
       feedNote +
       `<div class="side-body" id="alertBody"></div>`;
     paintAlertBody();

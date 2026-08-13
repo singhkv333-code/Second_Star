@@ -166,6 +166,13 @@ const Icons = (() => {
     list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/>',
     columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
     sort: '<path d="M4 6h10"/><path d="M4 12h7"/><path d="M4 18h4"/><path d="M18 8v12"/><path d="m15 17 3 3 3-3"/>',
+    /* Lucide's circled i, for a control that carries a caveat too long to
+     * put in its label. It replaces a hand-built glyph — a 14px div with a
+     * border-radius and an italic letter "i" typed into it — which was the
+     * one mark in the app that was not drawn on this grid: it sat a hair
+     * off the cap height beside it, took its weight from the font rather
+     * than from the stroke, and could not follow the icon sizes. */
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 
     // ── account ────────────────────────────────────────────
     // The signed-OUT avatar. A signed-in one is an initial, not a glyph —

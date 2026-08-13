@@ -65,7 +65,7 @@
      these are the sizes Pivot's own surfaces are tuned to.
      --text-2xs is the uppercase micro-label spec (11px / medium /
      tertiary ink) and is load-bearing — do not fold it into --text-xs. */
-  --text-3xs:  10.5px;   /* composer hint, mono refs                   */
+  --text-3xs:  10.5px;   /* composer hint, attachment caption, refs    */
   --text-2xs:  11px;     /* UPPERCASE MICRO-LABEL — Pivot spec         */
   --text-xs:   11.5px;   /* chips, legends, tooltips                   */
   --text-sm:   12px;     /* dense controls, footnotes                  */
@@ -141,6 +141,13 @@
   --seam-w: 2px;
   --seam: var(--border);
   --seam-strong: var(--muted-foreground);
+
+  /* The header's height, as a number the rest of the app can read. Anything
+     that hangs BELOW the header — the journal's editor drawer is the first —
+     was writing `48px` again from memory, which is a measurement that goes
+     stale silently: change the strip and the drawer keeps the old offset,
+     leaving a hairline of chart showing above it. */
+  --header-h: 48px;
 
   /* Motion. Three durations, not six. --dur is the default for every
      colour/background transition; --dur-fast is for transforms that
@@ -527,6 +534,12 @@ select.is-dressed { display: none; }
    head already says it, and says it better; the tooltip stands down while the
    menu is up. */
 .tool-wrap.menu-open .tool .tip { opacity: 0; }
+/* The trash's menu is not a flyout inside a wrap — it floats off <body>, so
+   it has no wrap to carry the state and the button wears it directly. Same
+   rule, same reason: the pointer is still on the button that opened the menu,
+   and "Remove objects…" printed across the list of what would be removed is
+   the tooltip arguing with the answer to its own question. */
+.tool.menu-open .tip { opacity: 0; }
 
 /* ─── 4 · SURFACES ─────────────────────────────────────────────────────── */
 
@@ -646,18 +659,16 @@ select.is-dressed { display: none; }
 .ly-btn svg { flex: none; opacity: .6; }
 /* Slimmer than it was: the widest row is "Download chart data…" and 268px
    left it swimming in space to the right, which read as a dialog rather than
-   a menu. Type is untouched — only the box moved in around it. */
+   a menu. Type is untouched — only the box moved in around it.
+
+   Rows are .dropdown's own — a .lead holding glyph and label, one trailing
+   slot for whatever the row says about itself — so this menu is built from
+   the same parts as the rail's tool flyout and the account menu. It used to
+   override .dropdown .item with a flat icon+span flex of its own, which is
+   why its shortcut needed a <kbd> nothing else in the app has: there was no
+   trailing slot for the .sc every other menu prints a chord in. */
 .ly-menu { min-width: 224px; padding: 5px; }
-.ly-menu .item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 8px; border-radius: var(--radius-sm);
-}
-.ly-menu .item > svg { flex: none; opacity: .75; }
-.ly-menu .item > span:first-of-type { flex: 1; min-width: 0; }
-.ly-menu kbd {
-  font: inherit; font-size: var(--text-2xs); color: var(--faint);
-  letter-spacing: .04em;
-}
+.ly-menu .item .lead { flex: 1; min-width: 0; }
 .ly-menu .sep { height: 1px; margin: 5px 4px; background: var(--border-soft); }
 .ly-menu .head {
   padding: 7px 8px 5px; font-size: var(--text-2xs); color: var(--faint);
@@ -665,13 +676,25 @@ select.is-dressed { display: none; }
   font-weight: var(--weight-medium);
 }
 .ly-empty { padding: 8px 8px 12px; font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; }
-/* a note glyph that explains a toggle without spending a line on it */
+/* The glyph that explains a toggle without spending a line on it. It is a
+   real icon now (Icons "info"), where it used to be a bordered 14px box with
+   an italic letter i set inside it — a circle drawn by border-radius, whose
+   weight came from the font rather than from the icon grid, and which sat a
+   hair off the cap height of the label beside it. It reads as a mark you may
+   press, not as a stray character. */
 .ly-note {
-  width: 14px; height: 14px; flex: none; border-radius: 50%;
-  border: 1px solid var(--faint); color: var(--faint);
-  font-size: 9px; line-height: 12px; text-align: center; font-style: italic;
-  cursor: help;
+  display: inline-flex; flex: none; cursor: help; color: var(--faint);
+  transition: color var(--dur) var(--ease-quartr);
 }
+/* the ⓘ is a footnote on the label, not a second item in the row — the 9px
+   of --menu-lead-gap that separates a glyph from a label reads as two
+   things when it sits between a word and its own annotation */
+.ly-toggle .lead { gap: 5px; }
+.ly-note > svg { display: block; }
+.ly-note:hover { color: var(--muted-foreground); }
+/* it lives inside .lead, which paints its icons like a row's own glyph — this
+   one is a footnote about the row, and must stay quieter than the label */
+.ly-menu .item .lead .ly-note svg { color: inherit; }
 /* iOS-shaped switch, in our tokens. The two toggles are STATE, not commands,
    so they get a control that shows a position rather than a row that fires. */
 .switch {
@@ -686,10 +709,27 @@ select.is-dressed { display: none; }
 }
 .switch.on { background: var(--primary); }
 .switch.on > i { transform: translateX(14px); }
-.ly-recent { flex-direction: column; align-items: flex-start !important; gap: 1px !important; }
-.ly-recent .ly-rname { font-size: var(--text-sm); }
-.ly-recent .ly-rsub { font-size: var(--text-2xs); color: var(--faint); }
-.ly-recent.on { background: var(--accent); }
+/* A recently-used layout is ONE row, the same height as every other row in
+   this menu: the name, and the instruments it is about at the row's end.
+
+   It was a two-line card — name over subtitle, stacked by a column-direction
+   flex with two !important overrides to beat .dropdown .item — which made
+   each entry twice the height of the commands above it. Five of them turned
+   the bottom half of the menu into a panel that had been pasted into a list.
+
+   The symbol sits in the trailing slot the shortcut and the switch use, so
+   the menu has one right-hand column all the way down rather than three
+   different ideas about what the far edge of a row is for. */
+.ly-recent .lead { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.ly-recent .ly-rsym {
+  font-size: var(--text-2xs); color: var(--faint); flex: none;
+  max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The one you are sitting in, marked the way this app marks a current row
+   everywhere else — see .dropdown .item.on. It used to carry an --accent
+   FILL, which is the same paint .dropdown .item:hover uses, so the current
+   layout and the row under the pointer were indistinguishable. */
+.ly-recent.on .ly-rsym { color: var(--primary); opacity: .75; }
 
 /* dialogs — one backdrop, one card, reused by rename / delete / open */
 .ly-back {
@@ -709,7 +749,6 @@ select.is-dressed { display: none; }
 .ly-dlg h3 { margin: 0 0 12px; font-size: var(--text-md); font-weight: var(--weight-semi); }
 .ly-dlg .ly-body { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .ly-lab { display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
-.ly-dlg .dlg-input { width: 100%; }
 .ly-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ly-list { margin-top: 12px; max-height: min(58vh, 520px); overflow-y: auto; margin-right: -6px; padding-right: 6px; }
 /* Cards, two up. A layout is recognised by its CHART, not its name, so the
@@ -719,11 +758,16 @@ select.is-dressed { display: none; }
 .ly-card {
   border: 1px solid var(--border); border-radius: var(--radius-md);
   overflow: hidden; cursor: pointer; background: var(--card);
-  transition: border-color var(--dur) var(--ease-quartr),
-              box-shadow var(--dur) var(--ease-quartr);
+  transition: border-color var(--dur) var(--ease-quartr);
 }
 .ly-card:hover { border-color: var(--muted-foreground); }
-.ly-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+/* The one you are in gets NO border and NO ring. It carried a teal edge plus
+   a 1px teal box-shadow outside it — two rings around a picture, which read
+   as a focus state on the thumbnail rather than as "this is the desk you are
+   already sitting at", and it fought the chart's own colours for attention.
+   The name in the accent is how every other current thing in this app is
+   marked (see .dropdown .item.on); a card is no different. */
+.ly-card.on .ly-item-name { color: var(--primary); }
 /* 16:10 — near enough to a chart's own proportions that the thumbnail is
    not letterboxed, and short enough that two rows fit without scrolling */
 .ly-shot { position: relative; aspect-ratio: 16 / 10; background: var(--chart-bg); }
@@ -748,13 +792,25 @@ select.is-dressed { display: none; }
   font-weight: var(--weight-medium); flex: none;
 }
 .ly-tag.alt { background: var(--accent); color: var(--muted-foreground); }
+/* The trash, on the picture's top-right corner. It sits over a chart
+   screenshot rather than over the app's own surface, so it brings its own
+   plate — a bare glyph on candles is unreadable at either end of the theme.
+
+   It reveals on the CARD's hover. It was keyed to `.ly-item:hover`, and
+   there is no .ly-item in this dialog — the rows became .ly-card and the
+   hover selector did not follow, so the button held opacity: 0 in every
+   state and deleting a layout from the picker was not possible at all. */
 .ly-del {
+  position: absolute; top: 6px; right: 6px;
   width: 26px; height: 26px; flex: none; display: grid; place-items: center;
-  background: none; border: 0; border-radius: var(--radius-xs);
-  color: var(--faint); cursor: pointer; opacity: 0;
+  background: var(--popover); border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--muted-foreground); cursor: pointer; opacity: 0;
+  transition: opacity var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
 }
-.ly-item:hover .ly-del { opacity: 1; }
-.ly-del:hover { color: var(--down); background: var(--background); }
+.ly-card:hover .ly-del, .ly-del:focus-visible { opacity: 1; }
+.ly-del:hover { color: var(--down); border-color: var(--down); }
 .btn.danger { background: var(--down); color: #fff; border-color: transparent; }
 
 /* one toast, bottom-centre, for "Saved" and every other one-line outcome.
@@ -1229,7 +1285,7 @@ select.is-dressed { display: none; }
    rule was painting it white with a hairline under it — a second surface
    colour inside one card, and a line TradingView does not draw. */
 body > header {
-  display: flex; align-items: center; gap: 8px; height: 48px;
+  display: flex; align-items: center; gap: 8px; height: var(--header-h);
   padding: 0 10px 0 12px; border-bottom: var(--seam-w) solid var(--seam);
   background: var(--background); z-index: 20; flex: none;
 }
@@ -1404,6 +1460,15 @@ header > .btn, header > .badge { flex: none; }
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
 .tool:hover { background: var(--hover-fill); color: var(--foreground); }
 .tool.active { background: var(--primary-soft); color: var(--primary); }
+/* An empty chart has nothing to remove, and the trash says so by going out
+   rather than by opening a menu with no rows in it. The whole button stands
+   down — no hover fill, no glyph lift, no tooltip — because every one of
+   those is a promise that a press will do something. TradingView greys the
+   same control for the same reason. */
+.tool:disabled { opacity: .3; cursor: default; }
+.tool:disabled:hover { background: transparent; }
+.tool:disabled:hover svg.icon { transform: none; }
+.tool:disabled .tip { opacity: 0; }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
 .rail-spacer { flex: 1; }
@@ -1511,6 +1576,17 @@ header > .btn, header > .badge { flex: none; }
 }
 .tool.has-group:hover::after, .tool.has-group.active::after { opacity: .9; }
 
+/* ── the trash's "remove what?" menu ──────────────────────────────────────
+   TradingView's own: one row per layer, each carrying that layer's count,
+   and a last row for all of them together. It sizes to its longest row
+   rather than to a fixed width — the combined row spells out every layer
+   ("Remove 2 drawings, 4 annotations & 2 indicators"), and a count that
+   wrapped onto a second line would be a number you had to reassemble before
+   you could trust the click. Floating, so the rail's 46px column and its
+   overflow have no say in how wide it gets. */
+.trash-menu { min-width: 0; width: max-content; max-width: min(360px, 60vw); }
+.trash-menu .item { white-space: nowrap; }
+
 /* ── the text annotation's own box ────────────────────────────────────────
    Not a dialog, and not a form field either. It opens ON the chart at the
    anchor, in the geometry the finished chip will occupy — 11px type in a
@@ -1594,6 +1670,30 @@ header > .btn, header > .badge { flex: none; }
 /* Layout glyphs are generated by Icons.layoutSvg() from each layout's own
    grid spec; main.js builds the whole picker from the Panes catalogue. */
 #chart { position: absolute; inset: 0; cursor: crosshair; }
+/* The chart's signature, bottom-left — Pivot's mark on the corner the chart
+   library used to sign (`layout.attributionLogo: false` in js/main.js puts it
+   down; js/main.js mounts this one).
+   Drawn as a MASK painted with the theme's own faint ink rather than as an
+   <img>: the asset is a single-colour mark, and an image of it would land as
+   black-on-black the moment the chart goes dark. One file, both themes, and
+   it takes the chart's ink like every other quiet mark on the surface. */
+.chart-mark {
+  /* 10px above the TIME AXIS, not above the container. The library's logo was
+     a child of the last pane and so cleared the axis; this element is a child
+     of the whole chart, whose bottom edge is the bottom of the axis, and a
+     flat `bottom: 10px` therefore parked the mark an axis-height too low.
+     js/main.js measures the axis and publishes it as --time-axis-h. */
+  position: absolute; left: 10px; bottom: calc(var(--time-axis-h, 28px) + 10px);
+  z-index: 3;
+  width: 26px; height: 26px; pointer-events: none;
+  /* Full-strength ink, as TradingView's own mark was (#131722 on light, near
+     white on dark) — a signature, not a watermark. --foreground rather than
+     literal black for the second half of that: black on the dark theme is a
+     mark you cannot see. */
+  background: var(--foreground);
+  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
+          mask: url("assets/pivot-mark.png") center / contain no-repeat;
+}
 /* TradingView cursors: crosshair to place, grabbing hand while panning */
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
 .stage.overdraw #chart { cursor: move; }
@@ -2131,7 +2231,7 @@ body.two-columns .readout .row { display: none; }
    brightest thing in the card, which made a handle look like the subject. */
 .prov .draw-ref {
   flex: none; margin-left: auto; margin-right: 1px;
-  font: var(--text-3xs)/1 var(--mono); font-weight: var(--weight-semi); letter-spacing: .02em;
+  font: var(--text-3xs)/1 var(--font); font-weight: var(--weight-semi); letter-spacing: .02em;
   color: var(--muted-foreground);
   /* Mixed FROM the ink, not taken from --muted — the same trap the footer's
      CTA documents: in dark --muted and the sheet are both #1c1c1d, so a
@@ -2508,40 +2608,6 @@ body.two-columns .readout .row { display: none; }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
-
-/* The mic, exactly as Pivot's composer wears it: NO border and no plate —
-   a bare glyph in tertiary ink that darkens on hover. It sits beside a
-   bordered "+" and a filled send button, and a third bordered circle between
-   them read as a third command; the point of this control is that it is
-   quieter than both. 28px box around a 16px glyph, pill radius, and every
-   state said in colour alone.
-
-   Recording is the destructive red over its own 12% tint, and the GLYPH
-   pulses rather than the button — the same shape Pivot ships (Tailwind's
-   animate-pulse on the icon). Busy is a spinner, because uploading and
-   transcribing is work being done, unlike listening. */
-.mic-btn {
-  width: 28px; height: 28px; flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; background: transparent; border-radius: var(--radius-pill);
-  color: var(--faint); cursor: pointer; padding: 0;
-  transition: color .18s var(--ease-quartr),
-              background-color .2s var(--ease-quartr);
-}
-/* 16px at stroke 2 — Pivot's own size, not the app's 19px `sm`. The glyph is
-   deliberately smaller than the controls either side of it. */
-.mic-btn svg.icon { width: 16px; height: 16px; stroke-width: 2; }
-.mic-btn:hover { color: var(--foreground); }
-.mic-btn[data-state="recording"] { color: var(--down); background: var(--down-soft); }
-.mic-btn[data-state="recording"] svg { animation: micPulse 2s cubic-bezier(.4,0,.6,1) infinite; }
-.mic-btn[data-state="error"] { color: var(--down); }
-.mic-btn[data-state="busy"] { cursor: wait; }
-.mic-btn[data-state="busy"] svg { animation: micSpin .9s linear infinite; }
-@keyframes micPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-@keyframes micSpin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .mic-btn svg { animation: none; }
-}
 /* The subject chip: which instrument this conversation is about. It carries
    the mark, the ticker and the interval of the chart the model reads, so the
    composer says WHAT is in context rather than merely that something is. */
@@ -2628,24 +2694,37 @@ body.two-columns .readout .row { display: none; }
   border-radius: var(--radius-pill) var(--radius-xs) var(--radius-xs) var(--radius-pill);
 }
 
-/* drawing references carried into the composer */
+/* drawing references carried into the composer.
+
+   A QUIET plate, unframed and unaccented. The chip wore three pieces of the
+   accent at once — a 2px teal rule down its left edge, a teal glyph on a
+   --primary-soft tile, and a frame around the lot — which made the thing you
+   had merely POINTED AT the loudest object above the composer, louder than
+   the message you were about to write in it. The accent is this app's "you
+   are on this" colour, spent on the current tool and the active study; a
+   subject waiting to be asked about is not a state the app is in.
+
+   The frame goes with it. A plate needs contrast, not an outline, to read as
+   an object, and the wash here is mixed FROM the ink — which separates it
+   from the composer on either theme, where --card could not: in dark --card
+   and the panel behind it are near enough to identical that the border was
+   the only thing holding the chip together, which is exactly why it was
+   there. Same mix as the provenance card's footer buttons. The glyph keeps
+   its tile, one step deeper than the plate it sits on, so the icon still
+   reads as a mark rather than as loose art beside the words. */
 .draw-tag-row { margin-bottom: 6px; }
 .draw-tag {
   position: relative; display: inline-flex; gap: 9px; align-items: center;
   min-width: 210px; max-width: min(360px, 100%); height: 44px;
   padding: 5px 7px 5px 6px; overflow: hidden;
-  color: var(--foreground); background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
-}
-.draw-tag::before {
-  content: ""; position: absolute; inset: 7px auto 7px 0; width: 2px;
-  border-radius: 0 2px 2px 0; background: var(--primary);
+  color: var(--foreground); border: 0; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .draw-tag-mark {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 32px; height: 32px; border-radius: var(--radius-xs);
-  color: var(--primary); background: var(--primary-soft);
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
 }
 .draw-tag-mark svg.icon { width: 17px; height: 17px; stroke-width: 1.7; }
 .draw-tag-copy {
@@ -2656,17 +2735,28 @@ body.two-columns .readout .row { display: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--text-xs); font-weight: var(--weight-semi);
 }
+/* The caption is set in the SAME face as the name above it. It carried the
+   machine face, which made "Chart analysis · on RSI" read as a different kind
+   of thing from "Falling wedge" one line up — two typefaces inside a chip
+   44px tall. --mono is for the three surfaces that are genuinely code (the
+   hex field, the JSON inspector, inline `code`); a caption is prose. */
 .draw-tag-copy small {
   margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--faint); font: var(--text-3xs) var(--mono); letter-spacing: .01em;
+  color: var(--faint); font: var(--text-3xs) var(--font); letter-spacing: 0;
 }
 .draw-tag > .x { margin-left: auto; border: 0; padding: 0; background: transparent; }
 .draw-tag > .x svg.icon { width: 13px; height: 13px; }
+/* …and the same attachment once the message is sent, at the head of its
+   bubble so scrolling back shows WHICH shape a past answer was about. It
+   follows the composer chip off the frame and the accent, and its plate is
+   mixed from the ink for a second reason on top of the first: the bubble is
+   already --muted, and a --card pill on it differed by a shade or two, so
+   the border was doing all the work of saying where the tag ended. */
 .bubble-tag {
   display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
   min-height: 34px; padding: 4px 9px 4px 4px; margin-bottom: 7px;
-  color: var(--foreground); background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  color: var(--foreground); border: 0; border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .bubble-tag .draw-tag-mark { width: 26px; height: 26px; }
 .bubble-tag .draw-tag-mark svg.icon { width: 14px; height: 14px; }
@@ -2775,22 +2865,38 @@ body.two-columns .readout .row { display: none; }
   transition: color var(--dur) var(--ease-quartr);
 }
 .searchfield:focus-within > svg.icon { color: var(--foreground); }
-.chat-history input,
-#symbolMenu input, .sym-picker .pick-search {
+/* ONE rule, keyed off the wrapper — not a list of the places that happen to
+   have a search box in them. That list was the bug: a new filter (the alerts
+   one, the journal one) could only join the family by editing this selector,
+   so both grew their own box instead — a bordered numeric cell in one place,
+   a 40px carded field in another. Now `Icons.field()` IS the look, and a
+   field the app has not written yet is already styled. */
+.searchfield input {
   width: 100%; background: var(--muted); border: 0;
   border-radius: var(--radius-xs); padding: 8px 11px 8px 30px;
   color: var(--foreground);
   font: inherit; font-size: var(--text-base); outline: none;
 }
-.chat-history input::placeholder,
-#symbolMenu input::placeholder,
-.sym-picker .pick-search::placeholder { color: var(--faint); }
+/* THE SAME BOX WITHOUT THE GLYPH — a name, not a filter.
+   The app had no such thing: .dlg-input is the settings dialog's 34px
+   numeric cell (hairline border, tabular figures, sized for a period or an
+   offset), and the layout dialogs stretched one across 380px to hold a
+   name. Same fill, same radius, same type as the search fields above, so a
+   dialog that asks for a word and one that asks you to find a word are
+   recognisably the same app. */
+.textfield {
+  width: 100%; background: var(--muted); border: 0;
+  border-radius: var(--radius-xs); padding: 9px 11px;
+  color: var(--foreground);
+  font: inherit; font-size: var(--text-base); outline: none;
+}
+.searchfield input::placeholder,
+.textfield::placeholder { color: var(--faint); }
 /* type=search paints a UA cancel button in WebKit — a second × in a box the
    app never asked for one in, and it sits where nothing else in the app does */
-.chat-history input::-webkit-search-cancel-button { -webkit-appearance: none; }
-:root[data-nav="kbd"] .chat-history input:focus-visible,
-:root[data-nav="kbd"] #symbolMenu input:focus-visible,
-:root[data-nav="kbd"] .sym-picker .pick-search:focus-visible {
+.searchfield input::-webkit-search-cancel-button { -webkit-appearance: none; }
+:root[data-nav="kbd"] .textfield:focus-visible,
+:root[data-nav="kbd"] .searchfield input:focus-visible {
   outline: 2px solid var(--ring); outline-offset: 1px;
 }
 .hist-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
@@ -2886,7 +2992,7 @@ body.two-columns .readout .row { display: none; }
    buttons — two rules with nothing between them is one thick rule.
    The swap itself is at the END of this section: `.wbar { display: none }`
    has to come AFTER the bar's own `display: flex`, both being one class. */
-#wtabsSep, #wtabsSep2 { display: none; }
+#wtabsSep { display: none; }
 
 /* ── the widget bar ────────────────────────────────────────────────────── */
 .wbar {
@@ -2914,7 +3020,7 @@ body.two-columns .readout .row { display: none; }
    is what decides, not the media query. */
 @media (min-width: 1024px) {
   .wtabs { display: flex; }
-  #wtabsSep, #wtabsSep2 { display: block; }
+  #wtabsSep { display: block; }
   .wbar { display: none; }
 }
 
@@ -3236,32 +3342,54 @@ body.two-columns .readout .row { display: none; }
 }
 
 /* ── the ⊕ on the price axis ───────────────────────────────────────────────
-   Follows the pointer's price down the right edge of the price pane; one click
-   arms a crossing alert at that level. Sits just inside the axis, where the
-   price it refers to is written, and never over the candles it would obscure.
-   Its own transition is on opacity alone — animating `top` would make it lag
-   the crosshair it is supposed to be level with. */
+   Follows the pointer's price down the price scale; one click arms a crossing
+   alert at that level. Its own transition is on opacity alone — animating
+   `top` would make it lag the crosshair it is supposed to be level with.
+
+   BESIDE THE LABEL, not over it: TradingView leaves a few pixels of chart
+   between the ring and the price plate, and the two read as one object anyway
+   because nothing else is in that gap. Centred ON the scale edge — the first
+   attempt at "like TradingView" — the plate simply covered the ring's right
+   half and the mark came out looking clipped. */
 .alert-plus {
   /* z-index 6 clears the chart's own canvases, which sit at 2. `pointer-events:
      none` is permanent and load-bearing: this is a MARK, not a control — the
      click is caught on the chart and resolved against this rectangle, because a
      22px button floating over the library's canvases loses the hit-test to them
      (measured). See makePlus in js/main.js. */
-  position: absolute; right: 62px; z-index: 6;
-  width: 22px; height: 22px; margin-top: -11px; padding: 0;
+  /* --axis-w is measured and published by js/main.js; the fallback is only for
+     the first frame, before the scale has been laid out. Plus the gap, so the
+     ring ends where the price plate begins. */
+  position: absolute; right: calc(var(--axis-w, 62px) + 4px); z-index: 6;
+  width: 20px; height: 20px; margin-top: -10px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 50%;
-  background: var(--background); color: var(--muted-foreground);
+  /* A GREY RING, mid-way between the hairline --border and the ink. TradingView's
+     is roughly #B2B5BE — a ring you can see, on a white disc, with a grey plus:
+     at --border the circle nearly vanished against the candles and only the
+     plus read, which is why the mark looked like a stray glyph rather than a
+     button. Mixed rather than hardcoded so it follows the theme. */
+  border: 1px solid color-mix(in srgb, var(--faint) 50%, var(--border));
+  border-radius: 50%;
+  background: var(--background); color: var(--faint);
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr);
 }
 .alert-plus.show { opacity: 1; }
 /* `hot` is the hover state, set from JS — an element that takes no pointer
-   events can never match :hover. */
+   events can never match :hover.
+   GREY, not teal. The accent is this app's "you are on this" colour, and a
+   pointer resting on a mark is not a state the chart is in — TradingView's own
+   axis button just darkens. It also sat over the price label, so the teal fill
+   was a coloured plate landing on top of a coloured plate. */
 .alert-plus.hot {
-  color: var(--primary); border-color: var(--primary); background: var(--primary-soft);
+  color: var(--foreground); border-color: var(--muted-foreground);
+  background: var(--muted);
 }
-.alert-plus svg.icon { width: 13px; height: 13px; }
+/* The bare + inside the 20px ring — TradingView's proportion, a little under
+   half the circle, drawn heavier than the ring so the mark reads as a button
+   with an action rather than as a hairline circle. The lucide plus goes edge
+   to edge in its own 24 box, so 9px here is 9px of stroke. */
+.alert-plus svg.icon { width: 9px; height: 9px; stroke-width: 2.6; }
 /* A touch screen has no hover to reveal it, and a permanent circle floating on
    the chart is clutter — the row of tools and the right-click menu are the
    paths there instead. */
@@ -3285,7 +3413,6 @@ body.two-columns .readout .row { display: none; }
 /* The filter row. It only exists while it is being used — a permanent search
    box over six rows is furniture. */
 .al-searchbar { padding: 6px 8px; border-bottom: 1px solid var(--seam); }
-.al-searchbar .dlg-input { width: 100%; }
 
 /* ── the log ──────────────────────────────────────────────────────────────
    The alerts list is standing RULES; the log is MOMENTS, so it is grouped by
@@ -3402,7 +3529,10 @@ body.two-columns .readout .row { display: none; }
 }
 .al-menu .row:hover { background: var(--accent); }
 .al-menu .row b {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  /* Was `var(--font-mono, …)` — a token this stylesheet never defines, so it
+     fell through to the browser's default monospace and an address in this
+     list matched neither the app's face nor even --mono. It is a label. */
+  font-family: var(--font);
   font-size: var(--text-sm); font-weight: var(--weight-medium);
   color: var(--foreground); overflow-wrap: anywhere;
 }
@@ -4304,165 +4434,562 @@ svg.icon.op {
 
 /* ══ JOURNAL — a full desk, not another narrow widget ═════════════════════
    The live chart remains mounted underneath; opening this workspace changes
-   what is visible, not what exists, so returning restores the exact view. */
-#journalBtn { gap: 7px; padding-inline: 10px; }
-#journalBtn svg { width: 16px; height: 16px; }
-body.journal-open > header > :not(.brand):not(#journalBack):not(.spacer):not(.menu-wrap:last-child) { display:none; }
-#journalBack { display:none; gap:7px; }
-body.journal-open #journalBack { display:flex; }
-body.journal-open .main { display:none; }
-.journal { display:none; flex:1; min-height:0; background:var(--background); color:var(--foreground); }
-body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,1fr); }
-.j-side { padding:24px 16px; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:24px; background:color-mix(in srgb,var(--card) 88%,var(--background)); }
-.j-kicker { padding:0 10px; font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted-foreground); }
-.j-nav { display:grid; gap:4px; }
-.j-nav button { border:0; background:transparent; color:var(--muted-foreground); min-height:42px; border-radius:9px; padding:0 10px; display:flex; align-items:center; gap:11px; font:inherit; font-size:13px; cursor:pointer; text-align:left; }
-.j-nav button svg { width:17px; height:17px; }
-.j-nav button:hover { background:var(--muted); color:var(--foreground); }
-.j-nav button.active { color:var(--foreground); background:var(--card); box-shadow:0 1px 0 var(--border),0 6px 20px rgba(15,23,42,.05); }
-.j-side-note { margin-top:auto; padding:14px; border:1px solid var(--border); border-radius:11px; background:var(--card); font-size:12px; line-height:1.55; color:var(--muted-foreground); }
-.j-side-note strong { display:block; color:var(--foreground); margin-bottom:3px; }
-.j-main { overflow:auto; min-width:0; }
-.j-shell { width:min(1220px,calc(100% - 56px)); margin:0 auto; padding:30px 0 64px; }
-.j-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:26px; }
-.j-eyebrow { font-size:12px; color:var(--primary); font-weight:600; margin-bottom:6px; }
-.j-head h1 { margin:0; font-family:Georgia,'Times New Roman',serif; font-size:34px; letter-spacing:-.035em; font-weight:500; }
-.j-head p { color:var(--muted-foreground); margin:7px 0 0; font-size:13px; }
-.j-actions { display:flex; gap:8px; align-items:center; }
-.j-action { min-height:40px; border:1px solid var(--border); background:var(--card); color:var(--foreground); border-radius:9px; padding:0 14px; font:inherit; font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer; }
-.j-action:hover { border-color:var(--muted-foreground); }
-.j-action.primary { background:var(--foreground); color:var(--background); border-color:var(--foreground); }
-.j-action svg { width:16px; height:16px; }
-.j-filters { display:flex; gap:8px; margin-bottom:18px; }
-.j-search { position:relative; flex:1; }
-.j-search svg { position:absolute; left:12px; top:12px; width:16px; color:var(--muted-foreground); }
-.j-search input,.j-select { width:100%; height:40px; border:1px solid var(--border); border-radius:9px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
-.j-search input { padding:0 12px 0 38px; }
-.j-select { width:auto; min-width:130px; padding:0 32px 0 11px; }
-.j-search input:focus,.j-select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.j-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:18px; }
-.j-metric { min-height:122px; border:1px solid var(--border); border-radius:12px; padding:17px; background:var(--card); position:relative; overflow:hidden; }
-.j-metric::after { content:''; position:absolute; right:-30px; bottom:-45px; width:100px; height:100px; border-radius:50%; background:var(--primary-soft); opacity:.55; }
-.j-metric label { font-size:12px; color:var(--muted-foreground); display:block; }
-.j-metric b { display:block; margin-top:18px; font-size:25px; font-weight:550; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
-.j-metric small { color:var(--muted-foreground); font-size:11px; position:relative; z-index:1; }
-.j-grid { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(260px,.8fr); gap:12px; }
-.j-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
-.j-card-head { min-height:54px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border-soft); }
-.j-card-head strong { font-size:13px; font-weight:600; }
-.j-card-head span { font-size:11px; color:var(--muted-foreground); }
-.j-equity { height:220px; padding:22px 18px 10px; position:relative; }
-.j-equity svg { width:100%; height:100%; overflow:visible; }
-.j-equity .zero { stroke:var(--border); stroke-dasharray:4 5; }
-.j-equity .line { fill:none; stroke:var(--primary); stroke-width:2.2; vector-effect:non-scaling-stroke; }
-.j-equity .area { fill:url(#jArea); opacity:.36; }
-.j-empty { min-height:210px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); padding:30px; font-size:13px; line-height:1.55; }
-.j-calendar { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; padding:14px; }
-.j-day { aspect-ratio:1; min-width:0; border:1px solid var(--border-soft); border-radius:7px; padding:6px; font-size:10px; color:var(--muted-foreground); display:flex; flex-direction:column; justify-content:space-between; }
-.j-day b { color:var(--foreground); font-size:11px; font-variant-numeric:tabular-nums; }
-.j-day.up { background:color-mix(in srgb,var(--up) 10%,var(--card)); }
-.j-day.down { background:color-mix(in srgb,var(--down) 9%,var(--card)); }
-.j-table-card { border:1px solid var(--border); border-radius:12px; background:var(--card); overflow:hidden; }
-.j-table { width:100%; border-collapse:collapse; font-size:12px; }
-.j-table th { color:var(--muted-foreground); font-weight:500; text-align:left; height:39px; padding:0 14px; border-bottom:1px solid var(--border); }
-.j-table td { height:54px; padding:0 14px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; }
-.j-table tr:last-child td { border-bottom:0; }
-.j-table tbody tr { cursor:pointer; }
-.j-table tbody tr:hover { background:var(--muted); }
-.j-symbol { font-weight:650; letter-spacing:.01em; }
-.j-side-pill { padding:4px 7px; border-radius:999px; font-size:10px; text-transform:uppercase; letter-spacing:.06em; background:var(--muted); }
-.j-pnl.up { color:var(--up); } .j-pnl.down { color:var(--down); }
-.j-tag { display:inline-flex; padding:3px 7px; border:1px solid var(--border); border-radius:999px; color:var(--muted-foreground); margin-right:4px; font-size:10px; }
-.j-review-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--border); margin-right:6px; }
-.j-review-dot.done { background:var(--primary); }
-.j-books { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-.j-book { min-height:180px; border:1px solid var(--border); background:var(--card); border-radius:12px; padding:18px; cursor:pointer; }
-.j-book:hover { transform:translateY(-2px); box-shadow:0 10px 25px rgba(15,23,42,.07); }
-.j-book .mark { width:32px;height:4px;border-radius:99px;background:var(--primary);margin-bottom:28px; }
-.j-book h3 { margin:0 0 8px; font-size:15px; }
-.j-book p { margin:0; color:var(--muted-foreground); font-size:12px; line-height:1.55; }
-.j-book small { display:block; margin-top:22px; color:var(--muted-foreground); }
-.j-drawer { position:fixed; z-index:100; inset:48px 0 0 auto; width:min(580px,100vw); background:var(--background); border-left:1px solid var(--border); box-shadow:-22px 0 55px rgba(15,23,42,.12); transform:translateX(104%); transition:transform .25s ease-out; display:flex; flex-direction:column; }
-.j-drawer.open { transform:none; }
-.j-drawer-head { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-.j-drawer-title b { display:block; font-size:18px; }.j-drawer-title span { font-size:11px;color:var(--muted-foreground); }
-.j-drawer-body { padding:22px; overflow:auto; display:grid; gap:22px; }
-.j-section { display:grid; gap:12px; }
-.j-section h3 { margin:0; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--muted-foreground); }
-.j-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.j-field { display:grid; gap:6px; }
-.j-field.wide { grid-column:1/-1; }
-.j-field label { font-size:11px; color:var(--muted-foreground); }
-.j-field input,.j-field select,.j-field textarea { width:100%; min-height:40px; border:1px solid var(--border); border-radius:8px; padding:9px 10px; background:var(--card); color:var(--foreground); font:inherit; font-size:13px; outline:none; }
-.j-field textarea { min-height:82px; resize:vertical; line-height:1.5; }
-.j-field input:focus,.j-field textarea:focus,.j-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.j-drawer-foot { margin-top:auto; padding:14px 22px; border-top:1px solid var(--border); display:flex; justify-content:space-between; gap:8px; background:var(--card); }
-.j-toast { position:fixed; z-index:130; left:50%; bottom:24px; transform:translate(-50%,20px); opacity:0; padding:10px 14px; border-radius:9px; background:var(--foreground); color:var(--background); font-size:12px; transition:.2s; pointer-events:none; }
-.j-toast.show { opacity:1; transform:translate(-50%,0); }
+   what is visible, not what exists, so returning restores the exact view.
 
-/* Compact journal — anchored to the chart, with detail delegated to the full
-   workspace. The chart stays mounted and visible around the sheet. */
-.stage.journal-pane-open #chart { bottom:var(--journal-pane-h,260px); }
-.stage.journal-pane-open .prov { bottom:calc(var(--journal-pane-h,260px) + 10px); }
-.jq { position:absolute; z-index:42; left:0; right:0; bottom:0;
-  height:var(--journal-pane-h,260px); min-height:150px; max-height:72%;
-  display:none; flex-direction:column; background:var(--background);
-  border-top:1px solid var(--seam-strong); overflow:hidden; }
-.jq.open { display:flex; }
-.jq-grip { position:absolute;z-index:3;left:0;right:0;top:-5px;height:10px;cursor:row-resize;background:transparent; }
-.jq-grip:hover,.jq-grip.dragging { background:color-mix(in srgb,var(--primary) 45%,transparent); }
-.jq-head { min-height:42px; height:42px; padding:0 12px 0 18px; display:flex; align-items:center; gap:18px; border-bottom:1px solid var(--border); flex:none; background:var(--card); }
-.jq-title { min-width:125px; }
-.jq-title strong { display:block; font:650 13px/1.2 var(--font); letter-spacing:-.01em; }
-.jq-title span { display:block; margin-top:1px; color:var(--muted-foreground); font-size:9px; }
-.jq-tabs { align-self:stretch; display:flex; align-items:stretch; gap:2px; }
-.jq-tab { position:relative; border:0; background:transparent; padding:0 11px; font:inherit; font-size:11px; color:var(--muted-foreground); cursor:pointer; }
-.jq-tab:hover { color:var(--foreground); }
-.jq-tab.active { color:var(--foreground); font-weight:600; }
-.jq-tab.active::after { content:none; }
-.jq-head .spacer { flex:1; }
-.jq-full { min-height:28px; border:1px solid var(--border); border-radius:5px; padding:0 9px; display:flex; align-items:center; gap:6px; color:var(--foreground); background:var(--card); font:inherit; font-size:10px; cursor:pointer; }
-.jq-full:hover { border-color:var(--muted-foreground); }
-.jq-full svg,.jq-close svg { width:14px;height:14px; }
-.jq-close { width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer; }
-.jq-close:hover { background:var(--muted);color:var(--foreground); }
-.jq-body { flex:1; overflow:auto; min-height:0; padding:0; background:var(--background); }
-.jq-metrics { display:grid; grid-template-columns:repeat(6,minmax(112px,1fr)); border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--card) 96%,var(--primary) 4%); overflow:auto; }
-.jq-metric { position:relative; min-height:40px; padding:5px 18px 4px; border-right:1px solid var(--border-soft); }
-.jq-metric:first-child::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--primary); }
-.jq-metric:last-child { border-right:0; }
-.jq-metric span { display:block; font-size:8px; line-height:1.2; color:var(--muted-foreground); margin-bottom:3px; letter-spacing:.025em; }
-.jq-metric b { font-size:12px; line-height:1; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
-.jq-table-wrap { overflow:auto; background:var(--card); height:calc(100% - 41px); scrollbar-gutter:stable; }
-.jq-table { width:max(100%,1488px); border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:10px; }
-.jq-table col.jq-col-symbol{width:118px}.jq-table col.jq-col-side{width:82px}.jq-table col.jq-col-date{width:122px}.jq-table col.jq-col-qty{width:70px}.jq-table col.jq-col-money{width:106px}.jq-table col.jq-col-fees{width:78px}.jq-table col.jq-col-risk{width:102px}.jq-table col.jq-col-pnl{width:108px}.jq-table col.jq-col-r{width:88px}.jq-table col.jq-col-playbook{width:164px}.jq-table col.jq-col-tags{width:150px}.jq-table col.jq-col-review{width:108px}
-.jq-table th { position:sticky;top:0;z-index:2;height:32px;padding:0 12px;color:var(--muted-foreground);background:color-mix(in srgb,var(--muted) 72%,var(--card));text-align:left;font-size:9px;font-weight:600;letter-spacing:.025em;border-bottom:1px solid var(--border);white-space:nowrap; }
-.jq-table th[data-qsort]{cursor:pointer}.jq-table th[data-qsort]:hover{color:var(--foreground);background:var(--muted)}
-.jq-table td { height:42px; padding:0 12px; border-bottom:1px solid var(--border-soft); font-variant-numeric:tabular-nums; overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.jq-table tbody tr { cursor:pointer; transition:background-color .12s ease; }.jq-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--muted) 28%,transparent)}.jq-table tbody tr:hover { background:color-mix(in srgb,var(--primary) 7%,var(--card)); }
-.jq-table th:nth-child(n+5):nth-child(-n+11),.jq-table td:nth-child(n+5):nth-child(-n+11){text-align:right}.jq-table .jq-symbol{font-size:10.5px;font-weight:680;letter-spacing:.01em}.jq-table .jq-review{text-align:left!important;color:var(--muted-foreground)}
-.jq-table .j-side-pill{display:inline;padding:0;border:0;border-radius:0;background:transparent;color:var(--foreground);font-size:9px;font-weight:560;letter-spacing:.055em;line-height:1}
-.jq-table .j-side-pill::before{content:none}
-.jq-table td:nth-child(2){text-align:left}
-.jq-date{display:flex;align-items:baseline;gap:6px}.jq-date b{font-size:9.5px;font-weight:560}.jq-date small{font-size:8px;color:var(--muted-foreground)}.jq-date.empty{color:var(--muted-foreground)}
-.jq-table th:first-child,.jq-table td:first-child{position:sticky;left:0;z-index:1;background:var(--card)}.jq-table th:first-child{z-index:4;background:var(--muted)}
-.jq-table th:nth-child(2),.jq-table td:nth-child(2){position:sticky;left:118px;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--border),8px 0 12px -12px color-mix(in srgb,var(--foreground) 45%,transparent)}.jq-table th:nth-child(2){z-index:4;background:var(--muted)}
-.jq-table tbody tr:nth-child(even) td:first-child,.jq-table tbody tr:nth-child(even) td:nth-child(2){background:color-mix(in srgb,var(--muted) 28%,var(--card))}.jq-table tbody tr:hover td:first-child,.jq-table tbody tr:hover td:nth-child(2){background:color-mix(in srgb,var(--primary) 7%,var(--card))}
-.jq-empty { min-height:92px; display:grid; place-items:center; text-align:center; color:var(--muted-foreground); font-size:11px; line-height:1.5; }
-.jq-form { display:grid; grid-template-columns:1.1fr .7fr .8fr 1fr 1fr .7fr .8fr auto; gap:0; align-items:end; padding:12px; }
-.jq-field { display:grid; gap:5px; min-width:0; }
-.jq-field label { color:var(--muted-foreground); font-size:9px; padding-left:8px; }
-.jq-field input,.jq-field select { width:100%; height:34px; min-width:0; border:1px solid var(--border); border-right:0; border-radius:0; padding:0 8px; background:var(--card); color:var(--foreground); font:inherit; font-size:11px; outline:none; }
-.jq-field:first-child input{border-radius:5px 0 0 5px}.jq-field:nth-child(7) input{border-right:1px solid var(--border)}
-.jq-field input:focus,.jq-field select:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft); }
-.jq-submit { height:34px; margin-left:8px; border:1px solid var(--foreground); border-radius:5px; background:var(--foreground);color:var(--background);font:inherit;font-size:10px;font-weight:600;cursor:pointer;padding:0 14px; }
-.jq-submit:disabled { opacity:.45;cursor:not-allowed; }
-.jq-note { margin:0 12px; padding-top:8px; border-top:1px solid var(--border-soft); color:var(--muted-foreground); font-size:9px; display:flex;align-items:center;gap:6px; }
-.jq-note svg { width:13px;height:13px; }
-@media(max-width:820px){.stage.journal-pane-open #chart{bottom:min(var(--journal-pane-h,260px),190px)}.stage.journal-pane-open .prov{bottom:200px}.jq{height:min(var(--journal-pane-h,260px),190px);max-height:55%}.jq-title{min-width:0}.jq-title span{display:none}.jq-head{padding-inline:7px;gap:4px}.jq-full span{display:none}.jq-full{width:30px;padding:0;justify-content:center}.jq-metrics{grid-template-columns:repeat(6,minmax(100px,1fr))}.jq-form{grid-template-columns:1fr 1fr;padding:10px;gap:8px}.jq-field:first-child{grid-column:1/-1}.jq-field input,.jq-field select{border:1px solid var(--border);border-radius:5px!important}.jq-submit{grid-column:1/-1;margin:0}.jq-note{margin:0 10px}.jq-table{width:1120px}}
-@media(max-width:900px){body.journal-open .journal{grid-template-columns:1fr}.j-side{display:none}.j-shell{width:calc(100% - 28px);padding-top:20px}.j-metrics{grid-template-columns:1fr 1fr}.j-grid{grid-template-columns:1fr}.j-books{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.j-head{display:grid}.j-head h1{font-size:29px}.j-actions{width:100%}.j-action{flex:1;justify-content:center}.j-metrics{grid-template-columns:1fr}.j-filters{flex-wrap:wrap}.j-select{flex:1}.j-table th:nth-child(3),.j-table td:nth-child(3),.j-table th:nth-child(5),.j-table td:nth-child(5){display:none}.j-books{grid-template-columns:1fr}.j-form-grid{grid-template-columns:1fr}.j-field.wide{grid-column:auto}}
-@media(prefers-reduced-motion:reduce){.j-drawer,.j-book,.j-toast{transition:none}}
+   This block used to be written in raw pixels, and that was the whole of
+   what was wrong with it: thirty-odd type sizes that are not on the
+   twelve-step scale, five radii the token file does not name, a slate-blue
+   shadow (rgba(15,23,42,…)) that appears in neither theme's palette, Georgia
+   where the app sets its serif in Newsreader, and a teal halo on every
+   focused field — the one thing §PRIMITIVES says a focused field must NOT
+   do. None of those was wrong on its own. Together they made the journal
+   read as a second product bolted onto the side of the first.
+
+   Everything below is spelled in the app's own tokens and primitives. A
+   control here is the same 34px box as a control in the indicator dialog; a
+   micro-label is the .micro spec; a button is .btn; focus darkens an edge.
+   And the two accents this app allows are the only two spent: INK for a
+   commit, TEAL for "you are here". */
+
+/* One voice with Watchlist and Alerts beside it. It read in full-strength ink
+   while its two neighbours were muted, which made the header look as though
+   the journal were already open — the darkest label in a row is the selected
+   one everywhere else in this app. Muted at rest, ink on hover, and the same
+   teal plate as `.wtabs .wtab.active` when its pane is showing. */
+#journalBtn { gap: 7px; padding-inline: 10px; color: var(--muted-foreground); }
+#journalBtn:hover { color: var(--foreground); }
+#journalBtn.active { color: var(--primary); background: var(--primary-soft); }
+#journalBtn svg { width: 16px; height: 16px; }
+body.journal-open > header > :not(.brand):not(#journalBack):not(.spacer):not(.menu-wrap:last-child) { display: none; }
+#journalBack { display: none; gap: 7px; }
+body.journal-open #journalBack { display: flex; }
+body.journal-open .main { display: none; }
+
+.journal { display: none; flex: 1; min-height: 0; background: var(--background); color: var(--foreground); }
+body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(0, 1fr); }
+
+/* The journal's buttons ARE .btn — the app's button, not a private copy of
+   one that happened to be a pixel taller and a radius rounder. They take the
+   34px/6px size the app already uses wherever a button sits in a body of
+   content rather than in the header strip (.dlg-foot .btn, .side-empty .btn),
+   so a Save here and a Save in the settings dialog are the same object. */
+.journal .btn, .j-drawer .btn, .jq .btn {
+  height: 34px; border-radius: 6px;
+  font-size: var(--text-xl); font-weight: var(--weight-medium);
+}
+.journal .btn svg, .j-drawer .btn svg, .jq .btn svg { width: 16px; height: 16px; }
+.j-drawer .btn.icon { width: 32px; height: 32px; border-radius: var(--radius); }
+/* Delete is the layout dialog's delete, not a solid red slab: an outline
+   that finds its colour under the pointer. See .ly-del. */
+.j-drawer [data-delete]:hover { color: var(--down); border-color: var(--down); background: transparent; }
+
+/* ── the rail ─────────────────────────────────────────────────────────────
+   The same list a header menu is: short rows on --radius-xs plates, muted at
+   rest, full ink under the pointer. The current view is marked the way every
+   "you are here" in this app is marked — accent text on the soft accent
+   plate (.btn.on, .wtabs .wtab.active, #journalBtn.active) — rather than, as
+   it was, a white card lifted on a shadow no other surface here casts. */
+.j-side {
+  padding: 16px 8px; border-right: var(--seam-w) solid var(--seam);
+  display: flex; flex-direction: column; gap: 14px; background: var(--background);
+}
+.j-kicker {
+  padding: 0 9px; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-nav { display: grid; gap: 1px; }
+.j-nav button {
+  border: 0; background: transparent; color: var(--muted-foreground);
+  height: 32px; border-radius: var(--radius-xs); padding: 0 9px;
+  display: flex; align-items: center; gap: var(--menu-lead-gap);
+  font: inherit; font-size: var(--text-base); cursor: pointer; text-align: left;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.j-nav button svg { width: 16px; height: 16px; }
+.j-nav button:hover { background: var(--accent); color: var(--foreground); }
+.j-nav button.active { color: var(--primary); background: var(--primary-soft); }
+:root[data-nav="kbd"] .j-nav button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.j-side-note {
+  margin-top: auto; padding: 11px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--card); font-size: var(--text-xs); line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.j-side-note strong { display: block; color: var(--foreground); font-weight: var(--weight-medium); margin-bottom: 3px; }
+/* the same note inside a form, where there is no rail to pin it to */
+.j-side-note.j-inline-note { margin-top: 0; }
+
+/* ── the page ─────────────────────────────────────────────────────────────
+   One column of content on the app's own reading measure. The title is the
+   wordmark's face — Newsreader through --font-serif, at --weight-display —
+   because the brand mark two inches above it is, and a page that answers a
+   serif logotype in Georgia is telling you it was built by someone else. */
+.j-main { overflow: auto; min-width: 0; }
+.j-shell { width: min(1180px, calc(100% - 56px)); margin: 0 auto; padding: 28px 0 64px; }
+.j-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.j-eyebrow {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  margin-bottom: 7px;
+}
+.j-head h1 {
+  margin: 0; font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: 30px; line-height: 1.15; letter-spacing: -.03em;
+}
+.j-head p { color: var(--muted-foreground); margin: 7px 0 0; font-size: var(--text-lg); line-height: 1.5; }
+.j-actions { display: flex; gap: 8px; align-items: center; flex: none; }
+
+/* A band title over a run of content — the same words a .j-card-head carries,
+   with no card under them. It replaces three copies of an inline style. */
+.j-rule {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 0 2px 9px;
+}
+.j-rule strong { font-size: var(--text-lg); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-rule span { font-size: var(--text-xs); color: var(--faint); }
+.j-gap { height: 22px; }
+
+/* The filter row: one height, one type size. It was a 40px search box beside
+   a 40px select wearing the operating system's chevron — two boxes from two
+   different design systems on one line. Both are the app's controls now. */
+.j-filters { display: flex; gap: 8px; margin-bottom: 16px; }
+.j-search { flex: 1; }
+.j-search input { height: 34px; padding-block: 0; }
+.j-select {
+  width: auto; min-width: 138px; height: 34px; padding: 0 28px 0 9px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input) var(--chevron) no-repeat right 9px center;
+  color: var(--foreground); font: inherit; font-size: var(--text-base);
+  appearance: none; -webkit-appearance: none; outline: none;
+  transition: border-color var(--dur) var(--ease-quartr);
+}
+.j-select:hover { border-color: var(--faint); }
+.j-select:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .j-select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* ── the four numbers ─────────────────────────────────────────────────────
+   These carried a decorative teal disc bleeding out of the bottom-right
+   corner — the only ornament anywhere in this app, on the one card whose
+   whole job is to state a figure plainly. The figure is the ornament. */
+.j-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+.j-metric {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 14px 15px 13px; background: var(--card);
+}
+.j-metric label {
+  display: block; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-metric b {
+  display: block; margin: 12px 0 5px;
+  font-size: 24px; font-weight: var(--weight-display);
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.j-metric small { font-size: var(--text-xs); color: var(--muted-foreground); }
+
+/* ── cards ────────────────────────────────────────────────────────────── */
+.j-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, .8fr); gap: 10px; }
+.j-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-card-head {
+  height: 44px; padding: 0 15px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-soft);
+}
+.j-card-head strong { font-size: var(--text-lg); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-card-head span { font-size: var(--text-xs); color: var(--faint); }
+.j-equity { height: 214px; padding: 20px 16px 8px; }
+.j-equity svg { width: 100%; height: 100%; overflow: visible; }
+.j-equity .zero { stroke: var(--border); stroke-dasharray: 4 5; }
+.j-equity .line { fill: none; stroke: var(--primary); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.j-equity .area { fill: url(#jArea); opacity: .3; }
+
+/* An empty state is a full-ink sentence, not a muted footnote — .side-empty's
+   rule, at this surface's scale. */
+.j-empty {
+  min-height: 214px; display: grid; place-items: center; text-align: center;
+  padding: 34px 30px; color: var(--muted-foreground);
+  font-size: var(--text-lg); line-height: 1.6;
+}
+.j-empty svg.icon { display: block; width: 38px; height: 38px; stroke-width: 1; color: var(--foreground); opacity: .5; margin: 0 auto 13px; }
+.j-empty strong { display: block; color: var(--foreground); font-size: var(--text-2xl); font-weight: var(--weight-medium); margin-bottom: 6px; }
+.j-empty .btn { display: flex; width: max-content; margin: 16px auto 0; }
+
+/* The calendar reads by TINT, so the day cell carries no border of its own —
+   a ruled grid over a tinted grid is two grids. A day with no trade in it is
+   a wash of the page's own grey rather than --muted, which in the dark theme
+   is the same colour as the card these cells sit on. */
+/* The cell used to be `aspect-ratio: 1`, which is right in the overview's
+   370px card (a ~48px square) and absurd in the Calendar VIEW, whose card is
+   the full 1180px measure: seven 165px columns meant ten weeks of squares ran
+   four screens deep, each day a tile the size of a playing card. A fixed ROW
+   HEIGHT instead — the cell fills whatever column it is given and the grid is
+   the same height in both places, which is how a month grid behaves. */
+.j-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 60px; gap: 4px; padding: 13px; }
+.j-day {
+  min-width: 0; border-radius: var(--radius-xs); padding: 6px;
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent); color: var(--faint);
+  font-size: var(--text-3xs); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.j-day b { color: var(--foreground); font-size: var(--text-2xs); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.j-day.up { background: var(--up-soft); }
+.j-day.up b { color: var(--up); }
+.j-day.down { background: var(--down-soft); }
+.j-day.down b { color: var(--down); }
+
+/* ── the trade table ──────────────────────────────────────────────────── */
+.j-table-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
+.j-table th {
+  height: 34px; padding: 0 14px; text-align: left; border-bottom: 1px solid var(--border);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  white-space: nowrap;
+}
+.j-table td { height: 48px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); font-variant-numeric: tabular-nums; }
+.j-table tr:last-child td { border-bottom: 0; }
+.j-table tbody tr { cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
+.j-table tbody tr:hover { background: var(--accent); }
+.j-table td:has(.j-empty) { height: auto; padding: 0; }
+.j-symbol { font-weight: var(--weight-semi); letter-spacing: -.01em; }
+/* Side is a fact about the position, not a price change — so it stays off
+   the up/down palette, which on this page means one thing only. */
+.j-side-pill {
+  display: inline-block; padding: 3px 8px; border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; line-height: 1.2;
+}
+.j-pnl.up { color: var(--up); } .j-pnl.down { color: var(--down); }
+/* Both chips are washes of the page's grey, the way .al-pill is a wash of the
+   amber. They were --muted, which the dark theme defines as the SAME hex as
+   --card — so on dark they were invisible plates behind grey words. */
+.j-tag {
+  display: inline-block; margin-right: 4px; padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted-foreground) 13%, transparent);
+  color: var(--muted-foreground); font-size: var(--text-2xs); line-height: 1.2;
+}
+/* the alert list's state dot, same size and same reading: filled = done,
+   hollow = still open */
+.j-review-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle;
+  background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.j-review-dot.done { background: var(--primary); box-shadow: none; }
+
+/* ── playbooks ────────────────────────────────────────────────────────── */
+.j-books { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.j-book {
+  min-height: 168px; border: 1px solid var(--border); background: var(--card);
+  border-radius: var(--radius-md); padding: 17px; cursor: pointer;
+  text-align: left; font: inherit; color: var(--foreground);
+  display: flex; flex-direction: column;
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
+}
+/* Hover changes the SURFACE, not the geometry. A card that lifts 2px on a
+   drop shadow is the only element in this app that moves under the pointer,
+   and in a grid of them the whole page twitches as you cross it. */
+.j-book:hover { background: var(--accent); border-color: var(--faint); }
+:root[data-nav="kbd"] .j-book:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.j-book .mark { width: 26px; height: 3px; border-radius: var(--radius-pill); background: var(--primary); margin-bottom: 22px; }
+.j-book h3 { margin: 0 0 7px; font-size: var(--text-h3); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-book p { margin: 0; color: var(--muted-foreground); font-size: var(--text-base); line-height: 1.55; }
+.j-book small { display: block; margin-top: auto; padding-top: 18px; color: var(--faint); font-size: var(--text-xs); }
+
+/* ── the editor drawer ────────────────────────────────────────────────────
+   It sits under the header, so it measures the header rather than repeating
+   its height as a literal — see --header-h. Its width is the dialog's own
+   ceiling, and its fields are the app's 34px control. */
+.j-drawer {
+  position: fixed; z-index: 100; inset: var(--header-h) 0 0 auto;
+  width: min(560px, 100vw); background: var(--background);
+  border-left: var(--seam-w) solid var(--seam); box-shadow: var(--shadow);
+  transform: translateX(104%); transition: transform var(--dur-slow) var(--ease-quartr);
+  display: flex; flex-direction: column;
+}
+.j-drawer.open { transform: none; }
+.j-drawer-head {
+  flex: none; padding: 15px 14px 15px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.j-drawer-title b { display: block; font-size: var(--text-h1); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.j-drawer-title span { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.j-drawer-body { padding: 20px; overflow: auto; display: grid; gap: 22px; align-content: start; }
+.j-drawer-body::-webkit-scrollbar { width: 6px; }
+.j-drawer-body::-webkit-scrollbar-track { background: transparent; }
+.j-drawer-body::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-2xs); }
+.j-section { display: grid; gap: 11px; }
+.j-section h3 {
+  margin: 0; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.j-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.j-field { display: grid; gap: 6px; min-width: 0; }
+.j-field.wide { grid-column: 1 / -1; }
+.j-field label { font-size: var(--text-xs); color: var(--muted-foreground); }
+.j-field input, .j-field select, .j-field textarea {
+  width: 100%; height: 34px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input); color: var(--foreground);
+  font: inherit; font-size: var(--text-xl); font-variant-numeric: tabular-nums;
+  outline: none; transition: border-color var(--dur) var(--ease-quartr);
+}
+.j-field select {
+  padding-right: 26px; cursor: pointer; appearance: none; -webkit-appearance: none;
+  background: var(--input) var(--chevron) no-repeat right 9px center;
+}
+.j-field textarea { height: auto; min-height: 78px; padding: 8px; resize: vertical; line-height: 1.5; }
+/* Focus darkens the field's own edge — the app's rule for every input it
+   owns. The teal halo this used to paint sat outside the box and nudged the
+   row, and on a form of eleven fields it read as eleven error states. */
+.j-field input:focus, .j-field select:focus, .j-field textarea:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .j-field input:focus-visible,
+:root[data-nav="kbd"] .j-field select:focus-visible,
+:root[data-nav="kbd"] .j-field textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.j-drawer-foot {
+  margin-top: auto; flex: none; padding: 12px 20px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--card);
+}
+.j-foot-acts { display: flex; gap: 8px; }
+
+/* the app already has a toast — this is it, at the journal's z-index */
+.j-toast {
+  position: fixed; z-index: 130; left: 50%; bottom: 26px;
+  transform: translate(-50%, 12px);
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--popover); border: 1px solid var(--border);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--text-xs); color: var(--foreground); line-height: 1.35;
+  white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              transform var(--dur) var(--ease-quartr);
+}
+.j-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ══ the compact journal ══════════════════════════════════════════════════
+   Anchored to the chart, with interpretation delegated to the full workspace.
+   The chart stays mounted and visible around the sheet.
+
+   Its type used to run 8px–10.5px — three sizes BELOW the smallest step on
+   the scale, set on a table you are meant to read numbers off. Nothing about
+   a docked pane requires miniature text; the pane is short, not small. Every
+   size here is now a scale step, and the columns were re-measured to hold
+   the larger figures rather than clipping them. */
+.stage.journal-pane-open #chart { bottom: var(--journal-pane-h, 260px); }
+.stage.journal-pane-open .prov { bottom: calc(var(--journal-pane-h, 260px) + 10px); }
+.jq {
+  position: absolute; z-index: 42; left: 0; right: 0; bottom: 0;
+  height: var(--journal-pane-h, 260px); min-height: 150px; max-height: 72%;
+  display: none; flex-direction: column; background: var(--background);
+  border-top: var(--seam-w) solid var(--seam-strong); overflow: hidden;
+}
+.jq.open { display: flex; }
+.jq-grip { position: absolute; z-index: 3; left: 0; right: 0; top: -5px; height: 10px; cursor: row-resize; background: transparent; }
+.jq-grip:hover, .jq-grip.dragging { background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.jq-head {
+  flex: none; height: 42px; padding: 0 8px 0 14px;
+  display: flex; align-items: center; gap: 14px;
+  border-bottom: 1px solid var(--border); background: var(--background);
+}
+.jq-title { min-width: 118px; }
+.jq-title strong { display: block; font-size: var(--text-md); font-weight: var(--weight-semi); letter-spacing: -.01em; line-height: 1.2; }
+.jq-title span { display: block; margin-top: 1px; color: var(--faint); font-size: var(--text-3xs); }
+/* The pane's two views are the dialog's tab strip at the pane's scale: a
+   rounded RAIL under the whole strip with the active tab painting its own
+   segment over it in ink. It used to be a bare 2px teal underline — a rule
+   the app draws nowhere else, and it spent the accent on a tab. See
+   .dlg-tabs, which this is the small version of. */
+.jq-tabs { position: relative; display: flex; align-items: stretch; gap: 16px; height: 26px; flex: none; }
+.jq-tabs::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; border-radius: 2px; background: var(--rail);
+}
+.jq-tab {
+  position: relative; z-index: 1;
+  border: 0; background: none; cursor: pointer; padding: 0 0 6px;
+  font: inherit; font-size: var(--text-md); color: var(--muted-foreground);
+  transition: color var(--dur) var(--ease-quartr);
+}
+.jq-tab:focus { outline: none; }
+.jq-tab:hover { color: var(--foreground); }
+.jq-tab.active { color: var(--foreground); font-weight: var(--weight-medium); }
+.jq-tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; border-radius: 2px; background: var(--foreground);
+}
+:root[data-nav="kbd"] .jq-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.jq-head .spacer { flex: 1; }
+.jq-full {
+  height: 28px; border: 1px solid var(--border); border-radius: 6px; padding: 0 9px;
+  display: flex; align-items: center; gap: 6px; flex: none;
+  color: var(--foreground); background: transparent; font: inherit; font-size: var(--text-xs);
+  cursor: pointer; transition: border-color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
+}
+.jq-full:hover { border-color: var(--faint); background: var(--accent); }
+.jq-full svg, .jq-close svg { width: 14px; height: 14px; }
+.jq-close {
+  width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted-foreground);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.jq-close:hover { background: var(--accent); color: var(--foreground); }
+:root[data-nav="kbd"] .jq-full:focus-visible,
+:root[data-nav="kbd"] .jq-close:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.jq-body { flex: 1; overflow: auto; min-height: 0; background: var(--background); }
+
+/* Six figures on one strip. The teal bar that used to sit on the first cell
+   marked nothing — the first column of six is not a selection. */
+.jq-metrics {
+  display: grid; grid-template-columns: repeat(6, minmax(134px, 1fr));
+  border-bottom: 1px solid var(--border); background: var(--card); overflow: auto;
+}
+.jq-metric { min-height: 54px; padding: 9px 14px 8px; border-right: 1px solid var(--border-soft); }
+.jq-metric:last-child { border-right: 0; }
+/* One line, always. "Rule adherence" wrapping to two pushed its own figure a
+   line lower than the five beside it, and a strip of six numbers on two
+   different baselines is not a strip. */
+.jq-metric span {
+  display: block; margin-bottom: 5px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jq-metric b { font-size: var(--text-h3); line-height: 1; font-weight: var(--weight-semi); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
+.jq-table-wrap { overflow: auto; background: var(--card); height: calc(100% - 55px); scrollbar-gutter: stable; }
+.jq-table { width: max(100%, 1590px); border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: var(--text-sm); }
+.jq-table col.jq-col-symbol { width: 124px; } .jq-table col.jq-col-side { width: 76px; }
+.jq-table col.jq-col-date { width: 132px; } .jq-table col.jq-col-qty { width: 74px; }
+.jq-table col.jq-col-money { width: 112px; } .jq-table col.jq-col-fees { width: 84px; }
+.jq-table col.jq-col-risk { width: 110px; } .jq-table col.jq-col-pnl { width: 116px; }
+.jq-table col.jq-col-r { width: 92px; } .jq-table col.jq-col-playbook { width: 164px; }
+.jq-table col.jq-col-tags { width: 150px; } .jq-table col.jq-col-review { width: 112px; }
+/* An OPAQUE band, mixed off the page's own grey rather than set to --muted:
+   the head is sticky, so it must hide the rows passing under it, and on dark
+   --muted and --card are the same hex — the head vanished into the table. */
+.jq-table th {
+  position: sticky; top: 0; z-index: 2; height: 30px; padding: 0 12px;
+  text-align: left; white-space: nowrap;
+  background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card));
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .02em; text-transform: uppercase; color: var(--faint);
+}
+.jq-table th[data-qsort] { cursor: pointer; transition: color var(--dur) var(--ease-quartr); }
+.jq-table th[data-qsort]:hover { color: var(--foreground); }
+.jq-table td {
+  height: 34px; padding: 0 12px; border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jq-table tbody tr { cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
+.jq-table tbody tr:hover { background: var(--accent); }
+.jq-table th:nth-child(n+5):nth-child(-n+11),
+.jq-table td:nth-child(n+5):nth-child(-n+11) { text-align: right; }
+.jq-table td:nth-child(2) { text-align: left; }
+.jq-table .jq-symbol { font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.jq-table .jq-review { text-align: left !important; color: var(--muted-foreground); }
+/* the pane's side cell is a word in a dense row, not a pill — a lozenge on a
+   34px line is furniture */
+.jq-table .j-side-pill {
+  display: inline; padding: 0; border-radius: 0; background: transparent;
+  color: var(--muted-foreground); font-size: var(--text-2xs); line-height: 1;
+}
+.jq-date { display: flex; align-items: baseline; gap: 6px; }
+.jq-date b { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.jq-date small { font-size: var(--text-3xs); color: var(--faint); }
+.jq-date.empty { color: var(--faint); }
+/* The instrument and its side ride with the horizontal scroll — they are what
+   tells you which row you are reading once the money columns come past. */
+.jq-table th:first-child, .jq-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); }
+.jq-table th:first-child { z-index: 4; background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card)); }
+.jq-table th:nth-child(2), .jq-table td:nth-child(2) {
+  position: sticky; left: 124px; z-index: 1; background: var(--card);
+  box-shadow: 1px 0 0 var(--border), 8px 0 12px -12px color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+.jq-table th:nth-child(2) { z-index: 4; background: color-mix(in srgb, var(--muted-foreground) 12%, var(--card)); }
+/* the frozen cells cannot inherit the row's hover — --accent is translucent,
+   and a translucent sticky cell shows the columns sliding under it */
+.jq-table tbody tr:hover td:first-child,
+.jq-table tbody tr:hover td:nth-child(2) { background: color-mix(in srgb, var(--foreground) 5%, var(--card)); }
+.jq-empty { min-height: 92px; display: grid; place-items: center; text-align: center; color: var(--muted-foreground); font-size: var(--text-md); line-height: 1.55; padding: 22px; }
+.jq-empty .btn { display: flex; width: max-content; margin: 12px auto 0; }
+
+/* Capture, on one line. The fields were welded into a single segmented bar
+   by cancelling every inner border — a control the app builds nowhere else,
+   and one that gave the row a left cap, a right cap and no way to add an
+   eighth field. They are the app's fields, spaced. */
+.jq-form { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) auto; gap: 8px; align-items: end; padding: 12px 14px; }
+.jq-field { display: grid; gap: 5px; min-width: 0; }
+.jq-field label { color: var(--muted-foreground); font-size: var(--text-2xs); }
+.jq-field input, .jq-field select {
+  width: 100%; min-width: 0; height: 30px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--input); color: var(--foreground);
+  font: inherit; font-size: var(--text-base); font-variant-numeric: tabular-nums;
+  outline: none; transition: border-color var(--dur) var(--ease-quartr);
+}
+.jq-field select { padding-right: 24px; cursor: pointer; appearance: none; -webkit-appearance: none; background: var(--input) var(--chevron) no-repeat right 7px center; }
+.jq-field input:focus, .jq-field select:focus { border-color: var(--faint); }
+:root[data-nav="kbd"] .jq-field input:focus-visible,
+:root[data-nav="kbd"] .jq-field select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.jq .btn.jq-submit { height: 30px; border-radius: var(--radius-xs); font-size: var(--text-base); }
+.jq-note {
+  margin: 0 14px; padding-top: 9px; border-top: 1px solid var(--border-soft);
+  color: var(--faint); font-size: var(--text-3xs);
+  display: flex; align-items: center; gap: 6px;
+}
+.jq-note svg { width: 13px; height: 13px; }
+
+@media (max-width: 820px) {
+  .stage.journal-pane-open #chart { bottom: min(var(--journal-pane-h, 260px), 190px); }
+  .stage.journal-pane-open .prov { bottom: 200px; }
+  .jq { height: min(var(--journal-pane-h, 260px), 190px); max-height: 55%; }
+  .jq-title { min-width: 0; }
+  .jq-title span { display: none; }
+  .jq-head { padding-inline: 7px; gap: 6px; }
+  .jq-full span { display: none; }
+  .jq-full { width: 30px; padding: 0; justify-content: center; }
+  .jq-metrics { grid-template-columns: repeat(6, minmax(104px, 1fr)); }
+  .jq-form { grid-template-columns: 1fr 1fr; padding: 10px; }
+  .jq-field:first-child { grid-column: 1 / -1; }
+  .jq .btn.jq-submit { grid-column: 1 / -1; }
+  .jq-note { margin: 0 10px; }
+}
+@media (max-width: 900px) {
+  body.journal-open .journal { grid-template-columns: 1fr; }
+  .j-side { display: none; }
+  .j-shell { width: calc(100% - 28px); padding-top: 20px; }
+  .j-metrics { grid-template-columns: 1fr 1fr; }
+  .j-grid { grid-template-columns: 1fr; }
+  .j-books { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  /* `justify-content` survives the switch from flex to grid, where it packs
+     the COLUMN rather than the items — so space-between left the stacked
+     actions row sized to its two buttons instead of to the page. */
+  .j-head { display: grid; justify-content: stretch; gap: 16px; }
+  .j-head h1 { font-size: 26px; }
+  .j-actions { width: 100%; }
+  .j-actions .btn { flex: 1; justify-content: center; }
+  .j-metrics { grid-template-columns: 1fr; }
+  /* the search takes its own line — squeezed onto one row beside two selects
+     it was narrower than either of them */
+  .j-filters { flex-wrap: wrap; }
+  .j-search { flex: 1 1 100%; }
+  .j-select { flex: 1; }
+  .j-table th:nth-child(3), .j-table td:nth-child(3),
+  .j-table th:nth-child(5), .j-table td:nth-child(5) { display: none; }
+  .j-books { grid-template-columns: 1fr; }
+  .j-form-grid { grid-template-columns: 1fr; }
+  .j-field.wide { grid-column: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .j-drawer, .j-book, .j-toast { transition: none; } }
 
 </style>
 </head>
@@ -4645,7 +5172,9 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
          is empty space and the bar comes back. -->
     <div class="vsep" id="wtabsSep"></div>
     <div class="wtabs" id="wtabs" role="group" aria-label="Panels"></div>
-    <div class="vsep" id="wtabsSep2"></div>
+    <!-- Journal joins that group rather than being ruled off from it: it is a
+         third named thing this header opens, and a separator between Alerts
+         and Journal claimed a difference in kind that is not there. -->
     <button class="btn" id="journalBtn" type="button" title="Open trade journal"></button>
     <button class="btn icon" id="themeToggle" title="Toggle light / dark"></button>
     <button class="btn outline" id="chatToggle"></button>
@@ -4738,11 +5267,6 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
               </div>
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
-              <!-- Left of send, because it is a way of FILLING the box rather
-                   than a way of sending it. Hidden by js/voice.js on a browser
-                   with no MediaRecorder, so no layout carries a dead control. -->
-              <button type="button" class="mic-btn" id="micBtn" hidden
-                      title="Speak instead of typing"></button>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
@@ -4796,7 +5320,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <script src="./js/store.js?v=12"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=22"></script>
+  <script src="./js/icons.js?v=21"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -4805,7 +5329,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=20"></script>
+  <script src="./js/indicators.js?v=19"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -4817,7 +5341,7 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
-  <script src="./js/shortcuts.js?v=1"></script>
+  <script src="./js/shortcuts.js?v=2"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
@@ -4826,14 +5350,12 @@ body.journal-open .journal { display:grid; grid-template-columns:208px minmax(0,
   <script src="./js/drawings.js?v=21"></script>
   <script src="./js/scene.js?v=31"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=80"></script>
+  <script src="./js/main.js?v=78"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=6"></script>
-  <!-- before chat.js: the composer wires its mic on boot -->
-  <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=118"></script>
-  <script src="./js/journal.js?v=1"></script>
+  <script src="./js/layouts.js?v=7"></script>
+  <script src="./js/chat.js?v=114"></script>
+  <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js

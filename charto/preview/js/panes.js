@@ -205,6 +205,9 @@ const Panes = (() => {
         background: { color: P.chartBg }, textColor: P.axisText,
         fontFamily: CHART_FONT, fontSize: 11,
         panes: { separatorColor: P.separator },
+        // As the primary chart — one mark on the surface, on the primary, and
+        // not a row of library logos once a layout splits into four.
+        attributionLogo: false,
       },
       grid: { vertLines: { color: P.grid }, horzLines: { color: P.grid } },
       rightPriceScale: { borderColor: P.border, scaleMargins: { top: 0.08, bottom: 0.24 } },

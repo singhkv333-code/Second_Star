@@ -89,6 +89,12 @@ const Shortcuts = (() => {
     ] },
 
     { heading: "General", rows: [
+      /* Saving the desk. It lived in js/layouts.js as a keydown of its own,
+       * which is exactly the drift this file exists to prevent: the menu
+       * advertised ⌘S on every platform, the sheet did not list it at all,
+       * and it fired while you were typing in the chat — the one guard the
+       * dispatcher here applies to every other chord. */
+      { act: "save-layout", label: "Save layout", keys: ["Ctrl + S"] },
       { act: "shortcuts", label: "Keyboard shortcuts", keys: ["Ctrl + /"],
         always: true },
     ] },
@@ -378,8 +384,27 @@ const Shortcuts = (() => {
   // where nothing else has registered anything yet.
   on("shortcuts", toggle);
 
+  /** The chord for an act, printed the way a MENU row prints one — "Ctrl + S",
+   *  or "⌘ + S" on a Mac. The sheet sets each cap in its own <kbd>; a menu
+   *  row has one faint trailing span (.sc) and joins them with a plus, which
+   *  is what js/main.js's tool flyout already does.
+   *
+   *  It reads the same catalogue for the same reason everything else here
+   *  does: a menu that printed its own copy of a chord would be a second
+   *  place for the keyboard to be described, and the first one to go stale. */
+  function chord(act) {
+    for (const s of SECTIONS) {
+      for (const r of s.rows) {
+        if (r.act === act && r.keys && r.keys.length) {
+          return caps(r.keys[0]).join(" + ");
+        }
+      }
+    }
+    return "";
+  }
+
   return {
-    on, has, sections, open, close, toggle,
+    on, has, sections, chord, open, close, toggle,
     isOpen: () => ours(),
   };
 })();

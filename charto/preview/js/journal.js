@@ -46,12 +46,19 @@ const Journal = (() => {
     el("journalNav").innerHTML = views.map(([id,label,icon]) =>
       `<button type="button" data-view="${id}" class="${view===id?"active":""}">${ico(icon)}<span>${label}</span></button>`).join("");
   }
-  function controls(title, desc, extra="", showTrade=true) {
-    return `<div class="j-shell"><div class="j-head"><div><div class="j-eyebrow">Journal / ${esc(title)}</div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>`+
-      `<div class="j-actions">${extra}<button class="j-action" data-import>${ico("download")}Import CSV</button>${showTrade?`<button class="j-action primary" data-new>${ico("plus")}Add trade</button>`:""}</div></div>`;
+  /* Every button in here is the app's `.btn` — outline for a secondary act,
+   * `cta` for the one that commits. The journal used to carry its own
+   * `.j-action`, a private button that was a pixel taller and a radius
+   * rounder than the one in every dialog beside it. */
+  function controls(title, desc, extra="", showTrade=true, showImport=true) {
+    return `<div class="j-shell"><div class="j-head"><div><div class="j-eyebrow">Journal</div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>`+
+      `<div class="j-actions">${showImport?`<button type="button" class="btn outline" data-import>${ico("download")}Import CSV</button>`:""}${extra}${showTrade?`<button type="button" class="btn cta" data-new>${ico("plus")}Add trade</button>`:""}</div></div>`;
   }
   function filters() {
-    return `<div class="j-filters"><div class="j-search">${ico("search")}<input data-search value="${esc(query)}" placeholder="Search symbols, tags, notes…" aria-label="Search journal"></div>`+
+    return `<div class="j-filters">`+
+      Icons.field(`<input data-search type="search" value="${esc(query)}" `+
+        `placeholder="Search symbols, tags, notes…" autocomplete="off" `+
+        `spellcheck="false" aria-label="Search journal">`, "j-search")+
       `<select class="j-select" data-side aria-label="Filter by side"><option value="all">All sides</option><option value="long" ${side==="long"?"selected":""}>Long</option><option value="short" ${side==="short"?"selected":""}>Short</option></select>`+
       `<select class="j-select" data-period aria-label="Filter by period"><option value="all">All time</option><option value="30" ${period==="30"?"selected":""}>Last 30 days</option><option value="90" ${period==="90"?"selected":""}>Last 90 days</option></select></div>`;
   }
@@ -66,20 +73,26 @@ const Journal = (() => {
   }
   function equity(trades) {
     const closed = [...trades].filter(t=>t.net_pnl!=null).sort((a,b)=>a.closed_at-b.closed_at);
-    if (!closed.length) return `<div class="j-empty">Your equity story begins after the first closed trade.<br>Nothing is inferred from an open position.</div>`;
+    if (!closed.length) return `<div class="j-empty"><div>${ico("indicators","")}<strong>Nothing closed yet</strong>Your equity story begins after the first closed trade. Nothing here is inferred from an open position.</div></div>`;
     let sum=0; const vals=[0,...closed.map(t=>sum+=t.net_pnl)], min=Math.min(0,...vals), max=Math.max(0,...vals), span=max-min||1;
     const pts=vals.map((v,i)=>`${(i/(vals.length-1||1)*100).toFixed(2)},${(92-(v-min)/span*78).toFixed(2)}`);
     const zero=(92-(0-min)/span*78).toFixed(2);
     return `<div class="j-equity"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="jArea" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--primary)"/><stop offset="1" stop-color="var(--primary)" stop-opacity="0"/></linearGradient></defs><path class="zero" d="M0 ${zero}H100"/><path class="area" d="M${pts.join(" L")} L100 100 L0 100Z"/><path class="line" d="M${pts.join(" L")}"/></svg></div>`;
   }
+  /* A day cell is ~48px wide in the overview's card, and "₹1,682" does not fit
+   * in it — the figure wrapped onto three lines and the tile became a block of
+   * broken text. Compact notation, in the Indian scale (1.7K, 2.4L, 1.1Cr),
+   * and no rupee mark: the card is headed "Daily net P&L", the tint already
+   * says which way, and the exact figure is on the cell's title. */
+  const compactMoney=(v)=>(v<0?"−":"")+new Intl.NumberFormat("en-IN",{notation:"compact",maximumFractionDigits:1}).format(Math.abs(v));
   function miniCalendar(trades, days=28) {
     const by={}; trades.forEach(t=>{if(t.closed_at&&t.net_pnl!=null){const k=new Date(t.closed_at*1000).toDateString();by[k]=(by[k]||0)+t.net_pnl;}});
     const now=new Date(), cells=[];
-    for(let i=days-1;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);const p=by[d.toDateString()];cells.push(`<div class="j-day ${p>0?"up":p<0?"down":""}"><span>${d.getDate()}</span><b>${p==null?"":money(p)}</b></div>`)}
+    for(let i=days-1;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);const p=by[d.toDateString()];cells.push(`<div class="j-day ${p>0?"up":p<0?"down":""}" title="${p==null?"":esc(money(p))}"><span>${d.getDate()}</span><b>${p==null?"":compactMoney(p)}</b></div>`)}
     return `<div class="j-calendar">${cells.join("")}</div>`;
   }
   function rows(trades, limit=999) {
-    if (!trades.length) return `<tr><td colspan="7"><div class="j-empty">No trades match this view.<br>Try clearing a filter or add one manually.</div></td></tr>`;
+    if (!trades.length) return `<tr><td colspan="7"><div class="j-empty"><div>${ico("candles","")}<strong>No trades match this view</strong>Clear a filter, or add one by hand.</div></div></td></tr>`;
     return trades.slice(0,limit).map(t=>`<tr data-trade="${t.id}"><td><span class="j-symbol">${esc(t.symbol)}</span></td><td><span class="j-side-pill">${t.side}</span></td><td>${date(t.opened_at)}</td><td>${t.quantity}</td><td>${money(t.entry_price,t.currency)}</td><td class="j-pnl ${t.net_pnl>0?"up":t.net_pnl<0?"down":""}">${money(t.net_pnl,t.currency)}</td><td><span class="j-review-dot ${t.reviewed?"done":""}"></span>${t.tags.slice(0,2).map(x=>`<span class="j-tag">${esc(x)}</span>`).join("")|| (t.reviewed?"Reviewed":"Open review")}</td></tr>`).join("");
   }
   function table(trades, limit) {
@@ -90,15 +103,16 @@ const Journal = (() => {
     return controls("Trading journal","Your performance and process, in one quiet view.") + filters()+metrics()+
       `<div class="j-grid"><div class="j-card"><div class="j-card-head"><strong>Equity curve</strong><span>Net of recorded fees</span></div>${equity(ts)}</div>`+
       `<div class="j-card"><div class="j-card-head"><strong>Last 28 days</strong><span>Daily net P&amp;L</span></div>${miniCalendar(ts)}</div></div>`+
-      `<div style="height:12px"></div><div class="j-card-head" style="padding:0 2px;border:0"><strong>Recent trades</strong><span>${ts.length} recorded</span></div>${table(ts,6)}</div>`;
+      `<div class="j-gap"></div><div class="j-rule"><strong>Recent trades</strong><span>${ts.length} recorded</span></div>${table(ts,6)}</div>`;
   }
   function tradesView() { const ts=filtered(); return controls("Trades","Every execution fact beside the decisions that shaped it.")+filters()+table(ts)+`</div>`; }
   function calendarView() { const ts=filtered(); return controls("Calendar","See outcomes in time without turning the month into a scoreboard.")+filters()+`<div class="j-card"><div class="j-card-head"><strong>Daily outcomes</strong><span>Colour and value carry the result</span></div>${miniCalendar(ts,70)}</div></div>`; }
   function booksView() {
-    const cards=data.playbooks.map(b=>`<article class="j-book" data-book="${b.id}"><div class="mark"></div><h3>${esc(b.name)}</h3><p>${esc(b.description||"A flexible setup. Add the conditions that make it yours.")}</p><small>${Object.keys(b.spec||{}).length} fields · editable</small></article>`).join("");
-    return controls("Playbooks","Define what a good trade looks like before judging the result.",`<button class="j-action primary" data-new-book>${ico("plus")}New playbook</button>`,false)+`<div class="j-books">${cards||`<button class="j-book" data-new-book><div class="mark"></div><h3>Create your first playbook</h3><p>Name the setup, then add any checklist or fields that matter to you.</p></button>`}</div></div>`;
+    const cards=data.playbooks.map(b=>{const n=Object.keys(b.spec||{}).length;
+      return `<article class="j-book" data-book="${b.id}"><div class="mark"></div><h3>${esc(b.name)}</h3><p>${esc(b.description||"A flexible setup. Add the conditions that make it yours.")}</p><small>${n} field${n===1?"":"s"} · editable</small></article>`}).join("");
+    return controls("Playbooks","Define what a good trade looks like before judging the result.",`<button type="button" class="btn cta" data-new-book>${ico("plus")}New playbook</button>`,false)+`<div class="j-books">${cards||`<button type="button" class="j-book" data-new-book><div class="mark"></div><h3>Create your first playbook</h3><p>Name the setup, then add any checklist or fields that matter to you.</p></button>`}</div></div>`;
   }
-  function reviewsView(){const ts=filtered().filter(t=>!t.reviewed);return controls("Reviews","A short queue for turning a trade into a reusable lesson.")+filters()+`<div class="j-card-head" style="padding:0 2px;border:0"><strong>Needs reflection</strong><span>${ts.length} remaining</span></div>${table(ts)}</div>`;}
+  function reviewsView(){const ts=filtered().filter(t=>!t.reviewed);return controls("Reviews","A short queue for turning a trade into a reusable lesson.")+filters()+`<div class="j-rule"><strong>Needs reflection</strong><span>${ts.length} remaining</span></div>${table(ts)}</div>`;}
   function render() {
     nav(); const root=el("journalMain");
     root.innerHTML = ({overview:overview,trades:tradesView,calendar:calendarView,playbooks:booksView,reviews:reviewsView}[view]||overview)();
@@ -107,9 +121,13 @@ const Journal = (() => {
     if (!Auth.user) { renderSignedOut(); return; }
     el("journalMain").innerHTML=`<div class="j-shell"><div class="j-empty">Opening your journal…</div></div>`;
     try { data=await call("/journal/bootstrap"); render(); }
-    catch(e){el("journalMain").innerHTML=`<div class="j-shell"><div class="j-empty">${esc(e.message)}<br><button class="j-action" data-retry>Try again</button></div></div>`;}
+    catch(e){el("journalMain").innerHTML=`<div class="j-shell"><div class="j-empty"><div><strong>The journal did not open</strong>${esc(e.message)}<button type="button" class="btn outline" data-retry>Try again</button></div></div></div>`;}
   }
-  function renderSignedOut(){nav();el("journalMain").innerHTML=controls("Trading journal","Your trade history belongs to your account.")+`<div class="j-card"><div class="j-empty"><div><strong style="display:block;color:var(--foreground);font-size:16px;margin-bottom:7px">Sign in to begin</strong>Your journal is durable and private, so it is never stored as anonymous browser data.<br><button class="j-action primary" data-signin style="margin:18px auto 0">Sign in</button></div></div></div></div>`;}
+  /* No Import and no Add trade up here: both need an account, and a page that
+   * offers two actions above a card explaining you cannot yet act is asking
+   * you to find that out by clicking. The card's own Sign in is the only
+   * door, which is what the page is about. */
+  function renderSignedOut(){nav();el("journalMain").innerHTML=controls("Trading journal","Your trade history belongs to your account.","",false,false)+`<div class="j-card"><div class="j-empty"><div>${ico("fileText","")}<strong>Sign in to begin</strong>Your journal is durable and private, so it is never kept as anonymous browser data.<button type="button" class="btn cta" data-signin>Sign in</button></div></div></div></div>`;}
   function open() { document.body.classList.add("journal-open"); load(); requestAnimationFrame(()=>el("journalMain").focus()); }
   function close() { closeDrawer(); document.body.classList.remove("journal-open"); }
 
@@ -144,11 +162,11 @@ const Journal = (() => {
     <div class="jq-field"><label for="jq-exit">Exit price</label><input id="jq-exit" name="exit_price" type="number" min="0" step="any" inputmode="decimal"></div>
     <div class="jq-field"><label for="jq-fees">Fees</label><input id="jq-fees" name="fees" type="number" min="0" step="any" value="0" inputmode="decimal"></div>
     <div class="jq-field"><label for="jq-risk">Initial risk</label><input id="jq-risk" name="initial_risk" type="number" min="0" step="any" inputmode="decimal"></div>
-    <button class="jq-submit" type="submit" ${quickBusy?"disabled":""}>${quickBusy?"Saving…":"Add trade"}</button></form>
+    <button class="btn cta jq-submit" type="submit" ${quickBusy?"disabled":""}>${quickBusy?"Saving…":"Add trade"}</button></form>
     <div class="jq-note">${ico("fileText","xs")}Exit is optional for an open trade. Add thesis, playbook and review in Full journal.</div>`}
   const grip=()=>`<div class="jq-grip" data-jq-grip aria-label="Resize journal pane"></div>`;
   function renderQuick(){const q=el("journalQuick");q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>${data.overview?.count||0} trades · process over outcome</span></div><div class="jq-tabs" role="tablist"><button class="jq-tab ${quickTab==="summary"?"active":""}" data-qtab="summary" role="tab">Trade log</button><button class="jq-tab ${quickTab==="new"?"active":""}" data-qtab="new" role="tab">New trade</button></div><span class="spacer"></span><button class="jq-full" data-full-journal>${ico("externalLink")}<span>Full journal</span></button><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body">${quickTab==="summary"?quickMetrics()+quickRows():quickForm()}</div>`}
-  async function loadQuick(){const q=el("journalQuick");if(!Auth.user){q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>Your private trading record</span></div><span class="spacer"></span><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body"><div class="jq-empty"><div>Sign in to keep trades private and durable.<br><button class="j-action primary" data-signin style="margin:12px auto 0">Sign in</button></div></div></div>`;return}q.innerHTML=grip()+`<div class="jq-empty">Opening journal…</div>`;try{data=await call("/journal/bootstrap");renderQuick()}catch(e){q.innerHTML=grip()+`<div class="jq-empty">${esc(e.message)}<br><button class="j-action" data-quick-retry>Try again</button></div>`}}
+  async function loadQuick(){const q=el("journalQuick");if(!Auth.user){q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>Your private trading record</span></div><span class="spacer"></span><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body"><div class="jq-empty"><div>Sign in to keep trades private and durable.<button type="button" class="btn cta" data-signin>Sign in</button></div></div></div>`;return}q.innerHTML=grip()+`<div class="jq-empty">Opening journal…</div>`;try{data=await call("/journal/bootstrap");renderQuick()}catch(e){q.innerHTML=grip()+`<div class="jq-empty"><div>${esc(e.message)}<button type="button" class="btn outline" data-quick-retry>Try again</button></div></div>`}}
   function toggleQuick(force){const q=el("journalQuick"),stage=el("stage"),on=force===undefined?!q.classList.contains("open"):force;q.classList.toggle("open",on);stage.classList.toggle("journal-pane-open",on);q.setAttribute("aria-hidden",String(!on));el("journalBtn").classList.toggle("active",on);if(on)loadQuick()}
   async function saveQuick(form){if(quickBusy)return;const f=new FormData(form),v=(k)=>String(f.get(k)||"").trim(),n=(k)=>v(k)===""?null:Number(v(k));if(!v("symbol")||!n("quantity")||!n("entry_price")){toast("Instrument, quantity and entry price are required");return}quickBusy=true;renderQuick();try{await call("/journal/trades",{symbol:v("symbol"),side:v("side"),opened_at:Math.floor(Date.now()/1000),closed_at:n("exit_price")==null?null:Math.floor(Date.now()/1000),quantity:n("quantity"),entry_price:n("entry_price"),exit_price:n("exit_price"),fees:n("fees")||0,initial_risk:n("initial_risk"),status:n("exit_price")==null?"open":"closed",source:"manual"});quickTab="summary";await loadQuick();toast("Trade added to journal")}catch(e){toast(e.message)}finally{quickBusy=false}}
   async function quickTrade(id){toggleQuick(false);open();await load();const t=data.trades.find(x=>x.id===Number(id));if(t)openTrade(t)}
@@ -167,7 +185,7 @@ const Journal = (() => {
       <div class="j-field"><label for="jf-playbook">Playbook</label><select id="jf-playbook" name="playbook_id"><option value="">None</option>${data.playbooks.map(b=>`<option value="${b.id}" ${t?.playbook_id===b.id?"selected":""}>${esc(b.name)}</option>`).join("")}</select></div></div></section>
       <section class="j-section"><h3>Plan · yours to shape</h3><div class="j-form-grid">${field("Thesis","thesis",p.thesis||"","text",true)}${field("Planned stop","stop",p.stop||"","number")}${field("Planned target","target",p.target||"","number")}${field("Tags · comma separated","tags",(t?.tags||[]).join(", "),"text",true)}</div></section>
       <section class="j-section"><h3>Review</h3><div class="j-form-grid"><div class="j-field"><label for="jf-adherence">Followed the plan?</label><select id="jf-adherence" name="adherence"><option value="">Not reviewed</option><option value="yes" ${r.adherence===true?"selected":""}>Yes</option><option value="no" ${r.adherence===false?"selected":""}>No</option></select></div>${field("Emotion","emotion",r.emotion||"")}<div class="j-field wide"><label for="jf-lesson">Lesson</label><textarea id="jf-lesson" name="lesson">${esc(r.lesson||"")}</textarea></div></div></section></form>
-      <div class="j-drawer-foot"><div>${isNew?"":`<button class="j-action" data-ask>${ico("chat")}Review with chat</button>`}</div><div style="display:flex;gap:8px">${isNew?"":`<button class="j-action" data-delete>Delete</button>`}<button class="j-action primary" data-save>${isNew?"Add trade":"Save changes"}</button></div></div>`;
+      <div class="j-drawer-foot"><div>${isNew?"":`<button type="button" class="btn outline" data-ask>${ico("chat")}Review with chat</button>`}</div><div class="j-foot-acts">${isNew?"":`<button type="button" class="btn outline" data-delete>Delete</button>`}<button type="button" class="btn cta" data-save>${isNew?"Add trade":"Save changes"}</button></div></div>`;
     const d=el("journalDrawer");d.classList.add("open");d.setAttribute("aria-hidden","false");
   }
   function payload() {
@@ -183,14 +201,25 @@ const Journal = (() => {
     el("journalDrawer").innerHTML=`<div class="j-drawer-head"><div class="j-drawer-title"><b>${b?"Edit playbook":"New playbook"}</b><span>A living definition of your setup</span></div><button class="btn icon" data-close aria-label="Close">${ico("x")}</button></div>
       <form class="j-drawer-body" id="playbookForm"><section class="j-section"><h3>Identity</h3><div class="j-form-grid">${field("Name","book_name",b?.name||"","text",true)}<div class="j-field wide"><label for="jf-book_desc">What makes this setup yours?</label><textarea id="jf-book_desc" name="book_desc">${esc(b?.description||"")}</textarea></div></div></section>
       <section class="j-section"><h3>Preparation</h3><div class="j-form-grid"><div class="j-field wide"><label for="jf-book_rules">Checklist · one thought per line</label><textarea id="jf-book_rules" name="book_rules">${esc((spec.checklist||[]).join("\n"))}</textarea></div><div class="j-field wide"><label for="jf-book_invalidation">Invalidation</label><textarea id="jf-book_invalidation" name="book_invalidation">${esc(spec.invalidation||"")}</textarea></div></div></section>
-      <div class="j-side-note" style="margin:0"><strong>No fixed template.</strong>Chat can add or reshape any extra playbook fields later; these are simply the useful starting points.</div></form>
-      <div class="j-drawer-foot"><span></span><button class="j-action primary" data-save-book>Save playbook</button></div>`;
+      <div class="j-side-note j-inline-note"><strong>No fixed template.</strong>Chat can add or reshape any extra playbook fields later; these are simply the useful starting points.</div></form>
+      <div class="j-drawer-foot"><span></span><button type="button" class="btn cta" data-save-book>Save playbook</button></div>`;
     const d=el("journalDrawer");d.classList.add("open");d.setAttribute("aria-hidden","false");
   }
   async function saveBook(){const f=new FormData(el("playbookForm")),b=active?.value,name=String(f.get("book_name")||"").trim();if(!name){toast("Give the playbook a name");return}const spec={...(b?.spec||{}),checklist:String(f.get("book_rules")||"").split("\n").map(x=>x.trim()).filter(Boolean),invalidation:String(f.get("book_invalidation")||"").trim()};try{await call(b?`/journal/playbooks/${b.id}`:"/journal/playbooks",{name,description:String(f.get("book_desc")||"").trim(),spec});closeDrawer();await load();toast("Playbook saved")}catch(e){toast(e.message)}}
   function importCsv(){const input=document.createElement("input");input.type="file";input.accept=".csv,text/csv";input.onchange=async()=>{const file=input.files?.[0];if(!file)return;const lines=(await file.text()).replace(/\r/g,"").split("\n").filter(Boolean),heads=(lines.shift()||"").split(",").map(x=>x.trim().toLowerCase());let added=0;for(const line of lines){const cells=line.split(",").map(x=>x.trim().replace(/^"|"$/g,"")),row=Object.fromEntries(heads.map((h,i)=>[h,cells[i]]));try{await call("/journal/trades",{symbol:row.symbol||row.instrument,side:(row.side||"long").toLowerCase(),opened_at:Math.floor(new Date(row.opened_at||row.opened||Date.now()).getTime()/1000),closed_at:row.closed_at?Math.floor(new Date(row.closed_at).getTime()/1000):null,quantity:Number(row.quantity||row.qty),entry_price:Number(row.entry_price||row.entry),exit_price:row.exit_price?Number(row.exit_price):null,fees:Number(row.fees||0),initial_risk:row.initial_risk?Number(row.initial_risk):null,source:"csv",external_id:row.id||`${file.name}:${added}:${row.symbol}`});added++}catch{}}await load();toast(`${added} trade${added===1?"":"s"} imported`)};input.click()}
 
+  /* Delegated from the document because the journal rebuilds its own markup
+   * constantly — but SCOPED to the journal's three roots, which it was not.
+   *
+   * Every hook below is a plain English word: data-new, data-close, data-save,
+   * data-delete, data-view, data-import. Unscoped, this handler answered them
+   * anywhere on the page, and js/layouts.js's "Create new…" button — reasonably
+   * named data-new — opened the New trade drawer over the layout dialog.
+   * Nothing about that was the layouts module's mistake; a listener bound to
+   * the whole document owns names it did not choose. */
+  const ROOTS = "#journal, #journalQuick, #journalDrawer";
   document.addEventListener("click",(e)=>{
+    if(!e.target.closest(ROOTS))return;
     const qt=e.target.closest("[data-qtab]");if(qt){quickTab=qt.dataset.qtab;renderQuick();return}
     const qs=e.target.closest("[data-qsort]");if(qs){const k=qs.dataset.qsort;quickSort={key:k,dir:quickSort.key===k?-quickSort.dir:-1};renderQuick();return}
     if(e.target.closest("[data-close-quick]")){toggleQuick(false);return}
