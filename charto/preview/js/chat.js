@@ -1254,6 +1254,19 @@
   // ── composer ──────────────────────────────────────────
   sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
   el("plusBtn").innerHTML = Icons.svg("plus", "sm");
+  // Voice: the transcript is APPENDED to the draft and never sent. Speaking
+  // is a way of adding to a half-typed question, and a mis-heard word should
+  // be edited before it is asked, not after it is answered.
+  if (typeof Voice !== "undefined") {
+    Voice.attach(el("micBtn"), (text) => {
+      const cur = input.value.trim();
+      input.value = cur ? `${cur} ${text}` : text;
+      autoGrow();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, { api: API, toast: (m) => (typeof Alerts !== "undefined"
+                                  ? Alerts.toast(m) : console.warn(m)) });
+  }
   el("ctxPeekClose").innerHTML = Icons.svg("x", "sm");
   el("histClose").innerHTML = Icons.svg("x", "sm");
 

@@ -39,6 +39,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+# BEFORE any sibling that does `import dataserver`. Served as a script this
+# module is named __main__, so that name resolves by loading this file a
+# SECOND time — a separate module object with its own _req, its own _drawings,
+# its own connections. The boot block aliases the name for exactly this reason
+# and says so at length, but it runs at the END of the module body, which is
+# far too late for a sibling imported partway down it: journal.py was imported
+# ~1,800 lines earlier and got the phantom copy, so every drawing the request
+# had resolved was invisible to it and `from_drawing` could not find a plan
+# that was plainly on the chart. The alias belongs here, where nothing has
+# had a chance to import anything yet. setdefault, so a normal `import
+# dataserver` (tests, tooling) is left exactly as it was.
+sys.modules.setdefault("dataserver", sys.modules[__name__])
+
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -5647,6 +5660,125 @@ def tool_get_deals(client: str = "", symbol: str = "", frm: str = "",
     return out
 
 
+# ── voice: a spoken question becomes a typed one ────────────────────────────
+#
+# Pivot's chain, unchanged, on Charto's server (pivot/backend/routers/audio.py):
+# the browser records an opus/aac blob, Azure Speech fast-transcription turns
+# it into text, and a transcript that comes back in Devanagari is rendered to
+# English by the same deployment that answers the chat. Hinglish written in
+# Latin script passes straight through — the agent reads it natively.
+#
+# Same resource, same credential: the Foundry AI-Services account behind
+# AZURE_ENDPOINT bundles Speech on the SAME key, at the host with the /openai
+# path stripped. There is no second key to provision and no audio deployment
+# to create — the Foundry /openai audio route has none, which is exactly why
+# this endpoint exists.
+_SPEECH_PATH = "/speechtotext/transcriptions:transcribe"
+_SPEECH_API_VERSION = "2024-11-15"
+# Per-segment language id, so a sentence that flips mid-way still comes back
+# whole.
+_SPEECH_LOCALES = ["en-IN", "hi-IN"]
+# MediaRecorder voice is ~1 KB/s; a 60 s clip is well under 1 MB. This rejects
+# a runaway upload without ever touching a real recording.
+_AUDIO_MAX_BYTES = 15 * 1024 * 1024
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+
+
+def _speech_host() -> str:
+    """The AI-Services host carrying the Speech APIs — the chat endpoint
+    without its path."""
+    p = urlparse(AZURE_ENDPOINT or "")
+    return f"{p.scheme}://{p.netloc}" if p.netloc else ""
+
+
+def _multipart(fields: list) -> tuple[bytes, str]:
+    """A multipart/form-data body. Written out rather than pulled in: this is
+    the only upload the server makes, and `requests` is not a dependency."""
+    boundary = "----charto" + secrets.token_hex(12)
+    out = bytearray()
+    for name, filename, ctype, payload in fields:
+        out += f"--{boundary}\r\n".encode()
+        disp = f'form-data; name="{name}"'
+        if filename:
+            disp += f'; filename="{filename}"'
+        out += f"Content-Disposition: {disp}\r\n".encode()
+        if ctype:
+            out += f"Content-Type: {ctype}\r\n".encode()
+        out += b"\r\n" + payload + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
+
+
+def transcribe(data: bytes, content_type: str = "") -> dict:
+    """Spoken audio → text. Errors are returned, never raised: a failed
+    transcription must leave the composer exactly as the user left it."""
+    host = _speech_host()
+    if not host or not AZURE_KEY:
+        return {"error": "voice input is not configured on this server"}
+    if not data:
+        return {"error": "empty recording"}
+    if len(data) > _AUDIO_MAX_BYTES:
+        return {"error": "recording too large (max 15 MB)"}
+    body, ctype = _multipart([
+        ("audio", "recording.webm", content_type or "audio/webm", data),
+        ("definition", None, "application/json",
+         json.dumps({"locales": _SPEECH_LOCALES}).encode()),
+    ])
+    req = urllib.request.Request(
+        f"{host}{_SPEECH_PATH}?api-version={_SPEECH_API_VERSION}",
+        data=body,
+        headers={"Ocp-Apim-Subscription-Key": AZURE_KEY, "Content-Type": ctype},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+            out = json.loads(r.read().decode())
+    except Exception as exc:                                # noqa: BLE001
+        # Never relay the upstream body — it can echo resource ids.
+        logging.warning("charto transcribe failed: %s", exc)
+        return {"error": "the speech service rejected the audio — try again"}
+    text = " ".join(p.get("text", "")
+                    for p in (out.get("combinedPhrases") or [])).strip()
+    if not text:
+        return {"error": "couldn't hear anything — try again"}
+    provider = "azure-speech"
+    # Devanagari only. Latin-script Hinglish is left alone: the agent reads it
+    # as spoken, and a round trip through translation would flatten it.
+    if _DEVANAGARI_RE.search(text):
+        englished = _translate_to_english(text)
+        if englished and englished != text:
+            text, provider = englished, "azure-speech+llm"
+    return {"text": text, "provider": provider}
+
+
+_TRANSLATE_SYSTEM = (
+    "You translate Indian-language voice queries into English for a stock-"
+    "market charting app. Return ONLY the English translation — no preamble, "
+    "no quotes. Keep company names, tickers, and numbers exactly as spoken.")
+
+
+def _translate_to_english(text: str) -> str:
+    """Degrade, never fail: the chat agent reads Hindi, so a translation that
+    does not come back must not sink the voice turn."""
+    try:
+        payload = {"model": LLM_DEPLOYMENT, "input": [
+            {"role": "system", "content": _TRANSLATE_SYSTEM},
+            {"role": "user", "content": text}],
+            "max_output_tokens": 300, "reasoning": {"effort": "minimal"}}
+        req = urllib.request.Request(
+            f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
+            headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+            data = json.loads(r.read().decode())
+        for item in data.get("output", []):
+            for part in item.get("content", []) or []:
+                if part.get("type") == "output_text" and part.get("text"):
+                    return str(part["text"]).strip()
+    except Exception as exc:                                # noqa: BLE001
+        logging.warning("charto transcribe translate failed: %s", exc)
+    return text
+
+
 # ── open_chart: the model arranges the workspace itself ────────────────────
 #
 # Every other tool READS a chart the user opened. This one puts one on screen.
@@ -6519,6 +6651,86 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "alert_id": {"type": "integer"}},
       "required": ["alert_id"]}},
+    {"type": "function", "name": "log_trade",
+     "description": (
+         "Write a trade into the user's journal. Use whenever they report having "
+         "taken or closed one — 'I bought 50 here', 'took the breakout', 'I'm out "
+         "of that TCS long'. It records; it never places an order.\n"
+         "A journal row is expensive to type, and almost none of it needs to be "
+         "typed here — the trade is on the screen the user is describing it "
+         "from:\n"
+         "· from_drawing takes a plan already drawn by plan_position and fills "
+         "side, entry, stop, size and risk from it. If such a plan exists and "
+         "the user is logging THAT trade, this is the whole call.\n"
+         "· entry_at / exit_at take a TIME instead of a price ('03 Aug 2026 "
+         "09:20') and read the fill off that real bar, recording which bar it "
+         "used. Use it whenever the user points at when rather than at how much.\n"
+         "· `stop` becomes the trade's initial risk (|entry − stop| × quantity). "
+         "Pass it whenever a stop is known or was mentioned: without it the row "
+         "can carry no R-multiple, and expectancy across the journal stays null. "
+         "It is the single most valuable field after the fill itself.\n"
+         "Omitting the exit opens the trade; close it later with update_trade "
+         "rather than logging a second row. Only symbol, side, quantity and an "
+         "entry are needed to start — ask for those and take everything else "
+         "from the chart or from what was already said."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "side": {"type": "string", "enum": ["long", "short"]},
+         "quantity": {"type": "number", "description": "shares/units — cannot be inferred"},
+         "entry_price": {"type": "number"},
+         "entry_at": {"type": "string", "description": "chart-format time, read off that bar instead of a price"},
+         "exit_price": {"type": "number", "description": "omit to leave the trade open"},
+         "exit_at": {"type": "string", "description": "chart-format time of the exit"},
+         "stop": {"type": "number", "description": "the stop the trade was taken with — becomes initial risk"},
+         "initial_risk": {"type": "number", "description": "rupees at risk, if stated directly instead of a stop"},
+         "fees": {"type": "number"},
+         "thesis": {"type": "string", "description": "why the trade was taken, in the user's own words"},
+         "tags": {"type": "array", "items": {"type": "string"}},
+         "plan": {"type": "object", "description": "open structure: targets, setup, anything the trader plans by"},
+         "review": {"type": "object", "description": "open structure: adherence, emotion, lesson"},
+         "from_drawing": {"type": "string", "description": "id of a plan_position drawing on this chart"},
+         "interval": {"type": "string", "description": "bars used to resolve entry_at/exit_at, default 1m"}},
+      "required": ["side", "quantity"]}},
+    {"type": "function", "name": "list_trades",
+     "description": ("The user's journal — their trades and the statistics it "
+                     "exists for (net P&L, win rate, profit factor, expectancy "
+                     "in R, plan adherence). Use for 'how am I doing', 'what "
+                     "did I trade this week', 'am I following my plan', and "
+                     "before updating one so the id is real. Narrow with symbol "
+                     "or status. The overview is computed from the rows, so "
+                     "expectancy and adherence stay null until trades carry an "
+                     "initial risk and a review — say so rather than reporting "
+                     "a blank as a result."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string"},
+         "status": {"type": "string", "enum": ["open", "closed"]},
+         "limit": {"type": "integer", "description": "default 20, max 100"}}}},
+    {"type": "function", "name": "update_trade",
+     "description": (
+         "Change a journal trade that already exists: close it, price its exit "
+         "off a bar, add the stop that defines its risk, or write the review. "
+         "Pass only what changes. `exit_at` reads the exit off a real bar the "
+         "same way log_trade does. plan and review MERGE over what is stored, so "
+         "writing a lesson cannot erase the thesis. Adding `stop` to a trade "
+         "logged without one back-fills its initial risk and gives it an "
+         "R-multiple — worth offering whenever a row has none. Every write "
+         "keeps an audited revision."),
+     "parameters": {"type": "object", "properties": {
+         "trade_id": {"type": "integer"},
+         "exit_price": {"type": "number"},
+         "exit_at": {"type": "string", "description": "chart-format time of the exit"},
+         "status": {"type": "string", "enum": ["open", "closed"]},
+         "fees": {"type": "number"},
+         "stop": {"type": "number", "description": "back-fills initial risk"},
+         "initial_risk": {"type": "number"},
+         "tags": {"type": "array", "items": {"type": "string"}},
+         "plan": {"type": "object"},
+         "review": {"type": "object"},
+         "lesson": {"type": "string", "description": "what the trade taught, in their words"},
+         "emotion": {"type": "string", "description": "how it was traded — impatient, hesitant, calm"},
+         "adherence": {"type": "boolean", "description": "did it follow the plan"},
+         "interval": {"type": "string", "description": "bars used to resolve exit_at, default 1m"}},
+      "required": ["trade_id"]}},
     {"type": "function", "name": "update_journal_trade",
      "description": ("Apply a user-requested edit to an attached journal trade. "
                      "Use only when the user clearly asks to save/change a field, "
@@ -7105,6 +7317,22 @@ def _journal_update_tool(trade_id: int, changes: dict):
 
 
 _DISPATCH["update_journal_trade"] = _journal_update_tool
+
+
+# The journal's own three, on the same terms as the watcher's: `user_id` is
+# read off the request's bearer token and is never a parameter, so the model
+# cannot address another account's book even if it invents the argument.
+def _journal_tool(name: str):
+    def call(**args):
+        if _journal is None:
+            return {"error": "the journal is not loaded on this server"}
+        who = getattr(_req, "user", None)
+        return getattr(_journal, name)(user_id=(who[0] if who else 0), **args)
+    return call
+
+
+for _n in ("log_trade", "list_trades", "update_trade"):
+    _DISPATCH[_n] = _journal_tool("tool_" + _n)
 
 
 # ── which chart a tool reads ────────────────────────────────────────────────
@@ -9897,6 +10125,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        # Voice, before the JSON routes: the body is an audio blob, so it must
+        # never reach a json.loads. Posted RAW rather than as multipart —
+        # there is one file and no other field, and a hand-rolled multipart
+        # parser on a public endpoint is a liability with nothing to buy.
+        # Signed in, like every other thing kept per user: the transcript is
+        # the user's words and the call costs money.
+        if u.path == "/audio/transcribe":
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use voice input"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+            except (TypeError, ValueError):
+                ln = 0
+            if ln <= 0:
+                return self._send(400, {"error": "empty recording"})
+            if ln > _AUDIO_MAX_BYTES:
+                return self._send(413, {"error": "recording too large"})
+            out = transcribe(self.rfile.read(ln),
+                             self.headers.get("Content-Type", ""))
+            return self._send(400 if "error" in out else 200, out)
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
                 return self._send(501, {"error": "journal is unavailable"})

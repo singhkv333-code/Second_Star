@@ -13,6 +13,13 @@ import time
 from pathlib import Path
 from os import environ
 
+# The chart itself, for the chat surface at the foot of this file: a spoken
+# time becomes a real bar through the same parser and the same store the
+# candles came from. Safe at import because dataserver aliases itself into
+# sys.modules before it imports this module — the same requirement alerts.py
+# has, and for the same reason.
+import dataserver as ds
+
 
 DB_PATH = Path(environ.get("CHARTO_USERS_DB") or Path(__file__).parent / "charto_users.db")
 _db = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -248,3 +255,311 @@ def api_playbook(uid, body, book_id=None):
         row = _db.execute("SELECT * FROM journal_playbooks WHERE user_id=? AND id=?", (uid, book_id)).fetchone()
     out = dict(row); out["spec"] = _json(out["spec"], {})
     return 200, {"playbook": out}
+
+
+# ══ the chat surface ═══════════════════════════════════════════════════════
+#
+# WHY THIS IS NOT "THE FORM, BUT TYPED AT A CHATBOT"
+# --------------------------------------------------
+# A useful trade row is expensive: symbol, side, time, quantity, entry, exit,
+# fees, and — the one that makes the whole journal worth keeping — the initial
+# risk, without which r_multiple is null and expectancy, adherence and profit
+# factor are all dead columns. Asking a person to dictate nine numbers is
+# asking them to abandon the journal, which is what happens to most journals.
+#
+# But a Charto user is looking at the trade while they describe it. The screen
+# already holds the instrument, the bars the fill happened on, and often the
+# PLAN itself as a position drawn by plan_position — side, entry, stop,
+# targets, quantity and risk, already agreed. So the rule here is: the user
+# supplies meaning, the chart supplies numbers, and nobody retypes what is
+# already on screen.
+#
+#   · an ADDRESS instead of a price — "I bought at yesterday's close", "I got
+#     in at 09:20" resolves against the real bar and records WHICH bar, so the
+#     entry is checkable rather than remembered.
+#   · from_drawing — a plan_position drawing becomes a row in one argument.
+#     A planned trade is already fully specified; making the trader say it
+#     again is the friction that empties journals.
+#   · a stop becomes initial_risk (|entry − stop| × qty) rather than being
+#     lost in prose, because that is the field the statistics need.
+#   · partial is fine — symbol, side, quantity and an entry open a row; the
+#     exit, the review and the lesson arrive later in the same conversation.
+#
+# Nothing here reads the user's words. The model composes the call; this side
+# resolves it against real bars and refuses what it cannot ground.
+
+
+def _bar_at(symbol: str, when: str, interval: str = "1m"):
+    """The real bar a spoken time lands on — (bar, label) or (None, reason).
+
+    Resolution is the chart's own: ds._parse_ist accepts exactly the format
+    the model has ever been shown, and ds._rows answers from the same store
+    the candles came from. The bar RETURNED is the last one at or before the
+    stated time, which is the bar a fill at that moment actually printed in.
+    """
+    ts = ds._parse_ist(when)
+    if ts is None:
+        return None, (f"'{when}' is not a time I can read — use the chart's "
+                      f"own format, e.g. '03 Aug 2026 09:20'")
+    prev = getattr(ds._req, "symbol", "")
+    ds._req.symbol = str(symbol or prev).upper()
+    try:
+        rows = ds._rows(interval, 3, to=ts)
+    except Exception as exc:                                # noqa: BLE001
+        return None, f"could not read {symbol} bars at {when}: {exc}"
+    finally:
+        ds._req.symbol = prev
+    if not rows:
+        return None, f"{symbol} has no bars at {when}"
+    b = rows[-1]
+    return b, ds._ist(b[0])
+
+
+_BAR_FIELD = {"open": 1, "high": 2, "low": 3, "close": 4}
+
+
+def _position_drawing(ref: str) -> dict | None:
+    """A plan_position drawing, as the request currently sees it.
+
+    Read from the envelope rather than from what a tool drew earlier: the user
+    can DRAG a plan, and a journal row built from a stale copy would record a
+    trade they did not take.
+    """
+    got = getattr(ds._drawings, "chat_by_id", {}).get(str(ref or "").upper())
+    if got and got.get("kind") == "position":
+        return got
+    return None
+
+
+def _need_account():
+    return {"error": "the journal needs an account",
+            "_note": ("Say the user must sign in — the journal is stored "
+                      "server-side against their account, not in this tab. "
+                      "Do not offer to remember the trade in conversation.")}
+
+
+def tool_log_trade(symbol: str = "", side: str = "", quantity: float = 0,
+                   entry_price=None, entry_at: str = "", exit_price=None,
+                   exit_at: str = "", stop=None, initial_risk=None,
+                   fees: float = 0, tags=None, thesis: str = "",
+                   plan=None, review=None, from_drawing: str = "",
+                   interval: str = "1m", user_id: int = 0) -> dict:
+    if not user_id:
+        return _need_account()
+    body: dict = {"source": "chat", "currency": "INR"}
+    resolved: list = []
+
+    drawn = _position_drawing(from_drawing) if from_drawing else None
+    if from_drawing and not drawn:
+        return {"error": f"no position drawing '{from_drawing}' on this chart",
+                "_note": ("Only a plan drawn by plan_position carries a side, "
+                          "entry, stop and size. List what is on the chart "
+                          "instead of guessing a ref, or take the numbers from "
+                          "the user.")}
+    if drawn:
+        side = side or str(drawn.get("side") or "")
+        entry_price = drawn.get("entry") if entry_price is None else entry_price
+        stop = drawn.get("stop") if stop is None else stop
+        quantity = quantity or drawn.get("qty") or 0
+        if initial_risk is None and drawn.get("risk_amount"):
+            initial_risk = drawn["risk_amount"]
+        resolved.append(f"from the plan drawn as {from_drawing}")
+
+    body["symbol"] = str(symbol or ds._sym()).upper()
+    body["side"] = str(side or "").lower()
+    if body["side"] not in ("long", "short"):
+        return {"error": "side must be long or short",
+                "_note": "Ask which way the trade was, and do not assume long."}
+
+    # entry: a price if given, otherwise the bar the stated time landed on
+    if entry_price is None and entry_at:
+        bar, label = _bar_at(body["symbol"], entry_at, interval)
+        if bar is None:
+            return {"error": label}
+        entry_price = bar[_BAR_FIELD["close"]]
+        body["opened_at"] = int(bar[0])
+        resolved.append(f"entry {entry_price} read off the {label} bar")
+    if entry_price is None:
+        return {"error": "no entry price",
+                "_note": ("Give entry_price, or entry_at as a time on this "
+                          "chart and it is read off that bar.")}
+    body["entry_price"] = float(entry_price)
+    if "opened_at" not in body:
+        body["opened_at"] = int(time.time())
+
+    if exit_price is None and exit_at:
+        bar, label = _bar_at(body["symbol"], exit_at, interval)
+        if bar is None:
+            return {"error": label}
+        exit_price = bar[_BAR_FIELD["close"]]
+        body["closed_at"] = int(bar[0])
+        resolved.append(f"exit {exit_price} read off the {label} bar")
+    if exit_price is not None:
+        body["exit_price"] = float(exit_price)
+        body["status"] = "closed"
+        body.setdefault("closed_at", int(time.time()))
+    else:
+        body["status"] = "open"
+
+    try:
+        body["quantity"] = float(quantity or 0)
+    except (TypeError, ValueError):
+        return {"error": "quantity must be a number"}
+    if body["quantity"] <= 0:
+        return {"error": "quantity is required",
+                "_note": "Ask how many shares/lots — it cannot be inferred."}
+    body["fees"] = float(fees or 0)
+
+    # The field the statistics live on. Derived from a stop the user has
+    # already said rather than asked for a second time, because a row without
+    # it can never carry an R-multiple.
+    if initial_risk is None and stop is not None:
+        try:
+            initial_risk = abs(body["entry_price"] - float(stop)) * body["quantity"]
+            resolved.append(f"risk {round(initial_risk, 2)} from the "
+                            f"{stop} stop")
+        except (TypeError, ValueError):
+            initial_risk = None
+    if initial_risk is not None:
+        body["initial_risk"] = float(initial_risk)
+
+    p = dict(plan or {})
+    if thesis:
+        p["thesis"] = thesis
+    if stop is not None:
+        p.setdefault("stop", float(stop))
+    if drawn and drawn.get("targets"):
+        p.setdefault("targets", drawn["targets"])
+    if p:
+        body["plan"] = p
+    if review:
+        body["review"] = dict(review)
+    if tags:
+        body["tags"] = [str(t) for t in tags]
+
+    code, out = api_create(user_id, body)
+    if code >= 400:
+        return out
+    t = out["trade"]
+    miss = []
+    if t.get("initial_risk") in (None, 0):
+        miss.append("no initial risk recorded, so this trade cannot carry an "
+                    "R-multiple — offer to add the stop it was taken with")
+    if t["status"] == "open":
+        miss.append("it is open; closing it later is an update, not a new row")
+    return {"trade": t, "_render_hint": "journal_card",
+            "_note": (f"Logged trade {t['id']}: {t['side']} {t['quantity']} "
+                      f"{t['symbol']} at {t['entry_price']}"
+                      + (f", out at {t['exit_price']} for a net "
+                         f"{t['net_pnl']}" if t["status"] == "closed" else "")
+                      + ". " + ("Resolved " + "; ".join(resolved) + ". "
+                                if resolved else "")
+                      + (" ".join(miss) if miss else "")
+                      + " Quote the numbers as stored — they are the record.")}
+
+
+def tool_list_trades(symbol: str = "", status: str = "", limit: int = 20,
+                     user_id: int = 0) -> dict:
+    """The journal as the user's own record, with the statistics it exists for."""
+    if not user_id:
+        return _need_account()
+    _code, out = api_bootstrap(user_id)
+    trades = out["trades"]
+    sym = str(symbol or "").upper().strip()
+    if sym:
+        trades = [t for t in trades if t["symbol"] == sym]
+    st = str(status or "").lower().strip()
+    if st:
+        if st not in ("open", "closed"):
+            return {"error": "status is 'open' or 'closed'"}
+        trades = [t for t in trades if t["status"] == st]
+    shown = trades[:max(1, min(int(limit or 20), 100))]
+    return {"trades": shown, "showing": len(shown), "matched": len(trades),
+            "overview": overview(trades) if (sym or st) else out["overview"],
+            "playbooks": [{"id": b["id"], "name": b["name"]} for b in out["playbooks"]],
+            "_note": ("`overview` is computed from the rows, not stored: "
+                      "expectancy_r and adherence are null until trades carry "
+                      "an initial risk and a review, which is worth saying "
+                      "when they are. Each trade's `id` is what update_trade "
+                      "takes. net_pnl is after fees.")}
+
+
+def tool_update_trade(trade_id: int = 0, exit_price=None, exit_at: str = "",
+                      status: str = "", fees=None, initial_risk=None,
+                      stop=None, tags=None, plan=None, review=None,
+                      lesson: str = "", adherence=None, emotion: str = "",
+                      interval: str = "1m", user_id: int = 0) -> dict:
+    """Close a trade, price its exit off a bar, or write the review.
+
+    The review fields are named individually because they are the ones a
+    trader says out loud — "I moved my stop", "I was impatient", "it followed
+    the plan" — and because a merge that silently dropped an existing lesson
+    would lose the only part of the row that was hard to write.
+    """
+    if not user_id:
+        return _need_account()
+    if not trade_id:
+        return {"error": "which trade? call list_trades for the ids"}
+    code, cur = api_get(user_id, int(trade_id))
+    if code >= 400:
+        return cur
+    old = cur["trade"]
+    body: dict = {"origin": "chat"}
+    resolved = []
+
+    if exit_price is None and exit_at:
+        bar, label = _bar_at(old["symbol"], exit_at, interval)
+        if bar is None:
+            return {"error": label}
+        exit_price = bar[_BAR_FIELD["close"]]
+        body["closed_at"] = int(bar[0])
+        resolved.append(f"exit {exit_price} read off the {label} bar")
+    if exit_price is not None:
+        body["exit_price"] = float(exit_price)
+        body["status"] = status or "closed"
+        body.setdefault("closed_at", int(time.time()))
+    elif status:
+        body["status"] = str(status).lower()
+    if fees is not None:
+        body["fees"] = float(fees)
+    if initial_risk is None and stop is not None and old.get("quantity"):
+        initial_risk = abs(old["entry_price"] - float(stop)) * old["quantity"]
+        resolved.append(f"risk {round(initial_risk, 2)} from the {stop} stop")
+    if initial_risk is not None:
+        body["initial_risk"] = float(initial_risk)
+    if tags is not None:
+        body["tags"] = [str(t) for t in tags]
+    # plan and review are the user's own structures: merged over what is
+    # there, never replaced, so writing a lesson cannot erase the thesis.
+    if plan or stop is not None:
+        merged = dict(old.get("plan") or {})
+        merged.update(dict(plan or {}))
+        if stop is not None:
+            merged["stop"] = float(stop)
+        body["plan"] = merged
+    if review or lesson or adherence is not None or emotion:
+        merged = dict(old.get("review") or {})
+        merged.update(dict(review or {}))
+        if lesson:
+            merged["lesson"] = lesson
+        if emotion:
+            merged["emotion"] = emotion
+        if adherence is not None:
+            merged["adherence"] = bool(adherence)
+        body["review"] = merged
+    if len(body) == 1:
+        return {"error": "nothing to change",
+                "_note": ("Name what changes — the exit, the fees, the stop "
+                          "that defines risk, a tag, or the review.")}
+    code, out = api_patch(user_id, int(trade_id), body)
+    if code >= 400:
+        return out
+    t = out["trade"]
+    return {"trade": t, "_render_hint": "journal_card",
+            "_note": (f"Trade {t['id']} updated. "
+                      + ("Resolved " + "; ".join(resolved) + ". " if resolved else "")
+                      + (f"It is closed: net {t['net_pnl']}"
+                         + (f", {t['r_multiple']}R" if t.get("r_multiple") is not None
+                            else " — no R-multiple, it carries no initial risk")
+                         + ". " if t["status"] == "closed" else "It is still open. ")
+                      + "The revision is kept, so the earlier version is not lost.")}
