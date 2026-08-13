@@ -1,0 +1,42 @@
+{
+  "checkpoint_utc": "2026-08-13T15:00:00Z",
+  "base_commit": "828268f8a4777e3e0ed46d594f29605d177c6c30",
+  "branch": "charto-deploy",
+  "detector_version": "chart-v2.1",
+  "local_tests": {
+    "command": "python3.11 -m pytest -q charto/data/test_chart_patterns_v2.py charto/data/test_patterns.py charto/data/test_indicators.py",
+    "result": "9 passed"
+  },
+  "daily_smoke": {
+    "symbol": "NIFTY 50",
+    "interval": "1d",
+    "events": 750,
+    "distinct_kinds": 33,
+    "elapsed_seconds": 3.0
+  },
+  "edge_stride_benchmark": {
+    "reference_stride": 1,
+    "reference_events": 185,
+    "stride_5": {"events": 162, "recall_pct": 71.4, "precision_pct": 81.5},
+    "stride_10": {"events": 115, "recall_pct": 38.4, "precision_pct": 62.6},
+    "stride_20": {"events": 87, "recall_pct": 24.9, "precision_pct": 51.7}
+  },
+  "azure": {
+    "resource_group": "PIVOT",
+    "location": "centralindia",
+    "worker": "charto-pattern-v2-worker",
+    "worker_size": "Standard_D16ads_v5",
+    "worker_state": "deallocated",
+    "snapshot": "charto-data-pattern-v2-20260813",
+    "copied_disk": "charto-data-pattern-v2-work",
+    "source_snapshot_state": "Succeeded",
+    "copied_sqlite_targeted_checks": "passed",
+    "production_db_modified": false
+  },
+  "file_sha256": {
+    "chart_patterns_v2.py": "bea2834efa3adc6ebf96c2b186ac08fcbf8632d96925576423e6a7f4129515cc",
+    "sweep_chart_patterns_v2.py": "95d626dac46d30fac11e6894295e5e07589b8f983361c10e58c3a5ac8c394cb5",
+    "load_chart_pattern_v2.py": "966b09583cc7bdca9dac85f0c2dc0547c36afbfa383d627dcae93dd4e005463c",
+    "test_chart_patterns_v2.py": "7f098b8b687755201e2e69c2bd75ac4d5deacd61c8beda2fd556b4cfda924338"
+  }
+}

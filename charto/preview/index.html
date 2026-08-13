@@ -2608,6 +2608,29 @@ body.two-columns .readout .row { display: none; }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
+/* Voice input is deliberately quieter than the adjacent add and send
+   actions: a borderless Pivot-style glyph with visible recording, upload,
+   and error states. */
+.mic-btn {
+  width: 28px; height: 28px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--radius-pill);
+  color: var(--faint); cursor: pointer; padding: 0;
+  transition: color .18s var(--ease-quartr),
+              background-color .2s var(--ease-quartr);
+}
+.mic-btn svg.icon { width: 16px; height: 16px; stroke-width: 2; }
+.mic-btn:hover { color: var(--foreground); }
+.mic-btn[data-state="recording"] { color: var(--down); background: var(--down-soft); }
+.mic-btn[data-state="recording"] svg { animation: micPulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+.mic-btn[data-state="error"] { color: var(--down); }
+.mic-btn[data-state="busy"] { cursor: wait; }
+.mic-btn[data-state="busy"] svg { animation: micSpin .9s linear infinite; }
+@keyframes micPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes micSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn svg { animation: none; }
+}
 /* The subject chip: which instrument this conversation is about. It carries
    the mark, the ticker and the interval of the chart the model reads, so the
    composer says WHAT is in context rather than merely that something is. */
@@ -3945,7 +3968,8 @@ svg.icon.op {
   }
   .ctx-flag > *:not(img) { display: none; }
   .ctx-flag img { width: 18px; height: 18px; }
-  .send { order: 4; width: 32px; height: 32px; }
+  .mic-btn { order: 4; width: 26px; height: 26px; }
+  .send { order: 5; width: 32px; height: 32px; }
 
   /* Annotation labels are written INTO the chart. On a desktop pane there is
      room beside the candles; on a phone three pattern labels covered the
@@ -5267,6 +5291,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               </div>
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
+              <!-- Voice fills the draft but never sends it. It stays hidden
+                   when this browser cannot record audio. -->
+              <button type="button" class="mic-btn" id="micBtn" hidden
+                      title="Speak instead of typing"></button>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
@@ -5354,6 +5382,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
+  <!-- Voice must load before chat.js, which wires it to the composer. -->
+  <script src="./js/voice.js?v=2"></script>
   <script src="./js/chat.js?v=114"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it

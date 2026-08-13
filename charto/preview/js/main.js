@@ -812,8 +812,8 @@
         + tools.map(([id, s]) => toolRow(id, s, g)).join("");
     rail.insertAdjacentHTML("beforeend",
       `<div class="tool-wrap" data-group="${g.id}">` +
-        `<button class="tool has-group" id="group-${g.id}" data-group-btn="${g.id}">` +
-        `${Icons.svg(g.icon)}<span class="tip">${g.label}</span></button>` +
+        `<button class="tool has-group" id="group-${g.id}" data-group-btn="${g.id}" ` +
+        `aria-label="${g.label}">${Icons.svg(g.icon)}</button>` +
         `<div class="dropdown side" id="menu-${g.id}">${items}</div>` +
       `</div>`);
   }
@@ -873,8 +873,12 @@
     const wrap = e.target.closest(".tool-wrap");
     clearTimeout(hoverTimer);
     if (!wrap) return;
+    // Do not leave the previous group's flyout on screen during this group's
+    // hover-intent delay. Its menu and the new button's tooltip occupy the
+    // same space, producing two competing labels (for example Shapes behind
+    // "Measure"). The group being entered is preserved if it is already open.
+    closeToolMenus(wrap.dataset.group);
     hoverTimer = setTimeout(() => {
-      closeToolMenus(wrap.dataset.group);
       setToolMenu(wrap.dataset.group, true);
     }, 320);
   });
@@ -913,7 +917,8 @@
     const btn = el(`group-${spec.group}`);
     const icon = ICON_FOR[id];
     if (btn && icon) {
-      btn.innerHTML = Icons.svg(icon) + `<span class="tip">${spec.label}</span>`;
+      btn.innerHTML = Icons.svg(icon);
+      btn.setAttribute("aria-label", spec.label);
     }
     selectTool(id);
   }
@@ -955,6 +960,19 @@
     const p = panesList().find((q) => q.key === key);
     const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
     return pe ? clientY - pe.getBoundingClientRect().top : clientY;
+  }
+
+  /** True only when the pointer is over the pane's plotted area. Unlike
+   *  paneAtClient(), this deliberately has no price-pane fallback: chart axes
+   *  and other chrome live inside #chart too, but must not reveal controls
+   *  that are meaningful only over data. */
+  function isInsidePane(clientX, clientY, key) {
+    const p = panesList().find((q) => q.key === key);
+    const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+    if (!pe) return false;
+    const r = pe.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right
+        && clientY >= r.top && clientY <= r.bottom;
   }
 
   const draw = Drawings.create(chart, candle, {
@@ -2471,7 +2489,7 @@
     // simply no price under the pointer to offer. Nothing to report: the mark
     // stays away and appears as soon as there is.
     if (!Auth.user || draw.state.tool !== "cursor"
-        || paneAtClient(clientY) !== "price") return hidePlus();
+        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return hidePlus();

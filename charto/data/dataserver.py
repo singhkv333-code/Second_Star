@@ -5805,6 +5805,13 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
     if layout:
         op["layout"] = layout
     _view_add(op)
+    # A chart the model just opened IS a chart in this conversation, so it
+    # joins the list the symbol gate reads. Without this, "open TCS and tell me
+    # its RSI" opened the pane and then refused to read it — the gate is there
+    # to stop a ticker drifting in from stale transcript, not to stop the model
+    # reading what it deliberately put on screen this turn.
+    if sym not in (getattr(_req, "charts", None) or []):
+        _req.charts = (getattr(_req, "charts", None) or []) + [sym]
     # Which of the two placements you chose decides whether anything can ever
     # be drawn on the result, and nothing here used to say so: an added pane is
     # a reference chart with no drawing layer, and "opened" read as done to a
@@ -7442,6 +7449,30 @@ def run_tool(name: str, args: dict) -> dict:
         return {"error": "this chart cannot be drawn on",
                 "_note": _no_ink_note(want)}
     if want and want != prev:
+        # `symbol=` means "which chart on screen to read" — its own description
+        # says so — but nothing checked it, and the model does not only pick
+        # from the screen. It also picks from the TRANSCRIPT. A conversation
+        # survives a symbol change (chats are deliberately un-scoped: one
+        # thread runs across RELIANCE, then TCS, then GOLD), so six turns of
+        # NIFTY prose can sit above one line of GOLD envelope, and the stale
+        # ticker rides into `symbol=`. It resolves — it is a real instrument —
+        # the tool computes it correctly, and the reply quotes NIFTY numbers
+        # to someone looking at gold. Every number right, every number about a
+        # chart that is not on screen, and nothing downstream can tell.
+        # So the aim is bounded by the conversation's own charts. Cross-symbol
+        # work is unaffected: get_peers / compare_symbols / screen_universe
+        # name their own symbols and were never in _CHART_SCOPED.
+        on_screen = [s.upper() for s in (getattr(_req, "charts", []) or [])]
+        if on_screen and want not in on_screen:
+            return {"error": f"{want} is not a chart in this conversation",
+                    "_note": (f"The charts here are: {', '.join(on_screen)}. "
+                              f"`symbol=` chooses among THOSE — it is not a way "
+                              f"to read an instrument the user is not looking "
+                              f"at. An earlier turn may have been asked on a "
+                              f"chart that has since been changed; the envelope "
+                              f"above is the current one. Answer for a chart on "
+                              f"screen, and if {want} is genuinely the subject, "
+                              f"say it is not open and offer open_chart.")}
         # An unloaded chart must say so. Answering from the focused chart
         # under another chart's name is the one failure that cannot be caught
         # downstream — every number would look right and belong to the wrong
@@ -7591,9 +7622,26 @@ def build_context_block(ctx: dict | None) -> str:
                          + json.dumps(trade, ensure_ascii=False, separators=(",", ":"))
                          + "\nDiscuss any field freely. Use update_journal_trade for changes; "
                            "never say a journal change was saved unless that tool succeeds.")
+    # The stub has to NAME the chart, and this is why. Changing symbol reloads
+    # the page; the conversation restores from localStorage instantly while the
+    # bars are still in flight, so the very first question on the new chart
+    # arrives with status=loading. Unnamed, the stub said only "you cannot see
+    # the chart" — and the model, left with a transcript that talked about
+    # NIFTY 50 for six turns, answered for NIFTY 50 while the composer chip
+    # read GOLD. Not being able to read the bars yet is a different fact from
+    # not knowing WHICH chart is open, and the envelope always knows the second.
+    who = str(ctx.get("symbol") or "").upper()
+    iv = str(ctx.get("interval") or "")
     stub = ("## Chart the user is viewing\n"
-            "The chart has not finished loading — you cannot see it yet. "
-            "Say so if asked about it.")
+            + (f"{who}{f' · {iv}' if iv else ''} — this is the chart, and it is "
+               f"the subject of the question. Its bars have not finished "
+               f"loading, so you cannot read values off it yet: say that "
+               f"rather than answering from earlier turns, which may have been "
+               f"asked on a different chart. Never answer for another "
+               f"instrument merely because the transcript discussed one."
+               if who else
+               "The chart has not finished loading — you cannot see it yet. "
+               "Say so if asked about it."))
     if ctx.get("status") == "loading":
         return "\n\n".join(x for x in (stub, journal_block) if x)
     if not ctx.get("symbol"):
@@ -7913,6 +7961,44 @@ def _suggest_stream(messages: list[dict]):
     yield {"type": "done", "suggestions": out if len(out) == 3 else []}
 
 
+def _suggest_events(messages: list[dict], answer: str):
+    """The follow-ups, re-tagged to ride the ANSWER's stream instead of their own.
+
+    Why they moved off /suggest. A second endpoint is the obvious shape and it
+    is what we shipped, but it costs two things. The small one is a hop, and
+    hop count is the latency lever here. The large one is that a new route is
+    invisible in production until nginx's allowlist learns it — and nginx is a
+    record in this repo that a human has to install, so /suggest spent its
+    whole life answering 200 text/html on the VM while working perfectly on
+    localhost. /chat is already allowlisted, already unbuffered, already
+    ungzipped. Nothing that rides it can go missing that way.
+
+    This is also what the products doing it well do: Perplexity returns its
+    related questions in the same response as the answer, and the Vercel AI
+    SDK's whole "data parts" mechanism exists to put typed extras on the one
+    stream. A separate call is the older shape.
+
+    Emitted AFTER the turn's `done`, never before. The client has the answer,
+    the scene patch and the view ops in hand and has already acted on them by
+    the time the first of these arrives, so the three questions cost the reply
+    nothing — which is the same rule /suggest had: a suggestion is a
+    convenience, and nothing here may cost an answer. A failure yields an
+    empty list and the row simply never appears.
+    """
+    convo = [m for m in messages if m.get("role") in ("user", "assistant")]
+    convo = convo + [{"role": "assistant", "content": answer}]
+    try:
+        for ev in _suggest_stream(convo):
+            if ev.get("type") == "delta":
+                yield {"type": "suggest_delta", "text": ev.get("text") or ""}
+            elif ev.get("type") == "done":
+                yield {"type": "suggest_done",
+                       "suggestions": ev.get("suggestions") or []}
+    except Exception as exc:  # noqa: BLE001 — never let a follow-up break a turn
+        logging.info("suggest events failed: %s", exc)
+        yield {"type": "suggest_done", "suggestions": []}
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     payload = {
         "model": LLM_DEPLOYMENT,
@@ -8003,13 +8089,35 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
     NEWEST one goes to the model — re-shipping every past screenshot on every
     turn would grow input cost without bound — and an older message that had
     one says so in text, so the model never half-remembers an image it can no
-    longer see."""
+    longer see.
+
+    It may also carry `symbol`: the chart that was on screen when it was
+    asked. A conversation is not a property of an instrument — one thread runs
+    across RELIANCE, TCS, then GOLD — but the transcript read as though it
+    were, because nothing in it said WHICH chart each turn was about. The
+    envelope describes only NOW, and it sits at the TOP of the wire, above
+    every turn: the model's most recent reading of "the chart" was six turns
+    of NIFTY prose, not the one GOLD line preceding them. So the turns asked
+    on a chart that is no longer in focus are marked as such, in place. Only
+    those turns — a mark on every turn would be noise, and the ones that agree
+    with the envelope need no correction."""
     last_img = max((i for i, m in enumerate(messages) if m.get("image")),
                    default=None)
+    now_sym = str(getattr(_req, "symbol", "") or "").upper()
+    # The FE stamps the chart on the USER turn. The reply that follows it is
+    # about the same chart, so the stamp carries forward until the next one —
+    # and the assistant prose is what actually names the stale ticker.
+    seen_sym = ""
     out: list[dict] = []
     for i, m in enumerate(messages):
         role = m.get("role", "user")
         txt = str(m.get("content", ""))
+        if m.get("symbol"):
+            seen_sym = str(m["symbol"]).upper()
+        if now_sym and seen_sym and seen_sym != now_sym:
+            txt = (f"[asked while viewing {seen_sym}; the chart in focus is "
+                   f"now {now_sym} — do not carry {seen_sym}'s numbers, "
+                   f"levels or marked patterns onto it]\n" + txt)
         # a tagged drawing IS the subject of that message — state it as a
         # fact of the turn, so "is this any good?" has an unambiguous referent
         # instead of the model guessing which shape "this" means
@@ -8195,12 +8303,16 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
         calls = list(by_id.values())
         if not calls:
+            answer = "".join(text_parts) or "(empty reply)"
             yield {"type": "done",
-                   "text": "".join(text_parts) or "(empty reply)",
+                   "text": answer,
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
                    "scene_patch": scene_patch, "view_ops": view_ops}
+            # The turn is complete and delivered. What follows is the three
+            # follow-ups on the same connection — see _suggest_events.
+            yield from _suggest_events(messages, answer)
             return
 
         for call in calls:
@@ -10222,9 +10334,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "bad JSON body"})
             return self._send(*self._account_post(u.path, body))
         if u.path == "/suggest":
-            # Separate from /chat on purpose. It runs AFTER the reply has
-            # landed, so it can never delay one — and a `done` carrying an
-            # empty list is a normal answer, not a failure to handle.
+            # LEGACY. The follow-ups now ride /chat's own stream, after that
+            # turn's `done` — see _suggest_events for why the route mattered
+            # more than the hop. Kept because a browser holding a cached
+            # index.html still posts here for a deploy or two, and answering
+            # it costs nothing; nothing we ship calls it any more.
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")

@@ -27,6 +27,11 @@
   const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
+    // The chart this turn was asked on. A conversation survives a symbol
+    // change by design, so a thread can hold six turns of NIFTY above one
+    // GOLD question — and without this the transcript never said so, leaving
+    // the model to answer the new chart out of the old chart's prose.
+    ...(t.symbol ? { symbol: t.symbol } : {}),
     ...(t.image ? { image: t.image } : {}),
     ...(t.drawing ? { drawing: t.drawing } : {}),
     ...(t.journal ? { journal: t.journal } : {}),
@@ -677,7 +682,15 @@
    *  whole buffer is cheap next to the model's own pace. Flushing is rAF-gated
    *  so a fast stream cannot re-parse the buffer hundreds of times a second.
    */
-  async function readStream(res, turn) {
+  function readStream(res, turn, sink) {
+    // Resolves the moment the ANSWER's `done` lands, and keeps draining after
+    // it: the three follow-ups ride the tail of this same stream (see
+    // _suggest_events in dataserver.py), and the caller must not wait on them
+    // to file the turn, apply the scene patch or move the workspace. So the
+    // promise is settled from inside the loop rather than by returning.
+    let settle, fail, settled = false, gotSuggest = false;
+    const answered = new Promise((ok, no) => { settle = ok; fail = no; });
+    (async () => {
     const prose = turn.querySelector(".prose");
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -732,17 +745,35 @@
           // a landed tool is the only progress signal a multi-round turn has —
           // it becomes its own line on the wait's timeline
           if (turn.__wait) turn.__wait.tool(ev.name);
-        } else if (ev.type === "done") { done = ev; }
+        } else if (ev.type === "done") {
+          // Cancel any queued repaint. Without this the last frame lands AFTER
+          // finishTurn has written the final markdown and puts the caret back
+          // on a reply that is already complete.
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+          // the streamed text is the source of truth; `done.text` is the same string
+          done = ev;
+          done.text = done.text || text;
+          settled = true;
+          settle(done);          // the turn is answered; the tail is follow-ups
+        } else if (ev.type === "suggest_delta") {
+          if (sink) sink.delta(ev.text);
+        } else if (ev.type === "suggest_done") {
+          gotSuggest = true;
+          if (sink) sink.done(ev.suggestions);
+        }
       }
     }
-    // Cancel any queued repaint. Without this the last frame lands AFTER
-    // finishTurn has written the final markdown and puts the caret back on a
-    // reply that is already complete.
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (!done) throw new Error("stream ended without a result");
-    // the streamed text is the source of truth; `done.text` is the same string
-    done.text = done.text || text;
-    return done;
+    if (!settled) throw new Error("stream ended without a result");
+    // Ended before the follow-ups did — the row must not sit there half-written
+    if (sink && !gotSuggest) sink.drop();
+    })().catch((e) => {
+      // Before the answer, the caller owns the failure. After it, the turn is
+      // already on screen and a dead tail costs only the suggestions.
+      if (!settled) fail(e);
+      else if (sink) sink.drop();
+    });
+    return answered;
   }
 
   // ── company logos ────────────────────────────────────────
@@ -920,21 +951,34 @@
         tog.setAttribute("aria-expanded", String(open));
       });
       meta.append(tog);
-      turn.appendChild(meta);
-      turn.appendChild(list);
+      place(turn, meta);
+      place(turn, list);
       toBottom();
       return;
     }
-    turn.appendChild(meta);
+    place(turn, meta);
     toBottom();
+  }
+
+  /** Append to `turn`, but always ABOVE the follow-up row.
+   *
+   *  The follow-ups now ride the answer's own stream rather than a request
+   *  made after it, so the row can exist before this footer does. Appending
+   *  blindly then put the latency and the copy button UNDER the three
+   *  questions. Ordering by insertion point rather than by who happens to
+   *  arrive first is what makes that independent of timing. */
+  function place(turn, node) {
+    const box = turn.querySelector(".suggest");
+    if (box) turn.insertBefore(node, box); else turn.appendChild(node);
   }
 
   /* ── three things worth asking next ───────────────────────────────────
    *
-   * Fetched AFTER the turn is finished and painted, in a request of its own,
-   * so a slow or dead suggest costs the answer nothing — the row simply never
-   * appears. That is also why the backend answers 200 with an empty list
-   * rather than an error: there is no failure here for the client to handle.
+   * They arrive on the TAIL of the answer's own stream, after its `done` — not
+   * in a request of their own. So a slow or dead suggest still costs the answer
+   * nothing (everything the turn does has already happened by then), and the
+   * backend still ends every failure path with an empty list rather than an
+   * error: there is no failure here for the client to handle.
    *
    * Only the NEWEST turn carries a row. Leaving them under older replies
    * would offer questions the conversation has already moved past, and stack
@@ -989,62 +1033,59 @@
     .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
     .trim().replace(/^["']|["']$/g, "").trim();
 
-  async function suggestAfter(turn) {
+  /** Where the follow-ups land, fed by the answer's own stream.
+   *
+   *  This was a second POST to /suggest. It reads the same on screen — the
+   *  list still fills in a line at a time — but it is no longer a request:
+   *  the events arrive on the tail of /chat, after the answer's `done`. That
+   *  removed a hop, and more importantly a ROUTE: a new endpoint is invisible
+   *  in production until nginx's allowlist learns it, and /suggest spent its
+   *  whole life answering the HTML page on the VM while working perfectly on
+   *  localhost. Nothing riding /chat can go missing that way.
+   *
+   *  The box is made on the first delta, not up front, so a turn whose
+   *  follow-ups never arrive never grows an empty row.
+   */
+  function suggestSink(turn) {
     clearSuggest();
-    const box = suggestBox(turn);
-    // The record the row belongs to, taken now: the request outlives this
-    // frame, and `turns` will have grown by the time it lands.
-    const rec = turns[turns.length - 1];
-    // Stale before it was ever shown: by now the user may have asked
-    // something else, switched chats, or cleared the thread.
-    const dead = () => !turn.isConnected || !box.isConnected || pending;
-    const paint = (lines) => paintSuggest(box, lines);
-
-    let acc = "";
-    try {
-      const r = await fetch(`${API}/suggest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: wireHistory() }),
-      });
-      if (!r.ok || !r.body) { box.remove(); return; }
-      const rd = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await rd.read();
-        if (done) break;
-        if (dead()) { await rd.cancel(); box.remove(); return; }
-        buf += dec.decode(value, { stream: true });
-        // SSE frames are blank-line separated; a partial one waits its turn
-        const frames = buf.split("\n\n");
-        buf = frames.pop();
-        for (const f of frames) {
-          const line = f.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          let ev;
-          try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (ev.type === "delta") {
-            acc += ev.text || "";
-            paint(acc.split("\n").map(cleanSuggest).filter(Boolean));
-            toBottom();
-          } else if (ev.type === "done") {
-            const picks = ev.suggestions || [];
-            if (picks.length !== 3 || dead()) { box.remove(); return; }
-            paint(picks);
-            while (box.children.length > 3) box.lastChild.remove();
-            // File them with the turn. The row is part of the reply, not a
-            // decoration on top of it — a reload repaints the thread from
-            // `turns`, and unsaved questions would vanish with it.
-            if (rec && rec.role === "assistant") { rec.sugg = picks; saveTurns(); }
-            toBottom(true);
-            return;
-          }
-        }
-      }
-      box.remove();            // stream ended without a `done` — say nothing
-    } catch {
-      box.remove();
-    }
+    let box = null, acc = "", picks = null, rec = null;
+    const boxOf = () => box || (box = suggestBox(turn));
+    // Only the newest turn carries a row. Anything that displaces it — a new
+    // question, a cleared thread, a switched conversation — appends past it,
+    // and that is the honest test for "this offer is spent".
+    const dead = () => !turn.isConnected || turn !== msgsEl.lastElementChild
+                    || (box && !box.isConnected);
+    // The record the row belongs to is filed by send() a moment after the
+    // answer's `done` — the same moment these begin arriving. So the two are
+    // joined by whichever lands second rather than by assuming an order.
+    const persist = () => {
+      if (!rec || !picks || rec.role !== "assistant") return;
+      rec.sugg = picks;
+      saveTurns();
+    };
+    return {
+      attach(r) { rec = r; persist(); },
+      delta(t) {
+        if (dead()) return;
+        acc += t || "";
+        paintSuggest(boxOf(), acc.split("\n").map(cleanSuggest).filter(Boolean));
+        toBottom();
+      },
+      done(list) {
+        const three = list || [];
+        if (three.length !== 3 || dead()) return this.drop();
+        const b = boxOf();
+        paintSuggest(b, three);
+        while (b.children.length > 3) b.lastChild.remove();
+        // File them with the turn. The row is part of the reply, not a
+        // decoration on top of it — a reload repaints the thread from `turns`,
+        // and unsaved questions would vanish with it.
+        picks = three;
+        persist();
+        toBottom(true);
+      },
+      drop() { if (box) { box.remove(); box = null; } },
+    };
   }
 
   function failTurn(turn, msg) {
@@ -1185,7 +1226,11 @@
                                chat_id: activeId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await readStream(res, turn);
+      // The follow-ups arrive on the tail of this same stream, so their sink
+      // is handed to the reader up front. It resolves on the ANSWER, not on
+      // them — everything below runs at the same moment it always did.
+      const sink = suggestSink(turn);
+      const d = await readStream(res, turn, sink);
       if (d.error) throw new Error(d.error);
       lastBlock = d.context_preview || "(no chart context sent)";
 
@@ -1199,6 +1244,9 @@
       const acts = chartActions(d.scene_patch);
       turns.push({ role: "assistant", content: d.text, meta, acts });
       saveTurns();
+      // The row's record now exists. If the follow-ups already landed they are
+      // written into it here; if they land later they find it waiting.
+      sink.attach(turns[turns.length - 1]);
 
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
       // chart this same turn opened, and applying the patch first would draw
@@ -1247,7 +1295,6 @@
       // the answer, and the row it sits in is otherwise entirely about what
       // you just read.
       finishTurn(turn, d.text, meta, acts);
-      suggestAfter(turn);    // deliberately not awaited — the turn is done
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
       saveTurns();

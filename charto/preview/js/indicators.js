@@ -139,8 +139,10 @@ const Indicators = (() => {
     const exact = CATALOG.find((c) => c.name === name && c.period === p);
     if (exact) return exact.id;
     const sib = CATALOG.find((c) => c.name === name);
-    if (!p) return sib ? sib.id : null;   // no period asked: the default def
-    const id = `${name}${p}`;
+    if (!p && sib) return sib.id;          // no period asked: the preset def
+    // A zero-period backend study (A/D, anchored VWAP) has no numeric suffix,
+    // but is still a complete definition that can be minted from KNOWN.
+    const id = p ? `${name}${p}` : name;
     if (sib) {
       const def = { ...sib, id, period: p };
       CATALOG.push(def);
@@ -163,7 +165,8 @@ const Indicators = (() => {
   function ensureFromId(id) {
     if (CATALOG.find((c) => c.id === id)) return id;
     const m = /^([a-z_]+?)(\d+)$/.exec(id);
-    return m ? ensure(m[1], Number(m[2])) : null;
+    if (m) return ensure(m[1], Number(m[2]));
+    return KNOWN[id] ? ensure(id, KNOWN[id].period || 0) : null;
   }
 
   // The chart plots on IST-shifted times — main.js's fetchBars does

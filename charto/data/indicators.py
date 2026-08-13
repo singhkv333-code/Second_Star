@@ -530,8 +530,14 @@ def _f_aroon(rows, n, src):
         if i < n:
             up.append(None); dn.append(None); continue
         w = rows[i - n:i + 1]
-        hi = max(range(len(w)), key=lambda k: w[k][2])
-        lo = min(range(len(w)), key=lambda k: w[k][3])
+        # Aroon measures bars since the MOST RECENT period high/low. Iterating
+        # newest-first makes max/min keep the latest occurrence when an
+        # extreme is tied; the default oldest-first scan reported 0 instead
+        # of 100 on a flat window.
+        newest_first = range(len(w) - 1, -1, -1)
+        hi = max(newest_first, key=lambda k: w[k][2])
+        newest_first = range(len(w) - 1, -1, -1)
+        lo = min(newest_first, key=lambda k: w[k][3])
         up.append(hi / n * 100)
         dn.append(lo / n * 100)
     return {"aroon_up": up, "aroon_down": dn,
@@ -628,6 +634,12 @@ SOURCE_OK = frozenset({"sma", "ema", "wma", "hma", "dema", "rsi", "macd",
                        "bbands", "keltner", "roc", "cci", "williams_r", "mfi",
                        "stochrsi"})
 
+# A price source can sensibly vary inside Williams %R's high/low range, but a
+# volume value cannot: it has different units and sends the declared -100..0
+# oscillator into five-digit readings. Keep the shared source vocabulary for
+# studies where volume is meaningful while withholding it here.
+SOURCE_EXCLUDE = {"williams_r": frozenset({"volume"})}
+
 # plumbing arguments: the chart passes them, the user never sets them
 _HIDDEN_PARAMS = frozenset({"session_seconds", "ist_offset", "anchor_index"})
 
@@ -707,7 +719,8 @@ def inputs(name: str) -> list[dict]:
     if name in SOURCE_OK:
         out.append({"key": "source", "label": "Source", "type": "source",
                     "default": spec.get("src_default", "close"),
-                    "options": list(SOURCES)})
+                    "options": [s for s in SOURCES
+                                if s not in SOURCE_EXCLUDE.get(name, ())]})
     # everything after (rows, n, src) that carries a default is a real knob
     params = list(_inspect.signature(spec["fn"]).parameters.items())[3:]
     for k, p in params:
@@ -743,6 +756,8 @@ def compute(name: str, rows: list[tuple], period: int = 0,
     if not spec:
         raise ValueError(f"unknown indicator '{name}'")
     source = source or spec.get("src_default", "close")
+    if source in SOURCE_EXCLUDE.get(name, ()):
+        raise ValueError(f"{source} is not a valid source for {name}")
     n = int(period or spec["period"] or 14)
     if n < 1 or n > 500:
         raise ValueError("period must be between 1 and 500")
