@@ -6388,23 +6388,24 @@ TOOLS = [
      "description": (
          "Arm a server-side alert on the chart's instrument. Use it whenever the "
          "user asks to be TOLD or NOTIFIED about something — 'tell me if', 'let "
-         "me know when', 'alert me', 'watch for'. It notifies only; it never "
-         "places an order. The alert is a COMPOSED expression: a list of "
-         "conditions, each `left <op> right`, where both sides are addresses "
-         "resolved against the real bars. Addresses: close/open/high/low/volume "
-         "(current bar), close[1] (n bars back), day.high/pday.close (session "
-         "fields), 20d.high/52w.low (windows), any indicator as rsi(14) / "
-         "sma(200) / vwap() / macd().signal / bbands(20).upper, avg(volume,20) "
-         "(a mean baseline), poc/vah/val (volume profile), draw:D3 (one of the "
-         "user's own drawings — re-priced every bar, so a trendline's level "
-         "moves with time), pattern(bullish_engulfing) or divergence(rsi) with "
-         "op=is_true (fires on COMPLETION on a closed bar, never on approach). "
-         "`x` multiplies the right side and `plus_pct` offsets it, so 'volume "
-         "above twice its average' is {left:'volume', op:'above', "
+         "me know when', 'alert me', 'watch for', or an intent that plainly "
+         "means it ('I'm out for the day, don't want to miss the breakout'). It "
+         "notifies only; it never places an order. The alert is a COMPOSED "
+         "expression: a list of conditions, each `left <op> right`, where both "
+         "sides are ADDRESSES from the list below, resolved against the real "
+         "bars. `x` multiplies the right side and `plus_pct` offsets it, so "
+         "'volume above twice its average' is {left:'volume', op:'above', "
          "right:'avg(volume,20)', x:2}. Several conditions with all=true is an "
-         "AND — that is how a confirmed breakout is expressed in one alert. If "
-         "an address or op is wrong the engine refuses and hands back the whole "
-         "grammar; re-call with the names it lists rather than guessing again."),
+         "AND — that is how a confirmed breakout is expressed in one alert. "
+         "A VAGUE ask is still an alert: read the vague word against the chart "
+         "rather than refusing it or inventing a number. 'Breaks out' means a "
+         "level you got from get_levels, not one you chose; 'oversold' is the "
+         "indicator's own convention; 'dumps' or 'takes off' is a percent move "
+         "or a session extreme. Ask only when the ask has no defensible "
+         "reading — and when you do ask, offer concrete options priced off this "
+         "chart. If an address or op is wrong the engine refuses and hands back "
+         "the whole grammar; re-call with the names it lists rather than "
+         "guessing again."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "defaults to the chart in focus"},
          "interval": {"type": "string",
@@ -7039,6 +7040,53 @@ def _alert_tool(name: str):
 for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
            "cancel_alert"):
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
+
+
+def _teach_alert_grammar() -> None:
+    """Put the ENGINE's own address grammar into the alert tools' schema.
+
+    The addresses were re-typed into the tool description by hand, and had
+    already drifted from the dict the resolver actually reads: results(),
+    the derived prices, ema/supertrend, avg(close,50), stoch(14).k and the
+    shifted form rsi(14)[1] were all resolvable, and none of them were
+    offered. The model cannot compose what it has not been told exists — so
+    "tell me when results are out" reached for a news search, which was the
+    only instrument it had, while `results()` sat in OPERANDS unused.
+
+    Generated from OPERANDS/OPS, it cannot drift again: an operand added to
+    alerts.py is offered to the model the day it lands, the same way an
+    indicator added to indicators.py is already addressable the day IT lands.
+    This is a schema, not a router — nothing here inspects the user's words.
+    """
+    if _alerts is None:
+        return
+
+    # Trimmed to the clause that says what the address IS. The rest of each
+    # entry is a caveat the ENGINE enforces anyway (range checks, closed-bar
+    # evaluation, tick clearance) and paying for it on every turn buys the
+    # model nothing it can act on. `ops` are already an enum on the parameter,
+    # so only their one-line meaning is worth carrying.
+    def head(s: str) -> str:
+        s = " ".join(str(s).split())
+        for stop in (". ", " — ", ", so ", ". "):
+            if stop in s:
+                s = s.split(stop)[0]
+        return s[:96]
+
+    addrs = "; ".join(f"{k} = {head(v)}" for k, v in _alerts.OPERANDS.items())
+    ops = "; ".join(f"{k}: {head(v)}" for k, v in _alerts.OPS.items())
+    grammar = (f"\n\nADDRESSES (this list IS the resolver's own — anything on "
+               f"it works, anything off it is refused): {addrs}"
+               f"\n\nOPS: {ops}")
+    # Carried by set_alert alone. check_alert takes the identical `when`, and
+    # both schemas reach the model in the same request, so a second copy is a
+    # second bill for a grammar already on screen.
+    for t in TOOLS:
+        if t.get("name") == "set_alert":
+            t["description"] = t["description"] + grammar
+        elif t.get("name") == "check_alert":
+            t["description"] = (t["description"] + " Takes exactly the "
+                                "addresses and ops listed under set_alert.")
 
 
 def _journal_update_tool(trade_id: int, changes: dict):
@@ -10018,6 +10066,10 @@ if __name__ == "__main__":
     try:
         import alerts as _alerts_mod
         _alerts = _alerts_mod
+        # before anything can be asked: the tools' schema carries the engine's
+        # own operand list, so the model is never offered a grammar narrower
+        # than the one the resolver speaks
+        _teach_alert_grammar()
         _alerts_mod.register_hook()
         _boot = _alerts_mod.start()
         print(f"charto alerts: {_boot.get('armed', 0)} armed on "
