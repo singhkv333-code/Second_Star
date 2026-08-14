@@ -42,6 +42,10 @@ const Theme = (() => {
       s5: "#56b6c2", s6: "#d99552",
       bandStrong: "rgba(78,168,242,.9)", bandSoft: "rgba(78,168,242,.4)",
       histUp: "rgba(8,153,129,.55)", histDown: "rgba(242,54,69,.55)",
+      // the dashed 70/30 kind of line on an oscillator pane: a reference the
+      // eye should find when it looks for it and ignore when it does not, so
+      // it sits below the grid in weight rather than competing with the study
+      guide: "rgba(255,255,255,.22)",
     },
     light: {
       chartBg: "#ffffff",
@@ -66,6 +70,7 @@ const Theme = (() => {
       s5: "#0f8b95", s6: "#c0651b",
       bandStrong: "rgba(26,115,232,.85)", bandSoft: "rgba(26,115,232,.35)",
       histUp: "rgba(8,153,129,.5)", histDown: "rgba(242,54,69,.5)",
+      guide: "rgba(0,0,0,.2)",
     },
   };
 

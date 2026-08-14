@@ -614,6 +614,24 @@ const Alerts = (() => {
       .filter(([, rows]) => rows.length);
   }
 
+  /** How tall the list may be under a given field: it stops at the FORM's lower
+   *  edge, never over the footer. A menu lying across Cancel and Create hides
+   *  the two controls that end the dialog — and it was doing it by 26px, which
+   *  looks less like a menu on top of a card than like a card with a piece
+   *  missing. Floored, so a field low in a short window still opens a usable
+   *  list (DlgKit.place then flips it above, where there is room). */
+  function roomBelow(input) {
+    // The status line counts as part of the form: it is the one element that
+    // says what the rule is looking at right now, so a list that covers it is
+    // hiding the answer to the question being typed. It is measured only when
+    // it HAS a box — `.al-check:empty` is display:none, whose rect reads 0.
+    const stops = [dlg && dlg.querySelector(".dlg-foot"), el("alCheck")]
+      .filter((n) => n && n.offsetHeight)
+      .map((n) => n.getBoundingClientRect().top);
+    const limit = (stops.length ? Math.min(...stops) : innerHeight) - 8;
+    return Math.max(148, Math.min(304, limit - input.getBoundingClientRect().bottom - 6));
+  }
+
   /** `typed` distinguishes the two ways this opens. Focusing a field that
    *  already holds "close" must show the WHOLE list — filtering by the current
    *  value there hides every other choice, which is the opposite of what
@@ -640,6 +658,12 @@ const Alerts = (() => {
     m.className = "al-menu";
     m.innerHTML = comboHTML(groups);
     document.body.appendChild(m);
+    // The sheet is the FIELD's width, the way a dressed <select>'s menu takes
+    // its button's — so it lands flush on the two edges of the control it
+    // belongs to. Left to a width of its own it was wider than the field and
+    // hung past the dialog's right edge, which reads as a panel that missed.
+    m.style.width = `${Math.max(input.offsetWidth, 240)}px`;
+    m.style.maxHeight = `${roomBelow(input)}px`;   // before place(): it flips on height
     comboMenu = m;
     comboFor = input;
     DlgKit.place(m, input);
@@ -711,7 +735,7 @@ const Alerts = (() => {
       <div class="al-line">
         ${combo("left", c.left, "close, rsi(14), …")}
         ${draft.when.length > 1
-          ? `<button type="button" class="al-mini danger" data-act="drop-cond"
+          ? `<button type="button" class="al-mini" data-act="drop-cond"
                title="Remove this condition">${Icons.svg("x", "xs")}</button>`
           : ""}
       </div>
@@ -758,18 +782,18 @@ const Alerts = (() => {
     return `
       <div class="dlg-row al-condrow">
         <label>Condition</label>
-        <div class="al-stack">
+        <div class="al-stack${draft.when.length > 1 ? " multi" : ""}">
           ${draft.when.map(condRow).join(
-            `<div class="al-join">${draft.all ? "and" : "or"}</div>`)}
+            `<div class="al-join"><span>${draft.all ? "and" : "or"}</span></div>`)}
           <div class="al-addrow">
-            <button type="button" class="al-add" data-act="add-cond">
+            <button type="button" class="btn al-add" data-act="add-cond">
               ${Icons.svg("plus", "xs")} Add condition</button>
             ${draft.when.length > 1
               // Reads as the ACTION, not as a label: "needs all of them" beside
               // a list already showing AND says nothing and looks like a
               // statement you cannot act on.
-              ? `<button type="button" class="al-add" data-act="flip-all">
-                   fire on ${draft.all ? "any one" : "all"}</button>` : ""}
+              ? `<button type="button" class="btn al-add" data-act="flip-all">
+                   Fire on ${draft.all ? "any one" : "all"}</button>` : ""}
           </div>
         </div>
       </div>
@@ -1092,8 +1116,17 @@ const Alerts = (() => {
     dlg.querySelector('[data-act="ok"]').disabled = true;
     wrap.classList.add("open");
     if (card) card.centre();          // after .open, so the flex centring applies
+    // The target field is focused, so a level can be typed the moment the card
+    // appears — but its menu stays SHUT. `focusin` opens the list, and a
+    // programmatic focus fires it too, so the dialog used to present itself with
+    // a 300px list of addresses already dropped over its own four settings:
+    // the first thing on screen was a wall of names nobody had asked for, and
+    // the form it belongs to was underneath it. One click on the field, one
+    // keystroke, or the caret, and the list is right there.
+    suppressOpen = true;
     const first = dlg.querySelector(".dlg-input.right");
     if (first) { first.focus(); first.select(); }
+    setTimeout(() => { suppressOpen = false; }, 0);
   }
 
   /* ── boot ────────────────────────────────────────────────────────────── */

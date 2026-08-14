@@ -110,6 +110,7 @@ _scene = threading.local()
 def _scene_reset() -> None:
     _scene.items = []
     _scene.drawn = []
+    _scene.cards = []
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
     _scene.minted_anchors = {}
@@ -282,6 +283,37 @@ def _view_take() -> list[dict]:
     ops = getattr(_scene, "views", [])
     _scene.views = []
     return ops
+
+
+# ── the third channel: what a tool MEASURED, printed beside the reply ──
+#
+# A scene op draws on the chart. A view op moves the workspace. A card is
+# neither: it is the tool's own result set, rendered as a panel in the
+# thread, and it exists because some scans return more structure than a
+# paragraph can carry. A full pattern sweep is the case that forced it — a
+# market-structure read, several formations each with a status and a
+# measurement, and a dozen candlestick bars. Written out in prose that is a
+# transcript rather than an answer; left out, the reply has silently dropped
+# the measurements the user asked for.
+#
+# The rules that keep this from becoming a second brain:
+#   · a card is a PROJECTION of the dict the model is handed in the same
+#     breath — nothing is computed here that isn't already in the result, so
+#     the panel and the prose cannot state two different numbers;
+#   · the tool emits it, never the model. There is no code path for a card
+#     carrying a level nothing detected (constitution §2);
+#   · it does not replace the reply. The model still says what the scan
+#     MEANS; the card is what it means it ABOUT.
+def _card_add(card: dict) -> None:
+    if not hasattr(_scene, "cards"):
+        _scene.cards = []
+    _scene.cards.append(card)
+
+
+def _card_take() -> list[dict]:
+    cards = getattr(_scene, "cards", [])
+    _scene.cards = []
+    return cards
 
 
 # ── the user's drawings, addressable by id ────────────────────────
@@ -4078,11 +4110,157 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     return res
 
 
+# ── the pattern sweep, as a card ──────────────────────────────────
+#
+# The detectors speak in enums — "BOS"/"down", "not_assessed", "LH" — which
+# is the right vocabulary for a payload and the wrong one for a panel a
+# person reads. These three tables are the whole translation, and they live
+# beside each other so a label can never be spelled two ways in one card.
+_STRUCT_WORD = {
+    ("BOS", "up"): "Bullish break of structure",
+    ("BOS", "down"): "Bearish break of structure",
+    ("CHoCH", "up"): "Bullish change of character",
+    ("CHoCH", "down"): "Bearish change of character",
+}
+_SWING_WORD = {"HH": "Higher high", "HL": "Higher low",
+               "LH": "Lower high", "LL": "Lower low",
+               "H": "Swing high", "L": "Swing low"}
+# "not_assessed" is a deliberate omission in the detector (a wedge has two
+# candidate breakout edges, so no single level confirms it) and it has to
+# stay one on screen. "Unresolved" says that; leaving the badge blank would
+# read as an oversight, and "unconfirmed" would claim a level was watched.
+_STATUS_WORD = {"confirmed": "confirmed", "unconfirmed": "unconfirmed",
+                "not_assessed": "unresolved", "forming": "forming"}
+# The ONE number a formation is worth stating, most decisive first: a
+# neckline is the level that settles a double top, a wedge has no such level
+# and is described by how wide it still is, a flag by its pole. Anything
+# further down is the fallback for a shape that carries none of the above.
+_PATTERN_MEASURE = (("neckline", "Neckline"), ("width_now", "Width"),
+                    ("pole", "Pole"), ("measured_move", "Measured move"))
+
+
+def _struct_events(struct: dict | None) -> list[dict]:
+    """The structure read as rows: the named breaks, then what came after.
+
+    Shared, because two panels now show this list — the pattern sweep and the
+    trend read — and they are looking at ONE `market_structure` result. Two
+    derivations of the same rows is two panels that can quietly drift apart
+    while both claim to be reading the same swings.
+    """
+    if not struct:
+        return []
+    events: list[dict] = []
+    for e in struct.get("structure_events") or []:
+        kind, side = e.get("event"), e.get("direction")
+        events.append({"t": e.get("t"), "price": e.get("price"),
+                       "what": _STRUCT_WORD.get((kind, side), str(kind or "")),
+                       "tone": side})
+    # …and what has happened SINCE. A break of structure is one moment, and a
+    # section holding one row reads as a fact rather than as a sequence — the
+    # swings that came after it are the part of the story that has no name
+    # yet, and they are what says whether the break is still being respected.
+    # Only the ones after the last event: the swings before it are the story
+    # that break already told.
+    swings = struct.get("swings") or []
+    if events:
+        cut = [i for i, s in enumerate(swings) if s.get("t") == events[-1]["t"]]
+        swings = swings[cut[-1] + 1:] if cut else []
+    for s in swings[-3:]:
+        lab = str(s.get("label") or "")
+        events.append({"t": s.get("t"), "price": s.get("price"),
+                       "what": _SWING_WORD.get(lab, lab),
+                       "tone": "up" if lab in ("HH", "HL")
+                               else "down" if lab in ("LH", "LL") else ""})
+    return events
+
+
+def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
+                   charts: list[dict], cands: list[dict],
+                   drawn: set) -> dict | None:
+    """Everything the sweep found, in the shape a panel renders.
+
+    Reads only from what `tool_get_patterns` already computed and is about to
+    hand the model. It measures nothing of its own — a card that derived even
+    one number would be a second opinion about the same chart.
+    """
+    events = _struct_events(struct)
+    trend = str((struct or {}).get("trend") or "")
+
+    tiles = []
+    for p in charts:
+        measure = None
+        for key, label in _PATTERN_MEASURE:
+            v = p.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                measure = {"label": label, "value": round(float(v), 2)}
+                break
+        tiles.append({
+            "id": p.get("id"), "name": str(p.get("pattern", "")).replace("_", " "),
+            "from": p.get("from"), "to": p.get("to"),
+            "bias": p.get("direction"), "measure": measure,
+            "status": _STATUS_WORD.get(str(p.get("status") or ""), "unresolved"),
+            "broke_at": p.get("broke_at"),
+            "drawn": p.get("id") in drawn,
+        })
+
+    # One bar often qualifies under several names — a doji is usually also a
+    # long-legged doji — and the chart already collapses those onto one mark.
+    # The list has to collapse them the SAME way or it stops agreeing with the
+    # chart beside it: the mark is keyed on the bar SPAN, so a 1-bar doji and
+    # a 3-bar three-outside-down that finish on the same bar are two dots, not
+    # one, and merging them here on the timestamp alone would show one row
+    # against two marks. Hence (t, bars) — the span, in the fields the payload
+    # actually carries.
+    rows: list[dict] = []
+    seen: dict = {}
+    for c in cands:
+        key = (c.get("t"), c.get("bars"))
+        name = str(c.get("pattern", "")).replace("_", " ")
+        at = seen.get(key)
+        if at is not None:
+            at["names"].append(name)
+            # A neutral name (a doji) sitting beside a directional one (its
+            # gravestone variety) does not make the bar neutral: the first
+            # reading with a side is the one the row states.
+            if at["bias"] in ("neutral", "", None):
+                at["bias"] = c.get("direction")
+            at["ann"] = at["ann"] or c.get("drawn_as")
+            at["drawn"] = at["drawn"] or bool(c.get("drawn_as"))
+            continue
+        seen[key] = {"t": c.get("t"), "names": [name],
+                     "bias": c.get("direction"), "ann": c.get("drawn_as"),
+                     "drawn": bool(c.get("drawn_as"))}
+        rows.append(seen[key])
+
+    if not (events or tiles or rows):
+        return None
+    return {
+        "kind": "patterns", "symbol": _sym(), "interval": interval,
+        "bars_scanned": bars, "window": window,
+        "trend": trend, "events": events,
+        "chart_patterns": tiles, "candles": rows,
+        # Found versus drawn, stated by the card itself. The caps are real
+        # (three formations, `mark_limit` bars) and a panel that listed twelve
+        # while the chart showed five would have the user hunting for seven
+        # marks that were never put there.
+        #
+        # `candles_found` counts PATTERNS and `candle_bars` counts BARS, and
+        # they are different numbers because one bar can qualify under several
+        # names. The panel is a list of bars, so it is the bar count the panel
+        # displays — a heading reading "20" over eighteen rows is a card
+        # arguing with itself, and the reader has no way to tell which half
+        # is wrong.
+        "counts": {"chart_found": len(charts), "chart_drawn": len(drawn),
+                   "candles_found": len(cands), "candle_bars": len(rows),
+                   "candles_marked": sum(1 for r in rows if r["drawn"])},
+    }
+
+
 def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
                       draw_ids: list | None = None, draw_mode: str = "add",
-                      mark_limit: int = 5) -> dict:
+                      mark_limit: int = 5, max_draw: int = 3) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -4138,7 +4316,13 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         picked = [by_id[i] for i in wanted if i in by_id]
         missing = sorted(wanted - set(by_id))
     elif draw:
-        picked = charts[:3]
+        # `max_draw` is an ARGUMENT, not a slice buried here — the same lesson
+        # `mark_limit` learned one block down. "Draw all the patterns" is a
+        # perfectly ordinary ask, and with a hardcoded three the only way to
+        # honour it was a second call listing ids the model had to read back
+        # out of the first result. A default of three keeps the calm chart
+        # that asking loosely should get.
+        picked = charts[:max(1, int(max_draw if max_draw is not None else 3))]
     # Candlesticks get marked too, and draw_ids addresses chart patterns only,
     # so an explicit id list means "just those" and leaves the candles alone.
     #
@@ -4325,9 +4509,28 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                 f"to hedge or to offer a loosely similar shape as if it "
                 f"qualified. Name the window you scanned.")
 
+    window = f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}"
+    card = _patterns_card(interval, len(rows), window, struct if want_s else None,
+                          charts if want_p else [], cands if want_c else [],
+                          {p["id"] for p in picked})
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A panel listing this whole sweep — the structure read and its "
+            "events, every chart pattern with its status and measurement, and "
+            "every candlestick BAR — is already rendered beside your reply. "
+            "The user can see all of it. So do not transcribe the lists back: "
+            "say what the sweep MEANS, name only the few worth naming, and "
+            "spend the reply on the reading rather than on the inventory. "
+            f"Note the panel counts bars, not names: the "
+            f"{card['counts']['candles_found']} candlestick pattern(s) in "
+            f"`candlesticks` fall on {card['counts']['candle_bars']} bar(s), "
+            "because one bar can qualify under several names. If you quote a "
+            "count, say which of the two you mean.")
+
     res["provenance"] = {
         "interval": interval, "bars_scanned": len(rows),
-        "window": f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}",
+        "window": window,
         "tolerance": round(tol, 2),
         "candlestick_thresholds": {
             "doji_body_max_pct_of_range": patterns._DOJI_BODY * 100,
@@ -4356,6 +4559,240 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         "target or a prediction, and must be labelled as such. Candlestick "
         "patterns in particular fire often: prefer the recent ones, say how "
         "many you found, and do not list twenty.")
+    return res
+
+
+# ── "what is the trend?" ────────────────────────────────────────────────────
+#
+# The first question any chart gets, and the one most often answered with a
+# feeling. FOUR measurements have a claim on the word and they routinely
+# disagree: the swing sequence says where the highs and lows are going, ADX
+# says whether there is enough directional movement to call it a trend at all,
+# +DI against −DI says which side owns that movement, and a fitted trendline
+# says what price has actually been respecting. Any one of them alone is a
+# guess wearing a number.
+#
+# So this runs all four and hands back the disagreement INTACT. There is
+# deliberately no field that folds them into a single word: structure reading
+# sideways while DI reads firmly bearish is a real and ordinary state of a
+# chart — usually the most informative thing about it — and a consensus field
+# would be this file inventing an agreement the measurements do not have.
+# Which of the four to lead with is judgement, and judgement belongs in the
+# reply.
+
+# Wilder's own bands, and the ONLY interpretation in here. They qualify the
+# ADX number rather than standing in for it — the figure is always carried
+# alongside — and they ride in provenance so a reply can say where the
+# cut-offs came from instead of asserting that 20 is meaningful.
+_ADX_BANDS = ((25.0, "strong"), (20.0, "developing"))
+
+
+def _adx_band(v) -> str:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return ""
+    return next((w for cut, w in _ADX_BANDS if v >= cut), "absent")
+
+
+def _trendline_name(role: str, slope: float) -> str:
+    """What a fitted line is called in a sentence.
+
+    The detector's own vocabulary already IS the name — a resistance line
+    sloping down is a descending resistance — so this only puts the two words
+    in order. Named here rather than in the renderer so the panel and the
+    model's payload use one phrase for one line.
+    """
+    lean = ("Descending" if slope < 0 else "Rising" if slope > 0 else "Flat")
+    return f"{lean} {role}"
+
+
+def _trend_card(interval: str, bars: int, window: str, struct: dict,
+                adx: dict, bias: str, rng: dict, lines: list[dict],
+                drawn: set) -> dict | None:
+    """The four readings, in the shape a panel renders.
+
+    Same rule as the pattern sweep's card: everything here was computed by
+    `tool_get_trend` and is on its way to the model in the same call, so the
+    panel and the paragraph beside it cannot state two different figures.
+    Nothing is measured on this side.
+    """
+    stats = {"structure": str(struct.get("trend") or ""), "bias": bias}
+    if isinstance(adx.get("adx"), (int, float)):
+        stats["adx"] = {"value": adx["adx"], "period": adx.get("period"),
+                        "strength": adx.get("strength") or ""}
+    # The two DI legs go in ONLY as a pair. One of them alone is not a weak
+    # reading of direction, it is no reading at all — the whole content of
+    # +DI is the number it is being compared against.
+    p, m = adx.get("plus_di"), adx.get("minus_di")
+    if isinstance(p, (int, float)) and isinstance(m, (int, float)):
+        stats["di"] = {"plus": p, "minus": m}
+
+    tiles = []
+    for x in lines:
+        # A line that has broken is a different fact from one still holding,
+        # and the tense says so: a level price is respecting "projects near"
+        # the latest bar, a level it closed through "was near" it. Printing
+        # one figure under both statuses invites the reader to supply the
+        # reading that suits them.
+        tiles.append({
+            "id": x.get("id"), "name": _trendline_name(x["role"], x["slope_per_bar"]),
+            "status": x["status"], "touches": x.get("touches"),
+            "level": x.get("projects_to"),
+            "level_label": "Was near" if x["status"] == "broken" else "Projects near",
+            "drawn": x.get("id") in drawn,
+        })
+
+    events = _struct_events(struct)
+    if not (stats["structure"] or events or tiles or stats.get("adx")):
+        return None
+    return {"kind": "trend", "symbol": _sym(), "interval": interval,
+            "bars_scanned": bars, "window": window,
+            **stats, "range": rng, "events": events, "trendlines": tiles}
+
+
+def tool_get_trend(interval: str = "1d", lookback_bars: int = 300,
+                   adx_period: int = 14, draw: bool = False,
+                   max_draw: int = 2, draw_mode: str = "add") -> dict:
+    """What the trend is, measured four ways at once.
+
+    One tool rather than four calls because the answer is the COMPARISON —
+    a reply that fetched ADX alone would report 35 as a strong trend without
+    noticing the swings have gone flat, and one that read the swings alone
+    would call a hard directional move sideways.
+    """
+    mode = str(draw_mode or "add").lower()
+    if mode == "clear":
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trend"})
+        return {"cleared": True,
+                "_note": "The trend lines this tool drew are off the chart."}
+    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    rows = _rows(interval, lookback_bars)
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    wt = interval not in ("1d", "1w", "1mo")
+    ist = lambda ts: _ist(ts, wt)  # noqa: E731
+
+    # The same ±5-bar pivots every other detector uses. A trend read off its
+    # own private swing definition would disagree with the levels, the
+    # trendlines and the pattern sweep about what a swing even is.
+    struct = patterns.market_structure(rows, _pivots(rows, 5), ist)
+
+    # ADX and its two DI legs, from the shared registry at the period the
+    # chart itself would draw. A window too short for the smoother RAISES
+    # rather than handing back a warm-up value, and then the strength reading
+    # drops out of the answer entirely — one measurement missing is not a
+    # reason to fabricate it, and not a failure of the other three.
+    n_adx = max(2, min(int(adx_period or 14), 100))
+    adx: dict = {}
+    try:
+        last = indicators.compute("adx", rows, n_adx)["last"]
+    except ValueError as exc:
+        adx = {"period": n_adx, "unavailable": str(exc)}
+    else:
+        adx = {"period": n_adx, "adx": last.get("adx"),
+               "plus_di": last.get("plus_di"), "minus_di": last.get("minus_di"),
+               "strength": _adx_band(last.get("adx"))}
+
+    # Which side owns the directional movement. This is DI's reading and
+    # nothing else's — it is NOT the structure trend under a second name, and
+    # the two are allowed to disagree. Equal legs is "even", not a coin toss.
+    p, m = adx.get("plus_di"), adx.get("minus_di")
+    bias = ""
+    if isinstance(p, (int, float)) and isinstance(m, (int, float)):
+        bias = "bullish" if p > m else "bearish" if m > p else "even"
+
+    # One line per side, the best-supported one. This is a trend read, not the
+    # trendline catalogue — `get_trendlines` is the tool for every candidate
+    # and its ids, and offering six here would bury the four readings the card
+    # is actually about.
+    tl = _trendlines(rows, with_time=wt)
+    best: list[dict] = []
+    for role in ("resistance", "support"):
+        side = sorted((x for x in tl if x["role"] == role),
+                      key=lambda c: (-c["touches"], -c["span_bars"]))
+        if side:
+            best.append(side[0])
+
+    picked = best[:max(1, min(int(max_draw or 2), 4))] if draw else []
+    if picked and mode == "replace":
+        _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trend"})
+    for x in picked:
+        _scene_add({
+            "kind": "segment", "id": x["id"], "pane": "price", "role": x["role"],
+            "p1": {"t": x["_t1"], "v": x["p1"]}, "p2": {"t": x["_t2"], "v": x["p2"]},
+            "dashed": x["status"] == "broken",
+            "label": f"{'R' if x['role'] == 'resistance' else 'S'} trendline · "
+                     f"{x['touches']} touches · {x['status']}",
+            "source": {"tool": "get_trend",
+                       "method": "swing-anchored, 3+ touches, ATR tolerance",
+                       "interval": interval, "bars_scanned": len(rows),
+                       "touches": x["touches"], "strength": x["status"],
+                       "first_touch": x["from"], "last_touch": x["to"]},
+        })
+
+    hi, lo = max(r[2] for r in rows), min(r[3] for r in rows)
+    rng = {"low": round(lo, 2), "high": round(hi, 2),
+           "last_price": rows[-1][4],
+           # Where in its own range price is sitting, which is the one thing a
+           # high and a low do not say on their own: 1,299 between 1,249 and
+           # 1,345 is the middle, and "sideways" means something different at
+           # 5% than it does at 95%.
+           "position_pct": (round((rows[-1][4] - lo) / (hi - lo) * 100, 1)
+                            if hi > lo else None)}
+
+    window = f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}"
+    clean = [{k: v for k, v in x.items() if not k.startswith("_")} for x in best]
+    res: dict = {
+        "market_structure": struct,
+        "adx": adx,
+        "directional_bias": bias or "unavailable",
+        "range": rng,
+        "trendlines": clean,
+    }
+    if picked:
+        res["drawn"] = [x["id"] for x in picked]
+        res["_drawn_note"] = _drawn_ledger()
+
+    card = _trend_card(interval, len(rows), window, struct, adx, bias, rng,
+                       best, {x["id"] for x in picked})
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A panel carrying all four readings — the structure word, the "
+            "directional bias, ADX with its two DI legs drawn against each "
+            "other, the window's range, the structure events and the fitted "
+            "lines — is already rendered beside your reply. The user can see "
+            "every figure in it. So do not read the panel back out: say what "
+            "the four together MEAN for this chart, and lead with whichever "
+            "one the question was actually about.")
+
+    res["provenance"] = {
+        "interval": interval, "bars_scanned": len(rows), "window": window,
+        "swing_window_bars": 5,
+        "adx_period": n_adx,
+        "adx_bands": {"strong": ">= 25", "developing": "20 - 25",
+                      "absent": "< 20", "source": "Wilder's own thresholds"},
+        "trendline_method": "swing-anchored, 3+ touches, ATR tolerance",
+        "range_basis": "highest high and lowest low of the scanned window",
+        "method": ("structure labels from the shared ±5-bar swing pivots; ADX "
+                   "and DI double-smoothed Wilder; trendlines fitted through "
+                   "3+ real swings"),
+    }
+    res["_note"] = (
+        "These are four SEPARATE measurements of one chart and they are not "
+        "required to agree. `market_structure.trend` is the swing sequence "
+        "(HH/HL vs LH/LL) and nothing else; `directional_bias` is which DI leg "
+        "is larger at the latest bar; `adx.adx` is how much directional "
+        "movement there is, with no side to it at all — a high ADX in a "
+        "bearish DI reading is a strong DOWNtrend, not a strong chart. When "
+        "they disagree, SAY SO and say which one the question is about: "
+        "'structure has gone sideways while DI still leans bearish' is the "
+        "answer, not a problem to resolve. Never average them into one word. "
+        "ADX below 20 means the trend reading is weak evidence — quote the "
+        "number rather than upgrading it. `range.position_pct` is where the "
+        "last close sits inside the scanned window's own high-low. "
+        "`projects_to` on a line is an extrapolation of the fitted line, not "
+        "a detected level, and 'broken' means price has already closed "
+        "through it. None of this is a forecast.")
     return res
 
 
@@ -6482,6 +6919,16 @@ TOOLS = [
          "side": {"type": "string", "enum": ["support", "resistance", "both"],
                   "description": "'resistance' = fitted through swing HIGHS (a descending line, the top of a channel, 'along the highs', 'the downtrend line'); 'support' = through swing LOWS ('along the lows', 'rising support'). Default 'both' picks whichever has the most touches, which will answer a highs question with a lows line. For a channel, call once per side."}},
          "required": ["interval"]}},
+    {"type": "function", "name": "get_trend",
+     "description": "THE tool for 'what is the trend' / 'is this trending or ranging' / 'which way is this going' / 'how strong is the move'. One call measures it four separate ways and returns the disagreement intact: market structure (the HH/HL vs LH/LL swing sequence), ADX (how much directional movement there is, with no side to it), +DI against -DI (which side owns that movement), and the best-supported fitted trendline per side with intact/broken status — plus the scanned window's high-low range and where the last close sits inside it. Use this instead of assembling a trend answer yourself out of get_indicator('adx') and get_patterns: those return the same numbers with nothing comparing them, and the comparison is the answer. The four readings are NOT required to agree and you must not average them into one word — structure going sideways while DI stays bearish is the finding, not a contradiction to resolve. Set draw=true to put the fitted lines on the chart. A panel carrying all four readings is rendered beside your reply, so spend the reply on what they mean together rather than transcribing them.",
+     "parameters": {"type": "object", "properties": {
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300 — this is also the window the range and the structure read are measured over, so widen it for 'the longer-term trend' rather than reinterpreting a short one"},
+         "adx_period": {"type": "integer", "description": "ADX smoothing, default 14"},
+         "draw": {"type": "boolean", "description": "draw the fitted trend lines"},
+         "max_draw": {"type": "integer", "description": "default 2 — one line per side"},
+         "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
+         "required": ["interval"]}},
     {"type": "function", "name": "get_divergences",
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
      "parameters": {"type": "object", "properties": {
@@ -6619,7 +7066,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply listing everything it found, so the reply's job is what the sweep MEANS, not a transcript of the lists.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -6632,6 +7079,7 @@ TOOLS = [
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the chart_patterns list, to mark exactly those"},
          "mark_limit": {"type": "integer", "description": "how many candlestick BARS to mark, most recent first — default 5. Raise it when the user asks for all of them ('mark every candle pattern'); the result says how many were found versus drawn."},
+         "max_draw": {"type": "integer", "description": "how many CHART PATTERNS to draw, most recent first — default 3, which is the calm chart a loose ask should get. Raise it when the user asks for all of them ('draw all the patterns'); the result says how many were found versus drawn."},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_pattern",
@@ -6920,6 +7368,7 @@ def tool_recall_conversations(query: str = "", symbol: str = "",
 _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_indicator": tool_get_indicator,
              "get_trendlines": tool_get_trendlines,
+             "get_trend": tool_get_trend,
              "get_divergences": tool_get_divergences,
              "get_anchors": tool_get_anchors,
              "get_gaps": tool_get_gaps,
@@ -6998,7 +7447,7 @@ _DISPATCH["update_journal_trade"] = _journal_update_tool
 #   · get_peers / compare_symbols / screen_universe already name their own
 #     symbols — they were never single-chart tools.
 _CHART_SCOPED = frozenset({
-    "get_levels", "get_bars", "get_indicator", "get_trendlines",
+    "get_levels", "get_bars", "get_indicator", "get_trendlines", "get_trend",
     "get_divergences", "get_anchors", "get_gaps", "get_patterns",
     "evaluate_pattern", "get_results", "evaluate_results", "explain_move",
     "search_news", "get_flows", "volume_profile",
@@ -7728,6 +8177,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
+    cards: list[dict] = []
     tok_in = tok_out = 0
     for _round in range(_MAX_TOOL_ROUNDS):
         # On the final round the tools are withdrawn, so the model must answer
@@ -7756,6 +8206,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 "tools_used": tool_trace,
                 "scene_patch": scene_patch,
                 "view_ops": view_ops,
+                "cards": cards,
             }
 
         # execute every call this round, then feed results back
@@ -7768,6 +8219,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
             view_ops.extend(_view_take())
+            cards.extend(_card_take())
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
@@ -7777,7 +8229,8 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
 
     return {"text": "I couldn't finish that lookup — try narrowing the question.",
             "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
-            "context_preview": block, "tools_used": tool_trace}
+            "context_preview": block, "tools_used": tool_trace,
+            "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
 def llm_chat_stream(messages: list[dict], context: dict | None = None):
     """The same tool loop, yielding events instead of returning a result.
 
@@ -7787,8 +8240,16 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
     Yielded events:
       {"type":"tool",  name, ok}    a tool finished — progress while the user waits
+      {"type":"card",  card}        a tool's result panel, the moment it exists
       {"type":"delta", text}        a piece of the answer
       {"type":"done",  ...}         the same payload llm_chat returns
+
+    A card is streamed rather than held for `done` because of where it sits on
+    screen: it belongs ABOVE the reply that reads it, and a panel inserted
+    above finished prose would shove the paragraph the user is mid-sentence in
+    down the pane. Sent as the tool lands, it is already there before the
+    model has written a word. `done` carries the full list too — that is what
+    a reloaded thread repaints from.
     """
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": _creds_error()}
@@ -7805,6 +8266,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
+    cards: list[dict] = []
     tok_in = tok_out = 0
 
     for _round in range(_MAX_TOOL_ROUNDS):
@@ -7847,7 +8309,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
-                   "scene_patch": scene_patch, "view_ops": view_ops}
+                   "scene_patch": scene_patch, "view_ops": view_ops,
+                   "cards": cards}
             return
 
         for call in calls:
@@ -7859,11 +8322,15 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
             view_ops.extend(_view_take())
+            fresh = _card_take()
+            cards.extend(fresh)
             ok = "error" not in result
             tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
             # tell the client immediately: a tool landing is the only progress
             # signal there is during a multi-round turn
             yield {"type": "tool", "name": call.get("name"), "ok": ok}
+            for c in fresh:
+                yield {"type": "card", "card": c}
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments")})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
@@ -7873,7 +8340,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
            "text": "I couldn't finish that lookup — try narrowing the question.",
            "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
            "context_preview": block, "tools_used": tool_trace,
-           "scene_patch": scene_patch, "view_ops": view_ops}
+           "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
 
 
 IST_OFF = 19800  # +05:30
@@ -9617,6 +10084,13 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, {"error": f"bad {k} '{raw}'"})
                 if q.get("anchor_index"):
                     extra["anchor_index"] = int(q["anchor_index"])
+                # The instrument's UTC offset, which decides where a session
+                # VWAP resets. Hidden from inputs() — it is not a knob anyone
+                # sets by hand — so it needs forwarding here the way
+                # anchor_index does. compute() drops it for the indicators
+                # that do not take it.
+                if q.get("tz_offset"):
+                    extra["tz_offset"] = int(q["tz_offset"])
                 try:
                     # empty source -> the indicator's own default column
                     res = indicators.compute(name, rows, int(q.get("period", 0)),

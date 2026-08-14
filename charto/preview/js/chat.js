@@ -126,9 +126,31 @@
     }, 4000);
   }
 
+  /* How many replies deep a tool's PANEL is still worth storing.
+   *
+   * A conversation is sixty turns and the archive holds forty of them, so
+   * anything filed per-turn is multiplied by 2,400 before it reaches
+   * localStorage. A pattern sweep's card is ~4KB — the whole archive would be
+   * measured in megabytes, and the quota does not fail loudly: Store.set
+   * swallows it, so the symptom would be a thread that silently stopped
+   * saving at all. The text is what a conversation IS; a panel is the working
+   * surface of the reply that made it. So the newest few keep theirs and the
+   * rest scroll back to their prose, degrading exactly the way the follow-up
+   * suggestions already do. */
+  const KEEP_CARDS = 4;
+
   const saveTurns = () => {
     const rec = active();
-    rec.turns = turns.slice(-KEEP_TURNS);
+    let left = KEEP_CARDS;
+    // Newest first, and never in place: `turns` is the live thread, and
+    // stripping a card off one of those objects would blank the panel the
+    // user is looking at.
+    rec.turns = turns.slice(-KEEP_TURNS).reverse().map((t) => {
+      if (!t.cards) return t;
+      if (left > 0) { left--; return t; }
+      const { cards, ...rest } = t;   // eslint-disable-line no-unused-vars
+      return rest;
+    }).reverse();
     rec.updated = Date.now();
     persistChats();
   };
@@ -732,6 +754,12 @@
           // a landed tool is the only progress signal a multi-round turn has —
           // it becomes its own line on the wait's timeline
           if (turn.__wait) turn.__wait.tool(ev.name);
+        } else if (ev.type === "card") {
+          // A tool's result panel, in as soon as it exists. Guarded because a
+          // card that fails to render must cost nothing: the answer behind it
+          // is still on its way.
+          try { addCard(turn, ev.card); }
+          catch (e) { console.warn("[charto] card failed", e); }
         } else if (ev.type === "done") { done = ev; }
       }
     }
@@ -889,9 +917,35 @@
    * reappear on every reload of an old thread. */
   const TOKENS_RE = /^[\d,]+\s*in\s*\/\s*[\d,]+\s*out$/i;
 
+  /* ── the panels a tool prints ────────────────────────────────────────────
+   *
+   * A card sits ABOVE the prose that reads it, because that is the order the
+   * turn happened in: the scan ran, then the model said what it found. The
+   * live path gets each card the moment its tool lands (an SSE `card` event),
+   * so the panel is already in place before the first word arrives rather
+   * than shoving a half-read paragraph down the pane at the end.
+   *
+   * cards.js owns what one looks like; this owns only where it goes. A kind
+   * this build cannot render returns null and nothing is inserted — the reply
+   * is unaffected, which is the whole point of keeping them separable.
+   */
+  function addCard(turn, card) {
+    if (typeof Cards === "undefined") return;
+    const box = Cards.render(card);
+    if (!box) return;
+    const wasAtBottom = atBottom();
+    turn.insertBefore(box, turn.querySelector(".prose"));
+    if (wasAtBottom) toBottom();
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
-  function finishTurn(turn, text, bits, acts) {
+  function finishTurn(turn, text, bits, acts, cards) {
     endWait(turn);
+    // Only on a repaint: a live turn already has its panels, put there by the
+    // stream. Painting them again here would double every card in the thread.
+    if (cards && !turn.querySelector(".scan")) {
+      for (const c of cards) addCard(turn, c);
+    }
     const prose = turn.querySelector(".prose");
     prose.innerHTML = md(text);
     linkCompanies(prose);
@@ -1050,6 +1104,12 @@
   function failTurn(turn, msg) {
     endWait(turn);
     turn.classList.add("error");
+    // A panel the stream got as far as inserting goes with the turn. The
+    // reply that would have read it never arrived, the drawings it points at
+    // were never applied — a scene patch lands only on `done` — and the turn
+    // itself is dropped from the record, so leaving the card would strand a
+    // scan under an error, pointing at annotations that are not on the chart.
+    turn.querySelectorAll(".scan").forEach((n) => n.remove());
     turn.querySelector(".prose").textContent = `Couldn't reach the model — ${msg}`;
     toBottom();
   }
@@ -1101,7 +1161,7 @@
     for (const t of turns) {
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal); continue; }
       const turn = addAssistantTurn(false);
-      finishTurn(turn, t.content, t.meta || [], t.acts || []);
+      finishTurn(turn, t.content, t.meta || [], t.acts || [], t.cards || []);
       // The questions offered under that reply come back with it. Only the
       // newest turn can be carrying any — clearSuggest drops the rest the
       // moment something else is asked.
@@ -1188,7 +1248,12 @@
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       const meta = [`${secs}s`];
       const acts = chartActions(d.scene_patch);
-      turns.push({ role: "assistant", content: d.text, meta, acts });
+      // The panels are filed with the reply, not re-fetched: reopening a
+      // conversation has to bring back the scan the answer was written about,
+      // and the tool that produced it is not going to be run again.
+      const cards = d.cards || [];
+      turns.push({ role: "assistant", content: d.text, meta, acts,
+                   ...(cards.length ? { cards } : {}) });
       saveTurns();
 
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
@@ -1220,7 +1285,10 @@
       // used to ride here too; it is a fact about the bill rather than about
       // the answer, and the row it sits in is otherwise entirely about what
       // you just read.
-      finishTurn(turn, d.text, meta, acts);
+      // `cards` is the fallback, not the norm: the stream already inserted
+      // them, and finishTurn skips any turn that has one. It matters for the
+      // non-streaming path, which has no card event to insert from.
+      finishTurn(turn, d.text, meta, acts, cards);
       suggestAfter(turn);    // deliberately not awaited — the turn is done
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
@@ -1713,6 +1781,7 @@
 
   // ── resizable split: chart | chat ─────────────────────
   const splitter = el("splitter"), main = document.querySelector(".main");
+  const splitReadout = el("splitReadout");
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
 
@@ -1726,6 +1795,44 @@
   const HKEY = "charto_chat_height";
   const MIN_CHAT_H = 160, MIN_CHART_H = 200;
 
+  /** Everything on this row that is NEITHER chart nor conversation: the
+   *  divider itself, the widget bar on the outer edge, and a widget panel if
+   *  one is open. The clamp used to read `total - MIN_CHART` and hand the
+   *  remainder to the chat, which quietly spent the chart's floor on that
+   *  chrome — dragging all the way over left a 373px chart under a 420px
+   *  promise, and 71px of it with the watchlist out. Measured rather than
+   *  named: it is three widths that each move on their own. */
+  const chartsEl = document.querySelector(".charts");
+  const rowChrome = () =>
+    Math.max(0, main.clientWidth - panel.offsetWidth - chartsEl.clientWidth);
+
+  /** What the divider currently says about itself — the share of the row the
+   *  conversation holds, which is the number that survives a window resize,
+   *  and the pixels the layout actually stores. Written into the readout the
+   *  drag shows AND into the separator's ARIA value, because a control you
+   *  can drive from the keyboard has to announce where it now is. Which axis
+   *  it measures follows the shell: stacked, this divider drags height. */
+  function paintSplit() {
+    const vert = !stacked();
+    const total = vert ? main.clientWidth : main.clientHeight;
+    const size = vert ? panel.offsetWidth : panel.offsetHeight;
+    const pct = total ? Math.round((size / total) * 100) : 0;
+    splitter.setAttribute("aria-orientation", vert ? "vertical" : "horizontal");
+    splitter.setAttribute("aria-valuenow", String(pct));
+    splitter.setAttribute("aria-valuetext",
+      `Chat ${pct}% of the ${vert ? "width" : "height"}, ${size} pixels`);
+    if (splitReadout) splitReadout.textContent = `${pct}% · ${size}px`;
+  }
+
+  /* A keyboard nudge has no drag to show the readout during, so it borrows
+   * it for a moment. Same feedback, same element, no second design. */
+  let peekT = null;
+  function peekSplit() {
+    splitter.classList.add("peek");
+    clearTimeout(peekT);
+    peekT = setTimeout(() => splitter.classList.remove("peek"), 1100);
+  }
+
   /** Stacked layout: the same divider drags HEIGHT. Kept on its own key so
    *  a phone split and a desktop split do not overwrite each other every
    *  time the window crosses the breakpoint. */
@@ -1734,6 +1841,7 @@
     const h = Math.round(Math.max(MIN_CHAT_H, Math.min(px, total - MIN_CHART_H)));
     panel.style.height = h + "px";
     if (persist) localStorage.setItem(HKEY, String(h));
+    paintSplit();
   }
 
   function setChatWidth(px, persist = true) {
@@ -1741,13 +1849,18 @@
       panel.style.width = "";
       const savedH = parseInt(localStorage.getItem(HKEY) || "0", 10);
       if (savedH) setChatHeight(savedH, false);
+      else paintSplit();
       return;
     }
     panel.style.height = "";
     const total = main.clientWidth;
-    const w = Math.round(Math.max(MIN_CHAT, Math.min(px, total - MIN_CHART)));
+    const ceiling = total - MIN_CHART - rowChrome();
+    // a narrow window can put the ceiling under the floor; the chat's own
+    // minimum wins there, exactly as it did before the chrome was counted
+    const w = Math.round(Math.max(MIN_CHAT, Math.min(px, ceiling)));
     panel.style.width = w + "px";
     if (persist) localStorage.setItem(WKEY, String(w));
+    paintSplit();
   }
   function applySavedWidth() {
     const saved = parseInt(localStorage.getItem(WKEY) || "0", 10);
@@ -1757,6 +1870,24 @@
   // rotating a phone, or dragging a desktop window across the breakpoint,
   // has to re-decide this — the width is only meaningful on one side of it
   window.matchMedia("(max-width: 820px)").addEventListener("change", applySavedWidth);
+
+  /* A window that SHRINKS could leave the chat wider than MIN_CHART allows:
+   * the clamp only ever ran when the divider moved. Re-feeding the current
+   * size through it costs nothing. Deliberately not persisted — a window
+   * dragged narrow for a minute must not overwrite the width you chose. And
+   * only when the size is ours to re-state: with no inline value the panel is
+   * on the stylesheet's viewport-relative height, and pinning that to pixels
+   * here would freeze it. */
+  window.addEventListener("resize", () => {
+    if (stacked()) {
+      if (panel.style.height) setChatHeight(panel.offsetHeight, false);
+      else paintSplit();
+    } else if (panel.style.width) {
+      setChatWidth(panel.offsetWidth, false);
+    } else {
+      paintSplit();
+    }
+  });
 
   let dragging = false;
   splitter.addEventListener("mousedown", (e) => {
@@ -1825,6 +1956,36 @@
   splitter.addEventListener("dblclick", () => {
     if (stacked()) setChatHeight(main.clientHeight * 0.46);
     else setChatWidth(main.clientWidth * 0.44);
+    peekSplit();   // the jump is instant; the number is what says it landed
+  });
+
+  /* ── the same control, from the keyboard ──────────────────────────────
+   * The divider is a real `separator`, so it takes the keys one takes. A
+   * drag is a gesture not everyone can hold, and until now it was the only
+   * way to size the conversation at all: the arrows are that same control at
+   * 16px a press (64 with Shift), Home/End run it to its two stops, and
+   * Enter is the double-click's reset. The direction follows the axis — on a
+   * stacked shell the divider drags height, so up/down is what it answers.
+   * setChatWidth is a no-op when stacked (it restores the saved height), so
+   * each branch calls its own setter rather than trusting that redirect. */
+  const NUDGE = 16, NUDGE_BIG = 64, FAR = 1e5;
+  splitter.addEventListener("keydown", (e) => {
+    const vert = !stacked();
+    const grow = vert ? "ArrowLeft" : "ArrowUp";     // more conversation
+    const shrink = vert ? "ArrowRight" : "ArrowDown";  // more chart
+    const cur = vert ? panel.offsetWidth : panel.offsetHeight;
+    const step = e.shiftKey ? NUDGE_BIG : NUDGE;
+    let next;
+    if (e.key === grow) next = cur + step;
+    else if (e.key === shrink) next = cur - step;
+    else if (e.key === "Home") next = FAR;           // clamped to the chart's floor
+    else if (e.key === "End") next = 0;              // clamped to the chat's own
+    else if (e.key === "Enter" || e.key === " ") {
+      next = (vert ? main.clientWidth * 0.44 : main.clientHeight * 0.46);
+    } else return;
+    e.preventDefault();
+    if (vert) setChatWidth(next); else setChatHeight(next);
+    peekSplit();
   });
 
   const chatToggle = el("chatToggle");

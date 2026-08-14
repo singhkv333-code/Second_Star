@@ -19,30 +19,41 @@ BUNDLE = os.path.join(
     "vendor", "lightweight-charts.standalone.production.js",
 )
 
-# (name, before, after). Every one of them serves a single end: each family of
-# price-scale label ends at the same x, `width - tickLength - padding`.
+# (name, befores, after). Every one of them serves a single end: each family of
+# price-scale label ends at the same x, `width - tickLength - padding`, in a
+# plate that is always the same size.
+#
+# `befores` is a tuple because a patch may be re-derived: an earlier release of
+# this script left its own shape in the bundle, and a re-run has to recognise
+# that shape as "stock" too rather than stopping on a file it wrote itself.
 PATCHES = [
     (
         "tick labels right-aligned",
-        't.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
-        'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',
+        ('t.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
+         'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',),
         't.textAlign="right",t.textBaseline="middle";'
         'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)',
     ),
     (
         "pill text onto that same edge",
-        'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',
+        ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',),
         'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)',
     ),
     (
         "pill text alignment",
-        't.font=i.k,t.textAlign=h.li?"right":"left"',
+        ('t.font=i.k,t.textAlign=h.li?"right":"left"',),
         't.font=i.k,t.textAlign="right"',
     ),
     (
-        "one pill width for all of them",
-        'M=i.S+d+f+w+o,',
-        'M=i.S+d+f+w+i.C,',
+        "one pill width, and it is the scale's",
+        ('M=i.S+d+f+w+o,',          # stock
+         'M=i.S+d+f+w+i.C,'),       # this script's own earlier shape
+        'M=h.width-_-5,',
+    ),
+    (
+        "room at the scale's left edge for the alert mark",
+        ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',),
+        'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
     ),
 ]
 
@@ -55,16 +66,19 @@ def main() -> int:
     src = open(BUNDLE, encoding="utf8").read()
     applied, already, missing = [], [], []
 
-    for name, before, after in PATCHES:
+    for name, befores, after in PATCHES:
         if after in src:
             already.append(name)
-        elif src.count(before) == 1:
-            src = src.replace(before, after)
+            continue
+        hit = next((b for b in befores if src.count(b) == 1), None)
+        if hit is not None:
+            src = src.replace(hit, after)
             applied.append(name)
         else:
-            # Neither shape is there: a different version of the library, and
-            # guessing at it would be worse than stopping.
-            missing.append(f"{name} (found {src.count(before)} matches)")
+            # No shape this patch knows how to rewrite: a different version of
+            # the library, and guessing at it would be worse than stopping.
+            counts = ", ".join(str(src.count(b)) for b in befores)
+            missing.append(f"{name} (matches: {counts})")
 
     if missing:
         print("FAILED — the bundle does not look like the version these were "
