@@ -211,7 +211,13 @@ const Indicators = (() => {
     k: "s2", d: "s1",
     plus_di: "s4", minus_di: "s5", adx: "s3",
     aroon_up: "s4", aroon_down: "s5",
-    supertrend_up: "s4", supertrend_down: "s5",
+    // Supertrend's two lines are not a palette pair — they are the trend
+    // itself, and the whole point of the indicator is that the colour tells
+    // you which way it is pointing. The rotating palette had the up-band on
+    // s4 (red) and the down-band on s5 (teal), i.e. exactly inverted against
+    // every other chart the user will ever see it on. Candle up/down are the
+    // same two values TradingView uses.
+    supertrend_up: "up", supertrend_down: "down",
     psar: "s6", vwap: "s6", anchored_vwap: "s6",
   };
   const SERIES = ["s1", "s2", "s3", "s4", "s5", "s6"];
@@ -452,6 +458,11 @@ const Indicators = (() => {
     // range; the pane's autoscale must stretch to include them or a marked
     // level is silently invisible. main.js injects the lookup.
     let scaleExtras = null;
+    // The candles themselves. Every caller already hands them over (toggle,
+    // recomputeAll, retheme) and they were being dropped on the floor; the
+    // Supertrend fill needs them, because the thing it shades TO is the
+    // candle bodies.
+    let BARS = [];
 
     function nextPane() { return chart.panes().length; }
 
@@ -485,6 +496,154 @@ const Indicators = (() => {
       return { priceFormat: { type: "price", precision: p, minMove: Math.pow(10, -p) } };
     }
 
+    /** Make a line with interior holes actually BREAK at them.
+     *
+     *  The backend already sends whitespace points ({time} with no value) for
+     *  the bars a line is not live on, which is the series API's stated way of
+     *  saying "gap". lightweight-charts, though, drops whitespace out of the
+     *  plotted item list entirely: the line is then drawn straight from the
+     *  last real point to the next one, and there is no connectNulls option to
+     *  switch that off. Supertrend is the case it ruins — the inactive band's
+     *  two ends were joined by a long diagonal straight through the candles,
+     *  so a chart with a dozen trend flips wore a dozen phantom trendlines.
+     *
+     *  The one lever the library does give is per-point colour, and — measured
+     *  on the bundled build, not assumed — it paints the segment LEADING AWAY
+     *  from that point, i.e. point i colours i -> i+1. So the point to paint
+     *  transparent is the last real one BEFORE the hole: that hides the bridge
+     *  and nothing else, which is what TradingView's plot.style_linebr draws.
+     *  (Colouring the first point AFTER the hole instead leaves the bridge and
+     *  erases a real segment — the mistake is invisible on a dense line and
+     *  obvious on Supertrend.)
+     */
+    const GAP = "rgba(0,0,0,0)";
+    function breakGaps(pts) {
+      const out = pts.slice();
+      let last = -1, hole = false;
+      for (let i = 0; i < out.length; i++) {
+        if (out[i].value == null) { hole = true; continue; }
+        if (hole && last >= 0) out[last] = { ...out[last], color: GAP };
+        hole = false; last = i;
+      }
+      return out;
+    }
+
+    /* ── the trend fill ──────────────────────────────────
+     * TradingView's Supertrend is not only the band. It also shades the space
+     * between the band and the candle bodies — green while the trend is up,
+     * red while it is down, at 90% transparency — and that wash is most of
+     * what makes the indicator readable in one glance: which side of price the
+     * line is on stops being something you have to work out.
+     *
+     * lightweight-charts has no fill-between-two-series, so this is a series
+     * primitive: one polygon per contiguous run, out along the band and back
+     * along the body midpoints. Which lines get shaded, and against what, is a
+     * table rather than an if — the next banded overlay adds a row.
+     */
+    const FILL_LINES = { supertrend: ["supertrend_up", "supertrend_down"] };
+    const FILL_ALPHA = 0.1;
+
+    /** The line, paired bar by bar with the candle body's midpoint, split at
+     *  every hole. A run of one has no area and is dropped. */
+    function fillRuns(spec) {
+      const mid = new Map(BARS.map((b) => [b.time, (b.open + b.close) / 2]));
+      const runs = [];
+      let run = [];
+      for (const p of spec.data) {
+        const m = mid.get(p.time);
+        if (p.value == null || m === undefined) {
+          if (run.length > 1) runs.push(run);
+          run = [];
+          continue;
+        }
+        run.push({ t: p.time, v: p.value, m });
+      }
+      if (run.length > 1) runs.push(run);
+      return runs;
+    }
+
+    function makeFillPrimitive(a) {
+      const paint = (context) => {
+        const ts = chart.timeScale();
+        const vis = ts.getVisibleRange();
+        for (const f of (a.fills || [])) {
+          context.fillStyle = f.color;
+          for (const run of f.runs) {
+            // years of history sit off-screen on every pan; a run nobody can
+            // see costs two coordinate lookups per bar if it is not skipped
+            if (vis && (run[run.length - 1].t < vis.from || run[0].t > vis.to)) continue;
+            context.beginPath();
+            let ok = true;
+            for (let i = 0; i < run.length && ok; i++) {
+              const x = ts.timeToCoordinate(run[i].t);
+              const y = f.series.priceToCoordinate(run[i].v);
+              if (x == null || y == null) { ok = false; break; }
+              if (i) context.lineTo(x, y); else context.moveTo(x, y);
+            }
+            for (let i = run.length - 1; i >= 0 && ok; i--) {
+              const x = ts.timeToCoordinate(run[i].t);
+              const y = f.series.priceToCoordinate(run[i].m);
+              if (x == null || y == null) { ok = false; break; }
+              context.lineTo(x, y);
+            }
+            if (ok) { context.closePath(); context.fill(); }
+          }
+        }
+      };
+      return {
+        updateAllViews() {},
+        paneViews() {
+          return [{
+            zOrder: () => "bottom",
+            renderer: () => ({
+              draw(target) {
+                target.useMediaCoordinateSpace(({ context }) => paint(context));
+              },
+            }),
+          }];
+        },
+      };
+    }
+
+    function dropFill(a) {
+      if (a.fillPrim && a.fillHost) {
+        try { a.fillHost.detachPrimitive(a.fillPrim); } catch { /* series gone */ }
+      }
+      a.fillPrim = null; a.fillHost = null; a.fills = null;
+    }
+
+    /** Rebuild the shading for one live indicator. Runs on add, on every
+     *  restyle and after every refetch, so a recolour, a hidden line, a new
+     *  period and a theme flip all reach it through the one path. */
+    function syncFill(id) {
+      const a = active.get(id);
+      if (!a || a.pending) return;
+      const want = FILL_LINES[a.def && a.def.name];
+      const st = settings(id);
+      if (!want || !st || st.hidden || !BARS.length || !(a.series || []).length) {
+        dropFill(a);
+        return;
+      }
+      const fills = [];
+      (a.specs || []).forEach((s, i) => {
+        if (!want.includes(s.line) || !a.series[i] || !shown(st, s.line)) return;
+        const plot = st.style.plots[s.line] || {};
+        fills.push({ color: withAlpha(plot.color, FILL_ALPHA),
+                     series: a.series[i], runs: fillRuns(s) });
+      });
+      a.fills = fills;
+      // A plot-type change hands back a NEW series object; a primitive left on
+      // the old one paints nothing and says nothing about it.
+      const host = a.series[0];
+      if (a.fillHost !== host) {
+        dropFill(a);
+        a.fills = fills;
+        a.fillPrim = makeFillPrimitive(a);
+        host.attachPrimitive(a.fillPrim);
+        a.fillHost = host;
+      }
+    }
+
     /** One fetched line-set -> the specs the series layer consumes. */
     function toSpecs(def, lines, pane, st) {
       const names = (def.lines || []).filter((n) => lines[n]);
@@ -501,7 +660,7 @@ const Indicators = (() => {
                 color: p.value >= 0 ? plot.color
                   : (plot.colorDown || plot.color),
               }))
-            : lines[n],
+            : breakGaps(lines[n]),
           // `opts` marks a plot the legend can quote a single value for.
           // A histogram is a shape, not a reading, so it stays out of it —
           // the same rule the first version had, now keyed off the chosen
@@ -648,12 +807,14 @@ const Indicators = (() => {
       }
       active.set(id, { series, def, specs, data: specs.map((s) => s.data),
                        raw: lines, pane });
+      syncFill(id);
       emitLegend();
     }
 
     function remove(id) {
       const a = active.get(id);
       if (!a) return;
+      dropFill(a);
       (a.series || []).forEach((s) => chart.removeSeries(s));
       active.delete(id);
       emitLegend();
@@ -715,6 +876,7 @@ const Indicators = (() => {
       });
       a.specs = specs;
       a.data = specs.map((s) => s.data);
+      syncFill(id);
       emitLegend();
     }
 
@@ -734,7 +896,8 @@ const Indicators = (() => {
     }
 
     /** Interval or history changed — refetch every live indicator. */
-    async function recomputeAll(_bars, next) {
+    async function recomputeAll(bars, next) {
+      if (bars) BARS = bars;
       if (next) ctx = { ...ctx, ...next };
       for (const [id, a] of [...active]) {
         if (a.pending || !a.series.length) continue;
@@ -748,7 +911,8 @@ const Indicators = (() => {
     /** Light/dark switch: repaint every plot the user has NOT recoloured.
      *  A custom colour is a decision, and a theme toggle is not a reason to
      *  overrule it. */
-    function retheme(_bars) {
+    function retheme(bars) {
+      if (bars) BARS = bars;
       for (const [id, a] of active) {
         refreshThemeColors(a.def, settings(id));
         restyle(id);
@@ -872,7 +1036,10 @@ const Indicators = (() => {
       /** The instrument this manager computes on — the page symbol on the
        *  primary, the pane's own on a secondary chart. */
       get symbol() { return ctx.symbol || SYM; },
-      toggle(id, _bars) { return active.has(id) ? (remove(id), Promise.resolve()) : add(id); },
+      toggle(id, bars) {
+        if (bars) BARS = bars;
+        return active.has(id) ? (remove(id), Promise.resolve()) : add(id);
+      },
       remove, recomputeAll, retheme, restyle,
       isActive: (id) => active.has(id),
       /** Current value + value at `fromTime`, for the chat context envelope.
