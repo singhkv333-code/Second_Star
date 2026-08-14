@@ -775,9 +775,24 @@ def chart_patterns(rows: list[tuple], pivots: list[tuple], tol: float, ist,
                 break
         if not dup:
             uniq.append(p)
+    # An id has one job: name ONE formation, unambiguously. The first two
+    # letters of the name could not do it — "double_top" and "double_bottom"
+    # both begin "DO", so a top and a bottom that started on the same day were
+    # handed the same id. Everything downstream keys on it (the drawn scene
+    # object, the panel row that points back at it, a draw_ids re-draw), so
+    # the collision did not read as a clash, it read as one of the two shapes
+    # quietly not existing. Word initials separate them (DT / DB / HAS), and
+    # the counter is the belt to that braces: two instances of the SAME name
+    # on the same day are still possible, and an id must never be a guess.
+    used: set[str] = set()
     for p in uniq:
-        base = p["pattern"][:2].upper() + p["from"].replace(" ", "")[:7]
-        p["id"] = base.upper()
+        stem = ("".join(w[0] for w in p["pattern"].split("_")).upper()
+                + p["from"].replace(" ", "")[:7].upper())
+        pid, n = stem, 2
+        while pid in used:
+            pid, n = f"{stem}-{n}", n + 1
+        used.add(pid)
+        p["id"] = pid
     return uniq[:limit]
 
 

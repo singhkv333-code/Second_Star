@@ -101,11 +101,28 @@
   const priceLocale = () => (narrow()
     ? { priceFormatter: compactPrice } : {});
 
+  /* A FLOOR under the price scale's width, so the scale — and every plate
+   * drawn on it — is one size and stays there.
+   *
+   * Left to itself the scale is exactly as wide as its widest number plus a
+   * constant, so it breathes in and out by a digit's width as you scroll from
+   * 980 to 1,005: the column of prices shifts, and so does the crosshair plate
+   * and the ⊕ pinned to its edge. Groww's does not move, and neither should
+   * this one. 84 clears every NSE price up to six figures, and the scale still
+   * grows past it on its own if a number ever needs more.
+   *
+   * Not on a phone. There the compact formatter above exists to WIN back this
+   * width, and the ⊕ that needs the room is hidden anyway (it has no hover to
+   * appear on). */
+  const AXIS_MIN = 84;
+  const axisMin = () => (narrow() ? 0 : AXIS_MIN);
+
   const chart = LWC.createChart(chartEl, {
     ...T0,
     localization: { ...(T0.localization || {}), ...priceLocale() },
     layout: { ...T0.layout, fontFamily: CHART_FONT, fontSize: 12 },
-    rightPriceScale: { ...T0.rightPriceScale, scaleMargins: { top: 0.06, bottom: 0.22 } },
+    rightPriceScale: { ...T0.rightPriceScale, minimumWidth: axisMin(),
+                       scaleMargins: { top: 0.06, bottom: 0.22 } },
     timeScale: { ...T0.timeScale, timeVisible: true, secondsVisible: false, rightOffset: 5 },
     crosshair: { ...T0.crosshair, mode: LWC.CrosshairMode.Normal },
     autoSize: true,
@@ -153,6 +170,17 @@
   }
   syncChartMetrics();
   new ResizeObserver(syncChartMetrics).observe(chartEl);
+
+  /* The crosshair plate's own colour, published to the stylesheet beside the
+   * two measurements. The alert ⊕ rides that plate and wears a disc of it, so
+   * that it survives the one moment the plate is not there: the library draws
+   * the crosshair only while the pointer is over a PANE, and reaching for the
+   * mark takes the pointer onto the price scale — which used to leave a white
+   * ring standing on nothing, invisible on a light chart. One source for the
+   * colour, js/theme.js, rather than a second copy of it in the CSS. */
+  const publishPlate = () =>
+    chartEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
+  publishPlate();
 
   const candle = chart.addSeries(LWC.CandlestickSeries, {
     upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
@@ -1779,7 +1807,10 @@
   function annName(a) {
     const s = a.source || {};
     if (s.tool === "get_patterns") return patternParts(a)[0] || "Pattern";
-    if (s.tool === "get_trendlines") return "Trendline";
+    // Two tools fit the same line through the same swings — the catalogue and
+    // the trend read — so a line names itself after what it IS, never after
+    // which call happened to draw it.
+    if (s.tool === "get_trendlines" || s.tool === "get_trend") return "Trendline";
     if (s.tool === "get_divergences") {
       return `${String(s.strength || "").replace(/_/g, " ").trim()} divergence`.trim();
     }
@@ -1975,7 +2006,7 @@
         + row("Bias", a.role === "support" ? "bullish"
           : a.role === "resistance" ? "bearish" : "neutral")
         + row("Spans", span(s.first_touch, s.last_touch));
-    } else if (s.tool === "get_trendlines") {
+    } else if (s.tool === "get_trendlines" || s.tool === "get_trend") {
       kindName = "Trendline";
       title = null;
       body = row("Record", val(words(s.strength), s.touches ? `${s.touches} touches` : null))
@@ -2175,8 +2206,15 @@
         // Never inside the follow-up suggestions: those are questions the
         // user has not asked yet, so a price in one refers to nothing on the
         // chart and marking it as a live reference is simply false.
+        //
+        // Nor inside a tool's own panel. A card already knows exactly which
+        // annotation each row is — the id came off the same tool call that
+        // drew it — so re-deriving that by matching its text would be a
+        // guess replacing a fact, and the unwrap at the top of this pass
+        // would tear up markup this module did not write.
         acceptNode: (n) => (n.parentElement && !n.parentElement.closest("span.ann-ref")
           && !n.parentElement.closest(".suggest")
+          && !n.parentElement.closest(".scan")
           && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
       });
       const nodes = [];
@@ -2238,13 +2276,22 @@
   }
 
   // ...and the same link in reverse.
+  //
+  // Any [data-ann] in the thread, not only a wrapped mention: a tool's result
+  // panel names its annotations by id rather than by prose, and a card row
+  // pointing at a drawn shape is the same gesture as a sentence mentioning it.
+  // One selector, so the two can never behave differently. `setHover` takes a
+  // formation's LINK as readily as a single shape's id (scene.js lights the
+  // whole group), which is what lets one tile highlight an outline, its fill
+  // and its neckline together.
   if (threadEl) {
+    const annAt = (e) => e.target.closest && e.target.closest("[data-ann]");
     threadEl.addEventListener("mouseover", (e) => {
-      const r = e.target.closest && e.target.closest("span.ann-ref");
+      const r = annAt(e);
       if (r) scene.setHover(r.dataset.ann);
     });
     threadEl.addEventListener("mouseout", (e) => {
-      const r = e.target.closest && e.target.closest("span.ann-ref");
+      const r = annAt(e);
       if (r) scene.setHover(null);
     });
   }
@@ -2427,20 +2474,69 @@
   }, true);
 
   /* ── the ⊕ on the price axis: one click, one alert ────────────────────────
-   * It follows the pointer's PRICE along the right edge of the price pane and
-   * arms a crossing alert at that level on a single click. This is the fastest
-   * path there is — no dialog, no typing, and the level is exactly the one being
+   * It rides the crosshair's own price plate, at the plate's left end, and arms
+   * a crossing alert at that level on a single click. This is the fastest path
+   * there is — no dialog, no typing, and the level is exactly the one being
    * pointed at rather than one transcribed into a field.
    *
    * Only in the price pane, only with the cursor tool, and only signed in: an
    * alert lives on the server, so offering the button to a signed-out user could
    * only end in a refusal. It hides the moment the pointer leaves.
+   *
+   * ON THE PLATE, not beside it — Groww's placement, and the one that ends
+   * three separate complaints at once. Floating on the CHART it was a 20px disc
+   * following the pointer down the last column of candles: it covered whatever
+   * was drawn there, and because the click is resolved against its rectangle
+   * (below) it also ATE that click — so a trendline under it could not be
+   * selected, and therefore could not be deleted. On the plate it is out of the
+   * drawing surface entirely. It is also the only place it is legible without a
+   * disc of its own: the plate is dark in both themes, so a hairline ring in the
+   * plate's own white ink reads on it, where on the candles it needed an opaque
+   * background and read as a sticker.
    */
   let alertPlus = null, plusPrice = null;
 
+  /* HOLDING THE CROSSHAIR OVER THE SCALE. The library draws the crosshair only
+   * while the pointer is over a PANE, and the mark now lives on the scale — so
+   * the last twenty pixels of the reach for it took away the very plate the mark
+   * is printed on, and with it the price being aimed at. It is put back by hand
+   * for exactly as long as the pointer is on the scale, at the time coordinate
+   * it last had over the pane, and released the moment it comes back. */
+  let heldTime = null, holding = false;
+
+  function releaseCrosshair() {
+    if (!holding) return;
+    holding = false;
+    try { chart.clearCrosshairPosition(); } catch {}
+  }
+
+  /** What to hang a held crosshair on: the last time the pointer had over the
+   *  pane — or, when it never had one, the newest bar.
+   *
+   *  That fallback is the whole fix and not a nicety. A pointer arriving on the
+   *  scale from OUTSIDE the chart — in from the chat panel, or straight down the
+   *  scale from the toolbar — has never been over a pane, so there was nothing
+   *  remembered, nothing to hold, and the plate stayed gone: exactly the two
+   *  approaches a hand actually makes when the mark is what it is reaching for.
+   *  The newest bar is also the honest answer, being the bar nearest the scale
+   *  and so the one the pointer is nearest to. */
+  const holdTime = () => (heldTime != null ? heldTime
+    : (state.bars.length ? state.bars[state.bars.length - 1].time : null));
+
+  function holdCrosshair(price) {
+    const t = holdTime();
+    if (t == null) return;
+    try { chart.setCrosshairPosition(price, t, candle); holding = true; }
+    catch { holding = false; }
+  }
+
   function hidePlus() {
-    if (alertPlus) alertPlus.classList.remove("show");
+    // `hot` goes with `show`, or it outlives the mark: the cursor rule keys off
+    // it (see #chart:has(.alert-plus.show.hot) in index.html) and a stale one
+    // leaves a pointer cursor standing over a scale with no mark on it.
+    if (alertPlus) alertPlus.classList.remove("show", "hot");
     plusPrice = null;
+    releaseCrosshair();
   }
 
   /** The ⊕ is a DRAWING, not a control. `pointer-events: none`, no listener of
@@ -2459,7 +2555,7 @@
    *  intercepted. The mark is then free to be what it should have been — a
    *  picture of where the alert would go.
    */
-  const PLUS_PAD = 5;          // a 22px target is small; forgive a few pixels
+  const PLUS_PAD = 6;          // a 16px target is small; forgive a few pixels
 
   /* A PLAIN plus in the circle — TradingView's own axis mark, which is what a
    * reader arrives here expecting. `alertPlus` (the open clock face with the +
@@ -2475,11 +2571,20 @@
     return b;
   }
 
-  /** Is this pointer position on the mark? */
+  /** Is this pointer position on the mark?
+   *
+   *  The forgiving pad is allowed to grow the rectangle in every direction but
+   *  ONE: it stops dead at the price scale's left edge. This rectangle does not
+   *  merely receive the click, it SWALLOWS it — and a rectangle that reaches
+   *  even a few pixels back onto the chart is a few pixels of chart where a
+   *  drawing cannot be picked up, which is how the mark used to make a trendline
+   *  near the right edge impossible to select and so impossible to delete. The
+   *  mark is drawn wholly inside the scale; its target now is too. */
   function onPlus(x, y) {
     if (!alertPlus || !alertPlus.classList.contains("show")) return false;
     const r = alertPlus.getBoundingClientRect();
-    return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
+    const scaleLeft = chartEl.getBoundingClientRect().right - metrics.ps;
+    return x >= Math.max(r.left - PLUS_PAD, scaleLeft) && x <= r.right + PLUS_PAD
         && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
   }
 
@@ -2503,8 +2608,19 @@
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    alertPlus.style.top =
-      (clientY - chartEl.getBoundingClientRect().top) + "px";
+    const box = chartEl.getBoundingClientRect();
+    // Which side of the scale's left edge the pointer is on. Over the pane the
+    // library owns the crosshair and the time under the pointer is worth
+    // remembering; over the scale it has dropped the crosshair and this puts it
+    // back at that remembered time. See holdCrosshair above.
+    if (clientX < box.right - metrics.ps) {
+      releaseCrosshair();
+      const t = chart.timeScale().coordinateToTime(clientX - box.left);
+      if (t != null) heldTime = t;
+    } else {
+      holdCrosshair(px);
+    }
+    alertPlus.style.top = (clientY - box.top) + "px";
     alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
       { maximumFractionDigits: 2 })}`;
     alertPlus.classList.add("show");
@@ -2830,6 +2946,7 @@
   Theme.onChange(() => {
     paintThemeBtn();
     chart.applyOptions(chartTheme());
+    publishPlate();
     if (state.bars.length) {          // a toggle mid-load must not wipe series
       // retheme repaints the LINES and re-emits the legend, whose row colours
       // are baked in at render time — without that pass a name kept the other
@@ -2848,7 +2965,10 @@
   paintThemeBtn();
 
   window.matchMedia(SMALL).addEventListener("change", () => {
-    chart.applyOptions({ localization: { priceFormatter: narrow() ? compactPrice : undefined } });
+    chart.applyOptions({
+      localization: { priceFormatter: narrow() ? compactPrice : undefined },
+      rightPriceScale: { minimumWidth: axisMin() },
+    });
   });
 
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "Chat";

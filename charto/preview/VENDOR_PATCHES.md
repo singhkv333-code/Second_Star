@@ -6,13 +6,15 @@ deploy box, get the stock library and the ragged price scale back.
 
     python charto/preview/patch-vendor.py    # idempotent; run after any install
 
-That script carries the same four edits and is the thing to run. This file is
+That script carries the same five edits and is the thing to run. This file is
 why they exist. (The alternative is to stop ignoring `vendor/` and commit the
 patched bundle — one decision, not made here.)
 
-All three serve one end: **every value on the price scale ends at the same x.**
+They serve two ends. **1–3: every value on the price scale ends at the same x.**
 Out of the box the library aligns three families of label three different ways,
-so a column of prices comes out ragged next to TradingView's own.
+so a column of prices comes out ragged next to TradingView's own. **4–5: the
+scale is one shape and stays there** — every plate the same width, and a
+constant strip of it at the left kept clear for the alert ⊕ that rides it.
 
 Measured, not guessed — `_probe.html` (deleted; recreate if needed) wrapped
 `CanvasRenderingContext2D.fillText` and dumped the x, alignment and measured
@@ -59,17 +61,46 @@ t.textAlign = h.li ? "right" : "left";   →   t.textAlign = "right";
 `width − tickLength − padding` patch 1 gives the ticks. Only the TEXT moves;
 the pill's background rectangle is patch 3's business.
 
-## 3 · One pill width for all of them
+## 3 · One pill width — and it is the scale's
 
-`o` is `i.C` for a label that draws a tick nub and `0` for the crosshair label,
-and it sized the plate: the crosshair pill came out 5px narrower than its
-neighbours, so once patch 2 pushed the text to an absolute right edge that text
-ran past its own plate.
+`M` is the plate's width. Stock, it is *the text's* width plus padding, anchored
+at the scale's LEFT edge and free at its right:
 
 ```js
-M = i.S + d + f + w + o;    →   M = i.S + d + f + w + i.C;
+M = i.S + d + f + w + o;    →   M = h.width - _ - 5;
 ```
 
-`o` still positions the tick nub inside the plate; it just no longer decides how
-wide the plate is. Every pill is now the same width, which is also what
-TradingView draws.
+Two things were wrong with that, and the first version of this patch
+(`… + w + i.C`) only fixed one of them. `o` is `i.C` for a label that draws a
+tick nub and `0` for the crosshair label, so the crosshair pill came out 5px
+narrower than its neighbours and, once patch 2 pushed the text to an absolute
+right edge, that text ran past its own plate. Equalising the families fixed
+that — but every plate still breathed with `w`, and `w` is a measured string.
+Scroll from 980 to 1,005 and the plate grows by a digit; the ⊕ pinned to its
+edge is then either adrift from it or under it. Measured: the same plate came
+out 60px and 62px two zoom steps apart.
+
+`h.width` is the scale's own media width and `_` its border, so the plate now
+runs the full scale less the 5px `nv()` (§4) reserves at the right — which is
+exactly the widest it ever was, so nothing about the right-hand alignment moves.
+It is simply the same width always. `o` still positions the tick nub inside it;
+`w` no longer decides anything.
+
+## 4 · Room at the left edge for the alert ⊕
+
+The mark that arms an alert at a price is drawn INSIDE the crosshair plate, at
+its left end — Groww's placement, and the only one where it needs no opaque disc
+of its own (see `.alert-plus` in index.html). The scale sizes itself to its
+widest number plus a constant, and that constant leaves ~15px clear at the left:
+enough for the 16px ring at a 3px inset in the common case, and 5px short of it
+by the time a price runs to six figures, where the ring landed on the leading
+digit.
+
+```js
+return us(Math.ceil(i.S + i.C + i.B + i.I + 5 + l))
+                                  →   … + 5 + l + 12))
+```
+
+Twelve, so the strip is ~24px clear at every magnitude. It costs nothing on a
+normal chart: `rightPriceScale.minimumWidth` (js/main.js) floors the scale at
+84px anyway, and an NSE equity's natural width lands under that either way.
