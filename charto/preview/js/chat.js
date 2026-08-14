@@ -1870,6 +1870,10 @@
   const splitReadout = el("splitReadout");
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
+  /* The width a first visit opens at, and the one the reset gesture returns
+   * to — a third of the row, so the chart keeps the two thirds it is the
+   * subject of. Named once because three places have to agree on it. */
+  const DEF_W = 0.30;
 
   /* Below the breakpoint the shell is a COLUMN: the chat sits under the
    * chart at full width, and a horizontal split has nothing to divide. The
@@ -1950,7 +1954,7 @@
   }
   function applySavedWidth() {
     const saved = parseInt(localStorage.getItem(WKEY) || "0", 10);
-    setChatWidth(saved || main.clientWidth * 0.44, false);
+    setChatWidth(saved || main.clientWidth * DEF_W, false);
   }
   requestAnimationFrame(applySavedWidth);
   // rotating a phone, or dragging a desktop window across the breakpoint,
@@ -2041,7 +2045,7 @@
   // only layout where the divider is a visible control.
   splitter.addEventListener("dblclick", () => {
     if (stacked()) setChatHeight(main.clientHeight * 0.46);
-    else setChatWidth(main.clientWidth * 0.44);
+    else setChatWidth(main.clientWidth * DEF_W);
     peekSplit();   // the jump is instant; the number is what says it landed
   });
 
@@ -2067,7 +2071,7 @@
     else if (e.key === "Home") next = FAR;           // clamped to the chart's floor
     else if (e.key === "End") next = 0;              // clamped to the chat's own
     else if (e.key === "Enter" || e.key === " ") {
-      next = (vert ? main.clientWidth * 0.44 : main.clientHeight * 0.46);
+      next = (vert ? main.clientWidth * DEF_W : main.clientHeight * 0.46);
     } else return;
     e.preventDefault();
     if (vert) setChatWidth(next); else setChatHeight(next);

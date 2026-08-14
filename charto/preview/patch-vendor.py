@@ -21,7 +21,7 @@ BUNDLE = os.path.join(
 
 # (name, befores, after). Every one of them serves a single end: each family of
 # price-scale label ends at the same x, `width - tickLength - padding`, in a
-# plate that is always the same size.
+# plate that is always the same size — the same width, and the same height.
 #
 # `befores` is a tuple because a patch may be re-derived: an earlier release of
 # this script left its own shape in the bundle, and a re-run has to recognise
@@ -54,6 +54,11 @@ PATCHES = [
         "room at the scale's left edge for the alert mark",
         ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',),
         'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
+    ),
+    (
+        "one pill height, and it is the crosshair's",
+        ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',),
+        'u=i.A+i.P*2/12,c=i.V+i.P*2/12,',
     ),
 ]
 

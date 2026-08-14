@@ -6,15 +6,16 @@ deploy box, get the stock library and the ragged price scale back.
 
     python charto/preview/patch-vendor.py    # idempotent; run after any install
 
-That script carries the same five edits and is the thing to run. This file is
+That script carries the same six edits and is the thing to run. This file is
 why they exist. (The alternative is to stop ignoring `vendor/` and commit the
 patched bundle — one decision, not made here.)
 
-They serve two ends. **1–3: every value on the price scale ends at the same x.**
+They serve two ends. **§1–2: every value on the price scale ends at the same x.**
 Out of the box the library aligns three families of label three different ways,
-so a column of prices comes out ragged next to TradingView's own. **4–5: the
-scale is one shape and stays there** — every plate the same width, and a
-constant strip of it at the left kept clear for the alert ⊕ that rides it.
+so a column of prices comes out ragged next to TradingView's own. **§3–5: the
+scale is one shape and stays there** — every plate the same width and the same
+height, and a constant strip of it at the left kept clear for the alert ⊕ that
+rides it. (The sections group the six edits; §2 carries two of them.)
 
 Measured, not guessed — `_probe.html` (deleted; recreate if needed) wrapped
 `CanvasRenderingContext2D.fillText` and dumped the x, alignment and measured
@@ -104,3 +105,31 @@ return us(Math.ceil(i.S + i.C + i.B + i.I + 5 + l))
 Twelve, so the strip is ~24px clear at every magnitude. It costs nothing on a
 normal chart: `rightPriceScale.minimumWidth` (js/main.js) floors the scale at
 84px anyway, and an NSE equity's natural width lands under that either way.
+
+## 5 · One pill height — and it is the crosshair's
+
+§3 made every plate the same width; they were still two different heights. The
+plate's height is `fontSize + paddingTop + paddingBottom`, where the two
+paddings each take an extra the LABEL supplies — and only some labels supply
+one. The crosshair's view (`class N`) and the plugin views (`Ot`) set
+`Ti = Ri = 2/12 × fontSize`; the series' last-value label (`ut`) and the price
+lines (`vt`, which is what an armed alert draws) leave both at the `0` the
+defaults hold. Measured on the axis canvas at dpr 1.25: crosshair 27 device px,
+last price 21 — a 4px CSS difference between two plates that stack in the same
+column, one directly under the other.
+
+Rather than add the padding to each view that forgot it — two more edits, and
+one per view family the library grows later — it is taken in the geometry both
+already share (`hi`), where the label's own contribution simply stops being
+consulted:
+
+```js
+u = i.A + this.ei.Ti,   c = i.V + this.ei.Ri,
+                        →   u = i.A + i.P * 2 / 12,   c = i.V + i.P * 2 / 12,
+```
+
+`i.P` is the scale's font size, so this is the crosshair's own expression
+applied to every family — the taller of the two, deliberately: the ⊕ is a 16px
+ring drawn inside the crosshair plate, and levelling down to 17px would leave it
+half a pixel of air on each side. `Ti`/`Ri` are now unread; nothing else sets
+them.
