@@ -45,6 +45,17 @@ const Sym = (() => {
         : "kite 1-min",
       tz: crypto ? 0 : 19800,            // seconds added so the axis reads local
       cur: crypto ? "$" : "₹",
+      // The ISO code, for the badge on the price scale, and the name of the
+      // clock the axis is on, for the badge on the time scale. Both are STATED
+      // rather than offered: a chart that lets you re-clock it has to re-fold
+      // every bar, and a currency picker on a scale we do not convert would be
+      // a control that lies. A Bybit pair settles in USDT and a Coinbase one
+      // in USD, and saying "USD" for both would be the same kind of lie.
+      code: /USDT$/.test(S) ? "USDT" : crypto ? "USD" : "INR",
+      // Crypto genuinely IS folded on UTC midnight (see the note above), so
+      // this reads the clock the bars are actually on rather than claiming
+      // IST for everything.
+      tzLabel: crypto ? "UTC" : "UTC+5:30",
       locale: crypto ? "en-US" : "en-IN",
       num(n, opts) {
         return Number(n).toLocaleString(this.locale,

@@ -1226,6 +1226,30 @@
     autoPill.classList.toggle("show", manual);
   }
 
+  /* The two axis badges: what the price scale is quoted in, and which clock
+   * the time scale is on. Sym is the one place that decides both, so a rupee
+   * chart says INR/UTC+5:30 and a Bybit pair says USDT/UTC without either
+   * being written down twice.
+   *
+   * The clock ticks, because a chart of a market that is open is read against
+   * the current time — "is that last bar 40 minutes old?" is a question the
+   * axis alone cannot answer. It is the SAME clock as the axis, not the
+   * viewer's: someone reading an NSE chart from London needs 15:29 IST, and a
+   * browser-local clock in that corner would quietly be a different number
+   * from every timestamp beside it.
+   */
+  el("curNote").textContent = Sym.code;
+  const tzNote = el("tzNote");
+  function paintClock() {
+    const t = new Date(Date.now() + Sym.tz * 1000);
+    const hh = String(t.getUTCHours()).padStart(2, "0");
+    const mm = String(t.getUTCMinutes()).padStart(2, "0");
+    const ss = String(t.getUTCSeconds()).padStart(2, "0");
+    tzNote.textContent = `${hh}:${mm}:${ss} (${Sym.tzLabel})`;
+  }
+  paintClock();
+  setInterval(paintClock, 1000);
+
   // bubble phase → runs after drawings.js has decided whether this is a
   // shape drag; a shape drag disables LWC scroll entirely, so it isn't a pan.
   chartEl.addEventListener("mousedown", (e) => {

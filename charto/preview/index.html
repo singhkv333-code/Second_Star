@@ -1694,9 +1694,25 @@ header > .btn, header > .badge { flex: none; }
   -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
-/* TradingView cursors: crosshair to place, grabbing hand while panning */
+/* TradingView cursors: the pixel hand over the bars, a grabbing hand while
+   panning, the crosshair back the moment a drawing tool is armed (you aim a
+   trendline with a crosshair, not with a fist). The hand is a 14x20 bitmap
+   drawn as an SVG with crispEdges and served at 2x, so it stays the same
+   hard-edged shape on a retina panel instead of being blurred up from 1x. The
+   hotspot is the fingertip. `#chart *` as well as `#chart`, because
+   lightweight-charts sets a cursor on its own canvases. */
+#chart, #chart * {
+  cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2228%22%20height=%2240%22%20viewBox=%220%200%2014%2020%22%20shape-rendering=%22crispEdges%22%3E%3Cpath%20fill=%22%23fff%22%20d=%22M6%201h1v1H6zM6%202h1v1H6zM6%203h1v1H6zM6%204h1v1H6zM6%205h1v1H6zM6%206h1v1H6zM8%206h1v1H8zM6%207h1v1H6zM8%207h1v1H8zM10%207h1v1H10zM6%208h1v1H6zM8%208h1v1H8zM10%208h1v1H10zM12%208h1v1H12zM3%209h1v1H3zM6%209h7v1H6zM3%2010h2v1H3zM6%2010h7v1H6zM4%2011h9v1H4zM5%2012h8v1H5zM5%2013h8v1H5zM6%2014h7v1H6zM6%2015h7v1H6zM6%2016h7v1H6zM6%2017h7v1H6zM6%2018h7v1H6z%22/%3E%3Cpath%20fill=%22%23000%22%20d=%22M5%200h2v1H5zM5%201h1v1H5zM7%201h1v1H7zM5%202h1v1H5zM7%202h1v1H7zM5%203h1v1H5zM7%203h1v1H7zM5%204h1v1H5zM7%204h1v1H7zM5%205h1v1H5zM7%205h2v1H7zM5%206h1v1H5zM7%206h1v1H7zM9%206h2v1H9zM5%207h1v1H5zM7%207h1v1H7zM9%207h1v1H9zM11%207h2v1H11zM2%208h2v1H2zM5%208h1v1H5zM7%208h1v1H7zM9%208h1v1H9zM11%208h1v1H11zM13%208h1v1H13zM2%209h1v1H2zM4%209h2v1H4zM13%209h1v1H13zM2%2010h1v1H2zM5%2010h1v1H5zM13%2010h1v1H13zM3%2011h1v1H3zM13%2011h1v1H13zM4%2012h1v1H4zM13%2012h1v1H13zM4%2013h1v1H4zM13%2013h1v1H13zM5%2014h1v1H5zM13%2014h1v1H13zM5%2015h1v1H5zM13%2015h1v1H13zM5%2016h1v1H5zM13%2016h1v1H13zM5%2017h1v1H5zM13%2017h1v1H13zM5%2018h1v1H5zM13%2018h1v1H13zM5%2019h9v1H5z%22/%3E%3C/svg%3E") 12 1, default;
+}
+/* …but only over the BARS. The two scales are drag handles and have to keep
+   saying so; lightweight-charts sets no cursor of its own on them, so without
+   this the hand spread across the whole widget and the one gesture that needs
+   an affordance (drag the price scale to rescale) lost it. */
+#chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
+#chart table tr:last-child td, #chart table tr:last-child td * { cursor: ew-resize; }
+#chart.drawing, #chart.drawing * { cursor: crosshair; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-.stage.overdraw #chart { cursor: move; }
+.stage.overdraw #chart, .stage.overdraw #chart * { cursor: move; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -2018,6 +2034,31 @@ body.two-columns .readout .row { display: none; }
 }
 .auto-pill.show { display: block; }
 .auto-pill:hover { color: var(--primary); border-color: var(--primary); }
+
+/* The currency badge (top of the price scale) and the clock badge (the corner
+   where the two scales meet) — TradingView's two corners, as statements.
+   pointer-events off on both: they are not buttons and must never eat a drag
+   aimed at the scale underneath them.
+
+   OPAQUE, and that is the whole trick. Both sit in space lightweight-charts
+   is free to draw an axis label into, and it has no way to reserve a header
+   for us. Translucent, the first attempt read as a collision — a badge with
+   "850.00" poking out either side of it. Painted in the chart's own
+   background they read as part of the axis, which is exactly how
+   TradingView's own two boxes cover whatever tick falls behind them. */
+.axis-note {
+  position: absolute; z-index: 6; pointer-events: none;
+  font-size: var(--text-2xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  background: var(--chart-bg);
+}
+.axis-note.cur {
+  /* spans the price-scale column, so the tick it covers is covered fully */
+  right: 4px; top: 6px; width: 56px; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 2px 0; letter-spacing: .04em;
+}
+.axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
 
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
@@ -5225,6 +5266,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
              js/indlegend.js. -->
         <div class="ind-legend empty" id="indLegend"></div>
       </div>
+      <!-- The two things every reading on the axes depends on and neither
+           axis says: what the prices are quoted in, and which clock the
+           times are on. TradingView puts a dropdown in both corners; these
+           are labels, because we neither convert currency nor re-fold the
+           bars onto another timezone, and a control that cannot do the thing
+           it names is worse than no control. -->
+      <div class="axis-note cur" id="curNote" aria-label="Price scale currency"></div>
+      <div class="axis-note clock" id="tzNote" aria-label="Chart timezone"></div>
       <div class="prov" id="provCard"></div>
       <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
       <section class="jq" id="journalQuick" aria-label="Journal summary" aria-hidden="true"></section>
@@ -5345,7 +5394,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <div class="j-toast" id="journalToast" role="status" aria-live="polite"></div>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/store.js?v=12"></script>
+  <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
   <script src="./js/icons.js?v=21"></script>
@@ -5378,7 +5427,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=21"></script>
   <script src="./js/scene.js?v=31"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=78"></script>
+  <script src="./js/main.js?v=79"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
