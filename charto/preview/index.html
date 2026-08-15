@@ -2704,14 +2704,14 @@ body.two-columns .readout .row { display: none; }
 }
 .ask-glow::before {
   background: radial-gradient(46% 76% at 30% 60%,
-    color-mix(in srgb, var(--primary) 85%, transparent), transparent 72%);
-  filter: blur(20px); opacity: .9;
+    color-mix(in srgb, var(--primary) 58%, transparent), transparent 72%);
+  filter: blur(20px); opacity: .72;
   animation: askDriftA 19s ease-in-out infinite alternate;
 }
 .ask-glow::after {
   background: radial-gradient(40% 66% at 70% 54%,
-    color-mix(in srgb, var(--primary) 62%, transparent), transparent 72%);
-  filter: blur(24px); opacity: .75;
+    color-mix(in srgb, var(--primary) 42%, transparent), transparent 72%);
+  filter: blur(24px); opacity: .58;
   animation: askDriftB 25s ease-in-out infinite alternate;
 }
 @keyframes askDriftA {
@@ -2774,6 +2774,18 @@ body.two-columns .readout .row { display: none; }
               background var(--dur) var(--ease-quartr);
 }
 .tpl-card:focus-visible { outline: none; }
+/* Selected: the prompt this tile wrote is still sitting in the bar. Louder
+   than hover on purpose — hover is where the pointer happens to be, this is
+   a state the chat is actually in, and it has to survive the pointer moving
+   away. The accent does the talking; the frame only carries it. */
+.tpl-card.is-on {
+  background: color-mix(in srgb, var(--primary) 11%, transparent);
+  color: var(--foreground);
+}
+.tpl-card.is-on .tpl-box {
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
 .tpl-name { line-height: 1.2; }
 
 /* The art. Stroke width is set ONCE here rather than per path, so the
@@ -5591,7 +5603,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=25"></script>
+  <script src="./js/icons.js?v=26"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5616,18 +5628,18 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
-  <script src="./js/geometry.js?v=10"></script>
-  <script src="./js/tools.js?v=13"></script>
-  <script src="./js/drawings.js?v=21"></script>
-  <script src="./js/scene.js?v=32"></script>
+  <script src="./js/geometry.js?v=11"></script>
+  <script src="./js/tools.js?v=15"></script>
+  <script src="./js/drawings.js?v=22"></script>
+  <script src="./js/scene.js?v=34"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=80"></script>
+  <script src="./js/main.js?v=82"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=127"></script>
+  <script src="./js/chat.js?v=130"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

@@ -1206,6 +1206,48 @@
    * away the DOM under a pointer that is hovering it. The group only wears
    * its border and tint while the tray is up; with the tray down the bar
    * has to look exactly as it always did. */
+  /* ── the placeholder types ──────────────────────────────────────────
+   * An empty bar with one frozen line of grey text says the box exists.
+   * A bar that is quietly writing questions says what the box is FOR, and
+   * it does it in the user's own reading rhythm rather than asking them to
+   * scan a list. Same job as the twelve tiles, in the one place the eye is
+   * already resting.
+   *
+   * It only runs on an empty, unfocused bar. The moment the box is touched
+   * it stops and hands back the plain prompt — a placeholder that keeps
+   * moving under a cursor is a placeholder fighting the person using it —
+   * and it never runs at all under prefers-reduced-motion.
+   */
+  const PLACEHOLDER = "Ask about this chart…";
+  const TYPED = [
+    "What's the trend here right now?",
+    "Mark the levels that actually held",
+    "Why did it move like that?",
+    "Is a pattern forming?",
+    "Where would a stop go?",
+    "How does it compare to its peers?",
+  ];
+  (function typedPlaceholder() {
+    const slow = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (slow) return;
+    let i = 0, ch = 0, dir = 1, timer = null;
+    const idle = () => !input.value && document.activeElement !== input;
+    function step() {
+      if (!idle()) { input.placeholder = PLACEHOLDER; timer = setTimeout(step, 900); return; }
+      const full = TYPED[i % TYPED.length];
+      ch += dir;
+      input.placeholder = full.slice(0, ch) + (dir > 0 && ch < full.length ? "▌" : "");
+      let wait = dir > 0 ? 42 : 22;
+      if (dir > 0 && ch >= full.length) { dir = -1; wait = 1900; }
+      else if (dir < 0 && ch <= 0) { dir = 1; i++; wait = 320; }
+      timer = setTimeout(step, wait);
+    }
+    // the bar is the first thing on screen; let it be still for a beat
+    timer = setTimeout(step, 1400);
+    input.addEventListener("focus", () => { input.placeholder = PLACEHOLDER; });
+  })();
+
   const trayEl = el("tplTray");
   const groupEl = el("askGroup");
   let trayBuilt = false;
@@ -1249,10 +1291,22 @@
     }
     const input = el("chatInput");
     input.value = card.dataset.q || "";
+    for (const c of trayEl.querySelectorAll(".tpl-card")) c.classList.remove("is-on");
+    card.classList.add("is-on");
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     input.dispatchEvent(new Event("input", { bubbles: true }));  // regrow the box
   });
+
+  /** The mark is a claim about what is in the bar, so it only stands while
+   *  that is still true — edit the sentence or clear it and the tile lets
+   *  go. Anything else leaves a tile looking armed over a prompt that is
+   *  no longer its own. */
+  function clearTileIfEdited() {
+    const on = trayEl.querySelector(".tpl-card.is-on");
+    if (on && input.value !== on.dataset.q) on.classList.remove("is-on");
+  }
+  input.addEventListener("input", clearTileIfEdited);
 
   /** Paint `turns` from scratch. Same builders as a live turn, so a reloaded
    *  conversation — or one reopened from the history — is pixel-identical to
@@ -1310,6 +1364,8 @@
                  ...(image ? { image } : {}), ...(drawing ? { drawing } : {}),
                  ...(journal ? { journal } : {}) });
     showTray(false);          // first question asked — the openings fold away
+    const onTile = trayEl.querySelector(".tpl-card.is-on");
+    if (onTile) onTile.classList.remove("is-on");
     addUserTurn(text, image, drawing, ts, journal);
     const turn = addAssistantTurn();
     const t0 = performance.now();
