@@ -2669,7 +2669,7 @@ body.two-columns .readout .row { display: none; }
 .ask-group.has-tray > .tpl::before,
 .ask-group.has-tray > .tpl::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
-  left: -10%; right: -10%; bottom: -30px; height: 104px;
+  left: -10%; right: -10%; top: -34px; height: 108px;
   will-change: transform;
 }
 .ask-group.has-tray > .tpl::before {
@@ -2711,7 +2711,7 @@ body.two-columns .readout .row { display: none; }
    the pane's, not the window's. */
 .tpl { container-type: inline-size; }
 .tpl-grid { display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr); }
-@container (min-width: 430px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
+@container (min-width: 448px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
 @container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
 
 /* The whole card lights up, icon and label and the air around both — the
@@ -2737,7 +2737,7 @@ body.two-columns .readout .row { display: none; }
    squares. 4px of air on every side: enough to read as a container,
    not enough to read as padding. */
 .tpl-box {
-  width: 48px; height: 48px; border-radius: var(--radius-sm);
+  width: 56px; height: 56px; border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   background: color-mix(in srgb, var(--card) 60%, transparent);
   display: flex; align-items: center; justify-content: center;
@@ -2753,7 +2753,7 @@ body.two-columns .readout .row { display: none; }
    `.up`/`.down` exist for the one tile whose two colours are its meaning
    rather than its decoration. */
 .tile-art {
-  width: 40px; height: 40px; display: block;
+  width: 46px; height: 46px; display: block;
   fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
@@ -2763,8 +2763,8 @@ body.two-columns .readout .row { display: none; }
 .tile-art .down { stroke: var(--down); }
 
 @container (max-width: 380px) {
-  .tpl-box { width: 42px; height: 42px; }
-  .tile-art { width: 34px; height: 34px; }
+  .tpl-box { width: 48px; height: 48px; }
+  .tile-art { width: 40px; height: 40px; }
 }
 
 /* scroll-to-latest, Claude's floating pill */
@@ -5590,7 +5590,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=122"></script>
+  <script src="./js/chat.js?v=123"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
