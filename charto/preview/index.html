@@ -2672,7 +2672,11 @@ body.two-columns .readout .row { display: none; }
    grouped, not merged. The inner radius is a step down from the group's
    so the two curves nest instead of fighting. */
 .ask-group.has-tray > .composer {
-  background: var(--card);
+  /* A step of grey ABOVE the panel, not below it. The bar is the one thing
+     on this surface you act on, so it wants to sit proud of the glass
+     rather than sink into it — mixed off the foreground so it lifts in
+     dark and settles in light, either way reading as a field. */
+  background: color-mix(in srgb, var(--foreground) 10%, var(--card));
   border-color: color-mix(in srgb, var(--border) 90%, transparent);
   border-radius: var(--radius-lg);
   margin: 0 6px 6px;
@@ -5653,7 +5657,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=134"></script>
+  <script src="./js/chat.js?v=135"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
