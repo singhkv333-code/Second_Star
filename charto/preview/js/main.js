@@ -480,6 +480,7 @@
   function status(msg) { setText("statusLine", msg); }
   function setOverlay(show, text, isErr) {
     el("overlayText").innerHTML = isErr ? `<span class="err">${text}</span>` : (text || "");
+    el("overlay").classList.toggle("is-err", !!isErr);
     el("overlay").classList.toggle("show", !!show);
   }
 

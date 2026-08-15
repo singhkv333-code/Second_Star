@@ -2066,12 +2066,65 @@ body.two-columns .readout .row { display: none; }
 
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
-  align-items: center; justify-content: center;
+  flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   background: color-mix(in srgb, var(--chart-bg) 78%, transparent);
   color: var(--muted-foreground); font-size: var(--text-md);
 }
 .overlay-msg.show { display: flex; }
 .overlay-msg .err { color: var(--down); }
+/* a failure is not a thing to watch swing */
+.overlay-msg.is-err .ldr { display: none; }
+
+/* ── the loading pendulum ──────────────────────────────────────────────
+   The mark is the dot in "Charto." — a circle already — so the loader is
+   that dot on a thread rather than a spinner borrowed from anywhere.
+
+   Two phases, and the seam between them is the whole trick. It FALLS: the
+   thread scales from nothing and the ball travels the same distance on the
+   same curve, so the two stay joined, and the curve overshoots — the
+   thread goes momentarily past its length and settles, which is what a
+   line going taut looks like. It arrives already leaning, and the swing
+   starts from exactly that lean, so there is no jump between the two
+   animations at the handover.
+
+   The swing is `ease-in-out` on `alternate`, which is a sine — a real
+   pendulum's motion, slowest at the apexes and fastest through the
+   bottom. Nothing here animates anything but transform, so the whole
+   thing composites on the GPU and keeps moving while the main thread is
+   busy doing the loading it is reporting on. */
+.ldr { --len: 46px; --lean: 15deg; position: relative; height: calc(var(--len) + 14px); }
+.ldr::before {                      /* the peg it hangs from */
+  content: ""; position: absolute; left: 50%; top: 0;
+  width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
+  background: var(--muted-foreground); opacity: .5;
+}
+.ldr-arm {
+  position: absolute; left: 50%; top: 2px; width: 0; height: var(--len);
+  transform-origin: 50% 0;
+  animation: ldrFall .62s cubic-bezier(.34, 1.4, .64, 1) forwards,
+             ldrSwing 1.15s ease-in-out .62s infinite alternate;
+}
+.ldr-thread {
+  position: absolute; left: -.5px; top: 0; width: 1px; height: 100%;
+  background: currentColor; opacity: .35; transform-origin: 50% 0;
+  animation: ldrDrop .62s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+.ldr-ball {
+  position: absolute; left: -6px; top: var(--len);
+  width: 12px; height: 12px; margin-top: -6px; border-radius: 50%;
+  background: var(--primary);
+  animation: ldrDropBall .62s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+@keyframes ldrFall  { from { transform: rotate(0deg); }
+                      to   { transform: rotate(calc(-1 * var(--lean))); } }
+@keyframes ldrSwing { from { transform: rotate(calc(-1 * var(--lean))); }
+                      to   { transform: rotate(var(--lean)); } }
+@keyframes ldrDrop     { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes ldrDropBall { from { transform: translateY(calc(-1 * var(--len))); }
+                         to   { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .ldr-arm, .ldr-thread, .ldr-ball { animation: none; }
+}
 
 /* split divider */
 .splitter {
@@ -5517,7 +5570,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
       <div class="axis-note cur" id="curNote" aria-label="Price scale currency"></div>
       <div class="axis-note clock" id="tzNote" aria-label="Chart timezone"></div>
       <div class="prov" id="provCard"></div>
-      <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
+      <div class="overlay-msg" id="overlay">
+        <!-- The wordmark's own dot, on a thread. It falls, the thread goes
+             taut, and it swings until the bars arrive. -->
+        <div class="ldr" aria-hidden="true">
+          <span class="ldr-arm"><i class="ldr-thread"></i><i class="ldr-ball"></i></span>
+        </div>
+        <div id="overlayText">Loading…</div>
+      </div>
       <section class="jq" id="journalQuick" aria-label="Journal summary" aria-hidden="true"></section>
     </div>
 
@@ -5683,7 +5743,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=22"></script>
   <script src="./js/scene.js?v=34"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=83"></script>
+  <script src="./js/main.js?v=84"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
