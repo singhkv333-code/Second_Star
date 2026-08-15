@@ -2711,7 +2711,7 @@ body.two-columns .readout .row { display: none; }
    the pane's, not the window's. */
 .tpl { container-type: inline-size; }
 .tpl-grid { display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr); }
-@container (min-width: 448px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
+@container (min-width: 476px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
 @container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
 
 /* The whole card lights up, icon and label and the air around both — the
@@ -2737,7 +2737,7 @@ body.two-columns .readout .row { display: none; }
    squares. 4px of air on every side: enough to read as a container,
    not enough to read as padding. */
 .tpl-box {
-  width: 56px; height: 56px; border-radius: var(--radius);
+  width: 62px; height: 62px; border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   background: color-mix(in srgb, var(--card) 60%, transparent);
   display: flex; align-items: center; justify-content: center;
@@ -2753,7 +2753,7 @@ body.two-columns .readout .row { display: none; }
    `.up`/`.down` exist for the one tile whose two colours are its meaning
    rather than its decoration. */
 .tile-art {
-  width: 46px; height: 46px; display: block;
+  width: 52px; height: 52px; display: block;
   fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
@@ -2763,8 +2763,8 @@ body.two-columns .readout .row { display: none; }
 .tile-art .down { stroke: var(--down); }
 
 @container (max-width: 380px) {
-  .tpl-box { width: 48px; height: 48px; }
-  .tile-art { width: 40px; height: 40px; }
+  .tpl-box { width: 52px; height: 52px; }
+  .tile-art { width: 44px; height: 44px; }
 }
 
 /* scroll-to-latest, Claude's floating pill */
@@ -5554,7 +5554,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=24"></script>
+  <script src="./js/icons.js?v=25"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5590,7 +5590,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=123"></script>
+  <script src="./js/chat.js?v=125"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

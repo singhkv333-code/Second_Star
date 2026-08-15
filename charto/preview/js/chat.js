@@ -179,12 +179,18 @@
   const drawEsc = (v) => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const drawIcon = (type) => ({
+  // The ratio family carries its own glyph — the rail's, so a Gann fan
+  // attached to a question looks like the button it was drawn with.
+  const RATIO_ICONS = ["fibExtension", "fibChannel", "fibTimeZone",
+    "fibSpeedFan", "fibTimeExtension", "fibCircles", "fibSpiral", "fibArcs",
+    "fibWedge", "pitchfan", "gannBox", "gannSquare", "gannSquareFixed",
+    "gannFan"];
+  const drawIcon = (type) => (RATIO_ICONS.includes(type) ? type : ({
     level: "hline", hline: "hline", vline: "vline",
     zone: "rect", box: "rect", rect: "rect",
     segment: "trend", poly: "disjointChannel", trend: "trend",
     fib: "fib", position: "position", channel: "channel",
-  }[type] || "trend");
+  }[type] || "trend"));
   function drawTagInner(d, removable) {
     // Detector labels often carry measurements after a middle dot. Those
     // facts belong in the chart card; the attachment needs only identity.
@@ -904,7 +910,12 @@
         out.push(`${nm}${a.period ? " " + a.period : ""}`.trim() || "Indicator");
         continue;
       }
-      const word = SHAPE_WORD[a.kind] || "Drawing";
+      // A catalogued tool names itself off the rail's own label, so the
+      // footer says "Gann fan" rather than the generic word — and a tool
+      // added to the catalogue tomorrow is named here without a second entry.
+      const word = (a.kind === "drawing" && Tools.SPECS[a.tool]
+                    && Tools.SPECS[a.tool].label)
+        || SHAPE_WORD[a.kind] || "Drawing";
       // a level's own label is the price, which is more use than the word
       out.push(a.label ? `${word} · ${a.label}` : word);
     }
@@ -1151,8 +1162,13 @@
       q: "Draw the trend lines that matter on {sym} and say which one is still intact." },
     { icon: "indicators", label: "Indicators",
       q: "Add RSI and a 50-period moving average to {sym}, and read them together." },
-    { icon: "volumeProfile", label: "Volume",
-      q: "Where has most of {sym}'s volume actually traded? Show the profile and the point of control." },
+    // The one tile that DOES something before it types: a screenshot prompt
+    // with no screenshot attached is a question about nothing, so the tile
+    // fires the capture too. `act` runs the same menu item the camera button
+    // runs — clicking the real control rather than reaching past it, which
+    // is the rule the keyboard shortcuts already follow.
+    { icon: "screenshot", label: "Screenshot", act: "shot",
+      q: "Read the screenshot of my chart and tell me what stands out — structure, levels, anything unusual." },
     { icon: "whyMoved", label: "Why it moved",
       q: "Explain {sym}'s last big move — what happened, and how far did it travel?" },
     { icon: "planTrade", label: "Plan",
@@ -1176,7 +1192,8 @@
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const cards = TEMPLATES.map((t) => {
       const q = t.q.replace(/\{sym\}/g, Sym.name);
-      return `<button type="button" class="tpl-card" data-q="${attr(q)}">`
+      const act = t.act ? ` data-act="${attr(t.act)}"` : "";
+      return `<button type="button" class="tpl-card" data-q="${attr(q)}"${act}>`
         + `<span class="tpl-box">${Icons.tile(t.icon)}</span>`
         + `<span class="tpl-name">${attr(t.label)}</span></button>`;
     }).join("");
@@ -1206,6 +1223,14 @@
   trayEl.addEventListener("click", (e) => {
     const card = e.target.closest && e.target.closest(".tpl-card");
     if (!card) return;
+    if (card.dataset.act === "shot") {
+      // The camera button's own "Full chart" item — same path, one owner.
+      // It ends at charto's review popover (Attach / Dismiss) rather than
+      // attaching outright, and that is left alone on purpose: the capture
+      // is confirmed in exactly one place no matter who asked for it.
+      const item = document.querySelector('#shotMenu [data-shot="full"]');
+      if (item) item.click();
+    }
     const input = el("chatInput");
     input.value = card.dataset.q || "";
     input.focus();

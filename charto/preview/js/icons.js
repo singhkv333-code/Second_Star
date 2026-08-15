@@ -51,6 +51,37 @@ const Icons = (() => {
     // stacked reward/risk boxes, the way a position tool reads on a chart
     position: '<rect x="3" y="5" width="18" height="6" rx="1"/><rect x="3" y="13" width="18" height="6" rx="1"/><path d="M3 12h18"/>',
     fib: '<path d="M3 5h18"/><path d="M3 9.67h18"/><path d="M3 14.33h13"/><path d="M3 19h18"/>',
+    /* ── the ratio family ──────────────────────────────────
+     * Sixteen glyphs on one grammar, so the flyout can be read down its left
+     * edge rather than by its labels. A LADDER of horizontals means levels in
+     * price; a COMB of verticals means levels in time; RAYS from a corner
+     * mean a slope; RINGS mean distance from a pivot. The dot marks the
+     * anchor a construction is built from, wherever a tool has one that the
+     * eye would otherwise have to guess at. */
+    // ladder + the extra leg that makes it an extension rather than a retrace
+    fibExtension: '<path d="M3 8h18"/><path d="M3 12h18"/><path d="M3 16h18"/><path d="M3 20 8 4l5 9"/>',
+    // the same ladder, tilted onto a trend
+    fibChannel: '<path d="M3 21 21 11"/><path d="M3 17.5 21 7.5"/><path d="M3 15 21 5"/><path d="M3 13 21 3"/>',
+    // a comb — levels in TIME, not price, spaced the way the sequence is
+    fibTimeZone: '<path d="M3 3v18"/><path d="M6 3v18"/><path d="M10 3v18"/><path d="M16 3v18"/><circle cx="3" cy="21" r="1.6"/>',
+    // rays off one corner, with the box they divide
+    fibSpeedFan: '<path d="M3 21 21 3"/><path d="M3 21 21 9"/><path d="M3 21 21 15"/><path d="M3 21 15 3"/><path d="M3 3v18h18" stroke-dasharray="2 2"/>',
+    // the comb again, but counted from a measured leg
+    fibTimeExtension: '<path d="M3 20 9 8l4 6"/><path d="M13 3v18"/><path d="M17 3v18"/><path d="M21 3v18"/>',
+    fibCircles: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2.2"/>',
+    fibSpiral: '<path d="M14.6 20.4a8.8 8.8 0 1 0-8.5-8.9 5.4 5.4 0 1 0 5.6 5.2 3.3 3.3 0 1 1-3.2-3.2"/>',
+    // half-rings opening the way the move went
+    fibArcs: '<path d="M3 21a18 18 0 0 0 18-18"/><path d="M3 21a12 12 0 0 0 12-12"/><path d="M3 21a6 6 0 0 0 6-6"/><circle cx="3" cy="21" r="1.6"/>',
+    // two rays and the rungs between them
+    fibWedge: '<path d="M3 21 21 5"/><path d="M3 21h18"/><path d="M7.4 21a5 5 0 0 0 3.4-4"/><path d="M12.6 21a11 11 0 0 0 6.4-8.6"/><circle cx="3" cy="21" r="1.6"/>',
+    // a pitchfork's handle, with a full ladder of tines
+    pitchfan: '<path d="M3 21 21 3"/><path d="M3 21 21 8"/><path d="M3 21 21 13"/><path d="M3 21 21 18"/><path d="M3 21 16 3"/><circle cx="3" cy="21" r="1.7"/>',
+    // ── gann: the grid, and what is drawn over it ─────────
+    gannBox: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/>',
+    gannSquare: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><path d="M3 20a17 17 0 0 0 17-16"/>',
+    // the same figure with ONE anchor — the dot is the whole difference
+    gannSquareFixed: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><circle cx="3" cy="20" r="2.1"/>',
+    gannFan: '<path d="M3 21 21 3"/><path d="M3 21 21 10"/><path d="M3 21 21 16"/><path d="M3 21 12 3"/><path d="M3 21 17 3"/>',
     brush: '<path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
     text: '<path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/>',
     measure: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
@@ -344,6 +375,14 @@ const Icons = (() => {
       + '<path d="M6 20h28" stroke-dasharray="3 2.5"/>'
       + '<path class="a" d="M27 19a4.5 4.5 0 0 1 9 0c0 4 1.2 5 1.2 5H25.8s1.2-1 1.2-5z"/>'
       + '<path class="a" d="M30 27.5a1.8 1.8 0 0 0 3 0"/>',
+    // a viewfinder around the chart: the BRACKETS carry the accent, because
+    // the framing is the action — what is inside them is only the chart again
+    screenshot: '<path class="a" d="M7 14.5V9.5A2 2 0 0 1 9 7.5h5"/>'
+      + '<path class="a" d="M33 14.5V9.5a2 2 0 0 0-2-2h-5"/>'
+      + '<path class="a" d="M7 25.5v5a2 2 0 0 0 2 2h5"/>'
+      + '<path class="a" d="M33 25.5v5a2 2 0 0 1-2 2h-5"/>'
+      + '<path d="M11 26h18"/>'
+      + '<path d="M12 23l4-6 4 4 4-7 4 5"/>',
     // the print, and the bar that reacted to it
     earnings: '<path d="M7 32h26"/>'
       + '<path d="M11 20v9M18 22v7M31 14v15"/>'
