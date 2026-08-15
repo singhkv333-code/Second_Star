@@ -4709,7 +4709,43 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                        f"it is a real difference — still a small one, and "
                        f"not a forecast")
                + "." if uni.get("edge_se_pp") is not None else ""))
+    else:
+        # Silence here was the bug behind "why can't it show monthly
+        # patterns". The shape IS detected on 1w/1mo — the pooled sweep simply
+        # never graded those intervals, and with no block and no explanation
+        # the model had nothing to say and hedged the whole answer away. Name
+        # the boundary and hand back this chart's own measurement, which is
+        # exactly what the detector just produced.
+        covered = _pattern_stats_intervals()
+        res["universe"] = None
+        res["_note"] += (
+            " There is NO pooled universe record for this interval"
+            + (f" — the sweep graded {', '.join(covered)} only, and this call "
+               f"is {interval}" if covered and interval not in covered else "")
+            + ". The rates above are THIS chart's own record, measured just "
+              "now by the detector, and are the answer — report them. Say the "
+              "cross-symbol base rate is unavailable at this interval; do not "
+              "imply one exists, and do not withhold the formation itself.")
     return res
+
+
+def _pattern_stats_intervals() -> list[str]:
+    """Which intervals the offline sweep actually graded, for this market.
+
+    Read rather than hardcoded: the sweep is re-run independently of this
+    file, and a stale literal here would tell the model a base rate exists
+    where it does not.
+    """
+    try:
+        has_scope = any(r[1] == "scope" for r in
+                        _con.execute("PRAGMA table_info(pattern_stats)"))
+        cur = _con.execute(
+            "SELECT DISTINCT interval FROM pattern_stats WHERE scope=?",
+            (scope_for(_sym()),)) if has_scope else \
+            _con.execute("SELECT DISTINCT interval FROM pattern_stats")
+        return sorted(r[0] for r in cur if r[0])
+    except sqlite3.Error:
+        return []
 
 
 # ── quarterly results ─────────────────────────────────────────────
@@ -6752,7 +6788,7 @@ TOOLS = [
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "draw": {"type": "boolean", "description": "draw the strongest max_draw levels"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
@@ -6768,7 +6804,7 @@ TOOLS = [
     {"type": "function", "name": "get_trendlines",
      "description": "Detect SLOPED trend lines fitted through real swing highs/lows, each requiring 3+ touches, with status intact/broken. Use for any diagonal structure — trendline, rising support, falling resistance, wedge/channel edges. Set draw=true to put them on the chart. A resistance line is fitted through swing HIGHS, a support line through swing LOWS — pass `side` when the question names one.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "draw": {"type": "boolean"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
@@ -6782,7 +6818,7 @@ TOOLS = [
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
      "parameters": {"type": "object", "properties": {
          "indicator": {"type": "string", "enum": ["rsi", "macd"]},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 400"},
          "draw": {"type": "boolean"},
          "draw_ids": {"type": "array", "items": {"type": "string"}},
@@ -6792,7 +6828,7 @@ TOOLS = [
     {"type": "function", "name": "get_gaps",
      "description": "Find price gaps and, crucially, how often gaps have actually filled on this symbol in this window, with median bars-to-fill. Use whenever gaps come up, or when asked about unfilled gaps overhead/below. Set draw=true to shade them.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 400"},
          "only_open": {"type": "boolean", "description": "only gaps price has not returned to"},
          "draw": {"type": "boolean"},
@@ -6803,7 +6839,7 @@ TOOLS = [
     {"type": "function", "name": "get_anchors",
      "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps, and the 52-week high/low — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. For the 52-week high or low ask kinds=['high_52w','low_52w']. To anchor at a SPECIFIC date the conversation has located (the day of the biggest fall, a particular high), pass at_times — each mints bar_high/bar_low anchors at that real bar (ids carry the date, e.g. T060126H/T060126L for 06 Jan 2026), drawable this whole turn. To box or bound a named period, pass frm/to — window_high/window_low then become that RANGE's extremes (date-carrying ids R<ddmmyy>H/L). You never type a coordinate.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 300"},
          "kinds": {"type": "array", "items": {"type": "string",
                    "enum": ["swing_high", "swing_low", "session_open", "session_close",
@@ -6822,7 +6858,7 @@ TOOLS = [
                    "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' dots the bar an anchor sits on, just above its high"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "must match the get_anchors call"},
          "pane": {"type": "string", "description": "'price', or an indicator id like 'rsi'"},
          "label": {"type": "string", "description": "short caption drawn on the chart"},
@@ -6900,7 +6936,7 @@ TOOLS = [
          "p1_value": {"type": "number"},
          "p2_time": {"type": "string"},
          "p2_value": {"type": "number"},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 500"}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_fib",
@@ -6911,13 +6947,13 @@ TOOLS = [
          "p1_value": {"type": "number", "description": "price at the start of the leg (the 100% end)"},
          "p2_time": {"type": "string", "description": "IST time of the leg's END"},
          "p2_value": {"type": "number", "description": "price at the end of the leg (the 0% end)"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
      "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "kinds": {"type": "array", "items": {"type": "string"},
                    "description": "specific pattern names to look for, e.g. ['head_and_shoulders'] or ['bullish_engulfing','hammer']. Omit for a full sweep. An unknown name comes back with the full list rather than scanning."},
@@ -6934,7 +6970,7 @@ TOOLS = [
      "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate as control — the edge is pattern rate minus base rate. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",
      "parameters": {"type": "object", "properties": {
          "kind": {"type": "string", "description": "one exact snake_case pattern id, e.g. bullish_engulfing, triple_top, bull_flag"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
@@ -7045,7 +7081,7 @@ TOOLS = [
          "drawing_id": {"type": "string"},
          "basis": {"type": "string", "description": "the chart feature these levels came from, a few words — 'falling wedge upper edge 1,318.15', 'support 1,271 · 4 touches'. Rides on the overlay so the plan says what it was built on. Leave empty only when the user gave bare numbers with no reason."},
          "interval": {"type": "string",
-                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "draw_mode": {"type": "string", "enum": ["add", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_drawing",
@@ -7058,14 +7094,14 @@ TOOLS = [
                     "items": {"type": "object", "properties": {
                         "t": {"type": "string", "description": "IST time as the chart shows it, e.g. '08 Jul 2026 15:25' — required for channel"},
                         "v": {"type": "number", "description": "price"}}}},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_results",
      "description": "Quarterly result (earnings) dates for this company, newest first, and optionally mark them on the chart with event icons. Use for 'when were the last results', 'when did Q1 report', 'mark earnings on the chart', or to locate a quarter before asking what price did around it. The date returned is the session the market could FIRST react to: an after-market announcement reacts the next day, and the field already accounts for that. These are past announcements only — there is no scheduled future date here, so never state one.",
      "parameters": {"type": "object", "properties": {
          "limit": {"type": "integer", "description": "how many recent quarters, default 8, max 40"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "draw": {"type": "boolean", "description": "mark them on the chart as event icons"},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
@@ -7103,7 +7139,7 @@ TOOLS = [
                            "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
                            "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
                            "obv", "ad", "cmf", "mfi", "aroon"]},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "period": {"type": "integer", "description": "omit for the indicator's conventional default"},
          "source": {"type": "string", "enum": ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"],
                     "description": "price column, default close"},

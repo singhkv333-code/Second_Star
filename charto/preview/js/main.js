@@ -453,8 +453,24 @@
       `<span class="ro-c"><i>C</i> <b class="${cls}">${f(b.close)}</b></span>` +
       `<span class="ro-v"><i>V</i> <b class="${cls}">${f(b.volume)}</b></span>` + chg;
   }
+  /* "Over a candle" is not "over the chart". The pick cursor is a promise that
+   * there is something under the pointer to pick, so it has to be answered
+   * against the bar's own high-low span rather than the pane's bounds — the
+   * empty air above a downtrend is still the plot, and a hand floating there
+   * says the opposite of the truth. The crosshair subscription already knows
+   * which bar the pointer is on; the only thing added is whether the pointer's
+   * y falls inside that bar, with a couple of pixels of slack so a thin wick
+   * is still catchable. */
+  function overBar(p, b) {
+    if (!b || !p || !p.point || b.high == null) return false;
+    const top = candle.priceToCoordinate(b.high);
+    const bot = candle.priceToCoordinate(b.low);
+    if (top == null || bot == null) return false;
+    return p.point.y >= top - 2 && p.point.y <= bot + 2;
+  }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
+    chartEl.classList.toggle("on-bar", overBar(p, b));
     if (b) {
       const src = state.bars[state.bars.length - 1];
       paintReadout({ ...b, volume: (p.seriesData.get(volume) || {}).value ?? src.volume });

@@ -1694,20 +1694,23 @@ header > .btn, header > .badge { flex: none; }
   -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
-/* TradingView cursors: the pixel hand over the bars, a grabbing hand while
-   panning, the crosshair back the moment a drawing tool is armed (you aim a
-   trendline with a crosshair, not with a fist). The hand is a 14x20 bitmap
-   drawn as an SVG with crispEdges and served at 2x, so it stays the same
-   hard-edged shape on a retina panel instead of being blurred up from 1x. The
-   hotspot is the fingertip. `#chart *` as well as `#chart`, because
-   lightweight-charts sets a cursor on its own canvases. */
-#chart, #chart * {
-  cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2228%22%20height=%2240%22%20viewBox=%220%200%2014%2020%22%20shape-rendering=%22crispEdges%22%3E%3Cpath%20fill=%22%23fff%22%20d=%22M6%201h1v1H6zM6%202h1v1H6zM6%203h1v1H6zM6%204h1v1H6zM6%205h1v1H6zM6%206h1v1H6zM8%206h1v1H8zM6%207h1v1H6zM8%207h1v1H8zM10%207h1v1H10zM6%208h1v1H6zM8%208h1v1H8zM10%208h1v1H10zM12%208h1v1H12zM3%209h1v1H3zM6%209h7v1H6zM3%2010h2v1H3zM6%2010h7v1H6zM4%2011h9v1H4zM5%2012h8v1H5zM5%2013h8v1H5zM6%2014h7v1H6zM6%2015h7v1H6zM6%2016h7v1H6zM6%2017h7v1H6zM6%2018h7v1H6z%22/%3E%3Cpath%20fill=%22%23000%22%20d=%22M5%200h2v1H5zM5%201h1v1H5zM7%201h1v1H7zM5%202h1v1H5zM7%202h1v1H7zM5%203h1v1H5zM7%203h1v1H7zM5%204h1v1H5zM7%204h1v1H7zM5%205h1v1H5zM7%205h2v1H7zM5%206h1v1H5zM7%206h1v1H7zM9%206h2v1H9zM5%207h1v1H5zM7%207h1v1H7zM9%207h1v1H9zM11%207h2v1H11zM2%208h2v1H2zM5%208h1v1H5zM7%208h1v1H7zM9%208h1v1H9zM11%208h1v1H11zM13%208h1v1H13zM2%209h1v1H2zM4%209h2v1H4zM13%209h1v1H13zM2%2010h1v1H2zM5%2010h1v1H5zM13%2010h1v1H13zM3%2011h1v1H3zM13%2011h1v1H13zM4%2012h1v1H4zM13%2012h1v1H13zM4%2013h1v1H4zM13%2013h1v1H13zM5%2014h1v1H5zM13%2014h1v1H13zM5%2015h1v1H5zM13%2015h1v1H13zM5%2016h1v1H5zM13%2016h1v1H13zM5%2017h1v1H5zM13%2017h1v1H13zM5%2018h1v1H5zM13%2018h1v1H13zM5%2019h9v1H5z%22/%3E%3C/svg%3E") 12 1, default;
+/* TradingView cursors.
+   The hand is 11x14 at 2x — half the area of the first attempt, and with the
+   folded fingers dropped to two, because at 14x20 with four of them it read as
+   clip-art rather than a cursor. crispEdges + an integer 2x keeps every pixel
+   square on a retina panel; the hotspot is the fingertip.
+
+   It appears ONLY over a candle, not over the whole plot: #chart.on-bar is
+   toggled from the crosshair subscription in main.js, which already knows
+   which bar is under the pointer and can compare the pointer's y against that
+   bar's own high-low span. Empty space in the plot keeps the crosshair, which
+   is what you actually want for reading a level off the axis. */
+#chart, #chart * { cursor: crosshair; }
+#chart.on-bar, #chart.on-bar * {
+  cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2222%22%20height=%2228%22%20viewBox=%220%200%2011%2014%22%20shape-rendering=%22crispEdges%22%3E%3Cpath%20fill=%22%23fff%22%20d=%22M4%201h1v1H4zM4%202h1v1H4zM4%203h1v1H4zM4%204h1v1H4zM4%205h1v1H4zM6%205h1v1H6zM4%206h4v1H4zM2%207h1v1H2zM4%207h5v1H4zM2%208h7v1H2zM3%209h6v1H3zM3%2010h6v1H3zM4%2011h5v1H4zM4%2012h5v1H4z%22/%3E%3Cpath%20fill=%22%23000%22%20d=%22M3%200h2v1H3zM3%201h1v1H3zM5%201h1v1H5zM3%202h1v1H3zM5%202h1v1H5zM3%203h1v1H3zM5%203h1v1H5zM3%204h1v1H3zM5%204h2v1H5zM3%205h1v1H3zM5%205h1v1H5zM7%205h1v1H7zM1%206h3v1H1zM8%206h1v1H8zM1%207h1v1H1zM3%207h1v1H3zM9%207h1v1H9zM1%208h1v1H1zM9%208h1v1H9zM2%209h1v1H2zM9%209h1v1H9zM2%2010h1v1H2zM9%2010h1v1H9zM3%2011h1v1H3zM9%2011h1v1H9zM3%2012h1v1H3zM9%2012h1v1H9zM3%2013h7v1H3z%22/%3E%3C/svg%3E") 8 1, pointer;
 }
-/* …but only over the BARS. The two scales are drag handles and have to keep
-   saying so; lightweight-charts sets no cursor of its own on them, so without
-   this the hand spread across the whole widget and the one gesture that needs
-   an affordance (drag the price scale to rescale) lost it. */
+/* the axes are drag handles and have to keep saying so; lightweight-charts
+   sets no cursor of its own on them */
 #chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
 #chart table tr:last-child td, #chart table tr:last-child td * { cursor: ew-resize; }
 #chart.drawing, #chart.drawing * { cursor: crosshair; }
@@ -5425,9 +5428,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/geometry.js?v=10"></script>
   <script src="./js/tools.js?v=13"></script>
   <script src="./js/drawings.js?v=21"></script>
-  <script src="./js/scene.js?v=31"></script>
+  <script src="./js/scene.js?v=32"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=79"></script>
+  <script src="./js/main.js?v=80"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
