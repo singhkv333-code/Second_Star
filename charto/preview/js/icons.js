@@ -258,6 +258,114 @@ const Icons = (() => {
     return `<svg class="${klass}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   }
 
+  /* ── template tiles: a SECOND family, with different rules ─────────────
+   *
+   * The glyphs above are 24×24 stroke-only signage — they label a control you
+   * already know how to use. These are something else: the twelve openings on
+   * an empty chat, where the picture has to teach what the thing DOES before
+   * the user has any vocabulary for it. So they are miniature illustrations,
+   * not symbols, and they follow the convention that reads as "template
+   * picker" everywhere it appears (Claude Design, Notion, Figma):
+   *
+   *   · 40×40 viewBox — four times the area of a glyph, which is what buys
+   *     room for a drawing instead of a pictogram
+   *   · 1.6 stroke in currentColor, round caps and joins
+   *   · DUOTONE: exactly ONE accent per tile, marked `class="a"` (stroke) or
+   *     `class="af"` (fill). One is the whole trick — the accent is what the
+   *     tile is about, and a second one turns a drawing into a diagram.
+   *     Colour comes from CSS so the accent follows the theme.
+   *   · Every tile is drawn ON a chart, because that is charto's one subject.
+   *     A generic magnifier for "screen" or a generic bell for "alert" would
+   *     be an icon from any app; a magnifier over candles is from this one.
+   *
+   * Kept in this file rather than a new one because "where the icons live"
+   * should have a single answer, but deliberately in its own map: mixing a
+   * 40-unit path into P would silently render at 24 and nobody would know
+   * why it looked thin.
+   */
+  const T = {
+    // support and resistance: the candles are the evidence, the two flat
+    // lines are the answer
+    levels: '<path d="M7 32h26"/>'
+      + '<path d="M11 15v14M18 12v17M25 17v12M31 14v15"/>'
+      + '<rect x="9" y="19" width="4" height="6" rx="1"/>'
+      + '<rect x="16" y="16" width="4" height="9" rx="1"/>'
+      + '<rect x="23" y="20" width="4" height="5" rx="1"/>'
+      + '<rect x="29" y="18" width="4" height="7" rx="1"/>'
+      + '<path class="a" d="M6 14.5h28M6 28h28" stroke-dasharray="3 2.5"/>',
+    // a formation: two converging rails and the apex they resolve at
+    patterns: '<path d="M7 32h26"/>'
+      + '<path d="M10 27.5 14 17.6l4 7.9 4-6 4 3.5 3.5-1.2"/>'
+      + '<path class="a" d="M9 15 31 22M9 29l22-7"/>'
+      + '<circle class="af" cx="31" cy="22" r="2.3" stroke="none"/>',
+    // the line you draw, and the two bars it is pinned to
+    trendlines: '<path d="M7 32h26"/>'
+      + '<path d="M11 20v9M18 16v13M25 19v10M31 12v17"/>'
+      + '<path class="a" d="M10 28.5 32 13"/>'
+      + '<circle class="af" cx="10" cy="28.5" r="2.3" stroke="none"/>'
+      + '<circle class="af" cx="32" cy="13" r="2.3" stroke="none"/>',
+    // price above, its own pane below — the divider IS the idea
+    indicators: '<path d="M7 17l5-5 5 4 5-7 5 6 4-3"/>'
+      + '<path d="M6 22h28" opacity=".55"/>'
+      + '<path class="a" d="M7 30c3 0 3-5 6-5s3 6 6 6 3-7 6-7 3 4 6 4"/>',
+    // volume at price: the bars are the point, the longest one is the answer
+    volumeProfile: '<path d="M7 32h26"/>'
+      + '<path d="M10 15v14M15 12v17M20 18v11"/>'
+      + '<path d="M24 26h6M24 22h4M24 14h5"/>'
+      + '<path class="a" d="M24 18h11"/>'
+      + '<circle class="af" cx="36" cy="18" r="1.8" stroke="none"/>',
+    // the jump, and the reason attached to it
+    whyMoved: '<path d="M7 32h26"/>'
+      + '<path d="M9 28l4-1.5 4 1"/>'
+      + '<path class="a" d="M17 27.5 23 15"/>'
+      + '<path d="M23 15l4 3 5-2.5"/>'
+      + '<path class="af" d="M28.6 8l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" stroke="none"/>',
+    // target above, entry, stop below — the only tile that earns two colours,
+    // because up and down are not decoration here, they are the two outcomes
+    planTrade: '<path d="M7 32h26"/>'
+      + '<path d="M13 15v14M20 12v17M27 18v11"/>'
+      + '<path class="up" d="M8 12h26"/>'
+      + '<path d="M8 21h26" stroke-dasharray="3 2.5"/>'
+      + '<path class="down" d="M8 28h26"/>',
+    // does the shape actually work: the shape, then the record
+    evidence: '<path d="M7 32h26"/>'
+      + '<path d="M8 22l5-6 5 4 5-7"/>'
+      + '<path class="a" d="M23 29v-6M28 29v-11M33 29v-8"/>'
+      + '<path d="M21 32h14" opacity=".55"/>',
+    // the same setup, across the market
+    screen: '<rect x="6" y="8" width="28" height="24" rx="3"/>'
+      + '<path d="M6 15h28M15 15v17M25 15v17" opacity=".55"/>'
+      + '<path d="M8 27l3-3 2 2M17 26l3-4 2 3M27 28l2-3 2 2"/>'
+      + '<rect class="af" x="15" y="15" width="10" height="8.5" rx="0" stroke="none" opacity=".16"/>'
+      + '<path class="a" d="M17 21l3-4 2 3"/>',
+    // two instruments, one origin, and the gap that opens
+    compare: '<path d="M7 32h26"/>'
+      + '<path d="M8 26l6-3 6-6 6-4 6-2"/>'
+      + '<path class="a" d="M8 26l6 1 6 3 6-1 6 2"/>'
+      + '<circle class="af" cx="8" cy="26" r="2.2" stroke="none"/>',
+    // the level, and the moment it is crossed
+    alert: '<path d="M7 32h26"/>'
+      + '<path d="M7 27l6-2 5-5 5-3"/>'
+      + '<path d="M6 20h28" stroke-dasharray="3 2.5"/>'
+      + '<path class="a" d="M27 19a4.5 4.5 0 0 1 9 0c0 4 1.2 5 1.2 5H25.8s1.2-1 1.2-5z"/>'
+      + '<path class="a" d="M30 27.5a1.8 1.8 0 0 0 3 0"/>',
+    // the print, and the bar that reacted to it
+    earnings: '<path d="M7 32h26"/>'
+      + '<path d="M11 20v9M18 22v7M31 14v15"/>'
+      + '<rect x="9" y="22" width="4" height="5" rx="1"/>'
+      + '<rect x="16" y="24" width="4" height="4" rx="1"/>'
+      + '<rect x="29" y="17" width="4" height="9" rx="1"/>'
+      + '<path class="a" d="M25 11v21" stroke-dasharray="3 2.5"/>'
+      + '<rect class="af" x="21.5" y="6.5" width="7" height="5" rx="1.4" stroke="none"/>',
+  };
+
+  /** tile(name) → the 40×40 template illustration. */
+  function tile(name) {
+    const body = T[name];
+    if (!body) throw new Error(`Icons: unknown tile "${name}"`);
+    return `<svg class="tile-art" viewBox="0 0 40 40" aria-hidden="true">${body}</svg>`;
+  }
+
   /* ── the search field's leading mark ────────────────────────────────────
    * Every "type to filter this list" box in the app wears the SAME
    * magnifier, and it is the only thing that says the box is focused (the
@@ -280,7 +388,7 @@ const Icons = (() => {
     }
   }
 
-  return { svg, layoutSvg, field, mountSearchFields, paths: P };
+  return { svg, layoutSvg, tile, field, mountSearchFields, paths: P, tiles: T };
 })();
 
 /* This file is loaded after the markup it decorates, so the fields exist by

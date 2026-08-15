@@ -1126,8 +1126,81 @@
     el("toBottom").classList.toggle("show", !atBottom() && msgsEl.children.length > 0);
   });
 
-  const EMPTY_HTML = '<div class="chat-empty">Ask about what you\'re looking at.'
-    + '<br/><b>The model sees the visible chart.</b></div>';
+  /* ── the twelve openings ───────────────────────────────────────────────
+   * An empty chat box is the hardest screen in the product: it can do about
+   * ninety things and shows none of them, so the first question is usually a
+   * guess at what it understands. These are the twelve it is best at, drawn
+   * rather than listed.
+   *
+   * `q` is a real prompt, phrased the way a person would type it — not a
+   * command and not a tool name. Clicking one FILLS the composer and focuses
+   * it; it does not send. The point is to teach the vocabulary and leave the
+   * user holding the sentence, so the second question can be their own.
+   * (It is also the honest default while a turn costs what it currently
+   * costs — a mis-click should not spend a minute of somebody's time.)
+   *
+   * `{sym}` is the chart's own instrument, so the sentence reads as a
+   * question about what is actually on screen.
+   */
+  const TEMPLATES = [
+    { icon: "levels", label: "Levels",
+      q: "Mark the support and resistance on {sym} and tell me how many times each has been touched." },
+    { icon: "patterns", label: "Patterns",
+      q: "What chart patterns are forming on {sym} right now? Mark them." },
+    { icon: "trendlines", label: "Trends",
+      q: "Draw the trend lines that matter on {sym} and say which one is still intact." },
+    { icon: "indicators", label: "Indicators",
+      q: "Add RSI and a 50-period moving average to {sym}, and read them together." },
+    { icon: "volumeProfile", label: "Volume",
+      q: "Where has most of {sym}'s volume actually traded? Show the profile and the point of control." },
+    { icon: "whyMoved", label: "Why it moved",
+      q: "Explain {sym}'s last big move — what happened, and how far did it travel?" },
+    { icon: "planTrade", label: "Plan",
+      q: "Plan a position on {sym}: entry, stop, target and the R:R, with the levels you used." },
+    { icon: "evidence", label: "Evidence",
+      q: "Take the most recent pattern on {sym} and show me its historical record against a control." },
+    { icon: "screen", label: "Screen",
+      q: "Find other stocks setting up the same way {sym} is." },
+    { icon: "compare", label: "Compare",
+      q: "Compare {sym} against its sector peers over the last six months." },
+    { icon: "alert", label: "Alert",
+      q: "Alert me when {sym} closes above its nearest resistance." },
+    { icon: "earnings", label: "Earnings",
+      q: "How has {sym} reacted to its last few results? Mark them on the chart." },
+  ];
+
+  function templateGrid() {
+    // the thread's own esc() leaves quotes alone, which is fine for text
+    // nodes and wrong for an attribute — these prompts are going into one
+    const attr = (s) => String(s).replace(/[&<>"]/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const cards = TEMPLATES.map((t) => {
+      const q = t.q.replace(/\{sym\}/g, Sym.name);
+      return `<button type="button" class="tpl-card" data-q="${attr(q)}" title="${attr(q)}">`
+        + `<span class="tpl-art">${Icons.tile(t.icon)}</span>`
+        + `<span class="tpl-name">${attr(t.label)}</span></button>`;
+    }).join("");
+    return `<div class="tpl"><div class="tpl-head">START WITH</div>`
+      + `<div class="tpl-grid">${cards}</div></div>`;
+  }
+
+  const EMPTY_HTML = () => '<div class="chat-empty">'
+    + '<div class="ce-say">Ask about what you\'re looking at.'
+    + '<br/><b>The model sees the visible chart.</b></div>'
+    + templateGrid() + '</div>';
+
+  /* One listener on the thread, not twelve on the cards: the empty state is
+   * rebuilt from scratch on every clear, and per-card handlers would have to
+   * be re-bound each time or silently stop working on the second new chat. */
+  msgsEl.addEventListener("click", (e) => {
+    const card = e.target.closest && e.target.closest(".tpl-card");
+    if (!card) return;
+    const input = el("chatInput");
+    input.value = card.dataset.q || "";
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.dispatchEvent(new Event("input", { bubbles: true }));  // regrow the box
+  });
 
   /** Paint `turns` from scratch. Same builders as a live turn, so a reloaded
    *  conversation — or one reopened from the history — is pixel-identical to
@@ -1135,7 +1208,7 @@
   function renderThread() {
     msgsEl.innerHTML = "";
     if (!turns.length) {
-      msgsEl.innerHTML = EMPTY_HTML;
+      msgsEl.innerHTML = EMPTY_HTML();
       el("toBottom").classList.remove("show");
       return;
     }
@@ -1150,7 +1223,10 @@
     }
     toBottom();
   }
-  if (turns.length) renderThread();
+  // Unconditional: renderThread's empty branch IS the template grid, and
+  // guarding it on turns.length meant a fresh session kept the static
+  // markup from index.html and the twelve openings never appeared.
+  renderThread();
 
   // ── send ──────────────────────────────────────────────
   /** `again` is a prompt being re-asked from a past turn's Retry. It leaves

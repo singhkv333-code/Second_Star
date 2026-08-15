@@ -2620,6 +2620,70 @@ body.two-columns .readout .row { display: none; }
 }
 .chat-empty b { color: var(--muted-foreground); font-weight: var(--weight-display); }
 
+/* ── the twelve openings ───────────────────────────────────────────────
+   An empty chat box can do about ninety things and shows none of them.
+   This is the same shape every template picker uses — a quiet micro-label,
+   then a grid of drawn tiles — sized so the whole set is one glance rather
+   than a list to read. The chat pane is narrow and resizable, so the grid
+   is auto-fit rather than a fixed six across: it reflows to 4, 3 or 2 and
+   never clips a tile. */
+.chat-empty { margin-top: 12vh; margin-top: 12dvh; }
+.ce-say { margin-bottom: 26px; }
+
+.tpl { max-width: 560px; margin: 0 auto; padding: 0 4px; text-align: left; }
+.tpl-head {
+  font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
+  margin: 0 0 10px 2px; font-weight: var(--weight-display);
+}
+/* Twelve tiles want an even grid — 6x2, 4x3 or 3x4. auto-fit picked 5 at
+   this pane width and left an orphan row of two, which reads as a mistake.
+   A CONTAINER query, not a media query: the chat pane is resizable, so the
+   number that matters is the pane's width, not the window's. */
+.tpl { container-type: inline-size; }
+.tpl-grid {
+  display: grid; gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+}
+@container (min-width: 470px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
+@container (max-width: 300px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
+.tpl-card {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 13px 6px 10px; border-radius: var(--radius);
+  background: transparent; border: 1px solid transparent;
+  color: var(--faint); font: inherit; font-size: var(--text-xs);
+  cursor: pointer; text-align: center;
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.tpl-card:hover, .tpl-card:focus-visible {
+  background: var(--accent); border-color: var(--border);
+  color: var(--muted-foreground); outline: none;
+}
+.tpl-name { line-height: 1.25; min-height: 2.5em; }
+
+/* The art. Stroke width is set ONCE here rather than per path, so the whole
+   family stays consistent and a tile cannot drift heavier than its
+   neighbours. The accent is the duotone half: `.a` strokes, `.af` fills,
+   one per tile, and it brightens on hover so the grid has somewhere to
+   go. `.up`/`.down` exist for the one tile whose two colours are its
+   meaning rather than its decoration. */
+.tile-art {
+  width: 40px; height: 40px; display: block;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.tile-art .a { stroke: var(--primary); }
+.tile-art .af { fill: var(--primary); }
+.tile-art .up { stroke: var(--up); }
+.tile-art .down { stroke: var(--down); }
+.tpl-card:hover .tile-art, .tpl-card:focus-visible .tile-art { color: var(--muted-foreground); }
+
+@media (max-width: 420px) {
+  .tpl-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+  .tile-art { width: 34px; height: 34px; }
+}
+
 /* scroll-to-latest, Claude's floating pill */
 .to-bottom {
   position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%);
@@ -5309,7 +5373,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <aside class="chatpanel" id="chatPanel">
       <div class="thread" id="thread">
         <div class="thread-inner" id="chatMsgs">
-          <div class="chat-empty">Ask about what you're looking at.<br/><b>The model sees the visible chart.</b></div>
+          <div class="chat-empty"><div class="ce-say">Ask about what you're looking at.<br/><b>The model sees the visible chart.</b></div></div>
         </div>
       </div>
 
@@ -5401,7 +5465,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=21"></script>
+  <script src="./js/icons.js?v=23"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5437,7 +5501,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=114"></script>
+  <script src="./js/chat.js?v=117"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
