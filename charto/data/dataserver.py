@@ -2950,6 +2950,27 @@ def _classification_row(sym: str):
         return None
 
 
+def _classification_full(sym: str):
+    """name, industry KEY, industry in words, sector, and which source won.
+
+    Separate from _classification_row because that one's two-tuple is
+    unpacked at four call sites; the columns below arrived with the
+    resolver (see sync_classification.py) and only the two surfaces that
+    NAME the classification out loud — get_peers and the model's context
+    line — have any business reading them.
+
+    Falls back to the two-column shape so a database written before the
+    resolver still answers instead of raising.
+    """
+    try:
+        return _con.execute(
+            "SELECT name, industry, label, sector, source "
+            "FROM classification WHERE symbol=?", (sym,)).fetchone()
+    except sqlite3.Error:
+        row = _classification_row(sym)
+        return (row[0], row[1], row[1], None, "mc") if row else None
+
+
 _PROFILE_COLS = ("sc_id", "name", "long_name", "industry_slug", "sector",
                  "industry", "market_cap", "summary", "website", "employees",
                  "city", "country", "logo_url", "eps", "eps_basis",
@@ -3607,13 +3628,13 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
 def tool_get_peers(symbol: str = "") -> dict:
     """The company's industry classification and its peer group."""
     sym = (symbol or _sym()).upper().strip()
-    row = _classification_row(sym)
+    row = _classification_full(sym)
     if not row:
         return {"symbol": sym,
                 "error": "no industry classification for this symbol",
                 "_note": ("Say the classification is unavailable rather than "
                           "guessing peers from the name.")}
-    name, ind = row
+    name, ind, label, sector, src = row
     have = _symbols_with_bars()
     peers = [{"symbol": p, "name": n, **({} if p in have else {"cold": True})}
              for p, n in _con.execute(
@@ -3625,9 +3646,14 @@ def tool_get_peers(symbol: str = "") -> dict:
     # universe", which was both the wrong number and the wrong noun.
     n_uni = _con.execute(
         "SELECT COUNT(*) FROM classification").fetchone()[0]
-    return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
+    return {"symbol": sym, "name": name, "industry": label or ind,
+            "industry_key": ind, "sector": sector, "peers": peers,
             "_note": (
-                f"Industry comes from the Moneycontrol classification; peers "
+                f"Industry is the resolved classification"
+                + ("" if src != "mc" else
+                   " (Moneycontrol's, kept because no cleaner source agreed "
+                   "on this company's identity)")
+                + f"; say the industry in words, not the key. Peers "
                 f"are limited to the {n_uni}-instrument chart universe, which "
                 f"holds NSE stocks, indices, India VIX, spot crypto, MCX "
                 f"futures and INR pairs — do not call it a company universe. "
@@ -9659,9 +9685,13 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
         f"· low {_n(w['low']['p'])} ({w['low']['t']}) "
         f"· avg vol {w['avg_volume']:,}",
     ]
-    cls = _classification_row(str(ctx.get("symbol") or ""))
+    cls = _classification_full(str(ctx.get("symbol") or ""))
     if cls:
-        L.insert(2, f"{cls[0]} · industry: {cls[1]} (Moneycontrol classification)")
+        # The words, not the key: the model reads this line and quotes it, and
+        # "360onewam" quoted back at a user is the bug this line used to carry.
+        _ind = cls[2] or cls[1]
+        _sec = f", {cls[3]}" if cls[3] else ""
+        L.insert(2, f"{cls[0]} · industry: {_ind}{_sec}")
     _st = _LIVE.get(str(ctx.get("symbol") or ""))
     _form = _st["form"] if _st else None
     if _form:
