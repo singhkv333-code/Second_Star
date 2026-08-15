@@ -2076,54 +2076,143 @@ body.two-columns .readout .row { display: none; }
 .overlay-msg.is-err .ldr { display: none; }
 
 /* ── the loading pendulum ──────────────────────────────────────────────
-   The mark is the dot in "Charto." — a circle already — so the loader is
-   that dot on a thread rather than a spinner borrowed from anywhere.
+   The bob is the MARK — the slashed circle of assets/pivot-mark.png, taken
+   as a mask over `--foreground` the same way `.chart-mark` above takes it,
+   so it is black on the light theme and white on the dark one from a
+   single file. Not a spinner borrowed from somewhere else.
 
-   Two phases, and the seam between them is the whole trick. It FALLS: the
-   thread scales from nothing and the ball travels the same distance on the
-   same curve, so the two stay joined, and the curve overshoots — the
-   thread goes momentarily past its length and settles, which is what a
-   line going taut looks like. It arrives already leaning, and the swing
-   starts from exactly that lean, so there is no jump between the two
-   animations at the handover.
+   THE ROPE IS NOT ONE ELEMENT. It is seven nested segments, each rotating
+   about its own top, so their rotations compound into a polyline that
+   reads as a curve. That is the only way a DOM rope can bow: a single div
+   can be scaled and skewed but never bent. Seven rather than three is the
+   resolution of the curve — at three the bend is a hinge, at seven the
+   joints fall below the eye's threshold and it is a line that bends.
 
-   The swing is `ease-in-out` on `alternate`, which is a sine — a real
-   pendulum's motion, slowest at the apexes and fastest through the
-   bottom. Nothing here animates anything but transform, so the whole
-   thing composites on the GPU and keeps moving while the main thread is
-   busy doing the loading it is reporting on. */
-.ldr { --len: 46px; --lean: 15deg; position: relative; height: calc(var(--len) + 14px); }
+   Each segment carries a slightly larger `--bow` and a slightly later
+   `--lag` than the one above it, and because every segment shares the
+   swing's period, a constant delay is a constant PHASE lag — the tail
+   keeps travelling for a moment after the arm has already turned at the
+   apex, which is what rope does. The lag ladder is also what makes the
+   whip an S rather than an arc: mid-flick the top of the rope has already
+   reversed while the bottom has not, so the two halves bend opposite ways.
+
+   Three phases, and the seams are the whole trick.
+
+   1. THE DROP. `.ldr-pay` is a full-length rope parked one full length
+      ABOVE the peg and clipped by `.ldr`'s overflow, so as it translates
+      down the rope pays OUT of the peg — always attached, growing, never a
+      scaleY on a line (which would thin it as it grew). The curve is a
+      hard ease-in: gravity, accelerating the whole way.
+   2. THE SNAP. At the bottom the rope overshoots to `scaleY(1.07)` — it
+      stretches past its own length — then recoils under 1 and settles.
+      Origin `50% 0` is the peg, so the stretch happens at the far end
+      where a real rope's stretch shows.
+   3. THE SWING. It arrives at the apex with ZERO velocity, which is where
+      a pendulum's velocity actually is zero, so `ldrSwing` can begin from
+      exactly that angle with no jump. `ease-in-out` on `alternate` is a
+      sine, and a sine is a pendulum under gravity: slowest at the apexes,
+      fastest through the bottom.
+
+   Nothing here animates anything but transform, so the whole thing
+   composites on the GPU and keeps moving while the main thread is busy
+   doing the loading it is reporting on. */
+.ldr {
+  --len: 62px;  --seg: calc(var(--len) / 7);  --lean: 30deg;
+  --fall: .72s; --kick: .6s; --per: 1.32s;
+  --t1: calc(var(--fall) * .78);        /* the snap — where the kick begins */
+  --t2: calc(var(--t1) + var(--kick));  /* the apex — where the swing takes over */
+  position: relative; width: 116px; height: calc(var(--len) + 26px);
+  /* clips the rope still above the peg. The sides are far enough out that
+     the swing never reaches them: 62·sin38 + 13 = 51 < 58. */
+  overflow: hidden;
+}
 .ldr::before {                      /* the peg it hangs from */
   content: ""; position: absolute; left: 50%; top: 0;
   width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
-  background: var(--muted-foreground); opacity: .5;
+  background: var(--muted-foreground); opacity: .5; z-index: 1;
 }
-.ldr-arm {
+.ldr-arm {                          /* the pendulum proper — pivots on the peg */
   position: absolute; left: 50%; top: 2px; width: 0; height: var(--len);
   transform-origin: 50% 0;
-  animation: ldrFall .62s cubic-bezier(.34, 1.4, .64, 1) forwards,
-             ldrSwing 1.15s ease-in-out .62s infinite alternate;
+  animation: ldrKick var(--kick) cubic-bezier(.32, .72, .38, 1) var(--t1) both,
+             ldrSwing var(--per) ease-in-out var(--t2) infinite alternate;
 }
-.ldr-thread {
-  position: absolute; left: -.5px; top: 0; width: 1px; height: 100%;
-  background: currentColor; opacity: .35; transform-origin: 50% 0;
-  animation: ldrDrop .62s cubic-bezier(.34, 1.4, .64, 1) both;
+.ldr-pay {                          /* the rope paying out of the peg */
+  position: absolute; left: 0; top: 0; width: 0; height: 100%;
+  transform-origin: 50% 0;
+  animation: ldrPay var(--fall) linear both;
 }
+.ldr-seg {
+  position: absolute; left: 0; top: 0; width: 0; height: var(--seg);
+  transform-origin: 50% 0;
+  animation: ldrBowIn calc(var(--t2) - var(--fall) * .35)
+               ease-in-out calc(var(--fall) * .35 + var(--lag)) both,
+             ldrBow var(--per) ease-in-out calc(var(--t2) + var(--lag))
+               infinite alternate;
+}
+.ldr-seg .ldr-seg { top: 100%; }
+.ldr-seg::before {                  /* the thread itself */
+  content: ""; position: absolute; left: -1px; top: 0;
+  /* the 1.4px of extra height, and the round cap, is what closes the joint
+     between two segments once the thread is wide enough to show one */
+  width: 2px; height: calc(100% + 1.4px); border-radius: 1px;
+  background: currentColor; opacity: .4;
+}
+/* `--whip` is the pay-out and the snap, where the rope should visibly BEND;
+   `--bow` is the steady-state lag, which should only ever be felt. They are
+   separate because one wants to be seen and the other does not, and a single
+   amplitude that reads during the snap is a rope flapping during the swing.
+   Both grow down the chain, and so does `--lag`: seven compounding rotations
+   at seven different phases is what stops this looking like a hinge. */
+.g1 { --bow: .35deg; --whip: 3deg;  --lag: 0s;   }
+.g2 { --bow: .55deg; --whip: 5deg;  --lag: .05s; }
+.g3 { --bow: .75deg; --whip: 7deg;  --lag: .1s;  }
+.g4 { --bow: .95deg; --whip: 9deg;  --lag: .15s; }
+.g5 { --bow: 1.15deg;--whip: 11deg; --lag: .2s;  }
+.g6 { --bow: 1.35deg;--whip: 13deg; --lag: .25s; }
+.g7 { --bow: 1.55deg;--whip: 15deg; --lag: .3s;  }
 .ldr-ball {
-  position: absolute; left: -6px; top: var(--len);
-  width: 12px; height: 12px; margin-top: -6px; border-radius: 50%;
-  background: var(--primary);
-  animation: ldrDropBall .62s cubic-bezier(.34, 1.4, .64, 1) both;
+  position: absolute; left: -13px; top: calc(100% - 13px);
+  width: 26px; height: 26px;
+  background: var(--foreground);
+  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
+          mask: url("assets/pivot-mark.png") center / contain no-repeat;
+  /* A short appear, not a cover-up: the rope starts 16px paid out (below)
+     precisely so the mark clears the peg and the overflow never bisects it.
+     This is only so it arrives rather than pops. */
+  animation: ldrBallIn calc(var(--fall) * .22) ease-out both;
 }
-@keyframes ldrFall  { from { transform: rotate(0deg); }
+@keyframes ldrBallIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ldrPay {
+  /* 16px, not 0, so the mark starts clear of the peg the overflow clips at */
+  0%   { transform: translateY(calc(-100% + 16px)) scaleY(1);
+         animation-timing-function: cubic-bezier(.45, 0, .75, .4); }   /* gravity */
+  72%  { transform: translateY(0) scaleY(1.09);
+         animation-timing-function: cubic-bezier(.2, .9, .35, 1); }    /* taut, stretched */
+  87%  { transform: translateY(0) scaleY(.98); }                       /* the recoil */
+  100% { transform: translateY(0) scaleY(1); }
+}
+@keyframes ldrKick  { from { transform: rotate(0deg); }
                       to   { transform: rotate(calc(-1 * var(--lean))); } }
 @keyframes ldrSwing { from { transform: rotate(calc(-1 * var(--lean))); }
                       to   { transform: rotate(var(--lean)); } }
-@keyframes ldrDrop     { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-@keyframes ldrDropBall { from { transform: translateY(calc(-1 * var(--len))); }
-                         to   { transform: translateY(0); } }
+/* The rope's own story, and the reason it reads as rope rather than wire:
+   it SNAKES as it pays out, WHIPS the other way when it goes taut, counter-
+   whips as that energy comes back, then settles — four inflections, each one
+   later and larger further down the chain. It ends at exactly where `ldrBow`
+   starts, so the handover into the steady swing is invisible. */
+@keyframes ldrBowIn {
+  0%   { transform: rotate(0deg); }
+  22%  { transform: rotate(calc(var(--whip) * -.55)); }
+  48%  { transform: rotate(var(--whip)); }
+  74%  { transform: rotate(calc(var(--whip) * -.28)); }
+  100% { transform: rotate(calc(-1 * var(--bow))); }
+}
+@keyframes ldrBow   { from { transform: rotate(calc(-1 * var(--bow))); }
+                      to   { transform: rotate(var(--bow)); } }
 @media (prefers-reduced-motion: reduce) {
-  .ldr-arm, .ldr-thread, .ldr-ball { animation: none; }
+  .ldr-arm, .ldr-seg { animation: none; }
+  .ldr-pay { animation: none; transform: none; }
 }
 
 /* split divider */
@@ -5571,10 +5660,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
       <div class="axis-note clock" id="tzNote" aria-label="Chart timezone"></div>
       <div class="prov" id="provCard"></div>
       <div class="overlay-msg" id="overlay">
-        <!-- The wordmark's own dot, on a thread. It falls, the thread goes
-             taut, and it swings until the bars arrive. -->
+        <!-- The mark on a rope. It falls, the rope snakes out and snaps
+             taut, and it swings until the bars arrive. Seven nested
+             segments because a rope has to BEND and one div cannot. -->
         <div class="ldr" aria-hidden="true">
-          <span class="ldr-arm"><i class="ldr-thread"></i><i class="ldr-ball"></i></span>
+          <span class="ldr-arm"><i class="ldr-pay"><i class="ldr-seg g1"><i class="ldr-seg g2"><i
+            class="ldr-seg g3"><i class="ldr-seg g4"><i class="ldr-seg g5"><i class="ldr-seg g6"><i
+            class="ldr-seg g7"><b class="ldr-ball"></b></i></i></i></i></i></i></i></i></span>
         </div>
         <div id="overlayText">Loading…</div>
       </div>
