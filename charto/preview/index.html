@@ -1695,20 +1695,21 @@ header > .btn, header > .badge { flex: none; }
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
 /* TradingView cursors.
-   The hand is 11x14 at 2x — half the area of the first attempt, and with the
-   folded fingers dropped to two, because at 14x20 with four of them it read as
-   clip-art rather than a cursor. crispEdges + an integer 2x keeps every pixel
-   square on a retina panel; the hotspot is the fingertip.
 
-   It appears ONLY over a candle, not over the whole plot: #chart.on-bar is
-   toggled from the crosshair subscription in main.js, which already knows
-   which bar is under the pointer and can compare the pointer's y against that
-   bar's own high-low span. Empty space in the plot keeps the crosshair, which
-   is what you actually want for reading a level off the axis. */
+   The pick hand is the SYSTEM pointer, not artwork of ours. Two hand-drawn
+   attempts went in first — 14x20 then 11x14, both pixel bitmaps — and both
+   were wrong for the same reason: the smooth hand people recognise is the
+   operating system's own, rendered by the compositor at whatever the display's
+   real density is. Any SVG we ship is a copy of it that is subtly off, has to
+   be redrawn for a second OS, and cannot be crisp at every scale factor.
+   `pointer` IS that hand on macOS, and the right hand on Windows and Linux.
+
+   What stays ours is WHERE it appears: only over a candle, via #chart.on-bar,
+   toggled from the crosshair subscription in main.js against the bar's own
+   high-low span. Empty plot keeps the crosshair, which is what you want for
+   reading a level off the axis. */
 #chart, #chart * { cursor: crosshair; }
-#chart.on-bar, #chart.on-bar * {
-  cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2222%22%20height=%2228%22%20viewBox=%220%200%2011%2014%22%20shape-rendering=%22crispEdges%22%3E%3Cpath%20fill=%22%23fff%22%20d=%22M4%201h1v1H4zM4%202h1v1H4zM4%203h1v1H4zM4%204h1v1H4zM4%205h1v1H4zM6%205h1v1H6zM4%206h4v1H4zM2%207h1v1H2zM4%207h5v1H4zM2%208h7v1H2zM3%209h6v1H3zM3%2010h6v1H3zM4%2011h5v1H4zM4%2012h5v1H4z%22/%3E%3Cpath%20fill=%22%23000%22%20d=%22M3%200h2v1H3zM3%201h1v1H3zM5%201h1v1H5zM3%202h1v1H3zM5%202h1v1H5zM3%203h1v1H3zM5%203h1v1H5zM3%204h1v1H3zM5%204h2v1H5zM3%205h1v1H3zM5%205h1v1H5zM7%205h1v1H7zM1%206h3v1H1zM8%206h1v1H8zM1%207h1v1H1zM3%207h1v1H3zM9%207h1v1H9zM1%208h1v1H1zM9%208h1v1H9zM2%209h1v1H2zM9%209h1v1H9zM2%2010h1v1H2zM9%2010h1v1H9zM3%2011h1v1H3zM9%2011h1v1H9zM3%2012h1v1H3zM9%2012h1v1H9zM3%2013h7v1H3z%22/%3E%3C/svg%3E") 8 1, pointer;
-}
+#chart.on-bar, #chart.on-bar * { cursor: pointer; }
 /* the axes are drag handles and have to keep saying so; lightweight-charts
    sets no cursor of its own on them */
 #chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
