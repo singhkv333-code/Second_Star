@@ -2614,40 +2614,292 @@ body.two-columns .readout .row { display: none; }
   color: var(--ann-res);
 }
 
-/* ── +DI against −DI ─────────────────────────────────────────────────────
+/* ── bars: the panel's one chart primitive ───────────────────────────────
    Two numbers whose entire content is the comparison: 8.59 says nothing at
    all except beside 35.88. Listed as a pair of rows the reader does the
    subtraction; drawn against each other they answer at a glance and the
-   figures stay on the right for anyone who wants them exactly.
+   figures stay on the right for anyone who wants them exactly. That is true
+   of every comparison in these panels — DI legs, ADX across six timeframes,
+   two names' returns over two windows — so there is ONE bar row and every
+   card uses it.
+
+   Horizontal, and not as a preference: this column is user-resizable down to
+   340px and a vertical grouped chart at that width is four stubs under a
+   legend. A horizontal row keeps label, figure and length legible at any
+   width the splitter allows.
 
    Label and value share the line ABOVE the bar rather than sitting beside
-   it, so both bars start at the same x and their lengths are directly
+   it, so every bar starts at the same x and the lengths are directly
    comparable — a track that began after a variable-width label would make
    the shorter leg look longer than it is. */
-.scan-dis { display: flex; flex-direction: column; gap: 10px; }
-.scan-di { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; }
-.scan-di .lb {
+.scan-bars { display: flex; flex-direction: column; gap: 10px; }
+.scan-bar { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; }
+.scan-bar .lb {
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
-  letter-spacing: .01em;
+  letter-spacing: .01em; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.scan-di .lb.tone-up { color: var(--up); }
-.scan-di .lb.tone-down { color: var(--down); }
-.scan-di .num {
+.scan-bar .num {
   font-family: var(--font-numeric); font-size: var(--text-sm);
   font-weight: var(--weight-medium); letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; color: var(--foreground);
-  text-align: right;
+  text-align: right; white-space: nowrap;
 }
-.scan-di .track {
-  grid-column: 1 / -1; height: 5px; border-radius: var(--radius-pill);
-  background: var(--muted); overflow: hidden;
+.scan-bar .num.tone-up { color: var(--up); }
+.scan-bar .num.tone-down { color: var(--down); }
+.scan-bar .track {
+  position: relative; grid-column: 1 / -1; height: 5px;
+  border-radius: var(--radius-pill); background: var(--muted);
 }
 /* The fill is the CANDLE colour, not a soft tint: this is the one place in
    the panel where two measurements are set against each other, and the
    reading is which colour is longer. */
-.scan-di .fill { display: block; height: 100%; border-radius: inherit; }
-.scan-di .fill.up { background: var(--up); }
-.scan-di .fill.down { background: var(--down); }
+.scan-bar .fill {
+  position: absolute; top: 0; bottom: 0; border-radius: inherit;
+  background: var(--muted-foreground); min-width: 2px;
+}
+.scan-bar .fill.up { background: var(--up); }
+.scan-bar .fill.down { background: var(--down); }
+.scan-bar .fill.ann { background: var(--ann-res); }
+/* A comparison of SUBJECTS, not of directions: in a falling year both names
+   are down, and two red bars under two labels is a chart the eye cannot
+   follow across three sections. One colour per symbol, held through every
+   section of the card; the sign is printed and zero is drawn. */
+.scan-bar .fill.s1 { background: var(--primary); }
+.scan-bar .fill.s2 { background: var(--ann-res); }
+.scan-bar .fill.s3 { background: var(--ann-sup); }
+.scan-bar .fill.s4 { background: color-mix(in srgb, var(--foreground) 55%, transparent); }
+/* The benchmark is CONTEXT, not a competitor — it is deliberately the
+   quietest bar in the group. */
+.scan-bar .fill.bench { background: var(--faint); }
+/* A signed track carries zero down its middle, because a set holding −0.9%
+   and +0.28% is two directions and not two sizes. The rule is a hairline in
+   the border colour: it has to be findable and must not read as data. */
+.scan-bar .track.signed::before {
+  content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px;
+  width: 1px; background: var(--border); transform: translateX(-.5px);
+}
+/* A threshold that is part of the reading — 25 on ADX, 50 on RSI. Always
+   disclosed in the section's own note; a bare line on a chart is a claim. */
+.scan-bar .tick {
+  position: absolute; top: -3px; bottom: -3px; width: 1px;
+  background: var(--foreground); opacity: .35;
+}
+
+/* Several bars that belong to one window, under its name. The interval is
+   what is being compared, so it labels the group and not each bar. */
+.scan-group { margin: 0 0 14px; }
+.scan-group:last-child { margin-bottom: 0; }
+.scan-group .gl {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 7px;
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  color: var(--foreground);
+}
+.scan-group .gn {
+  margin-left: auto; font-size: var(--text-2xs); font-weight: 400;
+  color: var(--faint); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── a reading row ───────────────────────────────────────────────────────
+   A name, what it says, and the figure — with the row TINTED by the side it
+   falls on. The tint is the reading seen rather than counted: three rows the
+   same colour is the tally the stat strip reports, at a glance. It never
+   replaces the words, because a colour alone is a claim nobody can check and
+   is invisible to a reader who cannot see it. */
+.scan-reads { display: flex; flex-direction: column; gap: 6px; }
+.scan-read {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 8px 11px; border-radius: var(--radius-sm);
+  background: var(--muted); font-variant-numeric: tabular-nums;
+}
+.scan-read + .scan-read { margin-top: 6px; }
+.scan-read.tone-up { background: var(--up-soft); }
+.scan-read.tone-down { background: var(--down-soft); }
+.scan-read .nm {
+  flex: none; font-size: var(--text-sm); font-weight: var(--weight-semi);
+  letter-spacing: -.01em; color: var(--foreground);
+}
+.scan-read.tone-up .nm { color: var(--up); }
+.scan-read.tone-down .nm { color: var(--down); }
+/* Wraps rather than ellipsising. A timeframe rung's line is five readings
+   long and the pane is resizable: clipped to "RSI 35.97 · MACD hist −0.12 ·
+   ADX 29.47 · −D…" it has hidden the two that decide the row. A second line
+   costs nothing; a truncated measurement costs the reading. */
+.scan-read .nt {
+  min-width: 0; font-size: var(--text-xs); color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.scan-read .num {
+  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
+}
+
+/* ── the staged checklist ────────────────────────────────────────────────
+   Numbered, never scored. The weight beside a stage says what a break COSTS
+   the other side — an overlay is a day, a swing is the sequence, a
+   well-tested level is structure — and it is deliberately not a probability.
+   There is no progress bar in here and no percentage anywhere. */
+.scan-steps { display: flex; flex-direction: column; }
+.scan-step {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px;
+  padding: 9px 0; border-top: 1px solid var(--border-soft);
+}
+.scan-step:first-child { border-top: 0; padding-top: 2px; }
+.scan-step .no {
+  grid-row: 1 / span 2; align-self: start;
+  display: grid; place-items: center; width: 19px; height: 19px;
+  margin-top: 1px; border-radius: var(--radius-pill);
+  background: var(--muted); color: var(--muted-foreground);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.scan-step.met .no { background: var(--up-soft); color: var(--up); }
+.scan-step .nm {
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.scan-step .wt {
+  grid-column: 3; grid-row: 1; align-self: baseline;
+  font-size: var(--text-2xs); color: var(--faint); white-space: nowrap;
+}
+.scan-step .nt {
+  grid-column: 2 / -1; font-size: var(--text-xs);
+  color: var(--muted-foreground); overflow-wrap: anywhere;
+}
+
+/* A condition, its current reading, and whether the two have met. "Not yet"
+   rather than a cross: a condition that has not been met is a chart that has
+   not done something yet, which is a neutral fact about today — a failure
+   mark would read as the chart having tried and missed. */
+.scan-checks { display: flex; flex-direction: column; }
+.scan-check {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 7px 6px; margin: 0 -6px;
+  border-top: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.scan-check:first-child { border-top: 0; }
+.scan-check .what {
+  min-width: 0; color: var(--foreground); font-size: var(--text-sm);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-check .num {
+  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--muted-foreground); white-space: nowrap;
+}
+.scan-check .st {
+  flex: none; min-width: 4.5em; text-align: right;
+  font-size: var(--text-xs); color: var(--down); white-space: nowrap;
+}
+.scan-check.met .st { color: var(--up); }
+
+/* ── the price ladder ────────────────────────────────────────────────────
+   The levels around price with price IN the column rather than beside it: a
+   list of levels above and a second list below leaves the reader to work out
+   which side they are standing on. One column, high to low, current row
+   ringed. A level the move already closed through is struck out — it is a
+   fact with a date behind it, and printing it unmarked would let it be read
+   as still holding. */
+.scan-ladder { display: flex; flex-direction: column; }
+.scan-rung {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 9px; margin: 0 -9px; border-radius: var(--radius-xs);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--border-soft);
+}
+.scan-rung:first-child { border-top: 0; }
+.scan-rung .px {
+  flex: none; min-width: 7.5em; font-family: var(--font-numeric);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--foreground);
+}
+.scan-rung .lb {
+  min-width: 0; font-size: var(--text-xs); color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-rung .nt {
+  flex: none; margin-left: auto; font-size: var(--text-2xs);
+  color: var(--faint); white-space: nowrap;
+}
+.scan-rung.res .px { color: var(--ann-res); }
+.scan-rung.sup .px { color: var(--ann-sup); }
+.scan-rung.crossed { color: var(--faint); }
+.scan-rung.crossed .px { color: var(--faint); text-decoration: line-through; }
+.scan-rung.current {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--accent);
+}
+.scan-rung.current + .scan-rung { border-top: 0; }
+.scan-rung.current .lb { color: var(--foreground); }
+
+/* ── found, and not found ────────────────────────────────────────────────
+   Both, on purpose. A chip saying no deal was printed is a measurement of
+   the same table that would have shown one; a panel listing only the hits
+   would let the reader assume the misses were never checked. So a miss is
+   quieter — never absent, and never red, because nothing failed. */
+.scan-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scan-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 5px 10px; border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill); background: var(--card);
+  font-size: var(--text-xs); color: var(--faint);
+}
+.scan-chip b { font-weight: var(--weight-medium); color: var(--muted-foreground); }
+.scan-chip.found { border-color: var(--border); }
+.scan-chip.found b { color: var(--foreground); }
+.scan-chip.found { color: var(--muted-foreground); }
+
+/* ── the small table ─────────────────────────────────────────────────────
+   For the one shape a row cannot carry: the same quantity for several
+   subjects across several windows. Kept rare — this panel is a reading
+   surface, not a spreadsheet — and it scrolls sideways rather than
+   compressing, because a squeezed figure column is unreadable at the widths
+   this pane allows. */
+.scan-grid { overflow-x: auto; }
+/* `max-content` is what makes the overflow actually SCROLL rather than
+   letting the columns collide: without it the grid shrinks to the pane and
+   two nowrap figures print over each other, which reads as a wrong number
+   rather than as a narrow pane. */
+.scan-gr {
+  display: grid; min-width: max-content;
+  grid-template-columns: minmax(7.5em, 1.4fr) repeat(calc(var(--cols) - 1), minmax(5.5em, 1fr));
+  gap: 10px; padding: 7px 0; border-top: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums; font-size: var(--text-xs);
+}
+.scan-gr.head { border-top: 0; padding-top: 0; }
+.scan-gr .gh {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  color: var(--faint); text-align: right; white-space: nowrap;
+}
+.scan-gr .gc {
+  font-family: var(--font-numeric); letter-spacing: -.02em;
+  color: var(--foreground); text-align: right; white-space: nowrap;
+}
+.scan-gr .gc i {
+  font-style: normal; color: var(--faint); font-family: var(--font-sans);
+  font-size: var(--text-2xs); padding: 0 1px;
+}
+.scan-gr .gh.lead, .scan-gr .gc.lead {
+  text-align: left; font-family: inherit; letter-spacing: 0;
+  color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis;
+}
+.scan-gr .gc.lead b { font-weight: var(--weight-medium); color: var(--foreground); }
+
+/* One line that qualifies the section above it — the band a tally would flip
+   in, the timeframe a gap is widest on, the rungs that could not be measured
+   at all. It is a sentence the TOOL computed, so it is boxed rather than
+   bolded: a heavier weight here would read as the panel's own verdict. */
+.scan-call {
+  margin: 10px 0 0; padding: 8px 11px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: var(--text-xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
 
 /* What was scanned, on the card's own bottom margin. Every panel in this app
    says where its numbers came from; this one has a whole window to name. */

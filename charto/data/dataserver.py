@@ -918,6 +918,25 @@ def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
 
 
+def _rows_safe(interval: str, limit: int) -> list[tuple]:
+    """`_rows` for a SWEEP: a rung that cannot be fetched is empty, not fatal.
+
+    A tool that reads ONE interval and raises has failed the question it was
+    asked, and should. A tool that walks six and raises on the third has
+    thrown away five measurements that were fine — and the store really does
+    not hold every interval for every instrument: the daily table is built by
+    a separate import, intraday bars exist only for hydrated symbols, and a
+    fresh box has neither. That is a fact about coverage, which is something
+    to REPORT. So it is caught here and named by the caller rather than
+    ending the call.
+    """
+    try:
+        return _rows(interval, limit)
+    except (sqlite3.Error, KeyError, ValueError, TypeError) as exc:
+        logging.warning("no %s bars for %s: %s", interval, _sym(), exc)
+        return []
+
+
 def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
                     draw: bool = False, draw_ids: list | None = None,
                     max_draw: int = 3, draw_mode: str = "add",
@@ -3455,26 +3474,32 @@ def tool_get_peers(symbol: str = "") -> dict:
                 "marked cold downloads its history on first use, ~6 s each.")}
 
 
-def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
-                         lookback_bars: int = 250) -> dict:
-    """Cross-symbol comparison on locally stored bars, aligned to a
-    common window so no symbol is scored over a span the others lack."""
-    syms = []
-    for s in (symbols or []):
-        s = str(s).upper().strip()
-        if s and s not in syms:
-            syms.append(s)
-    if not (2 <= len(syms) <= 8):
-        return {"error": "give 2-8 symbols to compare"}
-    for s in syms:
-        err = _ensure_symbol(s)
-        if err:
-            return {"error": f"cannot compare: {err['error']}"}
+def _compare_measure(syms: list[str], interval: str, lb: int) -> dict:
+    """One interval's comparison: the block that used to BE this tool.
 
-    lb = max(60, min(int(lookback_bars or 250), 1500))
+    Split out because the same measurement now runs over a ladder of
+    intervals rather than one — and the reason it does is that a pair's
+    relative strength is an artefact of the window as often as it is a fact
+    about the pair. Two names can be 12 points apart over a year of daily
+    bars and 32 apart over five years of weekly ones, and a tool that
+    answered "which is stronger" from one window would be reporting its own
+    default as a finding. Measuring several and printing them side by side
+    is the honest version, and it costs one more pass over local bars.
+
+    Returns the same shape at every interval, or {"error": ...} for a rung
+    with too little stored history — a thin interval drops out by name and
+    never silently shortens everyone's window.
+    """
     series: dict[str, list[tuple]] = {}
     for s in syms:
-        bars = get_bars(s, interval, None, lb)["bars"]
+        # The store does not hold every interval for every instrument, and a
+        # sweep must not die on the rung that is missing — the caller names
+        # it and keeps the rungs that measured.
+        try:
+            bars = get_bars(s, interval, None, lb)["bars"]
+        except (sqlite3.Error, KeyError, ValueError, TypeError) as exc:
+            logging.warning("no %s bars for %s: %s", interval, s, exc)
+            return {"error": f"{s} has no stored {interval} bars"}
         if len(bars) < 20:
             return {"error": f"{s} has under 20 {interval} bars — too thin "
                              "to compare on this interval"}
@@ -3542,12 +3567,153 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
                 (brows[-1][0] / brows[0][0] - 1) * 100, 2)
     except sqlite3.Error:
         pass
+    return res
+
+
+# The unit a turnover figure is in, kept next to the figure rather than in
+# the key name, because a panel prints the number and the unit together and
+# reading a unit out of a key is how "67.3 cr" happened to a dollar-quoted
+# asset in the first place.
+def _turnover_of(m: dict) -> dict | None:
+    if m.get("avg_daily_turnover_cr") is not None:
+        return {"value": m["avg_daily_turnover_cr"], "unit": "cr"}
+    if m.get("avg_daily_turnover_musd") is not None:
+        return {"value": m["avg_daily_turnover_musd"], "unit": "musd"}
+    return None
+
+
+def _compare_card(syms: list[str], runs: list[dict], gaps: list[dict],
+                  unavailable: list[str]) -> dict | None:
+    """The comparison panel: every measured interval as its own column.
+
+    One card rather than one per interval, because the columns only mean
+    something against each other — a return gap is a number, and a return gap
+    that triples between the daily window and the weekly one is a finding.
+    """
+    if not runs:
+        return None
+    cols = []
+    for r in runs:
+        m = r["metrics"]
+        col = {"interval": r["interval"],
+               "label": _IV_LABEL.get(r["interval"], r["interval"]),
+               "window": r.get("window"),
+               "ret": {s: m[s]["return_pct"] for s in syms},
+               "dd": {s: m[s]["max_drawdown_pct"] for s in syms},
+               "atr": {s: m[s]["atr_pct_of_price"] for s in syms},
+               "bars": {s: m[s]["bars"] for s in syms}}
+        turn = {s: _turnover_of(m[s]) for s in syms}
+        if any(turn.values()):
+            col["turnover"] = {s: v for s, v in turn.items() if v}
+        if isinstance(r.get("return_correlation"), dict):
+            col["correlation"] = r["return_correlation"]
+        if r.get("nifty50_return_pct_same_window") is not None:
+            col["benchmark"] = {"name": "NIFTY 50",
+                                "ret": r["nifty50_return_pct_same_window"]}
+        cols.append(col)
+    return {"kind": "compare", "symbols": syms, "intervals": cols,
+            **({"gaps": gaps} if gaps else {}),
+            **({"unavailable": unavailable} if unavailable else {})}
+
+
+def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
+                         lookback_bars: int = 250,
+                         intervals: list | None = None) -> dict:
+    """Cross-symbol comparison on locally stored bars, aligned to a
+    common window so no symbol is scored over a span the others lack —
+    and measured at every interval asked for, because which name is
+    stronger is frequently an answer about the window rather than the pair.
+    """
+    syms = []
+    for s in (symbols or []):
+        s = str(s).upper().strip()
+        if s and s not in syms:
+            syms.append(s)
+    if not (2 <= len(syms) <= 8):
+        return {"error": "give 2-8 symbols to compare"}
+    for s in syms:
+        err = _ensure_symbol(s)
+        if err:
+            return {"error": f"cannot compare: {err['error']}"}
+
+    lb = max(60, min(int(lookback_bars or 250), 1500))
+    want = [str(x).lower().strip() for x in (intervals or [interval])]
+    want = [x for x in dict.fromkeys(want) if x in _IV_LABEL][:6]
+    if not want:
+        return {"error": "no known intervals — pick from "
+                         + ", ".join(sorted(_IV_LABEL))}
+
+    runs: list[dict] = []
+    unavailable: list[str] = []
+    for iv in want:
+        r = _compare_measure(syms, iv, lb)
+        if r.get("error"):
+            unavailable.append(f"{_IV_LABEL.get(iv, iv)}: {r['error']}")
+            continue
+        runs.append(r)
+    if not runs:
+        return {"error": "none of these intervals has enough stored history "
+                         "for every symbol", "detail": unavailable}
+
+    # The pair's gap, per interval, in percentage POINTS — the unit matters.
+    # A return of −5% against −17% is a 12.25-point gap and not a 12% one,
+    # and the difference between those two readings is the kind of thing a
+    # reply states confidently in the wrong unit.
+    gaps: list[dict] = []
+    if len(syms) == 2:
+        a, b = syms
+        for r in runs:
+            m = r["metrics"]
+            gaps.append({"interval": r["interval"],
+                         "label": _IV_LABEL.get(r["interval"], r["interval"]),
+                         "pair": f"{a} − {b}",
+                         "gap_pp": round(m[a]["return_pct"] - m[b]["return_pct"], 2)})
+
+    # The primary interval stays at the top level in the shape it has always
+    # had, so nothing that reads this result has to learn a new one.
+    res: dict = dict(runs[0])
+    if len(runs) > 1:
+        res["by_interval"] = {r["interval"]: {k: v for k, v in r.items()
+                                              if k != "interval"} for r in runs}
+        res["_by_interval_note"] = (
+            "The top-level block is the FIRST interval repeated, not a "
+            "separate measurement. Read `by_interval` when the answer spans "
+            "more than one.")
+    if gaps:
+        res["return_gap_pp"] = gaps
+    if unavailable:
+        res["intervals_unavailable"] = unavailable
+        res["_unavailable_note"] = (
+            "These intervals were asked for and could NOT be measured — say "
+            "so rather than presenting the ladder as complete. Intraday bars "
+            "exist only for hydrated symbols, so an intraday rung missing "
+            "here is usually a data-coverage fact, not a market one.")
+
+    # ONE panel for every comparison question, including "where is A ahead of
+    # B". That question is not a different measurement — it is the same
+    # numbers with a different sentence in front of them — and giving it its
+    # own widget meant the user had to work out why two questions about one
+    # pair had produced two unlike panels. The gap per interval already leads
+    # this card's stat strip, which is the whole of what the second one added.
+    card = _compare_card(syms, runs, gaps, unavailable)
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A panel carrying these figures — every measured interval drawn "
+            "against the others, with the per-interval return gap leading it "
+            "— is already rendered beside your reply. Do not rebuild it as a "
+            "markdown table. Spend the reply on what the intervals say "
+            "TOGETHER, and name any interval where the ranking flips, because "
+            "a flip is the whole finding when there is one.")
     res["_note"] = (
-        "All symbols are measured over the SAME common window (a later "
-        "listing shortens it for everyone — say so if 'bars' looks small). "
-        "Present a markdown table; quote these numbers exactly. Turnover is "
-        "rupees crore per bar. This is descriptive comparison, not a "
-        "ranking of what to buy — close as analysis, not advice.")
+        "All symbols are measured over the SAME common window at each "
+        "interval (a later listing shortens it for everyone — say so if "
+        "'bars' looks small). A gap is in percentage POINTS, never percent. "
+        "Different intervals are different WINDOWS, not different views of "
+        "one: 250 daily bars is about a year and 250 weekly bars about five, "
+        "so a wider gap on the weekly is a longer race and not a stronger "
+        "signal. Quote these numbers exactly. This is descriptive comparison, "
+        "not a ranking of what to buy — close as analysis, not advice.")
     return res
 
 
@@ -4796,6 +4962,854 @@ def tool_get_trend(interval: str = "1d", lookback_bars: int = 300,
     return res
 
 
+# ── the studies panel, and the three questions that read it ────────────────
+#
+# "What do the indicators say", "what would confirm a reversal" and "how does
+# this look across timeframes" are three different questions with one thing
+# in common: none of them NAMES an indicator. `get_indicator` is the tool for
+# a question that does ("what is RSI on the hourly"), and it is deliberately
+# open — any study, any period, any source. That openness is exactly wrong
+# here. A question with no name in it must not come back with a different set
+# of studies each time it is asked: a panel that quietly swapped EMA 50 for
+# EMA 200 between two turns would have answered two different questions while
+# appearing to answer one, and the user has no way to see that it did.
+#
+# So the set is DECLARED, once, and all three tools below read the same one.
+# Six studies in three families, chosen so that a family can DISAGREE with
+# the others rather than restate it — where price sits against two moving
+# averages and a Supertrend, what RSI and MACD say about momentum, and how
+# much directional movement ADX finds with which DI leg owning it. Every
+# period is the platform default the user has already seen on every other
+# chart; nothing here is tuned, because a tuned period is a claim.
+
+_READ_OVERLAYS = (("ema", 20, {}), ("ema", 50, {}), ("supertrend", 10, {"mult": 3.0}))
+
+# What each overlay is called in a sentence. Derived from the study and its
+# period rather than typed per row, so the panel, the checklist and the
+# timeframe ladder cannot end up calling one line three names.
+_OVERLAY_LABEL = {"ema": "EMA", "sma": "SMA", "supertrend": "Supertrend"}
+
+# RSI's own textbook cut-offs, plus the 45/55 pair that separates drifting
+# from leaning. This is the only interpretation in these three tools and it
+# rides in provenance, so a reply can name the cut-off it used instead of
+# asserting the word on its own authority.
+_RSI_BANDS = ((70.0, "overbought"), (55.0, "firm"), (45.0, "neutral"),
+              (30.0, "weak"), (0.0, "oversold"))
+
+# The ladder a "across timeframes" question sweeps, coarsest LAST so the
+# panel reads the way traders read it — the fast frames on top, the frame
+# that outranks them at the bottom. An interval with no stored bars drops out
+# and is named; it is never silently skipped.
+_MTF_LADDER = ("5m", "15m", "30m", "1h", "1d", "1w")
+
+# The label an interval wears in a panel. "1d" is what the API calls it and
+# "Daily" is what a person calls it; the ladder is read by people.
+_IV_LABEL = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
+             "1d": "Daily", "1w": "Weekly", "1mo": "Monthly"}
+
+
+def _rsi_band(v) -> str:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return ""
+    return next((w for cut, w in _RSI_BANDS if v >= cut), "oversold")
+
+
+def _lines_at(name: str, rows: list[tuple], period: int = 0, **extra) -> dict:
+    """Every line of one study at the LAST bar, and at the one before it.
+
+    Not `compute()["last"]`, which returns each line's last non-None value.
+    For a line that is legitimately blank at the live edge those differ, and
+    the difference is a fabrication: Supertrend publishes the up band only
+    while the leg is up, so on a bearish leg `last` hands back the band from
+    whenever the trend last flipped — a stale price wearing the live one's
+    label. Reading the true final index returns None where the line has no
+    value there, which is the answer.
+
+    The previous bar rides along because several readings in these panels are
+    CHANGES — a histogram that is less negative than it was, an RSI that has
+    just crossed back over 30 — and a change needs two bars. One extra index
+    read is cheaper than a second compute over the same window.
+    """
+    try:
+        res = indicators.compute(name, rows, period, "", **extra)
+    except ValueError as exc:
+        return {"unavailable": str(exc)}
+    out: dict = {"period": res["spec"]["period"]}
+    for k, v in res["lines"].items():
+        out[k] = None if v[-1] is None else round(v[-1], 4)
+        out["prev_" + k] = (None if len(v) < 2 or v[-2] is None
+                            else round(v[-2], 4))
+    return out
+
+
+def _overlay_reads(rows: list[tuple]) -> tuple[list[dict], list[str]]:
+    """Price against each declared overlay, and what could not be computed.
+
+    Returns rows in the panel's own order with the SIDE spelled out — which
+    side of the line price is on — because that, and not the line's value, is
+    what every one of the three questions is actually asking. A study whose
+    window is too short comes back in the second list by name: three lines
+    where four were declared is a fact about this window, and a panel that
+    printed three without saying so would be quietly answering a smaller
+    question than the one asked.
+    """
+    last = rows[-1][4]
+    reads: list[dict] = []
+    missing: list[str] = []
+    for name, period, extra in _READ_OVERLAYS:
+        v = _lines_at(name, rows, period, **extra)
+        label = f"{_OVERLAY_LABEL.get(name, name.upper())} {period}"
+        if v.get("unavailable"):
+            missing.append(f"{label} ({v['unavailable']})")
+            continue
+        if name == "supertrend":
+            # The active band IS the direction: the up band is published only
+            # while the leg is up. Reading the direction leg and the band
+            # together keeps a flipped leg from being reported off the band
+            # it no longer has.
+            dirn = v.get("direction")
+            value = v.get("supertrend_up") if dirn == 1 else v.get("supertrend_down")
+            # Both of its inputs in the name, because Supertrend(10,3) and
+            # Supertrend(10,1.5) are different lines and a panel that called
+            # them one thing would be comparing two charts.
+            mult = extra.get("mult")
+            label = (f"{_OVERLAY_LABEL['supertrend']} ({period}"
+                     + (f",{mult:g})" if isinstance(mult, (int, float)) else ")"))
+            if value is None or dirn is None:
+                missing.append(f"{label} (no band at the last bar)")
+                continue
+            note = f"{'Bullish' if dirn == 1 else 'Bearish'} leg, direction {dirn:+d}"
+        else:
+            value = v.get(name)
+            if value is None:
+                missing.append(f"{label} (no value at the last bar)")
+                continue
+            note = ""
+        reads.append({
+            "name": label, "study": name, "period": period,
+            "value": round(value, 2),
+            # Which side of the line price is on, as a word rather than a sign
+            # — every consumer of this needs the word and none of them needs
+            # to re-derive it from two numbers.
+            "price_side": "above" if last > value else "below" if last < value else "on",
+            "distance_pct": round((last - value) / value * 100, 2),
+            **({"note": note} if note else {}),
+        })
+    return reads, missing
+
+
+def _momentum_reads(rows: list[tuple], rsi_period: int = 14,
+                    adx_period: int = 14) -> dict:
+    """RSI, MACD and ADX at the live edge, each with the change behind it.
+
+    One helper for the three panels so they cannot state different momentum
+    for the same bar. Every block reports itself unavailable rather than
+    absent: a window too short for ADX's double smoothing is a missing
+    measurement, and the other two are not a substitute for it.
+    """
+    rsi = _lines_at("rsi", rows, rsi_period)
+    macd = _lines_at("macd", rows)
+    adx = _lines_at("adx", rows, adx_period)
+    out: dict = {}
+
+    if rsi.get("unavailable"):
+        out["rsi"] = {"period": rsi_period, "unavailable": rsi["unavailable"]}
+    else:
+        now, prev = rsi.get("rsi"), rsi.get("prev_rsi")
+        out["rsi"] = {"period": rsi.get("period", rsi_period),
+                      "value": now, "prev": prev, "band": _rsi_band(now)}
+
+    if macd.get("unavailable"):
+        out["macd"] = {"unavailable": macd["unavailable"]}
+    else:
+        line, sig = macd.get("macd"), macd.get("signal")
+        hist, prev_hist = macd.get("histogram"), macd.get("prev_histogram")
+        out["macd"] = {"macd": line, "signal": sig, "histogram": hist,
+                       "prev_histogram": prev_hist,
+                       "side": ("" if line is None or sig is None else
+                                "bullish" if line > sig else
+                                "bearish" if line < sig else "even")}
+
+    if adx.get("unavailable"):
+        out["adx"] = {"period": adx_period, "unavailable": adx["unavailable"]}
+    else:
+        p, m = adx.get("plus_di"), adx.get("minus_di")
+        out["adx"] = {"period": adx.get("period", adx_period),
+                      "value": adx.get("adx"), "strength": _adx_band(adx.get("adx")),
+                      "plus_di": p, "minus_di": m,
+                      # Same rule and same word as get_trend's: which DI leg is
+                      # larger, and nothing else. Two tools reading one number
+                      # must not describe it two ways.
+                      "bias": ("" if not isinstance(p, (int, float))
+                               or not isinstance(m, (int, float)) else
+                               "bullish" if p > m else "bearish" if m > p else "even")}
+    return out
+
+
+def _hist_state(hist, prev) -> tuple[str, str]:
+    """The MACD histogram's CHANGE, named — the reading a single bar cannot
+    give. A bar at −1.35 says almost nothing; −1.35 after −2.41 says the
+    selling pressure behind the cross is draining, and −1.35 after −0.40
+    says the opposite. Returns the word and the comparison it rests on, so
+    the panel never carries the word alone."""
+    if not isinstance(hist, (int, float)) or not isinstance(prev, (int, float)):
+        return "", ""
+    if hist == prev:
+        return "flat", "unchanged from the prior bar"
+    if hist < 0:
+        return (("easing", "less negative than the prior bar") if hist > prev
+                else ("deepening", "more negative than the prior bar"))
+    return (("building", "more positive than the prior bar") if hist > prev
+            else ("fading", "less positive than the prior bar"))
+
+
+def _rsi_state(now, prev) -> tuple[str, str]:
+    """Where RSI is, and — where the two bars straddle a textbook line —
+    the crossing that just happened. A crossing is a different fact from a
+    level and the panel says which it is showing."""
+    if not isinstance(now, (int, float)):
+        return "", ""
+    if isinstance(prev, (int, float)):
+        if prev < 30 <= now:
+            return "recovering", "crossed back above 30"
+        if prev > 70 >= now:
+            return "cooling", "crossed back below 70"
+        if prev < 50 <= now:
+            return "reclaimed 50", "crossed above 50"
+        if prev > 50 >= now:
+            return "lost 50", "crossed below 50"
+    if now < 30:
+        return "oversold", "below 30"
+    if now > 70:
+        return "overbought", "above 70"
+    return ("above 50", "above the midline") if now >= 50 else \
+           ("below 50", "below the midline")
+
+
+def _read_card(interval: str, bars: int, window: str, price: float,
+               overlays: list[dict], zone: dict | None, mom: dict,
+               alignment: dict, momentum: str) -> dict | None:
+    """The studies panel, in the shape a card renders.
+
+    Same rule as every other card in this file: everything here was computed
+    by the tool below and is on its way to the model in the same call, so the
+    panel and the paragraph beside it are reading one source. The only thing
+    added on this side is WORDING — the state word for a reading and the
+    comparison under it — and both were derived in the tool's own result too.
+    """
+    rsi, macd, adx = mom.get("rsi") or {}, mom.get("macd") or {}, mom.get("adx") or {}
+    card: dict = {"kind": "indicators", "symbol": _sym(), "interval": interval,
+                  "bars_scanned": bars, "window": window,
+                  "price": round(price, 2),
+                  "alignment": alignment.get("word") or "",
+                  "momentum": momentum,
+                  "overlays": [
+                      {"name": o["name"], "value": o["value"],
+                       "side": o["price_side"],
+                       "note": o.get("note") or
+                               f"Price is {o['price_side']} it"}
+                      for o in overlays],
+                  }
+    if rsi.get("value") is not None:
+        card["rsi"] = {"period": rsi.get("period"), "value": rsi["value"]}
+    if adx.get("value") is not None:
+        card["adx"] = {"period": adx.get("period"), "value": adx["value"],
+                       "strength": adx.get("strength") or ""}
+    # The DI pair, as a pair or not at all — one leg alone is not a weak
+    # reading of direction, it is no reading at all.
+    p, m = adx.get("plus_di"), adx.get("minus_di")
+    if isinstance(p, (int, float)) and isinstance(m, (int, float)):
+        card["di"] = {"plus": p, "minus": m}
+    if zone:
+        card["zone"] = zone
+
+    # The three momentum readings as tiles: a state word, the figures behind
+    # it, and the comparison that earned the word. Never the word alone.
+    tiles: list[dict] = []
+    if rsi.get("value") is not None:
+        state, why = _rsi_state(rsi["value"], rsi.get("prev"))
+        tiles.append({"name": f"RSI {rsi.get('period')}", "state": state,
+                      "figures": f"{rsi['value']:.2f}", "why": why,
+                      "tone": "up" if rsi["value"] >= 50 else "down"})
+    if macd.get("macd") is not None and macd.get("signal") is not None:
+        tiles.append({"name": "MACD / signal", "state": macd.get("side") or "",
+                      "figures": f"{macd['macd']:.2f} / {macd['signal']:.2f}",
+                      "why": "MACD line against its signal",
+                      "tone": "up" if macd.get("side") == "bullish" else "down"})
+    if macd.get("histogram") is not None:
+        state, why = _hist_state(macd["histogram"], macd.get("prev_histogram"))
+        tiles.append({"name": "MACD histogram", "state": state,
+                      "figures": f"{macd['histogram']:.2f}", "why": why,
+                      "tone": "up" if macd["histogram"] > 0 else "down"})
+    if tiles:
+        card["readings"] = tiles
+    return card if (card.get("overlays") or tiles) else None
+
+
+def tool_read_indicators(interval: str = "1d", lookback_bars: int = 400,
+                         rsi_period: int = 14, adx_period: int = 14) -> dict:
+    """The declared studies panel at one interval, read in one call."""
+    lookback_bars = max(60, min(int(lookback_bars or 400), 1500))
+    rows = _rows(interval, lookback_bars)
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    last = rows[-1][4]
+    wt = interval not in ("1d", "1w", "1mo")
+
+    overlays, missing = _overlay_reads(rows)
+    mom = _momentum_reads(rows, max(2, min(int(rsi_period or 14), 100)),
+                          max(2, min(int(adx_period or 14), 100)))
+
+    # ── the tally, and the reason it is a tally and not a verdict ──
+    # Three overlays either all sit on one side of price or they do not. That
+    # COUNT is a fact about the chart; the word under it is the count read
+    # out loud and carries the count with it so nobody has to take it on
+    # trust. Where the lines straddle price there is no word — "mixed" is the
+    # honest answer, not the halfway house between two others.
+    # `price_side` says where PRICE is, so these read straight off it. Named
+    # for the price rather than for the line because that is the direction
+    # every consumer asks in — and getting the two the wrong way round is a
+    # panel that calls a chart bullish for closing under all three.
+    above = sum(1 for o in overlays if o["price_side"] == "above")
+    below = sum(1 for o in overlays if o["price_side"] == "below")
+    align = {"overlays": len(overlays), "price_above": above, "price_below": below,
+             "word": ("bullish" if overlays and above == len(overlays) else
+                      "bearish" if overlays and below == len(overlays) else
+                      "mixed" if overlays else "")}
+
+    # ── the band where the tally would flip ──
+    # Only when every line is on one side: then the span from the nearest to
+    # the furthest of them is the price range price has to travel through to
+    # put them ALL on the other side, which is a measurement. When they
+    # straddle price there is no such band, and inventing one by taking a
+    # min and a max anyway would draw a zone nothing agrees on.
+    zone = None
+    if overlays and align["word"] in ("bullish", "bearish"):
+        vals = [o["value"] for o in overlays]
+        zone = {"lo": round(min(vals), 2), "hi": round(max(vals), 2),
+                "action": "reclaim" if align["word"] == "bearish" else "lose",
+                "note": ("a close back above this band puts price over all "
+                         f"{len(overlays)} again"
+                         if align["word"] == "bearish" else
+                         "a close below this band puts price under all "
+                         f"{len(overlays)}")}
+
+    rsi_v = (mom.get("rsi") or {}).get("value")
+    momentum = _rsi_band(rsi_v) if rsi_v is not None else ""
+
+    window = f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"
+    res: dict = {
+        "last_price": last,
+        "overlays": overlays,
+        "position_tally": align,
+        **({"flip_band": zone} if zone else {}),
+        **mom,
+    }
+    if missing:
+        res["not_computed"] = missing
+        res["_missing_note"] = (
+            "These declared studies had no value at the last bar of this "
+            "window. Say which ones are missing if the answer leans on them; "
+            "do not substitute a different study without saying you switched.")
+
+    card = _read_card(interval, len(rows), window, last, overlays, zone,
+                      mom, align, momentum)
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A panel carrying every figure here — the three overlays with the "
+            "side price is on, the flip band, the DI pair drawn against each "
+            "other and the three momentum readings with the comparison behind "
+            "each — is already rendered beside your reply. Do not read it back "
+            "out. Say what the families together mean and name the one that "
+            "disagrees, because that is the part a panel cannot say.")
+
+    res["provenance"] = {
+        "interval": interval, "bars_scanned": len(rows), "window": window,
+        "panel": [f"{_OVERLAY_LABEL.get(n, n)} {p}" for n, p, _e in _READ_OVERLAYS]
+                 + [f"RSI {rsi_period}", "MACD 12/26/9", f"ADX {adx_period}"],
+        "panel_note": ("this set is fixed, so the same question asked twice "
+                       "returns the same studies"),
+        "rsi_bands": {"overbought": ">= 70", "firm": "55 - 70",
+                      "neutral": "45 - 55", "weak": "30 - 45",
+                      "oversold": "< 30"},
+        "adx_bands": {"strong": ">= 25", "developing": "20 - 25",
+                      "absent": "< 20", "source": "Wilder's own thresholds"},
+        "tally_rule": ("'bullish' means price closed above all of the "
+                       "overlays that computed, 'bearish' below all of them, "
+                       "'mixed' otherwise — a count, not a judgement"),
+    }
+    res["_note"] = (
+        "These are measurements of one bar, not signals. `position_tally` is "
+        "arithmetic over the overlays and nothing more: a bearish tally with "
+        "ADX at 12 is three lines above a price that is going nowhere. The "
+        "three families are ALLOWED to disagree and the disagreement is the "
+        "most useful thing here — RSI recovering under a bearish tally is the "
+        "finding, not a contradiction to resolve, and you must not average "
+        "them into one word. Quote the change behind a momentum reading "
+        "(`prev_histogram`, `prev`) rather than the level alone: a histogram "
+        "at -1.35 means nothing until it is placed against the bar before it. "
+        "`flip_band` is where the tally would change, not a target, not a "
+        "forecast and not a level anything was detected at — it is the span "
+        "of the overlay values themselves.")
+    return res
+
+
+# ── "what would confirm a reversal?" ───────────────────────────────────────
+#
+# The most answerable question a chart gets and the one most often answered
+# with a vibe. It has a real answer because every word in it is measurable:
+# a reversal is confirmed by price clearing things that are ON the chart, in
+# an order, and by studies crossing lines they are currently on the wrong
+# side of. What makes it answerable is also what makes it dangerous — the
+# same list, read backwards, is a buy signal — so this tool is built to
+# refuse that reading in three ways:
+#
+#   · every stage is a level something ELSE detected (the overlays, the swing
+#     structure, the level detector), never a number chosen here;
+#   · every condition carries where the reading is NOW, so a checklist can be
+#     seen to be unmet rather than merely aspirational;
+#   · nothing is weighted into a score. Three of four met is not 75% of a
+#     reversal, and there is no field here that would let it be printed as
+#     one.
+#
+# The stages are ordered by what breaking them costs the other side, which is
+# the one ordering that is not a preference: reclaiming a moving average is a
+# day's work, taking out the last lower high ends the sequence that defined
+# the downtrend, and clearing a four-touch level is structural.
+_CONFIRM_WEIGHT = ("Initial", "Stronger", "Structural")
+
+
+def _confirm_card(direction: str, interval: str, bars: int, window: str,
+                  price: float, stages: list[dict],
+                  conditions: list[dict]) -> dict | None:
+    if not (stages or conditions):
+        return None
+    return {"kind": "confirmation", "symbol": _sym(), "interval": interval,
+            "direction": direction, "price": round(price, 2), "bars_scanned": bars,
+            "window": window, "stages": stages, "conditions": conditions,
+            "met": sum(1 for c in conditions if c.get("met")),
+            "of": len(conditions)}
+
+
+def tool_confirm_reversal(direction: str = "bullish", interval: str = "1d",
+                          lookback_bars: int = 300) -> dict:
+    """What price and the studies would have to DO, with where they are now."""
+    want = str(direction or "bullish").lower().strip()
+    if want not in ("bullish", "bearish"):
+        return {"error": "direction must be 'bullish' or 'bearish'"}
+    up = want == "bullish"
+    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    rows = _rows(interval, lookback_bars)
+    if not rows:
+        return {"error": f"no bars for interval {interval}"}
+    last = rows[-1][4]
+    wt = interval not in ("1d", "1w", "1mo")
+    ist = lambda ts: _ist(ts, wt)  # noqa: E731
+
+    overlays, missing = _overlay_reads(rows)
+    mom = _momentum_reads(rows)
+    struct = patterns.market_structure(rows, _pivots(rows, 5), ist)
+    levels = _levels(rows, with_time=wt)
+
+    stages: list[dict] = []
+
+    # ── stage one: the overlay band in the way ──
+    # The lines price would have to close through. Which lines those are is
+    # decided by where price is, not by which are famous: on a bullish ask,
+    # every overlay ABOVE price is in the way, and if none is, the stage is
+    # already met and says so instead of being dropped.
+    blocking = [o for o in overlays
+                if (o["price_side"] == "below" if up else o["price_side"] == "above")]
+    if overlays:
+        if blocking:
+            vals = [o["value"] for o in blocking]
+            lo, hi = round(min(vals), 2), round(max(vals), 2)
+            stages.append({
+                "step": 1, "action": "Reclaim" if up else "Lose",
+                # One line in the way is a LEVEL, not a band. Printing
+                # "1,265.26 – 1,265.26" would dress a single number as a zone
+                # and invite a reply to describe a width that is not there.
+                **({"price": lo} if lo == hi else {"lo": lo, "hi": hi}),
+                "why": ("contains " + ", ".join(o["name"] for o in blocking)
+                        + " · needs a close through, not a wick"),
+                "weight": _CONFIRM_WEIGHT[0], "met": False})
+        else:
+            stages.append({
+                "step": 1, "action": "Reclaim" if up else "Lose",
+                "price": round(last, 2),
+                "why": f"price already closed {'above' if up else 'below'} "
+                       f"all {len(overlays)} overlays",
+                "weight": _CONFIRM_WEIGHT[0], "met": True})
+
+    # ── stage two: the swing that defines the sequence ──
+    # A downtrend is a sequence of lower highs; it ends when one of them does
+    # not hold. That swing is read off the SAME market_structure the trend
+    # card and the pattern sweep read, so three panels cannot name three
+    # different lower highs.
+    want_lab = ("LH", "H") if up else ("HL", "L")
+    swing = next((s for s in reversed(struct.get("swings") or [])
+                  if s.get("label") in want_lab
+                  and isinstance(s.get("price"), (int, float))
+                  and ((s["price"] > last) if up else (s["price"] < last))), None)
+    if swing:
+        stages.append({
+            "step": len(stages) + 1, "action": "Break",
+            "price": swing["price"], "at": swing.get("t"),
+            "why": ("latest lower high · a close above ends the "
+                    "lower-high sequence" if up else
+                    "latest higher low · a close below ends the "
+                    "higher-low sequence"),
+            "weight": _CONFIRM_WEIGHT[1], "met": False})
+
+    # ── stage three: the best-evidenced level still in the way ──
+    # Ranked by NET evidence, the same rank the level detector itself uses —
+    # not by nearness, which would nominate the flimsiest line on the chart,
+    # and not by touch count, which on this data regularly leads with the
+    # level that broke most often.
+    side = "resistance" if up else "support"
+    ahead = [x for x in levels if x["role"] == side]
+    if ahead:
+        lv = sorted(ahead, key=lambda x: (-(x["evidence"]["held"] - x["evidence"]["broke"]),
+                                          -x["touches"]))[0]
+        ev = lv["evidence"]
+        graded = ev["held"] + ev["broke"]
+        stages.append({
+            "step": len(stages) + 1, "action": "Clear" if up else "Lose",
+            "price": lv["price"], "lo": lv["zone_lo"], "hi": lv["zone_hi"],
+            "id": lv["id"],
+            "why": (f"best-evidenced {side} · {lv['touches']} touches, "
+                    + (f"held {ev['held']} of {graded} re-tests" if graded
+                       else "no completed re-test yet")),
+            "weight": _CONFIRM_WEIGHT[2], "met": False})
+
+    # ── the studies, each with where it is now ──
+    # Threshold, current reading, and whether the two have met — in that
+    # order, because a checklist without the current reading is a wish list.
+    conds: list[dict] = []
+    rsi, macd, adx = mom.get("rsi") or {}, mom.get("macd") or {}, mom.get("adx") or {}
+    if rsi.get("value") is not None:
+        v = rsi["value"]
+        conds.append({"what": f"RSI {rsi.get('period')} "
+                              f"{'reclaims' if up else 'loses'} 50",
+                      "now": f"{v:.2f}", "met": (v >= 50) if up else (v <= 50)})
+    if macd.get("macd") is not None and macd.get("signal") is not None:
+        ok = ((macd["macd"] > macd["signal"] and (macd.get("histogram") or 0) > 0)
+              if up else
+              (macd["macd"] < macd["signal"] and (macd.get("histogram") or 0) < 0))
+        conds.append({"what": "MACD crosses its signal, histogram turns "
+                              + ("positive" if up else "negative"),
+                      "now": f"{macd['macd']:.2f} vs {macd['signal']:.2f}",
+                      "met": bool(ok)})
+    p, m = adx.get("plus_di"), adx.get("minus_di")
+    if isinstance(p, (int, float)) and isinstance(m, (int, float)):
+        conds.append({"what": ("+DI rises above −DI" if up
+                               else "−DI rises above +DI"),
+                      "now": f"{p:.2f} vs {m:.2f}",
+                      "met": (p > m) if up else (m > p)})
+    slow = next((o for o in overlays if o["study"] == "ema" and o["period"] == 50), None)
+    if slow:
+        conds.append({"what": f"Price back {'above' if up else 'below'} the "
+                              f"{slow['name']}",
+                      "price": slow["value"],
+                      "met": (slow["price_side"] == "above") if up
+                             else (slow["price_side"] == "below")})
+
+    window = f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"
+    res: dict = {"direction": want, "last_price": last,
+                 "price_stages": stages, "indicator_conditions": conds,
+                 "conditions_met": f"{sum(1 for c in conds if c.get('met'))} of {len(conds)}",
+                 "market_structure": struct.get("trend"),
+                 }
+    if missing:
+        res["not_computed"] = missing
+    card = _confirm_card(want, interval, len(rows), window, last, stages, conds)
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A checklist panel carrying every stage and every condition — each "
+            "with the reading it is at NOW and whether it is met — is already "
+            "rendered beside your reply. Do not transcribe it. Say which stage "
+            "is the one that matters on this chart and why, and say plainly "
+            "that none of this is a prediction that the reversal happens.")
+    res["provenance"] = {
+        "interval": interval, "bars_scanned": len(rows), "window": window,
+        "stage_sources": ("stage 1 from the declared overlay panel; stage 2 "
+                          "from the shared ±5-bar swing structure; stage 3 "
+                          "from the pivot-extremum level detector, ranked by "
+                          "net held-minus-broke evidence"),
+        "condition_sources": ("RSI, MACD and ADX/DI from the same registry "
+                              "the chart draws, at their platform defaults"),
+        "ordering": ("by what a break costs the other side — an overlay is a "
+                     "day, a swing is the sequence, a well-tested level is "
+                     "structure. It is not a probability ordering."),
+    }
+    res["_note"] = (
+        "This is a list of MEASURED thresholds, not a forecast and not a "
+        "setup. Nothing here says the reversal is likely, or even that it is "
+        "under way — the stages are simply what would have to happen for the "
+        "word to apply, and every one of them is a level something else on "
+        "this chart already detected. Never total the conditions into a score "
+        "or a percentage: three of four met is not 75% of a reversal, and a "
+        "checklist that fills completely is still not a signal to act. If the "
+        "user asks what to do with it, say that a confirmation list describes "
+        "the chart, and that what to do with it is theirs to decide.")
+    return res
+
+
+# ── "how does this look across timeframes?" ────────────────────────────────
+#
+# The question that catches out every single-interval read: a chart that is
+# bearish on the 30-minute and merely drifting on the daily is not bearish,
+# it is a pullback inside something slower, and the only way to know which is
+# to measure both. So this walks the ladder and measures each rung the SAME
+# way — the identical four readings at every interval, no per-interval
+# special cases — because a ladder whose rungs were measured differently
+# would compare the measurements rather than the timeframes.
+#
+# The stance word per rung is a vote count over those four, and like the
+# studies panel's tally it carries its own arithmetic. It is not a verdict:
+# four readings agreeing on a 5-minute chart is still a 5-minute chart.
+
+
+def _mtf_stance(votes_up: int, votes_down: int) -> str:
+    n = votes_up + votes_down
+    if not n:
+        return ""
+    if votes_down == 0:
+        return "bullish"
+    if votes_up == 0:
+        return "bearish"
+    return ("leaning bullish" if votes_up > votes_down else
+            "leaning bearish" if votes_down > votes_up else "mixed")
+
+
+def _mtf_levels(per_iv: list[tuple], price: float, per_side: int = 3) -> list[dict]:
+    """Levels from every rung, merged where the rungs agree.
+
+    Two intervals finding a level three rupees apart have found ONE level and
+    a panel that listed both would be inventing a second. They are merged
+    when their zones overlap, and the merged row keeps every contributing
+    interval by name with its own touch and re-test record — which is the
+    part that makes a pooled level worth more than a single-interval one, and
+    the part a reader has to be able to check.
+    """
+    pool: list[dict] = []
+    for interval, levels in per_iv:
+        for lv in levels:
+            ev = lv.get("evidence") or {}
+            pool.append({"lo": lv["zone_lo"], "hi": lv["zone_hi"],
+                         "price": lv["price"],
+                         "sources": [{"interval": interval,
+                                      "touches": lv["touches"],
+                                      "held": ev.get("held"),
+                                      "broke": ev.get("broke")}]})
+    pool.sort(key=lambda x: x["price"])
+    merged: list[dict] = []
+    for x in pool:
+        if merged and x["lo"] <= merged[-1]["hi"]:
+            m = merged[-1]
+            m["hi"] = max(m["hi"], x["hi"])
+            m["lo"] = min(m["lo"], x["lo"])
+            m["sources"] += x["sources"]
+            m["price"] = round((m["price"] + x["price"]) / 2, 2)
+            continue
+        merged.append(dict(x))
+    for m in merged:
+        m["lo"], m["hi"] = round(m["lo"], 2), round(m["hi"], 2)
+        # Role is assigned against the LIVE price, not against the interval
+        # the level came from: a weekly level under price is support today
+        # whatever it was when it formed.
+        m["role"] = "resistance" if m["price"] > price else "support"
+        m["intervals"] = [s["interval"] for s in m["sources"]]
+    above = [m for m in merged if m["role"] == "resistance"][:per_side]
+    below = [m for m in merged if m["role"] == "support"][-per_side:]
+    return below + above
+
+
+def _mtf_tally(rungs: list[dict]) -> dict:
+    """How many rungs land on each side, and which side that is.
+
+    Counted here rather than in the panel for the reason every number in a
+    card is: the renderer draws, it does not derive. A count assembled on the
+    browser's side could differ from the one in the model's payload the
+    moment either changes, and the two would be describing the same six
+    rungs with different arithmetic.
+
+    A 'leaning' rung counts to the side it leans, because that is what the
+    word means; an even split counts to neither. And this is a COUNT — the
+    ladder is not an election and the tool's note says so.
+    """
+    up = sum(1 for r in rungs if "bull" in str(r.get("stance") or ""))
+    down = sum(1 for r in rungs if "bear" in str(r.get("stance") or ""))
+    return {"bullish": up, "bearish": down,
+            "mixed": len(rungs) - up - down, "of": len(rungs),
+            "leaning": "bullish" if up > down else
+                       "bearish" if down > up else "split",
+            "majority": max(up, down)}
+
+
+def _mtf_card(rungs: list[dict], levels: list[dict], price: float,
+              unavailable: list[str]) -> dict | None:
+    if not rungs:
+        return None
+    return {"kind": "timeframes", "symbol": _sym(), "price": round(price, 2),
+            "tally": _mtf_tally(rungs),
+            "rungs": [{"interval": r["interval"], "label": r["label"],
+                       "stance": r["stance"], "rsi": r.get("rsi"),
+                       "adx": r.get("adx"), "macd_hist": r.get("macd_histogram"),
+                       "di": r.get("di"), "ema50": r.get("ema50"),
+                       "ema50_side": r.get("ema50_side") or "",
+                       "bars": r.get("bars")}
+                      for r in rungs],
+            "levels": levels,
+            **({"unavailable": unavailable} if unavailable else {})}
+
+
+def tool_multi_timeframe(intervals: list | None = None,
+                         lookback_bars: int = 300) -> dict:
+    """The same four readings on every rung of the ladder, in one call."""
+    want = [str(s).lower().strip() for s in (intervals or _MTF_LADDER)]
+    want = [s for s in dict.fromkeys(want) if s in _IV_LABEL][:8]
+    if not want:
+        return {"error": "no known intervals — pick from "
+                         + ", ".join(_MTF_LADDER)}
+    # A ladder with one rung is not a ladder, and the panel it would print —
+    # six sections comparing one interval to itself — is the wrong answer to
+    # a question that named a single timeframe. This is the routing rule as
+    # CODE rather than as a sentence in a description: a description argues
+    # and can be outvoted by the four other tools also arguing, and a refusal
+    # cannot. It names the tool that does answer, so the turn recovers in one
+    # more call instead of ending in an apology.
+    if len(want) < 2:
+        one = want[0]
+        return {"error": f"multi_timeframe needs at least two intervals — "
+                         f"'{one}' alone is not a multi-timeframe question",
+                "call_instead": {"direction or strength": f"get_trend(interval='{one}')",
+                                 "the indicators": f"read_indicators(interval='{one}')"},
+                "_note": ("Nothing was measured and no panel was printed. Call "
+                          "the tool named above for the interval the user "
+                          "asked about — do not re-call this one with the "
+                          "ladder padded out, which would answer a question "
+                          "about six timeframes when one was asked about.")}
+    lookback_bars = max(60, min(int(lookback_bars or 300), 1000))
+
+    rungs: list[dict] = []
+    unavailable: list[str] = []
+    per_iv: list[tuple] = []
+    price = None
+    for iv in want:
+        rows = _rows_safe(iv, lookback_bars)
+        if len(rows) < 60:
+            unavailable.append(
+                f"{_IV_LABEL[iv]} (no bars stored at this interval)"
+                if not rows else
+                f"{_IV_LABEL[iv]} ({len(rows)} bars stored — under the 60 "
+                f"this needs)")
+            continue
+        wt = iv not in ("1d", "1w", "1mo")
+        last = rows[-1][4]
+        # The live price is whatever the FINEST available rung last printed;
+        # coarser rungs close later and would report a stale one.
+        if price is None:
+            price = last
+        overlays, _miss = _overlay_reads(rows)
+        mom = _momentum_reads(rows)
+        rsi = (mom.get("rsi") or {}).get("value")
+        adxb = mom.get("adx") or {}
+        macd = mom.get("macd") or {}
+        slow = next((o for o in overlays
+                     if o["study"] == "ema" and o["period"] == 50), None)
+
+        # Four votes, each a single comparison, each allowed to be absent.
+        # A rung where only two computed is scored on two and says so via
+        # `votes` — never padded out to four with a neutral guess.
+        ups = downs = 0
+        for ok in ((rsi >= 50) if isinstance(rsi, (int, float)) else None,
+                   (macd["histogram"] > 0) if isinstance(macd.get("histogram"),
+                                                         (int, float)) else None,
+                   (adxb.get("bias") == "bullish") if adxb.get("bias") in
+                   ("bullish", "bearish") else None,
+                   (slow["price_side"] == "above") if slow else None):
+            if ok is True:
+                ups += 1
+            elif ok is False:
+                downs += 1
+        r: dict = {
+            "interval": iv, "label": _IV_LABEL[iv], "bars": len(rows),
+            "window": f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}",
+            "last": round(last, 2),
+            "rsi": rsi, "rsi_band": _rsi_band(rsi) if rsi is not None else "",
+            "macd_histogram": macd.get("histogram"),
+            "adx": adxb.get("value"), "adx_strength": adxb.get("strength") or "",
+            "di_bias": adxb.get("bias") or "",
+            "votes": {"bullish": ups, "bearish": downs, "of": ups + downs},
+            "stance": _mtf_stance(ups, downs),
+        }
+        if isinstance(adxb.get("plus_di"), (int, float)) and \
+                isinstance(adxb.get("minus_di"), (int, float)):
+            r["di"] = {"plus": adxb["plus_di"], "minus": adxb["minus_di"]}
+        if slow:
+            r["ema50"] = slow["value"]
+            r["ema50_side"] = slow["price_side"]
+        rungs.append(r)
+        per_iv.append((_IV_LABEL[iv], _levels(rows, with_time=wt)))
+
+    if not rungs:
+        return {"error": "none of these intervals has enough stored history",
+                "tried": want, "detail": unavailable}
+
+    levels = _mtf_levels(per_iv, price)
+    res: dict = {"last_price": price, "timeframes": rungs,
+                 "stance_tally": _mtf_tally(rungs),
+                 "pooled_levels": levels}
+    if unavailable:
+        res["not_measured"] = unavailable
+        res["_missing_note"] = (
+            "These rungs are NOT in the answer. Name them — an answer that "
+            "silently covers four of six timeframes has told the user it "
+            "covered six.")
+    card = _mtf_card(rungs, levels, price, unavailable)
+    if card:
+        _card_add(card)
+        res["_card_note"] = (
+            "A ladder panel is already rendered beside your reply: every rung "
+            "with its stance and its four readings, ADX and RSI drawn against "
+            "each other across the rungs, and the pooled levels with the "
+            "intervals that found each one. Do not read the rows back out. "
+            "Say where the ladder AGREES and where it splits, and which rung "
+            "the user's question is actually on.")
+    res["provenance"] = {
+        "intervals_measured": [r["interval"] for r in rungs],
+        "lookback_bars": lookback_bars,
+        "readings_per_rung": ("RSI 14 against 50, MACD 12/26/9 histogram "
+                              "sign, +DI against −DI, close against EMA 50 — "
+                              "the identical four at every interval"),
+        "stance_rule": ("all available readings on one side = bullish or "
+                        "bearish; a majority = leaning; an even split = "
+                        "mixed. A count, not a judgement — `votes` carries "
+                        "it"),
+        "level_method": ("pivot-extremum (±5 bars), ATR-clustered per "
+                         "interval, then merged across intervals where the "
+                         "zones overlap; every contributing interval is kept "
+                         "by name"),
+        "adx_bands": {"strong": ">= 25", "developing": "20 - 25",
+                      "absent": "< 20", "source": "Wilder's own thresholds"},
+    }
+    res["_note"] = (
+        "Rungs are NOT votes in one election and must not be tallied into a "
+        "single word — a 5-minute chart and a weekly chart disagreeing is the "
+        "normal state of a market in a pullback, and saying which is which IS "
+        "the answer. Weight by the user's horizon, not by count. `adx` "
+        "qualifies its own rung and nothing else: a stance of 'bearish' at "
+        "ADX 12 is four readings agreeing about a chart that is not moving. "
+        "A pooled level found by three intervals is better evidenced than one "
+        "found by a single rung — say how many found it, and quote the "
+        "held/broke record rather than describing a level as strong. None of "
+        "this is a forecast.")
+    return res
+
+
 # These shapes are fitted at the LIVE EDGE of the series only, so there is
 # no honest way to mine historical instances of them yet — the detector
 # would have to be re-run at every past bar, which is a different (and
@@ -5518,6 +6532,146 @@ def _day_change_signs(rows: list[tuple], i0: int, i1: int) -> dict:
             for i in range(max(1, i0), i1 + 1)}
 
 
+# The session's own clock, named the way a person describes their day. The
+# keys are `_session_anatomy`'s and the order is the session's — a panel that
+# sorted these by size would destroy the one thing the row is for, which is
+# WHEN inside the day the move happened.
+_SEGMENTS = (("gap_overnight", "Overnight gap"), ("open_15m", "Opening 15m"),
+             ("morning", "Morning"), ("midday", "Midday"),
+             ("last_hour", "Last hour"))
+
+
+def _move_card(out: dict, sym_price: float) -> dict | None:
+    """The move pack as a panel: how big, where inside the day, against what.
+
+    A "why is it falling" answer is three questions wearing one coat — is
+    this move even unusual, where in the session did it happen, and what did
+    it cross on the way — and the pack already holds all three. The panel's
+    job is to put the first one FIRST, because a move inside its own normal
+    range needs no story at all and a reply that opens with a cause has
+    already conceded there was one.
+
+    Everything below is read off the result the model is handed in the same
+    call. Where a block was withheld (too few prior windows to rank a move,
+    no benchmark close, no 1-minute bars to anatomise) the row is dropped
+    rather than filled — the pack's own honesty rules, kept on this side too.
+    """
+    win = out.get("window") or {}
+    ab = out.get("abnormality") or {}
+    sessions = out.get("sessions") or []
+    card: dict = {"kind": "move", "symbol": _sym(),
+                  "window": {"from": win.get("from"), "to": win.get("to"),
+                             "sessions": win.get("sessions"),
+                             "move_pct": win.get("move_pct")},
+                  "price": sym_price}
+    stats: dict = {}
+    if win.get("move_pct") is not None:
+        stats["move_pct"] = win["move_pct"]
+    if ab.get("typical_abs_move_pct") is not None:
+        stats["typical_abs_move_pct"] = ab["typical_abs_move_pct"]
+    if ab.get("abs_percentile") is not None:
+        stats["abs_percentile"] = ab["abs_percentile"]
+    if sessions and sessions[-1].get("vol_vs_20d_avg") is not None:
+        stats["vol_vs_20d_avg"] = sessions[-1]["vol_vs_20d_avg"]
+    if stats:
+        card["stats"] = stats
+
+    # ── where inside the session ──
+    # Only for a ONE-session window. Over five sessions the last day's
+    # anatomy is a true statement about the wrong thing, and a panel headed
+    # "return by session segment" over a week would be read as the week's.
+    if win.get("sessions") == 1 and sessions and sessions[-1].get("anatomy_pct"):
+        an = sessions[-1]["anatomy_pct"]
+        segs = [{"name": label, "pct": an[key]}
+                for key, label in _SEGMENTS if an.get(key) is not None]
+        if segs:
+            card["segments"] = segs
+            card["segments_of"] = sessions[-1].get("date")
+            for k, lab in (("vol_first_30m_pct", "first 30m"),
+                           ("vol_last_30m_pct", "last 30m")):
+                if an.get(k) is not None:
+                    card.setdefault("volume_edges", []).append(
+                        {"name": lab, "pct": an[k]})
+
+    # ── the ladder price is standing on ──
+    # Crossed levels keep their role from BEFORE the move, because that is
+    # what they were when price reached them; calling a broken support a
+    # resistance in the same row that says it broke is two claims about one
+    # line. Sorted high to low, which is the only order a price ladder has.
+    st = out.get("structure") or {}
+    rungs: list[dict] = []
+    if isinstance(st.get("nearest_above"), dict):
+        x = st["nearest_above"]
+        rungs.append({"role": "resistance", "price": x["price"],
+                      "label": "Next resistance above",
+                      "touches": x.get("touches")})
+    for x in (st.get("levels_crossed") or []):
+        if isinstance(x, dict):
+            rungs.append({"role": "crossed", "price": x["price"],
+                          "label": f"Prior {x.get('role_before_move') or 'level'}"
+                                   f", crossed in this window",
+                          "touches": x.get("touches")})
+    if win.get("to_close") is not None:
+        rungs.append({"role": "current", "price": win["to_close"],
+                      "label": "Last close"})
+    if isinstance(st.get("nearest_below"), dict):
+        x = st["nearest_below"]
+        rungs.append({"role": "support", "price": x["price"],
+                      "label": "Next support below", "touches": x.get("touches")})
+    if len(rungs) > 1:
+        card["ladder"] = sorted(rungs, key=lambda r: -r["price"])
+
+    # ── the index's share ──
+    ix = out.get("index_split") or {}
+    if ix.get("index_pct") is not None:
+        card["index"] = {"name": ix.get("index", "index"),
+                         "index_pct": ix["index_pct"],
+                         **({"beta": ix["beta"]} if ix.get("beta") is not None else {}),
+                         **({"expected_pct": ix["expected_from_index_pct"],
+                             "residual_pct": ix["residual_pct"]}
+                            if ix.get("residual_pct") is not None else {})}
+
+    # ── what was and was NOT found ──
+    # Both, deliberately. "No deal was printed" is a measurement of the same
+    # tables that would have shown one, and a panel that only listed hits
+    # would leave the reader to assume the misses were never looked for.
+    ctx: list[dict] = []
+    res_near = out.get("results_nearby")
+    if isinstance(res_near, list) and res_near:
+        r = res_near[0]
+        ctx.append({"what": f"Results {r.get('quarter', '')}".strip(),
+                    "detail": str(r.get("position") or ""), "found": True})
+    else:
+        ctx.append({"what": "Results", "detail": "none within 3 sessions",
+                    "found": False})
+    deals = (out.get("flows") or {}).get("deals_in_window")
+    if isinstance(deals, list) and deals:
+        ctx.append({"what": "Bulk / block deals",
+                    "detail": f"{len(deals)} printed in the window", "found": True})
+    elif isinstance(deals, str):
+        ctx.append({"what": "Bulk / block deals", "detail": "none printed",
+                    "found": False})
+    pats = out.get("patterns_in_window")
+    if isinstance(pats, list) and pats:
+        ctx.append({"what": "Formations ending here",
+                    "detail": ", ".join(str(p.get("pattern", "")).replace("_", " ")
+                                        for p in pats[:2]), "found": True})
+    elif isinstance(pats, str):
+        ctx.append({"what": "Formations ending here", "detail": "none detected",
+                    "found": False})
+    sim = out.get("similar_moves_before") or {}
+    if sim.get("continued_next_session_pct") is not None:
+        base = sim.get("control_any_session_pct")
+        ctx.append({"what": "Similar past moves",
+                    "detail": f"continued next session "
+                              f"{sim['continued_next_session_pct']}%"
+                              + (f" vs {base}% base rate" if base is not None else ""),
+                    "found": True})
+    if ctx:
+        card["context"] = ctx
+    return card if (stats or card.get("ladder") or card.get("segments")) else None
+
+
 def tool_explain_move(frm: str = "", to: str = "") -> dict:
     """Everything local that bears on "why did it move" over a date window.
 
@@ -5772,6 +6926,17 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
         if hhmm < "15:25":
             out["partial_session"] = (f"the last session's data ends at {hhmm} "
                                       "IST — treat it as in progress")
+
+    card = _move_card(out, round(last_close, 2))
+    if card:
+        _card_add(card)
+        out["_card_note"] = (
+            "A panel carrying the move's size against this stock's own "
+            "typical one, where inside the session it happened, the ladder it "
+            "is standing on and what was and was NOT found nearby is already "
+            "rendered beside your reply. Do not transcribe it. Lead with "
+            "whether this move needed a cause at all, and if it did, name the "
+            "one piece of evidence you are resting on.")
 
     out["_note"] = (
         "Every figure above is computed from the local bar store"
@@ -6784,9 +7949,9 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
 
 TOOLS = [
     {"type": "function", "name": "explain_move",
-     "description": "The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), WHO ACTED (delivery % with own-history percentile, futures OI quadrant, bulk/block deals in the window), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
+     "description": "ALWAYS the first call for any why-is-it-moving / why-did-it-fall / what-happened question, including when the user gives no dates — the chart context's visible high, low and change describe the move but explain nothing, and an answer assembled from those plus a news headline has skipped every measurement that decides whether the move needed a cause at all. The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), WHO ACTED (delivery % with own-history percentile, futures OI quadrant, bulk/block deals in the window), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
      "parameters": {"type": "object", "properties": {
-         "frm": {"type": "string", "description": "first session of the move, chart format e.g. '21 Jul 2026'; omit both dates for the latest session"},
+         "frm": {"type": "string", "description": "first session of the move, chart format e.g. '21 Jul 2026'. When the user gives no dates and is pointing at a decline or rally ON the chart ('why is the price falling'), pass the VISIBLE WINDOW's start from the chart context — omitting both dates explains the last session only, which is the wrong window for a multi-day move"},
          "to": {"type": "string", "description": "last session of the move; omit for a single day"}},
       "required": []}},
     {"type": "function", "name": "get_flows",
@@ -6920,7 +8085,7 @@ TOOLS = [
                   "description": "'resistance' = fitted through swing HIGHS (a descending line, the top of a channel, 'along the highs', 'the downtrend line'); 'support' = through swing LOWS ('along the lows', 'rising support'). Default 'both' picks whichever has the most touches, which will answer a highs question with a lows line. For a channel, call once per side."}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_trend",
-     "description": "THE tool for 'what is the trend' / 'is this trending or ranging' / 'which way is this going' / 'how strong is the move'. One call measures it four separate ways and returns the disagreement intact: market structure (the HH/HL vs LH/LL swing sequence), ADX (how much directional movement there is, with no side to it), +DI against -DI (which side owns that movement), and the best-supported fitted trendline per side with intact/broken status — plus the scanned window's high-low range and where the last close sits inside it. Use this instead of assembling a trend answer yourself out of get_indicator('adx') and get_patterns: those return the same numbers with nothing comparing them, and the comparison is the answer. The four readings are NOT required to agree and you must not average them into one word — structure going sideways while DI stays bearish is the finding, not a contradiction to resolve. Set draw=true to put the fitted lines on the chart. A panel carrying all four readings is rendered beside your reply, so spend the reply on what they mean together rather than transcribing them.",
+     "description": "THE tool for 'what is the trend' / 'is this trending or ranging' / 'which way is this going' / 'how strong is the move' — a question about DIRECTION, at one interval. NOT this tool when the question asks what the indicators say (read_indicators), names a study (get_indicator), spans more than one timeframe (multi_timeframe), or asks what would confirm a turn (confirm_reversal). One call measures it four separate ways and returns the disagreement intact: market structure (the HH/HL vs LH/LL swing sequence), ADX (how much directional movement there is, with no side to it), +DI against -DI (which side owns that movement), and the best-supported fitted trendline per side with intact/broken status — plus the scanned window's high-low range and where the last close sits inside it. Use this instead of assembling a trend answer yourself out of get_indicator('adx') and get_patterns: those return the same numbers with nothing comparing them, and the comparison is the answer. The four readings are NOT required to agree and you must not average them into one word — structure going sideways while DI stays bearish is the finding, not a contradiction to resolve. Set draw=true to put the fitted lines on the chart. A panel carrying all four readings is rendered beside your reply, so spend the reply on what they mean together rather than transcribing them.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300 — this is also the window the range and the structure read are measured over, so widen it for 'the longer-term trend' rather than reinterpreting a short one"},
@@ -6929,6 +8094,28 @@ TOOLS = [
          "max_draw": {"type": "integer", "description": "default 2 — one line per side"},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
+    {"type": "function", "name": "read_indicators",
+     "description": "For 'what do the indicators say' / 'what are the indicators showing' / 'read the studies for me' — a question about INDICATORS that does not name one, at one interval. NOT this tool when the user names a study or a period ('what's RSI', 'add a 200 EMA' → get_indicator), when the question is about direction rather than the studies ('what is the trend' → get_trend), when it spans several timeframes (multi_timeframe), or when it asks what would have to happen next (confirm_reversal). It reads a FIXED declared panel at one interval in a single call: price against EMA 20, EMA 50 and Supertrend(10,3), then RSI 14, MACD 12/26/9 and ADX 14 with both DI legs, each carrying the previous bar so a change ('the histogram is less negative than it was', 'RSI just crossed back over 30') can be stated rather than guessed at. The set is fixed on purpose — the same question asked twice must not come back with different studies. Use get_indicator instead when the user names the study or the period, and get_trend when the question is about the trend rather than the indicators. The three families are allowed to DISAGREE and you must not average them into one word: `position_tally` is a count of the overlays and nothing more, and RSI recovering under a bearish tally is the finding, not a contradiction. `flip_band` is the span of the overlay values themselves — where the tally would change — never a target and never a detected level. A panel carrying every figure is rendered beside your reply.",
+     "parameters": {"type": "object", "properties": {
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "bars to compute over, default 400 — only the last bar is reported, so this is warm-up depth, not a window to widen for a longer view"},
+         "rsi_period": {"type": "integer", "description": "default 14"},
+         "adx_period": {"type": "integer", "description": "default 14"}},
+         "required": ["interval"]}},
+    {"type": "function", "name": "confirm_reversal",
+     "description": "For a question about what has NOT happened yet — 'what would confirm a bullish reversal', 'what needs to happen for this to turn', 'when would you say the downtrend is over', 'what would invalidate the uptrend' (ask with the opposite direction). The giveaway is the conditional: would, needs to, until, before. NOT this tool for the state of the chart NOW ('what is the trend' → get_trend, 'what do the indicators say' → read_indicators), and NOT for an entry, stop or size the user wants drawn (→ plan_position). It returns the MEASURED thresholds: three ordered price stages — reclaim the overlay band in the way, break the latest opposing swing from the shared structure read, clear the best-evidenced level with its held/broke record — and the study conditions (RSI against 50, MACD against its signal, +DI against -DI, price against the EMA 50), each with the reading it is at NOW and whether it is met. Every level comes from a detector, never from you: do not add a level, a round number or a percentage of your own to the list. NEVER total the conditions into a score or a probability — three of four met is not 75% of a reversal, and a full checklist is still not a signal to act. This describes the chart; what to do about it is the user's call. A checklist panel is rendered beside your reply.",
+     "parameters": {"type": "object", "properties": {
+         "direction": {"type": "string", "enum": ["bullish", "bearish"], "description": "which reversal is being asked about — 'bearish' answers 'what would confirm this is topping / what invalidates the uptrend'"},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "lookback_bars": {"type": "integer", "description": "bars the structure and levels are read over, default 300"}},
+         "required": ["direction", "interval"]}},
+    {"type": "function", "name": "multi_timeframe",
+     "description": "ONLY for a question that spans MORE THAN ONE interval: 'analyse this across timeframes', 'what does it look like on the higher timeframes', 'is the daily confirming the hourly', 'multi-timeframe read'. A question that names a SINGLE interval — 'what's the trend on the hourly', 'read the indicators on the daily' — is get_trend or read_indicators at that interval and calling this instead answers a question the user did not ask, with six rows where they wanted one. It refuses a single-interval call for that reason. It walks the ladder and measures every rung the IDENTICAL four ways — RSI 14 against 50, the MACD histogram's sign, +DI against -DI, and the close against EMA 50 — plus ADX on each rung as the qualifier that has no side. It also pools the level detector's output across the rungs, merging levels the intervals agree on and keeping every contributing interval by name, so a level three timeframes found is visibly better evidenced than one only the 5-minute saw. Rungs are NOT votes in one election: do not tally them into a single word. A fast rung disagreeing with a slow one is the normal state of a pullback and saying which is which is the answer — weight by the user's own horizon. Intervals with too little stored history are reported unavailable and must be named, not silently dropped. A ladder panel is rendered beside your reply.",
+     "parameters": {"type": "object", "properties": {
+         "intervals": {"type": "array", "items": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
+                       "description": "the rungs to measure, coarsest last — at least TWO, or the call is refused. Name the ones the question is about; for a general 'across timeframes' ask pass the full ['5m','15m','30m','1h','1d','1w']"},
+         "lookback_bars": {"type": "integer", "description": "bars per rung, default 300"}},
+         "required": ["intervals"]}},
     {"type": "function", "name": "get_divergences",
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
      "parameters": {"type": "object", "properties": {
@@ -7108,12 +8295,27 @@ TOOLS = [
          "ATR volatility, avg turnover, return correlation, and the NIFTY 50 "
          "return over the same span. Symbols not yet stored locally download "
          "first (~6 s each). Use for any cross-company or company-vs-peers "
-         "question; the chart's own symbol must be listed explicitly."),
+         "question; the chart's own symbol must be listed explicitly. "
+         "Pass `intervals` to measure the SAME comparison at more than one "
+         "interval in one call — do this by default for a plain 'compare A "
+         "and B' (['1d','1w'] is the useful pair), because which name is "
+         "ahead is frequently a fact about the window rather than about the "
+         "pair, and a single-window answer hides that. Relative-strength "
+         "questions — 'where is A outperforming B', 'on which timeframe is A "
+         "stronger' — are THIS tool too, with exactly two symbols and the "
+         "ladder in `intervals`: `return_gap_pp` carries the gap per interval "
+         "in percentage points, and intervals with no stored bars are named "
+         "rather than dropped. A panel is rendered beside your reply, with "
+         "the gaps leading it, so do not rebuild these numbers as a markdown "
+         "table."),
      "parameters": {"type": "object", "properties": {
          "symbols": {"type": "array", "items": {"type": "string"}},
-         "interval": {"type": "string", "enum": ["1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1d", "1w"],
+                      "description": "the single interval to measure when `intervals` is not given"},
+         "intervals": {"type": "array", "items": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
+                       "description": "measure at each of these instead; up to 6. Intraday rungs exist only for hydrated symbols and are reported unavailable when they are missing"},
          "lookback_bars": {"type": "integer",
-                           "description": "window length, default 250 (~1y of 1d)"}},
+                           "description": "window length, default 250 (~1y of 1d, ~5y of 1w)"}},
          "required": ["symbols"]}},
     {"type": "function", "name": "screen_universe",
      "description": (
@@ -7239,6 +8441,9 @@ TOOLS = [
     {"type": "function", "name": "get_indicator",
      "description": (
          "Compute any indicator at any period, interval and price source, and optionally add it to the chart. "
+         "Use it when the user NAMES a study or a period ('what's RSI', 'add a 200 EMA', 'MACD on the hourly'); "
+         "a question about 'the indicators' with none named is read_indicators, which returns a fixed panel of six "
+         "and prints it beside the reply. "
          "Trend: sma, ema, wma, hma, dema, supertrend, psar, adx (with +DI/-DI), aroon. "
          "Momentum: rsi, macd, stoch, stochrsi, cci, williams_r, roc. "
          "Volatility: bbands (with percent_b and bandwidth), keltner, donchian, atr. "
@@ -7369,6 +8574,9 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_indicator": tool_get_indicator,
              "get_trendlines": tool_get_trendlines,
              "get_trend": tool_get_trend,
+             "read_indicators": tool_read_indicators,
+             "confirm_reversal": tool_confirm_reversal,
+             "multi_timeframe": tool_multi_timeframe,
              "get_divergences": tool_get_divergences,
              "get_anchors": tool_get_anchors,
              "get_gaps": tool_get_gaps,
@@ -7582,11 +8790,34 @@ def _fn_params(fn) -> set:
 
 
 def _run_tool(name: str, fn, args: dict) -> dict:
+    # An argument the function does not have raises TypeError and burns the
+    # WHOLE call — the model gets "failed: unexpected keyword argument" back
+    # for a request that was otherwise fine, and the single-shot pipeline does
+    # not retry it. Two things produce one: a model inventing a plausible
+    # parameter, and a parameter this file has retired since the model last
+    # saw it work. `indicators.compute` already filters its kwargs against the
+    # signature for exactly this reason; doing it here covers every tool at
+    # once. Dropped names are reported, so a call that quietly did less than
+    # it was asked to cannot pass for one that did it all.
+    args = dict(args or {})
+    known = _fn_params(fn)
+    dropped = sorted(k for k in args if k not in known) if known else []
+    for k in dropped:
+        args.pop(k)
     try:
         out = fn(**args)
     except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
         logging.warning("charto tool %s failed: %s", name, exc)
         return {"error": f"{name} failed: {exc}"}
+    if dropped and isinstance(out, dict):
+        out["_ignored_arguments"] = dropped
+        out["_ignored_note"] = (
+            f"{name} has no parameter{'s' if len(dropped) > 1 else ''} "
+            f"{', '.join(dropped)}, so {'they were' if len(dropped) > 1 else 'it was'} "
+            f"ignored and the result above is the plain call. If that "
+            f"argument was carrying the user's actual request, say what you "
+            f"could not do rather than describing the result as though it "
+            f"had been applied.")
     # Stamp WHICH drawing a score belongs to, here rather than in each tool,
     # so no return path can omit it. A score the reply cannot name is a score
     # the user cannot check against the shape they meant.
@@ -7644,27 +8875,63 @@ punishes is repeated figures buried in prose — the same fields across several
 dates, bars or symbols read far better as a compact table (numbers
 right-aligned with `|---:|`)."""
 
+# The reading contract (~150 tokens). Five tools now read the chart itself and
+# their SUBJECTS overlap almost completely — all five compute some of the same
+# indicators over some of the same bars. What separates them is the question,
+# not the arithmetic, and a tool description can only argue for itself: each
+# one is read in isolation, so five descriptions each saying "THE tool for a
+# chart question" is five tools bidding for every chart question. The
+# disambiguation has to live somewhere all five are visible at once, and this
+# is that place.
+#
+# It is a ROUTING rail and nothing else — it never says what an answer should
+# conclude. The "call one" line is the part that earns its tokens: two reading
+# tools in a turn answer one question twice and print two panels beside one
+# paragraph, which reads as the app not knowing what was asked.
+READING_RULES = """\
+## Which reading tool
+Five tools read the chart and they are NOT interchangeable. Pick by what the
+question asks for, not by what would be interesting to know:
+- a direction, or how strong the move is → get_trend
+- the indicators, with none named → read_indicators (one interval)
+- ONE named study or period ("what's RSI", "show me a 200 EMA") → get_indicator
+- more than one interval, or higher/lower timeframes → multi_timeframe
+- what would have to HAPPEN for a turn or a break → confirm_reversal
+A question that names a single interval ("the trend on the hourly") is NOT a
+multi-timeframe question — it is get_trend or read_indicators at that
+interval. Call ONE of these per turn: each prints its own panel, and two
+panels beside one paragraph reads as not having understood the question. If a
+second is genuinely needed, say in the reply why the first was not enough."""
+
 # The causal contract (~120 tokens). A rail, not a procedure: it says where
 # quantities and causes each come from and what an honest "why" answer owes,
 # and leaves every judgement — whether to search, what the evidence means —
 # to the model.
 CAUSAL_RULES = """\
 ## Explaining a move
-For any why-did-it-move question, call explain_move — one call returns the
-anatomy, the index split and the local evidence. When the question itself
-already asks for causes or news of a NAMED move — a fall, rally, crash or
-spike the user asserts happened — call search_news in the SAME round (one
-batched round is a whole inference hop cheaper than two). When the user has
-not named a move ("why did it move on X?" could be a flat day), call
-explain_move alone and judge abnormality first: a move inside the stock's
-normal range
-needs none, and "no clear catalyst" is a complete, correct answer — most
-days have none. search_news (at most once per turn) supplies only dated
-events; every quantity comes from tools, and a stale headline never
-overrides a tool. Say plainly how much was the market and how much the
-stock. A cause must fit the anatomy: overnight news does not explain a
-mid-session move. State behavioural readings (who was likely buying or
-selling) as inference from a named observable, never as known motive."""
+Every why-did-it-move question begins with explain_move — one call returns the
+anatomy, the index split and the local evidence. It is not optional, and
+search_news is not a substitute for it: news offers a candidate cause, and
+only explain_move can say whether the move needed one. When the question
+already asserts a move — a fall, rally, crash or spike — call search_news in
+the same round AS WELL, never instead (one batched round is a whole inference
+hop cheaper than two).
+The chart context above hands you the visible window's open, close, change,
+high and low for free. Those DESCRIBE the move; they do not explain it. A
+reply built from them plus a headline has skipped the work and shows it — no
+abnormality, no index split, no session anatomy — so never answer a why
+question from the envelope alone.
+No dates in the question? Pass the ones the user is looking at: the visible
+window's from/to. Omitting both explains the LAST SESSION only, which is the
+wrong window whenever the user is pointing at a multi-day decline.
+Then judge abnormality FIRST: a move inside this stock's normal range needs no
+catalyst, and "no clear catalyst" is a complete, correct answer — most days
+have none. search_news (at most once per turn) supplies only dated events;
+every quantity comes from tools, and a stale headline never overrides a tool.
+Say plainly how much was the market and how much the stock. A cause must fit
+the anatomy: overnight news does not explain a mid-session move. State
+behavioural readings (who was likely buying or selling) as inference from a
+named observable, never as known motive."""
 
 
 def build_context_block(ctx: dict | None) -> str:
@@ -8165,7 +9432,8 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES, CAUSAL_RULES) if x)
+    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
+                                    READING_RULES, CAUSAL_RULES) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -8254,7 +9522,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": _creds_error()}
         return
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES, CAUSAL_RULES) if x)
+    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
+                                    READING_RULES, CAUSAL_RULES) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
