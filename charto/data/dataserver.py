@@ -52,6 +52,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 # dataserver` (tests, tooling) is left exactly as it was.
 sys.modules.setdefault("dataserver", sys.modules[__name__])
 
+import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -123,6 +124,9 @@ _scene = threading.local()
 def _scene_reset() -> None:
     _scene.items = []
     _scene.drawn = []
+    # every annotation this turn drew, by id — the read-back path (see
+    # _scene_add); unlike `items` it is never drained mid-turn
+    _scene.placed = {}
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
     _scene.minted_anchors = {}
@@ -240,7 +244,17 @@ def _scene_add(annotation: dict) -> None:
         _scene.items = []
     if not hasattr(_scene, "drawn"):
         _scene.drawn = []
+    if not hasattr(_scene, "placed"):
+        _scene.placed = {}
     _scene.items.append(annotation)
+    # …and keep the whole annotation, by id, for the rest of the TURN.
+    # `items` is drained after every tool call (see _scene_take), so a tool
+    # that wants to read back something drawn a round ago — "draw the fan,
+    # then tell me which ray price is on" — finds nothing there. The chart
+    # context cannot help either: it was built before the turn ran. This is
+    # the only record of what this turn put on the chart.
+    if annotation.get("id") and annotation.get("kind") not in ("clear", "clear_levels"):
+        _scene.placed[str(annotation["id"]).upper()] = annotation
     # Ledger of what is on the CHART, not what this call drew. `items` is
     # drained after every tool call, so a second additive call in the same
     # turn would otherwise report "exactly these are drawn" while three more
@@ -251,10 +265,12 @@ def _scene_add(annotation: dict) -> None:
     # these" while silently omitting the boxes, bands and vlines in the same
     # call is worse than no ledger: it instructs the model to under-report.
     if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
-                "vband", "poly", "point", "candle", "label", "markers"):
+                "vband", "poly", "point", "candle", "label", "markers",
+                "drawing", "fib", "position"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
+        _scene.placed = {}
 
 
 def _drawn_ledger() -> str:
@@ -315,8 +331,16 @@ _DRAW_KIND = {
     "channel": ("drawing", "channel"), "regression": ("drawing", "channel"),
     "long": ("drawing", "position"), "short": ("drawing", "position"),
 }
+# Every other Fibonacci and Gann tool reads back through `read_drawing`. They
+# have no hit-rate behind them and inventing one would be the worst answer
+# available — but "no scoring method" was not the right answer either, because
+# where a Gann fan's rays fall and which one price is riding are facts, and
+# the model had no way to get at them. `read_drawing` is that route: the
+# resolved construction, and nothing claimed about whether it works.
+_DRAW_KIND.update({t: ("ratio", None) for t in drawtools.TOOLS
+                   if t not in _DRAW_KIND})
 _TOOL_FOR = {"line": "evaluate_line", "fib": "evaluate_fib",
-             "drawing": "evaluate_drawing"}
+             "drawing": "evaluate_drawing", "ratio": "read_drawing"}
 
 
 def _drawings_set(ctx: dict | None) -> None:
@@ -361,6 +385,14 @@ def _chat_drawing_as_user(c: dict) -> dict | None:
                 "pts": [{"t": p1.get("t"), "p": p1.get("p")},
                         {"t": p2.get("t"), "p": p2.get("p")}],
                 "id": c.get("id"), "_chat": c}
+    if k == "drawing" and c.get("tool") in drawtools.TOOLS:
+        # A ratio tool the chat drew reads back exactly like one the user
+        # dragged: same type name, same anchors. The user can DRAG these, so
+        # the geometry here is the current truth and not what was drawn.
+        return {"type": c["tool"],
+                "pts": [{"t": q.get("t"), "p": q.get("p", q.get("v"))}
+                        for q in c.get("pts") or []],
+                "id": c.get("id"), "_chat": c}
     return None
 
 
@@ -370,8 +402,16 @@ def _drawing_get(ref: str) -> dict:
     d = by.get(str(ref or "").upper().strip())
     if d:
         return {"ok": d}
+    want = str(ref or "").upper().strip()
     chat = getattr(_drawings, "chat_by_id", None) or {}
-    c = chat.get(str(ref or "").upper().strip())
+    c = chat.get(want)
+    # …and anything drawn THIS turn, which the chart context cannot know about:
+    # it was built before the turn ran. Without this, "draw a Gann fan and tell
+    # me which ray price is on" is two rounds — the model draws, then has to
+    # wait for the next turn before it can read what it just drew. The context
+    # copy still wins where both exist, because the user may have dragged it.
+    if not c:
+        c = (getattr(_scene, "placed", None) or {}).get(want)
     if c:
         conv = _chat_drawing_as_user(c)
         if conv:
@@ -1514,6 +1554,10 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
 
 _SHAPES = {"segment": 2, "ray": 2, "box": 2, "band": 2, "hline": 1,
            "vline": 1, "polyline": 3, "point": 1, "fib": 2, "candle": 1}
+# …and the whole Fibonacci / Gann rail, composable from detected anchors like
+# anything else. `fib` is in both and keeps its own branch below: it has an
+# evaluator behind it and a scene kind of its own that predates the family.
+_SHAPES.update({t: s["anchors"] for t, s in drawtools.TOOLS.items()})
 
 
 def _candle_hl(ts: int, interval: str, lookback_bars: int) -> dict:
@@ -1548,6 +1592,9 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                 "_note": "Every shape previously drawn via draw_shape is "
                          "removed. Other tools' drawings are untouched."}
     shape = (shape or "").lower().strip()
+    # the ratio rail's names are the chart's own camelCase — restore the
+    # canonical spelling the lower() above just flattened
+    shape = drawtools.canonical(shape) or shape
     if shape not in _SHAPES:
         return {"error": f"unknown shape '{shape}'", "available": sorted(_SHAPES)}
     ids = [str(i).upper() for i in (anchor_ids or [])]
@@ -1581,12 +1628,15 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     # A 1-anchor shape given several anchors draws one PER anchor. It used
     # to draw only the first while the return listed them all as drawn — the
     # model then truthfully relayed a lie ("both marked") it had been told.
-    if _SHAPES[shape] == 1 and len(picked) > 1:
+    # …but a one-anchor RATIO tool is not a marker: a Gann square fixed given
+    # three anchors means three squares, not three of whatever this branch
+    # would make of it, and it has no `kind` this branch knows how to emit.
+    if _SHAPES[shape] == 1 and len(picked) > 1 and shape not in drawtools.TOOLS:
         drawn = []
         for a in picked:
             auto = {"high_52w": "52W high", "low_52w": "52W low"}.get(
                 a["kind"], a["kind"].replace("_", " "))
-            one: dict = {"id": "S" + a["id"], "pane": pane, "role": role,
+            one: dict = {"id": f"S{shape}{a['id']}", "pane": pane, "role": role,
                          "label": label or auto, "source": {
                              **src, "anchors": [a["id"]],
                              "first_touch": a["t"], "last_touch": a["t"]}}
@@ -1607,7 +1657,15 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                 "_note": (f"{len(drawn)} separate {shape}s drawn, one per "
                           "anchor. Describe each using its anchor kind.")}
 
-    ann: dict = {"kind": "segment", "id": "S" + "-".join(ids), "pane": pane,
+    # The id carries the SHAPE, not only the anchors. Without it a Gann fan
+    # and a fib arc drawn off the same two swings mint the same scene id and
+    # the second silently replaces the first — the fan vanished off the chart
+    # while the reply said both were drawn, and a read-back by that id
+    # resolved whichever one the chart context still held. Re-drawing the SAME
+    # shape on the same anchors still replaces itself, which is the part of
+    # the old behaviour worth keeping.
+    ann: dict = {"kind": "segment", "id": f"S{shape}-" + "-".join(ids),
+                 "pane": pane,
                  "role": role, "label": label or shape, "source": src}
     if shape in ("segment", "ray"):
         ann.update(p1={"t": pts[0]["t"], "v": pts[0]["v"]},
@@ -1636,6 +1694,13 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
         ann.update(kind="fib", p1={"t": pts[0]["t"], "v": pts[0]["v"]},
                    p2={"t": pts[1]["t"], "v": pts[1]["v"]},
                    label=label or "fib retracement")
+    elif shape in drawtools.TOOLS:
+        # The whole ratio family lands here as one kind carrying a tool NAME.
+        # See mark._annotate for why: the construction belongs to the chart's
+        # catalogue, and both drawing layers run that same catalogue.
+        ann.update(kind="drawing", tool=shape,
+                   pts=[{"t": p["t"], "v": p["v"]} for p in pts[:need]],
+                   label=label or drawtools.TOOLS[shape]["label"])
     _scene_add(ann)
     out = {"drawn": ann["id"], "shape": shape, "from_anchors": ids,
            "points": [{"t": a["t"], "value": a["value"], "kind": a["kind"]} for a in picked],
@@ -1653,6 +1718,15 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
             "Call evaluate_fib with the same two points for that, and do it "
             "whenever the user's question was about validity rather than "
             "placement.")
+    elif shape in drawtools.TOOLS:
+        # what the ratios resolved to — or the plain statement that this one
+        # divides an angle and has no level to quote
+        rep = drawtools.report(shape, pts[:need], _ist)
+        rep["_note"] = rep.get("_note", "") + (
+            f" To say where price stands against it, call read_drawing with "
+            f"drawing_id='{ann['id']}' — that resolves the shape you just "
+            f"drew. Do not answer that from the anchors alone.")
+        out.update(rep)
     return out
 
 
@@ -1706,6 +1780,7 @@ def tool_mark(shapes: list | None = None, interval: str = "1d",
         "what you asked for, and name what each mark is FOR. These are marks "
         "you placed, not structure anything detected: never attach a hit rate, "
         "a hold record or a strength to them."
+        + ("".join(" " + n for n in out.get("notes") or []))
         + (" Some shapes failed — read not_drawn and say which."
            if out["errors"] else ""))
     res["ledger"] = _drawn_ledger()
@@ -2528,6 +2603,80 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
         "neither level inside the horizon — never fold them into wins. Close by "
         "saying this is historical analysis, not advice.")
     return res
+
+
+def tool_read_drawing(drawing_id: str = "", interval: str = "1d",
+                      lookback_bars: int = 400) -> dict:
+    """Read back a Fibonacci or Gann drawing: what its divisions resolved to.
+
+    The family has fifteen tools and one evaluator, and only the retracement
+    has a record worth measuring (evaluate_fib, with a non-fib control). The
+    honest answer for the other fourteen used to be "no scoring method" — true,
+    and useless, because the questions people actually ask about a Gann fan are
+    *where do its rays fall* and *which one is price riding*, and both are
+    facts sitting in the geometry.
+
+    So this reads rather than scores. Every number it returns is resolved from
+    the drawing's own anchors against the real bars, and it says nothing about
+    whether the ratios work — which is a separate claim, and one only
+    evaluate_fib is equipped to make.
+    """
+    if not drawing_id:
+        return {"error": "no drawing_id",
+                "_note": ("Pass the ref shown against the drawing in the chart "
+                          "context. If the user has drawn nothing, say so "
+                          "rather than inventing a shape to read.")}
+    got = _drawing_for(drawing_id, "ratio")
+    if "error" in got:
+        return got
+    d, pts = got["ok"], got["points"]
+    tool = d.get("type")
+    spec = drawtools.TOOLS[tool]
+
+    # anchors arrive stamped in the chart's own format; the ratios need epoch
+    at = []
+    for p in pts[:spec["anchors"]]:
+        t = _parse_ist(p.get("t")) if isinstance(p.get("t"), str) else p.get("t")
+        if t is None or p.get("v") is None:
+            return {"error": f"anchor of {drawing_id} could not be read",
+                    "_note": "Nothing was read. Say the drawing's anchors "
+                             "could not be resolved rather than describing it "
+                             "from memory."}
+        at.append({"t": t, "v": float(p["v"])})
+    if len(at) < spec["anchors"]:
+        return {"error": f"{tool} needs {spec['anchors']} anchors, "
+                         f"the drawing carries {len(at)}"}
+
+    out = drawtools.report(tool, at, _ist)
+    out["drawing_id"] = d.get("ref") or d.get("id")
+    out["anchors"] = [{"at": _ist(p["t"]), "value": round(p["v"], 2)} for p in at]
+
+    rows = _rows(interval, max(60, min(int(lookback_bars or 400), 1500)))
+    if rows:
+        last = rows[-1][4]
+        out["last_price"] = last
+        # Where price stands against the ladder — the reading the user is
+        # actually after, and the one part of this that changes on its own.
+        lv = [x for x in (out.get("levels") or out.get("price_levels") or [])
+              if x.get("price") is not None]
+        if lv:
+            below = [x for x in lv if x["price"] <= last]
+            above = [x for x in lv if x["price"] > last]
+            out["price_sits"] = {
+                "between": [max((x["price"] for x in below), default=None),
+                            min((x["price"] for x in above), default=None)],
+                "nearest": min(lv, key=lambda x: abs(x["price"] - last)),
+                "_note": "'between' is null on a side price has already left; "
+                         "that is a real reading and not a missing one."}
+    out["_note"] = (out.get("_note", "") + " " + (
+        f"This is the {spec['label'].lower()} as it currently stands on the "
+        f"chart — the user may have dragged it since it was drawn, so these "
+        f"anchors, not any earlier ones, are the truth. Describe where the "
+        f"divisions fall and what price has done around them. Do NOT attach a "
+        f"hit rate, a hold record or a strength: nothing here measures one. "
+        f"Only a fib retracement has a measured record, and evaluate_fib is "
+        f"the tool that produces it.")).strip()
+    return out
 
 
 def tool_plan_position(entry: float | None = None, stop: float | None = None,
@@ -6852,10 +7001,25 @@ TOOLS = [
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib, candle. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, candle, plus the whole Fibonacci and Gann rail (fib, fibExtension, fibChannel, fibTimeZone, fibSpeedFan, fibTimeExtension, fibCircles, fibSpiral, fibArcs, fibWedge, pitchfan, gannBox, gannSquare, gannSquareFixed, gannFan). Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker. Anchor ORDER carries meaning for every ratio tool — read the shape description.",
      "parameters": {"type": "object", "properties": {
-         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib", "candle"],
-                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' dots the bar an anchor sits on, just above its high"},
+         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "candle",
+                                              "fib", "fibExtension", "fibChannel", "fibTimeZone", "fibSpeedFan",
+                                              "fibTimeExtension", "fibCircles", "fibSpiral", "fibArcs", "fibWedge",
+                                              "pitchfan", "gannBox", "gannSquare", "gannSquareFixed", "gannFan"],
+                   "description":
+                       "'candle' dots the bar an anchor sits on, just above its high. The ratio tools, by what they claim and how many anchors they take — "
+                       "PRICE: fib (2) a retracement ladder across a leg, first anchor the leg's START (100%), second its END (0%) · "
+                       "fibExtension (3) where the NEXT move might end: anchors 1→2 are the measured leg, 3 is where the pullback ended · "
+                       "fibChannel (3) the ladder sloped along a trend: 1→2 the baseline, 3 the 100% rail. "
+                       "TIME: fibTimeZone (2) verticals on the fibonacci NUMBERS of the unit 1→2 — when, not where · "
+                       "fibTimeExtension (3) the same counted off a measured leg 1→2, starting at 3. "
+                       "SLOPE (no level table — never quote a price off these): fibSpeedFan (2) rays cutting the box at each ratio · "
+                       "fibArcs (2) half-rings crossing the move · fibCircles (2) rings about a pivot, anchor 1 the centre · "
+                       "fibSpiral (2) a golden spiral winding inward from anchor 2 · fibWedge (3) two rays from apex 1 with fib rungs between · "
+                       "pitchfan (3) a pitchfork whose tines are fib fractions of the base 2→3, handle at 1 · gannFan (2) rational angles, anchor 2 sets the 1×1. "
+                       "GRID: gannBox (2) the same fractions across price and time · gannSquare (2) that grid plus the fan and arcs · "
+                       "gannSquareFixed (1) the same figure sized from one anchor by 52 bars and their real range"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
@@ -6900,19 +7064,36 @@ TOOLS = [
          "window) · segment (two points) · ray (extended right) · box (a "
          "region in time AND price) · poly (3+ points) · dot (pin one point) "
          "· candle (a dot above one bar — 'that bar') · note (a text chip at "
-         "a point) · marker (an arrow or circle ON a bar)."),
+         "a point) · marker (an arrow or circle ON a bar).\n"
+         "The Fibonacci and Gann rail is addressable here too, when the "
+         "anchors are moments the conversation located rather than detected "
+         "swings — write one address per anchor, in order, via points:[…]: "
+         "fib (2) · fibExtension (3) · fibChannel (3) · fibTimeZone (2) · "
+         "fibSpeedFan (2) · fibTimeExtension (3) · fibCircles (2) · "
+         "fibSpiral (2) · fibArcs (2) · fibWedge (3) · pitchfan (3) · "
+         "gannBox (2) · gannSquare (2) · gannSquareFixed (1) · gannFan (2). "
+         "Anchor order carries meaning — see draw_shape for what each one "
+         "claims. Prefer draw_shape when the anchors ARE detected swings: a "
+         "ratio tool hung off real pivots is worth more than one hung off a "
+         "clock."),
      "parameters": {"type": "object", "properties": {
          "shapes": {"type": "array", "description": "several shapes in one call — always batch",
                     "items": {"type": "object", "properties": {
                         "shape": {"type": "string",
                                   "enum": ["hline", "band", "vline", "vband",
                                            "segment", "ray", "box", "poly",
-                                           "dot", "candle", "note", "marker"]},
+                                           "dot", "candle", "note", "marker",
+                                           "fib", "fibExtension", "fibChannel",
+                                           "fibTimeZone", "fibSpeedFan",
+                                           "fibTimeExtension", "fibCircles",
+                                           "fibSpiral", "fibArcs", "fibWedge",
+                                           "pitchfan", "gannBox", "gannSquare",
+                                           "gannSquareFixed", "gannFan"]},
                         "at": {"type": "string", "description": "address, for a one-point shape"},
                         "from": {"type": "string", "description": "first address of a two-point shape"},
                         "to": {"type": "string", "description": "second address"},
                         "points": {"type": "array", "items": {"type": "string"},
-                                   "description": "3+ addresses, for poly"},
+                                   "description": "3+ addresses for poly, and the ordered anchors of a ratio tool (2 or 3 of them, or 1 for gannSquareFixed)"},
                         "label": {"type": "string", "description": "short caption — and the text of a note/marker"},
                         "role": {"type": "string", "enum": ["support", "resistance", "neutral"],
                                  "description": "colour only: amber above, cyan below, violet otherwise"},
@@ -7097,6 +7278,13 @@ TOOLS = [
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 600"}},
          "required": ["interval"]}},
+    {"type": "function", "name": "read_drawing",
+     "description": "Read back a Fibonacci or Gann drawing — anything from the ratio rail EXCEPT a plain fib retracement (that one has evaluate_fib, which measures a real record). Use whenever the user asks what their fib extension / channel / time zone / fan / arcs / circles / spiral / wedge / pitchfan / Gann box / Gann square / Gann fan is showing, where its levels are, which ray or ring price is on, or 'is this any good' about one. Returns the divisions the chart actually drew — prices for a price ladder, dates for a time ladder, both for a Gann grid — plus where price currently sits against them. It READS, it does not score: these tools have no measured hit rate, and there is nothing here to present as one. A tool that divides an ANGLE (fans, arcs, circles, spirals, wedges) honestly returns no level table, and saying so is the answer — never quote a price off one.",
+     "parameters": {"type": "object", "properties": {
+         "drawing_id": {"type": "string", "description": "ref of the drawing (e.g. 'D3') from the chart context — the user's own, or the id of one the chat drew. Never retype its coordinates; the user may have dragged it since."},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
+         "lookback_bars": {"type": "integer", "description": "default 400 — only used to read where price stands now"}},
+         "required": ["drawing_id"]}},
     {"type": "function", "name": "get_results",
      "description": "Quarterly result (earnings) dates for this company, newest first, and optionally mark them on the chart with event icons. Use for 'when were the last results', 'when did Q1 report', 'mark earnings on the chart', or to locate a quarter before asking what price did around it. The date returned is the session the market could FIRST react to: an after-market announcement reacts the next day, and the field already accounts for that. These are past announcements only — there is no scheduled future date here, so never state one.",
      "parameters": {"type": "object", "properties": {
@@ -7260,6 +7448,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
+             "read_drawing": tool_read_drawing,
              "plan_position": tool_plan_position,
              "volume_profile": tool_volume_profile,
              "get_peers": tool_get_peers,

@@ -114,6 +114,121 @@ const Geo = (() => {
     return ratios.map((r) => ({ ratio: r, v: v1 + (v0 - v1) * r }));
   }
 
+  /* ── curves ───────────────────────────────────────────────────────────────
+   * Circles, arcs and spirals are the one family the primitive set could not
+   * express, and the temptation is to add a `circle` primitive with a pixel
+   * radius. That would be the first drawing on this chart whose SHAPE lived
+   * in pixel space — it would stop being anchored to the bars the moment you
+   * rescaled the price axis, and it would need its own painter, its own
+   * hit-tester and its own drag.
+   *
+   * So a curve is SAMPLED into data-space points and handed to `poly`, which
+   * already renders, hits, drags and persists. A circle on this chart is
+   * therefore an ellipse in pixels — semi-axes of Δtime and Δvalue — and that
+   * is not an approximation of the right answer, it IS the right answer: the
+   * two axes carry different quantities, so a shape that stayed circular
+   * under a rescale would be claiming a relationship between rupees and
+   * minutes that nothing on the chart supports. TradingView's arcs behave the
+   * same way for the same reason.
+   *
+   * The polylines are returned OPEN with the first point repeated at the end
+   * where they close. A closed poly's hit test includes its interior, and six
+   * nested fib circles would make the whole disc a grab target — the stroke
+   * is the drawing, so the stroke is what answers the pointer.
+   */
+
+  /** Points along an ellipse arc about `c`, semi-axes (rt, rv) in DATA units,
+   *  from angle a0 to a1. Negative semi-axes mirror, which is what lets a
+   *  tool pass a raw anchor delta without branching on its direction. */
+  function arcPts(c, rt, rv, a0, a1, n = 48) {
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      const th = a0 + (a1 - a0) * (i / n);
+      out.push({ t: c.t + rt * Math.cos(th), v: c.v + rv * Math.sin(th) });
+    }
+    return out;
+  }
+
+  /** The arc a speed-resistance tool actually wants: centred on `c`, and
+   *  CROSSING the vector (rt, rv) at exactly `r` of its length.
+   *
+   *  A naive ellipse with semi-axes (rt·r, rv·r) does not do that — it passes
+   *  through (rt·r, 0) and (0, rv·r), which are the axes, not the trend line.
+   *  The whole reading of a fib arc is "price met the 61.8% of this move", so
+   *  the arc has to meet the move. Scaling by √2 and sweeping about the
+   *  anchor's own quadrant angle puts the crossing exactly on it.
+   *
+   *  `half` is the half-sweep: π/2 draws the half-ellipse an arc tool shows,
+   *  π draws the full ring a circle tool shows.
+   *
+   *  The sweep is centred on the TIME direction rather than on the crossing
+   *  itself. Centred on the crossing, a half-arc reached a quarter turn back
+   *  BEHIND the pivot — an arc claiming levels in the past of the swing that
+   *  produced it. Centred on time it opens the way the move went, and the
+   *  crossing (45° off, by the arithmetic above) is still inside it. */
+  function crossArcPts(c, rt, rv, r, half = Math.PI / 2, n = 48) {
+    const mid = rt < 0 ? Math.PI : 0;
+    return arcPts(c, Math.abs(rt) * Math.SQRT2 * r,
+                  Math.abs(rv) * Math.SQRT2 * r, mid - half, mid + half, n);
+  }
+
+  /** A golden spiral winding INWARD from `c + (rt, rv)` toward `c`.
+   *
+   *  Outward is the textbook direction and the wrong one for a chart: the
+   *  radius multiplies by φ every quarter turn, so three turns outward is
+   *  322× the anchor and the drawing is a straight line off the top of the
+   *  screen. Wound inward, the anchor you dragged to IS the spiral's outer
+   *  edge and the whole figure lands inside the box you drew.
+   *
+   *  The start angle is the anchor's QUADRANT — a multiple of 45° — which is
+   *  not a rounding error but the construction: a Fibonacci spiral is built
+   *  from quarter-turn squares, so its arms begin on the diagonals. The √2
+   *  makes the first point land exactly on the anchor. */
+  function spiralPts(c, rt, rv, turns = 3, n = 288) {
+    const PHI = 1.618033988749895;
+    const at = Math.abs(rt) || 1, av = Math.abs(rv) || 1;
+    const th0 = Math.atan2(Math.sign(rv) || 1, Math.sign(rt) || 1);
+    const total = turns * 2 * Math.PI;
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      const th = total * (i / n);
+      const g = Math.SQRT2 * Math.pow(PHI, (-2 * th) / Math.PI);
+      out.push({ t: c.t + at * g * Math.cos(th0 + th),
+                 v: c.v + av * g * Math.sin(th0 + th) });
+    }
+    return out;
+  }
+
+  /** A curve about apex `o` that meets ray o→p and ray o→q at exactly `r` of
+   *  each — the rung of a fib wedge.
+   *
+   *  A straight chord between the two points would be the cheap answer and a
+   *  wrong one: a wedge's rungs bow, because they are arcs of the same swing.
+   *  Angle and radius are interpolated in a plane normalised by each leg's
+   *  own extent, so the curve bows without either axis's units leaking into
+   *  the other's, and it lands on both rays exactly. */
+  function blendArcPts(o, p, q, r, n = 40) {
+    const nt = Math.max(Math.abs(p.t - o.t), Math.abs(q.t - o.t)) || 1;
+    const nv = Math.max(Math.abs(p.v - o.v), Math.abs(q.v - o.v)) || 1;
+    const nrm = (z) => ({ x: (z.t - o.t) / nt, y: (z.v - o.v) / nv });
+    const A = nrm(p), B = nrm(q);
+    const a0 = Math.atan2(A.y, A.x);
+    let a1 = Math.atan2(B.y, B.x);
+    // the short way round — a wedge is the space BETWEEN its rays, and the
+    // long way round draws the reflex angle nobody asked for
+    while (a1 - a0 > Math.PI) a1 -= 2 * Math.PI;
+    while (a0 - a1 > Math.PI) a1 += 2 * Math.PI;
+    const r0 = Math.hypot(A.x, A.y), r1 = Math.hypot(B.x, B.y);
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      const s = i / n;
+      const th = a0 + (a1 - a0) * s, rad = (r0 + (r1 - r0) * s) * r;
+      out.push({ t: o.t + rad * Math.cos(th) * nt,
+                 v: o.v + rad * Math.sin(th) * nv });
+    }
+    return out;
+  }
+
   /** Risk:reward for a position tool. Sign-aware so shorts read correctly. */
   function riskReward(entry, target, stop) {
     const reward = Math.abs(target - entry), risk = Math.abs(entry - stop);
@@ -464,5 +579,6 @@ const Geo = (() => {
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward, positionTone,
+    arcPts, crossArcPts, spiralPts, blendArcPts,
   };
 })();

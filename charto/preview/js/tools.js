@@ -13,11 +13,65 @@
 
 const Tools = (() => {
   const G = Geo;
+
+  /* ── the ratio catalogue ──────────────────────────────────────────────────
+   * Every tool in the Fibonacci and Gann families is the same idea twice:
+   * measure a span, then divide it. What separates them is only WHICH span
+   * (price, time, or both), which divisions, and what shape the divisions are
+   * drawn as. Declaring the divisions once, here, is what stops a 61.8% on a
+   * retracement being a different number from a 61.8% on a fan.
+   */
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-  // never the candle red/green — those mean "closed down / up"
-  const FIB_COLORS = ["#787b86", "#f5a524", "#ff9800", "#c084fc", "#22d3ee", "#4ea8f2", "#787b86"];
+  // beyond 1 the ladder stops retracing and starts projecting: 127.2% is
+  // √1.272 territory, 161.8% and 261.8% are the ratios harmonic traders
+  // measure a completed leg against
+  const FIB_EXT = [0, 0.382, 0.5, 0.618, 1, 1.272, 1.618, 2.618, 4.236];
+  // fans and arcs drop the endpoints — a ray at 0% is the time axis and a
+  // ray at 100% is the trend line, and both are already drawn
+  const FIB_FAN = [0.236, 0.382, 0.5, 0.618, 0.786];
+  const FIB_ARC = [0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  // time zones count in fibonacci NUMBERS, not ratios: the nth vertical is
+  // the nth term of the sequence, in units of the span you dragged
+  const FIB_TIME = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55];
+  const FIB_TIME_R = [0.618, 1, 1.618, 2.618, 4.236];
+  // Gann divides by quarters and eighths, not by the golden ratio — the two
+  // that overlap (0.382/0.618) are there because he used them too
+  const GANN = [0, 0.25, 0.382, 0.5, 0.618, 0.75, 1];
+  const GANN_EIGHTHS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
+  // [time, price] multiples. [1,1] is the 1×1 — one unit of price per unit
+  // of time, the line Gann's whole method is anchored on.
+  const GANN_FAN = [[1, 8], [1, 4], [1, 3], [1, 2], [1, 1],
+                    [2, 1], [3, 1], [4, 1], [8, 1]];
+  // how wide a one-anchor Gann square is, in bars. 52 because a Gann square
+  // is a CYCLE and the year is the cycle he squared most often — on a daily
+  // chart that is the quarter-year, on 5m it is the session's afternoon.
+  const GANN_SQUARE_BARS = 52;
+
+  /* Colour is keyed by the RATIO, not by position in a list. 61.8% is the
+   * same cyan on a retracement, an extension, a fan, an arc and a Gann grid,
+   * so a reader who has learned one ladder has learned all of them — which
+   * an index-keyed palette cannot offer, because the same index means 0.5 on
+   * one tool and 1.272 on another. Never the candle red/green: those mean
+   * "closed down / up" and nothing else on this chart. */
+  const RATIO_COLOR = {
+    0: "#787b86", 1: "#787b86", 0.125: "#787b86",
+    0.236: "#f5a524", 0.25: "#f5a524", 4.236: "#f5a524",
+    0.375: "#ff9800", 0.382: "#ff9800",
+    0.5: "#c084fc", 0.625: "#c084fc", 2.618: "#c084fc",
+    0.618: "#22d3ee", 1.618: "#22d3ee",
+    0.75: "#4ea8f2", 0.786: "#4ea8f2", 0.875: "#4ea8f2", 1.272: "#4ea8f2",
+  };
+  const colorOf = (r) => RATIO_COLOR[r] || "#787b86";
+  const pct = (r) => `${(r * 100).toFixed(1)}%`;
+  // kept as an export because the scene layer indexes it alongside FIB;
+  // derived, so the two can never be edited apart
+  const FIB_COLORS = FIB.map(colorOf);
 
   const mid = (a, b) => ({ t: (a.t + b.t) / 2, v: (a.v + b.v) / 2 });
+  /** A point `r` of the way from p to q, in both axes. The one operation
+   *  every tool below is made of. */
+  const along = (p, q, r) => ({ t: p.t + (q.t - p.t) * r,
+                               v: p.v + (q.v - p.v) * r });
 
   /* ── the pitchfork family ───────────────────────────────────────────────
    * Four tools, ONE construction. Given a handle origin and the two pivots
@@ -54,6 +108,56 @@ const Tools = (() => {
       G.segment(r1, along(r1), { extend: "right" }),
       G.segment(r2, along(r2), { extend: "right" }),
     ];
+  }
+
+  /* ── the Gann family ────────────────────────────────────────────────────
+   * Three tools, ONE construction, exactly as the pitchforks are four tools
+   * and one construction. A Gann figure is a rectangle spanning a swing, cut
+   * into a grid, with the corner-to-corner 1×1 as its spine — and what the
+   * three disagree about is only which divisions to cut it into and whether
+   * the fan and the arcs come with it.
+   *
+   * The 1×1 is the load-bearing line: everything Gann claimed rests on price
+   * and time moving at one unit each, and every other angle in the fan is
+   * that line at a rational multiple. Drawing it thicker than the grid is
+   * not decoration — it is which line the tool is about.
+   */
+  function gannGrid(p0, p1, ratios, c) {
+    const out = [G.box(p0, p1, { width: 1, dash: [3, 3] })];
+    for (const r of ratios) {
+      const v = p0.v + (p1.v - p0.v) * r, t = p0.t + (p1.t - p0.t) * r;
+      out.push(
+        G.segment({ t: p0.t, v }, { t: p1.t, v }, { color: colorOf(r), width: 1 }),
+        G.segment({ t, v: p0.v }, { t, v: p1.v }, { color: colorOf(r), width: 1 }),
+        G.label({ t: p1.t, v }, `${pct(r)}  ${c.fmt(v)}`, { color: colorOf(r) }));
+    }
+    return out;
+  }
+
+  /** The fan and the arcs, clipped to the box — the parts that make a Gann
+   *  square more than a grid. `ratios` drives the arcs so a square cut into
+   *  eighths gets eight arcs and one cut by the golden ratios gets those. */
+  function gannSquareParts(p0, p1, ratios, c) {
+    const dt = p1.t - p0.t, dv = p1.v - p0.v;
+    const out = [];
+    for (const [x, y] of GANN_FAN) {
+      const m = Math.max(x, y);
+      // the a×b line exits whichever edge it reaches first, so it is drawn
+      // to that exit and no further — a fan that overshot its own square
+      // would be claiming angles outside the cycle it is measuring
+      out.push(G.segment(p0, { t: p0.t + dt * (x / m), v: p0.v + dv * (y / m) },
+                         { width: x === y ? 1.6 : 1,
+                           color: x === y ? undefined : "#787b86" }));
+    }
+    for (const r of ratios) {
+      if (!r || r > 1) continue;
+      // in index space, like every other sampled curve — see ctx.curve
+      out.push(G.poly(c.curve([p0, p1], (i) =>
+                 G.arcPts(i[0], (i[1].t - i[0].t) * r, (i[1].v - i[0].v) * r,
+                          0, Math.PI / 2, 32)),
+                      { color: colorOf(r), width: 1 }));
+    }
+    return out;
   }
 
   const SPECS = {
@@ -219,15 +323,259 @@ const Tools = (() => {
       build: (a) => pitchfork(a[0], a[1], a[2], 0.5) },
 
     // ── fib ──────────────────────────────────────────────
-    fib: { label: "Fib retracement", anchors: 2, group: "fib",
+    // The leg's START is anchor 1 (100%) and its END is anchor 2 (0%). That
+    // orientation is the convention the whole app runs on — the chat's fib,
+    // the evaluator's ratios and this tool all read it the same way — so
+    // reversing it here would silently rename every level on the chart.
+    fib: { label: "Fib retracement", anchors: 2, group: "fib", section: "fib",
       key: "F",
       build: (a, c) => {
         const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 })];
-        for (const [i, lv] of G.ladder(a[0].v, a[1].v, FIB).entries()) {
+        for (const lv of G.ladder(a[0].v, a[1].v, FIB)) {
           const p = { t: a[0].t, v: lv.v }, q = { t: a[1].t, v: lv.v };
-          out.push(G.segment(p, q, { color: FIB_COLORS[i] }),
-                   G.label(q, `${(lv.ratio * 100).toFixed(1)}%  ${c.fmt(lv.v)}`,
-                           { color: FIB_COLORS[i] }));
+          out.push(G.segment(p, q, { color: colorOf(lv.ratio) }),
+                   G.label(q, `${pct(lv.ratio)}  ${c.fmt(lv.v)}`,
+                           { color: colorOf(lv.ratio) }));
+        }
+        return out;
+      } },
+
+    /* Retracement measures a move against ITSELF; extension measures the NEXT
+     * move against the last one. Three anchors: the leg (1→2), then where the
+     * pullback ended (3). Every level is anchor 3 plus a multiple of the leg,
+     * which is why the ladder runs past 100% — the tool exists to say where a
+     * move might END, not where it might pause. */
+    fibExtension: { label: "Trend-based fib extension", anchors: 3,
+      group: "fib", section: "fib",
+      build: (a, c) => {
+        const leg = a[1].v - a[0].v;
+        const t0 = Math.min(a[0].t, a[1].t, a[2].t);
+        const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 }),
+                     G.segment(a[1], a[2], { dash: [3, 3], width: 1 })];
+        for (const r of FIB_EXT) {
+          const v = a[2].v + leg * r;
+          out.push(G.segment({ t: t0, v }, { t: t0 + 500 * c.iv, v },
+                             { extend: "right", color: colorOf(r) }),
+                   G.label({ t: a[2].t, v }, `${pct(r)}  ${c.fmt(v)}`,
+                           { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* A retracement laid along a TREND instead of along the price axis. The
+     * first two anchors are the baseline, the third sets the 100% rail, and
+     * the ladder is drawn parallel between them — so the levels slope with
+     * the move rather than sitting flat under it. Same construction as the
+     * parallel channel, same reason its edges stay parallel: the offset is a
+     * data-space value, not a pixel gap. */
+    fibChannel: { label: "Fib channel", anchors: 3, group: "fib", section: "fib",
+      build: (a) => {
+        const off = a[2].v - G.valueAt(a[0], a[1], a[2].t);
+        const out = [];
+        for (const r of FIB) {
+          const p = { t: a[0].t, v: a[0].v + off * r };
+          const q = { t: a[1].t, v: a[1].v + off * r };
+          out.push(G.segment(p, q, { extend: "right", color: colorOf(r) }),
+                   G.label(q, pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* The only fib tool that says nothing about price. Two anchors set ONE
+     * unit of time, and the verticals land on the fibonacci numbers of it —
+     * 1, 2, 3, 5, 8, 13 units out — so the claim is about WHEN a turn is due,
+     * not where. The labels are the numbers themselves, because "the 13th"
+     * is what the tool is for and a percentage would hide it. */
+    fibTimeZone: { label: "Fib time zone", anchors: 2, group: "fib", section: "fib",
+      build: (a) => {
+        const u = a[1].t - a[0].t;
+        if (!u) return [G.vline(a[0].t)];
+        const out = [];
+        for (const n of FIB_TIME) {
+          const t = a[0].t + u * n;
+          out.push(G.vline(t, { width: n ? 1 : 1.6 }),
+                   G.label({ t, v: a[0].v }, String(n)));
+        }
+        return out;
+      } },
+
+    /* Two fans in one tool, and they are not the same claim. The PRICE fan
+     * rays cut the far edge at fib fractions of the move's height; the TIME
+     * fan rays cut the bottom edge at fib fractions of its width. A move that
+     * respects the 61.8% price ray is holding its slope; one that respects
+     * the 61.8% time ray is holding its pace. */
+    fibSpeedFan: { label: "Fib speed resistance fan", anchors: 2,
+      group: "fib", section: "fib",
+      build: (a) => {
+        const out = [G.box(a[0], a[1], { width: 1, dash: [3, 3] }),
+                     G.segment(a[0], a[1], { width: 1.6 })];
+        for (const r of FIB_FAN) {
+          const pv = { t: a[1].t, v: a[0].v + (a[1].v - a[0].v) * r };
+          const pt = { t: a[0].t + (a[1].t - a[0].t) * r, v: a[1].v };
+          out.push(G.segment(a[0], pv, { extend: "right", color: colorOf(r) }),
+                   G.segment(a[0], pt, { extend: "right", color: colorOf(r) }),
+                   G.label(pv, pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* Fib time zone's three-anchor cousin: the first two measure a move that
+     * already happened, the third says where to start counting, and the
+     * verticals fall at ratios of that duration. Where the time zone asks
+     * "how long is one unit?", this asks "how long did the last leg take?" —
+     * which is the more defensible question, because the unit came off the
+     * market rather than off a drag. */
+    fibTimeExtension: { label: "Trend-based fib time", anchors: 3,
+      group: "fib", section: "fib",
+      build: (a) => {
+        const u = a[1].t - a[0].t;
+        const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 }),
+                     G.segment(a[1], a[2], { dash: [3, 3], width: 1 })];
+        if (!u) return out;
+        for (const r of FIB_TIME_R) {
+          const t = a[2].t + u * r;
+          out.push(G.vline(t, { color: colorOf(r) }),
+                   G.label({ t, v: a[2].v }, pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* Rings about a pivot, crossing the move at each ratio. The centre is
+     * anchor 1 and anchor 2 is the 100% ring, so each ring answers "how far
+     * from the turn, in the units of that first swing" — in price AND time at
+     * once, which is the one thing a flat ladder cannot say. */
+    fibCircles: { label: "Fib circles", anchors: 2, group: "fib", section: "fib",
+      build: (a, c) => {
+        const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 })];
+        for (const r of FIB_ARC) {
+          out.push(G.poly(c.curve(a, (i) =>
+                     G.crossArcPts(i[0], i[1].t - i[0].t, i[1].v - i[0].v,
+                                   r, Math.PI, 64)),
+                          { color: colorOf(r) }),
+                   G.label(along(a[0], a[1], r), pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* The same rings, opened out into one continuous curve that shrinks by φ
+     * every quarter turn. Anchor 2 is the spiral's OUTER end and it winds
+     * inward to anchor 1 — see the note in js/geometry.js for why the
+     * textbook's outward direction is unusable on a chart. */
+    fibSpiral: { label: "Fib spiral", anchors: 2, group: "fib", section: "fib",
+      build: (a, c) => [
+        G.segment(a[0], a[1], { dash: [3, 3], width: 1 }),
+        G.poly(c.curve(a, (i) =>
+          G.spiralPts(i[0], i[1].t - i[0].t, i[1].v - i[0].v, 3, 288))),
+      ] },
+
+    /* Half-rings off the start of a move, crossing the trend line at each
+     * ratio. The circles' claim is about distance from a pivot in every
+     * direction; the arcs' is about distance ALONG a move — so they open
+     * toward where the move went and say nothing about behind it. */
+    fibArcs: { label: "Fib speed resistance arcs", anchors: 2,
+      group: "fib", section: "fib",
+      build: (a, c) => {
+        const out = [G.segment(a[0], a[1], { width: 1.6 })];
+        for (const r of FIB_ARC) {
+          out.push(G.poly(c.curve(a, (i) =>
+                     G.crossArcPts(i[0], i[1].t - i[0].t, i[1].v - i[0].v,
+                                   r, Math.PI / 2, 40)),
+                          { color: colorOf(r) }),
+                   G.label(along(a[0], a[1], r), pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* An apex and two rays, with the fib fractions drawn as the rungs
+     * between them. It is the tool for a formation that OPENS — a broadening
+     * top, an expanding triangle — where the levels that matter are not flat
+     * and not parallel but fan out with the structure. */
+    fibWedge: { label: "Fib wedge", anchors: 3, group: "fib", section: "fib",
+      build: (a, c) => {
+        const out = [G.segment(a[0], a[1]), G.segment(a[0], a[2])];
+        for (const r of FIB_ARC) {
+          out.push(G.poly(c.curve(a, (i) => G.blendArcPts(i[0], i[1], i[2], r)),
+                          { color: colorOf(r) }),
+                   G.label(along(a[0], a[2], r), pct(r), { color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    /* A pitchfork whose tines are fib fractions of the base instead of its
+     * two ends. Same three pivots, same handle; the difference is that a
+     * fork offers you the median and the edges, and a fan offers the whole
+     * ladder in between — which is what you want when price has been
+     * respecting the inside of the channel rather than its rails. */
+    pitchfan: { label: "Pitchfan", anchors: 3, group: "fib", section: "fib",
+      build: (a) => {
+        const out = [G.segment(a[1], a[2], { dash: [4, 4], width: 1 })];
+        for (const r of FIB) {
+          out.push(G.segment(a[0], along(a[1], a[2], r),
+                             { extend: "right", color: colorOf(r) }));
+        }
+        return out;
+      } },
+
+    // ── gann ─────────────────────────────────────────────
+    /* Price and time, cut by the same fractions. The box is the swing you
+     * dragged; every horizontal is a fraction of its height and every
+     * vertical the same fraction of its width, so a level and a date carry
+     * the identical claim. It is the Gann family's grid with none of its
+     * angles — the tool for reading a range, not a slope. */
+    gannBox: { label: "Gann box", anchors: 2, group: "fib", section: "gann",
+      build: (a, c) => gannGrid(a[0], a[1], GANN, c) },
+
+    /* The grid, plus the two things that make it Gann's: the fan of rational
+     * angles about the origin corner, and the arcs that carry each fraction
+     * around from the time axis to the price one. Two anchors, so the square
+     * covers exactly the swing you gave it. */
+    gannSquare: { label: "Gann square", anchors: 2, group: "fib", section: "gann",
+      build: (a, c) => [...gannGrid(a[0], a[1], GANN, c),
+                        ...gannSquareParts(a[0], a[1], GANN, c)] },
+
+    /* One anchor, and the square sizes itself: 52 bars wide, and as tall as
+     * those 52 bars actually ranged.
+     *
+     * TradingView's fixed square is square in PIXELS — it re-derives its
+     * second anchor from the chart's scale ratio, so the figure changes shape
+     * the moment you rescale the price axis. That is a statement about the
+     * window, not about the market, and this chart does not let a drawing's
+     * geometry live in pixels (see js/geometry.js). Squared against the real
+     * range instead, "one unit of price per unit of time" means something a
+     * reader can check: the cell is one bar wide and one fifty-second of the
+     * cycle's own range tall. Cut into eighths, which is Gann's own division
+     * of a range and the reason the tool is called fixed at all. */
+    gannSquareFixed: { label: "Gann square fixed", anchors: 1, group: "fib",
+      section: "gann",
+      build: (a, c) => {
+        const t1 = a[0].t + GANN_SQUARE_BARS * c.iv;
+        const rng = c.rangeBetween(a[0].t, t1);
+        // no bars to square against — fall back to a tenth of the anchor's
+        // own price, which keeps the figure on screen and visibly generic
+        const h = rng ? (rng.hi - rng.lo) : Math.abs(a[0].v) * 0.1;
+        // up from a pivot in the lower half of the range, down from one in
+        // the upper half: a square drawn off a high belongs under it
+        const up = !rng || a[0].v <= (rng.hi + rng.lo) / 2;
+        const p1 = { t: t1, v: a[0].v + (up ? h : -h) };
+        return [...gannGrid(a[0], p1, GANN_EIGHTHS, c),
+                ...gannSquareParts(a[0], p1, GANN_EIGHTHS, c)];
+      } },
+
+    /* The angles on their own, running past the swing that set them. Anchor
+     * 2 defines the 1×1 — one unit of price per unit of time — and every
+     * other ray is that rate at a whole-number multiple. Which ray price is
+     * riding is the whole reading: above the 1×1 is strength, below it is
+     * the trend giving up time it cannot get back. */
+    gannFan: { label: "Gann fan", anchors: 2, group: "fib", section: "gann",
+      build: (a) => {
+        const dt = a[1].t - a[0].t, dv = a[1].v - a[0].v;
+        const out = [];
+        for (const [x, y] of GANN_FAN) {
+          const m = Math.max(x, y);
+          const p = { t: a[0].t + dt * (x / m), v: a[0].v + dv * (y / m) };
+          out.push(G.segment(a[0], p, { extend: "right",
+                                        width: x === y ? 1.6 : 1 }),
+                   G.label(p, `${y}×${x}`));
         }
         return out;
       } },
@@ -322,12 +670,174 @@ const Tools = (() => {
     { id: "lines", label: "Lines", icon: "trend",
       sections: [["lines", "Lines"], ["channels", "Channels"],
                  ["pitchforks", "Pitchforks"]] },
-    { id: "fib", label: "Fibonacci", icon: "fib" },
+    /* Fibonacci and Gann under one rail button, and one flyout with two
+     * bands. They are the same argument — a span, divided by ratios — made
+     * with different ratios, and a reader hunting for a Gann fan looks where
+     * the fib fan was. A second rail button would put two near-identical
+     * ladder glyphs in a 34px strip. */
+    { id: "fib", label: "Fibonacci", icon: "fib",
+      sections: [["fib", "Fibonacci"], ["gann", "Gann"]] },
     { id: "shapes", label: "Shapes", icon: "rect" },
     { id: "measure", label: "Measure", icon: "measure" },
     { id: "position", label: "Position", icon: "position" },
     { id: "annotate", label: "Annotations", icon: "text" },
   ];
 
-  return { SPECS, GROUPS, FIB, FIB_COLORS };
+  /* ── the build context ──────────────────────────────────────────────────
+   * What a builder is allowed to know beyond its own anchors: how to format a
+   * number, how big a bar is, and a few readings off the loaded bars.
+   *
+   * It lives HERE, not in the drawing runtime, because two layers run these
+   * builders — the user's rail (js/drawings.js) and the chat's scene
+   * (js/scene.js). A fib the chat drew and a fib the user dragged must be the
+   * same shape, and the surest way to guarantee that is for both to call the
+   * same build() with the same context rather than for one of them to keep a
+   * second copy that drifts.
+   *
+   * env: { getBars, getIntervalSec, tToX, vToY(v, paneKey), toBarTime? }
+   *
+   * `toBarTime` exists because the two layers hold time differently: a shape
+   * the user dragged is already stamped in the chart's own clock, and one the
+   * chat sent carries raw epoch seconds that the scene shifts on the way in.
+   * Anything that COMPARES an anchor against a loaded bar has to go through
+   * it, or a reading lands half a day off on one layer and not the other.
+   */
+  function makeCtx(env) {
+    const bt = env.toBarTime || ((t) => t);
+    const fbt = env.fromBarTime || ((t) => t);
+    return {
+      fmt: (n) => Sym.num(n),
+      fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,
+      // seconds per bar. A tool that has to point somewhere OFF the loaded
+      // range — a ray's far end — needs the axis's own step to do it; a
+      // literal number of seconds would mean something different on a 1m
+      // chart and on a daily one.
+      get iv() { return env.getIntervalSec(); },
+      /* The ONE screen-space reading a tool may take, and the only place in
+       * the catalogue that is allowed to see pixels.
+       *
+       * An angle on a price chart has no data-space meaning: price over time
+       * is not a ratio of like quantities, so "38°" is a statement about the
+       * two axes' current scales and nothing else. Expressing it as
+       * percent-per-bar instead — which this tool tried first — is arithmetic
+       * that is correct and useless: a line a reader would call 45° came back
+       * as 1.4°, because a percent and a bar are not the same size.
+       *
+       * So the tool reads the projection, exactly as TradingView's does, and
+       * the number moves when you zoom. That is not a bug in the reading; it
+       * is what the reading IS. Anchors stay in data space — this reads the
+       * pane, it does not store anything from it. */
+      degrees(p, q, pane) {
+        const x0 = env.tToX(p.t), x1 = env.tToX(q.t);
+        const y0 = env.vToY(p.v, pane || "price"), y1 = env.vToY(q.v, pane || "price");
+        if ([x0, x1, y0, y1].some((n) => n === null || n === undefined)) return null;
+        if (x0 === x1 && y0 === y1) return null;
+        // screen y grows downward; a rising line has to read as a positive angle
+        return (Math.atan2(y0 - y1, x1 - x0) * 180) / Math.PI;
+      },
+      barsBetween(t0, t1) {
+        return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
+      },
+      /** The last loaded close — where the market actually IS. Only the
+       *  position tool asks: it is what decides whether a plan is currently
+       *  in its reward half or its risk half, which is the one thing about a
+       *  plan that changes without anybody dragging it. Null on an empty
+       *  chart, and the tool paints its neutral state rather than guessing. */
+      get last() {
+        const bars = env.getBars();
+        return bars.length ? bars[bars.length - 1].close : null;
+      },
+      valuesBetween(t0, t1) {
+        const bars = env.getBars();
+        const lo = Math.min(bt(t0), bt(t1)), hi = Math.max(bt(t0), bt(t1));
+        return bars.filter((b) => b.time >= lo && b.time <= hi).map((b) => b.close);
+      },
+      /** The true high and low over a span — what a one-anchor tool squares
+       *  itself against. Closes are not enough here: a square built off the
+       *  closing range would be smaller than the swing it claims to cover.
+       *  Null when the span holds no bars, and the caller must handle that
+       *  rather than draw a zero-height figure. */
+      /* ── sampled curves live in BAR-INDEX space ───────────────────────────
+       * The time axis on this chart is not a clock, it is a queue of bars.
+       * A weekend takes no width; neither does the sixteen hours between one
+       * session's close and the next one's open. So a curve sampled in
+       * wall-clock seconds has every arc that crosses a gap squashed onto a
+       * single pixel column — the first fib circles drew as a rectangle with
+       * one rounded edge, because three quarters of each ring landed inside
+       * an overnight gap.
+       *
+       * Straight-line tools never noticed: a segment is projected at its two
+       * ENDS and drawn straight between them, so nothing in the middle is
+       * ever asked where it goes. Only a shape made of sampled points can be
+       * wrong here, and every one of them is new.
+       *
+       * `curve` is the fix and the whole of it: anchors in, index space for
+       * the maths, times back out. Fractional indices are what the projector
+       * wants anyway (see logicalToX), and past either end of the loaded
+       * bars it steps by the axis's own spacing — which is all a projection
+       * into blank chart can ever be.
+       */
+      indexAt(t) {
+        const bars = env.getBars();
+        const T = bt(t);
+        const iv = env.getIntervalSec() || 60;
+        if (!bars.length) return T / iv;
+        const n = bars.length - 1;
+        if (T <= bars[0].time) {
+          const step = n ? (bars[1].time - bars[0].time) || iv : iv;
+          return (T - bars[0].time) / step;
+        }
+        if (T >= bars[n].time) {
+          const step = n ? (bars[n].time - bars[n - 1].time) || iv : iv;
+          return n + (T - bars[n].time) / step;
+        }
+        let lo = 0, hi = n;
+        while (hi - lo > 1) {
+          const m = (lo + hi) >> 1;
+          if (bars[m].time <= T) lo = m; else hi = m;
+        }
+        const span = bars[hi].time - bars[lo].time || 1;
+        return lo + (T - bars[lo].time) / span;
+      },
+      timeAt(i) {
+        const bars = env.getBars();
+        const iv = env.getIntervalSec() || 60;
+        if (!bars.length) return fbt(i * iv);
+        const n = bars.length - 1;
+        if (i <= 0) {
+          const step = n ? (bars[1].time - bars[0].time) || iv : iv;
+          return fbt(Math.round(bars[0].time + i * step));
+        }
+        if (i >= n) {
+          const step = n ? (bars[n].time - bars[n - 1].time) || iv : iv;
+          return fbt(Math.round(bars[n].time + (i - n) * step));
+        }
+        const lo = Math.floor(i);
+        const span = bars[lo + 1].time - bars[lo].time;
+        return fbt(Math.round(bars[lo].time + (i - lo) * span));
+      },
+      /** Anchors → index space → `gen` → back to times. Every sampled curve
+       *  in the catalogue goes through here; none of them does its own
+       *  conversion, so none of them can forget to. */
+      curve(anchors, gen) {
+        const ix = anchors.map((a) => ({ t: this.indexAt(a.t), v: a.v }));
+        return gen(ix).map((p) => ({ t: this.timeAt(p.t), v: p.v }));
+      },
+      rangeBetween(t0, t1) {
+        const bars = env.getBars();
+        const lo = Math.min(bt(t0), bt(t1)), hi = Math.max(bt(t0), bt(t1));
+        let h = -Infinity, l = Infinity;
+        for (const b of bars) {
+          if (b.time < lo || b.time > hi) continue;
+          if (b.high > h) h = b.high;
+          if (b.low < l) l = b.low;
+        }
+        return h > -Infinity && h > l ? { hi: h, lo: l } : null;
+      },
+    };
+  }
+
+  return { SPECS, GROUPS, makeCtx, colorOf,
+           FIB, FIB_COLORS, FIB_EXT, FIB_FAN, FIB_ARC, FIB_TIME, FIB_TIME_R,
+           GANN, GANN_EIGHTHS, GANN_FAN, GANN_SQUARE_BARS };
 })();

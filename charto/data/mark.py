@@ -68,6 +68,8 @@ from __future__ import annotations
 
 import re
 
+import drawtools
+
 # Caps. A mark call may not turn into a wall — the chart is the subject and
 # the annotations are notes on it. `repeat` makes over-drawing easy to ask
 # for by accident, so the ceiling lives here rather than in the prompt.
@@ -83,6 +85,19 @@ KIND = {
     "dot": "point", "candle": "candle", "note": "label", "marker": "markers",
 }
 
+# ── the ratio family ────────────────────────────────────────────────────
+# Every Fibonacci and Gann tool the chart's rail offers, addressable the same
+# way everything else here is. They all render as one scene kind — `drawing`,
+# which carries a tool NAME and its anchors and is rebuilt by the chart's own
+# catalogue — so adding a sixteenth ratio tool to js/tools.js makes it
+# addressable from chat without a line changing in this file.
+#
+# They are line-like, deliberately: each anchor reads its price off its OWN
+# bar. A fib whose two anchors shared a span would collapse onto one number
+# and draw a ladder of zero height, for the same reason a trendline would
+# draw flat.
+KIND.update({t: "drawing" for t in drawtools.TOOLS})
+
 # Which axes a shape actually reads, which is what lets a bare address be
 # unambiguous: "1300" on an hline is a price, "09:15" on a vline is a time,
 # and a shape that needs both takes "<time> @ <price>".
@@ -95,11 +110,13 @@ AXIS = {
     "segment": "tv", "ray": "tv", "box": "tv", "poly": "tv",
     "dot": "tv", "note": "tv",
 }
+AXIS.update({t: "tv" for t in drawtools.TOOLS})
 
 # how many addresses each shape consumes
 NEED = {"hline": 1, "band": 2, "vline": 1, "vband": 2, "segment": 2,
         "ray": 2, "box": 2, "poly": 3, "dot": 1, "candle": 1, "note": 1,
         "marker": 1}
+NEED.update({t: s["anchors"] for t, s in drawtools.TOOLS.items()})
 
 
 class MarkError(ValueError):
@@ -322,7 +339,7 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
     one shape silently is worse than losing it loudly.
     """
     if not rows:
-        return {"items": [], "report": [],
+        return {"items": [], "report": [], "notes": [],
                 "errors": ["no bars loaded for this interval"]}
     win_hi = max(r[2] for r in rows)
     win_lo = min(r[3] for r in rows)
@@ -339,6 +356,10 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
     items: list[dict] = []
     report: list[dict] = []
     errors: list[str] = []
+    # A ratio tool's honesty note ("a fan has no level table") is the same
+    # sentence for every shape of that kind, and a request that drew five of
+    # them used to be five copies of it. Collected once, said once.
+    notes: list[str] = []
     marks: list[dict] = []          # every `marker` folds into one annotation
     truncated = 0
 
@@ -347,6 +368,9 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
             errors.append(f"shape {gi + 1} is not an object")
             continue
         shape = str(spec.get("shape") or "").lower().strip()
+        # the ratio rail's names are camelCase (they are the chart's own), so
+        # they survive the lower() that every other shape name passes through
+        shape = drawtools.canonical(shape) or shape
         if shape not in KIND:
             errors.append(f"unknown shape '{shape}' — have: "
                           + ", ".join(sorted(KIND)))
@@ -416,9 +440,22 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
             if ann is None:
                 continue
             items.append(ann)
-            report.append({
-                "id": aid, "shape": shape, "label": label,
-                "at": [_describe(p, axis, env) for p in pts]})
+            rep = {"id": aid, "shape": shape, "label": label,
+                   "at": [_describe(p, axis, env) for p in pts]}
+            if shape in drawtools.TOOLS:
+                # what the ratios actually resolved to, so the reply quotes
+                # the ladder on the chart instead of recomputing one
+                got = drawtools.report(shape, pts, env["fmt_time"])
+                note = got.pop("_note", "")
+                if note and note not in notes:
+                    notes.append(note)
+                # `shape` already names the tool, and `label` here is the
+                # user's own caption — neither may be overwritten by the
+                # catalogue's copy of them
+                got.pop("tool", None)
+                got.pop("tool_label", None)
+                rep.update(got)
+            report.append(rep)
 
     if marks:
         items.append({"id": f"{prefix}marks", "pane": pane, "kind": "markers",
@@ -431,12 +468,22 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
         errors.append(
             f"{truncated} repeat(s) were dropped at the {MAX_SHAPES}-shape "
             f"ceiling — say so, and narrow `sessions` rather than re-calling.")
-    return {"items": items, "report": report, "errors": errors}
+    return {"items": items, "report": report, "errors": errors,
+            "notes": notes}
 
 
 def _annotate(shape, pts, base, rows, marks, label, role):
     """The scene annotation for one resolved shape."""
     p = pts
+    if shape in drawtools.TOOLS:
+        # ONE kind for the whole ratio family. The annotation carries the
+        # tool's NAME and its anchors and nothing else — the ladder, the fan,
+        # the rings and the grid are built on the chart by the same catalogue
+        # the user's own rail runs, so a fib the chat drew and a fib the user
+        # dragged cannot end up being different shapes.
+        return {**base, "kind": "drawing", "tool": shape,
+                "pts": [{"t": q["t"], "v": q["v"]} for q in p],
+                "label": label or drawtools.TOOLS[shape]["label"]}
     if shape == "hline":
         return {**base, "kind": "level", "price": p[0]["v"],
                 "label": label or f"{p[0]['v']:g}"}

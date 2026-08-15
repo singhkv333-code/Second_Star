@@ -312,7 +312,34 @@ const Scene = (() => {
         });
         return out;
       },
+      /* Every catalogued tool, by name, from resolved anchors.
+       *
+       * The alternative was a `SHAPES` entry per tool — a second Gann square,
+       * a second fib wedge, written here in the renderer and kept in step
+       * with the rail's by hand. Fifteen ratio tools is fifteen chances for
+       * the chat's 61.8% to sit somewhere the user's 61.8% does not, and the
+       * bug would be invisible until someone drew both. So this delegates to
+       * the SAME builder the rail runs, with the same build context: there is
+       * one construction of a Gann fan in this app, and both layers call it.
+       *
+       * `tool` is not validated against a list of blessed names — an unknown
+       * one simply builds nothing, which is what an unknown one should do.
+       * The catalogue is the capability; there is no second gate. */
+      drawing: (a) => {
+        const spec = Tools.SPECS[a.tool];
+        if (!spec || !Array.isArray(a.pts) || !a.pts.length) return [];
+        try { return spec.build(a.pts, buildCtx, a) || []; } catch { return []; }
+      },
     };
+    // the rail's context, built from THIS layer's readers — see
+    // Tools.makeCtx for why there is only one of these in the app
+    const buildCtx = Tools.makeCtx({
+      getBars: env.getBars,
+      getIntervalSec: () => (env.getIntervalSec ? env.getIntervalSec() : 60),
+      toBarTime: (t) => (env.toChartTime ? env.toChartTime(t) : t),
+      fromBarTime: (t) => (env.fromChartTime ? env.fromChartTime(t) : t),
+      tToX, vToY,
+    });
     const geoEnv = (key) => ({
       tToX, vToY: (v) => vToY(v, key),
       w: env.container.clientWidth, h: env.container.clientHeight,
@@ -930,6 +957,10 @@ const Scene = (() => {
         case "vband": a.t1 = o.t1 + dt; a.t2 = o.t2 + dt; break;
         case "point": case "label": mv(a.a, o.a); break;
         case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
+        // a catalogued tool moves as its ANCHORS move — the construction is
+        // rebuilt from them on the next frame, so nothing derived can be left
+        // behind pointing at where the shape used to be
+        case "drawing": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
         case "position":
           if (h && h.k === "entry") a.entry = r2(o.entry + dv);
           else if (h && h.k === "stop") a.stop = r2(o.stop + dv);
@@ -1030,7 +1061,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "markers", "position", "vprofile", "candle", "label"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "drawing", "markers", "position", "vprofile", "candle", "label"]);
 
     return {
       state,
