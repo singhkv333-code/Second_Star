@@ -2808,6 +2808,22 @@ body.two-columns .readout .row { display: none; }
 .tpl-card:hover .tile-art,
 .tpl-card:focus-visible .tile-art,
 .tpl-card.is-on .tile-art { color: var(--foreground); }
+
+/* Light mode wants both dials moved, and in opposite directions.
+   A dark stroke on white already reads heavier than the same stroke light
+   on black — ink on paper gains weight, glow on dark loses it — so 1.75
+   comes back to 1.55 to land at the same apparent weight.
+   The accent goes the other way: mixed toward the label's grey it was fine
+   on a dark panel, but on white a mid-teal is the value that disappears.
+   It mixes toward the FOREGROUND here, which darkens it into the page
+   instead of washing it out. */
+:root[data-theme="light"] .tile-art { stroke-width: 1.55; }
+:root[data-theme="light"] .tile-art .a {
+  stroke: color-mix(in srgb, var(--primary) 68%, var(--foreground));
+}
+:root[data-theme="light"] .tile-art .af {
+  fill: color-mix(in srgb, var(--primary) 68%, var(--foreground));
+}
 /* The accent is charto's blue pulled back toward the ink around it. At full
    --primary it is a saturated cyan, and on a dark panel a saturated cyan at
    1.35px does not read as a line — it reads as a light source, and twelve
@@ -5661,7 +5677,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=136"></script>
+  <script src="./js/chat.js?v=137"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
