@@ -369,6 +369,17 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 }
 .btn.cta:hover { background: color-mix(in srgb, var(--foreground) 88%, var(--background)); }
 .btn.cta svg { color: currentColor; }
+/* A FILLED button cannot be disabled by fading it. .btn:disabled is `opacity:
+   .32`, which is right for a glyph on the page's own paper — the header's undo
+   arrow — and wrong for ink with reversed text on it: both the plate and the
+   label fade together, so the alert dialog's Create button (disabled until the
+   rule has actually resolved, which is most of the time it is on screen) came up
+   as a pale grey slab with near-white lettering on it. The state is real and has
+   to be legible, so the fill steps down to the muted plate and the label to
+   muted ink, at full opacity. */
+.btn.cta:disabled, .btn.cta:disabled:hover {
+  opacity: 1; background: var(--muted); color: var(--faint);
+}
 .btn.danger { color: var(--muted-foreground); }
 .btn.danger:hover { color: var(--down); background: var(--down-soft); }
 
@@ -2215,13 +2226,64 @@ body.two-columns .readout .row { display: none; }
   .ldr-pay { animation: none; transform: none; }
 }
 
-/* split divider */
+/* ── split divider: chart | chat ─────────────────────────────────────────
+   At rest this is the same 1px seam every other panel boundary is, because
+   the shell has to read as two panes and not three. The problem with that
+   is that a 1px line advertises nothing: the one resize gesture on this row
+   was invisible until you happened to drag it. So the line grows a GRIP —
+   TradingView's handle — the moment the pointer is near enough for the
+   handle to be the answer, and a readout while you drag saying what the
+   split now is. Ink only when it is useful, nothing the rest of the time. */
 .splitter {
   width: 1px; flex: none; cursor: col-resize; background: var(--border);
   position: relative; transition: background var(--dur) var(--ease-quartr);
+  /* Over BOTH neighbours. The grab area below reaches past the divider's own
+     pixel into each pane, and `.chatpanel` is a positioned element later in
+     source — it was painting over the half of the target that lies on its
+     side, so a press six pixels right of the line went to the conversation
+     and the divider only answered from the left. This also puts the grip and
+     the readout above the pane they overhang. */
+  z-index: 9;
 }
-.splitter::after { content: ""; position: absolute; inset: 0 -5px; }
-.splitter:hover, .splitter.dragging { background: var(--primary); }
+/* The grab TARGET, which is not the ink: a 1px line is a mouse trap, so the
+   area that answers a press reaches 6px either side of what you can see. */
+.splitter::after { content: ""; position: absolute; inset: 0 -6px; }
+.splitter:hover, .splitter.dragging, .splitter:focus-visible { background: var(--primary); }
+/* the lit seam IS the focus ring — a 2px halo around a 1px line is a smudge */
+.splitter:focus-visible { outline: none; }
+/* The grip. Faded out at rest so it costs the page nothing; it is the same
+   pill the phone divider and the sheets already wear, stood upright. */
+.splitter::before {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px; height: 36px; border-radius: var(--radius-pill);
+  background: var(--border); opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr),
+              height var(--dur) var(--ease-quartr);
+}
+/* The grip takes the seam's OWN lit colour, not the resting border: the
+   hover rule above turns the line teal, and a grey pill laid over the middle
+   of a teal line reads as a gap in it rather than a handle on it. Lit, the
+   two are one shape — a line that thickens where you take hold of it. */
+.splitter:hover::before, .splitter:focus-visible::before,
+.splitter.peek::before { opacity: 1; background: var(--primary); }
+.splitter.dragging::before { opacity: 1; background: var(--primary); height: 52px; }
+/* What the drag is doing, in the unit the reader thinks in. Parked BELOW
+   the grip rather than on it — the two are the same gesture's feedback and
+   must not sit on top of each other — and only while the split is moving,
+   because a permanent number down the middle of the app is a second readout
+   competing with the chart's own. */
+.split-readout {
+  position: absolute; top: calc(50% + 42px); left: 50%; transform: translateX(-50%);
+  padding: 3px 8px; border-radius: var(--radius-pill);
+  background: var(--primary); color: var(--primary-foreground);
+  font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: 0; pointer-events: none; z-index: 2;
+  transition: opacity var(--dur) var(--ease-quartr);
+}
+.splitter.dragging .split-readout, .splitter.peek .split-readout { opacity: 1; }
 .splitter.hidden { display: none; }
 
 /* provenance card — why a drawn level is on the chart.
@@ -2582,6 +2644,465 @@ body.two-columns .readout .row { display: none; }
    numeric all the way through — the OHLC readout, the status strip, and the
    indicator chips. */
 .prose strong, .prose code, .prose td, .turn-meta { font-variant-numeric: tabular-nums; }
+
+/* ── the panel a tool prints beside its reply ────────────────────────────
+ *
+ * A pattern sweep is a result SET — forty numbers the reply is about — and
+ * the one thing it must not read as is more paragraph. The obvious way to say
+ * so is a card: a fill and a rounded border around the lot. Both are gone. A
+ * fill behind forty numbers reads as a box the reply was dropped into, and
+ * the border around it draws a second column inside a thread that already has
+ * one, so the panel sits a few pixels in from the prose it belongs to and the
+ * eye has two left edges to choose from.
+ *
+ * What is left says it with STRUCTURE instead, which is what a table has
+ * always used: full-bleed hairlines between sections, in the reply's own
+ * column and on the reply's own paper. Everything inside is the provenance
+ * card's grammar at thread width — a row is a qualifier that opens on the
+ * left and a value that closes hard against the right, so every figure stacks
+ * into one column you can run your eye down. The only fill left in here is on
+ * the formation tiles, where it is doing work.
+ */
+.scan {
+  margin: 0 0 16px; background: transparent;
+  font-size: var(--text-base);
+}
+/* The four figures the sweep is ABOUT, before any of the detail. They wrap
+   rather than scroll: the pane is user-resizable and a stat strip that
+   clipped its last column would hide the candle count on a narrow chat. */
+.scan-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 12px 10px; padding: 0 0 13px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.scan-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.scan-stat .k {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  color: var(--faint); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.scan-stat .v {
+  font-family: var(--font-numeric); font-size: var(--text-h3);
+  font-weight: var(--weight-medium); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--foreground);
+}
+/* Only a reading with a DIRECTION takes a colour — the structure read, the
+   directional bias. A count is not bullish, and neither is ADX, which
+   measures how much movement there is and says nothing about which way. */
+.scan-stat .v.up { color: var(--up); }
+.scan-stat .v.down { color: var(--down); }
+/* The qualifier under a figure: the word or fraction that says how to read
+   it — Wilder's band under an ADX, where the last close sits under a high
+   and a low. Quieter than the label above it, because it is the third thing
+   in the column you read and never the first. */
+.scan-stat .q {
+  font-size: var(--text-2xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* No side padding anywhere in here: with the frame gone, an inset would put
+   the panel's text on a different left edge from the paragraph above it. */
+.scan-sec { padding: 13px 0 14px; border-top: 1px solid var(--border-soft); }
+.scan-sec:first-child { border-top: 0; }
+.scan-sec h4 {
+  margin: 0 0 8px; display: flex; align-items: baseline; gap: 10px;
+  font-size: var(--text-sm); font-weight: var(--weight-semi);
+  letter-spacing: -.01em; color: var(--foreground);
+}
+/* Found versus drawn, in the heading rather than in a footnote: it qualifies
+   the list directly under it and belongs on the same line as its name. */
+.scan-sec h4 .n {
+  margin-left: auto; font-size: var(--text-2xs); font-weight: 400;
+  color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+.scan-rows { display: flex; flex-direction: column; }
+.scan-row {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 5px 6px; margin: 0 -6px; border-radius: var(--radius-xs);
+  font-variant-numeric: tabular-nums; line-height: 1.45;
+  transition: background var(--dur) var(--ease-quartr);
+}
+.scan-row .when {
+  flex: none; color: var(--muted-foreground); font-size: var(--text-xs);
+  min-width: 5.5em; white-space: nowrap;
+}
+.scan-row .what {
+  min-width: 0; color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-row .num {
+  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; white-space: nowrap;
+}
+/* The bias closes a candle row where a price closes the others. It is the
+   shape's textbook reading and not a forecast, which is why it stays a word. */
+.scan-row .bias {
+  flex: none; margin-left: auto; font-size: var(--text-xs);
+  color: var(--faint); white-space: nowrap;
+}
+.scan-row .bias.tone-up { color: var(--up); }
+.scan-row .bias.tone-down { color: var(--down); }
+/* A row that points at something ON the chart is reachable — hovering it
+   lights the annotation up, the same gesture as hovering a mention in the
+   prose. A row with no handle was never drawn and gets no affordance, which
+   is the honest way to say so. */
+.scan-row[data-ann] { cursor: default; }
+.scan-row[data-ann]:hover { background: var(--accent); }
+/* Beyond eight, the tail folds. A dozen candle rows is a scroll, and the
+   list is newest-first precisely so the top of it is the part that matters. */
+.scan-rows.capped > .scan-row:nth-child(n+9) { display: none; }
+.scan-more {
+  margin: 6px 0 0; padding: 3px 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: var(--text-xs); color: var(--muted-foreground);
+  transition: color var(--dur) var(--ease-quartr);
+}
+.scan-more:hover { color: var(--foreground); }
+
+/* A formation is four facts — what it is, when it ran, which way the textbook
+   reads it, and the one number that decides it — so it gets a tile. Stacked
+   as rows those four would need four columns and the panel would become a
+   spreadsheet. They wrap into whatever the pane's width allows. */
+.scan-tiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+}
+.scan-tile {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  padding: 9px 11px 10px; border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); background: var(--card);
+  transition: background var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
+}
+.scan-tile[data-ann]:hover { border-color: var(--border); background: var(--accent); }
+.scan-tile .nm {
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-tile .sub, .scan-fact {
+  font-size: var(--text-xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.scan-fact b {
+  font-family: var(--font-numeric); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--foreground);
+}
+.scan-fact .broke { color: var(--muted-foreground); }
+/* "Confirmed" is a level that broke — a fact with a date behind it. Every
+   other state is the shape still being open, which is a caution and not a
+   failure: those share the annotation amber rather than the candle red,
+   because an unresolved wedge is not a bearish wedge. */
+.scan-badge {
+  align-self: flex-start; margin-bottom: 2px;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .01em; border-radius: var(--radius-pill); padding: 2px 8px;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.scan-badge.ok { background: var(--up-soft); color: var(--up); }
+.scan-badge.bad { background: var(--down-soft); color: var(--down); }
+.scan-badge.open {
+  background: color-mix(in srgb, var(--ann-res) 15%, transparent);
+  color: var(--ann-res);
+}
+
+/* ── bars: the panel's one chart primitive ───────────────────────────────
+   Two numbers whose entire content is the comparison: 8.59 says nothing at
+   all except beside 35.88. Listed as a pair of rows the reader does the
+   subtraction; drawn against each other they answer at a glance and the
+   figures stay on the right for anyone who wants them exactly. That is true
+   of every comparison in these panels — DI legs, ADX across six timeframes,
+   two names' returns over two windows — so there is ONE bar row and every
+   card uses it.
+
+   Horizontal, and not as a preference: this column is user-resizable down to
+   340px and a vertical grouped chart at that width is four stubs under a
+   legend. A horizontal row keeps label, figure and length legible at any
+   width the splitter allows.
+
+   Label and value share the line ABOVE the bar rather than sitting beside
+   it, so every bar starts at the same x and the lengths are directly
+   comparable — a track that began after a variable-width label would make
+   the shorter leg look longer than it is. */
+.scan-bars { display: flex; flex-direction: column; gap: 10px; }
+.scan-bar { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; }
+.scan-bar .lb {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .01em; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-bar .num {
+  font-family: var(--font-numeric); font-size: var(--text-sm);
+  font-weight: var(--weight-medium); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--foreground);
+  text-align: right; white-space: nowrap;
+}
+.scan-bar .num.tone-up { color: var(--up); }
+.scan-bar .num.tone-down { color: var(--down); }
+.scan-bar .track {
+  position: relative; grid-column: 1 / -1; height: 5px;
+  border-radius: var(--radius-pill); background: var(--muted);
+}
+/* The fill is the CANDLE colour, not a soft tint: this is the one place in
+   the panel where two measurements are set against each other, and the
+   reading is which colour is longer. */
+.scan-bar .fill {
+  position: absolute; top: 0; bottom: 0; border-radius: inherit;
+  background: var(--muted-foreground); min-width: 2px;
+}
+.scan-bar .fill.up { background: var(--up); }
+.scan-bar .fill.down { background: var(--down); }
+.scan-bar .fill.ann { background: var(--ann-res); }
+/* A comparison of SUBJECTS, not of directions: in a falling year both names
+   are down, and two red bars under two labels is a chart the eye cannot
+   follow across three sections. One colour per symbol, held through every
+   section of the card; the sign is printed and zero is drawn. */
+.scan-bar .fill.s1 { background: var(--primary); }
+.scan-bar .fill.s2 { background: var(--ann-res); }
+.scan-bar .fill.s3 { background: var(--ann-sup); }
+.scan-bar .fill.s4 { background: color-mix(in srgb, var(--foreground) 55%, transparent); }
+/* The benchmark is CONTEXT, not a competitor — it is deliberately the
+   quietest bar in the group. */
+.scan-bar .fill.bench { background: var(--faint); }
+/* A signed track carries zero down its middle, because a set holding −0.9%
+   and +0.28% is two directions and not two sizes. The rule is a hairline in
+   the border colour: it has to be findable and must not read as data. */
+.scan-bar .track.signed::before {
+  content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px;
+  width: 1px; background: var(--border); transform: translateX(-.5px);
+}
+/* A threshold that is part of the reading — 25 on ADX, 50 on RSI. Always
+   disclosed in the section's own note; a bare line on a chart is a claim. */
+.scan-bar .tick {
+  position: absolute; top: -3px; bottom: -3px; width: 1px;
+  background: var(--foreground); opacity: .35;
+}
+
+/* Several bars that belong to one window, under its name. The interval is
+   what is being compared, so it labels the group and not each bar. */
+.scan-group { margin: 0 0 14px; }
+.scan-group:last-child { margin-bottom: 0; }
+.scan-group .gl {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 7px;
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  color: var(--foreground);
+}
+.scan-group .gn {
+  margin-left: auto; font-size: var(--text-2xs); font-weight: 400;
+  color: var(--faint); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── a reading row ───────────────────────────────────────────────────────
+   A name, what it says, and the figure — with the row TINTED by the side it
+   falls on. The tint is the reading seen rather than counted: three rows the
+   same colour is the tally the stat strip reports, at a glance. It never
+   replaces the words, because a colour alone is a claim nobody can check and
+   is invisible to a reader who cannot see it. */
+.scan-reads { display: flex; flex-direction: column; gap: 6px; }
+.scan-read {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 8px 11px; border-radius: var(--radius-sm);
+  background: var(--muted); font-variant-numeric: tabular-nums;
+}
+.scan-read + .scan-read { margin-top: 6px; }
+.scan-read.tone-up { background: var(--up-soft); }
+.scan-read.tone-down { background: var(--down-soft); }
+.scan-read .nm {
+  flex: none; font-size: var(--text-sm); font-weight: var(--weight-semi);
+  letter-spacing: -.01em; color: var(--foreground);
+}
+.scan-read.tone-up .nm { color: var(--up); }
+.scan-read.tone-down .nm { color: var(--down); }
+/* Wraps rather than ellipsising. A timeframe rung's line is five readings
+   long and the pane is resizable: clipped to "RSI 35.97 · MACD hist −0.12 ·
+   ADX 29.47 · −D…" it has hidden the two that decide the row. A second line
+   costs nothing; a truncated measurement costs the reading. */
+.scan-read .nt {
+  min-width: 0; font-size: var(--text-xs); color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.scan-read .num {
+  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
+}
+
+/* ── the staged checklist ────────────────────────────────────────────────
+   Numbered, never scored. The weight beside a stage says what a break COSTS
+   the other side — an overlay is a day, a swing is the sequence, a
+   well-tested level is structure — and it is deliberately not a probability.
+   There is no progress bar in here and no percentage anywhere. */
+.scan-steps { display: flex; flex-direction: column; }
+.scan-step {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px;
+  padding: 9px 0; border-top: 1px solid var(--border-soft);
+}
+.scan-step:first-child { border-top: 0; padding-top: 2px; }
+.scan-step .no {
+  grid-row: 1 / span 2; align-self: start;
+  display: grid; place-items: center; width: 19px; height: 19px;
+  margin-top: 1px; border-radius: var(--radius-pill);
+  background: var(--muted); color: var(--muted-foreground);
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.scan-step.met .no { background: var(--up-soft); color: var(--up); }
+.scan-step .nm {
+  font-size: var(--text-md); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.scan-step .wt {
+  grid-column: 3; grid-row: 1; align-self: baseline;
+  font-size: var(--text-2xs); color: var(--faint); white-space: nowrap;
+}
+.scan-step .nt {
+  grid-column: 2 / -1; font-size: var(--text-xs);
+  color: var(--muted-foreground); overflow-wrap: anywhere;
+}
+
+/* A condition, its current reading, and whether the two have met. "Not yet"
+   rather than a cross: a condition that has not been met is a chart that has
+   not done something yet, which is a neutral fact about today — a failure
+   mark would read as the chart having tried and missed. */
+.scan-checks { display: flex; flex-direction: column; }
+.scan-check {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 7px 6px; margin: 0 -6px;
+  border-top: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.scan-check:first-child { border-top: 0; }
+.scan-check .what {
+  min-width: 0; color: var(--foreground); font-size: var(--text-sm);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-check .num {
+  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--muted-foreground); white-space: nowrap;
+}
+.scan-check .st {
+  flex: none; min-width: 4.5em; text-align: right;
+  font-size: var(--text-xs); color: var(--down); white-space: nowrap;
+}
+.scan-check.met .st { color: var(--up); }
+
+/* ── the price ladder ────────────────────────────────────────────────────
+   The levels around price with price IN the column rather than beside it: a
+   list of levels above and a second list below leaves the reader to work out
+   which side they are standing on. One column, high to low, current row
+   ringed. A level the move already closed through is struck out — it is a
+   fact with a date behind it, and printing it unmarked would let it be read
+   as still holding. */
+.scan-ladder { display: flex; flex-direction: column; }
+.scan-rung {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 9px; margin: 0 -9px; border-radius: var(--radius-xs);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--border-soft);
+}
+.scan-rung:first-child { border-top: 0; }
+.scan-rung .px {
+  flex: none; min-width: 7.5em; font-family: var(--font-numeric);
+  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  letter-spacing: -.02em; color: var(--foreground);
+}
+.scan-rung .lb {
+  min-width: 0; font-size: var(--text-xs); color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scan-rung .nt {
+  flex: none; margin-left: auto; font-size: var(--text-2xs);
+  color: var(--faint); white-space: nowrap;
+}
+.scan-rung.res .px { color: var(--ann-res); }
+.scan-rung.sup .px { color: var(--ann-sup); }
+.scan-rung.crossed { color: var(--faint); }
+.scan-rung.crossed .px { color: var(--faint); text-decoration: line-through; }
+.scan-rung.current {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--accent);
+}
+.scan-rung.current + .scan-rung { border-top: 0; }
+.scan-rung.current .lb { color: var(--foreground); }
+
+/* ── found, and not found ────────────────────────────────────────────────
+   Both, on purpose. A chip saying no deal was printed is a measurement of
+   the same table that would have shown one; a panel listing only the hits
+   would let the reader assume the misses were never checked. So a miss is
+   quieter — never absent, and never red, because nothing failed. */
+.scan-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scan-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 5px 10px; border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill); background: var(--card);
+  font-size: var(--text-xs); color: var(--faint);
+}
+.scan-chip b { font-weight: var(--weight-medium); color: var(--muted-foreground); }
+.scan-chip.found { border-color: var(--border); }
+.scan-chip.found b { color: var(--foreground); }
+.scan-chip.found { color: var(--muted-foreground); }
+
+/* ── the small table ─────────────────────────────────────────────────────
+   For the one shape a row cannot carry: the same quantity for several
+   subjects across several windows. Kept rare — this panel is a reading
+   surface, not a spreadsheet — and it scrolls sideways rather than
+   compressing, because a squeezed figure column is unreadable at the widths
+   this pane allows. */
+.scan-grid { overflow-x: auto; }
+/* `max-content` is what makes the overflow actually SCROLL rather than
+   letting the columns collide: without it the grid shrinks to the pane and
+   two nowrap figures print over each other, which reads as a wrong number
+   rather than as a narrow pane. */
+.scan-gr {
+  display: grid; min-width: max-content;
+  grid-template-columns: minmax(7.5em, 1.4fr) repeat(calc(var(--cols) - 1), minmax(5.5em, 1fr));
+  gap: 10px; padding: 7px 0; border-top: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums; font-size: var(--text-xs);
+}
+.scan-gr.head { border-top: 0; padding-top: 0; }
+.scan-gr .gh {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  color: var(--faint); text-align: right; white-space: nowrap;
+}
+.scan-gr .gc {
+  font-family: var(--font-numeric); letter-spacing: -.02em;
+  color: var(--foreground); text-align: right; white-space: nowrap;
+}
+.scan-gr .gc i {
+  font-style: normal; color: var(--faint); font-family: var(--font-sans);
+  font-size: var(--text-2xs); padding: 0 1px;
+}
+.scan-gr .gh.lead, .scan-gr .gc.lead {
+  text-align: left; font-family: inherit; letter-spacing: 0;
+  color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis;
+}
+.scan-gr .gc.lead b { font-weight: var(--weight-medium); color: var(--foreground); }
+
+/* One line that qualifies the section above it — the band a tally would flip
+   in, the timeframe a gap is widest on, the rungs that could not be measured
+   at all. It is a sentence the TOOL computed, so it is boxed rather than
+   bolded: a heavier weight here would read as the panel's own verdict. */
+.scan-call {
+  margin: 10px 0 0; padding: 8px 11px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: var(--text-xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What was scanned, on the card's own bottom margin. Every panel in this app
+   says where its numbers came from; this one has a whole window to name. */
+.scan-foot {
+  padding: 9px 0 0; border-top: 1px solid var(--border-soft);
+  font-size: var(--text-2xs); color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ── three things worth asking next ──────────────────────────────────────
  *
@@ -3790,54 +4311,77 @@ body.two-columns .readout .row { display: none; }
 }
 
 /* ── the ⊕ on the price axis ───────────────────────────────────────────────
-   Follows the pointer's price down the price scale; one click arms a crossing
-   alert at that level. Its own transition is on opacity alone — animating
-   `top` would make it lag the crosshair it is supposed to be level with.
+   Rides the crosshair's own price plate, at its left end; one click arms a
+   crossing alert at that level. Its own transition is on opacity alone —
+   animating `top` would make it lag the crosshair it is level with.
 
-   BESIDE THE LABEL, not over it: TradingView leaves a few pixels of chart
-   between the ring and the price plate, and the two read as one object anyway
-   because nothing else is in that gap. Centred ON the scale edge — the first
-   attempt at "like TradingView" — the plate simply covered the ring's right
-   half and the mark came out looking clipped. */
+   ON THE PLATE, which is Groww's placement and not the first thing tried here.
+   Beside it, on the chart, the mark needed an opaque disc to be legible over
+   the candles — a sticker, floating in the one column where the last bars and
+   any drawing near them live, covering them and (because the click is resolved
+   against its rectangle) swallowing their clicks. Its distance from the plate
+   was also only as honest as `--axis-w`: the plate used to size itself to its
+   own digits, so the gap the CSS asked for was not the gap on screen and the
+   two collided. The plate is now one fixed width (VENDOR_PATCHES.md §3) and
+   the mark sits inside it, where it needs no background of its own. */
 .alert-plus {
   /* z-index 6 clears the chart's own canvases, which sit at 2. `pointer-events:
      none` is permanent and load-bearing: this is a MARK, not a control — the
      click is caught on the chart and resolved against this rectangle, because a
-     22px button floating over the library's canvases loses the hit-test to them
-     (measured). See makePlus in js/main.js. */
+     small button floating over the library's canvases loses the hit-test to
+     them (measured). See makePlus in js/main.js. */
   /* --axis-w is measured and published by js/main.js; the fallback is only for
-     the first frame, before the scale has been laid out. Plus the gap, so the
-     ring ends where the price plate begins. */
-  position: absolute; right: calc(var(--axis-w, 62px) + 4px); z-index: 6;
-  width: 20px; height: 20px; margin-top: -10px; padding: 0;
+     the first frame, before the scale has been laid out. The plate starts at
+     the scale's left edge, so `--axis-w − 19px` insets the 16px ring 3px into
+     it — Groww draws its own at the same inset. */
+  position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 6;
+  width: 16px; height: 16px; margin-top: -8px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  /* A GREY RING, mid-way between the hairline --border and the ink. TradingView's
-     is roughly #B2B5BE — a ring you can see, on a white disc, with a grey plus:
-     at --border the circle nearly vanished against the candles and only the
-     plus read, which is why the mark looked like a stray glyph rather than a
-     button. Mixed rather than hardcoded so it follows the theme. */
-  border: 1px solid color-mix(in srgb, var(--faint) 50%, var(--border));
+  /* WHITE, in both themes, and that is not a missing token: the crosshair plate
+     under it is a dark slate on light and on dark alike (Theme.crosshairLabel),
+     and the library picks white for the price printed on it. The mark is one
+     more thing written on that plate, so it is written in the plate's ink. */
+  border: 1px solid rgba(255, 255, 255, .5);
   border-radius: 50%;
-  background: var(--background); color: var(--faint);
+  /* A disc of THE PLATE'S OWN COLOUR, published by js/main.js. On the plate it
+     is invisible and the mark reads as printed on it, which is the whole point.
+     It exists for the one frame the plate does not: reaching for the mark puts
+     the pointer on the price scale, the library draws the crosshair only over a
+     pane, and the plate goes — leaving, without this, a white ring standing on
+     a white chart. */
+  background: var(--plate, #434651); color: rgba(255, 255, 255, .78);
   opacity: 0; pointer-events: none;
-  transition: opacity var(--dur) var(--ease-quartr);
+  transition: opacity var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr),
+              background-color var(--dur) var(--ease-quartr);
 }
 .alert-plus.show { opacity: 1; }
 /* `hot` is the hover state, set from JS — an element that takes no pointer
-   events can never match :hover.
-   GREY, not teal. The accent is this app's "you are on this" colour, and a
-   pointer resting on a mark is not a state the chart is in — TradingView's own
-   axis button just darkens. It also sat over the price label, so the teal fill
-   was a coloured plate landing on top of a coloured plate. */
+   events can never match :hover. It brightens to the full ink and takes a
+   faint fill: the accent is this app's "you are on this" colour, and a pointer
+   resting on a mark is not a state the chart is in — a coloured disc here would
+   also be a coloured disc landing on a coloured plate. */
 .alert-plus.hot {
-  color: var(--foreground); border-color: var(--muted-foreground);
-  background: var(--muted);
+  /* Lightened plate, not a translucent white: the disc has to stay opaque for
+     the case above, where there is no plate behind it to tint. */
+  color: #fff; border-color: #fff;
+  background: color-mix(in srgb, #fff 18%, var(--plate, #434651));
 }
-/* The bare + inside the 20px ring — TradingView's proportion, a little under
-   half the circle, drawn heavier than the ring so the mark reads as a button
-   with an action rather than as a hairline circle. The lucide plus goes edge
-   to edge in its own 24 box, so 9px here is 9px of stroke. */
-.alert-plus svg.icon { width: 9px; height: 9px; stroke-width: 2.6; }
+/* The bare + inside the 16px ring — a little under half the circle, drawn
+   heavier than the ring so the mark reads as a button with an action rather
+   than as a hairline circle. The lucide plus goes edge to edge in its own 24
+   box, so 8px here is 8px of stroke. */
+.alert-plus svg.icon { width: 8px; height: 8px; stroke-width: 2.6; }
+/* The pointing hand, which the mark cannot ask for itself: it takes no pointer
+   events, so the cursor is whatever is UNDER it — and under it is the price
+   scale, which the library has set to `ns-resize` inline, for the drag that
+   rescales. Hence `:has` off the mark's own hover state (one source of truth —
+   `hot` is set and cleared in exactly one place), reaching the descendants
+   because the inline style the rule has to beat is on one of them, and
+   `!important` because nothing else outranks an inline style. */
+#chart:has(.alert-plus.show.hot),
+#chart:has(.alert-plus.show.hot) * { cursor: pointer !important; }
 /* A touch screen has no hover to reveal it, and a permanent circle floating on
    the chart is clutter — the row of tools and the right-click menu are the
    paths there instead. */
@@ -3909,24 +4453,43 @@ body.two-columns .readout .row { display: none; }
    has: one setting per line, labels aligned down the left. An earlier version
    overrode it to lay a whole condition across one horizontal line, which is
    where every wrapping and clipping problem came from. */
-.al-dlg {
-  width: min(430px, calc(100vw - 24px));
-  border-radius: 14px;
-  box-shadow: 0 18px 54px color-mix(in srgb, var(--foreground) 16%, transparent);
-}
-/* the label of a stacked condition aligns to its FIRST control, not to the
-   middle of the stack */
-.al-condrow > label { align-self: start; padding-top: 16px; }
+/* WIDTH ONLY. It used to carry a 14px radius and a soft 54px drop of its own,
+   which made this the one dialog in the app that was not the same card as the
+   others: the indicator dialog and Settings are 6px with the shared --shadow,
+   measured off TradingView, and two dialogs in one product cannot round their
+   corners differently. Everything else about the shell — paper, hairline,
+   radius, lift, header, footer — is now the .dlg every other dialog uses. */
+.al-dlg { width: min(432px, calc(100vw - 24px)); }
+/* The label of a stacked condition aligns to its FIRST control, not to the
+   middle of the stack: 7px is half the difference between a 34px field and the
+   20px line of text naming it. It was 16px, paying for the padding and border
+   of a box that is no longer there. */
+.al-condrow > label { align-self: start; padding-top: 7px; }
 .al-stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
 .al-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .al-line .al-combo, .al-line .dlg-select, .al-line .select-btn { flex: 1 1 auto; }
 .dlg-row > .dlg-input.wide { width: 100%; }
 
+/* A condition IS its fields — it is not a card holding them. This was a rounded
+   bordered group, tinted a few percent off the card it sat on, inside a rounded
+   bordered dialog: at that contrast the edge does not read as a container, it
+   reads as a phantom rectangle floating a millimetre outside the controls it
+   means to enclose, on the one surface in the app that has to look composed.
+   Where one condition ends and the next begins is said by the AND rule between
+   them (.al-join) — which is the seam the reader is looking for anyway. */
 .al-cond-row {
   display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  padding: 8px; border: 1px solid var(--border-soft);
-  border-radius: 10px; background: color-mix(in srgb, var(--card) 78%, transparent);
+  position: relative;
 }
+/* The remove-× lives in a GUTTER the whole stack reserves, not in the first
+   line of one condition. In the line it was a flex sibling, so the subject
+   field came up 30px shorter than the operator and target below it — a right
+   edge that stepped in and out once per condition, three times over in a
+   three-condition rule. The gutter costs every field the same 30px, and the
+   join rules and the add row stop on that same edge, so one straight line runs
+   down the right of the whole block. */
+.al-stack.multi { padding-right: 30px; }
+.al-stack.multi .al-mini { position: absolute; top: 5px; right: -30px; }
 
 /* ── an address field ──────────────────────────────────────────────────────
    An input with a caret, and the app's own menu behind it. It replaced a native
@@ -3951,10 +4514,25 @@ body.two-columns .readout .row { display: none; }
    typed into the field. */
 .al-menu {
   position: fixed; z-index: 240;        /* over .dlg-wrap's 200 */
-  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
+  /* THE HAIRLINE IS LOAD-BEARING, and it was missing. Every other floating
+     surface in this file gets `border: 1px solid var(--border)` from the shared
+     .surface rule; this menu is deliberately not a `.dropdown`, so it inherited
+     nothing and had only a shadow to hold it up. On the light theme --menu-bg is
+     true white and the dialog under it is --card (#fbfbfc) — a one-value
+     difference — so the list had no edge at all: it read as a rectangular hole
+     punched through the dialog rather than as a sheet resting on top of it. */
+  background: var(--menu-bg); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: var(--menu-shadow);
   padding: var(--menu-pad);
-  min-width: 264px; max-width: 320px;
-  max-height: min(340px, 60vh); overflow-y: auto; overscroll-behavior: contain;
+  /* Width comes from the FIELD (js/alerts.js sets it), so the sheet lands flush
+     on that field's two edges. It used to carry a 264–320px width of its own,
+     which inside a 432px card is how a menu ends up wider than the control it
+     belongs to and hanging past the dialog's right edge. The floor is here for
+     the narrow case. */
+  min-width: 240px;
+  /* the ceiling; the actual height is the room between the field and the
+     footer, measured at open time by roomBelow() in js/alerts.js */
+  max-height: min(304px, 56vh); overflow-y: auto; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
 }
 .al-menu::-webkit-scrollbar { width: 6px; }
@@ -3981,11 +4559,14 @@ body.two-columns .readout .row { display: none; }
      fell through to the browser's default monospace and an address in this
      list matched neither the app's face nor even --mono. It is a label. */
   font-family: var(--font);
-  font-size: var(--text-sm); font-weight: var(--weight-medium);
+  font-size: var(--text-base); font-weight: var(--weight-medium);
   color: var(--foreground); overflow-wrap: anywhere;
 }
+/* The gloss is a step SMALLER than the address, not the same size in a paler
+   grey. Two lines at one size are two lines of equal claim, and the eye then
+   has to read both to find out which one it can type into the field. */
 .al-menu .row span {
-  font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.35;
+  font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.3;
 }
 /* BOTH class names, and that is not belt-and-braces: DlgKit.dressSelects()
    hides the real <select> and inserts a button whose class is the select's with
@@ -4016,11 +4597,21 @@ svg.icon.op {
 .al-line .dlg-input.tiny { width: 52px; text-align: center; }
 .al-unit { font-size: var(--text-sm); color: var(--faint); white-space: nowrap; }
 
-/* the AND/OR between two conditions, and the only place the rule's shape is
-   visible at a glance */
+/* The AND/OR between two conditions — the only place the rule's SHAPE is
+   visible at a glance, so it is drawn as a seam and not as a stray word: the
+   micro-label the whole app uses for a group heading, with the hairline running
+   out from it to the far edge. It carries the boundary the condition boxes used
+   to draw, in one line instead of two rounded rectangles. */
 .al-join {
-  padding: 5px 0 5px 2px; font-size: var(--text-2xs); text-transform: uppercase;
-  letter-spacing: .04em; color: var(--faint);
+  display: flex; align-items: center; gap: 9px; margin: 3px 0;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+/* --border, not --border-soft: on the dark theme the soft line is #1a1a1a
+   against a #1c1c1d card, which is a rule you cannot see, and this one is
+   carrying the boundary the condition boxes used to draw. */
+.al-join::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
 }
 
 .al-mini {
@@ -4030,24 +4621,39 @@ svg.icon.op {
   display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--text-xl); line-height: 1;
 }
-.al-mini:hover { background: var(--hover-fill); color: var(--foreground); }
-.al-mini.danger:hover { background: var(--down-soft); color: var(--down); }
+/* Neutral, like every other × in Charto (see .x-btn): the glyph comes up to
+   full ink and takes the standard hover plate. It used to go RED, which the
+   rule up there says is reserved for the controls that have earned it — this
+   one drops a row out of a draft nobody has armed yet, on a screen inches
+   from candles where red already means the price fell. */
+.al-mini:hover { background: var(--accent); color: var(--foreground); }
 
-.al-addrow { display: flex; gap: 12px; margin: 2px 0 4px; }
-.al-add {
-  display: inline-flex; align-items: center; gap: 5px; padding: 0;
-  border: 0; background: transparent; cursor: pointer;
-  font-size: var(--text-sm); color: var(--primary);
+/* Two ghost buttons in the app's own button vocabulary. Their plates start on
+   the fields' left EDGE and their labels on the fields' TEXT — the button's own
+   9px padding is the field's 1px border plus 8px inset, so both lines land for
+   free. They were bare teal links with a hover underline: a web page's idiom
+   dropped into a settings dialog, and a spend of the accent that globals.css
+   keeps for focal moments, on the two least focal controls here. */
+.al-addrow { display: flex; gap: 2px; margin: 4px 0 0; }
+.al-add.btn {
+  height: 28px; padding: 0 9px; gap: 6px;
+  font-size: var(--text-base); font-weight: 400; color: var(--muted-foreground);
 }
-.al-add:hover { text-decoration: underline; }
+.al-add.btn svg { color: var(--faint); }
+.al-add.btn:hover { color: var(--foreground); }
+.al-add.btn:hover svg { color: var(--muted-foreground); }
 
 /* WHAT IT IS LOOKING AT RIGHT NOW. The most load-bearing element in the
    dialog: it is the difference between a rule you typed and a rule you can
    see resolving, and it is where an unreadable address is refused — here,
    rather than at 09:20 by never firing. */
+/* 6px, the radius every field and both dialogs in this app are drawn at — it
+   was 8px, the one rounder corner on a screen of 6px boxes. The bottom margin
+   is the gap it never had: the body's padding stops above this plate, so it was
+   sitting flush on the footer's hairline. */
 .al-check {
-  flex: none; margin: 0 20px; padding: 9px 11px;
-  border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.45;
+  flex: none; margin: 0 20px 14px; padding: 9px 11px;
+  border-radius: 6px; font-size: var(--text-sm); line-height: 1.45;
   background: var(--accent); color: var(--muted-foreground);
 }
 .al-check:empty { display: none; }
@@ -4067,11 +4673,23 @@ svg.icon.op {
 
 /* On a phone the label column stops earning its width: the shared grid is
    `max-content 1fr`, and two columns inside 340px leave the controls too narrow
-   to read a level in. Labels go above their control. */
+   to read a level in. Labels go above their control.
+   BLOCK, not a one-column grid. Collapsing the grid to `minmax(0, 1fr)` and
+   dropping the label's 50px min-height left every label in a 12px implicit row
+   while the label itself measured 29px — so each of Interval, Trigger, Expires
+   and Note was drawn 17px INTO the control beneath it, with a select box
+   painting over the bottom half of the word naming it. The two-column table and
+   its `display: contents` rows exist to align a label column that this
+   breakpoint has just deleted; nothing here needs a grid. */
 @media (max-width: 480px) {
-  .al-dlg .dlg-body { grid-template-columns: minmax(0, 1fr); }
-  .al-dlg .dlg-row > label { min-height: 0; padding: 10px 0 2px; }
-  .al-condrow > label { padding-top: 10px; }
+  .al-dlg .dlg-body { display: block; }
+  .al-dlg .dlg-row { display: block; margin-bottom: 12px; }
+  .al-dlg .dlg-row > label,
+  .al-dlg .al-condrow > label {
+    display: block; min-height: 0; padding: 0 0 6px; align-self: auto;
+  }
+  .al-dlg .dlg-row > :not(label) { width: 100%; }
+  .al-dlg .dlg-sep { margin: 16px -20px; }
 }
 
 /* ── a panel head's menus ──────────────────────────────────────────────────
@@ -4659,6 +5277,16 @@ svg.icon.op {
     width: auto; height: 1px; cursor: row-resize;
   }
   .splitter::after { inset: -7px 0; }
+  /* the grip turns with the divider — a 36px-tall pill on a horizontal line
+     is a tick mark, not a handle */
+  .splitter::before { width: 36px; height: 4px; }
+  .splitter.dragging::before { height: 4px; width: 52px; }
+  /* and the readout stands ABOVE the bar, over the chart: stacked, the pane
+     under the divider is the chat, which paints later than this element and
+     would eat a label hung below it */
+  .split-readout {
+    top: auto; bottom: calc(100% + 8px); left: auto; right: 12px; transform: none;
+  }
 }
 
 /* ── LAST IN THE SHEET, deliberately ──────────────────────────────────────
@@ -4685,8 +5313,13 @@ svg.icon.op {
        reason the chart canvas declines one */
     touch-action: none;
   }
+  /* The pill is PERMANENT here, not a hover reveal: a phone has no pointer
+     to reveal it with, and the bar exists precisely so the handle can be
+     seen without one. Flow-laid inside the flex bar, so the absolute
+     centring the desktop grip needs is undone. */
   .splitter::before {
-    content: ""; width: 46px; height: 4px; border-radius: var(--radius-pill);
+    content: ""; position: static; transform: none; opacity: 1;
+    width: 46px; height: 4px; border-radius: var(--radius-pill);
     background: var(--border);
     transition: background var(--dur) var(--ease-quartr),
                 width var(--dur) var(--ease-quartr);
@@ -4694,9 +5327,11 @@ svg.icon.op {
   /* the bar IS the target now — the phantom margin was the 1px line's */
   .splitter::after { inset: 0; }
   /* colour the PILL, never the bar: the hover rule higher up paints the
-     whole element, which at 20px tall is a teal band across the app */
-  .splitter:hover, .splitter.dragging { background: var(--background); }
-  .splitter.dragging::before { background: var(--primary); width: 58px; }
+     whole element, which at 20px tall is a teal band across the app —
+     focus included, which lights the same seam on a desktop */
+  .splitter:hover, .splitter.dragging,
+  .splitter:focus-visible { background: var(--background); }
+  .splitter.dragging::before { background: var(--primary); width: 58px; height: 4px; }
 
   /* The chart's floor was 44vh, which is most of the travel the divider
      has: dragging the conversation up would stop dead less than halfway.
@@ -5694,7 +6329,16 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
          js/panels.js from the same widget list the panels are built from. -->
     <div class="wbar" id="wbar" role="toolbar" aria-label="Panels"></div>
 
-    <div class="splitter" id="splitter" title="Drag to resize · double-click to reset"></div>
+    <!-- The one control that sizes the conversation. A real separator rather
+         than a decorated line: it takes focus and it takes the arrow keys, so
+         the split is reachable without holding a drag. js/chat.js owns the
+         geometry, the persistence and the number in the readout. -->
+    <div class="splitter" id="splitter" role="separator" tabindex="0"
+         aria-label="Chat width" aria-orientation="vertical"
+         aria-valuemin="0" aria-valuemax="100"
+         title="Drag to resize · ← → to nudge · double-click to reset">
+      <span class="split-readout" id="splitReadout" aria-hidden="true"></span>
+    </div>
 
     <aside class="chatpanel" id="chatPanel">
       <div class="thread" id="thread">
@@ -5803,7 +6447,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=13"></script>
-  <script src="./js/theme.js?v=7"></script>
+  <script src="./js/theme.js?v=8"></script>
   <script src="./js/universe.js?v=2"></script>
   <script src="./js/icons.js?v=26"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
@@ -5814,7 +6458,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=22"></script>
+  <script src="./js/indicators.js?v=23"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -5835,19 +6479,23 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=23"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=84"></script>
+  <script src="./js/main.js?v=85"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=140"></script>
+  <!-- before chat.js, which asks it to render the panels a tool prints as the
+       reply streams in. It reads Sym (store.js) for the instrument's currency
+       and grouping, and nothing else — a renderer with no state of its own -->
+  <script src="./js/cards.js?v=1"></script>
+  <script src="./js/chat.js?v=141"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=12"></script>
+  <script src="./js/alerts.js?v=13"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=7"></script>

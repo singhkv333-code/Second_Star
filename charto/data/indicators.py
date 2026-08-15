@@ -56,19 +56,40 @@ def sma(v: list[float], n: int) -> Series:
 
 
 def ema(v: list[float], n: int) -> Series:
+    """k = 2/(n+1), SEEDED WITH SMA(n) at bar n-1 — what Pine's ta.ema does.
+
+    The other common choice is to seed from the first value and let the
+    recursion run through the warmup. It is wrong here for one reason: it
+    disagrees with the chart the user is comparing against. The gap decays by
+    (1-k) a bar and vanishes a few hundred bars in, so it is invisible at the
+    3000-bar default fetch — but on a thinly-listed symbol, or a shortened
+    `limit`, the differing part is the part actually on screen.
+    """
     out, k, prev = [], 2 / (n + 1), None
     for i, x in enumerate(v):
-        prev = x if prev is None else x * k + prev * (1 - k)
-        out.append(prev if i >= n - 1 else None)
+        if i < n - 1:
+            out.append(None)
+            continue
+        prev = sum(v[:n]) / n if prev is None else x * k + prev * (1 - k)
+        out.append(prev)
     return out
 
 
 def wilder(v: list[float], n: int) -> Series:
-    """k = 1/n. NOT ema(n) — see the module docstring."""
+    """k = 1/n. NOT ema(n) — see the module docstring.
+
+    Seeded with SMA(n), the same convention as ema() above and as Pine's
+    ta.rma. It matters more here than it does for an EMA: RMA decays at
+    (1 - 1/n), which is slower than an EMA of the same length, so a bad seed
+    takes longer to wash out of ATR and ADX.
+    """
     out, prev = [], None
     for i, x in enumerate(v):
-        prev = x if prev is None else (prev * (n - 1) + x) / n
-        out.append(prev if i >= n - 1 else None)
+        if i < n - 1:
+            out.append(None)
+            continue
+        prev = sum(v[:n]) / n if prev is None else (prev * (n - 1) + x) / n
+        out.append(prev)
     return out
 
 
@@ -427,18 +448,29 @@ def _f_mfi(rows, n, src):
 
 
 def _f_vwap(rows, n, src, anchor="session", session_seconds=86400,
-            ist_offset=19800):
-    """VWAP reset on TradingView's Anchor Period — the IST trading day, the
-    week, or the month. Anchoring to a chosen BAR is anchored_vwap's job."""
+            tz_offset=19800):
+    """VWAP reset on TradingView's Anchor Period — the trading day, the week,
+    or the month. Anchoring to a chosen BAR is anchored_vwap's job.
+
+    `tz_offset` is the instrument's own UTC offset in seconds, and it is a
+    parameter rather than a constant because the session boundary is a
+    property of the INSTRUMENT, not of this codebase. It was hardcoded to
+    +05:30, which is right for NSE and wrong for everything else: a BTCUSD
+    session VWAP reset at 18:30 UTC while TradingView reset it at 00:00, so
+    every intraday value on a crypto chart was anchored to the wrong session.
+    The default stays 19800 so an Indian symbol is unchanged when the caller
+    omits it; the chart sends `Sym.of(symbol).tz`, which is already the
+    number it uses to place the candles.
+    """
     a = (anchor or "session").lower()
 
     def bucket(ts: int):
-        d = (ts + ist_offset) // session_seconds
+        d = (ts + tz_offset) // session_seconds
         if a == "week":
             # epoch day 0 was a Thursday; shift so a bucket breaks on Monday
             return (d + 3) // 7
         if a == "month":
-            g = _time.gmtime(ts + ist_offset)
+            g = _time.gmtime(ts + tz_offset)
             return (g.tm_year, g.tm_mon)
         return d
 
@@ -593,7 +625,7 @@ SPECS: dict = {
                       formula="(typical - SMA(typical, n)) / (0.015 * mean absolute deviation)"),
     "williams_r": dict(fn=_f_willr, period=14, pane="own", group="momentum", bounds=(-100, 0),
                        formula="-100 * (highest high n - C) / (highest high n - lowest low n)"),
-    "roc":       dict(fn=_f_roc, period=12, pane="own", group="momentum",
+    "roc":       dict(fn=_f_roc, period=9, pane="own", group="momentum",
                       formula="100 * (P - P n bars ago) / P n bars ago"),
     "atr":       dict(fn=_f_atr, period=14, pane="own", group="volatility",
                       formula="Wilder(n) of true range, TR = max(H-L, |H-C_prev|, |L-C_prev|)"),
@@ -606,7 +638,9 @@ SPECS: dict = {
     "mfi":       dict(fn=_f_mfi, period=14, pane="own", group="volume", bounds=(0, 100),
                       src_default="hlc3",
                       formula="RSI applied to typical price * volume, split by whether typical price rose"),
-    "aroon":     dict(fn=_f_aroon, period=25, pane="own", group="trend", bounds=(0, 100),
+    # 14, not Chande's original 25: TradingView's built-in defaults to 14 and
+    # that is the line a user has already seen on every other chart.
+    "aroon":     dict(fn=_f_aroon, period=14, pane="own", group="trend", bounds=(0, 100),
                       formula="up = 100*(bars since the n-bar high)/n, down likewise for the low"),
 }
 
@@ -627,9 +661,13 @@ MULT_OK = frozenset(
 # changes nothing is worse than a missing one.
 
 # Indicators whose `src` argument actually reaches _src(). The rest accept the
-# parameter and ignore it — CCI and MFI are always typical price, Supertrend
-# is always hl2, Stochastic reads the highs and lows directly — so a Source
-# dropdown on those would be decoration.
+# parameter and ignore it — Supertrend is always hl2, Stochastic and Donchian
+# read the highs and lows directly, ADX works off directional movement — so a
+# Source dropdown on those would be decoration.
+#
+# CCI and MFI ARE in here: both run _src(rows, src), they simply default to
+# hlc3 via their spec's src_default, so omitting the argument still gives the
+# textbook typical-price formula while the dropdown remains honest.
 SOURCE_OK = frozenset({"sma", "ema", "wma", "hma", "dema", "rsi", "macd",
                        "bbands", "keltner", "roc", "cci", "williams_r", "mfi",
                        "stochrsi"})
@@ -641,12 +679,12 @@ SOURCE_OK = frozenset({"sma", "ema", "wma", "hma", "dema", "rsi", "macd",
 SOURCE_EXCLUDE = {"williams_r": frozenset({"volume"})}
 
 # plumbing arguments: the chart passes them, the user never sets them
-_HIDDEN_PARAMS = frozenset({"session_seconds", "ist_offset", "anchor_index"})
+_HIDDEN_PARAMS = frozenset({"session_seconds", "tz_offset", "anchor_index"})
 
 # TradingView's own wording, which is what a user has read on every other
 # chart they have used. Where our math differs from TV's we say so rather
-# than borrowing a label that promises a different formula: our PSAR has one
-# acceleration step, so it gets "Increment", never TV's separate "Start".
+# than borrowing a label that promises a different formula — a label is a
+# promise about the arithmetic behind it, not decoration.
 _PERIOD_LABEL = {
     "rsi": "RSI Length", "adx": "ADX Smoothing", "stoch": "%K Length",
     "stochrsi": "Stochastic Length", "supertrend": "ATR Length",
@@ -770,7 +808,13 @@ def compute(name: str, rows: list[tuple], period: int = 0,
     # 100.0 — a maximally-overbought reading manufactured from nothing. That
     # is a fabricated number on the index users ask about most, so it is
     # refused here, at the one place every caller goes through.
-    kw = {k: v for k, v in extra.items() if v is not None}
+    # Only kwargs THIS function actually declares. MULT_OK is the same guard
+    # written out for one parameter; deriving it from the signature covers
+    # every parameter at once, so a caller that forwards `tz_offset` to RSI
+    # gets it dropped rather than raising TypeError and burning the whole
+    # call — which is exactly how `mult` failed before MULT_OK existed.
+    accepts = _inspect.signature(spec["fn"]).parameters
+    kw = {k: v for k, v in extra.items() if v is not None and k in accepts}
     # Volume dependence is a property of THIS CALL, not only of the
     # indicator's group. The settings dialog can point any moving average at
     # VWMA, and a source dropdown can point any indicator at the volume

@@ -66,7 +66,7 @@ const Indicators = (() => {
     { id: "mfi", name: "mfi", period: 14, base: "MFI" },
     { id: "obv", name: "obv", period: 0, base: "OBV" },
     { id: "cmf", name: "cmf", period: 20, base: "CMF" },
-    { id: "aroon", name: "aroon", period: 25, base: "Aroon" },
+    { id: "aroon", name: "aroon", period: 14, base: "Aroon" },
   ];
 
   let CATALOG = [];          // presets joined with what the backend reports
@@ -182,8 +182,16 @@ const Indicators = (() => {
     // the page symbol's +05:30 would land 5.5 h off its own candles.
     const sym = symbol || SYM;
     const shift = symbol ? Sym.of(symbol).tz : IST;
+    // The SAME number, sent on as well as applied. It is the instrument's UTC
+    // offset, and the backend needs it to know where a session VWAP resets —
+    // that was pinned to +05:30 there, so a crypto VWAP broke its session at
+    // 18:30 UTC while every other chart broke it at midnight. Sent on every
+    // request rather than only for VWAP: compute() ignores it for the
+    // indicators that do not take it, and a per-indicator condition here is
+    // one more place to forget.
     const q = new URLSearchParams({
       name: def.name, interval, limit: String(limit),
+      tz_offset: String(shift),
       ...(sym ? { symbol: sym } : {}),
       ...(def.period ? { period: String(def.period) } : {}),
     });
@@ -203,20 +211,26 @@ const Indicators = (() => {
 
   // ── styling by role ───────────────────────────────────
   // A line's NAME tells us what it is for, so colour follows meaning rather
-  // than call order: bands read as a pair, signal lines contrast with the
-  // thing they signal, and the +DI/-DI style pair stays distinguishable.
+  // than call order: bands read as a pair, and signal lines contrast with the
+  // thing they signal.
+  //
+  // The three DIRECTIONAL pairs take the candle colours, which is the one
+  // place on this chart where borrowing them is right. They were on the
+  // rotating palette — supertrend_up, aroon_up and plus_di all landed on s4,
+  // a salmon RED, and their bearish counterparts on s5, a cyan. A line the
+  // legend calls "Uptrend" drawn in red is not a palette preference, it is a
+  // chart that reads backwards at a glance, and every other chart a user has
+  // seen (TradingView's included) paints the bullish side green.
+  //
+  // This does not contradict theme.js's rule that ANNOTATIONS never borrow
+  // the candle colours: that rule exists so a red support line is not misread
+  // as a down bar. Here the direction IS the meaning.
   const ROLE = {
     upper: "bandSoft", lower: "bandSoft", middle: "bandStrong",
     macd: "s2", signal: "s1",
     k: "s2", d: "s1",
-    plus_di: "s4", minus_di: "s5", adx: "s3",
-    aroon_up: "s4", aroon_down: "s5",
-    // Supertrend's two lines are not a palette pair — they are the trend
-    // itself, and the whole point of the indicator is that the colour tells
-    // you which way it is pointing. The rotating palette had the up-band on
-    // s4 (red) and the down-band on s5 (teal), i.e. exactly inverted against
-    // every other chart the user will ever see it on. Candle up/down are the
-    // same two values TradingView uses.
+    plus_di: "up", minus_di: "down", adx: "s3",
+    aroon_up: "up", aroon_down: "down",
     supertrend_up: "up", supertrend_down: "down",
     psar: "s6", vwap: "s6", anchored_vwap: "s6",
   };
@@ -295,6 +309,32 @@ const Indicators = (() => {
     "1h": "hours", "1d": "days", "1w": "weeks", "1mo": "months",
   };
 
+  /* The dashed reference levels a bounded oscillator is READ against.
+   *
+   * The backend already sends `bounds` for these, and it was carried into the
+   * def and then never used — so adding RSI from the menu drew a bare line
+   * with nothing to say where overbought was. Worse, the pane autoscales to
+   * the data, so an RSI oscillating 40-65 filled the whole pane and looked
+   * far more dramatic than it was. TradingView's reference lines are real
+   * plots and so they take part in its autoscale; feeding these into the
+   * scale provider below reproduces that, which is most of why its oscillator
+   * panes read calm.
+   *
+   * Only the levels that are near-universal AND are what TradingView draws.
+   * ADX and Aroon are deliberately absent: TV ships them with no reference
+   * line, and inventing a "25 means trending" line here would be this chart
+   * asserting a threshold nobody agreed on.
+   *
+   * Keyed by indicator NAME, so every period of one indicator shares them. */
+  const LEVELS = {
+    rsi: [70, 30],
+    stoch: [80, 20],
+    stochrsi: [80, 20],
+    mfi: [80, 20],
+    williams_r: [-20, -80],
+    cci: [100, -100],
+  };
+
   // ── the settings model ────────────────────────────────
   const SET_KEY = "ind_settings";     // id   -> settings the user changed
   const DEF_KEY = "ind_defaults";     // name -> "save as default" settings
@@ -303,6 +343,17 @@ const Indicators = (() => {
   const LIVE = new Map();             // id -> the settings object in use
 
   const clone = (v) => JSON.parse(JSON.stringify(v));
+
+  /* A line whose natural SHAPE is not a line. Parabolic SAR is the whole
+   * list: it is a sequence of discrete stops that jumps from under price to
+   * over it, and joining those points draws a zig-zag through the candles
+   * that looks nothing like the dotted trail every other chart shows. The
+   * "circles" plot type already existed in PLOT_TYPES and seriesFor already
+   * implements it — SAR was simply never pointed at it.
+   *
+   * Still only a DEFAULT: the Style tab can switch it back to a line, and a
+   * saved setting wins over this the same as any other plot type. */
+  const PLOT_DEFAULT = { psar: "circles" };
 
   function plotDefaults(def, slot) {
     const off = Number.isInteger(slot) ? slot : 0;
@@ -317,7 +368,7 @@ const Indicators = (() => {
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
         lineStyle: 0,
-        plotType: hist ? "columns" : "line",
+        plotType: hist ? "columns" : (PLOT_DEFAULT[n] || "line"),
       };
     });
     return out;
@@ -705,17 +756,56 @@ const Indicators = (() => {
       }, spec.pane ?? 0);
     }
 
-    // widen this pane's scale to include whatever the scene has marked on
-    // it — the provider is consulted on every autoscale pass
+    // widen this pane's scale to include whatever the scene has marked on it,
+    // AND this indicator's own reference levels — the provider is consulted
+    // on every autoscale pass. Pinning the levels into the range is what
+    // stops an RSI that never leaves 40-65 from filling its pane and reading
+    // as violent; it is also the only thing that guarantees a 70 line is on
+    // screen rather than clipped just above the data.
     const scaleWithMarks = (def) => (orig) => {
       const r = orig();
-      const extras = scaleExtras ? scaleExtras(def.name, def.period) : [];
+      const extras = [
+        ...(scaleExtras ? scaleExtras(def.name, def.period) : []),
+        ...(LEVELS[def.name] || []),
+      ];
       if (!r || !r.priceRange || !extras.length) return r;
       return { ...r, priceRange: {
         minValue: Math.min(r.priceRange.minValue, ...extras),
         maxValue: Math.max(r.priceRange.maxValue, ...extras),
       } };
     };
+
+    /** Draw (or redraw) this indicator's reference levels as price lines on
+     *  the pane's FIRST series — the same series that carries the autoscale
+     *  provider, so the lines and the range they force can never disagree.
+     *
+     *  Torn down and rebuilt rather than patched: a plot-type change in
+     *  restyle() replaces the series object outright, and price lines belong
+     *  to a series, so the old ones are already gone by then. Rebuilding is
+     *  the only version that is correct in both paths.
+     *
+     *  Follows the eye and the Visibility tab: a hidden indicator, or one
+     *  switched off for this timeframe, takes its reference lines with it —
+     *  a 70 line floating over an empty pane is just clutter. */
+    function applyLevels(a, st) {
+      const api = (a.series || [])[0];
+      if (api) {
+        for (const pl of a.levels || []) {
+          try { api.removePriceLine(pl); } catch { /* series already replaced */ }
+        }
+      }
+      a.levels = [];
+      const lv = LEVELS[(a.def || {}).name];
+      if (!api || !lv || st.hidden || !intervalOk(st)) return;
+      a.levels = lv.map((price) => api.createPriceLine({
+        price,
+        color: Theme.c("guide"),
+        lineWidth: 1,
+        lineStyle: 2,             // dashed, so it never reads as a plot
+        axisLabelVisible: false,  // the value is the line's whole content
+        title: "",
+      }));
+    }
 
     /** One legend ROW per live indicator, read at `time` (null = the latest
      *  bar). This is the whole model the DOM legend renders: the manager owns
@@ -805,9 +895,16 @@ const Indicators = (() => {
           p.setStretchFactor(base.getStretchFactor() * 0.32);
         }
       }
-      active.set(id, { series, def, specs, data: specs.map((s) => s.data),
-                       raw: lines, pane });
+      const entry = { series, def, specs, data: specs.map((s) => s.data),
+                      raw: lines, pane, levels: [] };
+      active.set(id, entry);
+      // The band FILL and the price LEVELS are two different decorations on
+      // one study and neither implies the other: syncFill paints the shaded
+      // area between a pair of bands (Supertrend, Bollinger), applyLevels
+      // draws the fixed reference lines an oscillator is read against (RSI
+      // 30/70). A study can want either, both or neither.
       syncFill(id);
+      applyLevels(entry, st);
       emitLegend();
     }
 
@@ -877,6 +974,11 @@ const Indicators = (() => {
       a.specs = specs;
       a.data = specs.map((s) => s.data);
       syncFill(id);
+      // after the series loop, because a plot-type change above replaces
+      // series[0] outright and the old price lines went with it. This is also
+      // the path a theme flip and the eye arrive on, so the levels repaint
+      // and appear/disappear with the study.
+      applyLevels(a, st);
       emitLegend();
     }
 

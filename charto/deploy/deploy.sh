@@ -43,6 +43,27 @@ git reset --hard --quiet "$remote"
 # this was written. Untracked and harmless, but they make `git status` useless.
 find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 
+# The vendored chart bundle is PATCHED (see charto/preview/VENDOR_PATCHES.md)
+# and `vendor/` is gitignored — so the patched file never travels with the repo
+# and the reset above cannot put it back. Nothing ran this, which is exactly how
+# the box came to serve a stock bundle: the alert mark on the price scale is
+# drawn inside the crosshair plate, and without §3-§4 the plate is only as wide
+# as its own text, so on a five-figure price the ring sat on the leading digit.
+# Every local machine looked right, because the patched file was sitting on it.
+#
+# Unconditionally, not only when charto/preview/ moved: the bundle is invisible
+# to `git diff` (ignored), so a stale one is never in `$changed`. Idempotent —
+# the common case is six substring checks and no write.
+#
+# A failure must NOT abort the deploy. Under `set -e` it would take the backend
+# restart down with it, and a mis-sized price plate is a cosmetic regression
+# where a blocked deploy is an outage. So it is loud instead of fatal.
+if ! python3 "$REPO/charto/preview/patch-vendor.py"; then
+  echo "deploy: WARNING — vendor patches did not apply. The price scale will be"
+  echo "deploy: stock (ragged labels, alert mark over the digits). This does not"
+  echo "deploy: block the deploy. See charto/preview/VENDOR_PATCHES.md."
+fi
+
 if grep -q '^charto/data/' <<<"$changed"; then
   echo "deploy: backend changed, restarting charto.service"
   sudo -n /usr/bin/systemctl restart charto.service
