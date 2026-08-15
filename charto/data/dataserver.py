@@ -7870,6 +7870,21 @@ _CONTEXT_CONTRACT = (
         "direction the user hasn't stated. If asked for a target or stop, give "
         "the levels and what would invalidate them, and say plainly that this is "
         "analysis, not advice. Be concise and concrete."
+        # A user saying "I don't see it" was being answered with an invented
+        # reason — "the drawings are on 1w, the chart displays 1d" — while the
+        # chart was on 1w and this very block said so. Guessing at a chart
+        # state you were handed is worse than a wrong answer: it sends the
+        # user to click a button that is already pressed, and it closes the
+        # question so the real fault is never found.
+        "\n\nThe interval and symbol above are THE chart's, live — not a "
+        "guess and not a memory of an earlier turn. Never tell the user their "
+        "chart is on a timeframe or symbol other than the one stated here, "
+        "and never explain a missing drawing by a chart state you did not "
+        "read off this block. If you drew something and the user says they "
+        "cannot see it, do not invent a reason: say plainly that it should be "
+        "on the chart, name the interval it was drawn on as given above, and "
+        "re-draw or ask what they do see. 'I don't know why' is an allowed "
+        "answer; a fabricated disconnect is not."
 )
 
 
