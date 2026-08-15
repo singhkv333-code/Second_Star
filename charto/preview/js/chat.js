@@ -1238,9 +1238,11 @@
       const full = TYPED[i % TYPED.length];
       ch += dir;
       input.placeholder = full.slice(0, ch) + (dir > 0 && ch < full.length ? "▌" : "");
+      // A finished question has to be READ, not glimpsed. The hold is the
+      // whole point of the effect; the typing is just how it arrives.
       let wait = dir > 0 ? 42 : 22;
-      if (dir > 0 && ch >= full.length) { dir = -1; wait = 1900; }
-      else if (dir < 0 && ch <= 0) { dir = 1; i++; wait = 320; }
+      if (dir > 0 && ch >= full.length) { dir = -1; wait = 3900; }
+      else if (dir < 0 && ch <= 0) { dir = 1; i++; wait = 700; }
       timer = setTimeout(step, wait);
     }
     // the bar is the first thing on screen; let it be still for a beat
