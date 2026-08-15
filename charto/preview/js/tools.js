@@ -18,8 +18,18 @@ const Tools = (() => {
    * Every tool in the Fibonacci and Gann families is the same idea twice:
    * measure a span, then divide it. What separates them is only WHICH span
    * (price, time, or both), which divisions, and what shape the divisions are
-   * drawn as. Declaring the divisions once, here, is what stops a 61.8% on a
-   * retracement being a different number from a 61.8% on a fan.
+   * drawn as. Declaring the divisions once, here, is what stops one tool's
+   * 61.8% being 0.618 and another's being 0.62.
+   *
+   * What it does NOT do — and an earlier version of this comment wrongly
+   * claimed it did — is make a ratio mean the same PRICE everywhere. A
+   * RETRACEMENT is measured back from the leg's end (0% at the end, 100% at
+   * the start, because a full retracement returns to where the move began); a
+   * RADIAL tool — circles, arcs, wedges — and a Gann grid measure out from
+   * the first anchor. So on the same two anchors the ring labelled 61.8%
+   * crosses the move where the retracement's ladder says 38.2%. Both are the
+   * standard reading of their own tool; they are simply not the same ladder,
+   * and this file must not pretend otherwise.
    */
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   // beyond 1 the ladder stops retracing and starts projecting: 127.2% is
@@ -47,11 +57,16 @@ const Tools = (() => {
   // chart that is the quarter-year, on 5m it is the session's afternoon.
   const GANN_SQUARE_BARS = 52;
 
-  /* Colour is keyed by the RATIO, not by position in a list. 61.8% is the
-   * same cyan on a retracement, an extension, a fan, an arc and a Gann grid,
-   * so a reader who has learned one ladder has learned all of them — which
-   * an index-keyed palette cannot offer, because the same index means 0.5 on
-   * one tool and 1.272 on another. Never the candle red/green: those mean
+  /* Colour is keyed by the RATIO VALUE, not by position in a list — so the
+   * cyan means 0.618 wherever you meet it, which an index-keyed palette
+   * cannot promise, because the same index is 0.5 on one tool and 1.272 on
+   * another.
+   *
+   * It keys the ratio; it does not claim the ratio marks the same price on
+   * two different tools. See the note above the catalogue: a retracement
+   * counts back from the leg's end and a ring counts out from its centre, so
+   * a cyan chip on a fib and a cyan chip on a circle are the same FRACTION
+   * measured from opposite ends. Never the candle red/green: those mean
    * "closed down / up" and nothing else on this chart. */
   const RATIO_COLOR = {
     0: "#787b86", 1: "#787b86", 0.125: "#787b86",
@@ -69,9 +84,15 @@ const Tools = (() => {
 
   const mid = (a, b) => ({ t: (a.t + b.t) / 2, v: (a.v + b.v) / 2 });
   /** A point `r` of the way from p to q, in both axes. The one operation
-   *  every tool below is made of. */
-  const along = (p, q, r) => ({ t: p.t + (q.t - p.t) * r,
-                               v: p.v + (q.v - p.v) * r });
+   *  every tool below is made of.
+   *
+   *  It takes the context because the TIME half is measured in bars, not in
+   *  seconds — the point has to land on the line as DRAWN, and the line as
+   *  drawn is straight across the bars. Interpolating the timestamp instead
+   *  puts the point off its own line wherever a weekend or an overnight gap
+   *  falls between p and q. See ctx.tLerp. */
+  const along = (c, p, q, r) => ({ t: c.tLerp(p.t, q.t, r),
+                                   v: p.v + (q.v - p.v) * r });
 
   /* ── the pitchfork family ───────────────────────────────────────────────
    * Four tools, ONE construction. Given a handle origin and the two pivots
@@ -125,7 +146,7 @@ const Tools = (() => {
   function gannGrid(p0, p1, ratios, c) {
     const out = [G.box(p0, p1, { width: 1, dash: [3, 3] })];
     for (const r of ratios) {
-      const v = p0.v + (p1.v - p0.v) * r, t = p0.t + (p1.t - p0.t) * r;
+      const v = p0.v + (p1.v - p0.v) * r, t = c.tLerp(p0.t, p1.t, r);
       out.push(
         G.segment({ t: p0.t, v }, { t: p1.t, v }, { color: colorOf(r), width: 1 }),
         G.segment({ t, v: p0.v }, { t, v: p1.v }, { color: colorOf(r), width: 1 }),
@@ -145,7 +166,8 @@ const Tools = (() => {
       // the a×b line exits whichever edge it reaches first, so it is drawn
       // to that exit and no further — a fan that overshot its own square
       // would be claiming angles outside the cycle it is measuring
-      out.push(G.segment(p0, { t: p0.t + dt * (x / m), v: p0.v + dv * (y / m) },
+      out.push(G.segment(p0, { t: c.tLerp(p0.t, p1.t, x / m),
+                                v: p0.v + dv * (y / m) },
                          { width: x === y ? 1.6 : 1,
                            color: x === y ? undefined : "#787b86" }));
     }
@@ -369,8 +391,14 @@ const Tools = (() => {
      * parallel channel, same reason its edges stay parallel: the offset is a
      * data-space value, not a pixel gap. */
     fibChannel: { label: "Fib channel", anchors: 3, group: "fib", section: "fib",
-      build: (a) => {
-        const off = a[2].v - G.valueAt(a[0], a[1], a[2].t);
+      build: (a, c) => {
+        // where the baseline sits UNDER anchor 3 — measured in bars, because
+        // the baseline as drawn is straight across the bars and reading it in
+        // seconds puts the 100% rail off by however much gap lies between
+        const base = a[0].v + (a[1].v - a[0].v)
+          * (c.barsFrom(a[0].t, a[1].t)
+             ? c.barsFrom(a[0].t, a[2].t) / c.barsFrom(a[0].t, a[1].t) : 1);
+        const off = a[2].v - base;
         const out = [];
         for (const r of FIB) {
           const p = { t: a[0].t, v: a[0].v + off * r };
@@ -387,12 +415,16 @@ const Tools = (() => {
      * not where. The labels are the numbers themselves, because "the 13th"
      * is what the tool is for and a percentage would hide it. */
     fibTimeZone: { label: "Fib time zone", anchors: 2, group: "fib", section: "fib",
-      build: (a) => {
-        const u = a[1].t - a[0].t;
+      build: (a, c) => {
+        // in BARS. Counted in seconds, the 8th, 13th, 21st, 34th and 55th
+        // verticals all walked into the same overnight gap and stacked on one
+        // column — six of ten marks on one pixel, and the tool's whole range
+        // empty to the right of it.
+        const u = c.barsFrom(a[0].t, a[1].t);
         if (!u) return [G.vline(a[0].t)];
         const out = [];
         for (const n of FIB_TIME) {
-          const t = a[0].t + u * n;
+          const t = c.tShift(a[0].t, u * n);
           out.push(G.vline(t, { width: n ? 1 : 1.6 }),
                    G.label({ t, v: a[0].v }, String(n)));
         }
@@ -406,12 +438,12 @@ const Tools = (() => {
      * the 61.8% time ray is holding its pace. */
     fibSpeedFan: { label: "Fib speed resistance fan", anchors: 2,
       group: "fib", section: "fib",
-      build: (a) => {
+      build: (a, c) => {
         const out = [G.box(a[0], a[1], { width: 1, dash: [3, 3] }),
                      G.segment(a[0], a[1], { width: 1.6 })];
         for (const r of FIB_FAN) {
           const pv = { t: a[1].t, v: a[0].v + (a[1].v - a[0].v) * r };
-          const pt = { t: a[0].t + (a[1].t - a[0].t) * r, v: a[1].v };
+          const pt = { t: c.tLerp(a[0].t, a[1].t, r), v: a[1].v };
           out.push(G.segment(a[0], pv, { extend: "right", color: colorOf(r) }),
                    G.segment(a[0], pt, { extend: "right", color: colorOf(r) }),
                    G.label(pv, pct(r), { color: colorOf(r) }));
@@ -427,13 +459,14 @@ const Tools = (() => {
      * market rather than off a drag. */
     fibTimeExtension: { label: "Trend-based fib time", anchors: 3,
       group: "fib", section: "fib",
-      build: (a) => {
-        const u = a[1].t - a[0].t;
+      build: (a, c) => {
+        // the measured duration, in BARS — see fibTimeZone
+        const u = c.barsFrom(a[0].t, a[1].t);
         const out = [G.segment(a[0], a[1], { dash: [3, 3], width: 1 }),
                      G.segment(a[1], a[2], { dash: [3, 3], width: 1 })];
         if (!u) return out;
         for (const r of FIB_TIME_R) {
-          const t = a[2].t + u * r;
+          const t = c.tShift(a[2].t, u * r);
           out.push(G.vline(t, { color: colorOf(r) }),
                    G.label({ t, v: a[2].v }, pct(r), { color: colorOf(r) }));
         }
@@ -452,7 +485,7 @@ const Tools = (() => {
                      G.crossArcPts(i[0], i[1].t - i[0].t, i[1].v - i[0].v,
                                    r, Math.PI, 64)),
                           { color: colorOf(r) }),
-                   G.label(along(a[0], a[1], r), pct(r), { color: colorOf(r) }));
+                   G.label(along(c, a[0], a[1], r), pct(r), { color: colorOf(r) }));
         }
         return out;
       } },
@@ -481,7 +514,7 @@ const Tools = (() => {
                      G.crossArcPts(i[0], i[1].t - i[0].t, i[1].v - i[0].v,
                                    r, Math.PI / 2, 40)),
                           { color: colorOf(r) }),
-                   G.label(along(a[0], a[1], r), pct(r), { color: colorOf(r) }));
+                   G.label(along(c, a[0], a[1], r), pct(r), { color: colorOf(r) }));
         }
         return out;
       } },
@@ -496,7 +529,7 @@ const Tools = (() => {
         for (const r of FIB_ARC) {
           out.push(G.poly(c.curve(a, (i) => G.blendArcPts(i[0], i[1], i[2], r)),
                           { color: colorOf(r) }),
-                   G.label(along(a[0], a[2], r), pct(r), { color: colorOf(r) }));
+                   G.label(along(c, a[0], a[2], r), pct(r), { color: colorOf(r) }));
         }
         return out;
       } },
@@ -507,10 +540,10 @@ const Tools = (() => {
      * ladder in between — which is what you want when price has been
      * respecting the inside of the channel rather than its rails. */
     pitchfan: { label: "Pitchfan", anchors: 3, group: "fib", section: "fib",
-      build: (a) => {
+      build: (a, c) => {
         const out = [G.segment(a[1], a[2], { dash: [4, 4], width: 1 })];
         for (const r of FIB) {
-          out.push(G.segment(a[0], along(a[1], a[2], r),
+          out.push(G.segment(a[0], along(c, a[1], a[2], r),
                              { extend: "right", color: colorOf(r) }));
         }
         return out;
@@ -548,7 +581,7 @@ const Tools = (() => {
     gannSquareFixed: { label: "Gann square fixed", anchors: 1, group: "fib",
       section: "gann",
       build: (a, c) => {
-        const t1 = a[0].t + GANN_SQUARE_BARS * c.iv;
+        const t1 = c.tShift(a[0].t, GANN_SQUARE_BARS);
         const rng = c.rangeBetween(a[0].t, t1);
         // no bars to square against — fall back to a tenth of the anchor's
         // own price, which keeps the figure on screen and visibly generic
@@ -567,12 +600,15 @@ const Tools = (() => {
      * riding is the whole reading: above the 1×1 is strength, below it is
      * the trend giving up time it cannot get back. */
     gannFan: { label: "Gann fan", anchors: 2, group: "fib", section: "gann",
-      build: (a) => {
-        const dt = a[1].t - a[0].t, dv = a[1].v - a[0].v;
+      build: (a, c) => {
+        const dv = a[1].v - a[0].v;
         const out = [];
         for (const [x, y] of GANN_FAN) {
           const m = Math.max(x, y);
-          const p = { t: a[0].t + dt * (x / m), v: a[0].v + dv * (y / m) };
+          // a Gann angle is price per BAR — he counted trading days, and a
+          // ray aimed a fraction of the way along the wall clock is a
+          // different angle from the one the notation names
+          const p = { t: c.tLerp(a[0].t, a[1].t, x / m), v: a[0].v + dv * (y / m) };
           out.push(G.segment(a[0], p, { extend: "right",
                                         width: x === y ? 1.6 : 1 }),
                    G.label(p, `${y}×${x}`));
@@ -752,11 +788,6 @@ const Tools = (() => {
         const lo = Math.min(bt(t0), bt(t1)), hi = Math.max(bt(t0), bt(t1));
         return bars.filter((b) => b.time >= lo && b.time <= hi).map((b) => b.close);
       },
-      /** The true high and low over a span — what a one-anchor tool squares
-       *  itself against. Closes are not enough here: a square built off the
-       *  closing range would be smaller than the swing it claims to cover.
-       *  Null when the span holds no bars, and the caller must handle that
-       *  rather than draw a zero-height figure. */
       /* ── sampled curves live in BAR-INDEX space ───────────────────────────
        * The time axis on this chart is not a clock, it is a queue of bars.
        * A weekend takes no width; neither does the sixteen hours between one
@@ -823,6 +854,37 @@ const Tools = (() => {
         const ix = anchors.map((a) => ({ t: this.indexAt(a.t), v: a.v }));
         return gen(ix).map((p) => ({ t: this.timeAt(p.t), v: p.v }));
       },
+      /* …and the same correction for a SINGLE time, which is the half the
+       * first version of this missed.
+       *
+       * `curve` covered the shapes made of sampled points and stopped there,
+       * on the reasoning that a straight line is projected only at its ends.
+       * True — but a tool does not only draw lines, it also DERIVES times: a
+       * time zone's nth vertical, a Gann grid's 61.8% column, the far corner
+       * of a fixed square, the point a fan ray is aimed through. Every one of
+       * those is a fraction of a span, and computing it in seconds means the
+       * fraction is of WALL CLOCK — so on an intraday chart a "half way"
+       * column lands wherever the overnight gap happens to put it, and four
+       * of a Gann box's seven divisions stacked on one pixel column.
+       *
+       * A span is a number of BARS. These two are the only honest way to say
+       * that, and every fraction-of-time in the catalogue goes through them.
+       */
+      /** The time `r` of the way from t0 to t1, measured in bars. */
+      tLerp(t0, t1, r) {
+        const i0 = this.indexAt(t0), i1 = this.indexAt(t1);
+        return this.timeAt(i0 + (i1 - i0) * r);
+      },
+      /** `n` bars from `t` — forward or back, past the loaded range if need be. */
+      tShift(t, n) { return this.timeAt(this.indexAt(t) + n); },
+      /** How many BARS from t0 to t1. Signed, and fractional: a span is not
+       *  obliged to start and end on a bar. */
+      barsFrom(t0, t1) { return this.indexAt(t1) - this.indexAt(t0); },
+      /** The true high and low over a span — what a one-anchor tool squares
+       *  itself against. Closes are not enough here: a square built off the
+       *  closing range would be smaller than the swing it claims to cover.
+       *  Null when the span holds no bars, and the caller must handle that
+       *  rather than draw a zero-height figure. */
       rangeBetween(t0, t1) {
         const bars = env.getBars();
         const lo = Math.min(bt(t0), bt(t1)), hi = Math.max(bt(t0), bt(t1));

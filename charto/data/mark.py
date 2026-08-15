@@ -353,6 +353,12 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
     guard = (max(0.01, win_lo / 3), win_hi * 3, win_lo, win_hi) \
         if str(pane or "price") == "price" else None
 
+    # The bar clock. Every DATE a ratio tool reports is a fraction of a span
+    # measured in bars, not in seconds — a Gann grid's 61.8% column is 61.8%
+    # of the way across the BARS, and computing it in wall clock puts it
+    # wherever the weekend happens to fall.
+    bar_times = [r[0] for r in rows]
+
     items: list[dict] = []
     report: list[dict] = []
     errors: list[str] = []
@@ -445,7 +451,7 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
             if shape in drawtools.TOOLS:
                 # what the ratios actually resolved to, so the reply quotes
                 # the ladder on the chart instead of recomputing one
-                got = drawtools.report(shape, pts, env["fmt_time"])
+                got = drawtools.report(shape, pts, env["fmt_time"], bar_times)
                 note = got.pop("_note", "")
                 if note and note not in notes:
                     notes.append(note)

@@ -1721,7 +1721,12 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     elif shape in drawtools.TOOLS:
         # what the ratios resolved to — or the plain statement that this one
         # divides an angle and has no level to quote
-        rep = drawtools.report(shape, pts[:need], _ist)
+        # the bar clock, so a Gann grid's time columns land on the same
+        # bars the chart drew them on rather than on a fraction of the
+        # wall clock the axis never spends
+        rep = drawtools.report(shape, pts[:need], _ist,
+                               [r[0] for r in _rows(interval, max(60, min(
+                                   int(lookback_bars or 300), 1500)))])
         rep["_note"] = rep.get("_note", "") + (
             f" To say where price stands against it, call read_drawing with "
             f"drawing_id='{ann['id']}' — that resolves the shape you just "
@@ -2647,11 +2652,13 @@ def tool_read_drawing(drawing_id: str = "", interval: str = "1d",
         return {"error": f"{tool} needs {spec['anchors']} anchors, "
                          f"the drawing carries {len(at)}"}
 
-    out = drawtools.report(tool, at, _ist)
+    rows = _rows(interval, max(60, min(int(lookback_bars or 400), 1500)))
+    # Read BEFORE the report, not after: every date in it is a fraction of a
+    # span measured in bars, so the report needs the bar clock to resolve one.
+    out = drawtools.report(tool, at, _ist, [r[0] for r in rows])
     out["drawing_id"] = d.get("ref") or d.get("id")
     out["anchors"] = [{"at": _ist(p["t"]), "value": round(p["v"], 2)} for p in at]
 
-    rows = _rows(interval, max(60, min(int(lookback_bars or 400), 1500)))
     if rows:
         last = rows[-1][4]
         out["last_price"] = last

@@ -191,6 +191,58 @@ console.log("\n── curves survive session gaps ──");
   });
   const A = [{ t: gapped[100].time, v: gapped[100].close },
              { t: gapped[400].time, v: gapped[400].close }];
+  /* The DERIVED-TIME half of the same defect, and the half the first version
+   * of this file missed. `curve` fixed the sampled shapes; it did not fix the
+   * tools that compute a single time — a time zone's nth vertical, a Gann
+   * grid's 61.8% column, the far corner of a fixed square. Those were still
+   * fractions of the wall clock, so they walked into the gaps and stacked. */
+  const derived = (tool, pts) => Tools.SPECS[tool].build(pts, gapCtx)
+    .filter((p) => p.kind === "vline" || (p.kind === "segment" && p.a.t === p.b.t))
+    .map((p) => Math.round(gapCtx.indexAt(p.kind === "vline" ? p.t : p.a.t)));
+  {
+    const A = [{ t: gapped[100].time, v: 1 }, { t: gapped[110].time, v: 1 }];
+    const cols = derived("fibTimeZone", A);
+    ok("fibTimeZone counts bars, not seconds",
+       new Set(cols).size === cols.length
+       && cols[3] === 130 && cols[cols.length - 1] === 650,
+       cols.join(","));
+  }
+  {
+    const A = [{ t: gapped[600].time, v: 100 }, { t: gapped[700].time, v: 200 }];
+    const cols = derived("gannBox", A);
+    ok("gannBox time divisions do not collapse into a gap",
+       new Set(cols).size === cols.length && cols.includes(650), cols.join(","));
+  }
+  {
+    const box = Tools.SPECS.gannSquareFixed
+      .build([{ t: gapped[300].time, v: 1000 }], gapCtx)
+      .find((p) => p.kind === "box");
+    const width = Math.round(gapCtx.indexAt(box.b.t) - gapCtx.indexAt(box.a.t));
+    ok("a fixed Gann square really is 52 BARS wide, as it claims",
+       width === Tools.GANN_SQUARE_BARS, `${width} bars`);
+  }
+  {
+    // anchored right before a session close — the case that used to give 3 bars
+    const box = Tools.SPECS.gannSquareFixed
+      .build([{ t: gapped[74].time, v: 1000 }], gapCtx)
+      .find((p) => p.kind === "box");
+    const width = Math.round(gapCtx.indexAt(box.b.t) - gapCtx.indexAt(box.a.t));
+    ok("…including when it is anchored at a session edge",
+       width === Tools.GANN_SQUARE_BARS, `${width} bars`);
+  }
+  {
+    // the 1×1 must still hit the far corner once the fan is measured in bars
+    const A = [{ t: gapped[100].time, v: 100 }, { t: gapped[400].time, v: 200 }];
+    const one = Tools.SPECS.gannFan.build(A, gapCtx)
+      .find((p) => p.kind === "segment" && p.width === 1.6);
+    ok("the Gann 1×1 still lands on anchor 2 in bar space",
+       one.b.t === A[1].t && near(one.b.v, A[1].v));
+    const half = Tools.SPECS.gannFan.build(A, gapCtx)
+      .filter((p) => p.kind === "label").map((p) => p.text);
+    ok("…and the fan is still labelled price×time",
+       half.join(",") === "8×1,4×1,3×1,2×1,1×1,1×2,1×3,1×4,1×8");
+  }
+
   for (const tool of ["fibCircles", "fibArcs", "fibSpiral", "fibWedge", "gannSquare"]) {
     const n = Tools.SPECS[tool].anchors;
     const pts = n === 3 ? [...A, { t: gapped[700].time, v: gapped[700].close }] : A;

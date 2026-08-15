@@ -139,6 +139,72 @@ def anchors(tool: str) -> int | None:
     return spec["anchors"] if spec else None
 
 
+# ── the time axis is a queue of BARS ────────────────────────────────────
+# A chart's x-axis has one slot per bar: a weekend takes no width, and nor do
+# the sixteen hours between one session's close and the next one's open. So a
+# time HALF WAY along a span is half its bars, not half its seconds — and a
+# reply that computes it in seconds quotes a date the chart never drew, some
+# of them falling where no bar exists at all. `bars` is the sorted list of bar
+# timestamps the caller already has; without it these fall back to wall clock,
+# which is right only for a gapless series and is flagged as such by the
+# caller passing nothing.
+
+
+def _index_at(bars: list[int], t: int) -> float:
+    if not bars:
+        return float(t)
+    n = len(bars) - 1
+    if n == 0:
+        return 0.0
+    if t <= bars[0]:
+        return (t - bars[0]) / max(1, bars[1] - bars[0])
+    if t >= bars[n]:
+        return n + (t - bars[n]) / max(1, bars[n] - bars[n - 1])
+    lo, hi = 0, n
+    while hi - lo > 1:
+        m = (lo + hi) // 2
+        if bars[m] <= t:
+            lo = m
+        else:
+            hi = m
+    return lo + (t - bars[lo]) / max(1, bars[hi] - bars[lo])
+
+
+def _time_at(bars: list[int], i: float) -> int:
+    if not bars:
+        return int(i)
+    n = len(bars) - 1
+    if n == 0:
+        return bars[0]
+    if i <= 0:
+        return int(round(bars[0] + i * max(1, bars[1] - bars[0])))
+    if i >= n:
+        return int(round(bars[n] + (i - n) * max(1, bars[n] - bars[n - 1])))
+    lo = int(i)
+    return int(round(bars[lo] + (i - lo) * (bars[lo + 1] - bars[lo])))
+
+
+def _t_lerp(bars, t0: int, t1: int, r: float) -> int:
+    """The time `r` of the way from t0 to t1, measured in bars."""
+    if not bars:
+        return int(round(t0 + (t1 - t0) * r))
+    i0, i1 = _index_at(bars, t0), _index_at(bars, t1)
+    return _time_at(bars, i0 + (i1 - i0) * r)
+
+
+def _t_shift(bars, t: int, n: float) -> int:
+    """`n` bars from `t`."""
+    if not bars:
+        return int(round(t + n))
+    return _time_at(bars, _index_at(bars, t) + n)
+
+
+def _bars_from(bars, t0: int, t1: int) -> float:
+    if not bars:
+        return float(t1 - t0)
+    return _index_at(bars, t1) - _index_at(bars, t0)
+
+
 def _price_ladder(v0: float, v1: float, ratios) -> list[dict]:
     """Geo.ladder, exactly: r=0 sits at the END of the leg, r=1 at its START.
 
@@ -149,10 +215,14 @@ def _price_ladder(v0: float, v1: float, ratios) -> list[dict]:
     return [{"ratio": r, "price": round(v1 + (v0 - v1) * r, 2)} for r in ratios]
 
 
-def levels(tool: str, pts: list[dict], fmt_time=None) -> dict | None:
+def levels(tool: str, pts: list[dict], fmt_time=None,
+           bars: list[int] | None = None) -> dict | None:
     """What this tool's divisions resolved to, for the reply to quote.
 
     `pts` are the resolved anchors, [{t, v}], in the order they were given.
+    `bars` is the sorted bar timestamps of the interval they were resolved
+    on — pass it whenever you have them, because every DATE below is a
+    fraction of a span measured in bars, not in seconds.
     Returns None for a tool with nothing quotable — which is a real answer and
     the one four of these tools have: a ray has a slope, not a level, and a
     fan that reported "levels" would be handing the model numbers to attribute
@@ -175,9 +245,14 @@ def levels(tool: str, pts: list[dict], fmt_time=None) -> dict | None:
     if tool == "fibChannel" and len(pts) >= 3:
         # Each level is a LINE, so a single price would be a fiction. What is
         # quotable is where each rail sits at the two ends of the baseline.
-        dt = pts[1]["t"] - pts[0]["t"]
+        # in BARS, and with Geo.valueAt's own zero-span fallback (the far
+        # anchor's value). Falling back to the NEAR anchor instead flipped the
+        # offset's sign, so the reply quoted the mirror image of the rails on
+        # screen — a degenerate case, but a silently mirrored one.
+        span = _bars_from(bars, pts[0]["t"], pts[1]["t"])
         at = (pts[0]["v"] + (pts[1]["v"] - pts[0]["v"])
-              * ((pts[2]["t"] - pts[0]["t"]) / dt)) if dt else pts[0]["v"]
+              * (_bars_from(bars, pts[0]["t"], pts[2]["t"]) / span)
+              if span else pts[1]["v"])
         off = pts[2]["v"] - at
         return {"rails": [{"ratio": r,
                            "from": round(pts[0]["v"] + off * r, 2),
@@ -187,15 +262,15 @@ def levels(tool: str, pts: list[dict], fmt_time=None) -> dict | None:
                          "between its two ends, never as one price"}
 
     if tool == "fibTimeZone":
-        u = pts[1]["t"] - pts[0]["t"]
-        return {"unit_seconds": u,
-                "dates": [{"n": n, "at": ts(pts[0]["t"] + u * n)}
+        u = _bars_from(bars, pts[0]["t"], pts[1]["t"])
+        return {"unit_bars": round(u, 2),
+                "dates": [{"n": n, "at": ts(_t_shift(bars, pts[0]["t"], u * n))}
                           for n in ratios]} if u else None
 
     if tool == "fibTimeExtension" and len(pts) >= 3:
-        u = pts[1]["t"] - pts[0]["t"]
-        return {"unit_seconds": u,
-                "dates": [{"ratio": r, "at": ts(pts[2]["t"] + int(u * r))}
+        u = _bars_from(bars, pts[0]["t"], pts[1]["t"])
+        return {"unit_bars": round(u, 2),
+                "dates": [{"ratio": r, "at": ts(_t_shift(bars, pts[2]["t"], u * r))}
                           for r in ratios]} if u else None
 
     if tool == "gannSquareFixed":
@@ -210,17 +285,20 @@ def levels(tool: str, pts: list[dict], fmt_time=None) -> dict | None:
                          "with two anchors when the user wants the numbers"}
 
     if reads == "both" and len(pts) >= 2:
-        dv, dt = pts[1]["v"] - pts[0]["v"], pts[1]["t"] - pts[0]["t"]
+        dv = pts[1]["v"] - pts[0]["v"]
         return {"price_levels": [{"ratio": r,
                                   "price": round(pts[0]["v"] + dv * r, 2)}
                                  for r in ratios],
-                "time_levels": [{"ratio": r, "at": ts(pts[0]["t"] + int(dt * r))}
-                                for r in ratios]}
+                "time_levels": [
+                    {"ratio": r,
+                     "at": ts(_t_lerp(bars, pts[0]["t"], pts[1]["t"], r))}
+                    for r in ratios]}
 
     return None
 
 
-def report(tool: str, pts: list[dict], fmt_time=None) -> dict:
+def report(tool: str, pts: list[dict], fmt_time=None,
+           bars: list[int] | None = None) -> dict:
     """The whole of what a drawn ratio tool can honestly say about itself."""
     spec = TOOLS.get(tool)
     if not spec:
@@ -230,7 +308,7 @@ def report(tool: str, pts: list[dict], fmt_time=None) -> dict:
     # it with the tool's generic name.
     out: dict = {"tool": tool, "tool_label": spec["label"],
                  "construction": spec["how"]}
-    got = levels(tool, pts, fmt_time)
+    got = levels(tool, pts, fmt_time, bars)
     if got:
         out.update(got)
         out.setdefault(
