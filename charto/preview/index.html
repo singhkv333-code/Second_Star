@@ -2650,15 +2650,22 @@ body.two-columns .readout .row { display: none; }
     var(--card);
   overflow: hidden;
 }
-/* inside the group the bar keeps its geometry and gives up its edges */
+/* The bar does NOT dissolve into the group. It keeps its own card surface
+   and its own edge and sits inset on the tinted panel, so the thing you
+   type into stays one object and the openings above it stay another —
+   grouped, not merged. The inner radius is a step down from the group's
+   so the two curves nest instead of fighting. */
 .ask-group.has-tray > .composer {
-  border-color: transparent; background: transparent; border-radius: 0;
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: var(--radius-lg);
+  margin: 0 6px 6px;
 }
 
-.tpl { padding: 2px 14px 13px; }
+.tpl { padding: 13px 14px 2px; }
 .ask-group.has-tray > .tpl {
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  padding-top: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  padding-bottom: 11px; margin-bottom: 7px;
 }
 .tpl-head {
   font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
@@ -5437,6 +5444,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
                happen to be near each other: the tray hangs off the bar and
                shares its border, so the group reads as "the place you ask". -->
           <div class="ask-group" id="askGroup">
+          <div class="tpl" id="tplTray" hidden></div>
           <form class="composer" id="chatForm">
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
@@ -5453,7 +5461,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
-          <div class="tpl" id="tplTray" hidden></div>
           </div>
         </div>
       </div>
@@ -5541,7 +5548,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=120"></script>
+  <script src="./js/chat.js?v=121"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
