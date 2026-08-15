@@ -2676,7 +2676,7 @@ body.two-columns .readout .row { display: none; }
      on this surface you act on, so it wants to sit proud of the glass
      rather than sink into it — mixed off the foreground so it lifts in
      dark and settles in light, either way reading as a field. */
-  background: color-mix(in srgb, var(--foreground) 10%, var(--card));
+  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
   border-color: color-mix(in srgb, var(--border) 90%, transparent);
   border-radius: var(--radius-lg);
   margin: 0 6px 6px;
@@ -2851,6 +2851,10 @@ body.two-columns .readout .row { display: none; }
   max-height: 190px; min-height: 24px; padding: 2px 4px 4px 0; display: block;
 }
 .composer textarea::placeholder { color: var(--faint); }
+/* The sample questions are content, not a label: they are being written
+   for you to read, so they get read weight. Set only while the typewriter
+   is running — the static prompt drops straight back to --faint. */
+.composer textarea.ph-typing::placeholder { color: var(--muted-foreground); }
 .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .cbtn {
   width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
@@ -5657,7 +5661,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=135"></script>
+  <script src="./js/chat.js?v=136"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

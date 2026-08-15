@@ -1234,7 +1234,13 @@
     let i = 0, ch = 0, dir = 1, timer = null;
     const idle = () => !input.value && document.activeElement !== input;
     function step() {
-      if (!idle()) { input.placeholder = PLACEHOLDER; timer = setTimeout(step, 900); return; }
+      if (!idle()) {
+        input.placeholder = PLACEHOLDER;
+        input.classList.remove("ph-typing");
+        timer = setTimeout(step, 900);
+        return;
+      }
+      input.classList.add("ph-typing");
       const full = TYPED[i % TYPED.length];
       ch += dir;
       input.placeholder = full.slice(0, ch) + (dir > 0 && ch < full.length ? "▌" : "");
@@ -1247,7 +1253,10 @@
     }
     // the bar is the first thing on screen; let it be still for a beat
     timer = setTimeout(step, 1400);
-    input.addEventListener("focus", () => { input.placeholder = PLACEHOLDER; });
+    input.addEventListener("focus", () => {
+      input.placeholder = PLACEHOLDER;
+      input.classList.remove("ph-typing");
+    });
   })();
 
   const trayEl = el("tplTray");
