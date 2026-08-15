@@ -1209,10 +1209,26 @@
   const trayEl = el("tplTray");
   const groupEl = el("askGroup");
   let trayBuilt = false;
+  /* The refraction is attached only while the tray is up, and torn down
+   * after. It costs a live SVG filter and a ResizeObserver, and with the
+   * tray down the group is an ordinary composer that must look exactly as
+   * it always did — a backdrop-filter left running would quietly frost the
+   * one control the user types into for the rest of the session. */
+  let glass = null;
   function showTray(on) {
     if (on && !trayBuilt) { trayEl.innerHTML = templateGrid(); trayBuilt = true; }
     trayEl.hidden = !on;
     groupEl.classList.toggle("has-tray", !!on);
+    if (on && !glass && window.liquidGlass) {
+      // gentler than the module's defaults: this is a panel you read tiles
+      // off, not a lens. Enough bend at the rim to catch the glow behind it,
+      // not enough to smear a 52px drawing.
+      glass = liquidGlass(groupEl, { scale: -64, chroma: 4, blur: 5,
+                                     saturate: 1.35, fallbackBlur: 14 });
+    } else if (!on && glass) {
+      glass.destroy();
+      glass = null;
+    }
   }
 
 

@@ -2637,10 +2637,35 @@ body.two-columns .readout .row { display: none; }
 .ask-group.has-tray {
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
-  background: color-mix(in srgb, var(--primary) 4.5%, var(--card));
+  /* Translucent, because glass that is not translucent is just a panel.
+     The refraction and the backdrop blur come from vendor/liquid-glass.js
+     (an SVG feDisplacementMap driven through backdrop-filter, which only
+     Chromium can do — it falls back to frosted blur elsewhere on its own).
+     Everything here is the DRESSING that turns a blurred backdrop into a
+     material: a tint of its own; a rim, one bright inset line along the top
+     edge and a dimmer one along the bottom, which is what reads as
+     thickness; a hairline border a little brighter than the app's, since a
+     glass edge catches light a flat one does not; and an outer shadow, so
+     it sits ABOVE the pane rather than in it. */
+  background: color-mix(in srgb, var(--card) 46%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
+    0 12px 34px -14px rgb(0 0 0 / .5);
   overflow: hidden;
   position: relative;
+  z-index: 1;
 }
+.ask-group.has-tray::after {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 58%;
+  pointer-events: none; z-index: 2; border-radius: inherit;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--foreground) 7%, transparent) 0%,
+    color-mix(in srgb, var(--foreground) 2%, transparent) 42%,
+    transparent 100%);
+}
+
 /* The bar does NOT dissolve into the group. It keeps its own card surface
    and its own edge and sits inset on the tinted panel, so the thing you
    type into stays one object and the openings above it stay another —
@@ -2666,22 +2691,27 @@ body.two-columns .readout .row { display: none; }
 
    The whole effect is one colour at low opacity. It is meant to be
    noticed on the second look, not the first. */
-.ask-group.has-tray > .tpl::before,
-.ask-group.has-tray > .tpl::after {
+.ask-shell { position: relative; }
+.ask-glow { display: none; }
+.ask-shell:has(.ask-group.has-tray) .ask-glow {
+  display: block; position: absolute; inset: 0; z-index: 0;
+  border-radius: var(--radius-2xl); overflow: hidden; pointer-events: none;
+}
+.ask-glow::before, .ask-glow::after {
   content: ""; position: absolute; z-index: 0; pointer-events: none;
   left: -10%; right: -10%; top: -34px; height: 108px;
   will-change: transform;
 }
-.ask-group.has-tray > .tpl::before {
-  background: radial-gradient(40% 68% at 30% 62%,
-    color-mix(in srgb, var(--primary) 46%, transparent), transparent 72%);
-  filter: blur(28px); opacity: .5;
+.ask-glow::before {
+  background: radial-gradient(46% 76% at 30% 60%,
+    color-mix(in srgb, var(--primary) 85%, transparent), transparent 72%);
+  filter: blur(20px); opacity: .9;
   animation: askDriftA 19s ease-in-out infinite alternate;
 }
-.ask-group.has-tray > .tpl::after {
-  background: radial-gradient(34% 60% at 70% 56%,
-    color-mix(in srgb, var(--primary) 34%, transparent), transparent 72%);
-  filter: blur(32px); opacity: .42;
+.ask-glow::after {
+  background: radial-gradient(40% 66% at 70% 54%,
+    color-mix(in srgb, var(--primary) 62%, transparent), transparent 72%);
+  filter: blur(24px); opacity: .75;
   animation: askDriftB 25s ease-in-out infinite alternate;
 }
 @keyframes askDriftA {
@@ -2695,8 +2725,7 @@ body.two-columns .readout .row { display: none; }
   100% { transform: translate3d(-8%, 0, 0) scaleX(1.08); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ask-group.has-tray > .tpl::before,
-  .ask-group.has-tray > .tpl::after { animation: none; }
+  .ask-glow::before, .ask-glow::after { animation: none; }
 }
 .ask-group.has-tray > .tpl {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
@@ -5485,6 +5514,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           <!-- The prompt bar and the openings are one object, not two that
                happen to be near each other: the tray hangs off the bar and
                shares its border, so the group reads as "the place you ask". -->
+          <div class="ask-shell" id="askShell">
+          <div class="ask-glow" aria-hidden="true"></div>
           <div class="ask-group" id="askGroup">
           <div class="tpl" id="tplTray" hidden></div>
           <form class="composer" id="chatForm">
@@ -5503,6 +5534,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
+          </div>
           </div>
         </div>
       </div>
@@ -5551,6 +5583,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <div class="j-toast" id="journalToast" role="status" aria-live="polite"></div>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
+  <!-- Apple-style refraction for the ask group. Ships the SVG
+       displacement filter, the backdrop wiring and the frosted fallback for
+       browsers that cannot filter a backdrop; the tint, rim and sheen stay
+       in CSS below. -->
+  <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
@@ -5590,7 +5627,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=125"></script>
+  <script src="./js/chat.js?v=127"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
