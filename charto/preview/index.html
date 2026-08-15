@@ -2786,11 +2786,24 @@ body.two-columns .readout .row { display: none; }
    neighbours. `.a` strokes the accent, `.af` fills it — one per tile.
    `.up`/`.down` exist for the one tile whose two colours are its meaning
    rather than its decoration. */
+/* The art carries its OWN ink, a step above the label's. Inheriting the
+   card's colour tied the drawing to --faint, which is a caption weight —
+   right for twelve words under a tile, too quiet for the thing the tile
+   is actually made of. It brightens to full foreground with the card, so
+   hover still lifts the whole thing together.
+
+   1.75 rather than 1.6: enough to hold the line at 52px without the
+   drawings closing up. Past about 1.9 the notches between the folded
+   fingers of the wedge fill in and it stops being a wedge. */
 .tile-art {
   width: 52px; height: 52px; display: block;
+  color: var(--muted-foreground);
   fill: none; stroke: currentColor;
-  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
 }
+.tpl-card:hover .tile-art,
+.tpl-card:focus-visible .tile-art,
+.tpl-card.is-on .tile-art { color: var(--foreground); }
 /* The accent is charto's blue pulled back toward the ink around it. At full
    --primary it is a saturated cyan, and on a dark panel a saturated cyan at
    1.35px does not read as a line — it reads as a light source, and twelve
@@ -5634,13 +5647,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=22"></script>
   <script src="./js/scene.js?v=34"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=82"></script>
+  <script src="./js/main.js?v=83"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=133"></script>
+  <script src="./js/chat.js?v=134"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
