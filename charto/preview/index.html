@@ -2637,18 +2637,9 @@ body.two-columns .readout .row { display: none; }
 .ask-group.has-tray {
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--primary) 17%, transparent) 0%,
-      color-mix(in srgb, var(--primary) 5%, transparent) 12%,
-      transparent 28%, transparent 72%,
-      color-mix(in srgb, var(--primary) 5%, transparent) 88%,
-      color-mix(in srgb, var(--primary) 17%, transparent) 100%),
-    linear-gradient(180deg,
-      transparent 55%,
-      color-mix(in srgb, var(--primary) 3.5%, transparent) 100%),
-    var(--card);
+  background: color-mix(in srgb, var(--primary) 4.5%, var(--card));
   overflow: hidden;
+  position: relative;
 }
 /* The bar does NOT dissolve into the group. It keeps its own card surface
    and its own edge and sits inset on the tinted panel, so the thing you
@@ -2662,7 +2653,51 @@ body.two-columns .readout .row { display: none; }
   margin: 0 6px 6px;
 }
 
-.tpl { padding: 13px 14px 2px; }
+.tpl { padding: 13px 14px 2px; position: relative; }
+.tpl > * { position: relative; z-index: 1; }
+
+/* ── the glow above the bar ────────────────────────────────────────────
+   Two blurred radial blobs sitting on the seam between the openings and
+   the prompt bar, drifting on 19s and 25s — deliberately non-divisible,
+   so the two never come back into phase and the movement never resolves
+   into a loop you can count. Transform-only, so it composites on the GPU
+   and costs nothing per frame; the blobs live behind `.tpl > *`, which is
+   why the tiles sit on their own z-index.
+
+   The whole effect is one colour at low opacity. It is meant to be
+   noticed on the second look, not the first. */
+.ask-group.has-tray > .tpl::before,
+.ask-group.has-tray > .tpl::after {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  left: -10%; right: -10%; bottom: -30px; height: 104px;
+  will-change: transform;
+}
+.ask-group.has-tray > .tpl::before {
+  background: radial-gradient(40% 68% at 30% 62%,
+    color-mix(in srgb, var(--primary) 46%, transparent), transparent 72%);
+  filter: blur(28px); opacity: .5;
+  animation: askDriftA 19s ease-in-out infinite alternate;
+}
+.ask-group.has-tray > .tpl::after {
+  background: radial-gradient(34% 60% at 70% 56%,
+    color-mix(in srgb, var(--primary) 34%, transparent), transparent 72%);
+  filter: blur(32px); opacity: .42;
+  animation: askDriftB 25s ease-in-out infinite alternate;
+}
+@keyframes askDriftA {
+  0%   { transform: translate3d(-7%, 2px, 0) scaleX(1); }
+  50%  { transform: translate3d(3%, -3px, 0) scaleX(1.1); }
+  100% { transform: translate3d(8%, 1px, 0) scaleX(.94); }
+}
+@keyframes askDriftB {
+  0%   { transform: translate3d(9%, -1px, 0) scaleX(1); }
+  50%  { transform: translate3d(-2%, 3px, 0) scaleX(.92); }
+  100% { transform: translate3d(-8%, 0, 0) scaleX(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-group.has-tray > .tpl::before,
+  .ask-group.has-tray > .tpl::after { animation: none; }
+}
 .ask-group.has-tray > .tpl {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   padding-bottom: 11px; margin-bottom: 7px;
@@ -2679,11 +2714,23 @@ body.two-columns .readout .row { display: none; }
 @container (min-width: 430px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
 @container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
 
+/* The whole card lights up, icon and label and the air around both — the
+   thing you are aiming at is the tile, so the tile is what has to
+   acknowledge the pointer. Highlighting only the 48px frame made the
+   label look like it belonged to something else, and gave a target a
+   third the size of the one the eye had already picked. */
 .tpl-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 4px 2px 2px; border: 0; background: transparent;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 9px 4px 7px; border: 0; background: transparent;
+  border-radius: var(--radius-md);
   color: var(--faint); font: inherit; font-size: var(--text-2xs);
-  cursor: pointer; text-align: center;
+  cursor: pointer; text-align: center; position: relative; z-index: 1;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.tpl-card:hover, .tpl-card:focus-visible {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
 }
 /* The box holds the ICON ONLY — the label lives under it, outside the
    frame, so a long name cannot stretch the box and break the row of
@@ -2697,12 +2744,7 @@ body.two-columns .readout .row { display: none; }
   transition: border-color var(--dur) var(--ease-quartr),
               background var(--dur) var(--ease-quartr);
 }
-.tpl-card:hover .tpl-box, .tpl-card:focus-visible .tpl-box {
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
-}
 .tpl-card:focus-visible { outline: none; }
-.tpl-card:hover, .tpl-card:focus-visible { color: var(--muted-foreground); }
 .tpl-name { line-height: 1.2; }
 
 /* The art. Stroke width is set ONCE here rather than per path, so the
@@ -2715,7 +2757,7 @@ body.two-columns .readout .row { display: none; }
   fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.tile-art .a { stroke: var(--primary); }
+.tile-art .a { stroke: var(--primary); stroke-width: 1.35; }
 .tile-art .af { fill: var(--primary); }
 .tile-art .up { stroke: var(--up); }
 .tile-art .down { stroke: var(--down); }
@@ -5512,7 +5554,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=7"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=23"></script>
+  <script src="./js/icons.js?v=24"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5548,7 +5590,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=121"></script>
+  <script src="./js/chat.js?v=122"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

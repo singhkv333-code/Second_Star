@@ -296,14 +296,11 @@ const Icons = (() => {
     // a formation: two converging rails and the apex they resolve at
     patterns: '<path d="M7 32h26"/>'
       + '<path d="M10 27.5 14 17.6l4 7.9 4-6 4 3.5 3.5-1.2"/>'
-      + '<path class="a" d="M9 15 31 22M9 29l22-7"/>'
-      + '<circle class="af" cx="31" cy="22" r="2.3" stroke="none"/>',
+      + '<path class="a" d="M9 15 31 22M9 29l22-7"/>',
     // the line you draw, and the two bars it is pinned to
     trendlines: '<path d="M7 32h26"/>'
       + '<path d="M11 20v9M18 16v13M25 19v10M31 12v17"/>'
-      + '<path class="a" d="M10 28.5 32 13"/>'
-      + '<circle class="af" cx="10" cy="28.5" r="2.3" stroke="none"/>'
-      + '<circle class="af" cx="32" cy="13" r="2.3" stroke="none"/>',
+      + '<path class="a" d="M10 28.5 32 13"/>',
     // price above, its own pane below — the divider IS the idea
     indicators: '<path d="M7 17l5-5 5 4 5-7 5 6 4-3"/>'
       + '<path d="M6 22h28" opacity=".55"/>'
@@ -312,8 +309,7 @@ const Icons = (() => {
     volumeProfile: '<path d="M7 32h26"/>'
       + '<path d="M10 15v14M15 12v17M20 18v11"/>'
       + '<path d="M24 26h6M24 22h4M24 14h5"/>'
-      + '<path class="a" d="M24 18h11"/>'
-      + '<circle class="af" cx="36" cy="18" r="1.8" stroke="none"/>',
+      + '<path class="a" d="M24 18h11"/>',
     // the jump, and the reason attached to it
     whyMoved: '<path d="M7 32h26"/>'
       + '<path d="M9 28l4-1.5 4 1"/>'
@@ -341,8 +337,7 @@ const Icons = (() => {
     // two instruments, one origin, and the gap that opens
     compare: '<path d="M7 32h26"/>'
       + '<path d="M8 26l6-3 6-6 6-4 6-2"/>'
-      + '<path class="a" d="M8 26l6 1 6 3 6-1 6 2"/>'
-      + '<circle class="af" cx="8" cy="26" r="2.2" stroke="none"/>',
+      + '<path class="a" d="M8 26l6 1 6 3 6-1 6 2"/>',
     // the level, and the moment it is crossed
     alert: '<path d="M7 32h26"/>'
       + '<path d="M7 27l6-2 5-5 5-3"/>'

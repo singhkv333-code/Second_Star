@@ -1176,7 +1176,7 @@
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const cards = TEMPLATES.map((t) => {
       const q = t.q.replace(/\{sym\}/g, Sym.name);
-      return `<button type="button" class="tpl-card" data-q="${attr(q)}" title="${attr(q)}">`
+      return `<button type="button" class="tpl-card" data-q="${attr(q)}">`
         + `<span class="tpl-box">${Icons.tile(t.icon)}</span>`
         + `<span class="tpl-name">${attr(t.label)}</span></button>`;
     }).join("");
@@ -1268,6 +1268,7 @@
     turns.push({ role: "user", content: text, ts,
                  ...(image ? { image } : {}), ...(drawing ? { drawing } : {}),
                  ...(journal ? { journal } : {}) });
+    showTray(false);          // first question asked — the openings fold away
     addUserTurn(text, image, drawing, ts, journal);
     const turn = addAssistantTurn();
     const t0 = performance.now();
