@@ -1177,22 +1177,33 @@
     const cards = TEMPLATES.map((t) => {
       const q = t.q.replace(/\{sym\}/g, Sym.name);
       return `<button type="button" class="tpl-card" data-q="${attr(q)}" title="${attr(q)}">`
-        + `<span class="tpl-art">${Icons.tile(t.icon)}</span>`
+        + `<span class="tpl-box">${Icons.tile(t.icon)}</span>`
         + `<span class="tpl-name">${attr(t.label)}</span></button>`;
     }).join("");
-    return `<div class="tpl"><div class="tpl-head">START WITH</div>`
-      + `<div class="tpl-grid">${cards}</div></div>`;
+    return `<div class="tpl-head">START ASKING WITH</div>`
+      + `<div class="tpl-grid">${cards}</div>`;
   }
 
-  const EMPTY_HTML = () => '<div class="chat-empty">'
-    + '<div class="ce-say">Ask about what you\'re looking at.'
-    + '<br/><b>The model sees the visible chart.</b></div>'
-    + templateGrid() + '</div>';
+  /* The tray belongs to the prompt bar, not to the thread, so it is mounted
+   * once and shown or hidden — rebuilding it on every render would throw
+   * away the DOM under a pointer that is hovering it. The group only wears
+   * its border and tint while the tray is up; with the tray down the bar
+   * has to look exactly as it always did. */
+  const trayEl = el("tplTray");
+  const groupEl = el("askGroup");
+  let trayBuilt = false;
+  function showTray(on) {
+    if (on && !trayBuilt) { trayEl.innerHTML = templateGrid(); trayBuilt = true; }
+    trayEl.hidden = !on;
+    groupEl.classList.toggle("has-tray", !!on);
+  }
+
+
 
   /* One listener on the thread, not twelve on the cards: the empty state is
    * rebuilt from scratch on every clear, and per-card handlers would have to
    * be re-bound each time or silently stop working on the second new chat. */
-  msgsEl.addEventListener("click", (e) => {
+  trayEl.addEventListener("click", (e) => {
     const card = e.target.closest && e.target.closest(".tpl-card");
     if (!card) return;
     const input = el("chatInput");
@@ -1207,8 +1218,8 @@
    *  the one that just happened. */
   function renderThread() {
     msgsEl.innerHTML = "";
+    showTray(!turns.length);
     if (!turns.length) {
-      msgsEl.innerHTML = EMPTY_HTML();
       el("toBottom").classList.remove("show");
       return;
     }

@@ -2356,6 +2356,13 @@ body.two-columns .readout .row { display: none; }
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   padding: 26px 0 8px; scroll-behavior: smooth;
 }
+/* Nothing has been asked yet, so there is no thread to hold the top of the
+   pane and the group would otherwise sit on the floor under an empty sky.
+   Collapsing the thread lets the composer's auto margins centre the group
+   in the space instead. :has() keeps the rule keyed to the one state that
+   wants it — no class to set, nothing to forget to unset. */
+.chatpanel:has(.ask-group.has-tray) .thread { flex: 0 0 auto; }
+.chatpanel:has(.ask-group.has-tray) .composer-wrap { margin-block: auto; }
 .thread-inner {
   max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
   display: flex; flex-direction: column; gap: 26px;
@@ -2614,60 +2621,88 @@ body.two-columns .readout .row { display: none; }
 }
 @keyframes caretBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-.chat-empty {
-  color: var(--faint); font-size: var(--text-lg); text-align: center;
-  margin-top: 22vh; margin-top: 22dvh; line-height: 1.7;
+/* ── the ask group ─────────────────────────────────────────────────────
+   The prompt bar and the twelve openings are ONE box. The tray hangs off
+   the bar, shares its border and its rounding, and disappears the moment
+   the conversation starts — the openings are for the blank page, and after
+   the first question the thread itself is the context.
+
+   The tint is charto's own blue, and the whole trick is restraint: it is
+   plain in the MIDDLE and only carries colour at the two ends, so the
+   surface reads as lit rather than coloured. Three stacked gradients do
+   it — a horizontal pair that fades to nothing across the centre third,
+   and a vertical wash that lets the tray sit a shade deeper than the bar
+   above it. Each is a different, deliberately low alpha; one flat tint at
+   one opacity is what makes a panel look painted. */
+.ask-group.has-tray {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--primary) 17%, transparent) 0%,
+      color-mix(in srgb, var(--primary) 5%, transparent) 12%,
+      transparent 28%, transparent 72%,
+      color-mix(in srgb, var(--primary) 5%, transparent) 88%,
+      color-mix(in srgb, var(--primary) 17%, transparent) 100%),
+    linear-gradient(180deg,
+      transparent 55%,
+      color-mix(in srgb, var(--primary) 3.5%, transparent) 100%),
+    var(--card);
+  overflow: hidden;
 }
-.chat-empty b { color: var(--muted-foreground); font-weight: var(--weight-display); }
+/* inside the group the bar keeps its geometry and gives up its edges */
+.ask-group.has-tray > .composer {
+  border-color: transparent; background: transparent; border-radius: 0;
+}
 
-/* ── the twelve openings ───────────────────────────────────────────────
-   An empty chat box can do about ninety things and shows none of them.
-   This is the same shape every template picker uses — a quiet micro-label,
-   then a grid of drawn tiles — sized so the whole set is one glance rather
-   than a list to read. The chat pane is narrow and resizable, so the grid
-   is auto-fit rather than a fixed six across: it reflows to 4, 3 or 2 and
-   never clips a tile. */
-.chat-empty { margin-top: 12vh; margin-top: 12dvh; }
-.ce-say { margin-bottom: 26px; }
-
-.tpl { max-width: 560px; margin: 0 auto; padding: 0 4px; text-align: left; }
+.tpl { padding: 2px 14px 13px; }
+.ask-group.has-tray > .tpl {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-top: 12px;
+}
 .tpl-head {
   font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
-  margin: 0 0 10px 2px; font-weight: var(--weight-display);
+  margin: 0 0 10px 1px; font-weight: var(--weight-display);
 }
-/* Twelve tiles want an even grid — 6x2, 4x3 or 3x4. auto-fit picked 5 at
-   this pane width and left an orphan row of two, which reads as a mistake.
-   A CONTAINER query, not a media query: the chat pane is resizable, so the
-   number that matters is the pane's width, not the window's. */
+/* Twelve tiles want an even grid — 6x2, 4x3 or 3x4. A CONTAINER query, not
+   a media query: the chat pane is resizable, so the width that matters is
+   the pane's, not the window's. */
 .tpl { container-type: inline-size; }
-.tpl-grid {
-  display: grid; gap: 6px;
-  grid-template-columns: repeat(4, 1fr);
-}
-@container (min-width: 470px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
-@container (max-width: 300px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
-.tpl-card {
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  padding: 13px 6px 10px; border-radius: var(--radius);
-  background: transparent; border: 1px solid transparent;
-  color: var(--faint); font: inherit; font-size: var(--text-xs);
-  cursor: pointer; text-align: center;
-  transition: background var(--dur) var(--ease-quartr),
-              border-color var(--dur) var(--ease-quartr),
-              color var(--dur) var(--ease-quartr);
-}
-.tpl-card:hover, .tpl-card:focus-visible {
-  background: var(--accent); border-color: var(--border);
-  color: var(--muted-foreground); outline: none;
-}
-.tpl-name { line-height: 1.25; min-height: 2.5em; }
+.tpl-grid { display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr); }
+@container (min-width: 430px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
+@container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
 
-/* The art. Stroke width is set ONCE here rather than per path, so the whole
-   family stays consistent and a tile cannot drift heavier than its
-   neighbours. The accent is the duotone half: `.a` strokes, `.af` fills,
-   one per tile, and it brightens on hover so the grid has somewhere to
-   go. `.up`/`.down` exist for the one tile whose two colours are its
-   meaning rather than its decoration. */
+.tpl-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 4px 2px 2px; border: 0; background: transparent;
+  color: var(--faint); font: inherit; font-size: var(--text-2xs);
+  cursor: pointer; text-align: center;
+}
+/* The box holds the ICON ONLY — the label lives under it, outside the
+   frame, so a long name cannot stretch the box and break the row of
+   squares. 4px of air on every side: enough to read as a container,
+   not enough to read as padding. */
+.tpl-box {
+  width: 48px; height: 48px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.tpl-card:hover .tpl-box, .tpl-card:focus-visible .tpl-box {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.tpl-card:focus-visible { outline: none; }
+.tpl-card:hover, .tpl-card:focus-visible { color: var(--muted-foreground); }
+.tpl-name { line-height: 1.2; }
+
+/* The art. Stroke width is set ONCE here rather than per path, so the
+   family stays consistent and no tile can drift heavier than its
+   neighbours. `.a` strokes the accent, `.af` fills it — one per tile.
+   `.up`/`.down` exist for the one tile whose two colours are its meaning
+   rather than its decoration. */
 .tile-art {
   width: 40px; height: 40px; display: block;
   fill: none; stroke: currentColor;
@@ -2677,10 +2712,9 @@ body.two-columns .readout .row { display: none; }
 .tile-art .af { fill: var(--primary); }
 .tile-art .up { stroke: var(--up); }
 .tile-art .down { stroke: var(--down); }
-.tpl-card:hover .tile-art, .tpl-card:focus-visible .tile-art { color: var(--muted-foreground); }
 
-@media (max-width: 420px) {
-  .tpl-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+@container (max-width: 380px) {
+  .tpl-box { width: 42px; height: 42px; }
   .tile-art { width: 34px; height: 34px; }
 }
 
@@ -5373,7 +5407,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <aside class="chatpanel" id="chatPanel">
       <div class="thread" id="thread">
         <div class="thread-inner" id="chatMsgs">
-          <div class="chat-empty"><div class="ce-say">Ask about what you're looking at.<br/><b>The model sees the visible chart.</b></div></div>
+          
         </div>
       </div>
 
@@ -5399,6 +5433,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <span>screenshot attached</span>
               <span class="x" id="attachRemove" title="Remove">×</span></span>
           </div>
+          <!-- The prompt bar and the openings are one object, not two that
+               happen to be near each other: the tray hangs off the bar and
+               shares its border, so the group reads as "the place you ask". -->
+          <div class="ask-group" id="askGroup">
           <form class="composer" id="chatForm">
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
@@ -5415,6 +5453,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
+          <div class="tpl" id="tplTray" hidden></div>
+          </div>
         </div>
       </div>
 
@@ -5501,7 +5541,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=117"></script>
+  <script src="./js/chat.js?v=120"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
