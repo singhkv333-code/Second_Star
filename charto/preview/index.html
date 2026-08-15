@@ -2757,7 +2757,7 @@ body.two-columns .readout .row { display: none; }
   transition: background var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr);
 }
-.tpl-card:hover, .tpl-card:focus-visible {
+.tpl-card:hover, .tpl-card:focus-visible, .tpl-card.is-on {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
@@ -2774,18 +2774,11 @@ body.two-columns .readout .row { display: none; }
               background var(--dur) var(--ease-quartr);
 }
 .tpl-card:focus-visible { outline: none; }
-/* Selected: the prompt this tile wrote is still sitting in the bar. Louder
-   than hover on purpose — hover is where the pointer happens to be, this is
-   a state the chat is actually in, and it has to survive the pointer moving
-   away. The accent does the talking; the frame only carries it. */
-.tpl-card.is-on {
-  background: color-mix(in srgb, var(--primary) 11%, transparent);
-  color: var(--foreground);
-}
-.tpl-card.is-on .tpl-box {
-  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
-}
+/* Selected is the hover block, held. It says only "this is the one that
+   wrote what is in the bar" — which is a pointer, not a status, so it
+   borrows hover's paint rather than inventing a louder one. A blue frame
+   read as a toggle that was now ON and armed, and nothing is armed: the
+   sentence is sitting in the bar waiting to be edited or sent. */
 .tpl-name { line-height: 1.2; }
 
 /* The art. Stroke width is set ONCE here rather than per path, so the
@@ -5647,7 +5640,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=131"></script>
+  <script src="./js/chat.js?v=132"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
