@@ -2798,7 +2798,7 @@ body.two-columns .readout .row { display: none; }
    label's own grey it stays unmistakably the accent and stops emitting. */
 .tile-art .a {
   stroke: color-mix(in srgb, var(--primary) 58%, var(--muted-foreground));
-  stroke-width: 1.35;
+  stroke-width: 1.15;
 }
 .tile-art .af { fill: color-mix(in srgb, var(--primary) 58%, var(--muted-foreground)); }
 .tile-art .up { stroke: var(--up); }
@@ -5640,7 +5640,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=7"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
-  <script src="./js/chat.js?v=132"></script>
+  <script src="./js/chat.js?v=133"></script>
   <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
