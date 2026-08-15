@@ -1213,10 +1213,15 @@
    * scan a list. Same job as the twelve tiles, in the one place the eye is
    * already resting.
    *
-   * It only runs on an empty, unfocused bar. The moment the box is touched
-   * it stops and hands back the plain prompt — a placeholder that keeps
-   * moving under a cursor is a placeholder fighting the person using it —
-   * and it never runs at all under prefers-reduced-motion.
+   * It is an INTRODUCTION, so it runs once and retires. The first time
+   * anything is typed into the bar the cycle stops for the rest of the
+   * session and the plain prompt comes back for good — someone who has
+   * already used the box knows what it is for, and a placeholder still
+   * writing suggestions underneath them is a placeholder arguing with a
+   * person who has moved on. Focus alone only pauses it; clicking in and
+   * out is not the same as using it.
+   *
+   * It never runs at all under prefers-reduced-motion.
    */
   const PLACEHOLDER = "Ask about this chart…";
   const TYPED = [
@@ -1231,10 +1236,21 @@
     const slow = window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (slow) return;
-    let i = 0, ch = 0, dir = 1, timer = null;
-    const idle = () => !input.value && document.activeElement !== input;
+    let i = 0, ch = 0, dir = 1, timer = null, done = false;
+    function retire() {           // used once; the bar is static from here on
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      input.placeholder = PLACEHOLDER;
+      input.classList.remove("ph-typing");
+    }
     function step() {
-      if (!idle()) {
+      if (done) return;
+      // A value in the box is the end of it, whoever put it there — the
+      // template tiles fill the composer without firing `input`, so the
+      // check has to be on the value and not only on the event.
+      if (input.value) { retire(); return; }
+      if (document.activeElement === input) {   // focused but still empty: hold
         input.placeholder = PLACEHOLDER;
         input.classList.remove("ph-typing");
         timer = setTimeout(step, 900);
@@ -1253,7 +1269,9 @@
     }
     // the bar is the first thing on screen; let it be still for a beat
     timer = setTimeout(step, 1400);
+    input.addEventListener("input", retire);
     input.addEventListener("focus", () => {
+      if (done) return;
       input.placeholder = PLACEHOLDER;
       input.classList.remove("ph-typing");
     });
