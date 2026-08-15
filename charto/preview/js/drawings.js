@@ -183,11 +183,32 @@ const Drawings = (() => {
       getBars: env.getBars, getIntervalSec: env.getIntervalSec, tToX, vToY,
     });
 
-    /** A drawing → its primitives. The single place a tool becomes geometry. */
+    /** A drawing → its primitives. The single place a tool becomes geometry.
+     *
+     *  A tool being PLACED has fewer anchors than it needs, and every builder
+     *  reads a[1] or a[2] directly — so a half-placed three-point tool threw,
+     *  the catch below swallowed it, and the chart showed NOTHING between the
+     *  first click and the last. You were drawing a fib extension blind: no
+     *  leg, no ladder, no preview, and the only way to find out where it
+     *  landed was to finish it and look. TradingView previews from the first
+     *  click, which is the whole reason its three-point tools are usable.
+     *
+     *  The missing anchors are filled with the last one the pointer is
+     *  carrying, so the preview IS the drawing as it currently stands: after
+     *  one click a fib extension shows the leg collapsed onto the cursor,
+     *  after two the real leg and a ladder hanging off the moving third
+     *  point. Padding here rather than in fifteen builders means a tool
+     *  added tomorrow gets its preview for nothing, and no builder has to
+     *  grow a branch for a state that is not a drawing yet. */
     function primsOf(d) {
       const spec = Tools.SPECS[d.type];
-      if (!spec) return [];
-      try { return spec.build(d.pts, buildCtx, d) || []; } catch { return []; }
+      if (!spec || !d.pts || !d.pts.length) return [];
+      let pts = d.pts;
+      if (spec.anchors !== "free" && pts.length < spec.anchors) {
+        const last = pts[pts.length - 1];
+        pts = pts.concat(Array(spec.anchors - pts.length).fill(last));
+      }
+      try { return spec.build(pts, buildCtx, d) || []; } catch { return []; }
     }
 
     // ── rendering ───────────────────────────────────────

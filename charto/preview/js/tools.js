@@ -376,8 +376,13 @@ const Tools = (() => {
                      G.segment(a[1], a[2], { dash: [3, 3], width: 1 })];
         for (const r of FIB_EXT) {
           const v = a[2].v + leg * r;
-          out.push(G.segment({ t: t0, v }, { t: t0 + 500 * c.iv, v },
-                             { extend: "right", color: colorOf(r) }),
+          // 500 BARS, not 500 × interval seconds — the second point only
+          // fixes the heading as exactly horizontal before the projector
+          // clips it, and a fraction of the wall clock is not a heading.
+          // Extended both ways: a projection you cannot see until it is
+          // already behind price is a projection that arrived too late.
+          out.push(G.segment({ t: t0, v }, { t: c.tShift(t0, 500), v },
+                             { extend: "both", color: colorOf(r) }),
                    G.label({ t: a[2].t, v }, `${pct(r)}  ${c.fmt(v)}`,
                            { color: colorOf(r) }));
         }
@@ -403,7 +408,12 @@ const Tools = (() => {
         for (const r of FIB) {
           const p = { t: a[0].t, v: a[0].v + off * r };
           const q = { t: a[1].t, v: a[1].v + off * r };
-          out.push(G.segment(p, q, { extend: "right", color: colorOf(r) }),
+          // BOTH ways. A channel is a claim about a trend's slope, and a
+          // trend does not begin at the bar you happened to click first —
+          // extending only right left the rails starting mid-chart with
+          // nothing behind them, so half the structure they were fitted to
+          // had no line over it.
+          out.push(G.segment(p, q, { extend: "both", color: colorOf(r) }),
                    G.label(q, pct(r), { color: colorOf(r) }));
         }
         return out;

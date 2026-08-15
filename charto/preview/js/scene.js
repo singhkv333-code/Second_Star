@@ -328,7 +328,15 @@ const Scene = (() => {
       drawing: (a) => {
         const spec = Tools.SPECS[a.tool];
         if (!spec || !Array.isArray(a.pts) || !a.pts.length) return [];
-        try { return spec.build(a.pts, buildCtx, a) || []; } catch { return []; }
+        // padded the same way the rail pads a half-placed tool (js/drawings.js
+        // primsOf), so a chat drawing that arrives one anchor short renders
+        // what it has instead of silently rendering nothing
+        let pts = a.pts;
+        if (spec.anchors !== "free" && pts.length < spec.anchors) {
+          pts = pts.concat(Array(spec.anchors - pts.length)
+            .fill(pts[pts.length - 1]));
+        }
+        try { return spec.build(pts, buildCtx, a) || []; } catch { return []; }
       },
     };
     // the rail's context, built from THIS layer's readers — see
