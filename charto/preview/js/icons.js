@@ -51,6 +51,37 @@ const Icons = (() => {
     // stacked reward/risk boxes, the way a position tool reads on a chart
     position: '<rect x="3" y="5" width="18" height="6" rx="1"/><rect x="3" y="13" width="18" height="6" rx="1"/><path d="M3 12h18"/>',
     fib: '<path d="M3 5h18"/><path d="M3 9.67h18"/><path d="M3 14.33h13"/><path d="M3 19h18"/>',
+    /* ── the ratio family ──────────────────────────────────
+     * Sixteen glyphs on one grammar, so the flyout can be read down its left
+     * edge rather than by its labels. A LADDER of horizontals means levels in
+     * price; a COMB of verticals means levels in time; RAYS from a corner
+     * mean a slope; RINGS mean distance from a pivot. The dot marks the
+     * anchor a construction is built from, wherever a tool has one that the
+     * eye would otherwise have to guess at. */
+    // ladder + the extra leg that makes it an extension rather than a retrace
+    fibExtension: '<path d="M3 8h18"/><path d="M3 12h18"/><path d="M3 16h18"/><path d="M3 20 8 4l5 9"/>',
+    // the same ladder, tilted onto a trend
+    fibChannel: '<path d="M3 21 21 11"/><path d="M3 17.5 21 7.5"/><path d="M3 15 21 5"/><path d="M3 13 21 3"/>',
+    // a comb — levels in TIME, not price, spaced the way the sequence is
+    fibTimeZone: '<path d="M3 3v18"/><path d="M6 3v18"/><path d="M10 3v18"/><path d="M16 3v18"/><circle cx="3" cy="21" r="1.6"/>',
+    // rays off one corner, with the box they divide
+    fibSpeedFan: '<path d="M3 21 21 3"/><path d="M3 21 21 9"/><path d="M3 21 21 15"/><path d="M3 21 15 3"/><path d="M3 3v18h18" stroke-dasharray="2 2"/>',
+    // the comb again, but counted from a measured leg
+    fibTimeExtension: '<path d="M3 20 9 8l4 6"/><path d="M13 3v18"/><path d="M17 3v18"/><path d="M21 3v18"/>',
+    fibCircles: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2.2"/>',
+    fibSpiral: '<path d="M14.6 20.4a8.8 8.8 0 1 0-8.5-8.9 5.4 5.4 0 1 0 5.6 5.2 3.3 3.3 0 1 1-3.2-3.2"/>',
+    // half-rings opening the way the move went
+    fibArcs: '<path d="M3 21a18 18 0 0 0 18-18"/><path d="M3 21a12 12 0 0 0 12-12"/><path d="M3 21a6 6 0 0 0 6-6"/><circle cx="3" cy="21" r="1.6"/>',
+    // two rays and the rungs between them
+    fibWedge: '<path d="M3 21 21 5"/><path d="M3 21h18"/><path d="M7.4 21a5 5 0 0 0 3.4-4"/><path d="M12.6 21a11 11 0 0 0 6.4-8.6"/><circle cx="3" cy="21" r="1.6"/>',
+    // a pitchfork's handle, with a full ladder of tines
+    pitchfan: '<path d="M3 21 21 3"/><path d="M3 21 21 8"/><path d="M3 21 21 13"/><path d="M3 21 21 18"/><path d="M3 21 16 3"/><circle cx="3" cy="21" r="1.7"/>',
+    // ── gann: the grid, and what is drawn over it ─────────
+    gannBox: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/>',
+    gannSquare: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><path d="M3 20a17 17 0 0 0 17-16"/>',
+    // the same figure with ONE anchor — the dot is the whole difference
+    gannSquareFixed: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><circle cx="3" cy="20" r="2.1"/>',
+    gannFan: '<path d="M3 21 21 3"/><path d="M3 21 21 10"/><path d="M3 21 21 16"/><path d="M3 21 12 3"/><path d="M3 21 17 3"/>',
     brush: '<path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
     text: '<path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/>',
     measure: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
@@ -116,6 +147,12 @@ const Icons = (() => {
     arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
     camera: '<path d="M14.5 4h-5L7.2 6.8H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8.8a2 2 0 0 0-2-2h-3.2L14.5 4z"/><circle cx="12" cy="13" r="3.2"/>',
+    // voice input, and the same glyph struck through for the failure flash —
+    // the pair Pivot's composer uses, so the two products say it the same way
+    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+    micOff: '<path d="M2 2 22 22"/><path d="M18.9 13.2A7 7 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 11.9 5"/><path d="M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M12 19v3"/>',
+    // Lucide's Loader2 — the glyph Pivot spins while a recording uploads
+    loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
     eyeOff: '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m2 2 20 20"/>',
     fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
@@ -252,6 +289,117 @@ const Icons = (() => {
     return `<svg class="${klass}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   }
 
+  /* ── template tiles: a SECOND family, with different rules ─────────────
+   *
+   * The glyphs above are 24×24 stroke-only signage — they label a control you
+   * already know how to use. These are something else: the twelve openings on
+   * an empty chat, where the picture has to teach what the thing DOES before
+   * the user has any vocabulary for it. So they are miniature illustrations,
+   * not symbols, and they follow the convention that reads as "template
+   * picker" everywhere it appears (Claude Design, Notion, Figma):
+   *
+   *   · 40×40 viewBox — four times the area of a glyph, which is what buys
+   *     room for a drawing instead of a pictogram
+   *   · 1.6 stroke in currentColor, round caps and joins
+   *   · DUOTONE: exactly ONE accent per tile, marked `class="a"` (stroke) or
+   *     `class="af"` (fill). One is the whole trick — the accent is what the
+   *     tile is about, and a second one turns a drawing into a diagram.
+   *     Colour comes from CSS so the accent follows the theme.
+   *   · Every tile is drawn ON a chart, because that is charto's one subject.
+   *     A generic magnifier for "screen" or a generic bell for "alert" would
+   *     be an icon from any app; a magnifier over candles is from this one.
+   *
+   * Kept in this file rather than a new one because "where the icons live"
+   * should have a single answer, but deliberately in its own map: mixing a
+   * 40-unit path into P would silently render at 24 and nobody would know
+   * why it looked thin.
+   */
+  const T = {
+    // support and resistance: the candles are the evidence, the two flat
+    // lines are the answer
+    levels: '<path d="M7 32h26"/>'
+      + '<path d="M11 15v14M18 12v17M25 17v12M31 14v15"/>'
+      + '<rect x="9" y="19" width="4" height="6" rx="1"/>'
+      + '<rect x="16" y="16" width="4" height="9" rx="1"/>'
+      + '<rect x="23" y="20" width="4" height="5" rx="1"/>'
+      + '<rect x="29" y="18" width="4" height="7" rx="1"/>'
+      + '<path class="a" d="M6 14.5h28M6 28h28" stroke-dasharray="3 2.5"/>',
+    // a formation: two converging rails and the apex they resolve at
+    patterns: '<path d="M7 32h26"/>'
+      + '<path d="M10 27.5 14 17.6l4 7.9 4-6 4 3.5 3.5-1.2"/>'
+      + '<path class="a" d="M9 15 31 22M9 29l22-7"/>',
+    // the line you draw, and the two bars it is pinned to
+    trendlines: '<path d="M7 32h26"/>'
+      + '<path d="M11 20v9M18 16v13M25 19v10M31 12v17"/>'
+      + '<path class="a" d="M10 28.5 32 13"/>',
+    // price above, its own pane below — the divider IS the idea
+    indicators: '<path d="M7 17l5-5 5 4 5-7 5 6 4-3"/>'
+      + '<path d="M6 22h28" opacity=".55"/>'
+      + '<path class="a" d="M7 30c3 0 3-5 6-5s3 6 6 6 3-7 6-7 3 4 6 4"/>',
+    // volume at price: the bars are the point, the longest one is the answer
+    volumeProfile: '<path d="M7 32h26"/>'
+      + '<path d="M10 15v14M15 12v17M20 18v11"/>'
+      + '<path d="M24 26h6M24 22h4M24 14h5"/>'
+      + '<path class="a" d="M24 18h11"/>',
+    // the jump, and the reason attached to it
+    whyMoved: '<path d="M7 32h26"/>'
+      + '<path d="M9 28l4-1.5 4 1"/>'
+      + '<path class="a" d="M17 27.5 23 15"/>'
+      + '<path d="M23 15l4 3 5-2.5"/>'
+      + '<path class="af" d="M28.6 8l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" stroke="none"/>',
+    // target above, entry, stop below — the only tile that earns two colours,
+    // because up and down are not decoration here, they are the two outcomes
+    planTrade: '<path d="M7 32h26"/>'
+      + '<path d="M13 15v14M20 12v17M27 18v11"/>'
+      + '<path class="up" d="M8 12h26"/>'
+      + '<path d="M8 21h26" stroke-dasharray="3 2.5"/>'
+      + '<path class="down" d="M8 28h26"/>',
+    // does the shape actually work: the shape, then the record
+    evidence: '<path d="M7 32h26"/>'
+      + '<path d="M8 22l5-6 5 4 5-7"/>'
+      + '<path class="a" d="M23 29v-6M28 29v-11M33 29v-8"/>'
+      + '<path d="M21 32h14" opacity=".55"/>',
+    // the same setup, across the market
+    screen: '<rect x="6" y="8" width="28" height="24" rx="3"/>'
+      + '<path d="M6 15h28M15 15v17M25 15v17" opacity=".55"/>'
+      + '<path d="M8 27l3-3 2 2M17 26l3-4 2 3M27 28l2-3 2 2"/>'
+      + '<rect class="af" x="15" y="15" width="10" height="8.5" rx="0" stroke="none" opacity=".16"/>'
+      + '<path class="a" d="M17 21l3-4 2 3"/>',
+    // two instruments, one origin, and the gap that opens
+    compare: '<path d="M7 32h26"/>'
+      + '<path d="M8 26l6-3 6-6 6-4 6-2"/>'
+      + '<path class="a" d="M8 26l6 1 6 3 6-1 6 2"/>',
+    // the level, and the moment it is crossed
+    alert: '<path d="M7 32h26"/>'
+      + '<path d="M7 27l6-2 5-5 5-3"/>'
+      + '<path d="M6 20h28" stroke-dasharray="3 2.5"/>'
+      + '<path class="a" d="M27 19a4.5 4.5 0 0 1 9 0c0 4 1.2 5 1.2 5H25.8s1.2-1 1.2-5z"/>'
+      + '<path class="a" d="M30 27.5a1.8 1.8 0 0 0 3 0"/>',
+    // a viewfinder around the chart: the BRACKETS carry the accent, because
+    // the framing is the action — what is inside them is only the chart again
+    screenshot: '<path class="a" d="M7 14.5V9.5A2 2 0 0 1 9 7.5h5"/>'
+      + '<path class="a" d="M33 14.5V9.5a2 2 0 0 0-2-2h-5"/>'
+      + '<path class="a" d="M7 25.5v5a2 2 0 0 0 2 2h5"/>'
+      + '<path class="a" d="M33 25.5v5a2 2 0 0 1-2 2h-5"/>'
+      + '<path d="M11 26h18"/>'
+      + '<path d="M12 23l4-6 4 4 4-7 4 5"/>',
+    // the print, and the bar that reacted to it
+    earnings: '<path d="M7 32h26"/>'
+      + '<path d="M11 20v9M18 22v7M31 14v15"/>'
+      + '<rect x="9" y="22" width="4" height="5" rx="1"/>'
+      + '<rect x="16" y="24" width="4" height="4" rx="1"/>'
+      + '<rect x="29" y="17" width="4" height="9" rx="1"/>'
+      + '<path class="a" d="M25 11v21" stroke-dasharray="3 2.5"/>'
+      + '<rect class="af" x="21.5" y="6.5" width="7" height="5" rx="1.4" stroke="none"/>',
+  };
+
+  /** tile(name) → the 40×40 template illustration. */
+  function tile(name) {
+    const body = T[name];
+    if (!body) throw new Error(`Icons: unknown tile "${name}"`);
+    return `<svg class="tile-art" viewBox="0 0 40 40" aria-hidden="true">${body}</svg>`;
+  }
+
   /* ── the search field's leading mark ────────────────────────────────────
    * Every "type to filter this list" box in the app wears the SAME
    * magnifier, and it is the only thing that says the box is focused (the
@@ -274,7 +422,7 @@ const Icons = (() => {
     }
   }
 
-  return { svg, layoutSvg, field, mountSearchFields, paths: P };
+  return { svg, layoutSvg, tile, field, mountSearchFields, paths: P, tiles: T };
 })();
 
 /* This file is loaded after the markup it decorates, so the fields exist by

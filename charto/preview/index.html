@@ -1705,9 +1705,29 @@ header > .btn, header > .badge { flex: none; }
   -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
-/* TradingView cursors: crosshair to place, grabbing hand while panning */
+/* TradingView cursors.
+
+   The pick hand is the SYSTEM pointer, not artwork of ours. Two hand-drawn
+   attempts went in first — 14x20 then 11x14, both pixel bitmaps — and both
+   were wrong for the same reason: the smooth hand people recognise is the
+   operating system's own, rendered by the compositor at whatever the display's
+   real density is. Any SVG we ship is a copy of it that is subtly off, has to
+   be redrawn for a second OS, and cannot be crisp at every scale factor.
+   `pointer` IS that hand on macOS, and the right hand on Windows and Linux.
+
+   What stays ours is WHERE it appears: only over a candle, via #chart.on-bar,
+   toggled from the crosshair subscription in main.js against the bar's own
+   high-low span. Empty plot keeps the crosshair, which is what you want for
+   reading a level off the axis. */
+#chart, #chart * { cursor: crosshair; }
+#chart.on-bar, #chart.on-bar * { cursor: pointer; }
+/* the axes are drag handles and have to keep saying so; lightweight-charts
+   sets no cursor of its own on them */
+#chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
+#chart table tr:last-child td, #chart table tr:last-child td * { cursor: ew-resize; }
+#chart.drawing, #chart.drawing * { cursor: crosshair; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-.stage.overdraw #chart { cursor: move; }
+.stage.overdraw #chart, .stage.overdraw #chart * { cursor: move; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -2030,14 +2050,181 @@ body.two-columns .readout .row { display: none; }
 .auto-pill.show { display: block; }
 .auto-pill:hover { color: var(--primary); border-color: var(--primary); }
 
+/* The currency badge (top of the price scale) and the clock badge (the corner
+   where the two scales meet) — TradingView's two corners, as statements.
+   pointer-events off on both: they are not buttons and must never eat a drag
+   aimed at the scale underneath them.
+
+   OPAQUE, and that is the whole trick. Both sit in space lightweight-charts
+   is free to draw an axis label into, and it has no way to reserve a header
+   for us. Translucent, the first attempt read as a collision — a badge with
+   "850.00" poking out either side of it. Painted in the chart's own
+   background they read as part of the axis, which is exactly how
+   TradingView's own two boxes cover whatever tick falls behind them. */
+.axis-note {
+  position: absolute; z-index: 6; pointer-events: none;
+  font-size: var(--text-2xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  background: var(--chart-bg);
+}
+.axis-note.cur {
+  /* spans the price-scale column, so the tick it covers is covered fully */
+  right: 4px; top: 6px; width: 56px; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 2px 0; letter-spacing: .04em;
+}
+.axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
+
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
-  align-items: center; justify-content: center;
+  flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   background: color-mix(in srgb, var(--chart-bg) 78%, transparent);
   color: var(--muted-foreground); font-size: var(--text-md);
 }
 .overlay-msg.show { display: flex; }
 .overlay-msg .err { color: var(--down); }
+/* a failure is not a thing to watch swing */
+.overlay-msg.is-err .ldr { display: none; }
+
+/* ── the loading pendulum ──────────────────────────────────────────────
+   The bob is the MARK — the slashed circle of assets/pivot-mark.png, taken
+   as a mask over `--foreground` the same way `.chart-mark` above takes it,
+   so it is black on the light theme and white on the dark one from a
+   single file. Not a spinner borrowed from somewhere else.
+
+   THE ROPE IS NOT ONE ELEMENT. It is seven nested segments, each rotating
+   about its own top, so their rotations compound into a polyline that
+   reads as a curve. That is the only way a DOM rope can bow: a single div
+   can be scaled and skewed but never bent. Seven rather than three is the
+   resolution of the curve — at three the bend is a hinge, at seven the
+   joints fall below the eye's threshold and it is a line that bends.
+
+   Each segment carries a slightly larger `--bow` and a slightly later
+   `--lag` than the one above it, and because every segment shares the
+   swing's period, a constant delay is a constant PHASE lag — the tail
+   keeps travelling for a moment after the arm has already turned at the
+   apex, which is what rope does. The lag ladder is also what makes the
+   whip an S rather than an arc: mid-flick the top of the rope has already
+   reversed while the bottom has not, so the two halves bend opposite ways.
+
+   Three phases, and the seams are the whole trick.
+
+   1. THE DROP. `.ldr-pay` is a full-length rope parked one full length
+      ABOVE the peg and clipped by `.ldr`'s overflow, so as it translates
+      down the rope pays OUT of the peg — always attached, growing, never a
+      scaleY on a line (which would thin it as it grew). The curve is a
+      hard ease-in: gravity, accelerating the whole way.
+   2. THE SNAP. At the bottom the rope overshoots to `scaleY(1.07)` — it
+      stretches past its own length — then recoils under 1 and settles.
+      Origin `50% 0` is the peg, so the stretch happens at the far end
+      where a real rope's stretch shows.
+   3. THE SWING. It arrives at the apex with ZERO velocity, which is where
+      a pendulum's velocity actually is zero, so `ldrSwing` can begin from
+      exactly that angle with no jump. `ease-in-out` on `alternate` is a
+      sine, and a sine is a pendulum under gravity: slowest at the apexes,
+      fastest through the bottom.
+
+   Nothing here animates anything but transform, so the whole thing
+   composites on the GPU and keeps moving while the main thread is busy
+   doing the loading it is reporting on. */
+.ldr {
+  --len: 62px;  --seg: calc(var(--len) / 7);  --lean: 30deg;
+  --fall: .72s; --kick: .6s; --per: 1.32s;
+  --t1: calc(var(--fall) * .78);        /* the snap — where the kick begins */
+  --t2: calc(var(--t1) + var(--kick));  /* the apex — where the swing takes over */
+  position: relative; width: 116px; height: calc(var(--len) + 26px);
+  /* clips the rope still above the peg. The sides are far enough out that
+     the swing never reaches them: 62·sin38 + 13 = 51 < 58. */
+  overflow: hidden;
+}
+.ldr::before {                      /* the peg it hangs from */
+  content: ""; position: absolute; left: 50%; top: 0;
+  width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
+  background: var(--muted-foreground); opacity: .5; z-index: 1;
+}
+.ldr-arm {                          /* the pendulum proper — pivots on the peg */
+  position: absolute; left: 50%; top: 2px; width: 0; height: var(--len);
+  transform-origin: 50% 0;
+  animation: ldrKick var(--kick) cubic-bezier(.32, .72, .38, 1) var(--t1) both,
+             ldrSwing var(--per) ease-in-out var(--t2) infinite alternate;
+}
+.ldr-pay {                          /* the rope paying out of the peg */
+  position: absolute; left: 0; top: 0; width: 0; height: 100%;
+  transform-origin: 50% 0;
+  animation: ldrPay var(--fall) linear both;
+}
+.ldr-seg {
+  position: absolute; left: 0; top: 0; width: 0; height: var(--seg);
+  transform-origin: 50% 0;
+  animation: ldrBowIn calc(var(--t2) - var(--fall) * .35)
+               ease-in-out calc(var(--fall) * .35 + var(--lag)) both,
+             ldrBow var(--per) ease-in-out calc(var(--t2) + var(--lag))
+               infinite alternate;
+}
+.ldr-seg .ldr-seg { top: 100%; }
+.ldr-seg::before {                  /* the thread itself */
+  content: ""; position: absolute; left: -1px; top: 0;
+  /* the 1.4px of extra height, and the round cap, is what closes the joint
+     between two segments once the thread is wide enough to show one */
+  width: 2px; height: calc(100% + 1.4px); border-radius: 1px;
+  background: currentColor; opacity: .4;
+}
+/* `--whip` is the pay-out and the snap, where the rope should visibly BEND;
+   `--bow` is the steady-state lag, which should only ever be felt. They are
+   separate because one wants to be seen and the other does not, and a single
+   amplitude that reads during the snap is a rope flapping during the swing.
+   Both grow down the chain, and so does `--lag`: seven compounding rotations
+   at seven different phases is what stops this looking like a hinge. */
+.g1 { --bow: .35deg; --whip: 3deg;  --lag: 0s;   }
+.g2 { --bow: .55deg; --whip: 5deg;  --lag: .05s; }
+.g3 { --bow: .75deg; --whip: 7deg;  --lag: .1s;  }
+.g4 { --bow: .95deg; --whip: 9deg;  --lag: .15s; }
+.g5 { --bow: 1.15deg;--whip: 11deg; --lag: .2s;  }
+.g6 { --bow: 1.35deg;--whip: 13deg; --lag: .25s; }
+.g7 { --bow: 1.55deg;--whip: 15deg; --lag: .3s;  }
+.ldr-ball {
+  position: absolute; left: -13px; top: calc(100% - 13px);
+  width: 26px; height: 26px;
+  background: var(--foreground);
+  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
+          mask: url("assets/pivot-mark.png") center / contain no-repeat;
+  /* A short appear, not a cover-up: the rope starts 16px paid out (below)
+     precisely so the mark clears the peg and the overflow never bisects it.
+     This is only so it arrives rather than pops. */
+  animation: ldrBallIn calc(var(--fall) * .22) ease-out both;
+}
+@keyframes ldrBallIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ldrPay {
+  /* 16px, not 0, so the mark starts clear of the peg the overflow clips at */
+  0%   { transform: translateY(calc(-100% + 16px)) scaleY(1);
+         animation-timing-function: cubic-bezier(.45, 0, .75, .4); }   /* gravity */
+  72%  { transform: translateY(0) scaleY(1.09);
+         animation-timing-function: cubic-bezier(.2, .9, .35, 1); }    /* taut, stretched */
+  87%  { transform: translateY(0) scaleY(.98); }                       /* the recoil */
+  100% { transform: translateY(0) scaleY(1); }
+}
+@keyframes ldrKick  { from { transform: rotate(0deg); }
+                      to   { transform: rotate(calc(-1 * var(--lean))); } }
+@keyframes ldrSwing { from { transform: rotate(calc(-1 * var(--lean))); }
+                      to   { transform: rotate(var(--lean)); } }
+/* The rope's own story, and the reason it reads as rope rather than wire:
+   it SNAKES as it pays out, WHIPS the other way when it goes taut, counter-
+   whips as that energy comes back, then settles — four inflections, each one
+   later and larger further down the chain. It ends at exactly where `ldrBow`
+   starts, so the handover into the steady swing is invisible. */
+@keyframes ldrBowIn {
+  0%   { transform: rotate(0deg); }
+  22%  { transform: rotate(calc(var(--whip) * -.55)); }
+  48%  { transform: rotate(var(--whip)); }
+  74%  { transform: rotate(calc(var(--whip) * -.28)); }
+  100% { transform: rotate(calc(-1 * var(--bow))); }
+}
+@keyframes ldrBow   { from { transform: rotate(calc(-1 * var(--bow))); }
+                      to   { transform: rotate(var(--bow)); } }
+@media (prefers-reduced-motion: reduce) {
+  .ldr-arm, .ldr-seg { animation: none; }
+  .ldr-pay { animation: none; transform: none; }
+}
 
 /* ── split divider: chart | chat ─────────────────────────────────────────
    At rest this is the same 1px seam every other panel boundary is, because
@@ -2387,6 +2574,13 @@ body.two-columns .readout .row { display: none; }
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   padding: 8px 0; scroll-behavior: smooth;
 }
+/* Nothing has been asked yet, so there is no thread to hold the top of the
+   pane and the group would otherwise sit on the floor under an empty sky.
+   Collapsing the thread lets the composer's auto margins centre the group
+   in the space instead. :has() keeps the rule keyed to the one state that
+   wants it — no class to set, nothing to forget to unset. */
+.chatpanel:has(.ask-group.has-tray) .thread { flex: 0 0 auto; }
+.chatpanel:has(.ask-group.has-tray) .composer-wrap { margin-block: auto; }
 .thread-inner {
   max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
   display: flex; flex-direction: column; gap: 26px;
@@ -3104,11 +3298,238 @@ body.two-columns .readout .row { display: none; }
 }
 @keyframes caretBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
-.chat-empty {
-  color: var(--faint); font-size: var(--text-lg); text-align: center;
-  margin-top: 22vh; margin-top: 22dvh; line-height: 1.7;
+/* ── the ask group ─────────────────────────────────────────────────────
+   The prompt bar and the twelve openings are ONE box. The tray hangs off
+   the bar, shares its border and its rounding, and disappears the moment
+   the conversation starts — the openings are for the blank page, and after
+   the first question the thread itself is the context.
+
+   The tint is charto's own blue, and the whole trick is restraint: it is
+   plain in the MIDDLE and only carries colour at the two ends, so the
+   surface reads as lit rather than coloured. Three stacked gradients do
+   it — a horizontal pair that fades to nothing across the centre third,
+   and a vertical wash that lets the tray sit a shade deeper than the bar
+   above it. Each is a different, deliberately low alpha; one flat tint at
+   one opacity is what makes a panel look painted. */
+.ask-group.has-tray {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  /* Translucent, because glass that is not translucent is just a panel.
+     The refraction and the backdrop blur come from vendor/liquid-glass.js
+     (an SVG feDisplacementMap driven through backdrop-filter, which only
+     Chromium can do — it falls back to frosted blur elsewhere on its own).
+     Everything here is the DRESSING that turns a blurred backdrop into a
+     material: a tint of its own; a rim, one bright inset line along the top
+     edge and a dimmer one along the bottom, which is what reads as
+     thickness; a hairline border a little brighter than the app's, since a
+     glass edge catches light a flat one does not; and an outer shadow, so
+     it sits ABOVE the pane rather than in it. */
+  background: color-mix(in srgb, var(--card) 46%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
+    0 12px 34px -14px rgb(0 0 0 / .5);
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
-.chat-empty b { color: var(--muted-foreground); font-weight: var(--weight-display); }
+.ask-group.has-tray::after {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 58%;
+  pointer-events: none; z-index: 2; border-radius: inherit;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--foreground) 7%, transparent) 0%,
+    color-mix(in srgb, var(--foreground) 2%, transparent) 42%,
+    transparent 100%);
+}
+
+/* The bar does NOT dissolve into the group. It keeps its own card surface
+   and its own edge and sits inset on the tinted panel, so the thing you
+   type into stays one object and the openings above it stay another —
+   grouped, not merged. The inner radius is a step down from the group's
+   so the two curves nest instead of fighting. */
+.ask-group.has-tray > .composer {
+  /* A step of grey ABOVE the panel, not below it. The bar is the one thing
+     on this surface you act on, so it wants to sit proud of the glass
+     rather than sink into it — mixed off the foreground so it lifts in
+     dark and settles in light, either way reading as a field. */
+  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
+  border-color: color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: var(--radius-md);
+  margin: 0 6px 6px;
+}
+
+.tpl { padding: 13px 14px 2px; position: relative; }
+.tpl > * { position: relative; z-index: 1; }
+
+/* ── the glow above the bar ────────────────────────────────────────────
+   Two blurred radial blobs sitting on the seam between the openings and
+   the prompt bar, drifting on 19s and 25s — deliberately non-divisible,
+   so the two never come back into phase and the movement never resolves
+   into a loop you can count. Transform-only, so it composites on the GPU
+   and costs nothing per frame; the blobs live behind `.tpl > *`, which is
+   why the tiles sit on their own z-index.
+
+   The whole effect is one colour at low opacity. It is meant to be
+   noticed on the second look, not the first. */
+.ask-shell { position: relative; }
+.ask-glow { display: none; }
+.ask-shell:has(.ask-group.has-tray) .ask-glow {
+  display: block; position: absolute; inset: 0; z-index: 0;
+  border-radius: var(--radius-2xl); overflow: hidden; pointer-events: none;
+}
+.ask-glow::before, .ask-glow::after {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  left: -10%; right: -10%; top: -34px; height: 108px;
+  will-change: transform;
+}
+.ask-glow::before {
+  background: radial-gradient(46% 76% at 30% 60%,
+    color-mix(in srgb, var(--primary) 58%, transparent), transparent 72%);
+  filter: blur(20px); opacity: .72;
+  animation: askDriftA 19s ease-in-out infinite alternate;
+}
+.ask-glow::after {
+  background: radial-gradient(40% 66% at 70% 54%,
+    color-mix(in srgb, var(--primary) 42%, transparent), transparent 72%);
+  filter: blur(24px); opacity: .58;
+  animation: askDriftB 25s ease-in-out infinite alternate;
+}
+@keyframes askDriftA {
+  0%   { transform: translate3d(-7%, 2px, 0) scaleX(1); }
+  50%  { transform: translate3d(3%, -3px, 0) scaleX(1.1); }
+  100% { transform: translate3d(8%, 1px, 0) scaleX(.94); }
+}
+@keyframes askDriftB {
+  0%   { transform: translate3d(9%, -1px, 0) scaleX(1); }
+  50%  { transform: translate3d(-2%, 3px, 0) scaleX(.92); }
+  100% { transform: translate3d(-8%, 0, 0) scaleX(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-glow::before, .ask-glow::after { animation: none; }
+}
+.ask-group.has-tray > .tpl {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  padding-bottom: 11px; margin-bottom: 7px;
+}
+.tpl-head {
+  font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
+  margin: 0 0 10px 1px; font-weight: var(--weight-display);
+}
+/* Twelve tiles want an even grid — 6x2, 4x3 or 3x4. A CONTAINER query, not
+   a media query: the chat pane is resizable, so the width that matters is
+   the pane's, not the window's. */
+.tpl { container-type: inline-size; }
+.tpl-grid { display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr); }
+@container (min-width: 476px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
+@container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* The whole card lights up, icon and label and the air around both — the
+   thing you are aiming at is the tile, so the tile is what has to
+   acknowledge the pointer. Highlighting only the 48px frame made the
+   label look like it belonged to something else, and gave a target a
+   third the size of the one the eye had already picked. */
+.tpl-card {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 9px 4px 7px; border: 0; background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--faint); font: inherit; font-size: var(--text-2xs);
+  cursor: pointer; text-align: center; position: relative; z-index: 1;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.tpl-card:hover, .tpl-card:focus-visible, .tpl-card.is-on {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+/* The box holds the ICON ONLY — the label lives under it, outside the
+   frame, so a long name cannot stretch the box and break the row of
+   squares. 4px of air on every side: enough to read as a container,
+   not enough to read as padding. */
+.tpl-box {
+  width: 62px; height: 62px; border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.tpl-card:focus-visible { outline: none; }
+/* Selected is the hover block, held. It says only "this is the one that
+   wrote what is in the bar" — which is a pointer, not a status, so it
+   borrows hover's paint rather than inventing a louder one. A blue frame
+   read as a toggle that was now ON and armed, and nothing is armed: the
+   sentence is sitting in the bar waiting to be edited or sent. */
+.tpl-name { line-height: 1.2; }
+
+/* The art. Stroke width is set ONCE here rather than per path, so the
+   family stays consistent and no tile can drift heavier than its
+   neighbours. `.a` strokes the accent, `.af` fills it — one per tile.
+   `.up`/`.down` exist for the one tile whose two colours are its meaning
+   rather than its decoration. */
+/* The art carries its OWN ink, a step above the label's. Inheriting the
+   card's colour tied the drawing to --faint, which is a caption weight —
+   right for twelve words under a tile, too quiet for the thing the tile
+   is actually made of. It brightens to full foreground with the card, so
+   hover still lifts the whole thing together.
+
+   1.75 rather than 1.6: enough to hold the line at 52px without the
+   drawings closing up. Past about 1.9 the notches between the folded
+   fingers of the wedge fill in and it stops being a wedge. */
+.tile-art {
+  width: 52px; height: 52px; display: block;
+  color: var(--muted-foreground);
+  fill: none; stroke: currentColor;
+  stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+.tpl-card:hover .tile-art,
+.tpl-card:focus-visible .tile-art,
+.tpl-card.is-on .tile-art { color: var(--foreground); }
+
+/* Light mode wants both dials moved, and in opposite directions.
+   A dark stroke on white already reads heavier than the same stroke light
+   on black — ink on paper gains weight, glow on dark loses it — so 1.75
+   comes back to 1.55 to land at the same apparent weight.
+   The accent goes the other way: mixed toward the label's grey it was fine
+   on a dark panel, but on white a mid-teal is the value that disappears.
+   It mixes toward the FOREGROUND here, which darkens it into the page
+   instead of washing it out. */
+:root[data-theme="light"] .tile-art {
+  stroke-width: 1.55;
+  /* --muted-foreground is #4d555c on white, which is nearly body-text ink:
+     twelve drawings at that value stopped being illustration and started
+     being a wall of dark line. Lifted toward the card so the art sits
+     between the label and the page rather than on top of both. */
+  color: color-mix(in srgb, var(--muted-foreground) 72%, var(--card));
+}
+/* Mixing the accent toward the foreground darkened it but took its chroma
+   with it — #1b7085 is a grey that happens to be teal, and on white that
+   reads as dull rather than deliberate. Mixed toward a saturated deep teal
+   instead, it keeps the depth AND the colour, so it is the thing the eye
+   goes to in each tile. */
+:root[data-theme="light"] .tile-art .a {
+  stroke: color-mix(in srgb, var(--primary) 62%, #003347);
+}
+:root[data-theme="light"] .tile-art .af {
+  fill: color-mix(in srgb, var(--primary) 62%, #003347);
+}
+/* The accent is charto's blue pulled back toward the ink around it. At full
+   --primary it is a saturated cyan, and on a dark panel a saturated cyan at
+   1.35px does not read as a line — it reads as a light source, and twelve
+   of them glowing at once is the loudest thing on the screen. Mixed with the
+   label's own grey it stays unmistakably the accent and stops emitting. */
+.tile-art .a {
+  stroke: color-mix(in srgb, var(--primary) 58%, var(--muted-foreground));
+  stroke-width: 1.15;
+}
+.tile-art .af { fill: color-mix(in srgb, var(--primary) 58%, var(--muted-foreground)); }
+.tile-art .up { stroke: var(--up); }
+.tile-art .down { stroke: var(--down); }
+
+@container (max-width: 380px) {
+  .tpl-box { width: 52px; height: 52px; }
+  .tile-art { width: 44px; height: 44px; }
+}
 
 /* scroll-to-latest, Claude's floating pill */
 .to-bottom {
@@ -3135,6 +3556,10 @@ body.two-columns .readout .row { display: none; }
   max-height: 190px; min-height: 24px; padding: 2px 4px 4px 0; display: block;
 }
 .composer textarea::placeholder { color: var(--faint); }
+/* The sample questions are content, not a label: they are being written
+   for you to read, so they get read weight. Set only while the typewriter
+   is running — the static prompt drops straight back to --faint. */
+.composer textarea.ph-typing::placeholder { color: var(--muted-foreground); }
 .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .cbtn {
   width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
@@ -3143,6 +3568,29 @@ body.two-columns .readout .row { display: none; }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .cbtn:hover { background: var(--accent); color: var(--foreground); }
+/* Voice input is deliberately quieter than the adjacent add and send
+   actions: a borderless Pivot-style glyph with visible recording, upload,
+   and error states. */
+.mic-btn {
+  width: 28px; height: 28px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--radius-pill);
+  color: var(--faint); cursor: pointer; padding: 0;
+  transition: color .18s var(--ease-quartr),
+              background-color .2s var(--ease-quartr);
+}
+.mic-btn svg.icon { width: 16px; height: 16px; stroke-width: 2; }
+.mic-btn:hover { color: var(--foreground); }
+.mic-btn[data-state="recording"] { color: var(--down); background: var(--down-soft); }
+.mic-btn[data-state="recording"] svg { animation: micPulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+.mic-btn[data-state="error"] { color: var(--down); }
+.mic-btn[data-state="busy"] { cursor: wait; }
+.mic-btn[data-state="busy"] svg { animation: micSpin .9s linear infinite; }
+@keyframes micPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes micSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn svg { animation: none; }
+}
 /* The subject chip: which instrument this conversation is about. It carries
    the mark, the ticker and the interval of the chart the model reads, so the
    composer says WHAT is in context rather than merely that something is. */
@@ -4576,7 +5024,8 @@ svg.icon.op {
   }
   .ctx-flag > *:not(img) { display: none; }
   .ctx-flag img { width: 18px; height: 18px; }
-  .send { order: 4; width: 32px; height: 32px; }
+  .mic-btn { order: 4; width: 26px; height: 26px; }
+  .send { order: 5; width: 32px; height: 32px; }
 
   /* Annotation labels are written INTO the chart. On a desktop pane there is
      room beside the candles; on a phone three pattern labels covered the
@@ -5849,8 +6298,26 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
              js/indlegend.js. -->
         <div class="ind-legend empty" id="indLegend"></div>
       </div>
+      <!-- The two things every reading on the axes depends on and neither
+           axis says: what the prices are quoted in, and which clock the
+           times are on. TradingView puts a dropdown in both corners; these
+           are labels, because we neither convert currency nor re-fold the
+           bars onto another timezone, and a control that cannot do the thing
+           it names is worse than no control. -->
+      <div class="axis-note cur" id="curNote" aria-label="Price scale currency"></div>
+      <div class="axis-note clock" id="tzNote" aria-label="Chart timezone"></div>
       <div class="prov" id="provCard"></div>
-      <div class="overlay-msg" id="overlay"><div id="overlayText">Loading…</div></div>
+      <div class="overlay-msg" id="overlay">
+        <!-- The mark on a rope. It falls, the rope snakes out and snaps
+             taut, and it swings until the bars arrive. Seven nested
+             segments because a rope has to BEND and one div cannot. -->
+        <div class="ldr" aria-hidden="true">
+          <span class="ldr-arm"><i class="ldr-pay"><i class="ldr-seg g1"><i class="ldr-seg g2"><i
+            class="ldr-seg g3"><i class="ldr-seg g4"><i class="ldr-seg g5"><i class="ldr-seg g6"><i
+            class="ldr-seg g7"><b class="ldr-ball"></b></i></i></i></i></i></i></i></i></span>
+        </div>
+        <div id="overlayText">Loading…</div>
+      </div>
       <section class="jq" id="journalQuick" aria-label="Journal summary" aria-hidden="true"></section>
     </div>
 
@@ -5893,7 +6360,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
       </div>
       <div class="thread" id="thread">
         <div class="thread-inner" id="chatMsgs">
-          <div class="chat-empty">Ask about what you're looking at.<br/><b>The model sees the visible chart.</b></div>
+          
         </div>
       </div>
 
@@ -5919,14 +6386,27 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <span>screenshot attached</span>
               <span class="x" id="attachRemove" title="Remove">×</span></span>
           </div>
+          <!-- The prompt bar and the openings are one object, not two that
+               happen to be near each other: the tray hangs off the bar and
+               shares its border, so the group reads as "the place you ask". -->
+          <div class="ask-shell" id="askShell">
+          <div class="ask-glow" aria-hidden="true"></div>
+          <div class="ask-group" id="askGroup">
+          <div class="tpl" id="tplTray" hidden></div>
           <form class="composer" id="chatForm">
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
+              <!-- Voice fills the draft but never sends it. It stays hidden
+                   when this browser cannot record audio. -->
+              <button type="button" class="mic-btn" id="micBtn" hidden
+                      title="Speak instead of typing"></button>
               <button class="send" type="submit" id="chatSend" title="Send (Enter)"></button>
             </div>
           </form>
+          </div>
+          </div>
         </div>
       </div>
 
@@ -5966,10 +6446,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <div class="j-toast" id="journalToast" role="status" aria-live="polite"></div>
 
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="./js/store.js?v=12"></script>
+  <!-- Apple-style refraction for the ask group. Ships the SVG
+       displacement filter, the backdrop wiring and the frosted fallback for
+       browsers that cannot filter a backdrop; the tint, rim and sheen stay
+       in CSS below. -->
+  <script src="./vendor/liquid-glass.js"></script>
+  <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=8"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=21"></script>
+  <script src="./js/icons.js?v=26"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -5978,7 +6463,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=20"></script>
+  <script src="./js/indicators.js?v=23"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -5994,21 +6479,23 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
-  <script src="./js/geometry.js?v=10"></script>
-  <script src="./js/tools.js?v=13"></script>
-  <script src="./js/drawings.js?v=21"></script>
-  <script src="./js/scene.js?v=31"></script>
+  <script src="./js/geometry.js?v=11"></script>
+  <script src="./js/tools.js?v=17"></script>
+  <script src="./js/drawings.js?v=23"></script>
+  <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=79"></script>
+  <script src="./js/main.js?v=85"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=7"></script>
+  <!-- Voice must load before chat.js, which wires it to the composer. -->
+  <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=1"></script>
-  <script src="./js/chat.js?v=115"></script>
-  <script src="./js/journal.js?v=4"></script>
+  <script src="./js/chat.js?v=141"></script>
+  <script src="./js/journal.js?v=3"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js

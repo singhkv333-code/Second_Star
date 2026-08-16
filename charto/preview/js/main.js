@@ -481,8 +481,24 @@
       `<span class="ro-c"><i>C</i> <b class="${cls}">${f(b.close)}</b></span>` +
       `<span class="ro-v"><i>V</i> <b class="${cls}">${f(b.volume)}</b></span>` + chg;
   }
+  /* "Over a candle" is not "over the chart". The pick cursor is a promise that
+   * there is something under the pointer to pick, so it has to be answered
+   * against the bar's own high-low span rather than the pane's bounds — the
+   * empty air above a downtrend is still the plot, and a hand floating there
+   * says the opposite of the truth. The crosshair subscription already knows
+   * which bar the pointer is on; the only thing added is whether the pointer's
+   * y falls inside that bar, with a couple of pixels of slack so a thin wick
+   * is still catchable. */
+  function overBar(p, b) {
+    if (!b || !p || !p.point || b.high == null) return false;
+    const top = candle.priceToCoordinate(b.high);
+    const bot = candle.priceToCoordinate(b.low);
+    if (top == null || bot == null) return false;
+    return p.point.y >= top - 2 && p.point.y <= bot + 2;
+  }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
+    chartEl.classList.toggle("on-bar", overBar(p, b));
     if (b) {
       const src = state.bars[state.bars.length - 1];
       paintReadout({ ...b, volume: (p.seriesData.get(volume) || {}).value ?? src.volume });
@@ -492,6 +508,7 @@
   function status(msg) { setText("statusLine", msg); }
   function setOverlay(show, text, isErr) {
     el("overlayText").innerHTML = isErr ? `<span class="err">${text}</span>` : (text || "");
+    el("overlay").classList.toggle("is-err", !!isErr);
     el("overlay").classList.toggle("show", !!show);
   }
 
@@ -801,7 +818,14 @@
     disjointChannel: "disjointChannel",
     pitchfork: "pitchfork", schiff: "schiff", schiffModified: "schiffMod",
     insidePitchfork: "insideFork",
-    fib: "fib", rect: "rect", triangle: "triangle", brush: "brush",
+    fib: "fib", fibExtension: "fibExtension", fibChannel: "fibChannel",
+    fibTimeZone: "fibTimeZone", fibSpeedFan: "fibSpeedFan",
+    fibTimeExtension: "fibTimeExtension", fibCircles: "fibCircles",
+    fibSpiral: "fibSpiral", fibArcs: "fibArcs", fibWedge: "fibWedge",
+    pitchfan: "pitchfan",
+    gannBox: "gannBox", gannSquare: "gannSquare",
+    gannSquareFixed: "gannSquareFixed", gannFan: "gannFan",
+    rect: "rect", triangle: "triangle", brush: "brush",
     priceRange: "hline", dateRange: "vline", measure: "measure",
     long: "position", short: "position", text: "text" };
   const lastOfGroup = {};
@@ -840,8 +864,8 @@
         + tools.map(([id, s]) => toolRow(id, s, g)).join("");
     rail.insertAdjacentHTML("beforeend",
       `<div class="tool-wrap" data-group="${g.id}">` +
-        `<button class="tool has-group" id="group-${g.id}" data-group-btn="${g.id}">` +
-        `${Icons.svg(g.icon)}<span class="tip">${g.label}</span></button>` +
+        `<button class="tool has-group" id="group-${g.id}" data-group-btn="${g.id}" ` +
+        `aria-label="${g.label}">${Icons.svg(g.icon)}</button>` +
         `<div class="dropdown side" id="menu-${g.id}">${items}</div>` +
       `</div>`);
   }
@@ -901,8 +925,12 @@
     const wrap = e.target.closest(".tool-wrap");
     clearTimeout(hoverTimer);
     if (!wrap) return;
+    // Do not leave the previous group's flyout on screen during this group's
+    // hover-intent delay. Its menu and the new button's tooltip occupy the
+    // same space, producing two competing labels (for example Shapes behind
+    // "Measure"). The group being entered is preserved if it is already open.
+    closeToolMenus(wrap.dataset.group);
     hoverTimer = setTimeout(() => {
-      closeToolMenus(wrap.dataset.group);
       setToolMenu(wrap.dataset.group, true);
     }, 320);
   });
@@ -941,7 +969,8 @@
     const btn = el(`group-${spec.group}`);
     const icon = ICON_FOR[id];
     if (btn && icon) {
-      btn.innerHTML = Icons.svg(icon) + `<span class="tip">${spec.label}</span>`;
+      btn.innerHTML = Icons.svg(icon);
+      btn.setAttribute("aria-label", spec.label);
     }
     selectTool(id);
   }
@@ -983,6 +1012,19 @@
     const p = panesList().find((q) => q.key === key);
     const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
     return pe ? clientY - pe.getBoundingClientRect().top : clientY;
+  }
+
+  /** True only when the pointer is over the pane's plotted area. Unlike
+   *  paneAtClient(), this deliberately has no price-pane fallback: chart axes
+   *  and other chrome live inside #chart too, but must not reveal controls
+   *  that are meaningful only over data. */
+  function isInsidePane(clientX, clientY, key) {
+    const p = panesList().find((q) => q.key === key);
+    const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+    if (!pe) return false;
+    const r = pe.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right
+        && clientY >= r.top && clientY <= r.bottom;
   }
 
   const draw = Drawings.create(chart, candle, {
@@ -1236,6 +1278,30 @@
     autoPill.classList.toggle("show", manual);
   }
 
+  /* The two axis badges: what the price scale is quoted in, and which clock
+   * the time scale is on. Sym is the one place that decides both, so a rupee
+   * chart says INR/UTC+5:30 and a Bybit pair says USDT/UTC without either
+   * being written down twice.
+   *
+   * The clock ticks, because a chart of a market that is open is read against
+   * the current time — "is that last bar 40 minutes old?" is a question the
+   * axis alone cannot answer. It is the SAME clock as the axis, not the
+   * viewer's: someone reading an NSE chart from London needs 15:29 IST, and a
+   * browser-local clock in that corner would quietly be a different number
+   * from every timestamp beside it.
+   */
+  el("curNote").textContent = Sym.code;
+  const tzNote = el("tzNote");
+  function paintClock() {
+    const t = new Date(Date.now() + Sym.tz * 1000);
+    const hh = String(t.getUTCHours()).padStart(2, "0");
+    const mm = String(t.getUTCMinutes()).padStart(2, "0");
+    const ss = String(t.getUTCSeconds()).padStart(2, "0");
+    tzNote.textContent = `${hh}:${mm}:${ss} (${Sym.tzLabel})`;
+  }
+  paintClock();
+  setInterval(paintClock, 1000);
+
   // bubble phase → runs after drawings.js has decided whether this is a
   // shape drag; a shape drag disables LWC scroll entirely, so it isn't a pan.
   chartEl.addEventListener("mousedown", (e) => {
@@ -1428,15 +1494,32 @@
       };
     });
 
-    // Chat-drawn annotations, CURRENT geometry — the user can drag these,
-    // so the backend must read them from here, not from what it drew
+    /* Chat-drawn annotations, CURRENT geometry — the user can drag these,
+     * so the backend must read them from here, not from what it drew.
+     *
+     * `CT`, not `T`: a scene annotation is stamped in RAW exchange time (the
+     * detectors' clock) and the chart runs IST-shifted, so formatting one
+     * with the drawing layer's own formatter printed every chat-drawn shape
+     * five and a half hours early — "7 Jul 18:30" for a level placed on the
+     * 8 Jul session. The model then read that stamp back into evaluate_fib
+     * and scored a leg starting on the wrong day, confidently. The user's own
+     * drawings are already in chart time (they were placed through xToTime),
+     * which is why only this half of the envelope needed the shift. */
+    const CT = (t) => T(t + IST);
     const chat_drawings = scene.state.items.slice(0, 20).map((a) => {
       const g = a.kind === "level" ? { price: r2(a.price) }
         : a.kind === "zone" ? { lo: r2(a.lo), hi: r2(a.hi) }
         : (a.kind === "segment" || a.kind === "fib")
-          ? { p1: { t: T(a.p1.t), p: r2(a.p1.v) }, p2: { t: T(a.p2.t), p: r2(a.p2.v) } }
+          ? { p1: { t: CT(a.p1.t), p: r2(a.p1.v) }, p2: { t: CT(a.p2.t), p: r2(a.p2.v) } }
         : a.kind === "box"
-          ? { a: { t: T(a.a.t), p: r2(a.a.v) }, b: { t: T(a.b.t), p: r2(a.b.v) } }
+          ? { a: { t: CT(a.a.t), p: r2(a.a.v) }, b: { t: CT(a.b.t), p: r2(a.b.v) } }
+        // A catalogued ratio tool travels as its NAME and its anchors, which
+        // is all it ever was — the ladder, the fan and the arcs are rebuilt
+        // from those two facts on both ends. Sending resolved levels instead
+        // would be sending a copy of the construction, and a copy is what
+        // goes stale the moment the user drags the shape.
+        : a.kind === "drawing"
+          ? { tool: a.tool, pts: (a.pts || []).map((q) => ({ t: CT(q.t), p: r2(q.v) })) }
         : a.kind === "position"
           ? { side: a.side, entry: r2(a.entry), stop: r2(a.stop),
               targets: (a.targets || []).map(r2), qty: a.qty || undefined,
@@ -1504,6 +1587,10 @@
     getIntervalSec: () => IV_SEC[state.interval],
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
+    // …and back. A sampled curve (a fib circle, a Gann arc) is built where
+    // the axis is linear — bar index — and has to hand its points back in the
+    // clock the annotation arrived in, or the shape lands half a day off.
+    fromChartTime: (t) => t - IST,
     // The fold control lives at the foot of the chip legend, which scene owns
     // — but the number it carries counts the DRAWING layer too, so the state
     // is read from here and the click is handed back here.
@@ -1796,6 +1883,12 @@
     if (s.tool === "get_divergences") {
       return `${String(s.strength || "").replace(/_/g, " ").trim()} divergence`.trim();
     }
+    // A ratio tool is called what the rail calls it. Falling through to
+    // "Resistance" would name a Gann square by the colour it happened to be
+    // drawn in, and the label the model wrote is a caption, not the name.
+    if (a.kind === "drawing" && Tools.SPECS[a.tool]) {
+      return Tools.SPECS[a.tool].label;
+    }
     return a.role === "resistance" ? "Resistance"
       : a.role === "support" ? "Support" : (a.label || "Annotation");
   }
@@ -1820,7 +1913,8 @@
    * polygon, a marker run, a box) has no evaluator behind it, so it travels
    * as prose and is not offered as a handle that would fail to resolve.
    * Mirrors data/dataserver.py's `_chat_drawing_as_user`. */
-  const ANN_ADDRESSABLE = new Set(["level", "zone", "segment", "fib", "position"]);
+  const ANN_ADDRESSABLE = new Set(["level", "zone", "segment", "fib", "position",
+                                   "drawing"]);
 
   /** Can this annotation be handed to the evaluate tools by id?
    *
@@ -2576,7 +2670,7 @@
     // simply no price under the pointer to offer. Nothing to report: the mark
     // stays away and appears as soon as there is.
     if (!Auth.user || draw.state.tool !== "cursor"
-        || paneAtClient(clientY) !== "price") return hidePlus();
+        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return hidePlus();

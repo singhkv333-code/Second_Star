@@ -312,7 +312,42 @@ const Scene = (() => {
         });
         return out;
       },
+      /* Every catalogued tool, by name, from resolved anchors.
+       *
+       * The alternative was a `SHAPES` entry per tool — a second Gann square,
+       * a second fib wedge, written here in the renderer and kept in step
+       * with the rail's by hand. Fifteen ratio tools is fifteen chances for
+       * the chat's 61.8% to sit somewhere the user's 61.8% does not, and the
+       * bug would be invisible until someone drew both. So this delegates to
+       * the SAME builder the rail runs, with the same build context: there is
+       * one construction of a Gann fan in this app, and both layers call it.
+       *
+       * `tool` is not validated against a list of blessed names — an unknown
+       * one simply builds nothing, which is what an unknown one should do.
+       * The catalogue is the capability; there is no second gate. */
+      drawing: (a) => {
+        const spec = Tools.SPECS[a.tool];
+        if (!spec || !Array.isArray(a.pts) || !a.pts.length) return [];
+        // padded the same way the rail pads a half-placed tool (js/drawings.js
+        // primsOf), so a chat drawing that arrives one anchor short renders
+        // what it has instead of silently rendering nothing
+        let pts = a.pts;
+        if (spec.anchors !== "free" && pts.length < spec.anchors) {
+          pts = pts.concat(Array(spec.anchors - pts.length)
+            .fill(pts[pts.length - 1]));
+        }
+        try { return spec.build(pts, buildCtx, a) || []; } catch { return []; }
+      },
     };
+    // the rail's context, built from THIS layer's readers — see
+    // Tools.makeCtx for why there is only one of these in the app
+    const buildCtx = Tools.makeCtx({
+      getBars: env.getBars,
+      getIntervalSec: () => (env.getIntervalSec ? env.getIntervalSec() : 60),
+      toBarTime: (t) => (env.toChartTime ? env.toChartTime(t) : t),
+      fromBarTime: (t) => (env.fromChartTime ? env.fromChartTime(t) : t),
+      tToX, vToY,
+    });
     const geoEnv = (key) => ({
       tToX, vToY: (v) => vToY(v, key),
       w: env.container.clientWidth, h: env.container.clientHeight,
@@ -930,6 +965,10 @@ const Scene = (() => {
         case "vband": a.t1 = o.t1 + dt; a.t2 = o.t2 + dt; break;
         case "point": case "label": mv(a.a, o.a); break;
         case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
+        // a catalogued tool moves as its ANCHORS move — the construction is
+        // rebuilt from them on the next frame, so nothing derived can be left
+        // behind pointing at where the shape used to be
+        case "drawing": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
         case "position":
           if (h && h.k === "entry") a.entry = r2(o.entry + dv);
           else if (h && h.k === "stop") a.stop = r2(o.stop + dv);
@@ -971,8 +1010,26 @@ const Scene = (() => {
       if (!a || a.kind === "markers" || a.kind === "vprofile"
           || a.kind === "candle") return;
       const l0 = chart.timeScale().coordinateToLogical(p.x);
-      drag = { a, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
-               orig: JSON.parse(JSON.stringify(a)),
+      /* A linked set moves as ONE RIGID BODY, never a part of one.
+       *
+       * A chart pattern is not a drawing, it is a measurement drawn: an
+       * outline through its swings, a stroke-less polygon filling down to the
+       * neckline, and the neckline itself, emitted as three annotations that
+       * share a `link`. Dragging picked up whichever one the pointer happened
+       * to land on, so the shading slid off its own outline and what was left
+       * described a formation that never occurred — and it was then stamped
+       * `adjusted: true` and read back as the user's own geometry.
+       *
+       * Deletion and the hover highlight already treated a link as one
+       * object; only the drag did not. Now the whole group is snapshotted and
+       * the same delta lands on every member, so the parts cannot come apart
+       * by any gesture. The handle stays with the annotation actually
+       * grabbed — it only exists for `position`, which is never linked. */
+      const group = a.link
+        ? state.items.filter((x) => x.link === a.link)
+        : [a];
+      drag = { a, group, key: p.key, l0, v0: priceAt(p.y, p.key), moved: false,
+               orig: group.map((x) => JSON.parse(JSON.stringify(x))),
                handle: a.kind === "position" ? positionHandle(a, p.y, p.key) : null };
       setScroll(false); e.preventDefault();
     });
@@ -985,15 +1042,15 @@ const Scene = (() => {
       const sec = env.getIntervalSec ? env.getIntervalSec() : 60;
       const dt = (l1 !== null && drag.l0 !== null)
         ? Math.round((l1 - drag.l0) * sec) : 0;
-      applyDelta(drag.a, drag.orig, v1 - drag.v0, dt, drag.handle);
+      drag.group.forEach((x, i) => applyDelta(
+        x, drag.orig[i], v1 - drag.v0, dt, x === drag.a ? drag.handle : null));
       drag.moved = true;
       _ru();
     });
     window.addEventListener("mouseup", () => {
       if (!drag) return;
-      if (drag.moved && JSON.stringify(drag.a) !== JSON.stringify(drag.orig)) {
-        drag.a.adjusted = true;
-        refreshDerived(drag.a);
+      if (drag.moved && JSON.stringify(drag.group) !== JSON.stringify(drag.orig)) {
+        drag.group.forEach((x) => { x.adjusted = true; refreshDerived(x); });
         swallowClick = true;
         env.onChange(count());   // persists the moved geometry
       }
@@ -1012,7 +1069,7 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "markers", "position", "vprofile", "candle", "label"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "drawing", "markers", "position", "vprofile", "candle", "label"]);
 
     return {
       state,

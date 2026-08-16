@@ -618,7 +618,14 @@ const Panels = (() => {
    *  that instrument rather than being swapped under a live conversation. */
   function openSymbol(sym) {
     if (!sym || sym === currentSymbol()) return;
-    location.search = "?symbol=" + encodeURIComponent(sym);
+    // The reload swaps every symbol-scoped chart surface, but the watchlist
+    // is the navigator the user is still working in. Carry that shell state
+    // through the URL so selecting TCS does not make the list disappear and
+    // force an extra click before selecting the next instrument.
+    const q = new URLSearchParams(location.search);
+    q.set("symbol", sym);
+    q.set("panel", "watch");
+    location.search = q.toString();
   }
 
   /* Another tab of the same app edits the same lists. `storage` fires only in
@@ -1154,6 +1161,12 @@ const Panels = (() => {
   if (typeof Universe !== "undefined") {
     Universe.load().then(() => repaint(true));
   }
+
+  // A panel named by navigation is shell continuity, not saved workspace
+  // state. Only recognised widget ids are accepted; an old or hand-edited
+  // query parameter leaves the default closed layout untouched.
+  const initialPanel = new URLSearchParams(location.search).get("panel");
+  if (byId(initialPanel)) show(initialPanel);
 
   return {
     show, toggle, widgets: () => WIDGETS.map((w) => w.id),

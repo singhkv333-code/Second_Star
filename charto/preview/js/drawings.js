@@ -176,61 +176,39 @@ const Drawings = (() => {
     const envFor = (key, w, h) => ({ tToX, vToY: (v) => vToY(v, key), w, h });
 
     // ── tool build context ──────────────────────────────
-    const fmt = (n) => Sym.num(n);
-    const buildCtx = {
-      fmt,
-      fmtPct: (p) => `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`,
-      // seconds per bar. A tool that has to point somewhere OFF the loaded
-      // range — a ray's far end — needs the axis's own step to do it; a
-      // literal number of seconds would mean something different on a 1m
-      // chart and on a daily one.
-      get iv() { return env.getIntervalSec(); },
-      /* The ONE screen-space reading a tool may take, and the only place in
-       * the catalogue that is allowed to see pixels.
-       *
-       * An angle on a price chart has no data-space meaning: price over time
-       * is not a ratio of like quantities, so "38° " is a statement about the
-       * two axes' current scales and nothing else. Expressing it as
-       * percent-per-bar instead — which this tool tried first — is arithmetic
-       * that is correct and useless: a line a reader would call 45° came back
-       * as 1.4°, because a percent and a bar are not the same size.
-       *
-       * So the tool reads the projection, exactly as TradingView's does, and
-       * the number moves when you zoom. That is not a bug in the reading; it
-       * is what the reading IS. Anchors stay in data space (see the module
-       * header) — this reads the pane, it does not store anything from it. */
-      degrees(p, q, pane) {
-        const x0 = tToX(p.t), x1 = tToX(q.t);
-        const y0 = vToY(p.v, pane || "price"), y1 = vToY(q.v, pane || "price");
-        if ([x0, x1, y0, y1].some((n) => n === null || n === undefined)) return null;
-        if (x0 === x1 && y0 === y1) return null;
-        // screen y grows downward; a rising line has to read as a positive angle
-        return (Math.atan2(y0 - y1, x1 - x0) * 180) / Math.PI;
-      },
-      barsBetween(t0, t1) {
-        return Math.max(1, Math.round(Math.abs(t1 - t0) / env.getIntervalSec()));
-      },
-      /** The last loaded close — where the market actually IS. Only the
-       *  position tool asks: it is what decides whether a plan is currently
-       *  in its reward half or its risk half, which is the one thing about a
-       *  plan that changes without anybody dragging it. Null on an empty
-       *  chart, and the tool paints its neutral state rather than guessing. */
-      get last() {
-        const bars = env.getBars();
-        return bars.length ? bars[bars.length - 1].close : null;
-      },
-      valuesBetween(t0, t1) {
-        const bars = env.getBars();
-        const lo = Math.min(t0, t1), hi = Math.max(t0, t1);
-        return bars.filter((b) => b.time >= lo && b.time <= hi).map((b) => b.close);
-      },
-    };
+    // Built by the catalogue, not here: js/scene.js runs the same builders
+    // for the shapes the chat draws, and a second copy of this object is a
+    // second chance for the two layers to disagree about what a fib is.
+    const buildCtx = Tools.makeCtx({
+      getBars: env.getBars, getIntervalSec: env.getIntervalSec, tToX, vToY,
+    });
 
-    /** A drawing → its primitives. The single place a tool becomes geometry. */
+    /** A drawing → its primitives. The single place a tool becomes geometry.
+     *
+     *  A tool being PLACED has fewer anchors than it needs, and every builder
+     *  reads a[1] or a[2] directly — so a half-placed three-point tool threw,
+     *  the catch below swallowed it, and the chart showed NOTHING between the
+     *  first click and the last. You were drawing a fib extension blind: no
+     *  leg, no ladder, no preview, and the only way to find out where it
+     *  landed was to finish it and look. TradingView previews from the first
+     *  click, which is the whole reason its three-point tools are usable.
+     *
+     *  The missing anchors are filled with the last one the pointer is
+     *  carrying, so the preview IS the drawing as it currently stands: after
+     *  one click a fib extension shows the leg collapsed onto the cursor,
+     *  after two the real leg and a ladder hanging off the moving third
+     *  point. Padding here rather than in fifteen builders means a tool
+     *  added tomorrow gets its preview for nothing, and no builder has to
+     *  grow a branch for a state that is not a drawing yet. */
     function primsOf(d) {
       const spec = Tools.SPECS[d.type];
-      if (!spec) return [];
-      try { return spec.build(d.pts, buildCtx, d) || []; } catch { return []; }
+      if (!spec || !d.pts || !d.pts.length) return [];
+      let pts = d.pts;
+      if (spec.anchors !== "free" && pts.length < spec.anchors) {
+        const last = pts[pts.length - 1];
+        pts = pts.concat(Array(spec.anchors - pts.length).fill(last));
+      }
+      try { return spec.build(pts, buildCtx, d) || []; } catch { return []; }
     }
 
     // ── rendering ───────────────────────────────────────

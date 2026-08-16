@@ -27,6 +27,11 @@
   const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
+    // The chart this turn was asked on. A conversation survives a symbol
+    // change by design, so a thread can hold six turns of NIFTY above one
+    // GOLD question — and without this the transcript never said so, leaving
+    // the model to answer the new chart out of the old chart's prose.
+    ...(t.symbol ? { symbol: t.symbol } : {}),
     ...(t.image ? { image: t.image } : {}),
     ...(t.drawing ? { drawing: t.drawing } : {}),
     ...(t.journal ? { journal: t.journal } : {}),
@@ -194,12 +199,18 @@
   const drawEsc = (v) => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const drawIcon = (type) => ({
+  // The ratio family carries its own glyph — the rail's, so a Gann fan
+  // attached to a question looks like the button it was drawn with.
+  const RATIO_ICONS = ["fibExtension", "fibChannel", "fibTimeZone",
+    "fibSpeedFan", "fibTimeExtension", "fibCircles", "fibSpiral", "fibArcs",
+    "fibWedge", "pitchfan", "gannBox", "gannSquare", "gannSquareFixed",
+    "gannFan"];
+  const drawIcon = (type) => (RATIO_ICONS.includes(type) ? type : ({
     level: "hline", hline: "hline", vline: "vline",
     zone: "rect", box: "rect", rect: "rect",
     segment: "trend", poly: "disjointChannel", trend: "trend",
     fib: "fib", position: "position", channel: "channel",
-  }[type] || "trend");
+  }[type] || "trend"));
   function drawTagInner(d, removable) {
     // Detector labels often carry measurements after a middle dot. Those
     // facts belong in the chart card; the attachment needs only identity.
@@ -697,7 +708,15 @@
    *  whole buffer is cheap next to the model's own pace. Flushing is rAF-gated
    *  so a fast stream cannot re-parse the buffer hundreds of times a second.
    */
-  async function readStream(res, turn) {
+  function readStream(res, turn, sink) {
+    // Resolves the moment the ANSWER's `done` lands, and keeps draining after
+    // it: the three follow-ups ride the tail of this same stream (see
+    // _suggest_events in dataserver.py), and the caller must not wait on them
+    // to file the turn, apply the scene patch or move the workspace. So the
+    // promise is settled from inside the loop rather than by returning.
+    let settle, fail, settled = false, gotSuggest = false;
+    const answered = new Promise((ok, no) => { settle = ok; fail = no; });
+    (async () => {
     const prose = turn.querySelector(".prose");
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -758,17 +777,35 @@
           // is still on its way.
           try { addCard(turn, ev.card); }
           catch (e) { console.warn("[charto] card failed", e); }
-        } else if (ev.type === "done") { done = ev; }
+        } else if (ev.type === "done") {
+          // Cancel any queued repaint. Without this the last frame lands AFTER
+          // finishTurn has written the final markdown and puts the caret back
+          // on a reply that is already complete.
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+          // the streamed text is the source of truth; `done.text` is the same string
+          done = ev;
+          done.text = done.text || text;
+          settled = true;
+          settle(done);          // the turn is answered; the tail is follow-ups
+        } else if (ev.type === "suggest_delta") {
+          if (sink) sink.delta(ev.text);
+        } else if (ev.type === "suggest_done") {
+          gotSuggest = true;
+          if (sink) sink.done(ev.suggestions);
+        }
       }
     }
-    // Cancel any queued repaint. Without this the last frame lands AFTER
-    // finishTurn has written the final markdown and puts the caret back on a
-    // reply that is already complete.
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (!done) throw new Error("stream ended without a result");
-    // the streamed text is the source of truth; `done.text` is the same string
-    done.text = done.text || text;
-    return done;
+    if (!settled) throw new Error("stream ended without a result");
+    // Ended before the follow-ups did — the row must not sit there half-written
+    if (sink && !gotSuggest) sink.drop();
+    })().catch((e) => {
+      // Before the answer, the caller owns the failure. After it, the turn is
+      // already on screen and a dead tail costs only the suggestions.
+      if (!settled) fail(e);
+      else if (sink) sink.drop();
+    });
+    return answered;
   }
 
   // ── company logos ────────────────────────────────────────
@@ -899,7 +936,12 @@
         out.push(`${nm}${a.period ? " " + a.period : ""}`.trim() || "Indicator");
         continue;
       }
-      const word = SHAPE_WORD[a.kind] || "Drawing";
+      // A catalogued tool names itself off the rail's own label, so the
+      // footer says "Gann fan" rather than the generic word — and a tool
+      // added to the catalogue tomorrow is named here without a second entry.
+      const word = (a.kind === "drawing" && Tools.SPECS[a.tool]
+                    && Tools.SPECS[a.tool].label)
+        || SHAPE_WORD[a.kind] || "Drawing";
       // a level's own label is the price, which is more use than the word
       out.push(a.label ? `${word} · ${a.label}` : word);
     }
@@ -972,21 +1014,34 @@
         tog.setAttribute("aria-expanded", String(open));
       });
       meta.append(tog);
-      turn.appendChild(meta);
-      turn.appendChild(list);
+      place(turn, meta);
+      place(turn, list);
       toBottom();
       return;
     }
-    turn.appendChild(meta);
+    place(turn, meta);
     toBottom();
+  }
+
+  /** Append to `turn`, but always ABOVE the follow-up row.
+   *
+   *  The follow-ups now ride the answer's own stream rather than a request
+   *  made after it, so the row can exist before this footer does. Appending
+   *  blindly then put the latency and the copy button UNDER the three
+   *  questions. Ordering by insertion point rather than by who happens to
+   *  arrive first is what makes that independent of timing. */
+  function place(turn, node) {
+    const box = turn.querySelector(".suggest");
+    if (box) turn.insertBefore(node, box); else turn.appendChild(node);
   }
 
   /* ── three things worth asking next ───────────────────────────────────
    *
-   * Fetched AFTER the turn is finished and painted, in a request of its own,
-   * so a slow or dead suggest costs the answer nothing — the row simply never
-   * appears. That is also why the backend answers 200 with an empty list
-   * rather than an error: there is no failure here for the client to handle.
+   * They arrive on the TAIL of the answer's own stream, after its `done` — not
+   * in a request of their own. So a slow or dead suggest still costs the answer
+   * nothing (everything the turn does has already happened by then), and the
+   * backend still ends every failure path with an empty list rather than an
+   * error: there is no failure here for the client to handle.
    *
    * Only the NEWEST turn carries a row. Leaving them under older replies
    * would offer questions the conversation has already moved past, and stack
@@ -1041,62 +1096,59 @@
     .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
     .trim().replace(/^["']|["']$/g, "").trim();
 
-  async function suggestAfter(turn) {
+  /** Where the follow-ups land, fed by the answer's own stream.
+   *
+   *  This was a second POST to /suggest. It reads the same on screen — the
+   *  list still fills in a line at a time — but it is no longer a request:
+   *  the events arrive on the tail of /chat, after the answer's `done`. That
+   *  removed a hop, and more importantly a ROUTE: a new endpoint is invisible
+   *  in production until nginx's allowlist learns it, and /suggest spent its
+   *  whole life answering the HTML page on the VM while working perfectly on
+   *  localhost. Nothing riding /chat can go missing that way.
+   *
+   *  The box is made on the first delta, not up front, so a turn whose
+   *  follow-ups never arrive never grows an empty row.
+   */
+  function suggestSink(turn) {
     clearSuggest();
-    const box = suggestBox(turn);
-    // The record the row belongs to, taken now: the request outlives this
-    // frame, and `turns` will have grown by the time it lands.
-    const rec = turns[turns.length - 1];
-    // Stale before it was ever shown: by now the user may have asked
-    // something else, switched chats, or cleared the thread.
-    const dead = () => !turn.isConnected || !box.isConnected || pending;
-    const paint = (lines) => paintSuggest(box, lines);
-
-    let acc = "";
-    try {
-      const r = await fetch(`${API}/suggest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: wireHistory() }),
-      });
-      if (!r.ok || !r.body) { box.remove(); return; }
-      const rd = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await rd.read();
-        if (done) break;
-        if (dead()) { await rd.cancel(); box.remove(); return; }
-        buf += dec.decode(value, { stream: true });
-        // SSE frames are blank-line separated; a partial one waits its turn
-        const frames = buf.split("\n\n");
-        buf = frames.pop();
-        for (const f of frames) {
-          const line = f.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          let ev;
-          try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (ev.type === "delta") {
-            acc += ev.text || "";
-            paint(acc.split("\n").map(cleanSuggest).filter(Boolean));
-            toBottom();
-          } else if (ev.type === "done") {
-            const picks = ev.suggestions || [];
-            if (picks.length !== 3 || dead()) { box.remove(); return; }
-            paint(picks);
-            while (box.children.length > 3) box.lastChild.remove();
-            // File them with the turn. The row is part of the reply, not a
-            // decoration on top of it — a reload repaints the thread from
-            // `turns`, and unsaved questions would vanish with it.
-            if (rec && rec.role === "assistant") { rec.sugg = picks; saveTurns(); }
-            toBottom(true);
-            return;
-          }
-        }
-      }
-      box.remove();            // stream ended without a `done` — say nothing
-    } catch {
-      box.remove();
-    }
+    let box = null, acc = "", picks = null, rec = null;
+    const boxOf = () => box || (box = suggestBox(turn));
+    // Only the newest turn carries a row. Anything that displaces it — a new
+    // question, a cleared thread, a switched conversation — appends past it,
+    // and that is the honest test for "this offer is spent".
+    const dead = () => !turn.isConnected || turn !== msgsEl.lastElementChild
+                    || (box && !box.isConnected);
+    // The record the row belongs to is filed by send() a moment after the
+    // answer's `done` — the same moment these begin arriving. So the two are
+    // joined by whichever lands second rather than by assuming an order.
+    const persist = () => {
+      if (!rec || !picks || rec.role !== "assistant") return;
+      rec.sugg = picks;
+      saveTurns();
+    };
+    return {
+      attach(r) { rec = r; persist(); },
+      delta(t) {
+        if (dead()) return;
+        acc += t || "";
+        paintSuggest(boxOf(), acc.split("\n").map(cleanSuggest).filter(Boolean));
+        toBottom();
+      },
+      done(list) {
+        const three = list || [];
+        if (three.length !== 3 || dead()) return this.drop();
+        const b = boxOf();
+        paintSuggest(b, three);
+        while (b.children.length > 3) b.lastChild.remove();
+        // File them with the turn. The row is part of the reply, not a
+        // decoration on top of it — a reload repaints the thread from `turns`,
+        // and unsaved questions would vanish with it.
+        picks = three;
+        persist();
+        toBottom(true);
+      },
+      drop() { if (box) { box.remove(); box = null; } },
+    };
   }
 
   function failTurn(turn, msg) {
@@ -1143,16 +1195,213 @@
     el("toBottom").classList.toggle("show", !atBottom() && msgsEl.children.length > 0);
   });
 
-  const EMPTY_HTML = '<div class="chat-empty">Ask about what you\'re looking at.'
-    + '<br/><b>The model sees the visible chart.</b></div>';
+  /* ── the twelve openings ───────────────────────────────────────────────
+   * An empty chat box is the hardest screen in the product: it can do about
+   * ninety things and shows none of them, so the first question is usually a
+   * guess at what it understands. These are the twelve it is best at, drawn
+   * rather than listed.
+   *
+   * `q` is a real prompt, phrased the way a person would type it — not a
+   * command and not a tool name. Clicking one FILLS the composer and focuses
+   * it; it does not send. The point is to teach the vocabulary and leave the
+   * user holding the sentence, so the second question can be their own.
+   * (It is also the honest default while a turn costs what it currently
+   * costs — a mis-click should not spend a minute of somebody's time.)
+   *
+   * `{sym}` is the chart's own instrument, so the sentence reads as a
+   * question about what is actually on screen.
+   */
+  const TEMPLATES = [
+    { icon: "levels", label: "Levels",
+      q: "Mark the support and resistance on {sym} and tell me how many times each has been touched." },
+    { icon: "patterns", label: "Patterns",
+      q: "What chart patterns are forming on {sym} right now? Mark them." },
+    { icon: "trendlines", label: "Trends",
+      q: "Draw the trend lines that matter on {sym} and say which one is still intact." },
+    { icon: "indicators", label: "Indicators",
+      q: "Add RSI and a 50-period moving average to {sym}, and read them together." },
+    // The one tile that DOES something before it types: a screenshot prompt
+    // with no screenshot attached is a question about nothing, so the tile
+    // fires the capture too. `act` runs the same menu item the camera button
+    // runs — clicking the real control rather than reaching past it, which
+    // is the rule the keyboard shortcuts already follow.
+    { icon: "screenshot", label: "Screenshot", act: "shot",
+      q: "Read the screenshot of my chart and tell me what stands out — structure, levels, anything unusual." },
+    { icon: "whyMoved", label: "Why it moved",
+      q: "Explain {sym}'s last big move — what happened, and how far did it travel?" },
+    { icon: "planTrade", label: "Plan",
+      q: "Plan a position on {sym}: entry, stop, target and the R:R, with the levels you used." },
+    { icon: "evidence", label: "Evidence",
+      q: "Take the most recent pattern on {sym} and show me its historical record against a control." },
+    { icon: "screen", label: "Screen",
+      q: "Find other stocks setting up the same way {sym} is." },
+    { icon: "compare", label: "Compare",
+      q: "Compare {sym} against its sector peers over the last six months." },
+    { icon: "alert", label: "Alert",
+      q: "Alert me when {sym} closes above its nearest resistance." },
+    { icon: "earnings", label: "Earnings",
+      q: "How has {sym} reacted to its last few results? Mark them on the chart." },
+  ];
+
+  function templateGrid() {
+    // the thread's own esc() leaves quotes alone, which is fine for text
+    // nodes and wrong for an attribute — these prompts are going into one
+    const attr = (s) => String(s).replace(/[&<>"]/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const cards = TEMPLATES.map((t) => {
+      const q = t.q.replace(/\{sym\}/g, Sym.name);
+      const act = t.act ? ` data-act="${attr(t.act)}"` : "";
+      return `<button type="button" class="tpl-card" data-q="${attr(q)}"${act}>`
+        + `<span class="tpl-box">${Icons.tile(t.icon)}</span>`
+        + `<span class="tpl-name">${attr(t.label)}</span></button>`;
+    }).join("");
+    return `<div class="tpl-head">START ASKING WITH</div>`
+      + `<div class="tpl-grid">${cards}</div>`;
+  }
+
+  /* The tray belongs to the prompt bar, not to the thread, so it is mounted
+   * once and shown or hidden — rebuilding it on every render would throw
+   * away the DOM under a pointer that is hovering it. The group only wears
+   * its border and tint while the tray is up; with the tray down the bar
+   * has to look exactly as it always did. */
+  /* ── the placeholder types ──────────────────────────────────────────
+   * An empty bar with one frozen line of grey text says the box exists.
+   * A bar that is quietly writing questions says what the box is FOR, and
+   * it does it in the user's own reading rhythm rather than asking them to
+   * scan a list. Same job as the twelve tiles, in the one place the eye is
+   * already resting.
+   *
+   * It is an INTRODUCTION, so it runs once and retires. The first time
+   * anything is typed into the bar the cycle stops for the rest of the
+   * session and the plain prompt comes back for good — someone who has
+   * already used the box knows what it is for, and a placeholder still
+   * writing suggestions underneath them is a placeholder arguing with a
+   * person who has moved on. Focus alone only pauses it; clicking in and
+   * out is not the same as using it.
+   *
+   * It never runs at all under prefers-reduced-motion.
+   */
+  const PLACEHOLDER = "Ask about this chart…";
+  const TYPED = [
+    "What's the trend here right now?",
+    "Mark the levels that actually held",
+    "Why did it move like that?",
+    "Is a pattern forming?",
+    "Where would a stop go?",
+    "How does it compare to its peers?",
+  ];
+  (function typedPlaceholder() {
+    const slow = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (slow) return;
+    let i = 0, ch = 0, dir = 1, timer = null, done = false;
+    function retire() {           // used once; the bar is static from here on
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      input.placeholder = PLACEHOLDER;
+      input.classList.remove("ph-typing");
+    }
+    function step() {
+      if (done) return;
+      // A value in the box is the end of it, whoever put it there — the
+      // template tiles fill the composer without firing `input`, so the
+      // check has to be on the value and not only on the event.
+      if (input.value) { retire(); return; }
+      if (document.activeElement === input) {   // focused but still empty: hold
+        input.placeholder = PLACEHOLDER;
+        input.classList.remove("ph-typing");
+        timer = setTimeout(step, 900);
+        return;
+      }
+      input.classList.add("ph-typing");
+      const full = TYPED[i % TYPED.length];
+      ch += dir;
+      input.placeholder = full.slice(0, ch) + (dir > 0 && ch < full.length ? "▌" : "");
+      // A finished question has to be READ, not glimpsed. The hold is the
+      // whole point of the effect; the typing is just how it arrives.
+      let wait = dir > 0 ? 42 : 22;
+      if (dir > 0 && ch >= full.length) { dir = -1; wait = 3900; }
+      else if (dir < 0 && ch <= 0) { dir = 1; i++; wait = 700; }
+      timer = setTimeout(step, wait);
+    }
+    // the bar is the first thing on screen; let it be still for a beat
+    timer = setTimeout(step, 1400);
+    input.addEventListener("input", retire);
+    input.addEventListener("focus", () => {
+      if (done) return;
+      input.placeholder = PLACEHOLDER;
+      input.classList.remove("ph-typing");
+    });
+  })();
+
+  const trayEl = el("tplTray");
+  const groupEl = el("askGroup");
+  let trayBuilt = false;
+  /* The refraction is attached only while the tray is up, and torn down
+   * after. It costs a live SVG filter and a ResizeObserver, and with the
+   * tray down the group is an ordinary composer that must look exactly as
+   * it always did — a backdrop-filter left running would quietly frost the
+   * one control the user types into for the rest of the session. */
+  let glass = null;
+  function showTray(on) {
+    if (on && !trayBuilt) { trayEl.innerHTML = templateGrid(); trayBuilt = true; }
+    trayEl.hidden = !on;
+    groupEl.classList.toggle("has-tray", !!on);
+    if (on && !glass && window.liquidGlass) {
+      // gentler than the module's defaults: this is a panel you read tiles
+      // off, not a lens. Enough bend at the rim to catch the glow behind it,
+      // not enough to smear a 52px drawing.
+      glass = liquidGlass(groupEl, { scale: -64, chroma: 4, blur: 5,
+                                     saturate: 1.35, fallbackBlur: 14 });
+    } else if (!on && glass) {
+      glass.destroy();
+      glass = null;
+    }
+  }
+
+
+
+  /* One listener on the thread, not twelve on the cards: the empty state is
+   * rebuilt from scratch on every clear, and per-card handlers would have to
+   * be re-bound each time or silently stop working on the second new chat. */
+  trayEl.addEventListener("click", (e) => {
+    const card = e.target.closest && e.target.closest(".tpl-card");
+    if (!card) return;
+    if (card.dataset.act === "shot") {
+      // The camera button's own "Full chart" item — same path, one owner.
+      // It ends at charto's review popover (Attach / Dismiss) rather than
+      // attaching outright, and that is left alone on purpose: the capture
+      // is confirmed in exactly one place no matter who asked for it.
+      const item = document.querySelector('#shotMenu [data-shot="full"]');
+      if (item) item.click();
+    }
+    const input = el("chatInput");
+    input.value = card.dataset.q || "";
+    for (const c of trayEl.querySelectorAll(".tpl-card")) c.classList.remove("is-on");
+    card.classList.add("is-on");
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.dispatchEvent(new Event("input", { bubbles: true }));  // regrow the box
+  });
+
+  /** The mark is a claim about what is in the bar, so it only stands while
+   *  that is still true — edit the sentence or clear it and the tile lets
+   *  go. Anything else leaves a tile looking armed over a prompt that is
+   *  no longer its own. */
+  function clearTileIfEdited() {
+    const on = trayEl.querySelector(".tpl-card.is-on");
+    if (on && input.value !== on.dataset.q) on.classList.remove("is-on");
+  }
+  input.addEventListener("input", clearTileIfEdited);
 
   /** Paint `turns` from scratch. Same builders as a live turn, so a reloaded
    *  conversation — or one reopened from the history — is pixel-identical to
    *  the one that just happened. */
   function renderThread() {
     msgsEl.innerHTML = "";
+    showTray(!turns.length);
     if (!turns.length) {
-      msgsEl.innerHTML = EMPTY_HTML;
       el("toBottom").classList.remove("show");
       return;
     }
@@ -1167,7 +1416,10 @@
     }
     toBottom();
   }
-  if (turns.length) renderThread();
+  // Unconditional: renderThread's empty branch IS the template grid, and
+  // guarding it on turns.length meant a fresh session kept the static
+  // markup from index.html and the twelve openings never appeared.
+  renderThread();
 
   // ── send ──────────────────────────────────────────────
   /** `again` is a prompt being re-asked from a past turn's Retry. It leaves
@@ -1198,6 +1450,9 @@
     turns.push({ role: "user", content: text, ts,
                  ...(image ? { image } : {}), ...(drawing ? { drawing } : {}),
                  ...(journal ? { journal } : {}) });
+    showTray(false);          // first question asked — the openings fold away
+    const onTile = trayEl.querySelector(".tpl-card.is-on");
+    if (onTile) onTile.classList.remove("is-on");
     addUserTurn(text, image, drawing, ts, journal);
     const turn = addAssistantTurn();
     const t0 = performance.now();
@@ -1226,7 +1481,16 @@
       }
       const res = await fetch(`${API}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The turn rides the account's token. The server reads WHO is asking
+        // off these headers, and the tools that own something — the alerts a
+        // rule is armed under, the archive recall_conversations searches — are
+        // scoped by it. Sent without one, every such tool answered "you need
+        // an account" to a user who was looking at their own name in the
+        // corner. `Auth.headers` adds nothing when signed out, which is the
+        // honest state for a browser that has no session.
+        headers: typeof Auth !== "undefined"
+          ? Auth.headers({ "Content-Type": "application/json" })
+          : { "Content-Type": "application/json" },
         // chat_id is what lets recall_conversations EXCLUDE this conversation
         // from a search of the earlier ones — its turns are already in
         // `messages`, and finding them twice would read as two occasions.
@@ -1234,7 +1498,11 @@
                                chat_id: activeId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await readStream(res, turn);
+      // The follow-ups arrive on the tail of this same stream, so their sink
+      // is handed to the reader up front. It resolves on the ANSWER, not on
+      // them — everything below runs at the same moment it always did.
+      const sink = suggestSink(turn);
+      const d = await readStream(res, turn, sink);
       if (d.error) throw new Error(d.error);
 
       // File the reply BEFORE touching the workspace. `open_chart` with
@@ -1252,18 +1520,38 @@
       turns.push({ role: "assistant", content: d.text, meta, acts,
                    ...(cards.length ? { cards } : {}) });
       saveTurns();
+      // The row's record now exists. If the follow-ups already landed they are
+      // written into it here; if they land later they find it waiting.
+      sink.attach(turns[turns.length - 1]);
 
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
       // chart this same turn opened, and applying the patch first would draw
       // it onto whatever pane happened to be there.
-      if (d.view_ops && d.view_ops.length && window.__charto?.panes) {
+      if (d.view_ops && d.view_ops.length) {
+        // An alert armed in conversation is a row in the widget and a line on
+        // the price axis, and this tab holds its own copy of both — so a turn
+        // that touched the watcher re-reads it. Once per turn however many
+        // alerts the turn changed: three edits are one refresh.
+        let alertsStale = false;
         for (const op of d.view_ops) {
-          if (op.kind !== "open_chart") continue;
+          if (op.kind === "alerts_changed") { alertsStale = true; continue; }
+          if (op.kind !== "open_chart" || !window.__charto?.panes) continue;
           try {
             window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
           } catch (e) {
             console.warn("[charto] open_chart failed", op, e);
           }
+        }
+        // After the opens: an alert on a symbol this same turn put on screen
+        // has no line to draw until that chart exists.
+        //
+        // `typeof`, not `window.Alerts`: js/alerts.js declares its module as a
+        // top-level `const`, which never becomes a window property — and this
+        // file loads BEFORE it, so the name only has to exist by the time a
+        // turn comes back, not now.
+        if (alertsStale && typeof Alerts !== "undefined") {
+          Promise.resolve(Alerts.load()).catch((e) =>
+            console.warn("[charto] alert refresh failed", e));
         }
       }
 
@@ -1286,7 +1574,6 @@
       // them, and finishTurn skips any turn that has one. It matters for the
       // non-streaming path, which has no card event to insert from.
       finishTurn(turn, d.text, meta, acts, cards);
-      suggestAfter(turn);    // deliberately not awaited — the turn is done
     } catch (e) {
       turns.pop();   // keep the thread consistent with what the model saw
       saveTurns();
@@ -1302,6 +1589,19 @@
   sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
   el("chatNew").innerHTML = Icons.svg("plus", "sm");
   el("chatHistoryBtn").innerHTML = Icons.svg("clock", "sm");
+  // Voice: the transcript is APPENDED to the draft and never sent. Speaking
+  // is a way of adding to a half-typed question, and a mis-heard word should
+  // be edited before it is asked, not after it is answered.
+  if (typeof Voice !== "undefined") {
+    Voice.attach(el("micBtn"), (text) => {
+      const cur = input.value.trim();
+      input.value = cur ? `${cur} ${text}` : text;
+      autoGrow();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, { api: API, toast: (m) => (typeof Alerts !== "undefined"
+                                  ? Alerts.toast(m) : console.warn(m)) });
+  }
   el("histClose").innerHTML = Icons.svg("x", "sm");
 
   function autoGrow() {
@@ -1725,6 +2025,10 @@
   const splitReadout = el("splitReadout");
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
+  /* The width a first visit opens at, and the one the reset gesture returns
+   * to — a third of the row, so the chart keeps the two thirds it is the
+   * subject of. Named once because three places have to agree on it. */
+  const DEF_W = 0.30;
 
   /* Below the breakpoint the shell is a COLUMN: the chat sits under the
    * chart at full width, and a horizontal split has nothing to divide. The
@@ -1805,7 +2109,7 @@
   }
   function applySavedWidth() {
     const saved = parseInt(localStorage.getItem(WKEY) || "0", 10);
-    setChatWidth(saved || main.clientWidth * 0.44, false);
+    setChatWidth(saved || main.clientWidth * DEF_W, false);
   }
   requestAnimationFrame(applySavedWidth);
   // rotating a phone, or dragging a desktop window across the breakpoint,
@@ -1896,7 +2200,7 @@
   // only layout where the divider is a visible control.
   splitter.addEventListener("dblclick", () => {
     if (stacked()) setChatHeight(main.clientHeight * 0.46);
-    else setChatWidth(main.clientWidth * 0.44);
+    else setChatWidth(main.clientWidth * DEF_W);
     peekSplit();   // the jump is instant; the number is what says it landed
   });
 
@@ -1922,7 +2226,7 @@
     else if (e.key === "Home") next = FAR;           // clamped to the chart's floor
     else if (e.key === "End") next = 0;              // clamped to the chat's own
     else if (e.key === "Enter" || e.key === " ") {
-      next = (vert ? main.clientWidth * 0.44 : main.clientHeight * 0.46);
+      next = (vert ? main.clientWidth * DEF_W : main.clientHeight * 0.46);
     } else return;
     e.preventDefault();
     if (vert) setChatWidth(next); else setChatHeight(next);

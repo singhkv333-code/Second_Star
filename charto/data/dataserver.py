@@ -39,6 +39,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+# BEFORE any sibling that does `import dataserver`. Served as a script this
+# module is named __main__, so that name resolves by loading this file a
+# SECOND time — a separate module object with its own _req, its own _drawings,
+# its own connections. The boot block aliases the name for exactly this reason
+# and says so at length, but it runs at the END of the module body, which is
+# far too late for a sibling imported partway down it: journal.py was imported
+# ~1,800 lines earlier and got the phantom copy, so every drawing the request
+# had resolved was invisible to it and `from_drawing` could not find a plan
+# that was plainly on the chart. The alias belongs here, where nothing has
+# had a chance to import anything yet. setdefault, so a normal `import
+# dataserver` (tests, tooling) is left exactly as it was.
+sys.modules.setdefault("dataserver", sys.modules[__name__])
+
+import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -110,6 +124,9 @@ _scene = threading.local()
 def _scene_reset() -> None:
     _scene.items = []
     _scene.drawn = []
+    # every annotation this turn drew, by id — the read-back path (see
+    # _scene_add); unlike `items` it is never drained mid-turn
+    _scene.placed = {}
     _scene.cards = []
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
@@ -228,7 +245,17 @@ def _scene_add(annotation: dict) -> None:
         _scene.items = []
     if not hasattr(_scene, "drawn"):
         _scene.drawn = []
+    if not hasattr(_scene, "placed"):
+        _scene.placed = {}
     _scene.items.append(annotation)
+    # …and keep the whole annotation, by id, for the rest of the TURN.
+    # `items` is drained after every tool call (see _scene_take), so a tool
+    # that wants to read back something drawn a round ago — "draw the fan,
+    # then tell me which ray price is on" — finds nothing there. The chart
+    # context cannot help either: it was built before the turn ran. This is
+    # the only record of what this turn put on the chart.
+    if annotation.get("id") and annotation.get("kind") not in ("clear", "clear_levels"):
+        _scene.placed[str(annotation["id"]).upper()] = annotation
     # Ledger of what is on the CHART, not what this call drew. `items` is
     # drained after every tool call, so a second additive call in the same
     # turn would otherwise report "exactly these are drawn" while three more
@@ -239,10 +266,12 @@ def _scene_add(annotation: dict) -> None:
     # these" while silently omitting the boxes, bands and vlines in the same
     # call is worse than no ledger: it instructs the model to under-report.
     if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
-                "vband", "poly", "point", "candle", "label", "markers"):
+                "vband", "poly", "point", "candle", "label", "markers",
+                "drawing", "fib", "position"):
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
+        _scene.placed = {}
 
 
 def _drawn_ledger() -> str:
@@ -334,8 +363,16 @@ _DRAW_KIND = {
     "channel": ("drawing", "channel"), "regression": ("drawing", "channel"),
     "long": ("drawing", "position"), "short": ("drawing", "position"),
 }
+# Every other Fibonacci and Gann tool reads back through `read_drawing`. They
+# have no hit-rate behind them and inventing one would be the worst answer
+# available — but "no scoring method" was not the right answer either, because
+# where a Gann fan's rays fall and which one price is riding are facts, and
+# the model had no way to get at them. `read_drawing` is that route: the
+# resolved construction, and nothing claimed about whether it works.
+_DRAW_KIND.update({t: ("ratio", None) for t in drawtools.TOOLS
+                   if t not in _DRAW_KIND})
 _TOOL_FOR = {"line": "evaluate_line", "fib": "evaluate_fib",
-             "drawing": "evaluate_drawing"}
+             "drawing": "evaluate_drawing", "ratio": "read_drawing"}
 
 
 def _drawings_set(ctx: dict | None) -> None:
@@ -380,6 +417,14 @@ def _chat_drawing_as_user(c: dict) -> dict | None:
                 "pts": [{"t": p1.get("t"), "p": p1.get("p")},
                         {"t": p2.get("t"), "p": p2.get("p")}],
                 "id": c.get("id"), "_chat": c}
+    if k == "drawing" and c.get("tool") in drawtools.TOOLS:
+        # A ratio tool the chat drew reads back exactly like one the user
+        # dragged: same type name, same anchors. The user can DRAG these, so
+        # the geometry here is the current truth and not what was drawn.
+        return {"type": c["tool"],
+                "pts": [{"t": q.get("t"), "p": q.get("p", q.get("v"))}
+                        for q in c.get("pts") or []],
+                "id": c.get("id"), "_chat": c}
     return None
 
 
@@ -389,8 +434,16 @@ def _drawing_get(ref: str) -> dict:
     d = by.get(str(ref or "").upper().strip())
     if d:
         return {"ok": d}
+    want = str(ref or "").upper().strip()
     chat = getattr(_drawings, "chat_by_id", None) or {}
-    c = chat.get(str(ref or "").upper().strip())
+    c = chat.get(want)
+    # …and anything drawn THIS turn, which the chart context cannot know about:
+    # it was built before the turn ran. Without this, "draw a Gann fan and tell
+    # me which ray price is on" is two rounds — the model draws, then has to
+    # wait for the next turn before it can read what it just drew. The context
+    # copy still wins where both exist, because the user may have dragged it.
+    if not c:
+        c = (getattr(_scene, "placed", None) or {}).get(want)
     if c:
         conv = _chat_drawing_as_user(c)
         if conv:
@@ -1552,6 +1605,10 @@ def tool_get_anchors(interval: str = "5m", lookback_bars: int = 300,
 
 _SHAPES = {"segment": 2, "ray": 2, "box": 2, "band": 2, "hline": 1,
            "vline": 1, "polyline": 3, "point": 1, "fib": 2, "candle": 1}
+# …and the whole Fibonacci / Gann rail, composable from detected anchors like
+# anything else. `fib` is in both and keeps its own branch below: it has an
+# evaluator behind it and a scene kind of its own that predates the family.
+_SHAPES.update({t: s["anchors"] for t, s in drawtools.TOOLS.items()})
 
 
 def _candle_hl(ts: int, interval: str, lookback_bars: int) -> dict:
@@ -1586,6 +1643,9 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                 "_note": "Every shape previously drawn via draw_shape is "
                          "removed. Other tools' drawings are untouched."}
     shape = (shape or "").lower().strip()
+    # the ratio rail's names are the chart's own camelCase — restore the
+    # canonical spelling the lower() above just flattened
+    shape = drawtools.canonical(shape) or shape
     if shape not in _SHAPES:
         return {"error": f"unknown shape '{shape}'", "available": sorted(_SHAPES)}
     ids = [str(i).upper() for i in (anchor_ids or [])]
@@ -1619,12 +1679,15 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     # A 1-anchor shape given several anchors draws one PER anchor. It used
     # to draw only the first while the return listed them all as drawn — the
     # model then truthfully relayed a lie ("both marked") it had been told.
-    if _SHAPES[shape] == 1 and len(picked) > 1:
+    # …but a one-anchor RATIO tool is not a marker: a Gann square fixed given
+    # three anchors means three squares, not three of whatever this branch
+    # would make of it, and it has no `kind` this branch knows how to emit.
+    if _SHAPES[shape] == 1 and len(picked) > 1 and shape not in drawtools.TOOLS:
         drawn = []
         for a in picked:
             auto = {"high_52w": "52W high", "low_52w": "52W low"}.get(
                 a["kind"], a["kind"].replace("_", " "))
-            one: dict = {"id": "S" + a["id"], "pane": pane, "role": role,
+            one: dict = {"id": f"S{shape}{a['id']}", "pane": pane, "role": role,
                          "label": label or auto, "source": {
                              **src, "anchors": [a["id"]],
                              "first_touch": a["t"], "last_touch": a["t"]}}
@@ -1645,7 +1708,15 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
                 "_note": (f"{len(drawn)} separate {shape}s drawn, one per "
                           "anchor. Describe each using its anchor kind.")}
 
-    ann: dict = {"kind": "segment", "id": "S" + "-".join(ids), "pane": pane,
+    # The id carries the SHAPE, not only the anchors. Without it a Gann fan
+    # and a fib arc drawn off the same two swings mint the same scene id and
+    # the second silently replaces the first — the fan vanished off the chart
+    # while the reply said both were drawn, and a read-back by that id
+    # resolved whichever one the chart context still held. Re-drawing the SAME
+    # shape on the same anchors still replaces itself, which is the part of
+    # the old behaviour worth keeping.
+    ann: dict = {"kind": "segment", "id": f"S{shape}-" + "-".join(ids),
+                 "pane": pane,
                  "role": role, "label": label or shape, "source": src}
     if shape in ("segment", "ray"):
         ann.update(p1={"t": pts[0]["t"], "v": pts[0]["v"]},
@@ -1674,6 +1745,13 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
         ann.update(kind="fib", p1={"t": pts[0]["t"], "v": pts[0]["v"]},
                    p2={"t": pts[1]["t"], "v": pts[1]["v"]},
                    label=label or "fib retracement")
+    elif shape in drawtools.TOOLS:
+        # The whole ratio family lands here as one kind carrying a tool NAME.
+        # See mark._annotate for why: the construction belongs to the chart's
+        # catalogue, and both drawing layers run that same catalogue.
+        ann.update(kind="drawing", tool=shape,
+                   pts=[{"t": p["t"], "v": p["v"]} for p in pts[:need]],
+                   label=label or drawtools.TOOLS[shape]["label"])
     _scene_add(ann)
     out = {"drawn": ann["id"], "shape": shape, "from_anchors": ids,
            "points": [{"t": a["t"], "value": a["value"], "kind": a["kind"]} for a in picked],
@@ -1691,6 +1769,20 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
             "Call evaluate_fib with the same two points for that, and do it "
             "whenever the user's question was about validity rather than "
             "placement.")
+    elif shape in drawtools.TOOLS:
+        # what the ratios resolved to — or the plain statement that this one
+        # divides an angle and has no level to quote
+        # the bar clock, so a Gann grid's time columns land on the same
+        # bars the chart drew them on rather than on a fraction of the
+        # wall clock the axis never spends
+        rep = drawtools.report(shape, pts[:need], _ist,
+                               [r[0] for r in _rows(interval, max(60, min(
+                                   int(lookback_bars or 300), 1500)))])
+        rep["_note"] = rep.get("_note", "") + (
+            f" To say where price stands against it, call read_drawing with "
+            f"drawing_id='{ann['id']}' — that resolves the shape you just "
+            f"drew. Do not answer that from the anchors alone.")
+        out.update(rep)
     return out
 
 
@@ -1744,6 +1836,7 @@ def tool_mark(shapes: list | None = None, interval: str = "1d",
         "what you asked for, and name what each mark is FOR. These are marks "
         "you placed, not structure anything detected: never attach a hit rate, "
         "a hold record or a strength to them."
+        + ("".join(" " + n for n in out.get("notes") or []))
         + (" Some shapes failed — read not_drawn and say which."
            if out["errors"] else ""))
     res["ledger"] = _drawn_ledger()
@@ -2568,6 +2661,82 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
     return res
 
 
+def tool_read_drawing(drawing_id: str = "", interval: str = "1d",
+                      lookback_bars: int = 400) -> dict:
+    """Read back a Fibonacci or Gann drawing: what its divisions resolved to.
+
+    The family has fifteen tools and one evaluator, and only the retracement
+    has a record worth measuring (evaluate_fib, with a non-fib control). The
+    honest answer for the other fourteen used to be "no scoring method" — true,
+    and useless, because the questions people actually ask about a Gann fan are
+    *where do its rays fall* and *which one is price riding*, and both are
+    facts sitting in the geometry.
+
+    So this reads rather than scores. Every number it returns is resolved from
+    the drawing's own anchors against the real bars, and it says nothing about
+    whether the ratios work — which is a separate claim, and one only
+    evaluate_fib is equipped to make.
+    """
+    if not drawing_id:
+        return {"error": "no drawing_id",
+                "_note": ("Pass the ref shown against the drawing in the chart "
+                          "context. If the user has drawn nothing, say so "
+                          "rather than inventing a shape to read.")}
+    got = _drawing_for(drawing_id, "ratio")
+    if "error" in got:
+        return got
+    d, pts = got["ok"], got["points"]
+    tool = d.get("type")
+    spec = drawtools.TOOLS[tool]
+
+    # anchors arrive stamped in the chart's own format; the ratios need epoch
+    at = []
+    for p in pts[:spec["anchors"]]:
+        t = _parse_ist(p.get("t")) if isinstance(p.get("t"), str) else p.get("t")
+        if t is None or p.get("v") is None:
+            return {"error": f"anchor of {drawing_id} could not be read",
+                    "_note": "Nothing was read. Say the drawing's anchors "
+                             "could not be resolved rather than describing it "
+                             "from memory."}
+        at.append({"t": t, "v": float(p["v"])})
+    if len(at) < spec["anchors"]:
+        return {"error": f"{tool} needs {spec['anchors']} anchors, "
+                         f"the drawing carries {len(at)}"}
+
+    rows = _rows(interval, max(60, min(int(lookback_bars or 400), 1500)))
+    # Read BEFORE the report, not after: every date in it is a fraction of a
+    # span measured in bars, so the report needs the bar clock to resolve one.
+    out = drawtools.report(tool, at, _ist, [r[0] for r in rows])
+    out["drawing_id"] = d.get("ref") or d.get("id")
+    out["anchors"] = [{"at": _ist(p["t"]), "value": round(p["v"], 2)} for p in at]
+
+    if rows:
+        last = rows[-1][4]
+        out["last_price"] = last
+        # Where price stands against the ladder — the reading the user is
+        # actually after, and the one part of this that changes on its own.
+        lv = [x for x in (out.get("levels") or out.get("price_levels") or [])
+              if x.get("price") is not None]
+        if lv:
+            below = [x for x in lv if x["price"] <= last]
+            above = [x for x in lv if x["price"] > last]
+            out["price_sits"] = {
+                "between": [max((x["price"] for x in below), default=None),
+                            min((x["price"] for x in above), default=None)],
+                "nearest": min(lv, key=lambda x: abs(x["price"] - last)),
+                "_note": "'between' is null on a side price has already left; "
+                         "that is a real reading and not a missing one."}
+    out["_note"] = (out.get("_note", "") + " " + (
+        f"This is the {spec['label'].lower()} as it currently stands on the "
+        f"chart — the user may have dragged it since it was drawn, so these "
+        f"anchors, not any earlier ones, are the truth. Describe where the "
+        f"divisions fall and what price has done around them. Do NOT attach a "
+        f"hit rate, a hold record or a strength: nothing here measures one. "
+        f"Only a fib retracement has a measured record, and evaluate_fib is "
+        f"the tool that produces it.")).strip()
+    return out
+
+
 def tool_plan_position(entry: float | None = None, stop: float | None = None,
                        stop_atr: float | None = None, targets: list | None = None,
                        targets_r: list | None = None, split: list | None = None,
@@ -2779,6 +2948,27 @@ def _classification_row(sym: str):
             (sym,)).fetchone()
     except sqlite3.Error:
         return None
+
+
+def _classification_full(sym: str):
+    """name, industry KEY, industry in words, sector, and which source won.
+
+    Separate from _classification_row because that one's two-tuple is
+    unpacked at four call sites; the columns below arrived with the
+    resolver (see sync_classification.py) and only the two surfaces that
+    NAME the classification out loud — get_peers and the model's context
+    line — have any business reading them.
+
+    Falls back to the two-column shape so a database written before the
+    resolver still answers instead of raising.
+    """
+    try:
+        return _con.execute(
+            "SELECT name, industry, label, sector, source "
+            "FROM classification WHERE symbol=?", (sym,)).fetchone()
+    except sqlite3.Error:
+        row = _classification_row(sym)
+        return (row[0], row[1], row[1], None, "mc") if row else None
 
 
 _PROFILE_COLS = ("sc_id", "name", "long_name", "industry_slug", "sector",
@@ -3438,13 +3628,13 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
 def tool_get_peers(symbol: str = "") -> dict:
     """The company's industry classification and its peer group."""
     sym = (symbol or _sym()).upper().strip()
-    row = _classification_row(sym)
+    row = _classification_full(sym)
     if not row:
         return {"symbol": sym,
                 "error": "no industry classification for this symbol",
                 "_note": ("Say the classification is unavailable rather than "
                           "guessing peers from the name.")}
-    name, ind = row
+    name, ind, label, sector, src = row
     have = _symbols_with_bars()
     peers = [{"symbol": p, "name": n, **({} if p in have else {"cold": True})}
              for p, n in _con.execute(
@@ -3456,9 +3646,14 @@ def tool_get_peers(symbol: str = "") -> dict:
     # universe", which was both the wrong number and the wrong noun.
     n_uni = _con.execute(
         "SELECT COUNT(*) FROM classification").fetchone()[0]
-    return {"symbol": sym, "name": name, "industry": ind, "peers": peers,
+    return {"symbol": sym, "name": name, "industry": label or ind,
+            "industry_key": ind, "sector": sector, "peers": peers,
             "_note": (
-                f"Industry comes from the Moneycontrol classification; peers "
+                f"Industry is the resolved classification"
+                + ("" if src != "mc" else
+                   " (Moneycontrol's, kept because no cleaner source agreed "
+                   "on this company's identity)")
+                + f"; say the industry in words, not the key. Peers "
                 f"are limited to the {n_uni}-instrument chart universe, which "
                 f"holds NSE stocks, indices, India VIX, spot crypto, MCX "
                 f"futures and INR pairs — do not call it a company universe. "
@@ -6147,7 +6342,43 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                        f"it is a real difference — still a small one, and "
                        f"not a forecast")
                + "." if uni.get("edge_se_pp") is not None else ""))
+    else:
+        # Silence here was the bug behind "why can't it show monthly
+        # patterns". The shape IS detected on 1w/1mo — the pooled sweep simply
+        # never graded those intervals, and with no block and no explanation
+        # the model had nothing to say and hedged the whole answer away. Name
+        # the boundary and hand back this chart's own measurement, which is
+        # exactly what the detector just produced.
+        covered = _pattern_stats_intervals()
+        res["universe"] = None
+        res["_note"] += (
+            " There is NO pooled universe record for this interval"
+            + (f" — the sweep graded {', '.join(covered)} only, and this call "
+               f"is {interval}" if covered and interval not in covered else "")
+            + ". The rates above are THIS chart's own record, measured just "
+              "now by the detector, and are the answer — report them. Say the "
+              "cross-symbol base rate is unavailable at this interval; do not "
+              "imply one exists, and do not withhold the formation itself.")
     return res
+
+
+def _pattern_stats_intervals() -> list[str]:
+    """Which intervals the offline sweep actually graded, for this market.
+
+    Read rather than hardcoded: the sweep is re-run independently of this
+    file, and a stale literal here would tell the model a base rate exists
+    where it does not.
+    """
+    try:
+        has_scope = any(r[1] == "scope" for r in
+                        _con.execute("PRAGMA table_info(pattern_stats)"))
+        cur = _con.execute(
+            "SELECT DISTINCT interval FROM pattern_stats WHERE scope=?",
+            (scope_for(_sym()),)) if has_scope else \
+            _con.execute("SELECT DISTINCT interval FROM pattern_stats")
+        return sorted(r[0] for r in cur if r[0])
+    except sqlite3.Error:
+        return []
 
 
 # ── quarterly results ─────────────────────────────────────────────
@@ -7249,6 +7480,125 @@ def tool_get_deals(client: str = "", symbol: str = "", frm: str = "",
     return out
 
 
+# ── voice: a spoken question becomes a typed one ────────────────────────────
+#
+# Pivot's chain, unchanged, on Charto's server (pivot/backend/routers/audio.py):
+# the browser records an opus/aac blob, Azure Speech fast-transcription turns
+# it into text, and a transcript that comes back in Devanagari is rendered to
+# English by the same deployment that answers the chat. Hinglish written in
+# Latin script passes straight through — the agent reads it natively.
+#
+# Same resource, same credential: the Foundry AI-Services account behind
+# AZURE_ENDPOINT bundles Speech on the SAME key, at the host with the /openai
+# path stripped. There is no second key to provision and no audio deployment
+# to create — the Foundry /openai audio route has none, which is exactly why
+# this endpoint exists.
+_SPEECH_PATH = "/speechtotext/transcriptions:transcribe"
+_SPEECH_API_VERSION = "2024-11-15"
+# Per-segment language id, so a sentence that flips mid-way still comes back
+# whole.
+_SPEECH_LOCALES = ["en-IN", "hi-IN"]
+# MediaRecorder voice is ~1 KB/s; a 60 s clip is well under 1 MB. This rejects
+# a runaway upload without ever touching a real recording.
+_AUDIO_MAX_BYTES = 15 * 1024 * 1024
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+
+
+def _speech_host() -> str:
+    """The AI-Services host carrying the Speech APIs — the chat endpoint
+    without its path."""
+    p = urlparse(AZURE_ENDPOINT or "")
+    return f"{p.scheme}://{p.netloc}" if p.netloc else ""
+
+
+def _multipart(fields: list) -> tuple[bytes, str]:
+    """A multipart/form-data body. Written out rather than pulled in: this is
+    the only upload the server makes, and `requests` is not a dependency."""
+    boundary = "----charto" + secrets.token_hex(12)
+    out = bytearray()
+    for name, filename, ctype, payload in fields:
+        out += f"--{boundary}\r\n".encode()
+        disp = f'form-data; name="{name}"'
+        if filename:
+            disp += f'; filename="{filename}"'
+        out += f"Content-Disposition: {disp}\r\n".encode()
+        if ctype:
+            out += f"Content-Type: {ctype}\r\n".encode()
+        out += b"\r\n" + payload + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
+
+
+def transcribe(data: bytes, content_type: str = "") -> dict:
+    """Spoken audio → text. Errors are returned, never raised: a failed
+    transcription must leave the composer exactly as the user left it."""
+    host = _speech_host()
+    if not host or not AZURE_KEY:
+        return {"error": "voice input is not configured on this server"}
+    if not data:
+        return {"error": "empty recording"}
+    if len(data) > _AUDIO_MAX_BYTES:
+        return {"error": "recording too large (max 15 MB)"}
+    body, ctype = _multipart([
+        ("audio", "recording.webm", content_type or "audio/webm", data),
+        ("definition", None, "application/json",
+         json.dumps({"locales": _SPEECH_LOCALES}).encode()),
+    ])
+    req = urllib.request.Request(
+        f"{host}{_SPEECH_PATH}?api-version={_SPEECH_API_VERSION}",
+        data=body,
+        headers={"Ocp-Apim-Subscription-Key": AZURE_KEY, "Content-Type": ctype},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+            out = json.loads(r.read().decode())
+    except Exception as exc:                                # noqa: BLE001
+        # Never relay the upstream body — it can echo resource ids.
+        logging.warning("charto transcribe failed: %s", exc)
+        return {"error": "the speech service rejected the audio — try again"}
+    text = " ".join(p.get("text", "")
+                    for p in (out.get("combinedPhrases") or [])).strip()
+    if not text:
+        return {"error": "couldn't hear anything — try again"}
+    provider = "azure-speech"
+    # Devanagari only. Latin-script Hinglish is left alone: the agent reads it
+    # as spoken, and a round trip through translation would flatten it.
+    if _DEVANAGARI_RE.search(text):
+        englished = _translate_to_english(text)
+        if englished and englished != text:
+            text, provider = englished, "azure-speech+llm"
+    return {"text": text, "provider": provider}
+
+
+_TRANSLATE_SYSTEM = (
+    "You translate Indian-language voice queries into English for a stock-"
+    "market charting app. Return ONLY the English translation — no preamble, "
+    "no quotes. Keep company names, tickers, and numbers exactly as spoken.")
+
+
+def _translate_to_english(text: str) -> str:
+    """Degrade, never fail: the chat agent reads Hindi, so a translation that
+    does not come back must not sink the voice turn."""
+    try:
+        payload = {"model": LLM_DEPLOYMENT, "input": [
+            {"role": "system", "content": _TRANSLATE_SYSTEM},
+            {"role": "user", "content": text}],
+            "max_output_tokens": 300, "reasoning": {"effort": "minimal"}}
+        req = urllib.request.Request(
+            f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
+            headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+            data = json.loads(r.read().decode())
+        for item in data.get("output", []):
+            for part in item.get("content", []) or []:
+                if part.get("type") == "output_text" and part.get("text"):
+                    return str(part["text"]).strip()
+    except Exception as exc:                                # noqa: BLE001
+        logging.warning("charto transcribe translate failed: %s", exc)
+    return text
+
+
 # ── open_chart: the model arranges the workspace itself ────────────────────
 #
 # Every other tool READS a chart the user opened. This one puts one on screen.
@@ -7275,6 +7625,13 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
     if layout:
         op["layout"] = layout
     _view_add(op)
+    # A chart the model just opened IS a chart in this conversation, so it
+    # joins the list the symbol gate reads. Without this, "open TCS and tell me
+    # its RSI" opened the pane and then refused to read it — the gate is there
+    # to stop a ticker drifting in from stale transcript, not to stop the model
+    # reading what it deliberately put on screen this turn.
+    if sym not in (getattr(_req, "charts", None) or []):
+        _req.charts = (getattr(_req, "charts", None) or []) + [sym]
     # Which of the two placements you chose decides whether anything can ever
     # be drawn on the result, and nothing here used to say so: an added pane is
     # a reference chart with no drawing layer, and "opened" read as done to a
@@ -7990,23 +8347,24 @@ TOOLS = [
      "description": (
          "Arm a server-side alert on the chart's instrument. Use it whenever the "
          "user asks to be TOLD or NOTIFIED about something — 'tell me if', 'let "
-         "me know when', 'alert me', 'watch for'. It notifies only; it never "
-         "places an order. The alert is a COMPOSED expression: a list of "
-         "conditions, each `left <op> right`, where both sides are addresses "
-         "resolved against the real bars. Addresses: close/open/high/low/volume "
-         "(current bar), close[1] (n bars back), day.high/pday.close (session "
-         "fields), 20d.high/52w.low (windows), any indicator as rsi(14) / "
-         "sma(200) / vwap() / macd().signal / bbands(20).upper, avg(volume,20) "
-         "(a mean baseline), poc/vah/val (volume profile), draw:D3 (one of the "
-         "user's own drawings — re-priced every bar, so a trendline's level "
-         "moves with time), pattern(bullish_engulfing) or divergence(rsi) with "
-         "op=is_true (fires on COMPLETION on a closed bar, never on approach). "
-         "`x` multiplies the right side and `plus_pct` offsets it, so 'volume "
-         "above twice its average' is {left:'volume', op:'above', "
+         "me know when', 'alert me', 'watch for', or an intent that plainly "
+         "means it ('I'm out for the day, don't want to miss the breakout'). It "
+         "notifies only; it never places an order. The alert is a COMPOSED "
+         "expression: a list of conditions, each `left <op> right`, where both "
+         "sides are ADDRESSES from the list below, resolved against the real "
+         "bars. `x` multiplies the right side and `plus_pct` offsets it, so "
+         "'volume above twice its average' is {left:'volume', op:'above', "
          "right:'avg(volume,20)', x:2}. Several conditions with all=true is an "
-         "AND — that is how a confirmed breakout is expressed in one alert. If "
-         "an address or op is wrong the engine refuses and hands back the whole "
-         "grammar; re-call with the names it lists rather than guessing again."),
+         "AND — that is how a confirmed breakout is expressed in one alert. "
+         "A VAGUE ask is still an alert: read the vague word against the chart "
+         "rather than refusing it or inventing a number. 'Breaks out' means a "
+         "level you got from get_levels, not one you chose; 'oversold' is the "
+         "indicator's own convention; 'dumps' or 'takes off' is a percent move "
+         "or a session extreme. Ask only when the ask has no defensible "
+         "reading — and when you do ask, offer concrete options priced off this "
+         "chart. If an address or op is wrong the engine refuses and hands back "
+         "the whole grammar; re-call with the names it lists rather than "
+         "guessing again."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "defaults to the chart in focus"},
          "interval": {"type": "string",
@@ -8032,18 +8390,174 @@ TOOLS = [
          "expires_in_days": {"type": "integer", "description": "0 = open-ended"},
          "note": {"type": "string", "description": "why the user is watching it"}},
       "required": ["when"]}},
+    {"type": "function", "name": "check_alert",
+     "description": (
+         "Resolve an alert expression against the real bars WITHOUT arming it. "
+         "Takes exactly what set_alert takes and returns, per condition, the "
+         "value observed right now beside the target as resolved, plus whether "
+         "the rule is already true. Two uses: answering 'where is it now "
+         "relative to that?', and proving an address resolves before you "
+         "promise the user it is being watched. Prefer it over guessing when "
+         "the expression is unusual — a refusal here is a sentence in the "
+         "conversation, a refusal at 09:20 is an alert that never fired. It "
+         "also works signed out, so an expression can be shown to someone who "
+         "has not made an account yet."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"]},
+         "when": {"type": "array", "description": "the same conditions set_alert takes",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number"},
+                      "plus_pct": {"type": "number"},
+                      "within": {"type": "integer"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true (default) = AND, false = OR"}},
+      "required": ["when"]}},
     {"type": "function", "name": "list_alerts",
      "description": ("The user's own alerts and the most recent things that "
                      "fired, with the value each one actually saw. Use it for "
                      "'what am I watching', 'did anything trigger', or before "
-                     "cancelling one so the id is real."),
-     "parameters": {"type": "object", "properties": {}}},
+                     "updating or cancelling one so the id is real. Narrow with "
+                     "`symbol` or `state` when the question is about one chart "
+                     "or only the paused ones. `mark_seen` clears the bell's "
+                     "unseen count — pass it only when the user is actually "
+                     "acknowledging the fires, never merely to look."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "restrict to one instrument"},
+         "state": {"type": "string", "enum": ["armed", "paused", "fired"]},
+         "mark_seen": {"type": "boolean",
+                       "description": "mark fired entries read (clears the bell)"}}}},
+    {"type": "function", "name": "update_alert",
+     "description": (
+         "Change an alert that already exists: pause it (state='paused'), put "
+         "it back to work (state='armed'), or rewrite what it watches. Pass "
+         "only the fields that change — the others are left alone. Re-arming "
+         "re-seeds the crossing side against the current bar, so a re-armed "
+         "rule watches from now rather than firing on a move it slept through. "
+         "`when` REPLACES the condition list rather than merging into it, so "
+         "send every condition the rule should end up with. Prefer pausing to "
+         "cancelling when the user may want it back: a delete is final."),
+     "parameters": {"type": "object", "properties": {
+         "alert_id": {"type": "integer"},
+         "state": {"type": "string", "enum": ["armed", "paused"],
+                   "description": "'fired' is a state the engine sets, never you"},
+         "freq": {"type": "string",
+                  "enum": ["once", "per_bar", "per_bar_close", "per_day"]},
+         "interval": {"type": "string",
+                      "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"]},
+         "when": {"type": "array", "description": "the complete new condition list",
+                  "items": {"type": "object", "properties": {
+                      "left": {"type": "string"},
+                      "op": {"type": "string",
+                             "enum": ["cross", "cross_up", "cross_down", "above",
+                                      "below", "rises_pct", "falls_pct",
+                                      "changes_pct", "enters", "exits", "is_true"]},
+                      "right": {"description": "a number, or an address; omit for is_true"},
+                      "right2": {"description": "the band's other edge, for enters/exits"},
+                      "x": {"type": "number"},
+                      "plus_pct": {"type": "number"},
+                      "within": {"type": "integer"}},
+                      "required": ["left", "op"]}},
+         "all": {"type": "boolean", "description": "true = AND, false = OR"},
+         "expires_in_days": {"type": "integer", "description": "0 clears the expiry"},
+         "note": {"type": "string", "description": "why the user is watching it"}},
+      "required": ["alert_id"]}},
     {"type": "function", "name": "cancel_alert",
-     "description": ("Delete one alert by id. Call list_alerts first unless the "
-                     "id is already known from this conversation."),
+     "description": ("Delete one alert by id, permanently. Call list_alerts "
+                     "first unless the id is already known from this "
+                     "conversation. If the user only wants it to stop for now, "
+                     "update_alert with state='paused' keeps the rule."),
      "parameters": {"type": "object", "properties": {
          "alert_id": {"type": "integer"}},
       "required": ["alert_id"]}},
+    {"type": "function", "name": "log_trade",
+     "description": (
+         "Write a trade into the user's journal. Use whenever they report having "
+         "taken or closed one — 'I bought 50 here', 'took the breakout', 'I'm out "
+         "of that TCS long'. It records; it never places an order.\n"
+         "A journal row is expensive to type, and almost none of it needs to be "
+         "typed here — the trade is on the screen the user is describing it "
+         "from:\n"
+         "· from_drawing takes a plan already drawn by plan_position and fills "
+         "side, entry, stop, size and risk from it. If such a plan exists and "
+         "the user is logging THAT trade, this is the whole call.\n"
+         "· entry_at / exit_at take a TIME instead of a price ('03 Aug 2026 "
+         "09:20') and read the fill off that real bar, recording which bar it "
+         "used. Use it whenever the user points at when rather than at how much.\n"
+         "· `stop` becomes the trade's initial risk (|entry − stop| × quantity). "
+         "Pass it whenever a stop is known or was mentioned: without it the row "
+         "can carry no R-multiple, and expectancy across the journal stays null. "
+         "It is the single most valuable field after the fill itself.\n"
+         "Omitting the exit opens the trade; close it later with update_trade "
+         "rather than logging a second row. Only symbol, side, quantity and an "
+         "entry are needed to start — ask for those and take everything else "
+         "from the chart or from what was already said."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "defaults to the chart in focus"},
+         "side": {"type": "string", "enum": ["long", "short"]},
+         "quantity": {"type": "number", "description": "shares/units — cannot be inferred"},
+         "entry_price": {"type": "number"},
+         "entry_at": {"type": "string", "description": "chart-format time, read off that bar instead of a price"},
+         "exit_price": {"type": "number", "description": "omit to leave the trade open"},
+         "exit_at": {"type": "string", "description": "chart-format time of the exit"},
+         "stop": {"type": "number", "description": "the stop the trade was taken with — becomes initial risk"},
+         "initial_risk": {"type": "number", "description": "rupees at risk, if stated directly instead of a stop"},
+         "fees": {"type": "number"},
+         "thesis": {"type": "string", "description": "why the trade was taken, in the user's own words"},
+         "tags": {"type": "array", "items": {"type": "string"}},
+         "plan": {"type": "object", "description": "open structure: targets, setup, anything the trader plans by"},
+         "review": {"type": "object", "description": "open structure: adherence, emotion, lesson"},
+         "from_drawing": {"type": "string", "description": "id of a plan_position drawing on this chart"},
+         "interval": {"type": "string", "description": "bars used to resolve entry_at/exit_at, default 1m"}},
+      "required": ["side", "quantity"]}},
+    {"type": "function", "name": "list_trades",
+     "description": ("The user's journal — their trades and the statistics it "
+                     "exists for (net P&L, win rate, profit factor, expectancy "
+                     "in R, plan adherence). Use for 'how am I doing', 'what "
+                     "did I trade this week', 'am I following my plan', and "
+                     "before updating one so the id is real. Narrow with symbol "
+                     "or status. The overview is computed from the rows, so "
+                     "expectancy and adherence stay null until trades carry an "
+                     "initial risk and a review — say so rather than reporting "
+                     "a blank as a result."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string"},
+         "status": {"type": "string", "enum": ["open", "closed"]},
+         "limit": {"type": "integer", "description": "default 20, max 100"}}}},
+    {"type": "function", "name": "update_trade",
+     "description": (
+         "Change a journal trade that already exists: close it, price its exit "
+         "off a bar, add the stop that defines its risk, or write the review. "
+         "Pass only what changes. `exit_at` reads the exit off a real bar the "
+         "same way log_trade does. plan and review MERGE over what is stored, so "
+         "writing a lesson cannot erase the thesis. Adding `stop` to a trade "
+         "logged without one back-fills its initial risk and gives it an "
+         "R-multiple — worth offering whenever a row has none. Every write "
+         "keeps an audited revision."),
+     "parameters": {"type": "object", "properties": {
+         "trade_id": {"type": "integer"},
+         "exit_price": {"type": "number"},
+         "exit_at": {"type": "string", "description": "chart-format time of the exit"},
+         "status": {"type": "string", "enum": ["open", "closed"]},
+         "fees": {"type": "number"},
+         "stop": {"type": "number", "description": "back-fills initial risk"},
+         "initial_risk": {"type": "number"},
+         "tags": {"type": "array", "items": {"type": "string"}},
+         "plan": {"type": "object"},
+         "review": {"type": "object"},
+         "lesson": {"type": "string", "description": "what the trade taught, in their words"},
+         "emotion": {"type": "string", "description": "how it was traded — impatient, hesitant, calm"},
+         "adherence": {"type": "boolean", "description": "did it follow the plan"},
+         "interval": {"type": "string", "description": "bars used to resolve exit_at, default 1m"}},
+      "required": ["trade_id"]}},
     {"type": "function", "name": "update_journal_trade",
      "description": ("Apply a user-requested edit to an attached journal trade. "
                      "Use only when the user clearly asks to save/change a field, "
@@ -8058,7 +8572,7 @@ TOOLS = [
     {"type": "function", "name": "get_levels",
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "draw": {"type": "boolean", "description": "draw the strongest max_draw levels"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
@@ -8074,7 +8588,7 @@ TOOLS = [
     {"type": "function", "name": "get_trendlines",
      "description": "Detect SLOPED trend lines fitted through real swing highs/lows, each requiring 3+ touches, with status intact/broken. Use for any diagonal structure — trendline, rising support, falling resistance, wedge/channel edges. Set draw=true to put them on the chart. A resistance line is fitted through swing HIGHS, a support line through swing LOWS — pass `side` when the question names one.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "draw": {"type": "boolean"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
@@ -8120,7 +8634,7 @@ TOOLS = [
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
      "parameters": {"type": "object", "properties": {
          "indicator": {"type": "string", "enum": ["rsi", "macd"]},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 400"},
          "draw": {"type": "boolean"},
          "draw_ids": {"type": "array", "items": {"type": "string"}},
@@ -8130,7 +8644,7 @@ TOOLS = [
     {"type": "function", "name": "get_gaps",
      "description": "Find price gaps and, crucially, how often gaps have actually filled on this symbol in this window, with median bars-to-fill. Use whenever gaps come up, or when asked about unfilled gaps overhead/below. Set draw=true to shade them.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 400"},
          "only_open": {"type": "boolean", "description": "only gaps price has not returned to"},
          "draw": {"type": "boolean"},
@@ -8141,7 +8655,7 @@ TOOLS = [
     {"type": "function", "name": "get_anchors",
      "description": "Referenceable points on the chart — swing highs/lows, window extremes, session open/close, gaps, and the 52-week high/low — each returned with the bars around it so you can judge what the point means. Use this when the user asks for something drawn that no detector produces (a range, a box, a line between two moments): get anchors, then compose with draw_shape. For the 52-week high or low ask kinds=['high_52w','low_52w']. To anchor at a SPECIFIC date the conversation has located (the day of the biggest fall, a particular high), pass at_times — each mints bar_high/bar_low anchors at that real bar (ids carry the date, e.g. T060126H/T060126L for 06 Jan 2026), drawable this whole turn. To box or bound a named period, pass frm/to — window_high/window_low then become that RANGE's extremes (date-carrying ids R<ddmmyy>H/L). You never type a coordinate.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 300"},
          "kinds": {"type": "array", "items": {"type": "string",
                    "enum": ["swing_high", "swing_low", "session_open", "session_close",
@@ -8154,13 +8668,28 @@ TOOLS = [
          "limit": {"type": "integer", "description": "default 12, max 30"}},
          "required": ["interval"]}},
     {"type": "function", "name": "draw_shape",
-     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, fib, candle. Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker.",
+     "description": "Draw a shape by referencing anchor ids from get_anchors. Shapes: segment, ray, box, band, hline, vline, point, polyline, candle, plus the whole Fibonacci and Gann rail (fib, fibExtension, fibChannel, fibTimeZone, fibSpeedFan, fibTimeExtension, fibCircles, fibSpiral, fibArcs, fibWedge, pitchfan, gannBox, gannSquare, gannSquareFixed, gannFan). Use for anything the user asks to mark that isn't a detected level/trendline/divergence — a range between two swings, a box around a consolidation, a fib retracement across a leg, a line from one moment to another. Use 'candle' to single out a BAR for any reason ('mark the day it gapped', 'highlight that big red candle', 'which bar was the reversal') — it puts a dot just above the bar's high, pointing at it without covering the body and wicks. Giving a 1-anchor shape (hline/vline/point/candle) SEVERAL ids draws one per anchor in a single call, each auto-labelled from its anchor kind — always do that for 'mark both/all of…' asks instead of one call per marker. Anchor ORDER carries meaning for every ratio tool — read the shape description.",
      "parameters": {"type": "object", "properties": {
-         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "fib", "candle"],
-                   "description": "'fib' draws a full retracement ladder across the leg between the two anchors — the FIRST anchor is the leg's start (100%), the second its end (0%). 'candle' dots the bar an anchor sits on, just above its high"},
+         "shape": {"type": "string", "enum": ["segment", "ray", "box", "band", "hline", "vline", "point", "polyline", "candle",
+                                              "fib", "fibExtension", "fibChannel", "fibTimeZone", "fibSpeedFan",
+                                              "fibTimeExtension", "fibCircles", "fibSpiral", "fibArcs", "fibWedge",
+                                              "pitchfan", "gannBox", "gannSquare", "gannSquareFixed", "gannFan"],
+                   "description":
+                       "'candle' dots the bar an anchor sits on, just above its high. The ratio tools, by what they claim and how many anchors they take — "
+                       "PRICE: fib (2) a retracement ladder across a leg, first anchor the leg's START (100%), second its END (0%) · "
+                       "fibExtension (3) where the NEXT move might end: anchors 1→2 are the measured leg, 3 is where the pullback ended · "
+                       "fibChannel (3) the ladder sloped along a trend: 1→2 the baseline, 3 the 100% rail. "
+                       "TIME: fibTimeZone (2) verticals on the fibonacci NUMBERS of the unit 1→2 — when, not where · "
+                       "fibTimeExtension (3) the same counted off a measured leg 1→2, starting at 3. "
+                       "SLOPE (no level table — never quote a price off these): fibSpeedFan (2) rays cutting the box at each ratio · "
+                       "fibArcs (2) half-rings crossing the move · fibCircles (2) rings about a pivot, anchor 1 the centre · "
+                       "fibSpiral (2) a golden spiral winding inward from anchor 2 · fibWedge (3) two rays from apex 1 with fib rungs between · "
+                       "pitchfan (3) a pitchfork whose tines are fib fractions of the base 2→3, handle at 1 · gannFan (2) rational angles, anchor 2 sets the 1×1. "
+                       "GRID: gannBox (2) the same fractions across price and time · gannSquare (2) that grid plus the fan and arcs · "
+                       "gannSquareFixed (1) the same figure sized from one anchor by 52 bars and their real range"},
          "anchor_ids": {"type": "array", "items": {"type": "string"},
                         "description": "ids from get_anchors, e.g. ['A1312','A1271']"},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "must match the get_anchors call"},
          "pane": {"type": "string", "description": "'price', or an indicator id like 'rsi'"},
          "label": {"type": "string", "description": "short caption drawn on the chart"},
@@ -8202,19 +8731,36 @@ TOOLS = [
          "window) · segment (two points) · ray (extended right) · box (a "
          "region in time AND price) · poly (3+ points) · dot (pin one point) "
          "· candle (a dot above one bar — 'that bar') · note (a text chip at "
-         "a point) · marker (an arrow or circle ON a bar)."),
+         "a point) · marker (an arrow or circle ON a bar).\n"
+         "The Fibonacci and Gann rail is addressable here too, when the "
+         "anchors are moments the conversation located rather than detected "
+         "swings — write one address per anchor, in order, via points:[…]: "
+         "fib (2) · fibExtension (3) · fibChannel (3) · fibTimeZone (2) · "
+         "fibSpeedFan (2) · fibTimeExtension (3) · fibCircles (2) · "
+         "fibSpiral (2) · fibArcs (2) · fibWedge (3) · pitchfan (3) · "
+         "gannBox (2) · gannSquare (2) · gannSquareFixed (1) · gannFan (2). "
+         "Anchor order carries meaning — see draw_shape for what each one "
+         "claims. Prefer draw_shape when the anchors ARE detected swings: a "
+         "ratio tool hung off real pivots is worth more than one hung off a "
+         "clock."),
      "parameters": {"type": "object", "properties": {
          "shapes": {"type": "array", "description": "several shapes in one call — always batch",
                     "items": {"type": "object", "properties": {
                         "shape": {"type": "string",
                                   "enum": ["hline", "band", "vline", "vband",
                                            "segment", "ray", "box", "poly",
-                                           "dot", "candle", "note", "marker"]},
+                                           "dot", "candle", "note", "marker",
+                                           "fib", "fibExtension", "fibChannel",
+                                           "fibTimeZone", "fibSpeedFan",
+                                           "fibTimeExtension", "fibCircles",
+                                           "fibSpiral", "fibArcs", "fibWedge",
+                                           "pitchfan", "gannBox", "gannSquare",
+                                           "gannSquareFixed", "gannFan"]},
                         "at": {"type": "string", "description": "address, for a one-point shape"},
                         "from": {"type": "string", "description": "first address of a two-point shape"},
                         "to": {"type": "string", "description": "second address"},
                         "points": {"type": "array", "items": {"type": "string"},
-                                   "description": "3+ addresses, for poly"},
+                                   "description": "3+ addresses for poly, and the ordered anchors of a ratio tool (2 or 3 of them, or 1 for gannSquareFixed)"},
                         "label": {"type": "string", "description": "short caption — and the text of a note/marker"},
                         "role": {"type": "string", "enum": ["support", "resistance", "neutral"],
                                  "description": "colour only: amber above, cyan below, violet otherwise"},
@@ -8238,7 +8784,7 @@ TOOLS = [
          "p1_value": {"type": "number"},
          "p2_time": {"type": "string"},
          "p2_value": {"type": "number"},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 500"}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_fib",
@@ -8249,13 +8795,13 @@ TOOLS = [
          "p1_value": {"type": "number", "description": "price at the start of the leg (the 100% end)"},
          "p2_time": {"type": "string", "description": "IST time of the leg's END"},
          "p2_value": {"type": "number", "description": "price at the end of the leg (the 0% end)"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
      "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply listing everything it found, so the reply's job is what the sweep MEANS, not a transcript of the lists.",
      "parameters": {"type": "object", "properties": {
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
          "kinds": {"type": "array", "items": {"type": "string"},
                    "description": "specific pattern names to look for, e.g. ['head_and_shoulders'] or ['bullish_engulfing','hammer']. Omit for a full sweep. An unknown name comes back with the full list rather than scanning."},
@@ -8273,7 +8819,7 @@ TOOLS = [
      "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate as control — the edge is pattern rate minus base rate. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",
      "parameters": {"type": "object", "properties": {
          "kind": {"type": "string", "description": "one exact snake_case pattern id, e.g. bullish_engulfing, triple_top, bull_flag"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "history to mine, default 1000, max 2000"},
          "horizon_bars": {"type": "integer", "description": "forward window per instance, default 10"}},
          "required": ["kind", "interval"]}},
@@ -8399,7 +8945,7 @@ TOOLS = [
          "drawing_id": {"type": "string"},
          "basis": {"type": "string", "description": "the chart feature these levels came from, a few words — 'falling wedge upper edge 1,318.15', 'support 1,271 · 4 touches'. Rides on the overlay so the plan says what it was built on. Leave empty only when the user gave bare numbers with no reason."},
          "interval": {"type": "string",
-                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+                      "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "draw_mode": {"type": "string", "enum": ["add", "clear"]}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_drawing",
@@ -8412,14 +8958,21 @@ TOOLS = [
                     "items": {"type": "object", "properties": {
                         "t": {"type": "string", "description": "IST time as the chart shows it, e.g. '08 Jul 2026 15:25' — required for channel"},
                         "v": {"type": "number", "description": "price"}}}},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "default 600"}},
          "required": ["interval"]}},
+    {"type": "function", "name": "read_drawing",
+     "description": "Read back a Fibonacci or Gann drawing — anything from the ratio rail EXCEPT a plain fib retracement (that one has evaluate_fib, which measures a real record). Use whenever the user asks what their fib extension / channel / time zone / fan / arcs / circles / spiral / wedge / pitchfan / Gann box / Gann square / Gann fan is showing, where its levels are, which ray or ring price is on, or 'is this any good' about one. Returns the divisions the chart actually drew — prices for a price ladder, dates for a time ladder, both for a Gann grid — plus where price currently sits against them. It READS, it does not score: these tools have no measured hit rate, and there is nothing here to present as one. A tool that divides an ANGLE (fans, arcs, circles, spirals, wedges) honestly returns no level table, and saying so is the answer — never quote a price off one.",
+     "parameters": {"type": "object", "properties": {
+         "drawing_id": {"type": "string", "description": "ref of the drawing (e.g. 'D3') from the chart context — the user's own, or the id of one the chat drew. Never retype its coordinates; the user may have dragged it since."},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
+         "lookback_bars": {"type": "integer", "description": "default 400 — only used to read where price stands now"}},
+         "required": ["drawing_id"]}},
     {"type": "function", "name": "get_results",
      "description": "Quarterly result (earnings) dates for this company, newest first, and optionally mark them on the chart with event icons. Use for 'when were the last results', 'when did Q1 report', 'mark earnings on the chart', or to locate a quarter before asking what price did around it. The date returned is the session the market could FIRST react to: an after-market announcement reacts the next day, and the field already accounts for that. These are past announcements only — there is no scheduled future date here, so never state one.",
      "parameters": {"type": "object", "properties": {
          "limit": {"type": "integer", "description": "how many recent quarters, default 8, max 40"},
-         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "draw": {"type": "boolean", "description": "mark them on the chart as event icons"},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
          "required": ["interval"]}},
@@ -8460,7 +9013,7 @@ TOOLS = [
                            "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
                            "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
                            "obv", "ad", "cmf", "mfi", "aroon"]},
-         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "period": {"type": "integer", "description": "omit for the indicator's conventional default"},
          "source": {"type": "string", "enum": ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"],
                     "description": "price column, default close"},
@@ -8585,6 +9138,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "evaluate_line": tool_evaluate_line,
              "evaluate_fib": tool_evaluate_fib,
              "evaluate_drawing": tool_evaluate_drawing,
+             "read_drawing": tool_read_drawing,
              "plan_position": tool_plan_position,
              "volume_profile": tool_volume_profile,
              "get_peers": tool_get_peers,
@@ -8617,8 +9171,56 @@ def _alert_tool(name: str):
     return call
 
 
-for _n in ("set_alert", "list_alerts", "cancel_alert"):
+for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
+           "cancel_alert"):
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
+
+
+def _teach_alert_grammar() -> None:
+    """Put the ENGINE's own address grammar into the alert tools' schema.
+
+    The addresses were re-typed into the tool description by hand, and had
+    already drifted from the dict the resolver actually reads: results(),
+    the derived prices, ema/supertrend, avg(close,50), stoch(14).k and the
+    shifted form rsi(14)[1] were all resolvable, and none of them were
+    offered. The model cannot compose what it has not been told exists — so
+    "tell me when results are out" reached for a news search, which was the
+    only instrument it had, while `results()` sat in OPERANDS unused.
+
+    Generated from OPERANDS/OPS, it cannot drift again: an operand added to
+    alerts.py is offered to the model the day it lands, the same way an
+    indicator added to indicators.py is already addressable the day IT lands.
+    This is a schema, not a router — nothing here inspects the user's words.
+    """
+    if _alerts is None:
+        return
+
+    # Trimmed to the clause that says what the address IS. The rest of each
+    # entry is a caveat the ENGINE enforces anyway (range checks, closed-bar
+    # evaluation, tick clearance) and paying for it on every turn buys the
+    # model nothing it can act on. `ops` are already an enum on the parameter,
+    # so only their one-line meaning is worth carrying.
+    def head(s: str) -> str:
+        s = " ".join(str(s).split())
+        for stop in (". ", " — ", ", so ", ". "):
+            if stop in s:
+                s = s.split(stop)[0]
+        return s[:96]
+
+    addrs = "; ".join(f"{k} = {head(v)}" for k, v in _alerts.OPERANDS.items())
+    ops = "; ".join(f"{k}: {head(v)}" for k, v in _alerts.OPS.items())
+    grammar = (f"\n\nADDRESSES (this list IS the resolver's own — anything on "
+               f"it works, anything off it is refused): {addrs}"
+               f"\n\nOPS: {ops}")
+    # Carried by set_alert alone. check_alert takes the identical `when`, and
+    # both schemas reach the model in the same request, so a second copy is a
+    # second bill for a grammar already on screen.
+    for t in TOOLS:
+        if t.get("name") == "set_alert":
+            t["description"] = t["description"] + grammar
+        elif t.get("name") == "check_alert":
+            t["description"] = (t["description"] + " Takes exactly the "
+                                "addresses and ops listed under set_alert.")
 
 
 def _journal_update_tool(trade_id: int, changes: dict):
@@ -8637,6 +9239,22 @@ def _journal_update_tool(trade_id: int, changes: dict):
 
 
 _DISPATCH["update_journal_trade"] = _journal_update_tool
+
+
+# The journal's own three, on the same terms as the watcher's: `user_id` is
+# read off the request's bearer token and is never a parameter, so the model
+# cannot address another account's book even if it invents the argument.
+def _journal_tool(name: str):
+    def call(**args):
+        if _journal is None:
+            return {"error": "the journal is not loaded on this server"}
+        who = getattr(_req, "user", None)
+        return getattr(_journal, name)(user_id=(who[0] if who else 0), **args)
+    return call
+
+
+for _n in ("log_trade", "list_trades", "update_trade"):
+    _DISPATCH[_n] = _journal_tool("tool_" + _n)
 
 
 # ── which chart a tool reads ────────────────────────────────────────────────
@@ -8746,6 +9364,30 @@ def run_tool(name: str, args: dict) -> dict:
         return {"error": "this chart cannot be drawn on",
                 "_note": _no_ink_note(want)}
     if want and want != prev:
+        # `symbol=` means "which chart on screen to read" — its own description
+        # says so — but nothing checked it, and the model does not only pick
+        # from the screen. It also picks from the TRANSCRIPT. A conversation
+        # survives a symbol change (chats are deliberately un-scoped: one
+        # thread runs across RELIANCE, then TCS, then GOLD), so six turns of
+        # NIFTY prose can sit above one line of GOLD envelope, and the stale
+        # ticker rides into `symbol=`. It resolves — it is a real instrument —
+        # the tool computes it correctly, and the reply quotes NIFTY numbers
+        # to someone looking at gold. Every number right, every number about a
+        # chart that is not on screen, and nothing downstream can tell.
+        # So the aim is bounded by the conversation's own charts. Cross-symbol
+        # work is unaffected: get_peers / compare_symbols / screen_universe
+        # name their own symbols and were never in _CHART_SCOPED.
+        on_screen = [s.upper() for s in (getattr(_req, "charts", []) or [])]
+        if on_screen and want not in on_screen:
+            return {"error": f"{want} is not a chart in this conversation",
+                    "_note": (f"The charts here are: {', '.join(on_screen)}. "
+                              f"`symbol=` chooses among THOSE — it is not a way "
+                              f"to read an instrument the user is not looking "
+                              f"at. An earlier turn may have been asked on a "
+                              f"chart that has since been changed; the envelope "
+                              f"above is the current one. Answer for a chart on "
+                              f"screen, and if {want} is genuinely the subject, "
+                              f"say it is not open and offer open_chart.")}
         # An unloaded chart must say so. Answering from the focused chart
         # under another chart's name is the one failure that cannot be caught
         # downstream — every number would look right and belong to the wrong
@@ -8954,9 +9596,26 @@ def build_context_block(ctx: dict | None) -> str:
                          + json.dumps(trade, ensure_ascii=False, separators=(",", ":"))
                          + "\nDiscuss any field freely. Use update_journal_trade for changes; "
                            "never say a journal change was saved unless that tool succeeds.")
+    # The stub has to NAME the chart, and this is why. Changing symbol reloads
+    # the page; the conversation restores from localStorage instantly while the
+    # bars are still in flight, so the very first question on the new chart
+    # arrives with status=loading. Unnamed, the stub said only "you cannot see
+    # the chart" — and the model, left with a transcript that talked about
+    # NIFTY 50 for six turns, answered for NIFTY 50 while the composer chip
+    # read GOLD. Not being able to read the bars yet is a different fact from
+    # not knowing WHICH chart is open, and the envelope always knows the second.
+    who = str(ctx.get("symbol") or "").upper()
+    iv = str(ctx.get("interval") or "")
     stub = ("## Chart the user is viewing\n"
-            "The chart has not finished loading — you cannot see it yet. "
-            "Say so if asked about it.")
+            + (f"{who}{f' · {iv}' if iv else ''} — this is the chart, and it is "
+               f"the subject of the question. Its bars have not finished "
+               f"loading, so you cannot read values off it yet: say that "
+               f"rather than answering from earlier turns, which may have been "
+               f"asked on a different chart. Never answer for another "
+               f"instrument merely because the transcript discussed one."
+               if who else
+               "The chart has not finished loading — you cannot see it yet. "
+               "Say so if asked about it."))
     if ctx.get("status") == "loading":
         return "\n\n".join(x for x in (stub, journal_block) if x)
     if not ctx.get("symbol"):
@@ -9026,9 +9685,13 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
         f"· low {_n(w['low']['p'])} ({w['low']['t']}) "
         f"· avg vol {w['avg_volume']:,}",
     ]
-    cls = _classification_row(str(ctx.get("symbol") or ""))
+    cls = _classification_full(str(ctx.get("symbol") or ""))
     if cls:
-        L.insert(2, f"{cls[0]} · industry: {cls[1]} (Moneycontrol classification)")
+        # The words, not the key: the model reads this line and quotes it, and
+        # "360onewam" quoted back at a user is the bug this line used to carry.
+        _ind = cls[2] or cls[1]
+        _sec = f", {cls[3]}" if cls[3] else ""
+        L.insert(2, f"{cls[0]} · industry: {_ind}{_sec}")
     _st = _LIVE.get(str(ctx.get("symbol") or ""))
     _form = _st["form"] if _st else None
     if _form:
@@ -9149,6 +9812,21 @@ _CONTEXT_CONTRACT = (
         "direction the user hasn't stated. If asked for a target or stop, give "
         "the levels and what would invalidate them, and say plainly that this is "
         "analysis, not advice. Be concise and concrete."
+        # A user saying "I don't see it" was being answered with an invented
+        # reason — "the drawings are on 1w, the chart displays 1d" — while the
+        # chart was on 1w and this very block said so. Guessing at a chart
+        # state you were handed is worse than a wrong answer: it sends the
+        # user to click a button that is already pressed, and it closes the
+        # question so the real fault is never found.
+        "\n\nThe interval and symbol above are THE chart's, live — not a "
+        "guess and not a memory of an earlier turn. Never tell the user their "
+        "chart is on a timeframe or symbol other than the one stated here, "
+        "and never explain a missing drawing by a chart state you did not "
+        "read off this block. If you drew something and the user says they "
+        "cannot see it, do not invent a reason: say plainly that it should be "
+        "on the chart, name the interval it was drawn on as given above, and "
+        "re-draw or ask what they do see. 'I don't know why' is an allowed "
+        "answer; a fabricated disconnect is not."
 )
 
 
@@ -9276,6 +9954,44 @@ def _suggest_stream(messages: list[dict]):
     yield {"type": "done", "suggestions": out if len(out) == 3 else []}
 
 
+def _suggest_events(messages: list[dict], answer: str):
+    """The follow-ups, re-tagged to ride the ANSWER's stream instead of their own.
+
+    Why they moved off /suggest. A second endpoint is the obvious shape and it
+    is what we shipped, but it costs two things. The small one is a hop, and
+    hop count is the latency lever here. The large one is that a new route is
+    invisible in production until nginx's allowlist learns it — and nginx is a
+    record in this repo that a human has to install, so /suggest spent its
+    whole life answering 200 text/html on the VM while working perfectly on
+    localhost. /chat is already allowlisted, already unbuffered, already
+    ungzipped. Nothing that rides it can go missing that way.
+
+    This is also what the products doing it well do: Perplexity returns its
+    related questions in the same response as the answer, and the Vercel AI
+    SDK's whole "data parts" mechanism exists to put typed extras on the one
+    stream. A separate call is the older shape.
+
+    Emitted AFTER the turn's `done`, never before. The client has the answer,
+    the scene patch and the view ops in hand and has already acted on them by
+    the time the first of these arrives, so the three questions cost the reply
+    nothing — which is the same rule /suggest had: a suggestion is a
+    convenience, and nothing here may cost an answer. A failure yields an
+    empty list and the row simply never appears.
+    """
+    convo = [m for m in messages if m.get("role") in ("user", "assistant")]
+    convo = convo + [{"role": "assistant", "content": answer}]
+    try:
+        for ev in _suggest_stream(convo):
+            if ev.get("type") == "delta":
+                yield {"type": "suggest_delta", "text": ev.get("text") or ""}
+            elif ev.get("type") == "done":
+                yield {"type": "suggest_done",
+                       "suggestions": ev.get("suggestions") or []}
+    except Exception as exc:  # noqa: BLE001 — never let a follow-up break a turn
+        logging.info("suggest events failed: %s", exc)
+        yield {"type": "suggest_done", "suggestions": []}
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     payload = {
         "model": LLM_DEPLOYMENT,
@@ -9366,13 +10082,35 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
     NEWEST one goes to the model — re-shipping every past screenshot on every
     turn would grow input cost without bound — and an older message that had
     one says so in text, so the model never half-remembers an image it can no
-    longer see."""
+    longer see.
+
+    It may also carry `symbol`: the chart that was on screen when it was
+    asked. A conversation is not a property of an instrument — one thread runs
+    across RELIANCE, TCS, then GOLD — but the transcript read as though it
+    were, because nothing in it said WHICH chart each turn was about. The
+    envelope describes only NOW, and it sits at the TOP of the wire, above
+    every turn: the model's most recent reading of "the chart" was six turns
+    of NIFTY prose, not the one GOLD line preceding them. So the turns asked
+    on a chart that is no longer in focus are marked as such, in place. Only
+    those turns — a mark on every turn would be noise, and the ones that agree
+    with the envelope need no correction."""
     last_img = max((i for i, m in enumerate(messages) if m.get("image")),
                    default=None)
+    now_sym = str(getattr(_req, "symbol", "") or "").upper()
+    # The FE stamps the chart on the USER turn. The reply that follows it is
+    # about the same chart, so the stamp carries forward until the next one —
+    # and the assistant prose is what actually names the stale ticker.
+    seen_sym = ""
     out: list[dict] = []
     for i, m in enumerate(messages):
         role = m.get("role", "user")
         txt = str(m.get("content", ""))
+        if m.get("symbol"):
+            seen_sym = str(m["symbol"]).upper()
+        if now_sym and seen_sym and seen_sym != now_sym:
+            txt = (f"[asked while viewing {seen_sym}; the chart in focus is "
+                   f"now {now_sym} — do not carry {seen_sym}'s numbers, "
+                   f"levels or marked patterns onto it]\n" + txt)
         # a tagged drawing IS the subject of that message — state it as a
         # fact of the turn, so "is this any good?" has an unambiguous referent
         # instead of the model guessing which shape "this" means
@@ -9573,13 +10311,17 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
         calls = list(by_id.values())
         if not calls:
+            answer = "".join(text_parts) or "(empty reply)"
             yield {"type": "done",
-                   "text": "".join(text_parts) or "(empty reply)",
+                   "text": answer,
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
                    "scene_patch": scene_patch, "view_ops": view_ops,
                    "cards": cards}
+            # The turn is complete and delivered. What follows is the three
+            # follow-ups on the same connection — see _suggest_events.
+            yield from _suggest_events(messages, answer)
             return
 
         for call in calls:
@@ -11537,6 +12279,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        # Voice, before the JSON routes: the body is an audio blob, so it must
+        # never reach a json.loads. Posted RAW rather than as multipart —
+        # there is one file and no other field, and a hand-rolled multipart
+        # parser on a public endpoint is a liability with nothing to buy.
+        # Signed in, like every other thing kept per user: the transcript is
+        # the user's words and the call costs money.
+        if u.path == "/audio/transcribe":
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use voice input"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+            except (TypeError, ValueError):
+                ln = 0
+            if ln <= 0:
+                return self._send(400, {"error": "empty recording"})
+            if ln > _AUDIO_MAX_BYTES:
+                return self._send(413, {"error": "recording too large"})
+            out = transcribe(self.rfile.read(ln),
+                             self.headers.get("Content-Type", ""))
+            return self._send(400 if "error" in out else 200, out)
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
                 return self._send(501, {"error": "journal is unavailable"})
@@ -11591,9 +12354,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "bad JSON body"})
             return self._send(*self._account_post(u.path, body))
         if u.path == "/suggest":
-            # Separate from /chat on purpose. It runs AFTER the reply has
-            # landed, so it can never delay one — and a `done` carrying an
-            # empty list is a normal answer, not a failure to handle.
+            # LEGACY. The follow-ups now ride /chat's own stream, after that
+            # turn's `done` — see _suggest_events for why the route mattered
+            # more than the hop. Kept because a browser holding a cached
+            # index.html still posts here for a deploy or two, and answering
+            # it costs nothing; nothing we ship calls it any more.
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")
@@ -11706,6 +12471,10 @@ if __name__ == "__main__":
     try:
         import alerts as _alerts_mod
         _alerts = _alerts_mod
+        # before anything can be asked: the tools' schema carries the engine's
+        # own operand list, so the model is never offered a grammar narrower
+        # than the one the resolver speaks
+        _teach_alert_grammar()
         _alerts_mod.register_hook()
         _boot = _alerts_mod.start()
         print(f"charto alerts: {_boot.get('armed', 0)} armed on "

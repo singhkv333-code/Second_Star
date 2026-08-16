@@ -54,6 +54,23 @@ class JournalTest(unittest.TestCase):
         self.assertIsNone(out["trade"]["net_pnl"])
         self.assertIsNone(out["trade"]["r_multiple"])
 
+    def test_overview_metrics_use_the_correct_eligible_trades(self):
+        trades = [
+            {"net_pnl": 200, "r_multiple": 2, "review": {"adherence": True}, "reviewed": True},
+            {"net_pnl": -100, "r_multiple": -1, "review": {"adherence": False}, "reviewed": True},
+            {"net_pnl": 0, "r_multiple": 0, "review": {}, "reviewed": False},
+            {"net_pnl": None, "r_multiple": None, "review": {"emotion": "calm"}, "reviewed": True},
+        ]
+        out = self.j.overview(trades)
+        self.assertEqual(out["count"], 4)
+        self.assertEqual(out["closed"], 3)
+        self.assertEqual(out["net_pnl"], 100)
+        self.assertEqual(out["win_rate"], 33.3)
+        self.assertEqual(out["profit_factor"], 2)
+        self.assertEqual(out["expectancy_r"], 0.33)
+        self.assertEqual(out["adherence"], 50)
+        self.assertEqual(out["reviewed"], 3)
+
     def test_chat_origin_creates_revision(self):
         _, out = self.j.api_create(1, {"symbol":"HDFCBANK", "side":"long",
             "opened_at":100, "quantity":1, "entry_price":100})
