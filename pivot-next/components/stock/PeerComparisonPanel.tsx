@@ -25,6 +25,8 @@
 import * as React from "react";
 import Link from "next/link";
 
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { getStockPeers, type PeerComparisonResponse, type PeerPrice } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { EmptyNote, PanelHead, PanelSkeleton, Segmented } from "./chrome";
@@ -100,6 +102,14 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
   const [data, setData] = React.useState<PeerComparisonResponse | null>(null);
   const [sort, setSort] = React.useState<{ col: string; dir: 1 | -1 } | null>(null);
 
+  // The mark is how a row is found. Six companies in one sector have names
+  // that all start the same way — Tata Consultancy, Tata Elxsi — so the glyph
+  // is doing real work here, not decoration: it is the only part of the row
+  // you can recognise without reading it.
+  const peerSymbols = React.useMemo(
+    () => data?.peers.map((p) => p.symbol) ?? [], [data]);
+  const logos = useCompanyLogos(peerSymbols);
+
   React.useEffect(() => {
     let dead = false;
     setData(null);
@@ -171,23 +181,34 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
           <tbody>
             {rows.map((r) => (
               <tr key={r.sc_id + r.symbol} style={{ borderTop: "1px solid var(--glass-border)" }}>
-                <td style={{ padding: "10px 12px 10px 0", minWidth: 190 }}>
+                <td style={{ padding: "10px 12px 10px 0", minWidth: 210 }}>
                   <Link
                     href={`/stock/${r.symbol}`}
-                    style={{ color: "inherit", textDecoration: "none", display: "block" }}
+                    style={{
+                      color: "inherit", textDecoration: "none",
+                      display: "flex", alignItems: "center", gap: 10,
+                    }}
                   >
-                    <span style={{
-                      display: "block", fontSize: 12.5,
-                      // The company you are already on is the row you compare
-                      // FROM, so it is the one name set in full weight.
-                      fontWeight: r.is_current ? 650 : 450,
-                      color: "var(--text-primary)",
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
-                      {r.name}
-                    </span>
-                    <span style={{ display: "block", marginTop: 1, fontSize: 10.5, color: "var(--text-tertiary)" }}>
-                      {r.symbol}
+                    <CompanyLogo
+                      logoUrl={logos[r.symbol.toUpperCase()] ?? null}
+                      name={r.name}
+                      symbol={r.symbol}
+                      size={26}
+                    />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{
+                        display: "block", fontSize: 12.5,
+                        // The company you are already on is the row you compare
+                        // FROM, so it is the one name set in full weight.
+                        fontWeight: r.is_current ? 650 : 450,
+                        color: "var(--text-primary)",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {r.name}
+                      </span>
+                      <span style={{ display: "block", marginTop: 1, fontSize: 10.5, color: "var(--text-tertiary)" }}>
+                        {r.symbol}
+                      </span>
                     </span>
                   </Link>
                 </td>

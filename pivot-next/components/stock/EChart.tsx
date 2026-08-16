@@ -145,6 +145,18 @@ export default function EChart({
     if (!inst.current) inst.current = echarts.init(host.current, undefined, {
       renderer: "canvas",
     });
+    // `...option` is spread LAST so a caller can override any default — which
+    // is right for every key except `tooltip`, because a caller that sets
+    // `tooltip: { trigger: "axis" }` replaces the whole object and silently
+    // drops the theming, `confine`, `enterable` and `hideDelay` set here. That
+    // is exactly what happened: the mix chart was running ECharts' stock
+    // tooltip (default white, default shadow, unconfined) while this file
+    // looked like it was styling it. The tooltip is merged key-by-key instead,
+    // caller wins per key.
+    const { tooltip: callerTip, ...restOption } = option as {
+      tooltip?: Record<string, unknown>;
+    } & Record<string, unknown>;
+
     inst.current.setOption(
       {
         color: tokens.palette,
@@ -164,8 +176,9 @@ export default function EChart({
           hideDelay: 0,
           transitionDuration: 0.15,
           extraCssText: "box-shadow:0 4px 16px rgba(15,18,22,.10);border-radius:10px;",
+          ...(callerTip ?? {}),
         },
-        ...option,
+        ...restOption,
       },
       // `true` — replace rather than merge. Switching between breakdowns
       // changes the series COUNT, and a merge leaves the extra series from the
@@ -206,12 +219,18 @@ export default function EChart({
     el.addEventListener("pointerleave", away);
     // Scrolling the section out from under a stationary pointer is the other
     // way to leave a chart without a mouseout ever firing.
-    window.addEventListener("scroll", away, { passive: true });
+    //
+    // On DOCUMENT, in the CAPTURE phase — not on window. This page does not
+    // scroll the document: it scrolls an inner container, and a scroll event
+    // does not bubble, so a window listener never hears it and the tooltip
+    // rode the page up still painted. Capture on document sees a scroll from
+    // whichever element is actually doing the scrolling.
+    document.addEventListener("scroll", away, { passive: true, capture: true });
     window.addEventListener("blur", away);
     return () => {
       el.removeEventListener("mouseleave", away);
       el.removeEventListener("pointerleave", away);
-      window.removeEventListener("scroll", away);
+      document.removeEventListener("scroll", away, { capture: true } as EventListenerOptions);
       window.removeEventListener("blur", away);
     };
   }, []);
