@@ -166,8 +166,6 @@
   // a reload before you next spoke would have lost the thread outright.
   persistChats();
   let pending = false;
-  let ctxOn = true;     // chart-state envelope attached to each message
-  let lastBlock = "";   // what the model was actually told, for the inspector
   let pendingImage = null;   // a captured screenshot waiting to ride the next send
   let pendingDraw = null;    // the drawing this message is about, by ref
   let pendingJournal = null; // an exact journal record, attached deliberately
@@ -1465,7 +1463,7 @@
       // rather than from whatever happens to be selected now, and what came
       // back is recorded: a layout change can retire a chosen pane, and the
       // fallback has to be visible rather than silent.
-      let context = ctxOn && window.__charto
+      let context = window.__charto
         ? window.__charto.getChartContext(chosen) : null;
       if (journal) context = Object.assign({}, context || {}, { journal });
       // Stamp the turn with what was on screen when it was asked. Only the
@@ -1506,7 +1504,6 @@
       const sink = suggestSink(turn);
       const d = await readStream(res, turn, sink);
       if (d.error) throw new Error(d.error);
-      lastBlock = d.context_preview || "(no chart context sent)";
 
       // File the reply BEFORE touching the workspace. `open_chart` with
       // replace on the main chart navigates the page (that is how an
@@ -1590,7 +1587,8 @@
 
   // ── composer ──────────────────────────────────────────
   sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
-  el("plusBtn").innerHTML = Icons.svg("plus", "sm");
+  el("chatNew").innerHTML = Icons.svg("plus", "sm");
+  el("chatHistoryBtn").innerHTML = Icons.svg("clock", "sm");
   // Voice: the transcript is APPENDED to the draft and never sent. Speaking
   // is a way of adding to a half-typed question, and a mis-heard word should
   // be edited before it is asked, not after it is answered.
@@ -1604,7 +1602,6 @@
     }, { api: API, toast: (m) => (typeof Alerts !== "undefined"
                                   ? Alerts.toast(m) : console.warn(m)) });
   }
-  el("ctxPeekClose").innerHTML = Icons.svg("x", "sm");
   el("histClose").innerHTML = Icons.svg("x", "sm");
 
   function autoGrow() {
@@ -1714,26 +1711,8 @@
     e.stopPropagation(); // don't let Delete/Escape hit the drawing layer
   });
 
-  // ── the "+" menu: everything the old chat header used to hold ──
-  const plusMenu = el("plusMenu"), ctxFlag = el("ctxFlag");
-
-  function renderPlusMenu() {
-    const n = chats.filter((c) => turnsOf(c).length).length;
-    plusMenu.innerHTML = [
-      `<div class="item" data-act="new"><span class="lead">${Icons.svg("plus", "sm")}New conversation</span></div>`,
-      `<div class="item" data-act="history"><span class="lead">${Icons.svg("clock", "sm")}Chat history</span>`,
-      n ? `<span class="menu-count">${n}</span>` : "",
-      `</div>`,
-      `<div class="sep"></div>`,
-      `<div class="item ${ctxOn ? "on" : ""}" data-act="ctx">`,
-      `<span class="lead">${Icons.svg(ctxOn ? "eye" : "eyeOff", "sm")}Let the model see the chart</span>`,
-      ctxOn ? Icons.svg("check", "xs") : "",
-      `</div>`,
-      `<div class="item" data-act="peek"><span class="lead">${Icons.svg("fileText", "sm")}Inspect context sent</span></div>`,
-      `<div class="sep"></div>`,
-      `<div class="item danger" data-act="clear"><span class="lead">${Icons.svg("eraser", "sm")}Clear conversation</span></div>`,
-    ].join("");
-  }
+  // The subject chip controls which visible charts are included in context.
+  const ctxFlag = el("ctxFlag");
 
   /* ── what the conversation is about ──────────────────────────────────────
    *
@@ -1771,7 +1750,6 @@
   }
 
   function paintCtxFlag() {
-    ctxFlag.classList.toggle("off", !ctxOn);
     const list = chosenCharts();
     ctxFlag.classList.toggle("multi", list.length > 1);
     /* One chart is named. SEVERAL are just their marks: the row would run to
@@ -1785,16 +1763,13 @@
       : list.map((c) => Universe.logoHTML(c.symbol, "co-logo")
           || `<span class="sym">${c.symbol}</span>`).join("");
     const names = list.map((c) => `${c.symbol} ${c.interval || ""}`.trim()).join(" · ");
-    ctxFlag.title = (ctxOn
-      ? `The model reads ${list.length > 1 ? "these charts" : "this chart"} — ${names}`
-      : "The charts are detached; the model reads none of them")
+    ctxFlag.title = `The model reads ${list.length > 1 ? "these charts" : "this chart"} — ${names}`
       + " · click to choose what is in context";
   }
 
   /** The menu behind the chip: every open chart, ticked or not. Ticking one
    *  puts it in the turn; unticking takes it out. The last one cannot be
-   *  removed — a conversation about no chart is the detach switch, which
-   *  lives in "+" and says so in its own words. */
+   *  removed because every message always includes at least one chart. */
   function openSubjectMenu() {
     const open = openCharts();
     const picked = new Set(chosenCharts().map((c) => c.pane));
@@ -2039,44 +2014,10 @@
     if (e.key === "Escape" && histEl.classList.contains("open")) closeHistory();
   });
 
-  /** Erase what is in the thread. The conversation's own record goes with it —
-   *  "clear" has always meant gone, and leaving it in the history under a
-   *  title you just erased would be the opposite of what the word says. */
-  function clearConversation() {
-    if (pending) return;
-    turns.length = 0;
-    const rec = active();
-    rec.turns = [];
-    rec.updated = Date.now();
-    persistChats();
-    msgsEl.innerHTML = '<div class="chat-empty">Cleared.<br/><b>Fresh conversation.</b></div>';
-    el("toBottom").classList.remove("show");
-  }
-
-  el("plusBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    renderPlusMenu();
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(plusMenu);
-    plusMenu.classList.toggle("open");
-  });
-  plusMenu.addEventListener("click", (e) => {
-    const it = e.target.closest("[data-act]");
-    if (!it) return;
-    e.stopPropagation();
-    const act = it.dataset.act;
-    if (act === "ctx") { ctxOn = !ctxOn; paintCtxFlag(); renderPlusMenu(); return; }
-    plusMenu.classList.remove("open");
-    if (act === "peek") {
-      el("ctxPeekBody").textContent = lastBlock || "Nothing sent yet — ask something first.";
-      el("ctxPeek").classList.add("open");
-    }
-    if (act === "new") newConversation();
-    if (act === "history") openHistory();
-    if (act === "clear") clearConversation();
-  });
-  // the chip opens the subject menu; the see-the-chart switch is in "+"
+  el("chatNew").addEventListener("click", newConversation);
+  el("chatHistoryBtn").addEventListener("click", openHistory);
+  // The chip chooses which visible chart or charts the model reads.
   ctxFlag.addEventListener("click", (e) => { e.stopPropagation(); openSubjectMenu(); });
-  el("ctxPeekClose").addEventListener("click", () => el("ctxPeek").classList.remove("open"));
   paintCtxFlag();
 
   // ── resizable split: chart | chat ─────────────────────

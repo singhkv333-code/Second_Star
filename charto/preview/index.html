@@ -600,6 +600,8 @@ select.is-dressed { display: none; }
   font-size: var(--text-base); color: var(--foreground);
 }
 .dropdown .item:hover { background: var(--accent); }
+#indMenu { min-width: 260px; }
+#indMenu .item > span { white-space: nowrap; }
 /* ── the ONE selected-row state, every menu ────────────────────────────
    The indicator list has always marked its active studies this way — the
    name in the accent and a tick at the row's end — and it is the right
@@ -1683,11 +1685,8 @@ header > .btn, header > .badge { flex: none; }
 #chart { position: absolute; inset: 0; cursor: crosshair; }
 /* The chart's signature, bottom-left — Pivot's mark on the corner the chart
    library used to sign (`layout.attributionLogo: false` in js/main.js puts it
-   down; js/main.js mounts this one).
-   Drawn as a MASK painted with the theme's own faint ink rather than as an
-   <img>: the asset is a single-colour mark, and an image of it would land as
-   black-on-black the moment the chart goes dark. One file, both themes, and
-   it takes the chart's ink like every other quiet mark on the surface. */
+   down; js/main.js mounts this one). The white plate keeps the signature
+   legible over chart geometry in either theme. */
 .chart-mark {
   /* 10px above the TIME AXIS, not above the container. The library's logo was
      a child of the last pane and so cleared the axis; this element is a child
@@ -1696,12 +1695,13 @@ header > .btn, header > .badge { flex: none; }
      js/main.js measures the axis and publishes it as --time-axis-h. */
   position: absolute; left: 10px; bottom: calc(var(--time-axis-h, 28px) + 10px);
   z-index: 3;
-  width: 26px; height: 26px; pointer-events: none;
-  /* Full-strength ink, as TradingView's own mark was (#131722 on light, near
-     white on dark) — a signature, not a watermark. --foreground rather than
-     literal black for the second half of that: black on the dark theme is a
-     mark you cannot see. */
-  background: var(--foreground);
+  width: 32px; height: 32px; pointer-events: none;
+  background: #fff; border: 1px solid rgba(19, 23, 34, .12);
+  border-radius: 50%; box-shadow: 0 1px 2px rgba(19, 23, 34, .12);
+}
+.chart-mark::after {
+  content: ""; position: absolute; inset: 1px;
+  background: #131722;
   -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
@@ -2545,8 +2545,7 @@ body.two-columns .readout .row { display: none; }
 }
 
 /* ─── 8 · CHAT ─────────────────────────────────────────────────────────── */
-/* A document-style LLM conversation, not a messenger. No header chrome;
-   every control lives in the composer. */
+/* A document-style LLM conversation, not a messenger. */
 
 .chatpanel {
   width: 46%; min-width: 320px; flex: none; background: var(--background);
@@ -2556,9 +2555,24 @@ body.two-columns .readout .row { display: none; }
 }
 .chatpanel.hidden { display: none; }
 
+.chat-actions {
+  height: 42px; padding: 6px 12px 6px 0; flex: none;
+  display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  background: var(--background);
+}
+.chat-action {
+  width: 30px; height: 30px; padding: 0; border: 0;
+  border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted-foreground); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.chat-action:hover { background: var(--accent); color: var(--foreground); }
+.chat-action svg.icon { width: 17px; height: 17px; }
+
 .thread {
   flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
-  padding: 26px 0 8px; scroll-behavior: smooth;
+  padding: 8px 0; scroll-behavior: smooth;
 }
 /* Nothing has been asked yet, so there is no thread to hold the top of the
    pane and the group would otherwise sit on the floor under an empty sky.
@@ -4985,7 +4999,7 @@ svg.icon.op {
   /* ── the composer, on one line ──────────────────────────────────────────
      Two stacked rows — textarea, then a control row — cost roughly a fifth of
      the viewport before a single word was typed. On a phone it collapses to
-     one: plus, the instrument's MARK, the field, send.
+     one: the instrument's MARK, the field, send.
      `display: contents` flattens the control row into the composer's own flex
      line rather than nesting a second one.
      The ticker text goes because the logo already says which instrument this
@@ -5001,7 +5015,6 @@ svg.icon.op {
     font-size: var(--text-base); line-height: 1.35;
     min-height: 22px; max-height: 92px; padding: 0;
   }
-  .composer-row .menu-wrap { order: 1; }
   .composer-row .spacer { display: none; }
   .cbtn { width: 26px; height: 26px; }
   /* mark only: the chip keeps its tap target and loses its words */
@@ -6169,7 +6182,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   </div>
 
   <header>
-    <div class="brand">Charto<span class="dot">.</span></div>
+    <div class="brand">Pivot<span class="dot">.</span></div>
     <div class="menu-wrap">
       <div class="symbol" id="symbolPill" title="Search companies">
         <span id="symbolName">RELIANCE</span> <span class="ex" id="symbolVenue">NSE</span>
@@ -6341,6 +6354,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     </div>
 
     <aside class="chatpanel" id="chatPanel">
+      <div class="chat-actions" role="toolbar" aria-label="Conversation actions">
+        <button type="button" class="chat-action" id="chatNew" title="New conversation" aria-label="New conversation"></button>
+        <button type="button" class="chat-action" id="chatHistoryBtn" title="Chat history" aria-label="Chat history"></button>
+      </div>
       <div class="thread" id="thread">
         <div class="thread-inner" id="chatMsgs">
           
@@ -6379,10 +6396,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           <form class="composer" id="chatForm">
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
-              <div class="menu-wrap">
-                <button type="button" class="cbtn" id="plusBtn" title="Conversation options"></button>
-                <div class="dropdown up" id="plusMenu"></div>
-              </div>
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
               <div class="spacer"></div>
               <!-- Voice fills the draft but never sends it. It stays hidden
@@ -6395,14 +6408,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           </div>
           </div>
         </div>
-      </div>
-
-      <div class="ctx-peek" id="ctxPeek">
-        <div class="ctx-peek-head">
-          Context sent with your last message
-          <button class="btn icon" id="ctxPeekClose" title="Close"></button>
-        </div>
-        <pre id="ctxPeekBody"></pre>
       </div>
 
       <!-- Past conversations, over the thread rather than beside it: the pane
