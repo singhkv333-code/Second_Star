@@ -32,6 +32,12 @@ export function PanelHead({
       }}
     >
       <div>
+        {/* This IS the section heading now — there is no eyebrow above it and
+            no wrapper title above that, so it carries the whole level.
+            14/600 is not a taste call: it is the size "Financial Performance"
+            is set in one section up. Two headings at the same level of a
+            document that disagree on size read as two different pages that
+            happen to be stacked. */}
         <h3
           className="m-0"
           style={{
@@ -55,25 +61,40 @@ export function PanelHead({
   );
 }
 
+/** A choice between a few named views.
+ *
+ *  It used to be a pill inside a bordered, filled track — a control that drew
+ *  four things (outer border, inner fill, active fill, active shadow) to say
+ *  one thing. On a page whose own rule is that a card earns its border by
+ *  being the interaction, a segmented track around two words is furniture.
+ *
+ *  So the box is gone and the type carries the state: the live option is ink
+ *  at 600, the rest are tertiary. `underline` adds the 2px rule the Financial
+ *  Performance tabs already use, for the places this reads as a tab strip
+ *  rather than as a setting sitting beside a heading.
+ */
 export function Segmented({
   value,
   options,
   onChange,
+  underline = false,
 }: {
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  underline?: boolean;
 }): React.ReactElement {
   return (
     <div
       role="tablist"
       style={{
         display: "inline-flex",
-        gap: 2,
-        padding: 2,
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-pill)",
-        background: "var(--bg-secondary)",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: underline ? 0 : 16,
+        // The tab strip sits ON the hairline it shares with the panel below,
+        // the way the Financial Performance tabs do.
+        marginBottom: underline ? -1 : 0,
       }}
     >
       {options.map((o) => {
@@ -86,17 +107,20 @@ export function Segmented({
             aria-selected={on}
             onClick={() => onChange(o.value)}
             style={{
-              padding: "4px 12px",
-              borderRadius: "var(--radius-pill)",
+              padding: underline ? "6px 14px" : 0,
               border: "none",
+              background: "transparent",
               cursor: "pointer",
               fontFamily: "var(--font-ui)",
-              fontSize: 12,
-              fontWeight: on ? 600 : 500,
-              color: on ? "var(--text-primary)" : "var(--text-tertiary)",
-              background: on ? "var(--bg-primary)" : "transparent",
-              boxShadow: on ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-              transition: "color 120ms ease, background 120ms ease",
+              fontSize: 12.5,
+              fontWeight: on ? 600 : 400,
+              color: on
+                ? underline ? "var(--pivot-blue, #1b7cc7)" : "var(--text-primary)"
+                : "var(--text-secondary)",
+              borderBottom: underline
+                ? `2px solid ${on ? "var(--pivot-blue, #1b7cc7)" : "transparent"}`
+                : "none",
+              transition: "color 150ms ease, border-color 150ms ease",
             }}
           >
             {o.label}

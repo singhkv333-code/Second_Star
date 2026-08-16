@@ -54,60 +54,60 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <PanelHead
-        title="Segment mix"
-        sub={`${charts.length} breakdown${charts.length === 1 ? "" : "s"} · share of total, %`}
-      />
+      <PanelHead title="Segment mix" />
 
-      {charts.length > 1 ? (
-        <div style={{ overflowX: "auto", paddingBottom: 2 }}>
-          <div style={{ width: "max-content" }}>
-            <Segmented
-              value={id}
-              onChange={setId}
-              options={charts.map((c) => ({ value: String(c.id), label: c.title }))}
-            />
-          </div>
-        </div>
-      ) : null}
+      {/* The breakdowns laid out flat rather than folded into a select. There
+          are rarely more than four, and a company's own choice of how to cut
+          itself up is worth seeing at once — a dropdown hides three of them
+          behind a click and needs a "Breakdown" label to explain itself. With
+          the options visible the selected one names the chart, so the repeated
+          title and the line describing what a stacked area is both go. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        {charts.length > 1 ? (
+          <Segmented
+            value={id}
+            options={charts.map((c) => ({ value: String(c.id), label: c.title }))}
+            onChange={setId}
+          />
+        ) : (
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)" }}>{chart.title}</div>
+        )}
+        <ChangeSummary chart={chart} />
+      </div>
 
+      {/* No cards. The chart and the split are two columns of one section, and
+          a border around each said they were two separate objects that happen
+          to sit side by side. The only line left is the one that separates
+          them, which is the one that carries meaning. */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(0, 2.1fr) minmax(0, 1fr)",
-          gap: 12,
+          gap: 28,
         }}
         className="mix-grid"
       >
-        <div
-          style={{
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            background: "var(--bg-primary)",
-            padding: "12px 8px 4px 12px",
-          }}
-        >
+        <div style={{ minWidth: 0 }}>
           {option ? (
             <EChart
               option={option}
-              height={280}
+              height={320}
               ariaLabel={`${chart.title}: share of total by segment over time`}
             />
           ) : null}
         </div>
 
         <div
+          className="mix-split"
           style={{
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            background: "var(--bg-primary)",
-            padding: "12px 14px",
+            borderLeft: "1px solid var(--glass-border)",
+            paddingLeft: 24,
             display: "flex",
             flexDirection: "column",
-            gap: 8,
+            gap: 9,
           }}
         >
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>Latest split</div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)" }}><span>Latest reported split</span><span>Share</span></div>
           {chart.current.length ? (
             chart.current.map((c, i) => (
               <div key={c.name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -158,26 +158,37 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
         </div>
       </div>
 
-      {data.source_name ? (
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-          Segment data for {data.source_name}.
-        </div>
-      ) : null}
-
       <style>{`
         @media (max-width: 720px) {
-          .mix-grid { grid-template-columns: 1fr !important; }
+          .mix-grid { grid-template-columns: 1fr !important; gap: 20px !important; }
+          /* the divider becomes the seam ABOVE the split once they stack */
+          .mix-split {
+            border-left: none !important;
+            border-top: 1px solid var(--glass-border);
+            padding-left: 0 !important;
+            padding-top: 16px;
+          }
         }
       `}</style>
     </div>
   );
 }
 
+function ChangeSummary({ chart }: { chart: MixChart }): React.ReactElement | null {
+  const changes = chart.series.map((series) => {
+    const pts = series.points;
+    return pts.length > 1 ? { name: series.name, delta: pts[pts.length - 1]!.pct - pts[pts.length - 2]!.pct } : null;
+  }).filter((v): v is { name: string; delta: number } => v !== null).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  if (!changes.length) return null;
+  const move = changes[0]!;
+  return <div style={{ fontSize: 11.5, color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}><span style={{ color: move.delta >= 0 ? "var(--color-profit)" : "var(--color-loss)", fontWeight: 600 }}>{move.delta >= 0 ? "+" : ""}{move.delta.toFixed(1)} pp</span> {move.name} vs prior report</div>;
+}
+
 // Kept in sync with EChart's palette by construction — the swatch beside the
 // chart has to be the same colour as the band it names.
 const RAMP = [
-  "var(--pivot-blue)", "#7C9885", "#C08552", "#5C6B87", "#9A6A8F",
-  "#4E8098", "#B08968", "#6B8F71", "#8C7A9B", "#A8763E",
+  "var(--pivot-blue)", "#2E9AA8", "#4FA46B", "#8FA83E", "#D0A02C",
+  "#DB7F3C", "#CE5F55", "#B85D86", "#8C63AE", "#5B6FB5",
 ];
 
 /** Build the stacked-area option for one breakdown.
@@ -215,8 +226,13 @@ function stackedOption(chart: MixChart): Record<string, unknown> {
     },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "line", lineStyle: { width: 1, opacity: 0.5 } },
+      axisPointer: { type: "line", lineStyle: { width: 1, opacity: 0.45 } },
       valueFormatter: (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`),
+      // A segment the company did not report that period is absent from the
+      // tooltip rather than listed as "—". Ten rows of em-dash is how a
+      // company that reports three segments gets a tooltip the height of the
+      // chart, which is what pushed the old one over the whole panel.
+      order: "valueDesc",
     },
     xAxis: {
       type: "category", data: labels, boundaryGap: false,
@@ -232,11 +248,18 @@ function stackedOption(chart: MixChart): Record<string, unknown> {
       name: s.name,
       type: "line",
       stack: "total",
-      areaStyle: { opacity: 0.72 },
-      lineStyle: { width: 0 },
+      // Opaque, with a hairline of the page's own background drawn along each
+      // band's top edge. Translucent bands stacked ten deep mix into each
+      // other and every colour drifts toward the one beneath it, which is the
+      // other half of why this chart read as muddy. A solid fill keeps each
+      // segment the colour its swatch says it is, and the separator is what
+      // replaces the opacity as the thing that tells two bands apart.
+      areaStyle: { opacity: 1 },
+      lineStyle: { width: 1.25, color: "#fff", opacity: 0.9 },
       symbol: "none",
       smooth: 0.2,
       connectNulls: false,
+      emphasis: { disabled: true },
       data: byTime(s),
     })),
   };

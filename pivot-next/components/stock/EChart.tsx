@@ -66,14 +66,39 @@ export function readTokens(): ChartTokens {
     muted: token("--text-tertiary", "#6b7280"),
     border: token("--glass-border", "rgba(15,18,22,0.08)"),
     surface: token("--bg-primary", "#fbfbfc"),
-    // A ramp that stays legible stacked: the accent, then hues walked around
-    // it at falling saturation so eight bands remain distinguishable without
-    // any one of them shouting.
+    // ── the ramp ──────────────────────────────────────────────────────────
+    // The old one walked hues around the accent at FALLING saturation, which
+    // is what made the chart look dusty: eight bands all landing near the
+    // same low chroma, so the stack read as one muddy mass with seams.
+    //
+    // This one holds chroma roughly CONSTANT and spaces hue evenly around the
+    // wheel, starting at the product's blue. Equal chroma is what makes the
+    // bands feel like one family; even hue spacing is what keeps eight of
+    // them apart. Lightness rises very slightly along the run so the upper
+    // bands — which sit against white — do not close up.
+    //
+    // `accent` deliberately stays first: the largest segment is drawn at the
+    // bottom of a stack, and that band should be the page's own blue.
     palette: [
-      accent, "#7C9885", "#C08552", "#5C6B87", "#9A6A8F",
-      "#4E8098", "#B08968", "#6B8F71", "#8C7A9B", "#A8763E",
+      accent,     // the product blue
+      "#2E9AA8",  // teal
+      "#4FA46B",  // green
+      "#8FA83E",  // olive
+      "#D0A02C",  // gold
+      "#DB7F3C",  // amber
+      "#CE5F55",  // terracotta
+      "#B85D86",  // rose
+      "#8C63AE",  // violet
+      "#5B6FB5",  // indigo
     ],
   };
+}
+
+function sameTokens(a: ChartTokens, b: ChartTokens): boolean {
+  return a.text === b.text && a.muted === b.muted && a.border === b.border
+    && a.surface === b.surface
+    && a.palette.length === b.palette.length
+    && a.palette.every((c, i) => c === b.palette[i]);
 }
 
 export type EChartProps = {
@@ -97,8 +122,17 @@ export default function EChart({
   // the theme flips — the app toggles a class on <html>, and a chart left on
   // the old palette is the one element that gives the switch away.
   React.useEffect(() => {
-    setTokens(readTokens());
-    const obs = new MutationObserver(() => setTokens(readTokens()));
+    // Replace the token object only when a VALUE actually changed. readTokens()
+    // returns a fresh object every call, so keying the paint effect on it made
+    // any unrelated class flip on <html> re-run setOption(…, true) — which
+    // rebuilds the chart under the pointer and strands whatever tooltip was
+    // open at the time. That was half of "the popup never goes away".
+    const next = readTokens();
+    setTokens((prev) => (prev && sameTokens(prev, next) ? prev : next));
+    const obs = new MutationObserver(() => {
+      const t = readTokens();
+      setTokens((prev) => (prev && sameTokens(prev, t) ? prev : t));
+    });
     obs.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class", "data-theme"],
@@ -119,9 +153,17 @@ export default function EChart({
           backgroundColor: tokens.surface,
           borderColor: tokens.border,
           textStyle: { color: tokens.text, fontSize: 12 },
-          // The default shadow reads as a different design system; a hairline
-          // border matches every other floating surface in the product.
-          extraCssText: "box-shadow:none;border-radius:8px;",
+          // `confine` keeps the box inside the chart's own box. Left free it
+          // can be drawn past the edge, under a pointer that has already left
+          // the canvas — so the element the user is looking at is the one
+          // element that never got the mouseout.
+          confine: true,
+          // Not enterable: a tooltip the pointer can move ONTO is a tooltip
+          // that keeps itself alive.
+          enterable: false,
+          hideDelay: 0,
+          transitionDuration: 0.15,
+          extraCssText: "box-shadow:0 4px 16px rgba(15,18,22,.10);border-radius:10px;",
         },
         ...option,
       },
@@ -139,6 +181,39 @@ export default function EChart({
     const ro = new ResizeObserver(() => inst.current?.resize());
     ro.observe(host.current);
     return () => ro.disconnect();
+  }, []);
+
+  // ── put the tooltip away ────────────────────────────────────────────────
+  // An axis-trigger tooltip is hidden by ECharts' own mouseout handling, and
+  // that handling is on the CANVAS. Any frame where the pointer leaves without
+  // the canvas seeing it — off the edge of the panel, out of the window, over
+  // the tooltip itself, or through a re-init — leaves the tip painted with no
+  // pointer under it. Then it sits there until the next hover.
+  //
+  // So the leave is stated rather than inferred: hideTip puts the box away and
+  // the `leave` axis-pointer update takes the crosshair with it, which is the
+  // pair ECharts itself dispatches internally.
+  React.useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const away = (): void => {
+      const c = inst.current;
+      if (!c) return;
+      c.dispatchAction({ type: "hideTip" });
+      c.dispatchAction({ type: "updateAxisPointer", currTrigger: "leave" });
+    };
+    el.addEventListener("mouseleave", away);
+    el.addEventListener("pointerleave", away);
+    // Scrolling the section out from under a stationary pointer is the other
+    // way to leave a chart without a mouseout ever firing.
+    window.addEventListener("scroll", away, { passive: true });
+    window.addEventListener("blur", away);
+    return () => {
+      el.removeEventListener("mouseleave", away);
+      el.removeEventListener("pointerleave", away);
+      window.removeEventListener("scroll", away);
+      window.removeEventListener("blur", away);
+    };
   }, []);
 
   React.useEffect(() => () => {

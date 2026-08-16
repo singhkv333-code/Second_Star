@@ -4,13 +4,16 @@
  * The whole design rests on one behaviour: a section with no data for this
  * company is not rendered, rather than rendered empty. HDFCBANK genuinely has
  * zero rows in `quarterly_metrics` while carrying 236 annual-report facts, so
- * "every company gets the same tabs" would put a permanently empty Quarters
- * panel on one of the largest listed companies in the country.
+ * "every company gets the same sections" would put a permanently empty
+ * Quarters panel on one of the largest listed companies in the country.
  *
- * These tests pin that rule and the lazy-load contract around it.
+ * These tests pin that rule. They query the SECTIONS themselves rather than an
+ * index — there is no index rail any more, the sections stand on their own —
+ * which is also the more honest assertion: what matters is whether the panel
+ * is on the page, not whether something links to it.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 
 import { DeepSections } from "@/components/stock/DeepSections";
 import * as api from "@/lib/api";
@@ -30,58 +33,81 @@ const sections = (cov: SectionCoverage): StockSections => ({
   name: "Test Ltd", bse_scripcode: "500000", coverage: cov,
 });
 
-beforeEach(() => vi.restoreAllMocks());
+/** The sections are addressed by id, the same handle a deep link uses. */
+const has = (root: HTMLElement, id: string): boolean =>
+  root.querySelector(`#stock-section-${id}`) !== null;
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(api, "getStockAnnualReport").mockResolvedValue({ data: { symbol: "TEST", documents: [], tasks: [], truncated: false } } as never);
+  vi.spyOn(api, "getStockOwnership").mockResolvedValue({ data: { symbol: "TEST", available: false } } as never);
+  vi.spyOn(api, "getStockDocuments").mockResolvedValue({ data: { symbol: "TEST", available: false, types: [], documents: [] } } as never);
+  vi.spyOn(api, "getStockMix").mockResolvedValue({ data: { symbol: "TEST", available: false, charts: [] } } as never);
+  vi.spyOn(api, "getStockPeers").mockResolvedValue({ data: { symbol: "TEST", available: false, sector: null, fields: [], catalog: [], peers: [] } } as never);
+  vi.spyOn(api, "getStockQuarters").mockResolvedValue({ data: { symbol: "TEST", basis: "consolidated", matched_on: "isin", bases_available: ["consolidated"], quarters: [] } } as never);
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe("DeepSections coverage rule", () => {
-  it("renders a tab only for sections that have data", async () => {
-    // Quarters present, Segments absent. The page carries two sections now —
-    // annual report, ownership and documents were cut — so this pins that a
-    // zero-count section produces no tab, not a disabled or empty one.
+  it("renders a section only where there is data", async () => {
+    vi.spyOn(api, "getStockSections").mockResolvedValue({
+      data: sections(coverage({ revenue_mix: { count: 1 } })),
+    } as never);
+    vi.spyOn(api, "getStockMix").mockResolvedValue({
+      data: { symbol: "TEST", available: true, charts: [] },
+    } as never);
+
+    const { container } = render(<DeepSections symbol="TEST" />);
+
+    await waitFor(() => expect(has(container, "revenue_mix")).toBe(true));
+  });
+
+  it("does not render quarters — it belongs to the Financial Performance tabs", async () => {
+    // Quarters used to be the first section here. It is the same question the
+    // annual statements answer over a different period, so it moved up into
+    // that panel as a third tab; covered or not, it must not come back as a
+    // section, or the page shows the quarterly numbers twice.
     vi.spyOn(api, "getStockSections").mockResolvedValue({
       data: sections(coverage({ quarters: { count: 175, latest: "2026-06-30", bases: 2 } })),
     } as never);
-    vi.spyOn(api, "getStockQuarters").mockResolvedValue({
-      data: {
-        symbol: "TEST", basis: "consolidated", matched_on: "isin",
-        bases_available: ["consolidated"], quarters: [],
-      },
-    } as never);
+    const quarters = vi.spyOn(api, "getStockQuarters");
 
-    render(<DeepSections symbol="TEST" />);
+    const { container } = render(<DeepSections symbol="TEST" />);
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: /Quarters/ })).toBeTruthy());
-    expect(screen.queryByRole("tab", { name: /Segments/ })).toBeNull();
-    // The removed sections must not reappear even when the API still reports
-    // coverage for them — the API keeps serving all five.
-    expect(screen.queryByRole("tab", { name: /Annual report/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Ownership/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Documents/ })).toBeNull();
+    await waitFor(() => expect(has(container, "peers")).toBe(true));
+    expect(has(container, "quarters")).toBe(false);
+    expect(quarters).not.toHaveBeenCalled();
   });
 
-  it("ignores coverage for sections the page no longer renders", async () => {
-    // The endpoints still exist and /sections still counts them. A company
-    // with ONLY removed-section data must render nothing at all rather than
-    // an empty shell.
+  it("does not render annual-report, ownership or document sections", async () => {
+    // All three are covered for this company and none of them are on the page:
+    // coverage decides which of the SUPPORTED sections render, it does not
+    // decide what the page supports.
     vi.spyOn(api, "getStockSections").mockResolvedValue({
       data: sections(coverage({
+        quarters: { count: 175, latest: "2026-06-30", bases: 2 },
         annual_report: { count: 236, tasks: 10, documents: 2, latest_period: "2025-2026" },
         ownership: { count: 1 },
         documents: { count: 127 },
       })),
     } as never);
+    const ownership = vi.spyOn(api, "getStockOwnership");
 
     const { container } = render(<DeepSections symbol="TEST" />);
-    await waitFor(() => expect(container.querySelector("section")).toBeNull());
+    await waitFor(() => expect(has(container, "peers")).toBe(true));
+    expect(has(container, "annual_report")).toBe(false);
+    expect(has(container, "ownership")).toBe(false);
+    expect(has(container, "documents")).toBe(false);
+    expect(ownership).not.toHaveBeenCalled();
   });
 
-  it("renders nothing at all when the company has none of this data", async () => {
+  it("still renders sector peers when no filing sections are covered", async () => {
     vi.spyOn(api, "getStockSections").mockResolvedValue({
       data: sections(coverage()),
     } as never);
 
     const { container } = render(<DeepSections symbol="TEST" />);
-    await waitFor(() => expect(container.querySelector("section")).toBeNull());
+    await waitFor(() => expect(has(container, "peers")).toBe(true));
   });
 
   it("renders nothing when coverage itself fails, rather than an error box", async () => {
@@ -93,10 +119,8 @@ describe("DeepSections coverage rule", () => {
     await waitFor(() => expect(container.querySelector("section")).toBeNull());
   });
 
-  it("opens the first AVAILABLE tab, not a fixed default", async () => {
-    // Quarters is first in reading order but absent here, so Segments — the
-    // first that exists — must open. A fixed default would select a tab that
-    // is not on screen and render an empty panel.
+  it("fetches only the sections that exist", async () => {
+    // An uncovered section must cost nothing — no panel and no request.
     vi.spyOn(api, "getStockSections").mockResolvedValue({
       data: sections(coverage({ revenue_mix: { count: 1 } })),
     } as never);
@@ -105,12 +129,10 @@ describe("DeepSections coverage rule", () => {
     } as never);
     const quarters = vi.spyOn(api, "getStockQuarters");
 
-    render(<DeepSections symbol="TEST" />);
+    const { container } = render(<DeepSections symbol="TEST" />);
 
     await waitFor(() => expect(mix).toHaveBeenCalled());
-    expect(screen.getByRole("tab", { name: /Segments/ }).getAttribute("aria-selected")).toBe("true");
-    // Lazy, and correct: Quarters is first in reading order but has no data,
-    // so it is neither rendered nor fetched.
+    expect(has(container, "revenue_mix")).toBe(true);
     expect(quarters).not.toHaveBeenCalled();
   });
 });

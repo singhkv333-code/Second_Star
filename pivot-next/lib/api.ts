@@ -3008,6 +3008,52 @@ export function getStockMix(symbol: string): Promise<ApiResult<MixResponse>> {
   return request<MixResponse>(`/stock/${encodeURIComponent(symbol)}/mix`);
 }
 
+export type PeerMetric = {
+  id: string;
+  label: string;
+  unit: "inr" | "crore" | "percent" | "multiple" | "rupee";
+};
+
+/** Price facts for one peer, computed server-side from a year of daily closes.
+ *  Every field is nullable: a window the listing is too young to cover, or a
+ *  price feed that failed, prints an em-dash rather than a fabricated zero. */
+export type PeerPrice = {
+  price: number | null;
+  change_pct: number | null;
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_6m: number | null;
+  ret_1y: number | null;
+  rsi14: number | null;
+  vs_50dma: number | null;
+  vs_200dma: number | null;
+  from_52w_high: number | null;
+};
+
+export type PeerComparisonResponse = {
+  symbol: string;
+  available: boolean;
+  sector: string | null;
+  fields: PeerMetric[];
+  catalog: PeerMetric[];
+  peers: {
+    sc_id: string;
+    symbol: string;
+    name: string;
+    is_current: boolean;
+    values: Record<string, number | null>;
+    periods: Record<string, string | null>;
+    price?: PeerPrice;
+  }[];
+  source?: string;
+};
+
+export function getStockPeers(symbol: string, fields: string[]): Promise<ApiResult<PeerComparisonResponse>> {
+  return request<PeerComparisonResponse>(
+    `/stock/${encodeURIComponent(symbol)}/peers?fields=${encodeURIComponent(fields.join(","))}`,
+  );
+}
+
 export type OwnershipResponse = {
   symbol: string;
   available: boolean;

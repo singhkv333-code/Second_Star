@@ -47,6 +47,8 @@ import {
   getFinancials,
   getBalanceSheet,
   getMetricSeries,
+  getStockQuarters,
+  type QuartersResponse,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
@@ -68,6 +70,7 @@ import {
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
 import { DeepSections } from "@/components/stock/DeepSections";
+import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -503,6 +506,10 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <PerformanceRanges quote={quoteState.quote} />
           )}
 
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <TechnicalPanel quote={quoteState.quote} />
+          )}
+
           {/* Key Metrics — snapshot tiles from the financials DB. Skipped
               entirely when the symbol has no MC entry. */}
           {quoteState.kind === "ok" && financials && financials.available && (
@@ -521,7 +528,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           )}
 
           {/* Everything the DB gained after this page was built: quarters,
-              annual-report facts, segment mixes, ownership, filed documents.
+              segment mixes and ownership.
               Purely additive — nothing above this line changed. The component
               asks the API what this company actually HAS and renders only
               those tabs, so it contributes nothing at all for a symbol with
@@ -596,6 +603,8 @@ function PhoneLayout({
 
       {/* Performance — daily + 52-week range bars. */}
       <PerformanceRanges quote={quote} />
+
+      {!quote.is_index && <TechnicalPanel quote={quote} />}
 
       {/* Overview / Financials switch — underline tab strip matching the
           option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
@@ -2698,7 +2707,7 @@ function KeyMetricsStrip({
 // FinancialsPanel — bar chart (left) + data table (right)
 // ---------------------------------------------------------------------------
 
-type FinPanelTab = "financials" | "pl";
+type FinPanelTab = "financials" | "pl" | "quarters";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
@@ -2856,6 +2865,28 @@ function FinancialsPanel({
   const fullBsReady =
     balanceSheet !== null && balanceSheet.available && balanceSheet.rows.length > 0;
 
+  // ── the quarterly tab ───────────────────────────────────────────────────
+  // Quarters used to be a section of its own below, with a different heading
+  // size, its own stat tiles and three sparklines — a second financials panel
+  // that happened to be about three months instead of twelve. It is the same
+  // question at a different period, so it is a third tab here and it is drawn
+  // by the same chart and the same table as the other two.
+  //
+  // Fetched on first open rather than with the page: two of three readers
+  // never touch this tab, and the annual statements above are what the
+  // section is for.
+  const [quarters, setQuarters] = useState<QuartersResponse | null>(null);
+  const [qBasis, setQBasis] = useState<"consolidated" | "standalone">("consolidated");
+  useEffect(() => {
+    if (tab !== "quarters") return;
+    let dead = false;
+    setQuarters(null);
+    getStockQuarters(quote.symbol, qBasis, 12)
+      .then((r) => { if (!dead && !isError(r)) setQuarters(r.data); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [tab, quote.symbol, qBasis]);
+
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
     () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
@@ -2866,11 +2897,54 @@ function FinancialsPanel({
     [quote, financials],
   );
 
-  const rows = tab === "financials" ? bsRows : plRows;
+  // Quarters, shaped into exactly the row/period pair the other two tabs
+  // hand to the chart and the table. Oldest → newest, because that is the
+  // direction FY_YEARS runs and the chart reads left to right; the API
+  // returns newest first. Five columns, matching the five financial years,
+  // so the two tables are the same width.
+  const qPeriods = useMemo(
+    () => (quarters?.quarters ?? []).slice(0, 5).reverse()
+      .map((q) => q.period_label ?? q.period_end ?? ""),
+    [quarters],
+  );
+  const qRows = useMemo(() => {
+    const qs = (quarters?.quarters ?? []).slice(0, 5).reverse();
+    if (!qs.length) return [];
+    // `?? null` is load-bearing: the API omits a metric a company does not
+    // file rather than sending null, so a `v === null` guard inside a
+    // formatter lets `undefined` straight through to v.toFixed(). The declared
+    // type says number | null, so the compiler cannot see it — this is the
+    // boundary where the wire's shape and the type's shape have to be
+    // reconciled, and it is cheaper to do it once here than in six formatters.
+    const line = (label: string, pick: (q: typeof qs[number]) => number | null | undefined, fmt: (v: number | null) => string) =>
+      ({ label, values: qs.map((q) => fmt(pick(q) ?? null)) });
+    const out = [
+      line("Revenue", (q) => q.revenue, fmtCrFromMC),
+      line("Net Profit", (q) => q.net_profit, fmtCrFromMC),
+    ];
+    // Same rule the quarterly table already used: a line this company does
+    // not file is absent rather than a row of em-dashes.
+    // `!= null` — loose on purpose, and the same reason as above: an omitted
+    // metric arrives undefined, and `!== null` says true for undefined. That
+    // is what put a Net Margin row and an EPS row of pure em-dashes on TCS,
+    // which is the exact "dead column" this test exists to prevent.
+    const any = (k: keyof typeof qs[number]) => qs.some((q) => q[k] != null);
+    if (any("ebitda")) out.push(line("EBITDA", (q) => q.ebitda, fmtCrFromMC));
+    if (any("operating_margin_pct"))
+      out.push(line("Operating Margin", (q) => q.operating_margin_pct, (v) => (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`));
+    if (any("net_margin_pct"))
+      out.push(line("Net Margin", (q) => q.net_margin_pct, (v) => (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`));
+    if (any("eps_basic"))
+      out.push(line("EPS", (q) => q.eps_basic, (v) => (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`));
+    return out;
+  }, [quarters]);
+
+  const periods = tab === "quarters" ? qPeriods : FY_YEARS;
+  const rows = tab === "financials" ? bsRows : tab === "pl" ? plRows : qRows;
   const _source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
-    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
+    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
 
   const cfg = tab === "financials"
     ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
@@ -2888,23 +2962,48 @@ function FinancialsPanel({
               Financial Performance
             </span>
           </div>
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 0 }}>
-            {(["financials", "pl"] as const).map((t) => {
-              const active = tab === t;
-              return (
-                <button key={t} type="button" onClick={() => setTab(t)} style={{
-                  padding: "6px 14px", border: "none", background: "transparent",
-                  fontSize: 12.5, fontFamily: "var(--font-ui)",
-                  fontWeight: active ? 600 : 400,
-                  color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
-                  borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
-                  cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
-                }}>
-                  {t === "financials" ? "Balance Sheet" : "Profit and Loss"}
-                </button>
-              );
-            })}
+          {/* Tabs. The basis switch rides at the far end of this row when the
+              quarterly tab is open — it belongs to that tab and only that tab,
+              and giving it its own line below would push the chart down by a
+              row that is empty two-thirds of the time. */}
+          <div style={{ display: "flex", gap: 0, alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", gap: 0 }}>
+              {(["financials", "pl", "quarters"] as const).map((t) => {
+                const active = tab === t;
+                return (
+                  <button key={t} type="button" onClick={() => setTab(t)} style={{
+                    padding: "6px 14px", border: "none", background: "transparent",
+                    fontSize: 12.5, fontFamily: "var(--font-ui)",
+                    fontWeight: active ? 600 : 400,
+                    color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
+                    borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                    cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
+                  }}>
+                    {t === "financials" ? "Balance Sheet" : t === "pl" ? "Profit and Loss" : "Quarterly Results"}
+                  </button>
+                );
+              })}
+            </div>
+            {tab === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
+              <div style={{ display: "inline-flex", gap: 14, paddingBottom: 7 }}>
+                {quarters!.bases_available.map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setQBasis(b as "consolidated" | "standalone")}
+                    style={{
+                      border: "none", background: "transparent", cursor: "pointer",
+                      padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
+                      fontWeight: qBasis === b ? 600 : 400,
+                      color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
+                      transition: "color 0.15s",
+                    }}
+                  >
+                    {b === "consolidated" ? "Consolidated" : "Standalone"}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -2913,11 +3012,17 @@ function FinancialsPanel({
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
-            <FinBarChart
-              periods={FY_YEARS}
-              metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
-              metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
-            />
+            {tab === "quarters" && !periods.length ? (
+              <div style={{ height: 260, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                {quarters === null ? "Loading quarterly results…" : "No quarterly results reported."}
+              </div>
+            ) : (
+              <FinBarChart
+                periods={periods}
+                metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
+                metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
+              />
+            )}
           </div>
 
           {/* Right — data table */}
@@ -2928,12 +3033,12 @@ function FinancialsPanel({
                   <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
-                  {FY_YEARS.map((y, i) => (
+                  {periods.map((y, i) => (
                     <th key={y} style={{
                       padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
-                      color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                      color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
                     }}>
                       {y}
                     </th>
@@ -2962,8 +3067,8 @@ function FinancialsPanel({
                       <td key={i} className="tabular-nums" style={{
                         padding: "11px 8px", textAlign: "right",
                         fontSize: 11.5, fontFamily: "var(--font-mono)",
-                        fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
-                        color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
+                        fontWeight: i === periods.length - 1 ? 600 : 400,
+                        color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
                       }}>
                         {v ?? "—"}
                       </td>
@@ -3278,4 +3383,3 @@ const _screenerTd: React.CSSProperties = {
   fontSize: 12.5,
   whiteSpace: "nowrap",
 };
-

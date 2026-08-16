@@ -38,6 +38,7 @@ from backend.auth.jwt_handler import get_user_id_from_token
 from backend.cache import redis_client
 from backend.config import settings
 from backend.database import EnrichSessionLocal, FinancialsSessionLocal, SessionLocal
+from backend.market import financials_db as fdb
 
 router = APIRouter(prefix="/api/stock", tags=["Stock detail"])
 logger = logging.getLogger(__name__)
@@ -49,6 +50,157 @@ _CACHE_TTL = 6 * 3600          # fundamentals move quarterly; 6h is generous
 _MAX_QUARTERS = 40
 _MAX_FACTS = 1200
 _MAX_DOCS = 120
+
+_PEER_FIELDS: dict[str, dict[str, str]] = {
+    "market_cap": {"label": "Market cap", "unit": "inr"},
+    "revenue": {"label": "Revenue", "unit": "crore"},
+    "net_profit": {"label": "Net profit", "unit": "crore"},
+    "roe": {"label": "ROE", "unit": "percent"},
+    "roce": {"label": "ROCE", "unit": "percent"},
+    "net_profit_margin": {"label": "Net margin", "unit": "percent"},
+    "debt_to_equity": {"label": "Debt / equity", "unit": "multiple"},
+    "price_to_book": {"label": "Price / book", "unit": "multiple"},
+    "ev_to_ebitda": {"label": "EV / EBITDA", "unit": "multiple"},
+    "current_ratio": {"label": "Current ratio", "unit": "multiple"},
+    "interest_coverage": {"label": "Interest coverage", "unit": "multiple"},
+    "dividend_payout": {"label": "Dividend payout", "unit": "percent"},
+    "eps_basic": {"label": "EPS", "unit": "rupee"},
+    "book_value_per_share": {"label": "Book value / share", "unit": "rupee"},
+    "gross_npa_pct": {"label": "Gross NPA", "unit": "percent"},
+    "net_npa_pct": {"label": "Net NPA", "unit": "percent"},
+    "net_interest_margin": {"label": "NIM", "unit": "percent"},
+}
+_PEER_DEFAULT_FIELDS = ("market_cap", "roe", "net_profit_margin", "debt_to_equity", "price_to_book")
+
+
+# ── peer price, returns and technicals ──────────────────────────────────────
+# The peer table answers three questions — how big/profitable (fundamentals,
+# above), how it has TRADED (returns), and where it sits technically. Only the
+# first came from the filings database; the other two are price facts, so they
+# are computed here from the same one-year daily history the technicals panel
+# already uses rather than invented or left blank.
+#
+# Everything below is arithmetic on closes. Nothing is estimated: a window with
+# too few bars returns None for that window and the cell prints an em-dash.
+
+def _pct(a: float, b: float) -> Optional[float]:
+    """b → a as a percentage move, guarding the zero/absent denominators that
+    a thin or newly listed series produces."""
+    if not a or not b or b <= 0:
+        return None
+    return (a - b) / b * 100.0
+
+
+def _rsi14(closes: list[float]) -> Optional[float]:
+    """Wilder's RSI, the smoothing every charting package means by "RSI(14)".
+
+    A simple mean of gains and losses is a DIFFERENT indicator that happens to
+    share the name — it reacts faster and prints materially different numbers,
+    which is how a peer table ends up disagreeing with the chart beside it.
+    """
+    if len(closes) < 15:
+        return None
+    gains = losses = 0.0
+    for i in range(1, 15):                     # seed on the first 14 changes
+        d = closes[i] - closes[i - 1]
+        gains += max(d, 0.0)
+        losses += max(-d, 0.0)
+    avg_g, avg_l = gains / 14.0, losses / 14.0
+    for i in range(15, len(closes)):           # then Wilder-smooth the rest
+        d = closes[i] - closes[i - 1]
+        avg_g = (avg_g * 13 + max(d, 0.0)) / 14.0
+        avg_l = (avg_l * 13 + max(-d, 0.0)) / 14.0
+    if avg_l == 0:
+        return 100.0 if avg_g > 0 else 50.0
+    rs = avg_g / avg_l
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _sma(closes: list[float], n: int) -> Optional[float]:
+    return sum(closes[-n:]) / n if len(closes) >= n else None
+
+
+def _peer_price_block(symbol: str) -> dict:
+    """Price, trailing returns and technicals for one peer. Never raises."""
+    empty: dict[str, Optional[float]] = {
+        "price": None, "change_pct": None,
+        "ret_1m": None, "ret_3m": None, "ret_6m": None, "ret_1y": None,
+        "rsi14": None, "vs_50dma": None, "vs_200dma": None, "from_52w_high": None,
+    }
+    try:
+        from backend.market.yfinance_service import fetch_price_history
+        bars = fetch_price_history(symbol, "1y", "1d")
+    except Exception:  # noqa: BLE001 — a dead price feed must not 500 the table
+        logger.debug("peer price history failed for %s", symbol, exc_info=True)
+        return empty
+    closes = [float(b["close"]) for b in bars
+              if b.get("close") not in (None, "") and float(b["close"]) > 0]
+    if len(closes) < 2:
+        return empty
+
+    last = closes[-1]
+    # ~21 trading days a month. Indexing back by trading days rather than by
+    # calendar date is what keeps a holiday-heavy month from silently becoming
+    # a five-week window.
+    def back(n: int) -> Optional[float]:
+        if len(closes) > n:
+            return _pct(last, closes[-(n + 1)])
+        # A "1y" request returns ~250 sessions and the 1y window wants 251, so
+        # the exact-index version printed nothing for the one column readers
+        # look at first. Where the series covers nearly the whole window, its
+        # oldest close IS the window's open — but only nearly: a stock listed
+        # three months ago must not report a one-year return from its IPO.
+        if len(closes) >= int(n * 0.92):
+            return _pct(last, closes[0])
+        return None
+
+    high52 = max(closes)
+    s50, s200 = _sma(closes, 50), _sma(closes, 200)
+    return {
+        "price": round(last, 2),
+        "change_pct": round(_pct(last, closes[-2]) or 0.0, 2) if len(closes) >= 2 else None,
+        "ret_1m": _round(back(21)),
+        "ret_3m": _round(back(63)),
+        "ret_6m": _round(back(126)),
+        "ret_1y": _round(back(250)),
+        "rsi14": _round(_rsi14(closes)),
+        "vs_50dma": _round(_pct(last, s50) if s50 else None),
+        "vs_200dma": _round(_pct(last, s200) if s200 else None),
+        "from_52w_high": _round(_pct(last, high52)),
+    }
+
+
+def _round(v: Optional[float]) -> Optional[float]:
+    return None if v is None else round(v, 2)
+
+
+def _peer_price_cached(symbol: str) -> dict:
+    """`_peer_price_block` behind the cache, with one rule the generic
+    `_cached` cannot have: a FAILURE IS NOT CACHED.
+
+    The generic helper stores whatever build() returned, which is right for a
+    query against our own database — that either works or raises. This block
+    reaches an external price feed and degrades to a dict of nulls instead of
+    raising, so caching the result blindly pins a transient outage into every
+    response for the next six hours. (Measured: one call landed mid-reload,
+    caught the partially-initialised import, and every peer read "—" long
+    after the feed was healthy again.)
+    """
+    key = _CACHE_PREFIX + f"peerprice:{symbol}"
+    try:
+        hit = redis_client.get(key)
+        if hit:
+            return json.loads(hit)
+    except Exception:  # noqa: BLE001
+        logger.debug("peer price cache read failed for %s", symbol, exc_info=True)
+    block = _peer_price_block(symbol)
+    if block.get("price") is None:
+        return block          # nothing worth keeping — try again next request
+    try:
+        redis_client.setex(key, _CACHE_TTL, json.dumps(block))
+    except Exception:  # noqa: BLE001
+        logger.debug("peer price cache write failed for %s", symbol, exc_info=True)
+    return block
 
 
 def _auth(authorization: Optional[str]) -> int:
@@ -128,6 +280,106 @@ def _resolve(symbol: str) -> dict:
 
     return {"symbol": sym, "isin": isin, "sc_id": sc_id,
             "name": name, "bse_scripcode": str(bse) if bse else None}
+
+
+@router.get("/{symbol}/peers")
+def get_peers(
+    symbol: str,
+    fields: str = Query("", description="comma-separated supported metric ids"),
+    # Six, not eight. The table is read by comparing rows against each other,
+    # and past about half a dozen names the reader stops comparing and starts
+    # scrolling. Ranked by market cap, so the six are the six that matter.
+    limit: int = Query(6, ge=4, le=12),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Prominent same-sector companies with comparable reported metrics.
+
+    Sector, display name and market cap come from the enrichment database;
+    statement/ratio values come from Moneycontrol's financials database. The
+    two datasets are joined only by ``sc_id``. Missing values remain null.
+    """
+    _auth(authorization)
+    who = _resolve(symbol)
+    requested = [f.strip() for f in fields.split(",") if f.strip()]
+    chosen = requested or list(_PEER_DEFAULT_FIELDS)
+    unknown = [f for f in chosen if f not in _PEER_FIELDS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unsupported peer fields: {', '.join(unknown)}")
+    chosen = list(dict.fromkeys(chosen))[:8]
+    if EnrichSessionLocal is None:
+        return {"symbol": who["symbol"], "available": False, "sector": None,
+                "fields": [], "catalog": _PEER_FIELDS, "peers": []}
+
+    with EnrichSessionLocal() as db:
+        target = db.execute(text("""
+            SELECT sc_id, sector FROM enrich.v_company_enriched
+             WHERE upper(ticker) = :s
+          ORDER BY market_cap DESC NULLS LAST LIMIT 1"""), {"s": who["symbol"]}).first()
+        if not target or not target[1]:
+            return {"symbol": who["symbol"], "available": False, "sector": None,
+                    "fields": [], "catalog": _PEER_FIELDS, "peers": []}
+        sector = target[1]
+        rows = db.execute(text("""
+            SELECT DISTINCT ON (upper(ticker)) sc_id, upper(ticker) symbol,
+                   coalesce(long_name, company_name, ticker) name, market_cap
+              FROM enrich.v_company_enriched
+             WHERE sector = :sector AND ticker IS NOT NULL
+          ORDER BY upper(ticker), market_cap DESC NULLS LAST"""), {"sector": sector}).mappings().all()
+        ranked = sorted(rows, key=lambda r: float(r["market_cap"] or 0), reverse=True)
+        selected = ranked[:limit]
+        if not any(r["symbol"] == who["symbol"] for r in selected):
+            own = next((r for r in ranked if r["symbol"] == who["symbol"]), None)
+            if own:
+                selected = selected[:-1] + [own]
+
+    metric_fields = [f for f in chosen if f != "market_cap"]
+    peers = []
+    with FinancialsSessionLocal() as db:
+        for company in selected:
+            # The enrich database can retain an older/shell sc_id for a valid
+            # ticker (RELIANCE is RIL08 there while the canonical filings row
+            # resolves elsewhere). Resolve the trading symbol inside the
+            # financials database before reading statements; never assume the
+            # cross-database sc_id is canonical.
+            financials_sc_id = fdb.resolve_symbol(company["symbol"], session=db)
+            latest, _ = fdb.get_company_fundamentals_bulk(
+                financials_sc_id, fields=metric_fields, session=db,
+            ) if financials_sc_id else ({field: None for field in metric_fields}, {})
+            # Some legacy tickers resolve to a newer canonical row that is
+            # still statement-empty while the enrich-linked legacy row holds
+            # the filings (OIL is one example). Compare coverage and retain
+            # the better sourced row rather than blindly preferring either DB.
+            if financials_sc_id != company["sc_id"]:
+                enrich_latest, _ = fdb.get_company_fundamentals_bulk(
+                    company["sc_id"], fields=metric_fields, session=db,
+                )
+                canonical_fill = sum(v is not None and v.value_numeric is not None for v in latest.values())
+                enrich_fill = sum(v is not None and v.value_numeric is not None for v in enrich_latest.values())
+                if enrich_fill > canonical_fill:
+                    financials_sc_id, latest = company["sc_id"], enrich_latest
+            values: dict[str, Optional[float]] = {
+                "market_cap": float(company["market_cap"]) if company["market_cap"] is not None else None,
+            }
+            periods: dict[str, Optional[str]] = {}
+            for field in metric_fields:
+                got = latest.get(field)
+                values[field] = float(got.value_numeric) if got and got.value_numeric is not None else None
+                periods[field] = got.period_label if got else None
+            peers.append({"sc_id": financials_sc_id or company["sc_id"], "symbol": company["symbol"],
+                          "name": company["name"], "is_current": company["symbol"] == who["symbol"],
+                          "values": values, "periods": periods})
+
+    # Price facts last, and cached with the rest of the body: this is the only
+    # part of the payload that reaches a price feed, and it does so once per
+    # peer. Six symbols of one-year daily history is seconds on a cold call and
+    # nothing at all for the next six hours.
+    for peer in peers:
+        peer["price"] = _peer_price_cached(peer["symbol"])
+
+    return {"symbol": who["symbol"], "available": bool(peers), "sector": sector,
+            "fields": [{"id": f, **_PEER_FIELDS[f]} for f in chosen],
+            "catalog": [{"id": k, **v} for k, v in _PEER_FIELDS.items()],
+            "peers": peers, "source": "Moneycontrol filings + company profile database"}
 
 
 # ── coverage ────────────────────────────────────────────────────────────────
