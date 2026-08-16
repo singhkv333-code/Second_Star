@@ -56,14 +56,42 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <PanelHead title="Segment mix" />
 
-      {/* The breakdowns laid out flat rather than folded into a select. There
-          are rarely more than four, and a company's own choice of how to cut
-          itself up is worth seeing at once — a dropdown hides three of them
-          behind a click and needs a "Breakdown" label to explain itself. With
-          the options visible the selected one names the chart, so the repeated
-          title and the line describing what a stacked area is both go. */}
+      {/* The breakdowns laid out flat rather than folded into a select: a
+          company's own choice of how to cut itself up is worth seeing at once,
+          and with the options visible the selected one names the chart.
+
+          That holds while they FIT. This panel used to assume "rarely more
+          than four" and Infosys files twenty-nine — "Location Wise Break-Up
+          — Financial Services", "— Retail", and so on — which laid out as a
+          nine-row, 193px wall of tabs above a 320px chart. Past a handful the
+          strip stops being a set of options you can see at once and becomes
+          the thing you have to read before you reach the chart, so it folds
+          into one control. The threshold is where the strip still holds a
+          line or two, not a number picked for its own sake. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        {charts.length > 1 ? (
+        {charts.length > 6 ? (
+          <select
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            aria-label="Breakdown"
+            style={{
+              maxWidth: "min(100%, 420px)",
+              border: "none",
+              borderBottom: "1px solid var(--glass-border)",
+              background: "transparent",
+              padding: "3px 2px",
+              fontFamily: "var(--font-ui)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              cursor: "pointer",
+            }}
+          >
+            {charts.map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.title}</option>
+            ))}
+          </select>
+        ) : charts.length > 1 ? (
           <Segmented
             value={id}
             options={charts.map((c) => ({ value: String(c.id), label: c.title }))}

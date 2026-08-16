@@ -2872,20 +2872,40 @@ function FinancialsPanel({
   // question at a different period, so it is a third tab here and it is drawn
   // by the same chart and the same table as the other two.
   //
-  // Fetched on first open rather than with the page: two of three readers
-  // never touch this tab, and the annual statements above are what the
-  // section is for.
+  // Loaded WITH the panel, not on first open of the tab, because the answer
+  // decides whether the tab exists at all. Coverage decides what renders is
+  // the rule the sections below already follow, and a great many companies
+  // file no quarterly metrics — HDFCBANK and INFY among them. Opening the tab
+  // to fetch would have meant advertising a tab that turns out to be empty,
+  // which is the dead panel that rule exists to prevent.
   const [quarters, setQuarters] = useState<QuartersResponse | null>(null);
+  const [hasQuarters, setHasQuarters] = useState(false);
   const [qBasis, setQBasis] = useState<"consolidated" | "standalone">("consolidated");
+
+  // A new company answers the question again from scratch, and must not
+  // inherit the last one's tab — landing on Quarterly Results for a company
+  // that has none is the same dead panel by another route.
   useEffect(() => {
-    if (tab !== "quarters") return;
+    setHasQuarters(false);
+    setQBasis("consolidated");
+    setTab((t) => (t === "quarters" ? "financials" : t));
+  }, [quote.symbol]);
+
+  useEffect(() => {
     let dead = false;
     setQuarters(null);
     getStockQuarters(quote.symbol, qBasis, 12)
-      .then((r) => { if (!dead && !isError(r)) setQuarters(r.data); })
+      .then((r) => {
+        if (dead || isError(r)) return;
+        setQuarters(r.data);
+        // Latched: a company that reports consolidated quarters but no
+        // standalone ones must not have the tab vanish under the reader when
+        // they flip the basis.
+        if (r.data.quarters.length) setHasQuarters(true);
+      })
       .catch(() => {});
     return () => { dead = true; };
-  }, [tab, quote.symbol, qBasis]);
+  }, [quote.symbol, qBasis]);
 
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
@@ -2968,7 +2988,10 @@ function FinancialsPanel({
               row that is empty two-thirds of the time. */}
           <div style={{ display: "flex", gap: 0, alignItems: "flex-end", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 0 }}>
-              {(["financials", "pl", "quarters"] as const).map((t) => {
+              {(hasQuarters
+                ? (["financials", "pl", "quarters"] as const)
+                : (["financials", "pl"] as const)
+              ).map((t) => {
                 const active = tab === t;
                 return (
                   <button key={t} type="button" onClick={() => setTab(t)} style={{
