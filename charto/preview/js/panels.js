@@ -458,9 +458,17 @@ const Panels = (() => {
 
   /* ── editing the list ──────────────────────────────────────────────────── */
 
-  function addSymbol(sym) {
+  /** Add to the ACTIVE list, or to a named one.
+   *
+   *  `listId` is what the chart's context menu needs: it offers every list by
+   *  name, so "add to Watchlist 2" must not mean "switch to Watchlist 2 and
+   *  add" — the panel the reader has open is not the panel they are filing
+   *  into, and moving it under them is a side effect nobody asked for. An
+   *  unknown id falls back to the active list rather than dropping the
+   *  symbol, which is the failure a user would never see the reason for. */
+  function addSymbol(sym, listId) {
     const s = String(sym || "").trim().toUpperCase();
-    const list = activeList();
+    const list = (listId && wl.lists.find((l) => l.id === listId)) || activeList();
     if (!s || list.syms.includes(s)) return;
     list.syms.push(s);
     // it lands in a section, and a section can be shut — adding an instrument
@@ -1177,5 +1185,11 @@ const Panels = (() => {
     // knowing how one is stored
     watch: addSymbol,
     watching: () => [...activeList().syms],
+    /** Every list, with what is already on it — so a menu offering them can
+     *  tick the ones this symbol is on rather than offering to add it twice.
+     *  A copy: nothing outside this file writes the store. */
+    lists: () => wl.lists.map((l) => ({ id: l.id, name: l.name,
+                                        syms: [...l.syms],
+                                        active: l.id === wl.active })),
   };
 })();

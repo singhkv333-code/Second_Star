@@ -2309,5 +2309,25 @@
     activeId: () => activeId,
     newChat: newConversation,
     openChat: openConversation,
+    /* Ask something from elsewhere in the app — the chart's context menu is
+     * the first caller.
+     *
+     * It goes through the COMPOSER, not through send(text): send's string
+     * argument is the retry path, which deliberately drops the pending
+     * attachments (see there). A question about a drawing tags the drawing
+     * first and then asks, so dropping them would send "is D3 any good?"
+     * with no D3 attached — the exact guessing the ref exists to end.
+     *
+     * Setting the value and calling send() with no argument is what the
+     * user's own Enter does, so there is one send path, and the question is
+     * visible in the box for the instant before it goes. */
+    ask(text) {
+      const q = String(text || "").trim();
+      if (!q) return;
+      if (panel.classList.contains("hidden")) chatToggle.click();
+      input.value = q;
+      autoGrow();
+      send();
+    },
   };
 })();

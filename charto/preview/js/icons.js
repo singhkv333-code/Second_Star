@@ -222,6 +222,27 @@ const Icons = (() => {
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     pen: '<path d="M21.2 6.8a2.82 2.82 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.63l4.36-1.33a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
+
+    /* ── the chart's context menu ───────────────────────────
+     * Four rows in that menu had no glyph in the set, and a menu where some
+     * rows carry a mark and others do not reads as two menus stacked. Same
+     * Lucide family, same 24 grid, so they sit on the cap height beside the
+     * ones already here. */
+    // attaching a POINT to the conversation — the same verb the composer's
+    // chips already perform, so it wears the label a chip is
+    tag: '<path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/>'
+      + '<circle cx="7.4" cy="7.4" r="1.1"/>',
+    // a list, gaining a row: `list` alone is the alert log's glyph and the
+    // plus is the whole difference between reading one and adding to it
+    listPlus: '<path d="M11 12H3"/><path d="M16 6H3"/><path d="M16 18H3"/>'
+      + '<path d="M18 9v6"/><path d="M21 12h-6"/>',
+    // a drawing pinned in place — the shackle is closed, which is the state
+    // the row is switching INTO when it is not yet ticked
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    // the record behind a shape: bars against an axis, which is what a
+    // hit-rate answer actually looks like when it comes back
+    barChart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/>'
+      + '<path d="M13 17V5"/><path d="M8 17v-3"/>',
   };
 
   /* ── chart layout glyphs, generated ─────────────────────────────────────

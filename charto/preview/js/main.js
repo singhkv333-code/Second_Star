@@ -2735,16 +2735,337 @@
     }
   }, true);
 
-  /* ── right-click to arm an alert ──────────────────────────────────────────
-   * The price under the cursor, not a number typed into a form. This is the
-   * ergonomic every chart tool with alerts has and the reason a level set here
-   * is right the first time: you are pointing at it.
+  /* ── right-click: three menus, routed by what is under the pointer ────────
    *
-   * The second entry is the differentiated one. A selected trendline becomes
-   * `draw:<ref>`, which the engine re-prices at every bar — so the level slopes
-   * with the line, and moving the line on screen moves what is being watched.
-   * A typed number cannot do either.
+   * TradingView shows ONE menu wherever you click, so most of its rows are
+   * about the chart rather than about the thing you pointed at. But pointing
+   * IS the gesture: the price, the bar or the shape you aimed for is the
+   * subject, and a menu that already knows which of the three it was can
+   * answer a different question in each case. So there are three of them,
+   * and the router at the bottom of this section picks one.
+   *
+   * Two rows appear in all three, in the same slot:
+   *
+   *   Chat ▸  three or four questions built HERE, out of what this chart
+   *           already knows about the point — the bar's own numbers, the
+   *           markers sitting on it, the drawing's kind. Nothing is fetched
+   *           to fill the list: it has to be up before the pointer has
+   *           moved, and a question offered on a chart that cannot answer it
+   *           is the same failure as an invented number, so a row is only
+   *           written when the thing it asks about is actually there.
+   *
+   *   Tag     attaches the point to the composer and stops. No question, no
+   *           send — it is the row for someone who knows what they want to
+   *           ask and only needs the chart to say WHERE they mean, which is
+   *           precisely what the model cannot infer from the word "this".
+   *
+   * None of the three tags is new plumbing. A bar is a pin; a drawing is
+   * `charto:draw-tag`, the same event its card fires; a bare coordinate is
+   * `charto:compose` carrying the one address format the backend parses.
    */
+
+  /** How many decimals this instrument's prices are worth — the same rule
+   *  the ⊕ on the price axis already applies a few hundred lines up. Two for
+   *  anything priced like a share, four below that, because a paise-priced
+   *  pair rounded to 2 is an alert armed at a level that does not exist. */
+  const digitsAt = (px) => (Math.abs(px) >= 100 ? 2 : 4);
+  /** The price as an alert or an address should carry it: a bare number, no
+   *  grouping, at that precision. */
+  const levelAt = (px) => Number(px.toFixed(digitsAt(px)));
+  /** …and as a row should print it. Minimum and maximum are the same, so a
+   *  column of four prices lines up instead of one of them dropping its
+   *  trailing zeros and losing the decimal point everything else is on. */
+  const priceAt = (px) => Sym.of(SYMBOL).price(px, {
+    minimumFractionDigits: digitsAt(px), maximumFractionDigits: digitsAt(px),
+  });
+  /** "17 Aug 2026 12:11 @ 1432.5" — mark.py's `<time> @ <price>` grammar, in
+   *  the display format `_parse_ist` accepts. Written the way the model
+   *  already sees times in the chart envelope, so a tagged coordinate needs
+   *  no translation at the other end. */
+  const addressAt = (t, px) =>
+    `${fmtIST(t, !DAILY.has(state.interval))} @ ${levelAt(px)}`;
+  const whenAt = (t) => fmtIST(t, !DAILY.has(state.interval));
+
+  /** The bar under an x, or null when the pointer is past the last one. */
+  function barAtX(clientX) {
+    const t = chart.timeScale().coordinateToTime(clientX - chartEl.getBoundingClientRect().left);
+    return t == null ? null : (state.bars.find((b) => b.time === t) || null);
+  }
+  /** …and whether the pointer is actually ON it — the high-low span with the
+   *  same small grab tolerance a pin uses. Empty chart above a candle is not
+   *  that candle, and a menu that claimed it was would put the wrong bar's
+   *  numbers in its header. */
+  function overBar(bar, clientY) {
+    const y = yInPane(clientY, "price");
+    const hi = candle.priceToCoordinate(bar.high);
+    const lo = candle.priceToCoordinate(bar.low);
+    return y !== null && hi !== null && lo !== null && y >= hi - 8 && y <= lo + 8;
+  }
+
+  /** What the chat has drawn ON this bar, if anything — the results marker is
+   *  the only kind today. Its text is the label the question then quotes, so
+   *  the row cannot claim an event the chart is not showing. */
+  function markerOn(barTime) {
+    for (const a of (scene.state.items || [])) {
+      if (a.kind !== "markers") continue;
+      for (const m of (a.marks || [])) {
+        if (m.t + IST === barTime) return String(m.text || "").trim() || "that event";
+      }
+    }
+    return null;
+  }
+  /** Volume against the recent median — the test behind "was anyone actually
+   *  trading?", and the reason that row is not offered on an ordinary bar. */
+  function heavyVolume(bar) {
+    if (!bar.volume) return false;
+    const i = state.bars.indexOf(bar);
+    if (i < 20) return false;
+    const win = state.bars.slice(Math.max(0, i - 20), i)
+      .map((b) => b.volume || 0).sort((a, b) => a - b);
+    const med = win[Math.floor(win.length / 2)] || 0;
+    return med > 0 && bar.volume > med * 2;
+  }
+  /** Deals and flows are NSE/BSE reporting. Offering "who was buying?" on a
+   *  crypto pair would be a question with no data behind it. */
+  const isEquity = () => {
+    const d = Sym.of(SYMBOL);
+    return !d.isCrypto && (d.venue === "NSE" || d.venue === "BSE");
+  };
+
+  /* ── the two rows every menu carries ─────────────────────────────────── */
+
+  const askRow = (questions) => ({
+    icon: "chat", label: "Chat", sub: questions
+      .filter(Boolean).slice(0, 4)
+      .map((q) => ({ label: q, wrap: true, on: () => Chat.ask(q) })),
+  });
+
+  /* ── rows shared by more than one of the three ───────────────────────── */
+
+  const shotRow = () => ({
+    icon: "camera", label: "Screenshot", sub: [
+      { icon: "candles", label: "The whole chart", hint: "⌥ S",
+        on: () => captureChart(null) },
+      { icon: "rect", label: "Select a region…", on: () => selectRegionCapture() },
+    ],
+  });
+
+  /** The note lands where you right-clicked, which is the difference between
+   *  this and the rail's text tool: no arming, no second click. */
+  const noteRow = (t, v) => ({
+    icon: "pen", label: "Add a note here",
+    on: () => draw.noteAt("price", t, v),
+  });
+
+  const watchRow = () => ({
+    icon: "listPlus", label: `Add ${SYMBOL} to watchlist`,
+    sub: () => Panels.lists().map((l) => ({
+      label: l.name,
+      // Already on it: the row reports that rather than offering to add a
+      // symbol twice, which the store would silently swallow anyway.
+      tick: l.syms.includes(SYMBOL),
+      disabled: l.syms.includes(SYMBOL),
+      on: () => { Panels.watch(SYMBOL, l.id); status(`${SYMBOL} added to ${l.name}`); },
+    })),
+  });
+
+  const copyText = (text, said) => {
+    navigator.clipboard.writeText(text)
+      .then(() => status(said))
+      .catch(() => status("the browser refused the clipboard"));
+  };
+
+  /** Everything on the chart that can be removed, as the trash's own rows —
+   *  one model, so the menu and the rail's trash cannot come to different
+   *  answers about what "remove" means or how much of it there is. */
+  const removeRow = () => {
+    const live = trashLive();
+    if (!live.length) return null;
+    return {
+      icon: "trash", label: "Remove from chart", sub: () => {
+        const now = trashLive();
+        return now.map((x) => ({
+          icon: x.l.icon, label: `Remove ${trashPhrase(x.l, x.n)}`, danger: true,
+          on: () => trashClear([x]),
+        })).concat(now.length > 1
+          ? [{ sep: true },
+             { icon: "trash", danger: true,
+               label: `Remove ${trashList(now.map((x) => trashPhrase(x.l, x.n)))}`,
+               on: () => trashClear(now) }]
+          : []);
+      },
+    };
+  };
+
+  const settingsRow = () => ({
+    icon: "settings", label: "Chart settings…", on: () => ChartSettings.open(),
+  });
+
+  /* ── 1 · empty chart: a price and a moment, and nothing else ──────────── */
+  function menuForPoint(px, bar) {
+    const level = levelAt(px);
+    const when = bar ? whenAt(bar.time) : null;
+    return [
+      { head: SYMBOL, note: `${priceAt(px)}${when ? ` · ${when}` : ""}` },
+      { icon: "alertPlus", label: `Add alert at ${priceAt(px)}`, hint: "⌥ A",
+        on: () => Alerts.open({ symbol: SYMBOL, level,
+                                last: lastBar ? lastBar.close : null,
+                                interval: state.interval }) },
+      // The honest answer to TradingView's two order rows. We do not place
+      // orders, and a sized plan with a stop and an R:R is the thing a ticket
+      // assumes you already worked out. plan_position computes it; asking is
+      // how it is reached, so there is no second copy of that arithmetic here.
+      { icon: "position", label: "Plan a position from here",
+        on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at ${level}.`) },
+      { sep: true },
+      askRow([
+        `Is ${level} a real level on ${SYMBOL}?`,
+        when && `Why did ${SYMBOL} move on ${when}?`,
+        when && isEquity() && `Was there any news on ${SYMBOL} around ${when}?`,
+        `Which stocks are sitting at a level like this right now?`,
+      ]),
+      { icon: "tag", label: "Tag this point",
+        title: "Puts the coordinate in the composer — you write the question",
+        on: () => {
+          document.dispatchEvent(new CustomEvent("charto:compose",
+            { detail: bar ? addressAt(bar.time, px) : String(level) }));
+          status("point tagged — ask what you like about it");
+        } },
+      { sep: true },
+      shotRow(),
+      watchRow(),
+      bar && noteRow(bar.time, px),
+      { sep: true },
+      { icon: "copy", label: "Copy", sub: [
+        { label: `Price — ${level}`, on: () => copyText(String(level), "price copied") },
+        bar && { label: "Address", title: addressAt(bar.time, px),
+                 on: () => copyText(addressAt(bar.time, px), "address copied") },
+      ].filter(Boolean) },
+      { sep: true },
+      { icon: "rotateCw", label: "Reset chart view", hint: "⌥ R",
+        on: () => Shortcuts.run("reset-view") },
+      removeRow(),
+      { icon: "bell", label: "All alerts…", on: () => Panels.show("alerts") },
+      settingsRow(),
+    ];
+  }
+
+  /* ── 2 · a candle: the menu can name its own numbers ──────────────────── */
+  function menuForBar(bar, px) {
+    const when = whenAt(bar.time);
+    const pct = bar.open ? (bar.close - bar.open) / bar.open * 100 : 0;
+    const n = (v) => Sym.of(SYMBOL).num(v, { minimumFractionDigits: 2,
+                                             maximumFractionDigits: 2 });
+    const ohlc = `O ${n(bar.open)}  H ${n(bar.high)}  L ${n(bar.low)}  C ${n(bar.close)}`;
+    const armed = (label, v) => ({
+      label: `${label} — ${priceAt(v)}`,
+      on: () => Alerts.open({ symbol: SYMBOL, level: levelAt(v),
+                              last: lastBar ? lastBar.close : null,
+                              interval: state.interval }),
+    });
+    const event = markerOn(bar.time);
+    return [
+      { head: when, note: `${ohlc}  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%` },
+      // The bar's own four prices, exact. Every other chart makes you read a
+      // wick off the axis and type what you think it said; this is the one
+      // place the number is already known.
+      { icon: "alertPlus", label: "Add alert at this bar's", sub: [
+        armed("High", bar.high), armed("Low", bar.low),
+        armed("Open", bar.open), armed("Close", bar.close),
+      ] },
+      { icon: "position", label: "Plan a position from this bar",
+        on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at `
+          + `${levelAt(bar.close)} and the stop below this bar's low of `
+          + `${levelAt(bar.low)}.`) },
+      { sep: true },
+      askRow([
+        `Why did ${SYMBOL} move on ${when}?`,
+        event && `What did ${event} on ${when} mean for ${SYMBOL}?`,
+        `What usually happens after a candle like this one on ${SYMBOL}?`,
+        isEquity() && heavyVolume(bar)
+          && `Volume was heavy on ${when} — were there bulk or block deals?`,
+        isEquity() && !heavyVolume(bar) && `Was there any news on ${SYMBOL} around ${when}?`,
+      ]),
+      { icon: "pin", label: "Tag this candle",
+        title: "The same pin a plain click on the candle leaves",
+        on: () => pins.toggle({ ...bar, interval: state.interval }) },
+      { sep: true },
+      shotRow(),
+      noteRow(bar.time, px),
+      { sep: true },
+      { icon: "copy", label: "Copy", sub: [
+        { label: "OHLC", on: () => copyText(`${SYMBOL} ${when} · ${ohlc}`, "OHLC copied") },
+        { label: "Address", title: addressAt(bar.time, bar.close),
+          on: () => copyText(addressAt(bar.time, bar.close), "address copied") },
+      ] },
+      { sep: true },
+      settingsRow(),
+    ];
+  }
+
+  /* ── 3 · a drawing: the shape is the subject ──────────────────────────── */
+  // Which kinds enclose a stretch of chart rather than marking a line through
+  // it. A profile or a "what happened inside this" question needs two times
+  // to sit between, and offering it on a horizontal ray would be a row that
+  // cannot be answered.
+  const SPANNING = new Set(["rect", "zone", "box", "fib", "channel", "flatChannel",
+                            "long", "short", "gannBox", "fibChannel"]);
+  /* Shapes that assert NO PRICE. A text note sits where you put it, a
+   * vertical line and a date range name a moment, and a measure is a reading
+   * of two points rather than a claim about a level. None of them can be
+   * crossed, and none of them has a hit rate — so those two rows are left off
+   * their menus entirely rather than offered and then refused. */
+  const PRICELESS = new Set(["text", "vline", "dateRange", "measure"]);
+  function menuForDrawing(d) {
+    const ref = d.ref || d.id;
+    const spec = draw.SPECS[d.type];
+    const name = spec ? spec.label : d.type;
+    const priced = !PRICELESS.has(d.type);
+    const tag = () => document.dispatchEvent(
+      new CustomEvent("charto:draw-tag", { detail: draw.tagOf(d.id) }));
+    // The chat rows tag the shape FIRST and then ask, so the question travels
+    // with the ref and the tools resolve real geometry — the model is never
+    // asked to work out which line "this" was.
+    const askAbout = (q) => () => { tag(); Chat.ask(q); };
+    return [
+      { head: name, note: ref },
+      // The row with no TradingView equivalent, and therefore the first one:
+      // it draws anything and never says whether it meant something. This
+      // answers with a hit rate against a control (evaluate_drawing).
+      priced && { icon: "barChart", label: "Test this drawing",
+        title: "Hit rate against a control, not an opinion",
+        on: askAbout(`How reliable is ${ref}? Test it against a control.`) },
+      // A sloping level the engine re-prices every bar: move the line and
+      // what is being watched moves with it. A typed number cannot do that.
+      priced && { icon: "alertPlus", label: `Alert on ${ref}`, hint: "⌥ A",
+        on: () => Alerts.open({ symbol: SYMBOL, left: "close", op: "cross",
+                                right: `draw:${ref}`, interval: state.interval }) },
+      { sep: true },
+      askRow([
+        priced && `Where has ${SYMBOL} respected ${ref}?`,
+        SPANNING.has(d.type) && `What is the volume profile inside ${ref}?`,
+        d.type === "fib" && `Which retracement of ${ref} has price actually held?`,
+        `What should I watch around ${ref}?`,
+      ]),
+      { icon: "tag", label: `Tag ${ref}`,
+        title: "Attaches the shape to the composer — you write the question",
+        on: () => { tag(); status(`${ref} tagged — ask what you like about it`); } },
+      { sep: true },
+      shotRow(),
+      { icon: "copy", label: "Duplicate", on: () => draw.clone(d.id) },
+      { icon: "lock", label: "Lock in place", tick: !!d.locked,
+        title: "A locked shape still selects and still answers — it only stops moving",
+        on: () => draw.setLocked(d.id, !d.locked) },
+      { sep: true },
+      { icon: "trash", label: "Remove", hint: "⌫", danger: true,
+        on: () => draw.remove(d.id) },
+      { sep: true },
+      settingsRow(),
+    ];
+  }
+
+  /** The router. Order matters: a drawing sits ON TOP of the candles, so a
+   *  right-click over both belongs to the shape. */
   chartEl.addEventListener("contextmenu", (e) => {
     if (draw.state.tool !== "cursor") return;   // mid-drawing: leave it alone
     if (paneAtClient(e.clientY) !== "price") return;   // prices live in pane 0
@@ -2753,43 +3074,19 @@
     if (px == null || !isFinite(px)) return;
     e.preventDefault();
     if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
-    const sel = draw.state.drawings.find((d) => d.id === draw.state.selId);
-    const level = Number(Sym.of(SYMBOL).num(px, { maximumFractionDigits: 2 })
-                         .replace(/,/g, ""));
-    const menu = document.createElement("div");
-    menu.className = "dropdown floating open";
-    menu.style.minWidth = "212px";
-    menu.innerHTML =
-      `<div class="item" data-al="level"><span class="lead">Add alert at ` +
-        `${Sym.of(SYMBOL).price(px, { maximumFractionDigits: 2 })}</span></div>` +
-      (sel
-        ? `<div class="item" data-al="draw"><span class="lead">Alert on ` +
-          `${sel.ref || sel.id}</span></div>`
-        : "") +
-      `<div class="sep"></div>` +
-      `<div class="item" data-al="open"><span class="lead">All alerts…</span></div>`;
-    document.body.appendChild(menu);
-    const w = menu.offsetWidth, h = menu.offsetHeight;
-    menu.style.left = Math.min(e.clientX, innerWidth - w - 8) + "px";
-    menu.style.top = Math.min(e.clientY, innerHeight - h - 8) + "px";
-    const shut = () => { menu.remove(); document.removeEventListener("mousedown", off, true); };
-    const off = (ev) => { if (!menu.contains(ev.target)) shut(); };
-    setTimeout(() => document.addEventListener("mousedown", off, true), 0);
-    menu.addEventListener("click", (ev) => {
-      const it = ev.target.closest("[data-al]");
-      if (!it) return;
-      const what = it.dataset.al;
-      shut();
-      if (what === "open") return Panels.show("alerts");
-      // `last` is what tells the dialog which SIDE you are coming from —
-      // above or below is a fact about where price is, not a preference, and
-      // guessing it wrong arms a rule that fires instantly or never.
-      Alerts.open(what === "draw"
-        ? { symbol: SYMBOL, left: "close", op: "cross",
-            right: `draw:${sel.ref || sel.id}`, interval: state.interval }
-        : { symbol: SYMBOL, level, last: lastBar ? lastBar.close : null,
-            interval: state.interval });
-    });
+
+    // hoverId is maintained by the same hit test the grab cursor uses, so
+    // "which shape is the pointer on?" is already answered — no second walk
+    // over every drawing here. Deliberately NOT selId: a shape selected five
+    // minutes ago is not what a right-click over empty chart is about.
+    const d = draw.state.hoverId
+      && draw.state.drawings.find((q) => q.id === draw.state.hoverId);
+    const bar = barAtX(e.clientX);
+
+    const items = d ? menuForDrawing(d)
+      : bar && overBar(bar, e.clientY) ? menuForBar(bar, px)
+      : menuForPoint(px, bar);
+    Ctx.open(e.clientX, e.clientY, items);
   });
 
   chart.subscribeClick((param) => {

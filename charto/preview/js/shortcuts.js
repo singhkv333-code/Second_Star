@@ -404,7 +404,12 @@ const Shortcuts = (() => {
   }
 
   return {
-    on, has, sections, chord, open, close, toggle,
+    // `run` is exported so a MENU can fire the same verb the key does. The
+    // chart's context menu offers "Reset view", and a copy of what reset
+    // means is a second definition to keep in step with this one — see the
+    // note above bindShortcuts in js/main.js, which makes the same argument
+    // about clicking a button rather than calling the function behind it.
+    on, run, has, sections, chord, open, close, toggle,
     isOpen: () => ours(),
   };
 })();

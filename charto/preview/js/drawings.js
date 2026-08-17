@@ -87,13 +87,24 @@ const Drawings = (() => {
     /** Announce which drawing is selected. The chat listens and offers to
      *  tag it, so "is this any good?" carries a ref instead of leaving the
      *  model to guess which shape "this" meant. */
+    /** How a drawing IDENTIFIES itself to the rest of the app — the shape of
+     *  every `charto:draw-select` detail and every `charto:draw-tag` one.
+     *
+     *  One definition, because the two travel to the same places: the chat
+     *  renders this object as the composer's attachment chip, and the chart's
+     *  context menu tags a shape without it having been selected first. Built
+     *  twice, a menu-tagged drawing and a card-tagged one would be two
+     *  slightly different objects describing the same line. */
+    function tagOf(id) {
+      const d = state.drawings.find((q) => q.id === (id || state.selId));
+      if (!d) return null;
+      return { id: d.id, ref: d.ref, type: d.type, pane: d.pane,
+               label: Tools.SPECS[d.type] ? Tools.SPECS[d.type].label : d.type };
+    }
     function emitSelect(via) {
-      const d = state.drawings.find((q) => q.id === state.selId) || null;
+      const t = tagOf(state.selId);
       document.dispatchEvent(new CustomEvent("charto:draw-select", {
-        detail: d && {
-          id: d.id, ref: d.ref, type: d.type, pane: d.pane, via: via || "click",
-          label: Tools.SPECS[d.type] ? Tools.SPECS[d.type].label : d.type,
-        },
+        detail: t && { ...t, via: via || "click" },
       }));
     }
     function logUse(tool) {
@@ -393,7 +404,11 @@ const Drawings = (() => {
       if (state.tool === "cursor") {
         if (state.selId) {
           const d = state.drawings.find((q) => q.id === state.selId);
-          if (d && (d.pane || "price") === a.key) {
+          // A LOCKED shape still selects, still tags, still answers a
+          // question — it only refuses to move. That is the whole point of
+          // the lock: a level you have finished placing should survive the
+          // drag you did not mean to start, without leaving the chart.
+          if (d && !d.locked && (d.pane || "price") === a.key) {
             const hi = handleAt(d, mx, my, a.key);
             if (hi >= 0) {
               state.drag = { id: d.id, handle: hi, pane: a.key, start: a,
@@ -407,9 +422,12 @@ const Drawings = (() => {
           const d = state.drawings.find((q) => q.id === hit);
           state.selId = hit;
           emitSelect();
-          state.drag = { id: hit, handle: -1, pane: a.key, start: a,
-                         orig: JSON.parse(JSON.stringify(d.pts)) };
-          state.consumedDown = true; setScroll(false); e2.preventDefault();
+          if (!d.locked) {
+            state.drag = { id: hit, handle: -1, pane: a.key, start: a,
+                           orig: JSON.parse(JSON.stringify(d.pts)) };
+            setScroll(false);
+          }
+          state.consumedDown = true; e2.preventDefault();
         } else {
           state.consumedDown = !!state.selId;   // the click spent itself deselecting
           state.selId = null;
@@ -745,6 +763,59 @@ const Drawings = (() => {
         return true;
       },
       clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
+      /** The tag object for one shape — see tagOf. */
+      tagOf,
+      /** Write a note AT a coordinate, with no tool armed.
+       *
+       *  A note is a text drawing: it persists with the symbol, it takes a
+       *  D-ref like every other shape, it can be dragged, deleted, folded
+       *  away and attached to a question. So the chart's context menu does
+       *  not get a note store of its own — it builds the same draft the text
+       *  tool builds and hands it to the same commit, which is what opens the
+       *  editor and files the result. The only thing that differs from the
+       *  rail's version is that the coordinate came from a right-click
+       *  instead of from a click with the tool armed. */
+      noteAt(pane, t, v) {
+        if (state.draft || state.tool !== "cursor") return false;
+        state.draft = { id: "draft", type: "text", pane: pane || "price",
+                        pts: [{ t, v }] };
+        commit();
+        return true;
+      },
+      /** A second copy of a shape, offset so it is visibly a second one.
+       *
+       *  Ten bars and nothing in price: the offset has to be big enough that
+       *  the copy is not hidden under the original, and a PRICE offset would
+       *  silently move a level to a number nobody chose. Time is the axis
+       *  where "a bit to the right" means nothing about the market. */
+      clone(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d) return null;
+        const bars = env.getBars() || [];
+        const step = bars.length > 1 ? bars[bars.length - 1].time - bars[bars.length - 2].time
+                                     : env.getIntervalSec();
+        const dt = step * 10;
+        const copy = { ...JSON.parse(JSON.stringify(d)), id: newId(),
+                       ref: "D" + (++refSeq),
+                       pts: d.pts.map((p) => ({ ...p, t: p.t + dt })) };
+        state.drawings.push(copy);
+        state.selId = copy.id;
+        save(); _ru(); emitSelect("create");
+        env.setStatus(`copied to ${copy.ref}`);
+        return copy.ref;
+      },
+      /** Lock or unlock one shape. Presentation of the lock is the menu's
+       *  tick — nothing is drawn on the chart for it, because a padlock
+       *  floating beside a trendline is more ink than the state is worth. */
+      setLocked(id, on) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d) return false;
+        d.locked = !!on;
+        if (d.locked && state.drag && state.drag.id === d.id) state.drag = null;
+        save();
+        env.setStatus(`${d.ref} ${d.locked ? "locked" : "unlocked"}`);
+        return d.locked;
+      },
       /** Replace the whole set at once — the undo stack's write path.
        *
        *  Selection is DROPPED rather than carried across: the shape it
