@@ -17,10 +17,17 @@
  *
  *   { icon, label, hint, on() }        a row that does something
  *   { icon, label, sub: [...] }        a row that opens another menu
- *   { icon, label, sub: () => [...] }  …built when it opens, not before
+ *   { icon, label, sub: () => [...] }  built when it opens, not before
  *   { label, on(), tick: true }        a row that is currently ON
  *   { sep: true }                      a seam
- *   { head: "…", note: "…" }           the sheet's own header
+ *   { head, note }                     the sheet's own header
+ *
+ * A LABEL IS A NAME, never a sentence. Two or three words, no trailing
+ * punctuation, no ellipsis — a row that reads as prose has to be parsed
+ * before it can be chosen, and a menu is scanned rather than read. Where a
+ * row needs to carry a number, that goes in `hint` (the right-hand slot);
+ * where it needs a longer explanation, that goes in `title`, which the
+ * pointer asks for rather than the eye having to step over.
  *
  * A falsy entry is skipped, so a caller can write `cond && {…}` inline and
  * never assemble the array conditionally. A row with no `on` and no `sub`
@@ -49,11 +56,7 @@ const Ctx = (() => {
   function buildRow(spec, depth) {
     const r = document.createElement("div");
     const sub = !!spec.sub;
-    // `wrap` is for rows whose label is a SENTENCE rather than a name — the
-    // questions under Chat. A truncated question is unusable: you cannot
-    // choose to ask something you can only read half of.
     r.className = "ctx-row"
-      + (spec.wrap ? " wrap" : "")
       + (spec.danger ? " danger" : "")
       + (spec.disabled ? " off" : "")
       + (spec.tick ? " on" : "");
@@ -110,7 +113,13 @@ const Ctx = (() => {
   /* ── one sheet ───────────────────────────────────────────────────────── */
   function buildMenu(items, depth) {
     const m = document.createElement("div");
-    m.className = "ctx" + (depth ? " ctx-sub" : "");
+    // A sheet where NO row carries a glyph gets no glyph gutter. The spacer
+    // exists so labels line up when only some rows have icons; on a list of
+    // plain names — the watchlists, the four prices, the questions — it is
+    // 31px of empty paper before every word, which is what made a one-row
+    // submenu read as a mostly-blank card.
+    const anyIcon = items.some((it) => it && it.icon && !it.sep && !it.head);
+    m.className = "ctx" + (depth ? " ctx-sub" : "") + (anyIcon ? "" : " ctx-plain");
     m.setAttribute("role", "menu");
     let lastWasSep = true;        // no leading rule, and never two in a row
     for (const it of items) {
@@ -127,7 +136,9 @@ const Ctx = (() => {
         const h = document.createElement("div");
         h.className = "ctx-head";
         h.innerHTML = `<span class="ctx-head-t">${esc(it.head)}</span>`
-          + (it.note ? `<span class="ctx-head-n">${esc(it.note)}</span>` : "");
+          + (it.note ? `<span class="ctx-head-n">${esc(it.note)}</span>` : "")
+          // a second, quieter line for the detail behind the headline number
+          + (it.sub2 ? `<span class="ctx-head-s">${esc(it.sub2)}</span>` : "");
         m.appendChild(h);
         // The header draws its own rule, so it COUNTS as a seam: a menu whose
         // first group is conditional would otherwise open with two hairlines
@@ -162,6 +173,31 @@ const Ctx = (() => {
     m.style.top = Math.max(EDGE, Math.round(top)) + "px";
     m.style.visibility = "";
     m.classList.add("in");
+    glaze(m);
+  }
+
+  /* ── the material ────────────────────────────────────────────────────────
+   * vendor/liquid-glass.js — the same SVG feDisplacementMap through
+   * backdrop-filter the ask group already uses, so there is one glass in
+   * this app rather than a menu that merely blurs beside a panel that
+   * refracts. It attaches AFTER placement, because the displacement map is
+   * generated at the element's measured size and corner radius.
+   *
+   * Gentler than the ask group's: a menu is a surface you read words off,
+   * and a lens strong enough to be obvious at the rim smears a 13.5px label
+   * two rows in. The module falls back to frosted blur on Safari and Firefox
+   * by itself; the CSS `backdrop-filter` is the floor under both, and the
+   * module's inline style outranks it wherever it lands.
+   */
+  function glaze(m) {
+    if (!window.liquidGlass) return;
+    try {
+      m.__lg = liquidGlass(m, { scale: -42, chroma: 3, border: .09, mapBlur: 10,
+                                blur: 7, saturate: 1.45, fallbackBlur: 22 });
+    } catch { /* a sheet with no refraction is still a readable sheet */ }
+  }
+  function unglaze(m) {
+    if (m.__lg) { try { m.__lg.destroy(); } catch {} m.__lg = null; }
   }
 
   /** Close every sheet deeper than `depth`. */
@@ -169,6 +205,10 @@ const Ctx = (() => {
     while (chain.length > depth + 1) {
       const top = chain.pop();
       if (top.owner) top.owner.classList.remove("open");
+      // The filter and its ResizeObserver are per-sheet and outlive the DOM
+      // node unless they are told not to — a session of right-clicks would
+      // otherwise leave a live SVG filter behind for every menu ever opened.
+      unglaze(top.el);
       top.el.remove();
     }
   }
@@ -279,7 +319,7 @@ const Ctx = (() => {
   function close() {
     if (!chain.length) return;
     clearTimeout(shutTimer); shutTimer = null;
-    for (const c of chain) c.el.remove();
+    for (const c of chain) { unglaze(c.el); c.el.remove(); }
     chain = [];
     document.removeEventListener("mousedown", onDown, true);
     document.removeEventListener("keydown", onKey, true);

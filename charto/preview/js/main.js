@@ -2834,31 +2834,37 @@
 
   /* ── the two rows every menu carries ─────────────────────────────────── */
 
+  /* Every question is a PAIR: a two-or-three-word label to choose from, and
+   * the precise sentence that is actually sent. The chart's own coordinates
+   * belong in the question — "around 3 Aug 2026 12:45" is what stops the
+   * model guessing — but they do not belong in a menu row, where they turn
+   * four choices into four paragraphs. The full text is the row's title, so
+   * the pointer can still ask what it is about to send. */
   const askRow = (questions) => ({
     icon: "chat", label: "Chat", sub: questions
       .filter(Boolean).slice(0, 4)
-      .map((q) => ({ label: q, wrap: true, on: () => Chat.ask(q) })),
+      .map(([label, q]) => ({ label, title: q, on: () => Chat.ask(q) })),
   });
 
   /* ── rows shared by more than one of the three ───────────────────────── */
 
   const shotRow = () => ({
     icon: "camera", label: "Screenshot", sub: [
-      { icon: "candles", label: "The whole chart", hint: "⌥ S",
-        on: () => captureChart(null) },
-      { icon: "rect", label: "Select a region…", on: () => selectRegionCapture() },
+      { label: "Whole chart", hint: "⌥ S", on: () => captureChart(null) },
+      { label: "Select region", on: () => selectRegionCapture() },
     ],
   });
 
   /** The note lands where you right-clicked, which is the difference between
    *  this and the rail's text tool: no arming, no second click. */
   const noteRow = (t, v) => ({
-    icon: "pen", label: "Add a note here",
+    icon: "pen", label: "Add note",
+    title: "A text note, placed where you clicked",
     on: () => draw.noteAt("price", t, v),
   });
 
   const watchRow = () => ({
-    icon: "listPlus", label: `Add ${SYMBOL} to watchlist`,
+    icon: "listPlus", label: "Add to watchlist",
     sub: () => Panels.lists().map((l) => ({
       label: l.name,
       // Already on it: the row reports that rather than offering to add a
@@ -2882,15 +2888,16 @@
     const live = trashLive();
     if (!live.length) return null;
     return {
-      icon: "trash", label: "Remove from chart", sub: () => {
+      icon: "trash", label: "Remove", sub: () => {
         const now = trashLive();
+        // The count leads, as it does in the rail's own trash: the number is
+        // the thing being checked before the row is pressed.
         return now.map((x) => ({
-          icon: x.l.icon, label: `Remove ${trashPhrase(x.l, x.n)}`, danger: true,
-          on: () => trashClear([x]),
+          label: trashPhrase(x.l, x.n), danger: true, on: () => trashClear([x]),
         })).concat(now.length > 1
           ? [{ sep: true },
-             { icon: "trash", danger: true,
-               label: `Remove ${trashList(now.map((x) => trashPhrase(x.l, x.n)))}`,
+             { label: "Everything", danger: true,
+               title: trashList(now.map((x) => trashPhrase(x.l, x.n))),
                on: () => trashClear(now) }]
           : []);
       },
@@ -2898,7 +2905,7 @@
   };
 
   const settingsRow = () => ({
-    icon: "settings", label: "Chart settings…", on: () => ChartSettings.open(),
+    icon: "settings", label: "Settings", on: () => ChartSettings.open(),
   });
 
   /* ── 1 · empty chart: a price and a moment, and nothing else ──────────── */
@@ -2907,7 +2914,7 @@
     const when = bar ? whenAt(bar.time) : null;
     return [
       { head: SYMBOL, note: `${priceAt(px)}${when ? ` · ${when}` : ""}` },
-      { icon: "alertPlus", label: `Add alert at ${priceAt(px)}`, hint: "⌥ A",
+      { icon: "alertPlus", label: "Alert here", hint: priceAt(px),
         on: () => Alerts.open({ symbol: SYMBOL, level,
                                 last: lastBar ? lastBar.close : null,
                                 interval: state.interval }) },
@@ -2915,16 +2922,19 @@
       // orders, and a sized plan with a stop and an R:R is the thing a ticket
       // assumes you already worked out. plan_position computes it; asking is
       // how it is reached, so there is no second copy of that arithmetic here.
-      { icon: "position", label: "Plan a position from here",
+      { icon: "position", label: "Plan a position",
+        title: `Entry at ${level} — sized, with a stop and an R:R`,
         on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at ${level}.`) },
       { sep: true },
       askRow([
-        `Is ${level} a real level on ${SYMBOL}?`,
-        when && `Why did ${SYMBOL} move on ${when}?`,
-        when && isEquity() && `Was there any news on ${SYMBOL} around ${when}?`,
-        `Which stocks are sitting at a level like this right now?`,
+        ["Is this a real level", `Is ${level} a real level on ${SYMBOL}?`],
+        when && ["Why it moved", `Why did ${SYMBOL} move on ${when}?`],
+        when && isEquity()
+          && ["News that day", `Was there any news on ${SYMBOL} around ${when}?`],
+        ["Others at this level",
+         "Which stocks are sitting at a level like this right now?"],
       ]),
-      { icon: "tag", label: "Tag this point",
+      { icon: "tag", label: "Tag point",
         title: "Puts the coordinate in the composer — you write the question",
         on: () => {
           document.dispatchEvent(new CustomEvent("charto:compose",
@@ -2937,15 +2947,16 @@
       bar && noteRow(bar.time, px),
       { sep: true },
       { icon: "copy", label: "Copy", sub: [
-        { label: `Price — ${level}`, on: () => copyText(String(level), "price copied") },
+        { label: "Price", hint: String(level),
+          on: () => copyText(String(level), "price copied") },
         bar && { label: "Address", title: addressAt(bar.time, px),
                  on: () => copyText(addressAt(bar.time, px), "address copied") },
       ].filter(Boolean) },
       { sep: true },
-      { icon: "rotateCw", label: "Reset chart view", hint: "⌥ R",
+      { icon: "rotateCw", label: "Reset view", hint: "⌥ R",
         on: () => Shortcuts.run("reset-view") },
       removeRow(),
-      { icon: "bell", label: "All alerts…", on: () => Panels.show("alerts") },
+      { icon: "bell", label: "Alerts", hint: "⌥ A", on: () => Panels.show("alerts") },
       settingsRow(),
     ];
   }
@@ -2957,36 +2968,51 @@
     const n = (v) => Sym.of(SYMBOL).num(v, { minimumFractionDigits: 2,
                                              maximumFractionDigits: 2 });
     const ohlc = `O ${n(bar.open)}  H ${n(bar.high)}  L ${n(bar.low)}  C ${n(bar.close)}`;
+    // The header's job is "did I grab the bar I meant" — so the close and the
+    // move lead at full size and the other three sit under them, quieter. All
+    // four on one line wrapped mid-number at this width, which is a receipt
+    // that has to be re-read to be trusted.
+    const ohl = `O ${n(bar.open)}   H ${n(bar.high)}   L ${n(bar.low)}`;
+    // The price rides in the HINT slot, not in the label: four rows reading
+    // "High — ₹1,310.00" are four sentences where "High" and a number in a
+    // column is one glance.
     const armed = (label, v) => ({
-      label: `${label} — ${priceAt(v)}`,
+      label, hint: priceAt(v),
       on: () => Alerts.open({ symbol: SYMBOL, level: levelAt(v),
                               last: lastBar ? lastBar.close : null,
                               interval: state.interval }),
     });
     const event = markerOn(bar.time);
+    const heavy = heavyVolume(bar);
     return [
-      { head: when, note: `${ohlc}  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%` },
+      { head: when, sub2: ohl,
+        note: `${priceAt(bar.close)}   ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%` },
       // The bar's own four prices, exact. Every other chart makes you read a
       // wick off the axis and type what you think it said; this is the one
       // place the number is already known.
-      { icon: "alertPlus", label: "Add alert at this bar's", sub: [
+      { icon: "alertPlus", label: "Alert at bar", sub: [
         armed("High", bar.high), armed("Low", bar.low),
         armed("Open", bar.open), armed("Close", bar.close),
       ] },
-      { icon: "position", label: "Plan a position from this bar",
+      { icon: "position", label: "Plan a position",
+        title: `Entry at ${levelAt(bar.close)}, stop below ${levelAt(bar.low)}`,
         on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at `
           + `${levelAt(bar.close)} and the stop below this bar's low of `
           + `${levelAt(bar.low)}.`) },
       { sep: true },
       askRow([
-        `Why did ${SYMBOL} move on ${when}?`,
-        event && `What did ${event} on ${when} mean for ${SYMBOL}?`,
-        `What usually happens after a candle like this one on ${SYMBOL}?`,
-        isEquity() && heavyVolume(bar)
-          && `Volume was heavy on ${when} — were there bulk or block deals?`,
-        isEquity() && !heavyVolume(bar) && `Was there any news on ${SYMBOL} around ${when}?`,
+        ["Why this candle", `Why did ${SYMBOL} move on ${when}?`],
+        event && ["What the event meant",
+                  `What did ${event} on ${when} mean for ${SYMBOL}?`],
+        ["What usually follows",
+         `What usually happens after a candle like this one on ${SYMBOL}?`],
+        isEquity() && heavy
+          && ["Who was trading",
+              `Volume was heavy on ${when} — were there bulk or block deals?`],
+        isEquity() && !heavy
+          && ["News that day", `Was there any news on ${SYMBOL} around ${when}?`],
       ]),
-      { icon: "pin", label: "Tag this candle",
+      { icon: "pin", label: "Tag candle",
         title: "The same pin a plain click on the candle leaves",
         on: () => pins.toggle({ ...bar, interval: state.interval }) },
       { sep: true },
@@ -3032,28 +3058,31 @@
       // The row with no TradingView equivalent, and therefore the first one:
       // it draws anything and never says whether it meant something. This
       // answers with a hit rate against a control (evaluate_drawing).
-      priced && { icon: "barChart", label: "Test this drawing",
+      priced && { icon: "barChart", label: "Test drawing",
         title: "Hit rate against a control, not an opinion",
         on: askAbout(`How reliable is ${ref}? Test it against a control.`) },
       // A sloping level the engine re-prices every bar: move the line and
       // what is being watched moves with it. A typed number cannot do that.
-      priced && { icon: "alertPlus", label: `Alert on ${ref}`, hint: "⌥ A",
+      priced && { icon: "alertPlus", label: "Alert on it", hint: ref,
         on: () => Alerts.open({ symbol: SYMBOL, left: "close", op: "cross",
                                 right: `draw:${ref}`, interval: state.interval }) },
       { sep: true },
       askRow([
-        priced && `Where has ${SYMBOL} respected ${ref}?`,
-        SPANNING.has(d.type) && `What is the volume profile inside ${ref}?`,
-        d.type === "fib" && `Which retracement of ${ref} has price actually held?`,
-        `What should I watch around ${ref}?`,
+        priced && ["Where it held", `Where has ${SYMBOL} respected ${ref}?`],
+        SPANNING.has(d.type)
+          && ["Volume profile inside", `What is the volume profile inside ${ref}?`],
+        d.type === "fib"
+          && ["Which retracement held",
+              `Which retracement of ${ref} has price actually held?`],
+        ["What to watch", `What should I watch around ${ref}?`],
       ]),
-      { icon: "tag", label: `Tag ${ref}`,
+      { icon: "tag", label: "Tag it", hint: ref,
         title: "Attaches the shape to the composer — you write the question",
         on: () => { tag(); status(`${ref} tagged — ask what you like about it`); } },
       { sep: true },
       shotRow(),
       { icon: "copy", label: "Duplicate", on: () => draw.clone(d.id) },
-      { icon: "lock", label: "Lock in place", tick: !!d.locked,
+      { icon: "lock", label: "Lock", tick: !!d.locked,
         title: "A locked shape still selects and still answers — it only stops moving",
         on: () => draw.setLocked(d.id, !d.locked) },
       { sep: true },

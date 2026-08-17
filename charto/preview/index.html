@@ -670,14 +670,25 @@ select.is-dressed { display: none; }
    it is unreadable, which is worse than an honest solid one. */
 .ctx {
   position: fixed; z-index: 200;
-  min-width: 276px; max-width: 300px;
+  min-width: 244px; max-width: 300px;
   padding: 6px;
   border-radius: 13px;
   background: var(--ctx-paper);
   border: 1px solid var(--ctx-rim);
-  box-shadow: var(--ctx-shadow);
-  -webkit-backdrop-filter: blur(26px) saturate(180%);
-  backdrop-filter: blur(26px) saturate(180%);
+  /* The rim is what reads as THICKNESS — one bright inset line along the top
+     edge, a dimmer one along the bottom — and the outer shadow is what puts
+     the sheet above the candles rather than in them. The refraction and the
+     backdrop blur come from vendor/liquid-glass.js, attached at open (see
+     glaze() in js/ctxmenu.js); this is the dressing that turns a blurred
+     backdrop into a material, exactly as .ask-group.has-tray does it. */
+  box-shadow:
+    inset 0 1px 0 var(--ctx-sheen), inset 0 -1px 0 var(--ctx-sheen-low),
+    var(--ctx-shadow);
+  /* The floor under the module: if the vendor never loaded, or the browser
+     cannot filter a backdrop at all, the sheet is still frosted rather than
+     a flat plate over candles. The module's inline style outranks this. */
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
   max-height: calc(100dvh - 16px);
   overflow-y: auto; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
@@ -715,6 +726,12 @@ select.is-dressed { display: none; }
   font-size: var(--text-md); color: var(--foreground);
   font-variant-numeric: tabular-nums; letter-spacing: -.005em;
 }
+/* the detail under the headline number — same tabular figures, half a step
+   down in size and a full step down in ink */
+.ctx-head-s {
+  font-size: var(--text-xs); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 
 /* ── a row ───────────────────────────────────────────────────────────────
    34px tall on a 6px sheet padding, so the plate clears the sheet's corner
@@ -747,8 +764,13 @@ select.is-dressed { display: none; }
 .ctx-row.open .ctx-lead > svg.icon,
 .ctx-row:focus-visible .ctx-lead > svg.icon { color: var(--foreground); }
 /* A row with no glyph still starts its text on the same line as one that has
-   — a menu whose labels zig-zag by 31px has no left edge to read down. */
+   — a menu whose labels zig-zag by 31px has no left edge to read down. But
+   only where there IS a glyph to line up with: on a sheet of plain names
+   (the watchlists, the four bar prices, the questions) the gutter is 31px of
+   empty paper in front of every word, which is what made a one-row submenu
+   read as a mostly-blank card. See buildMenu's anyIcon. */
 .ctx-nopic { width: 19px; height: 19px; flex: none; }
+.ctx-plain .ctx-nopic { display: none; }
 
 .ctx-more, .ctx-tick { display: flex; flex: none; color: var(--faint); }
 .ctx-row:hover .ctx-more { color: var(--foreground); }
@@ -764,18 +786,11 @@ select.is-dressed { display: none; }
 .ctx-row.off { color: var(--faint); cursor: default; }
 .ctx-row.off .ctx-lead > svg.icon { opacity: .5; }
 
-/* A row whose label is a SENTENCE — the questions under Chat. Every other
-   row here is a name and ellipsizes safely; a question that ellipsizes is
-   unusable, because choosing to ask it means reading all of it first. So
-   these wrap, the row grows, and the sheet they sit in is allowed to be
-   wider than the one that opened it. */
-.ctx:has(.ctx-row.wrap) { max-width: 392px; }
-.ctx-row.wrap {
-  height: auto; min-height: 34px; align-items: flex-start;
-  padding: 8px 11px; line-height: 1.4;
-}
-.ctx-row.wrap .ctx-lead { white-space: normal; }
-.ctx-row.wrap .ctx-label { overflow: visible; white-space: normal; }
+/* A SUBMENU sizes to its own content. It is a short list of names — four
+   prices, three watchlists, a handful of questions — and inheriting the
+   parent's 244px floor left a one-row sheet that was mostly paper. It still
+   cannot get narrower than a comfortable target. */
+.ctx-sub { min-width: 168px; }
 
 /* Full bleed past the sheet's padding, like .dropdown .sep — a rule that
    stops short of the edge reads as a line drawn inside the menu rather than
@@ -790,16 +805,20 @@ select.is-dressed { display: none; }
    one); light leans on opacity (white glass over white candles needs the
    body, not the outline). */
 :root[data-theme="dark"] {
-  --ctx-paper: rgba(30, 30, 32, .74);
-  --ctx-rim: rgba(255, 255, 255, .10);
+  --ctx-paper: rgba(30, 30, 32, .62);
+  --ctx-rim: rgba(255, 255, 255, .13);
+  --ctx-sheen: rgba(255, 255, 255, .14);
+  --ctx-sheen-low: rgba(255, 255, 255, .05);
   --ctx-seam: rgba(255, 255, 255, .08);
   --ctx-hover: rgba(255, 255, 255, .10);
   --ctx-press: rgba(255, 255, 255, .15);
   --ctx-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 12px 34px -8px rgba(0, 0, 0, .74);
 }
 :root[data-theme="light"] {
-  --ctx-paper: rgba(252, 252, 253, .82);
-  --ctx-rim: rgba(15, 18, 22, .09);
+  --ctx-paper: rgba(252, 252, 253, .72);
+  --ctx-rim: rgba(15, 18, 22, .10);
+  --ctx-sheen: rgba(255, 255, 255, .85);
+  --ctx-sheen-low: rgba(15, 18, 22, .04);
   --ctx-seam: rgba(15, 18, 22, .08);
   --ctx-hover: rgba(15, 18, 22, .065);
   --ctx-press: rgba(15, 18, 22, .10);
@@ -7036,7 +7055,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=27"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=3"></script>
+  <script src="./js/ctxmenu.js?v=5"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -7066,7 +7085,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=24"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=89"></script>
+  <script src="./js/main.js?v=91"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>
