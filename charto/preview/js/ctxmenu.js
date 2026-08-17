@@ -29,6 +29,11 @@
  * where it needs a longer explanation, that goes in `title`, which the
  * pointer asks for rather than the eye having to step over.
  *
+ * The ONE exception is `wrap: true`, for a row whose label is the literal
+ * text of a question about to be sent. There the sentence IS the choice —
+ * you are picking a prompt, numbers and all, not a command — so it wraps
+ * rather than truncating, and its sheet is allowed to be wider.
+ *
  * A falsy entry is skipped, so a caller can write `cond && {…}` inline and
  * never assemble the array conditionally. A row with no `on` and no `sub`
  * is inert by construction — there is no such thing here as a row that
@@ -57,19 +62,27 @@ const Ctx = (() => {
     const r = document.createElement("div");
     const sub = !!spec.sub;
     r.className = "ctx-row"
+      + (spec.wrap ? " wrap" : "")
       + (spec.danger ? " danger" : "")
       + (spec.disabled ? " off" : "")
       + (spec.tick ? " on" : "");
     r.setAttribute("role", "menuitem");
     r.tabIndex = -1;
     if (spec.title) r.title = spec.title;
+    // A hint that is a VALUE reads at full strength; one that is a keyboard
+    // reminder stays quiet. The two share a slot, and a price dimmed to the
+    // weight of "⌥ R" is data the eye slides off. Which is which is legible
+    // from the string itself — a currency mark or a digit — so no call site
+    // has to restate what it already wrote.
+    const numeric = spec.hint && /^[₹$€£¥]|^[+-]?\d/.test(String(spec.hint));
     // The trailing slot holds exactly one thing: a chevron if the row opens
     // another sheet, a tick if it reports a state, otherwise the shortcut.
     // Two of them in one slot is how a menu starts looking accidental.
     const trail = sub
       ? `<span class="ctx-more">${Icons.svg("chevronRight", "xs")}</span>`
       : spec.tick ? `<span class="ctx-tick">${Icons.svg("check", "xs")}</span>`
-      : spec.hint ? `<span class="ctx-hint">${esc(spec.hint)}</span>` : "";
+      : spec.hint ? `<span class="ctx-hint${numeric ? " num" : ""}">`
+                    + `${esc(spec.hint)}</span>` : "";
     r.innerHTML =
       `<span class="ctx-lead">`
       + (spec.icon ? Icons.svg(spec.icon, "sm") : `<i class="ctx-nopic"></i>`)

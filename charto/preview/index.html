@@ -670,9 +670,9 @@ select.is-dressed { display: none; }
    it is unreadable, which is worse than an honest solid one. */
 .ctx {
   position: fixed; z-index: 200;
-  min-width: 244px; max-width: 300px;
+  min-width: 272px; max-width: 340px;
   padding: 6px;
-  border-radius: 13px;
+  border-radius: 10px;
   background: var(--ctx-paper);
   border: 1px solid var(--ctx-rim);
   /* The rim is what reads as THICKNESS — one bright inset line along the top
@@ -720,7 +720,7 @@ select.is-dressed { display: none; }
 }
 .ctx-head-t {
   font-size: var(--text-2xs); font-weight: var(--weight-semi);
-  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ctx-ink-3);
 }
 .ctx-head-n {
   font-size: var(--text-md); color: var(--foreground);
@@ -729,7 +729,7 @@ select.is-dressed { display: none; }
 /* the detail under the headline number — same tabular figures, half a step
    down in size and a full step down in ink */
 .ctx-head-s {
-  font-size: var(--text-xs); color: var(--muted-foreground);
+  font-size: var(--text-xs); color: var(--ctx-ink-2);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
@@ -740,7 +740,7 @@ select.is-dressed { display: none; }
 .ctx-row {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
   height: 34px; padding: 0 11px;
-  border-radius: 8px; cursor: default;
+  border-radius: 6px; cursor: default;
   font-size: var(--text-lg); font-weight: var(--weight-medium);
   color: var(--foreground); white-space: nowrap;
   transition: background var(--dur-fast) var(--ease-tw);
@@ -757,7 +757,13 @@ select.is-dressed { display: none; }
   min-width: 0; overflow: hidden;
 }
 .ctx-label { overflow: hidden; text-overflow: ellipsis; }
-.ctx-lead > svg.icon { flex: none; color: var(--muted-foreground); }
+/* NEUTRAL, not the app's --muted-foreground. That token is a blue-grey
+   (#8f98a1), which is right on an opaque panel and wrong here: over
+   refracted candles a cool grey glyph beside a cool grey price reads as two
+   things switched off. Everything secondary on this sheet is the SAME ink as
+   the labels at a lower alpha — white in dark, the page's near-black in
+   light — so the hierarchy is weight, not hue. */
+.ctx-lead > svg.icon { flex: none; color: var(--ctx-ink-2); }
 /* the glyph steps up to full ink under the pointer — the one piece of
    feedback that says the row is live without adding a colour */
 .ctx-row:hover .ctx-lead > svg.icon,
@@ -772,25 +778,43 @@ select.is-dressed { display: none; }
 .ctx-nopic { width: 19px; height: 19px; flex: none; }
 .ctx-plain .ctx-nopic { display: none; }
 
-.ctx-more, .ctx-tick { display: flex; flex: none; color: var(--faint); }
+.ctx-more, .ctx-tick { display: flex; flex: none; color: var(--ctx-ink-3); }
 .ctx-row:hover .ctx-more { color: var(--foreground); }
 .ctx-tick { color: var(--foreground); }
-/* The shortcut, in the slot the chevron would have used. Tertiary ink and
-   tabular figures: it is a reminder, not a second label. */
+/* The right-hand slot, in two weights. A keyboard reminder is a reminder
+   and stays quiet; a PRICE is data, and at the same weight as "⌥ R" the eye
+   slides straight off the one number the row exists to name. Both are the
+   sheet's own ink, never a grey of their own. */
 .ctx-hint {
   flex: none; font-size: var(--text-xs); font-weight: var(--weight-medium);
-  color: var(--faint); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  color: var(--ctx-ink-3); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.ctx-hint.num {
+  font-size: var(--text-sm); color: var(--ctx-ink-2); letter-spacing: 0;
 }
 .ctx-row.danger:hover, .ctx-row.danger:focus-visible { color: var(--down); }
 .ctx-row.danger:hover .ctx-lead > svg.icon { color: var(--down); }
-.ctx-row.off { color: var(--faint); cursor: default; }
+.ctx-row.off { color: var(--ctx-ink-3); cursor: default; }
 .ctx-row.off .ctx-lead > svg.icon { opacity: .5; }
 
 /* A SUBMENU sizes to its own content. It is a short list of names — four
-   prices, three watchlists, a handful of questions — and inheriting the
-   parent's 244px floor left a one-row sheet that was mostly paper. It still
-   cannot get narrower than a comfortable target. */
-.ctx-sub { min-width: 168px; }
+   prices, three watchlists — and inheriting the parent's floor left a
+   one-row sheet that was mostly paper. It still cannot get narrower than a
+   comfortable target. */
+.ctx-sub { min-width: 176px; }
+
+/* …unless it holds PROMPTS. Those rows are the literal text about to be
+   sent, numbers and all, because what you are choosing there is a question
+   rather than a command — and a question that ellipsizes cannot be chosen,
+   since picking it means having read all of it. So they wrap, the row grows,
+   and the sheet gets room to hold a sentence at a readable measure. */
+.ctx-sub:has(.ctx-row.wrap) { min-width: 296px; max-width: 372px; }
+.ctx-row.wrap {
+  height: auto; min-height: 34px; align-items: flex-start;
+  padding: 9px 11px; line-height: 1.42;
+}
+.ctx-row.wrap .ctx-lead { white-space: normal; }
+.ctx-row.wrap .ctx-label { overflow: visible; white-space: normal; }
 
 /* Full bleed past the sheet's padding, like .dropdown .sep — a rule that
    stops short of the edge reads as a line drawn inside the menu rather than
@@ -809,6 +833,9 @@ select.is-dressed { display: none; }
   --ctx-rim: rgba(255, 255, 255, .13);
   --ctx-sheen: rgba(255, 255, 255, .14);
   --ctx-sheen-low: rgba(255, 255, 255, .05);
+  /* the two ranks below a full-strength label: same white, less of it */
+  --ctx-ink-2: rgba(255, 255, 255, .76);
+  --ctx-ink-3: rgba(255, 255, 255, .48);
   --ctx-seam: rgba(255, 255, 255, .08);
   --ctx-hover: rgba(255, 255, 255, .10);
   --ctx-press: rgba(255, 255, 255, .15);
@@ -819,6 +846,10 @@ select.is-dressed { display: none; }
   --ctx-rim: rgba(15, 18, 22, .10);
   --ctx-sheen: rgba(255, 255, 255, .85);
   --ctx-sheen-low: rgba(15, 18, 22, .04);
+  /* the same two ranks, mixed off the page's ink rather than a grey — light
+     is the mirror of dark here, not a different palette */
+  --ctx-ink-2: rgba(13, 13, 14, .72);
+  --ctx-ink-3: rgba(13, 13, 14, .48);
   --ctx-seam: rgba(15, 18, 22, .08);
   --ctx-hover: rgba(15, 18, 22, .065);
   --ctx-press: rgba(15, 18, 22, .10);
@@ -7055,7 +7086,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=27"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=5"></script>
+  <script src="./js/ctxmenu.js?v=6"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -7085,7 +7116,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=24"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=91"></script>
+  <script src="./js/main.js?v=93"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>

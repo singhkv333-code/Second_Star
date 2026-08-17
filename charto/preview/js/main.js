@@ -485,20 +485,24 @@
    * there is something under the pointer to pick, so it has to be answered
    * against the bar's own high-low span rather than the pane's bounds — the
    * empty air above a downtrend is still the plot, and a hand floating there
-   * says the opposite of the truth. The crosshair subscription already knows
-   * which bar the pointer is on; the only thing added is whether the pointer's
-   * y falls inside that bar, with a couple of pixels of slack so a thin wick
-   * is still catchable. */
-  function overBar(p, b) {
-    if (!b || !p || !p.point || b.high == null) return false;
+   * says the opposite of the truth.
+   *
+   * THREE gestures ask this question — the cursor, the click that pins a bar,
+   * and the right-click that decides which menu you get — so it is one
+   * function taking a pane-local y. `slack` is the only thing they disagree
+   * about, and honestly so: a HOVER promise is tight (2px, because a hand
+   * over empty chart is a lie), while a GRAB is forgiving (8px, so a thin
+   * wick is still catchable by a real hand on a real mouse). */
+  function yOnBar(y, b, slack) {
+    if (!b || y == null || b.high == null) return false;
     const top = candle.priceToCoordinate(b.high);
     const bot = candle.priceToCoordinate(b.low);
     if (top == null || bot == null) return false;
-    return p.point.y >= top - 2 && p.point.y <= bot + 2;
+    return y >= top - slack && y <= bot + slack;
   }
   chart.subscribeCrosshairMove((p) => {
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
-    chartEl.classList.toggle("on-bar", overBar(p, b));
+    chartEl.classList.toggle("on-bar", yOnBar(p && p.point ? p.point.y : null, b, 2));
     if (b) {
       const src = state.bars[state.bars.length - 1];
       paintReadout({ ...b, volume: (p.seriesData.get(volume) || {}).value ?? src.volume });
@@ -2778,12 +2782,18 @@
   const priceAt = (px) => Sym.of(SYMBOL).price(px, {
     minimumFractionDigits: digitsAt(px), maximumFractionDigits: digitsAt(px),
   });
-  /** "17 Aug 2026 12:11 @ 1432.5" — mark.py's `<time> @ <price>` grammar, in
-   *  the display format `_parse_ist` accepts. Written the way the model
+  /** "17 Aug 2026 12:11 @ ₹1,432.50" — mark.py's `<time> @ <price>` grammar,
+   *  in the display format `_parse_ist` accepts. Written the way the model
    *  already sees times in the chart envelope, so a tagged coordinate needs
-   *  no translation at the other end. */
+   *  no translation at the other end.
+   *
+   *  The price carries its CURRENCY. `resolve_price` strips ₹, $ and the
+   *  grouping commas before it parses (including Indian grouping, since the
+   *  replace is not counted), so this stays resolvable — and a bare "1432.5"
+   *  in a conversation that also covers BTCUSDT is a number with no units,
+   *  which is exactly the ambiguity the symbol removes. */
   const addressAt = (t, px) =>
-    `${fmtIST(t, !DAILY.has(state.interval))} @ ${levelAt(px)}`;
+    `${fmtIST(t, !DAILY.has(state.interval))} @ ${priceAt(px)}`;
   const whenAt = (t) => fmtIST(t, !DAILY.has(state.interval));
 
   /** The bar under an x, or null when the pointer is past the last one. */
@@ -2791,16 +2801,12 @@
     const t = chart.timeScale().coordinateToTime(clientX - chartEl.getBoundingClientRect().left);
     return t == null ? null : (state.bars.find((b) => b.time === t) || null);
   }
-  /** …and whether the pointer is actually ON it — the high-low span with the
-   *  same small grab tolerance a pin uses. Empty chart above a candle is not
-   *  that candle, and a menu that claimed it was would put the wrong bar's
-   *  numbers in its header. */
-  function overBar(bar, clientY) {
-    const y = yInPane(clientY, "price");
-    const hi = candle.priceToCoordinate(bar.high);
-    const lo = candle.priceToCoordinate(bar.low);
-    return y !== null && hi !== null && lo !== null && y >= hi - 8 && y <= lo + 8;
-  }
+  /** …and whether the pointer is actually ON it — yOnBar at the grab
+   *  tolerance, the same answer the pick cursor and the pin click give.
+   *  Empty chart above a candle is not that candle, and a menu that claimed
+   *  it was would put the wrong bar's numbers in its header. */
+  const overBar = (bar, clientY) =>
+    yOnBar(yInPane(clientY, "price"), bar, 8);
 
   /** What the chat has drawn ON this bar, if anything — the results marker is
    *  the only kind today. Its text is the label the question then quotes, so
@@ -2834,16 +2840,19 @@
 
   /* ── the two rows every menu carries ─────────────────────────────────── */
 
-  /* Every question is a PAIR: a two-or-three-word label to choose from, and
-   * the precise sentence that is actually sent. The chart's own coordinates
-   * belong in the question — "around 3 Aug 2026 12:45" is what stops the
-   * model guessing — but they do not belong in a menu row, where they turn
-   * four choices into four paragraphs. The full text is the row's title, so
-   * the pointer can still ask what it is about to send. */
+  /* The one place on this sheet where a row is a SENTENCE, and deliberately:
+   * these are the prompts themselves, carrying the chart's own numbers and
+   * dates. A row that read "News that day" hid which day, and the price it
+   * was about — you would be choosing a question you could not check. Here
+   * you are picking a prompt rather than a command, so it is shown as the
+   * prompt, and its sheet is wide enough to hold one.
+   *
+   * The prices come through priceAt, so the currency is the INSTRUMENT's —
+   * ₹ on RELIANCE, $ on BTCUSDT — never a hardcoded rupee. */
   const askRow = (questions) => ({
     icon: "chat", label: "Chat", sub: questions
       .filter(Boolean).slice(0, 4)
-      .map(([label, q]) => ({ label, title: q, on: () => Chat.ask(q) })),
+      .map((q) => ({ label: q, wrap: true, on: () => Chat.ask(q) })),
   });
 
   /* ── rows shared by more than one of the three ───────────────────────── */
@@ -2923,16 +2932,15 @@
       // assumes you already worked out. plan_position computes it; asking is
       // how it is reached, so there is no second copy of that arithmetic here.
       { icon: "position", label: "Plan a position",
-        title: `Entry at ${level} — sized, with a stop and an R:R`,
-        on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at ${level}.`) },
+        title: `Entry at ${priceAt(px)} — sized, with a stop and an R:R`,
+        on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at `
+          + `${priceAt(px)}.`) },
       { sep: true },
       askRow([
-        ["Is this a real level", `Is ${level} a real level on ${SYMBOL}?`],
-        when && ["Why it moved", `Why did ${SYMBOL} move on ${when}?`],
-        when && isEquity()
-          && ["News that day", `Was there any news on ${SYMBOL} around ${when}?`],
-        ["Others at this level",
-         "Which stocks are sitting at a level like this right now?"],
+        `Is ${priceAt(px)} a real level on ${SYMBOL}?`,
+        when && `Why did ${SYMBOL} move on ${when}?`,
+        when && isEquity() && `Was there any news on ${SYMBOL} around ${when}?`,
+        `Which stocks are sitting near ${priceAt(px)} the way ${SYMBOL} is?`,
       ]),
       { icon: "tag", label: "Tag point",
         title: "Puts the coordinate in the composer — you write the question",
@@ -2947,7 +2955,10 @@
       bar && noteRow(bar.time, px),
       { sep: true },
       { icon: "copy", label: "Copy", sub: [
-        { label: "Price", hint: String(level),
+        // The hint shows the price as this instrument writes it; the
+        // clipboard gets the bare figure, because a copied price is on its
+        // way into a field rather than into a sentence.
+        { label: "Price", hint: priceAt(px), title: `Copies ${level}`,
           on: () => copyText(String(level), "price copied") },
         bar && { label: "Address", title: addressAt(bar.time, px),
                  on: () => copyText(addressAt(bar.time, px), "address copied") },
@@ -2965,8 +2976,7 @@
   function menuForBar(bar, px) {
     const when = whenAt(bar.time);
     const pct = bar.open ? (bar.close - bar.open) / bar.open * 100 : 0;
-    const n = (v) => Sym.of(SYMBOL).num(v, { minimumFractionDigits: 2,
-                                             maximumFractionDigits: 2 });
+    const n = (v) => priceAt(v);
     const ohlc = `O ${n(bar.open)}  H ${n(bar.high)}  L ${n(bar.low)}  C ${n(bar.close)}`;
     // The header's job is "did I grab the bar I meant" — so the close and the
     // move lead at full size and the other three sit under them, quieter. All
@@ -2995,22 +3005,20 @@
         armed("Open", bar.open), armed("Close", bar.close),
       ] },
       { icon: "position", label: "Plan a position",
-        title: `Entry at ${levelAt(bar.close)}, stop below ${levelAt(bar.low)}`,
+        title: `Entry at ${priceAt(bar.close)}, stop below ${priceAt(bar.low)}`,
         on: () => Chat.ask(`Plan a position on ${SYMBOL} with entry at `
-          + `${levelAt(bar.close)} and the stop below this bar's low of `
-          + `${levelAt(bar.low)}.`) },
+          + `${priceAt(bar.close)} and the stop below this bar's low of `
+          + `${priceAt(bar.low)}.`) },
       { sep: true },
       askRow([
-        ["Why this candle", `Why did ${SYMBOL} move on ${when}?`],
-        event && ["What the event meant",
-                  `What did ${event} on ${when} mean for ${SYMBOL}?`],
-        ["What usually follows",
-         `What usually happens after a candle like this one on ${SYMBOL}?`],
+        `Why did ${SYMBOL} move on ${when}?`,
+        event && `What did ${event} on ${when} mean for ${SYMBOL}?`,
+        `What usually follows a candle like this one — ${priceAt(bar.open)} to `
+          + `${priceAt(bar.close)} on ${when}?`,
         isEquity() && heavy
-          && ["Who was trading",
-              `Volume was heavy on ${when} — were there bulk or block deals?`],
+          && `Volume was heavy on ${when} — were there bulk or block deals?`,
         isEquity() && !heavy
-          && ["News that day", `Was there any news on ${SYMBOL} around ${when}?`],
+          && `Was there any news on ${SYMBOL} around ${when}?`,
       ]),
       { icon: "pin", label: "Tag candle",
         title: "The same pin a plain click on the candle leaves",
@@ -3068,13 +3076,10 @@
                                 right: `draw:${ref}`, interval: state.interval }) },
       { sep: true },
       askRow([
-        priced && ["Where it held", `Where has ${SYMBOL} respected ${ref}?`],
-        SPANNING.has(d.type)
-          && ["Volume profile inside", `What is the volume profile inside ${ref}?`],
-        d.type === "fib"
-          && ["Which retracement held",
-              `Which retracement of ${ref} has price actually held?`],
-        ["What to watch", `What should I watch around ${ref}?`],
+        priced && `Where has ${SYMBOL} respected ${ref}?`,
+        SPANNING.has(d.type) && `What is the volume profile inside ${ref}?`,
+        d.type === "fib" && `Which retracement of ${ref} has price actually held?`,
+        `What should I watch around ${ref}?`,
       ]),
       { icon: "tag", label: "Tag it", hint: ref,
         title: "Attaches the shape to the composer — you write the question",
@@ -3136,13 +3141,10 @@
     const b = param.seriesData.get(candle);
     if (!b) return;
     // A pin means THE CANDLE, not "wherever I happened to click": the click
-    // must land on the bar's high-low span (small grab tolerance), so a
-    // stray click in empty chart space attaches nothing to the chat.
-    const yClick = yInPane(downAt[1], "price");
-    const yHi = candle.priceToCoordinate(b.high);
-    const yLo = candle.priceToCoordinate(b.low);
-    if (yClick === null || yHi === null || yLo === null) return;
-    if (yClick < yHi - 8 || yClick > yLo + 8) return;
+    // must land on the bar's high-low span (grab tolerance), so a stray click
+    // in empty chart space attaches nothing to the chat. Same test the cursor
+    // and the right-click use — see yOnBar.
+    if (!yOnBar(yInPane(downAt[1], "price"), b, 8)) return;
     const v = state.bars.find((x) => x.time === param.time);
     // The interval travels with the bar: a pin outlives an interval switch
     // (it is a bar, not a view), so "09:35" has to keep saying which 09:35.
