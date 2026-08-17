@@ -2849,10 +2849,17 @@
    *
    * The prices come through priceAt, so the currency is the INSTRUMENT's —
    * ₹ on RELIANCE, $ on BTCUSDT — never a hardcoded rupee. */
-  const askRow = (questions) => ({
+  /* `before` runs immediately ahead of the send. The drawing menu needs it:
+   * its questions say "D1" out loud, and a ref in prose only resolves to
+   * exact geometry if the shape is ATTACHED — otherwise the model is back to
+   * matching a name against the envelope's list, which is the guessing the
+   * ref exists to end. Test drawing already did this; the questions beside it
+   * did not, so they named a shape they had not handed over. */
+  const askRow = (questions, before) => ({
     icon: "chat", label: "Chat", sub: questions
       .filter(Boolean).slice(0, 4)
-      .map((q) => ({ label: q, wrap: true, on: () => Chat.ask(q) })),
+      .map((q) => ({ label: q, wrap: true,
+                     on: () => { if (before) before(); Chat.ask(q); } })),
   });
 
   /* ── rows shared by more than one of the three ───────────────────────── */
@@ -2880,14 +2887,36 @@
       // symbol twice, which the store would silently swallow anyway.
       tick: l.syms.includes(SYMBOL),
       disabled: l.syms.includes(SYMBOL),
-      on: () => { Panels.watch(SYMBOL, l.id); status(`${SYMBOL} added to ${l.name}`); },
+      on: () => { Panels.watch(SYMBOL, l.id); notify(`${SYMBOL} added to ${l.name}`); },
     })),
   });
 
+  /** Say something the reader has to SEE.
+   *
+   *  Not status(): #statusLine left the markup, so status() writes to nothing
+   *  (setText guards on the element) and every call is a silent no-op. That is
+   *  fine for narration — "5m: 4000 bars in 300ms" is not worth a toast — and
+   *  not fine for a result. A copy that failed and a copy that worked must not
+   *  look identical, and a symbol filed onto a watchlist that is not on screen
+   *  has no other way to say it happened. The toast is the app's live channel;
+   *  js/layouts.js owns it. status() stays the fallback so this is never worse
+   *  than what it replaces. */
+  const notify = (msg) => {
+    // `typeof`, not window.Layouts: a top-level `const` in a classic script
+    // binds in the global LEXICAL scope and never becomes a property of
+    // window, so the property test is always false and the fallback always
+    // wins — which is silence, which is the bug this exists to fix. Every
+    // other cross-module reference in this file reads the bare name for the
+    // same reason; layouts.js simply loads after main.js, so the typeof
+    // guard is what makes an early call safe.
+    if (typeof Layouts !== "undefined" && Layouts.toast) Layouts.toast(msg);
+    else status(msg);
+  };
+
   const copyText = (text, said) => {
     navigator.clipboard.writeText(text)
-      .then(() => status(said))
-      .catch(() => status("the browser refused the clipboard"));
+      .then(() => notify(said))
+      .catch(() => notify("the browser would not give up the clipboard"));
   };
 
   /** Everything on the chart that can be removed, as the trash's own rows —
@@ -2947,7 +2976,7 @@
         on: () => {
           document.dispatchEvent(new CustomEvent("charto:compose",
             { detail: bar ? addressAt(bar.time, px) : String(level) }));
-          status("point tagged — ask what you like about it");
+          notify("point tagged — ask what you like about it");
         } },
       { sep: true },
       shotRow(),
@@ -3080,16 +3109,18 @@
         SPANNING.has(d.type) && `What is the volume profile inside ${ref}?`,
         d.type === "fib" && `Which retracement of ${ref} has price actually held?`,
         `What should I watch around ${ref}?`,
-      ]),
+      ], tag),
       { icon: "tag", label: "Tag it", hint: ref,
         title: "Attaches the shape to the composer — you write the question",
-        on: () => { tag(); status(`${ref} tagged — ask what you like about it`); } },
+        on: () => { tag(); notify(`${ref} tagged — ask what you like about it`); } },
       { sep: true },
       shotRow(),
       { icon: "copy", label: "Duplicate", on: () => draw.clone(d.id) },
       { icon: "lock", label: "Lock", tick: !!d.locked,
         title: "A locked shape still selects and still answers — it only stops moving",
-        on: () => draw.setLocked(d.id, !d.locked) },
+        // Nothing on the chart changes when a shape locks, so the only other
+        // evidence is the tick on a menu you have just dismissed.
+        on: () => notify(`${ref} ${draw.setLocked(d.id, !d.locked) ? "locked" : "unlocked"}`) },
       { sep: true },
       { icon: "trash", label: "Remove", hint: "⌫", danger: true,
         on: () => draw.remove(d.id) },

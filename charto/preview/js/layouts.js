@@ -723,5 +723,15 @@ const Layouts = (() => {
   document.addEventListener("charto:workspace-ready", () => { boot(); }, { once: true });
 
   return { save, open, openPicker, createNew, downloadData, touch,
+           /* This file owns the app's one toast element and its one timer, so
+            * it owns the app's one toast. js/alerts.js already re-declared an
+            * identical local copy against the same #layoutToast; exporting it
+            * is what stops a third from appearing. It matters more than it
+            * looks: the chart's status strip (#statusLine, #drawStatus) is
+            * long gone from the markup, so every status() and setStatus()
+            * call in main.js and drawings.js is a silent no-op, and anything
+            * that genuinely has to be SEEN — a copy that failed, a symbol
+            * filed onto a list you cannot see — has to come through here. */
+           toast,
            get current() { return cur; }, refresh };
 })();
