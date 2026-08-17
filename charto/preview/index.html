@@ -645,6 +645,170 @@ select.is-dressed { display: none; }
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* ─── THE CHART'S CONTEXT MENU ───────────────────────────────────────────
+   A DIFFERENT SHEET from .dropdown, deliberately, and the only one in the
+   app that is.
+
+   Every other menu here hangs off a control you pressed: it is small, it is
+   anchored to a button, and it is read in the second after you aimed at that
+   button. This one arrives under the pointer with no anchor and no warning,
+   in the middle of a chart, and it is the surface where the whole "point at
+   a thing and ask about it" idea is presented. So it is the one sheet that
+   is allowed to be bigger than it strictly has to be: 276px wide against
+   224, 13.5px type against 12.5, 34px rows against 29, and 19px glyphs on
+   every row rather than on some of them.
+
+   The paper is GLASS — a blurred, saturated backdrop with a rim highlight,
+   the way a macOS menu and ChatGPT's own popovers sit over their content.
+   That is not decoration here: the sheet covers candles, and a reader has
+   to be able to see that it is floating over a chart rather than replacing
+   part of one. Ink stays neutral in both themes — no teal, no colour except
+   the one destructive row — because everything under it is already coloured.
+
+   Falls back to the opaque menu paper where a backdrop cannot be filtered
+   (see the @supports at the end): a translucent sheet with nothing behind
+   it is unreadable, which is worse than an honest solid one. */
+.ctx {
+  position: fixed; z-index: 200;
+  min-width: 276px; max-width: 300px;
+  padding: 6px;
+  border-radius: 13px;
+  background: var(--ctx-paper);
+  border: 1px solid var(--ctx-rim);
+  box-shadow: var(--ctx-shadow);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+  /* the sheet must not swallow a selection gesture meant for the chart */
+  user-select: none;
+}
+.ctx::-webkit-scrollbar { width: 6px; }
+.ctx::-webkit-scrollbar-track { background: transparent; margin: 8px 0; }
+.ctx::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: var(--radius-2xs);
+}
+/* Entering: the same 3px rise the rest of the app's popovers use, so this
+   reads as one of them despite being built differently. A submenu comes in
+   from its parent's side instead — it is arriving from somewhere. */
+.ctx.in { animation: pop var(--dur-slow) var(--ease-quartr); }
+.ctx-sub.in { animation: ctx-slide var(--dur-slow) var(--ease-quartr); }
+@keyframes ctx-slide { from { opacity: 0; transform: translateX(-5px); } }
+
+/* ── the header ──────────────────────────────────────────────────────────
+   Not a label over the rows: it is the RECEIPT. It names the object the
+   menu grabbed — this candle, this drawing — so a right-click that landed a
+   pixel off the thing you meant says so before you choose a row rather than
+   after one has run. The note under it carries the object's own numbers. */
+.ctx-head {
+  padding: 8px 11px 9px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--ctx-seam);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.ctx-head-t {
+  font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+.ctx-head-n {
+  font-size: var(--text-md); color: var(--foreground);
+  font-variant-numeric: tabular-nums; letter-spacing: -.005em;
+}
+
+/* ── a row ───────────────────────────────────────────────────────────────
+   34px tall on a 6px sheet padding, so the plate clears the sheet's corner
+   radius; 8px of its own so a hovered row reads as a pill inside a pillowed
+   card rather than as a band across it. */
+.ctx-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  height: 34px; padding: 0 11px;
+  border-radius: 8px; cursor: default;
+  font-size: var(--text-lg); font-weight: var(--weight-medium);
+  color: var(--foreground); white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-tw);
+}
+/* GREY, not the app's accent tint: this sheet is glass, and a 4% white wash
+   over a blurred chart is invisible where the candles behind it happen to be
+   light. .open keeps the parent of an open submenu lit, so the trail from
+   sheet to sheet is unbroken. */
+.ctx-row:hover, .ctx-row:focus-visible, .ctx-row.open { background: var(--ctx-hover); }
+.ctx-row:focus-visible { outline: none; }
+.ctx-row:active { background: var(--ctx-press); }
+.ctx-lead {
+  display: flex; align-items: center; gap: 12px;
+  min-width: 0; overflow: hidden;
+}
+.ctx-label { overflow: hidden; text-overflow: ellipsis; }
+.ctx-lead > svg.icon { flex: none; color: var(--muted-foreground); }
+/* the glyph steps up to full ink under the pointer — the one piece of
+   feedback that says the row is live without adding a colour */
+.ctx-row:hover .ctx-lead > svg.icon,
+.ctx-row.open .ctx-lead > svg.icon,
+.ctx-row:focus-visible .ctx-lead > svg.icon { color: var(--foreground); }
+/* A row with no glyph still starts its text on the same line as one that has
+   — a menu whose labels zig-zag by 31px has no left edge to read down. */
+.ctx-nopic { width: 19px; height: 19px; flex: none; }
+
+.ctx-more, .ctx-tick { display: flex; flex: none; color: var(--faint); }
+.ctx-row:hover .ctx-more { color: var(--foreground); }
+.ctx-tick { color: var(--foreground); }
+/* The shortcut, in the slot the chevron would have used. Tertiary ink and
+   tabular figures: it is a reminder, not a second label. */
+.ctx-hint {
+  flex: none; font-size: var(--text-xs); font-weight: var(--weight-medium);
+  color: var(--faint); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.ctx-row.danger:hover, .ctx-row.danger:focus-visible { color: var(--down); }
+.ctx-row.danger:hover .ctx-lead > svg.icon { color: var(--down); }
+.ctx-row.off { color: var(--faint); cursor: default; }
+.ctx-row.off .ctx-lead > svg.icon { opacity: .5; }
+
+/* A row whose label is a SENTENCE — the questions under Chat. Every other
+   row here is a name and ellipsizes safely; a question that ellipsizes is
+   unusable, because choosing to ask it means reading all of it first. So
+   these wrap, the row grows, and the sheet they sit in is allowed to be
+   wider than the one that opened it. */
+.ctx:has(.ctx-row.wrap) { max-width: 392px; }
+.ctx-row.wrap {
+  height: auto; min-height: 34px; align-items: flex-start;
+  padding: 8px 11px; line-height: 1.4;
+}
+.ctx-row.wrap .ctx-lead { white-space: normal; }
+.ctx-row.wrap .ctx-label { overflow: visible; white-space: normal; }
+
+/* Full bleed past the sheet's padding, like .dropdown .sep — a rule that
+   stops short of the edge reads as a line drawn inside the menu rather than
+   as the seam between two groups. */
+.ctx-sep {
+  height: 1px; margin: 5px -6px; background: var(--ctx-seam);
+}
+
+/* ── the paper, per theme ────────────────────────────────────────────────
+   Two knobs only: how much of the sheet is glass, and how bright its rim is.
+   Dark leans on the rim (a dark sheet on a dark chart has no edge without
+   one); light leans on opacity (white glass over white candles needs the
+   body, not the outline). */
+:root[data-theme="dark"] {
+  --ctx-paper: rgba(30, 30, 32, .74);
+  --ctx-rim: rgba(255, 255, 255, .10);
+  --ctx-seam: rgba(255, 255, 255, .08);
+  --ctx-hover: rgba(255, 255, 255, .10);
+  --ctx-press: rgba(255, 255, 255, .15);
+  --ctx-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 12px 34px -8px rgba(0, 0, 0, .74);
+}
+:root[data-theme="light"] {
+  --ctx-paper: rgba(252, 252, 253, .82);
+  --ctx-rim: rgba(15, 18, 22, .09);
+  --ctx-seam: rgba(15, 18, 22, .08);
+  --ctx-hover: rgba(15, 18, 22, .065);
+  --ctx-press: rgba(15, 18, 22, .10);
+  --ctx-shadow: 0 1px 2px rgba(15, 18, 22, .12), 0 12px 34px -10px rgba(15, 18, 22, .28);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ctx { background: var(--menu-bg); }
+}
+
 /* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
    The named desk in the header, its menu, its dialogs. Built from the
    controls already in this file — .dropdown/.item for the menu, .dlg-input
@@ -6870,6 +7034,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/theme.js?v=8"></script>
   <script src="./js/universe.js?v=2"></script>
   <script src="./js/icons.js?v=27"></script>
+  <!-- after icons.js (every row is drawn with one) and before main.js, which
+       builds the chart's three right-click menus out of it -->
+  <script src="./js/ctxmenu.js?v=3"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -6890,13 +7057,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
-  <script src="./js/shortcuts.js?v=2"></script>
+  <script src="./js/shortcuts.js?v=3"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=11"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=23"></script>
+  <script src="./js/drawings.js?v=24"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
   <script src="./js/main.js?v=89"></script>
