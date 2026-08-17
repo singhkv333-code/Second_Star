@@ -634,6 +634,11 @@ const Drawings = (() => {
       box.style.color = col;
       box.style.borderColor = G.rgba(col, 0.55);
       box.style.background = Theme.c("chipBg");
+      // Editing an EXISTING note starts from its words, not from a blank —
+      // and the box lands exactly on the chip's own plate, so it reads as the
+      // note becoming editable rather than as a second thing appearing over
+      // it. A new note has no text and starts empty, as before.
+      if (d.text) box.value = d.text;
       document.body.appendChild(box);
 
       const font = getComputedStyle(box).font;
@@ -647,6 +652,9 @@ const Drawings = (() => {
       };
       fit();
       box.focus();
+      // an edit opens on the whole word, so typing replaces and an arrow key
+      // still puts the caret where you would expect
+      if (d.text) box.select();
 
       env.setStatus("type the label — Enter to place, Esc to cancel");
       setScroll(false);
@@ -702,6 +710,50 @@ const Drawings = (() => {
       env.onToolDone();
     }
     function cancel() { state.draft = null; _ru(); }
+
+    /** Re-open a text note's editor on the words it already has.
+     *
+     *  Escape keeps what was there; emptying it REMOVES the note, which is
+     *  the only honest reading of an empty label — a chip with nothing in it
+     *  is an invisible object you can still trip over. */
+    function editText(id) {
+      const d = state.drawings.find((q) => q.id === (id || state.selId));
+      if (!d || !Tools.SPECS[d.type] || !Tools.SPECS[d.type].text || d.locked) return false;
+      const before = d.text;
+      openTextBox(d, (txt) => {
+        if (txt === null) { _ru(); return; }            // Escape — unchanged
+        if (!txt) {                                      // emptied — remove it
+          state.drawings = state.drawings.filter((q) => q.id !== d.id);
+          if (state.selId === d.id) state.selId = null;
+          save(); _ru(); emitSelect();
+          env.setStatus("note removed");
+          return;
+        }
+        if (txt !== before) { d.text = txt; save(); }
+        _ru();
+      });
+      return true;
+    }
+
+    /* Double-click the words to change them — the gesture every chart tool
+     * uses for this, and the reason it has to be taken in CAPTURE: the
+     * library binds its own double-click to "reset the scale" on the canvas
+     * underneath, so an edit that let the event through would retype the note
+     * and throw the view away in the same motion. */
+    el.addEventListener("dblclick", (e2) => {
+      if (state.tool !== "cursor" || state.draft) return;
+      if (!inPlot(e2)) return;
+      const a = anchorAt(e2);
+      if (!a) return;
+      const r = el.getBoundingClientRect();
+      const id = hitTest(e2.clientX - r.left, yInPane(e2.clientY, a.key), a.key);
+      const d = id && state.drawings.find((q) => q.id === id);
+      if (!d || !Tools.SPECS[d.type] || !Tools.SPECS[d.type].text) return;
+      e2.preventDefault();
+      e2.stopPropagation();
+      state.selId = d.id;
+      editText(d.id);
+    }, true);
 
     window.addEventListener("keydown", (e2) => {
       if (/^(INPUT|TEXTAREA)$/.test(e2.target.tagName)) return;
@@ -765,6 +817,14 @@ const Drawings = (() => {
       clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
       /** The tag object for one shape — see tagOf. */
       tagOf,
+      /** Re-open a text note's editor. The chart's menu offers it as a row;
+       *  a double-click on the words is the same call. */
+      editText,
+      /** Is this shape one whose words can be edited? */
+      isText: (id) => {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        return !!(d && Tools.SPECS[d.type] && Tools.SPECS[d.type].text);
+      },
       /** Write a note AT a coordinate, with no tool armed.
        *
        *  A note is a text drawing: it persists with the symbol, it takes a
