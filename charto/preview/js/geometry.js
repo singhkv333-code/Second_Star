@@ -308,8 +308,23 @@ const Geo = (() => {
   function hit(prim, px, mx, my, tol, env) {
     if (!px) return false;
     switch (prim.kind) {
-      case "point": case "label":
+      case "point":
         return Math.hypot(mx - px.p[0], my - px.p[1]) < tol + 3;
+      /* A LABEL is grabbable by the words, not by the dot.
+       *
+       * It used to share the point's test — a 10px circle on the ANCHOR —
+       * while the chip is painted beside that anchor, up to a couple of
+       * hundred pixels of it. So the thing on screen answered the pointer
+       * nowhere along its length: a text note could not be selected, could
+       * not be dragged, and could not be deleted, because Delete needs a
+       * selection and there was no way to make one. The anchor stays
+       * grabbable too — handleAt covers it — this adds what you can see. */
+      case "label": {
+        const b = chipBox(px.p, prim.text, prim.align || "right",
+                          (env && env.w) || Infinity);
+        return mx > b.x - tol && mx < b.x + b.w + tol
+            && my > b.top - tol && my < b.bot + tol;
+      }
       case "hline": return Math.abs(my - px.y) < tol;
       case "vline": return Math.abs(mx - px.x) < tol;
       case "band": return my > px.top - tol && my < px.bot + tol;
@@ -364,9 +379,31 @@ const Geo = (() => {
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   }
 
+  /* How wide a chip is, WITHOUT a canvas to hand.
+   *
+   * The hit test runs nowhere near a paint, and a label's grabbable box has
+   * to be the box that was drawn — a second guess at the width (characters
+   * times an average, say) is a shape you can see but not always catch. So
+   * both sides call this, off one offscreen context, and cannot drift. */
+  let _meas = null;
+  function chipWidth(text) {
+    _meas = _meas || document.createElement("canvas").getContext("2d");
+    _meas.font = `11px ${FONT}`;
+    return _meas.measureText(String(text == null ? "" : text)).width + 12;
+  }
+  /** The chip's box for a label anchored at `p`, in pane pixels — the one
+   *  definition of where those 15 pixels land, read by `hit` and by `paint`.
+   *  Mirrors the clamp in the label painter: a chip never leaves the pane. */
+  function chipBox(p, text, align, envW) {
+    const w = chipWidth(text);
+    const x = (align === "left") ? p[0] - w - 4 : p[0] + 4;
+    return { x: Math.max(0, Math.min(x, envW - w)), w,
+             top: p[1] - 9, bot: p[1] + 6 };
+  }
+
   function chip(ctx, text, x, y, col, bg) {
     ctx.font = `11px ${FONT}`;
-    const w = ctx.measureText(text).width + 12;
+    const w = chipWidth(text);
     ctx.fillStyle = bg || Theme.c("chipBg");
     ctx.fillRect(x, y - 15, w, 15);
     ctx.fillStyle = col;
@@ -445,11 +482,10 @@ const Geo = (() => {
         ctx.fill();
         break;
       case "label": {
-        const align = prim.align || "right";
-        ctx.font = `11px ${FONT}`;
-        const w = ctx.measureText(prim.text).width + 12;
-        const x = align === "left" ? px.p[0] - w - 4 : px.p[0] + 4;
-        chip(ctx, prim.text, Math.max(0, Math.min(x, env.w - w)), px.p[1] + 6, col);
+        // chipBox owns the placement; hit() reads the same box, so what is
+        // painted and what is grabbable are the same rectangle by construction
+        const b = chipBox(px.p, prim.text, prim.align || "right", env.w);
+        chip(ctx, prim.text, b.x, b.bot, col);
         break;
       }
       /* The position plan, TradingView's way round: the SHAPE is always on,

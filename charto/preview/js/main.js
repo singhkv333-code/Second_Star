@@ -3095,6 +3095,11 @@
       // The row with no TradingView equivalent, and therefore the first one:
       // it draws anything and never says whether it meant something. This
       // answers with a hit rate against a control (evaluate_drawing).
+      // A note's words are the whole drawing, so changing them is its first
+      // row — the double-click does the same thing, but a menu is where you
+      // look when you do not know the gesture yet.
+      draw.isText(d.id) && { icon: "pen", label: "Edit text", hint: "Double-click",
+        on: () => draw.editText(d.id) },
       priced && { icon: "barChart", label: "Test drawing",
         title: "Hit rate against a control, not an opinion",
         on: askAbout(`How reliable is ${ref}? Test it against a control.`) },
