@@ -244,6 +244,7 @@
   // Only an explicit "Ask in chat" on the drawing's card tags it — selecting
   // a shape to drag or edit must never attach it to the conversation.
   document.addEventListener("charto:draw-tag", (e) => {
+    if (e.detail) reveal();     // same reason as charto:compose — see reveal()
     setDrawTag(e.detail);
     input.focus();
   });
@@ -1699,7 +1700,7 @@
         + `${n} candle${n === 1 ? "" : "s"} pinned — sent with your next message</span>`
         + e.detail.map(pinChip).join("")
       : "";
-    if (n) input.focus();
+    if (n) { reveal(); input.focus(); }   // see reveal() — a pin you can't see
   });
   pinRow.addEventListener("click", (e) => {
     const un = e.target.closest("[data-unpin]");
@@ -1720,8 +1721,17 @@
     document.dispatchEvent(new CustomEvent("charto:reveal-pin", { detail: Number(chip.dataset.find) }));
   });
 
+  /** The panel, if it is not already up. A tag that lands in a composer the
+   *  reader cannot see has done nothing they can tell — and both callers below
+   *  exist to put something IN that composer, so opening it is the point of
+   *  the gesture rather than a side effect of it. */
+  function reveal() {
+    if (panel.classList.contains("hidden")) chatToggle.click();
+  }
+
   // Seed the composer from elsewhere in the app — text only, never a send.
   document.addEventListener("charto:compose", (e) => {
+    reveal();
     input.value = (input.value ? input.value.replace(/\s*$/, " ") : "") + e.detail;
     input.focus();
     autoGrow();
