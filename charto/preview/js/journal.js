@@ -194,16 +194,7 @@ const Journal = (() => {
   }
   function closeDrawer(){const d=el("journalDrawer");d.classList.remove("open");d.setAttribute("aria-hidden","true");active=null;}
   async function save(){try{const out=await call(active?`/journal/trades/${active.id}`:"/journal/trades",payload());const i=data.trades.findIndex(t=>t.id===out.trade.id);if(i<0)data.trades.unshift(out.trade);else data.trades[i]=out.trade;data.overview=(await call("/journal/bootstrap")).overview;closeDrawer();render();toast(active?"Trade updated":"Trade added");}catch(e){toast(e.message)}}
-  function confirmDelete(symbol) {
-    return new Promise((resolve) => {
-      const wrap=document.createElement("div");wrap.className="dlg-wrap open pivot-confirm";
-      wrap.innerHTML=`<div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle"><header class="dlg-head"><div class="dlg-title" id="confirmTitle">Delete journal entry?</div></header><div class="dlg-body"><p>This removes <strong>${esc(symbol)}</strong> from your journal. This cannot be undone.</p></div><footer class="dlg-foot"><span class="spacer"></span><button class="btn outline" data-no>Cancel</button><button class="btn danger" data-yes>Delete</button></footer></div>`;
-      const done=(yes)=>{wrap.remove();resolve(yes)};
-      wrap.addEventListener("click",e=>{if(e.target===wrap||e.target.closest("[data-no]"))done(false);else if(e.target.closest("[data-yes]"))done(true)});
-      document.body.appendChild(wrap);wrap.querySelector("[data-no]").focus();
-    });
-  }
-  async function remove(){if(!active||!(await confirmDelete(active.symbol)))return;try{await call(`/journal/trades/${active.id}`,{delete:true});data.trades=data.trades.filter(t=>t.id!==active.id);closeDrawer();await load();toast("Trade deleted");}catch(e){toast(e.message)}}
+  async function remove(){if(!active||!confirm(`Delete ${active.symbol} from your journal?`))return;try{await call(`/journal/trades/${active.id}`,{delete:true});data.trades=data.trades.filter(t=>t.id!==active.id);closeDrawer();await load();toast("Trade deleted");}catch(e){toast(e.message)}}
   function ask(){if(!active)return;document.dispatchEvent(new CustomEvent("charto:journal-chat",{detail:{trade:active}}));close();toast("Trade attached to chat");}
   function openBook(b){
     active={kind:"playbook",value:b||null}; const spec=b?.spec||{};

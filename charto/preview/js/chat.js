@@ -1582,10 +1582,10 @@
       finishTurn(turn, d.text, meta, acts, cards);
     } catch (e) {
       if (e && e.name === "AbortError") {
-        const partial = turn.__streamText || "Response stopped.";
-        turns.push({ role: "assistant", content: partial, meta: ["Stopped"], acts: [] });
+        const partial = turn.__streamText || "Response interrupted.";
+        turns.push({ role: "assistant", content: partial, meta: ["Interrupted"], acts: [] });
         saveTurns();
-        finishTurn(turn, partial, ["Stopped"], [], []);
+        finishTurn(turn, partial, ["Interrupted"], [], []);
       } else {
         turns.pop();   // keep the thread consistent with what the model saw
         saveTurns();

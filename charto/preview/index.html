@@ -4137,15 +4137,15 @@ body.two-columns .readout .row { display: none; }
 
 .theme-switch {
   width: 32px; height: 18px; padding: 2px; margin-left: auto; flex: none;
-  border-radius: 999px; background: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; background: #dfe1e3; border: 0;
   display: inline-flex; align-items: center; transition: background var(--dur-fast);
 }
 .theme-switch::after {
   content: ""; width: 12px; height: 12px; border-radius: 50%;
-  background: var(--foreground); transform: translateX(0); transition: transform var(--dur-fast);
+  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.18); transform: translateX(0); transition: transform var(--dur-fast);
 }
-.theme-switch.on { background: var(--primary-soft); border-color: var(--primary); }
-.theme-switch.on::after { transform: translateX(14px); background: var(--primary); }
+.theme-switch.on { background: #6f7478; }
+.theme-switch.on::after { transform: translateX(14px); background: #fff; }
 
 /* ── the panel ─────────────────────────────────────────────────────────────
    NOT `.side` — the drawing rail's tool flyouts are `.dropdown.side`, and a
@@ -6830,7 +6830,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=24"></script>
+  <script src="./js/indicators.js?v=25"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -6861,8 +6861,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=1"></script>
-  <script src="./js/chat.js?v=142"></script>
-  <script src="./js/journal.js?v=4"></script>
+  <script src="./js/chat.js?v=143"></script>
+  <script src="./js/journal.js?v=5"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js

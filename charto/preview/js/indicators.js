@@ -513,6 +513,7 @@ const Indicators = (() => {
   // ── manager ───────────────────────────────────────────
   function createManager(chart) {
     const active = new Map();
+    const refetchSeq = new Map();
     // The legend is DOM now (js/indlegend.js), not a canvas primitive: a row
     // that carries the eye, the gear and the × has to be reachable by a
     // pointer, and nothing drawn into the chart's own canvas ever is. This is
@@ -1012,11 +1013,16 @@ const Indicators = (() => {
     async function refetch(id) {
       const a = active.get(id);
       if (!a || a.pending) return;
+      const seq = (refetchSeq.get(id) || 0) + 1;
+      refetchSeq.set(id, seq);
       const current = settings(id);
       const lines = await fetchSeries(a.def, ctx.interval, ctx.limit,
         current.params,
         current.symbolMode === "another" && current.symbol ? current.symbol : ctx.symbol);
-      if (!active.has(id)) return;
+      // Input edits can overlap. A slow request for the old MACD lengths must
+      // never land after Reset settings and repaint the old calculation over
+      // the restored 12/26/9 result.
+      if (!active.has(id) || refetchSeq.get(id) !== seq) return;
       a.raw = lines;
       restyle(id);
     }
