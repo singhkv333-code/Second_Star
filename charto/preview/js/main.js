@@ -1731,8 +1731,14 @@
       });
       if (activeId) {
         const d = ind.CATALOG.find((c) => c.id === activeId);
-        if (!period || d.period === period) return;
-        try { await ind.setPeriod(activeId, period); changed(); }
+        try {
+          let target = activeId;
+          if (period && d.period !== period) target = await ind.setPeriod(activeId, period);
+          if (a.params && Object.keys(a.params).length) {
+            await ind.applySettings(target, { params: a.params });
+          }
+          changed();
+        }
         catch (err) { status(`could not switch ${name} to ${period}: ${err.message}`); }
         return;
       }
@@ -1740,7 +1746,9 @@
       // computed — mapping onto presets drew RSI 14 for a quoted RSI 26
       const id = ind.ensure(name, period);
       if (id && !ind.isActive(id)) {
-        Promise.resolve(ind.toggle(id, state.bars)).then(changed).catch(() => {});
+        Promise.resolve(a.params && Object.keys(a.params).length
+          ? ind.applySettings(id, { params: a.params }) : null)
+          .then(() => ind.toggle(id, state.bars)).then(changed).catch(() => {});
       }
     },
     onIndicatorRemove: (a) => {              // "remove the rsi"

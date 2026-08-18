@@ -7973,6 +7973,10 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
 # stays here — the same split geometry.js and tools.js already use.
 _INDICATOR_LINES = {
     "sma": ["sma"], "ema": ["ema"], "wma": ["wma"], "hma": ["hma"], "dema": ["dema"],
+    "tema": ["tema"], "vwma": ["vwma"], "rma": ["rma"], "kama": ["kama"],
+    "alma": ["alma"], "lsma": ["lsma"],
+    "ichimoku": ["conversion", "base", "senkou_a", "senkou_b", "chikou"],
+    "pivots": ["pivot", "r1", "s1", "r2", "s2", "r3", "s3", "r4", "s4", "cpr_top", "cpr_bottom"],
     "bbands": ["middle", "upper", "lower"], "keltner": ["middle", "upper", "lower"],
     "donchian": ["middle", "upper", "lower"],
     "vwap": ["vwap"], "anchored_vwap": ["anchored_vwap"],
@@ -7983,14 +7987,19 @@ _INDICATOR_LINES = {
     "williams_r": ["williams_r"], "roc": ["roc"], "atr": ["atr"],
     "obv": ["obv"], "ad": ["ad"], "cmf": ["cmf"], "mfi": ["mfi"],
     "aroon": ["aroon_up", "aroon_down"],
+    "percent_b": ["percent_b"], "bandwidth": ["bandwidth"],
+    "awesome": ["awesome"], "chaikin_osc": ["chaikin_osc"],
+    "vortex": ["vi_plus", "vi_minus"], "ultimate": ["ultimate"],
+    "trix": ["trix", "signal"], "kst": ["kst", "signal"], "dpo": ["dpo"],
+    "force": ["force"], "eom": ["eom"], "choppiness": ["choppiness"],
+    "fisher": ["fisher", "trigger"], "rvi": ["rvi", "signal"],
+    "connors_rsi": ["connors_rsi"],
 }
 
 # Must mirror preview/js/indicators.js CATALOG exactly. If it drifts, the
 # model either refuses to draw something the chart can show, or claims to have
 # drawn something invisible.
-_FE_RENDERABLE = {"sma", "ema", "bbands", "keltner", "donchian", "supertrend",
-                  "psar", "vwap", "rsi", "macd", "stoch", "stochrsi", "adx",
-                  "atr", "cci", "williams_r", "mfi", "obv", "cmf", "aroon"}
+_FE_RENDERABLE = frozenset(_INDICATOR_LINES)
 
 
 def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
@@ -8003,7 +8012,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        connect: bool = False,
                        mark_levels: list | None = None,
                        remove: bool = False,
-                       clear_marks: bool = False) -> dict:
+                       clear_marks: bool = False,
+                       settings: dict | None = None) -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -8072,6 +8082,29 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                 rows = deeper
 
     extra: dict = {}
+    # One extensible settings envelope means every input declared by the
+    # registry is immediately available to chat without duplicating two dozen
+    # optional arguments in this function. Reject unknown keys and enum values
+    # rather than silently drawing defaults the user did not ask for.
+    fields = {f["key"]: f for f in indicators.inputs(name)
+              if f["key"] not in ("period", "source")}
+    for key, raw in (settings or {}).items():
+        field = fields.get(key)
+        if not field:
+            return {"error": f"'{key}' is not a setting for {name}",
+                    "available_settings": sorted(fields)}
+        try:
+            if field["type"] == "bool": value = bool(raw)
+            elif field["type"] == "enum":
+                allowed = [o["value"] for o in field["options"]]
+                if raw not in allowed:
+                    return {"error": f"bad {key} '{raw}'", "allowed": allowed}
+                value = raw
+            elif field["type"] == "float": value = float(raw)
+            else: value = int(raw)
+        except (TypeError, ValueError):
+            return {"error": f"bad {key} '{raw}'"}
+        extra[key] = value
     mult_ignored = False
     if mult:
         # only bbands/keltner/supertrend take a width multiplier; forwarding
@@ -8265,6 +8298,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                                        or marked.get("connected") or lvls):
             _scene_add({"kind": "indicator", "name": name,
                         "period": res["spec"]["period"],
+                        "params": {k: v for k, v in res["spec"].items()
+                                   if k not in ("name", "period", "pane", "group", "formula", "bounds")},
                         "source": {"tool": "get_indicator",
                                    "interval": interval}})
         out["marked"] = marked
@@ -8275,6 +8310,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
         # something it cannot show is worse than saying it is unavailable.
         if name in _FE_RENDERABLE:
             _scene_add({"kind": "indicator", "name": name, "period": res["spec"]["period"],
+                        "params": {k: v for k, v in res["spec"].items()
+                                   if k not in ("name", "period", "pane", "group", "formula", "bounds")},
                         "source": {"tool": "get_indicator", "interval": interval}})
             out["drawn"] = True
         else:
@@ -8997,10 +9034,12 @@ TOOLS = [
          "Use it when the user NAMES a study or a period ('what's RSI', 'add a 200 EMA', 'MACD on the hourly'); "
          "a question about 'the indicators' with none named is read_indicators, which returns a fixed panel of six "
          "and prints it beside the reply. "
-         "Trend: sma, ema, wma, hma, dema, supertrend, psar, adx (with +DI/-DI), aroon. "
-         "Momentum: rsi, macd, stoch, stochrsi, cci, williams_r, roc. "
-         "Volatility: bbands (with percent_b and bandwidth), keltner, donchian, atr. "
-         "Volume: vwap, anchored_vwap, obv, ad, cmf, mfi. "
+         "Trend/overlay: sma, ema, wma, hma, dema, tema, vwma, rma, kama, alma, lsma, "
+         "ichimoku, pivots, supertrend, psar, adx, aroon, vortex. Momentum: rsi, macd, "
+         "stoch, stochrsi, cci, williams_r, roc, awesome, ultimate, trix, kst, dpo, "
+         "fisher, rvi, connors_rsi. Volatility: bbands, percent_b, bandwidth, keltner, "
+         "donchian, atr, choppiness. Volume: vwap, anchored_vwap, obv, ad, cmf, mfi, "
+         "chaikin_osc, force, eom. "
          "Use this rather than pulling bars and doing the arithmetic yourself — the result carries the exact "
          "formula and smoothing used, which differ between platforms. Reach for adx when the question is whether "
          "price is TRENDING or just ranging, bbands bandwidth for volatility compression, and the volume family "
@@ -9009,15 +9048,18 @@ TOOLS = [
          "round is how 'replace my RSI with…' is done."),
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string",
-                  "enum": ["sma", "ema", "wma", "hma", "dema", "bbands", "keltner", "donchian",
+                  "enum": ["sma", "ema", "wma", "hma", "dema", "tema", "vwma", "rma", "kama", "alma", "lsma", "ichimoku", "pivots", "bbands", "keltner", "donchian",
                            "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
                            "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
-                           "obv", "ad", "cmf", "mfi", "aroon"]},
+                           "obv", "ad", "cmf", "mfi", "aroon", "percent_b", "bandwidth",
+                           "awesome", "chaikin_osc", "vortex", "ultimate", "trix", "kst", "dpo",
+                           "force", "eom", "choppiness", "fisher", "rvi", "connors_rsi"]},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "period": {"type": "integer", "description": "omit for the indicator's conventional default"},
          "source": {"type": "string", "enum": ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"],
                     "description": "price column, default close"},
          "mult": {"type": "number", "description": "band width multiplier for bbands / keltner / supertrend"},
+         "settings": {"type": "object", "description": "Indicator-specific settings using the exact input keys returned by the indicator catalogue, e.g. Ichimoku {base_length:26, span_b_length:52, displacement:26}, pivots {pivot_type:'fibonacci', timeframe:'week'}, KAMA {fast:2, slow:30}. Omit for conventional defaults.", "additionalProperties": True},
          "anchor_time": {"type": "string", "description": "for anchored_vwap: the bar to anchor at, in the chart's format e.g. '11 Jun 2026'"},
          "series_points": {"type": "integer", "description": "return the last N points of the series too (max 240) — use it to see a cross or a turn, or to LOCATE when a cross happened (then mark it via get_anchors at_times)"},
          "at": {"type": "array", "items": {"type": "string"},
@@ -12121,17 +12163,29 @@ class Handler(BaseHTTPRequestHandler):
                 # hole — so every trend flip drew a long diagonal straight
                 # through the candles, which is what made the indicator look
                 # wrong. TradingView breaks the line there; so does this now.
-                def _pts(series: list) -> list[dict]:
+                def _pts(series: list, line: str) -> list[dict]:
                     first = next((i for i, v in enumerate(series) if v is not None), None)
                     if first is None:
                         return []
-                    return [{"time": rows[i][0]} if v is None
-                            else {"time": rows[i][0], "value": round(v, 6)}
-                            for i, v in enumerate(series[first:], start=first)]
+                    displacement = int(res["spec"].get("displacement", 26))
+                    shift = (displacement if line in ("senkou_a", "senkou_b")
+                             else -displacement if line == "chikou" else 0)
+                    # Median bar spacing preserves exact alignment on existing
+                    # bars. Beyond the loaded edge it creates LWC whitespace
+                    # times so the leading cloud remains visibly leading.
+                    gaps = sorted(rows[i][0] - rows[i-1][0] for i in range(1, len(rows)))
+                    step = gaps[len(gaps)//2] if gaps else 86400
+                    out = []
+                    for i, v in enumerate(series[first:], start=first):
+                        j = i + shift
+                        if j < 0: continue
+                        ts = rows[j][0] if j < len(rows) else rows[-1][0] + (j-len(rows)+1)*step
+                        out.append({"time": ts} if v is None else {"time": ts, "value": round(v, 6)})
+                    return out
 
                 return self._send(200, {
                     "name": name, "spec": res["spec"],
-                    "lines": {ln: _pts(series) for ln, series in res["lines"].items()},
+                    "lines": {ln: _pts(series, ln) for ln, series in res["lines"].items()},
                 })
             if u.path == "/volume_profile":
                 # The manual path into the same tool chat calls. It returns

@@ -23,6 +23,7 @@ whole series, never over a window, or the ratchet starts in the wrong place.
 from __future__ import annotations
 
 import time as _time
+import math as _math
 
 # ── primitives ────────────────────────────────────────────────────
 Series = list          # list[float | None], aligned 1:1 with rows
@@ -202,6 +203,98 @@ def _f_sma(rows, n, src):    return {"sma": sma(_src(rows, src), n)}
 def _f_ema(rows, n, src):    return {"ema": ema(_src(rows, src), n)}
 def _f_wma(rows, n, src):    return {"wma": wma(_src(rows, src), n)}
 def _f_hma(rows, n, src):    return {"hma": hma(_src(rows, src), n)}
+
+
+def _f_vwma(rows, n, src):
+    return {"vwma": vwma(_src(rows, src), _vol(rows), n)}
+
+
+def _f_rma(rows, n, src):
+    return {"rma": wilder(_src(rows, src), n)}
+
+
+def _f_tema(rows, n, src):
+    v = _src(rows, src)
+    e1 = ema(v, n)
+    s1 = next((i for i, x in enumerate(e1) if x is not None), len(v))
+    e2t = ema([x for x in e1[s1:] if x is not None], n)
+    e2 = [None] * s1 + e2t
+    s2 = next((i for i, x in enumerate(e2) if x is not None), len(v))
+    e3t = ema([x for x in e2[s2:] if x is not None], n)
+    e3 = [None] * s2 + e3t
+    return {"tema": [None if e3[i] is None else 3 * e1[i] - 3 * e2[i] + e3[i]
+                     for i in range(len(v))]}
+
+
+def _rolling_extreme(v, n, fn):
+    return [None if i < n - 1 else fn(v[i - n + 1:i + 1])
+            for i in range(len(v))]
+
+
+def _f_ichimoku(rows, n, src, base_length=26, span_b_length=52,
+                displacement=26):
+    hi, lo = _src(rows, "high"), _src(rows, "low")
+    def midpoint(length):
+        hh, ll = _rolling_extreme(hi, length, max), _rolling_extreme(lo, length, min)
+        return [None if hh[i] is None else (hh[i] + ll[i]) / 2
+                for i in range(len(rows))]
+    conversion = midpoint(n)
+    base = midpoint(base_length)
+    span_b = midpoint(span_b_length)
+    span_a = [None if conversion[i] is None or base[i] is None
+              else (conversion[i] + base[i]) / 2 for i in range(len(rows))]
+    # Displacement belongs to presentation. The arrays remain aligned with the
+    # bars so chat reads the value calculated at the latest bar; the HTTP
+    # adapter shifts their timestamps and can project the cloud into the future.
+    return {"conversion": conversion, "base": base, "senkou_a": span_a,
+            "senkou_b": span_b, "chikou": _src(rows, "close")}
+
+
+def _bucket_key(ts, timeframe, tz_offset):
+    g = _time.gmtime(ts + tz_offset)
+    if timeframe == "week":
+        return (g.tm_year, g.tm_yday - g.tm_wday)
+    if timeframe == "month":
+        return (g.tm_year, g.tm_mon)
+    return (g.tm_year, g.tm_yday)
+
+
+def _f_pivots(rows, n, src, pivot_type="traditional", timeframe="auto",
+              tz_offset=19800):
+    if timeframe == "auto":
+        gaps = sorted(rows[i][0] - rows[i - 1][0] for i in range(1, len(rows)))
+        step = gaps[len(gaps) // 2]
+        timeframe = "day" if step <= 15 * 60 else ("week" if step < 86400 else "month")
+    groups, cur, key = [], [], None
+    for i, r in enumerate(rows):
+        k = _bucket_key(r[0], timeframe, tz_offset)
+        if key is not None and k != key:
+            groups.append(cur); cur = []
+        key = k; cur.append(i)
+    if cur: groups.append(cur)
+    names = ["pivot", "r1", "s1", "r2", "s2", "r3", "s3", "r4", "s4"]
+    out = {k: [None] * len(rows) for k in names}
+    out.update({"cpr_top": [None] * len(rows), "cpr_bottom": [None] * len(rows)})
+    for gi in range(1, len(groups)):
+        prev, here = groups[gi - 1], groups[gi]
+        h = max(rows[i][2] for i in prev); l = min(rows[i][3] for i in prev)
+        c = rows[prev[-1]][4]; rng = h - l; p = (h + l + c) / 3
+        vals = {"pivot": p}
+        if pivot_type == "fibonacci":
+            for j, m in enumerate((.382, .618, 1.0), 1):
+                vals[f"r{j}"] = p + m * rng; vals[f"s{j}"] = p - m * rng
+        elif pivot_type == "camarilla":
+            for j, d in enumerate((12, 6, 4, 2), 1):
+                vals[f"r{j}"] = c + 1.1 * rng / d; vals[f"s{j}"] = c - 1.1 * rng / d
+        else:
+            vals.update(r1=2*p-l, s1=2*p-h, r2=p+rng, s2=p-rng,
+                        r3=2*p+h-2*l, s3=2*p-2*h+l,
+                        r4=3*p+h-3*l, s4=3*p-3*h+l)
+        bc = (h + l) / 2
+        vals["cpr_top"], vals["cpr_bottom"] = max(p, 2*p-bc), min(p, 2*p-bc)
+        for i in here:
+            for name, value in vals.items(): out[name][i] = value
+    return out
 
 
 def _f_atr(rows, n, src, smoothing="rma"):
@@ -577,6 +670,194 @@ def _f_aroon(rows, n, src):
                            for i in range(len(rows))]}
 
 
+def _f_percent_b(rows, n, src, mult=2.0, ma_type="sma"):
+    return {"percent_b": _f_bbands(rows, n, src, mult, ma_type)["percent_b"]}
+
+
+def _f_bandwidth(rows, n, src, mult=2.0, ma_type="sma"):
+    return {"bandwidth": _f_bbands(rows, n, src, mult, ma_type)["bandwidth"]}
+
+
+def _f_awesome(rows, n, src, slow=34):
+    v = _src(rows, "hl2"); a, b = sma(v, n), sma(v, slow)
+    return {"awesome": [None if a[i] is None or b[i] is None else a[i] - b[i]
+                        for i in range(len(v))]}
+
+
+def _f_chaikin_osc(rows, n, src, slow=10):
+    ad = _f_ad(rows, n, src)["ad"]; fast_ma, slow_ma = ema(ad, n), ema(ad, slow)
+    return {"chaikin_osc": [None if fast_ma[i] is None or slow_ma[i] is None
+                            else fast_ma[i] - slow_ma[i] for i in range(len(rows))]}
+
+
+def _f_vortex(rows, n, src):
+    tr = true_range(rows); vp = [0.0]; vm = [0.0]
+    for i in range(1, len(rows)):
+        vp.append(abs(rows[i][2] - rows[i-1][3]))
+        vm.append(abs(rows[i][3] - rows[i-1][2]))
+    plus, minus = [], []
+    for i in range(len(rows)):
+        if i < n - 1: plus.append(None); minus.append(None); continue
+        den = sum(tr[i-n+1:i+1])
+        plus.append(sum(vp[i-n+1:i+1]) / den if den else None)
+        minus.append(sum(vm[i-n+1:i+1]) / den if den else None)
+    return {"vi_plus": plus, "vi_minus": minus}
+
+
+def _f_ultimate(rows, n, src, middle=14, long=28):
+    bp, tr = [], []
+    for i, r in enumerate(rows):
+        pc = rows[i-1][4] if i else r[4]
+        bp.append(r[4] - min(r[3], pc)); tr.append(max(r[2], pc) - min(r[3], pc))
+    out = []
+    for i in range(len(rows)):
+        if i < long - 1: out.append(None); continue
+        av = []
+        for p in (n, middle, long):
+            den = sum(tr[i-p+1:i+1]); av.append(sum(bp[i-p+1:i+1]) / den if den else 0)
+        out.append(100 * (4*av[0] + 2*av[1] + av[2]) / 7)
+    return {"ultimate": out}
+
+
+def _ema_nullable(v, n):
+    start = next((i for i, x in enumerate(v) if x is not None), len(v))
+    return [None] * start + ema([0.0 if x is None else x for x in v[start:]], n)
+
+
+def _sma_nullable(v, n):
+    start = next((i for i, x in enumerate(v) if x is not None), len(v))
+    return [None] * start + sma([0.0 if x is None else x for x in v[start:]], n)
+
+
+def _f_trix(rows, n, src, signal=9):
+    v = _src(rows, src); e1 = ema(v, n); e2 = _ema_nullable(e1, n); e3 = _ema_nullable(e2, n)
+    line = [None if i == 0 or e3[i] is None or e3[i-1] in (None, 0)
+            else 100 * (e3[i] - e3[i-1]) / e3[i-1] for i in range(len(v))]
+    return {"trix": line, "signal": _ema_nullable(line, signal)}
+
+
+def _roc_series(v, n):
+    return [None if i < n or not v[i-n] else 100 * (v[i] - v[i-n]) / v[i-n]
+            for i in range(len(v))]
+
+
+def _f_kst(rows, n, src, roc2=15, roc3=20, roc4=30,
+           sma1=10, sma2=10, sma3=10, sma4=15, signal=9):
+    v = _src(rows, src)
+    parts = [_sma_nullable(_roc_series(v, r), s)
+             for r, s in ((n,sma1),(roc2,sma2),(roc3,sma3),(roc4,sma4))]
+    line = [None if any(p[i] is None for p in parts)
+            else parts[0][i] + 2*parts[1][i] + 3*parts[2][i] + 4*parts[3][i]
+            for i in range(len(v))]
+    return {"kst": line, "signal": _sma_nullable(line, signal)}
+
+
+def _f_dpo(rows, n, src):
+    v = _src(rows, src); basis = sma(v, n); shift = n // 2 + 1
+    return {"dpo": [None if i < shift or basis[i] is None
+                    else v[i-shift] - basis[i] for i in range(len(v))]}
+
+
+def _f_force(rows, n, src):
+    v = _src(rows, src); raw = [None] + [(v[i]-v[i-1]) * rows[i][5]
+                                         for i in range(1, len(rows))]
+    return {"force": _ema_nullable(raw, n)}
+
+
+def _f_eom(rows, n, src, divisor=10000.0):
+    raw = [None]
+    for i in range(1, len(rows)):
+        distance = ((rows[i][2]+rows[i][3]) - (rows[i-1][2]+rows[i-1][3])) / 2
+        box = (rows[i][5] / divisor) / (rows[i][2]-rows[i][3]) if rows[i][2] != rows[i][3] else 0
+        raw.append(distance / box if box else 0)
+    return {"eom": _sma_nullable(raw, n)}
+
+
+def _f_chop(rows, n, src):
+    tr = true_range(rows); out = []
+    for i in range(len(rows)):
+        if i < n-1: out.append(None); continue
+        rng = max(r[2] for r in rows[i-n+1:i+1]) - min(r[3] for r in rows[i-n+1:i+1])
+        out.append(None if not rng else 100 * _math.log10(sum(tr[i-n+1:i+1])/rng) / _math.log10(n))
+    return {"choppiness": out}
+
+
+def _f_fisher(rows, n, src):
+    hl2 = _src(rows, "hl2"); value, fish = [], []
+    prev_v = prev_f = 0.0
+    for i, x in enumerate(hl2):
+        if i < n-1: value.append(None); fish.append(None); continue
+        w = hl2[i-n+1:i+1]; hi, lo = max(w), min(w)
+        pos = 0 if hi == lo else 2*((x-lo)/(hi-lo)-.5)
+        prev_v = max(-.999, min(.999, .33*pos + .67*prev_v))
+        f = .5*_math.log((1+prev_v)/(1-prev_v)) + .5*prev_f
+        value.append(prev_v); fish.append(f); prev_f = f
+    return {"fisher": fish, "trigger": [None] + fish[:-1]}
+
+
+def _f_rvi(rows, n, src):
+    num, den = [], []
+    for i in range(len(rows)):
+        if i < 3: num.append(None); den.append(None); continue
+        num.append(((rows[i][4]-rows[i][1]) + 2*(rows[i-1][4]-rows[i-1][1]) +
+                    2*(rows[i-2][4]-rows[i-2][1]) + rows[i-3][4]-rows[i-3][1]) / 6)
+        den.append(((rows[i][2]-rows[i][3]) + 2*(rows[i-1][2]-rows[i-1][3]) +
+                    2*(rows[i-2][2]-rows[i-2][3]) + rows[i-3][2]-rows[i-3][3]) / 6)
+    sn, sd = _sma_nullable(num, n), _sma_nullable(den, n)
+    line = [None if sn[i] is None or not sd[i] else sn[i]/sd[i] for i in range(len(rows))]
+    signal = [None if i < 3 or any(line[j] is None for j in range(i-3,i+1))
+              else (line[i]+2*line[i-1]+2*line[i-2]+line[i-3])/6 for i in range(len(rows))]
+    return {"rvi": line, "signal": signal}
+
+
+def _percent_rank(v, n):
+    out = []
+    for i, x in enumerate(v):
+        if i < n or x is None: out.append(None); continue
+        w = [z for z in v[i-n:i] if z is not None]
+        out.append(100 * sum(z < x for z in w) / len(w) if w else None)
+    return out
+
+
+def _rsi_values(v, n):
+    fake = [(i, x, x, x, x, 1) for i, x in enumerate(v)]
+    return _f_rsi(fake, n, "close")["rsi"]
+
+
+def _f_connors(rows, n, src, streak_length=2, rank_length=100):
+    v = _src(rows, src); streak = [0.0]
+    for i in range(1, len(v)):
+        streak.append((streak[-1]+1 if v[i] > v[i-1] else streak[-1]-1 if v[i] < v[i-1] else 0))
+    a, b = _rsi_values(v, n), _rsi_values(streak, streak_length)
+    c = _percent_rank(_roc_series(v, 1), rank_length)
+    return {"connors_rsi": [None if a[i] is None or b[i] is None or c[i] is None
+                            else (a[i]+b[i]+c[i])/3 for i in range(len(v))]}
+
+
+def _f_kama(rows, n, src, fast=2, slow=30):
+    v = _src(rows, src); out = [None] * len(v); fast_sc=2/(fast+1); slow_sc=2/(slow+1)
+    if len(v) > n: out[n-1] = sum(v[:n])/n
+    for i in range(n, len(v)):
+        change=abs(v[i]-v[i-n]); volatility=sum(abs(v[j]-v[j-1]) for j in range(i-n+1,i+1))
+        er=change/volatility if volatility else 0; sc=(er*(fast_sc-slow_sc)+slow_sc)**2
+        out[i]=out[i-1]+sc*(v[i]-out[i-1])
+    return {"kama": out}
+
+
+def _f_alma(rows, n, src, offset=.85, sigma=6.0):
+    v=_src(rows,src); m=offset*(n-1); s=n/sigma; weights=[_math.exp(-((i-m)**2)/(2*s*s)) for i in range(n)]; den=sum(weights)
+    return {"alma": [None if i<n-1 else sum(v[i-n+1+j]*weights[j] for j in range(n))/den for i in range(len(v))]}
+
+
+def _f_lsma(rows, n, src, offset=0):
+    v=_src(rows,src); out=[]; sx=n*(n-1)/2; sxx=(n-1)*n*(2*n-1)/6; den=n*sxx-sx*sx
+    for i in range(len(v)):
+        if i<n-1: out.append(None); continue
+        w=v[i-n+1:i+1]; sy=sum(w); sxy=sum(j*x for j,x in enumerate(w)); slope=(n*sxy-sx*sy)/den
+        intercept=(sy-slope*sx)/n; out.append(intercept+slope*(n-1-offset))
+    return {"lsma": out}
+
+
 # ── registry ──────────────────────────────────────────────────────
 # pane: "overlay" sits on price, "own" gets a sub-pane. `formula` is returned
 # with every result so a reply can state what it computed.
@@ -591,6 +872,22 @@ SPECS: dict = {
                       formula="WMA(2*WMA(n/2) - WMA(n), sqrt(n))"),
     "dema":      dict(fn=_f_dema, period=21, pane="overlay", group="trend",
                       formula="2*EMA(n) - EMA(EMA(n))"),
+    "tema":      dict(fn=_f_tema, period=9, pane="overlay", group="trend",
+                      formula="3*EMA(n) - 3*EMA(EMA(n)) + EMA(EMA(EMA(n)))"),
+    "vwma":      dict(fn=_f_vwma, period=20, pane="overlay", group="volume",
+                      formula="sum(source*volume,n) / sum(volume,n)"),
+    "rma":       dict(fn=_f_rma, period=14, pane="overlay", group="trend",
+                      formula="Wilder smoothed moving average, alpha=1/n, seeded with SMA(n)"),
+    "kama":      dict(fn=_f_kama, period=10, pane="overlay", group="trend",
+                      formula="Kaufman adaptive MA using n-bar efficiency ratio and fast/slow smoothing constants"),
+    "alma":      dict(fn=_f_alma, period=9, pane="overlay", group="trend",
+                      formula="Gaussian weighted moving average with offset and sigma"),
+    "lsma":      dict(fn=_f_lsma, period=25, pane="overlay", group="trend",
+                      formula="least-squares regression value at the last bar, shifted by offset"),
+    "ichimoku":  dict(fn=_f_ichimoku, period=9, pane="overlay", group="trend",
+                      formula="Tenkan midpoint(9), Kijun midpoint(26), Span A midpoint of both, Span B midpoint(52); cloud leads and Chikou lags by displacement"),
+    "pivots":    dict(fn=_f_pivots, period=0, pane="overlay", group="levels",
+                      formula="prior pivot-period OHLC levels plus CPR: pivot=(H+L+C)/3, BC=(H+L)/2, TC=2*pivot-BC"),
     "bbands":    dict(fn=_f_bbands, period=20, pane="overlay", group="volatility",
                       formula="SMA(n) +/- mult * POPULATION stdev(n) of the source; "
                               "percent_b = (P-lower)/(upper-lower); bandwidth = (upper-lower)/middle"),
@@ -642,6 +939,36 @@ SPECS: dict = {
     # that is the line a user has already seen on every other chart.
     "aroon":     dict(fn=_f_aroon, period=14, pane="own", group="trend", bounds=(0, 100),
                       formula="up = 100*(bars since the n-bar high)/n, down likewise for the low"),
+    "percent_b": dict(fn=_f_percent_b, period=20, pane="own", group="volatility",
+                      formula="(source-lower Bollinger band)/(upper-lower); 0 is lower band and 1 is upper band"),
+    "bandwidth": dict(fn=_f_bandwidth, period=20, pane="own", group="volatility",
+                      formula="(upper Bollinger band-lower band)/basis"),
+    "awesome": dict(fn=_f_awesome, period=5, pane="own", group="momentum",
+                    formula="SMA(5) of HL2 minus SMA(34) of HL2"),
+    "chaikin_osc": dict(fn=_f_chaikin_osc, period=3, pane="own", group="volume",
+                    formula="EMA(3) of Accumulation/Distribution minus EMA(10) of A/D"),
+    "vortex": dict(fn=_f_vortex, period=14, pane="own", group="trend",
+                    formula="VI+ = sum(|H-Lprev|,n)/sum(TR,n); VI- = sum(|L-Hprev|,n)/sum(TR,n)"),
+    "ultimate": dict(fn=_f_ultimate, period=7, pane="own", group="momentum", bounds=(0,100),
+                    formula="100*(4*BP/TR(7)+2*BP/TR(14)+BP/TR(28))/7"),
+    "trix": dict(fn=_f_trix, period=18, pane="own", group="momentum",
+                    formula="one-bar percent change of a triple EMA(n), with EMA signal"),
+    "kst": dict(fn=_f_kst, period=10, pane="own", group="momentum",
+                    formula="SMA-smoothed ROC(10)+2*ROC(15)+3*ROC(20)+4*ROC(30), with signal SMA"),
+    "dpo": dict(fn=_f_dpo, period=21, pane="own", group="momentum",
+                    formula="source shifted back n/2+1 bars minus SMA(n) at that bar"),
+    "force": dict(fn=_f_force, period=13, pane="own", group="volume",
+                    formula="EMA(n) of (close-close_prev)*volume"),
+    "eom": dict(fn=_f_eom, period=14, pane="own", group="volume",
+                    formula="SMA(n) of midpoint movement divided by volume/range box ratio"),
+    "choppiness": dict(fn=_f_chop, period=14, pane="own", group="volatility", bounds=(0,100),
+                    formula="100*log10(sum(TR,n)/(highest high-lowest low))/log10(n)"),
+    "fisher": dict(fn=_f_fisher, period=9, pane="own", group="momentum",
+                    formula="Fisher transform of normalized HL2, recursively smoothed, with one-bar trigger"),
+    "rvi": dict(fn=_f_rvi, period=10, pane="own", group="momentum",
+                    formula="SMA of symmetrically weighted close-open divided by SMA of high-low, with 4-bar signal"),
+    "connors_rsi": dict(fn=_f_connors, period=3, pane="own", group="momentum", bounds=(0,100),
+                    formula="mean of RSI(3), RSI(2) of up/down streak, and 100-bar percent rank of one-bar return"),
 }
 
 NAMES = tuple(sorted(SPECS))
@@ -668,9 +995,11 @@ MULT_OK = frozenset(
 # CCI and MFI ARE in here: both run _src(rows, src), they simply default to
 # hlc3 via their spec's src_default, so omitting the argument still gives the
 # textbook typical-price formula while the dropdown remains honest.
-SOURCE_OK = frozenset({"sma", "ema", "wma", "hma", "dema", "rsi", "macd",
+SOURCE_OK = frozenset({"sma", "ema", "wma", "hma", "dema", "tema", "vwma", "rma",
+                       "kama", "alma", "lsma", "rsi", "macd",
                        "bbands", "keltner", "roc", "cci", "williams_r", "mfi",
-                       "stochrsi"})
+                       "stochrsi", "percent_b", "bandwidth", "trix", "kst", "dpo",
+                       "connors_rsi"})
 
 # A price source can sensibly vary inside Williams %R's high/low range, but a
 # volume value cannot: it has different units and sends the declared -100..0
@@ -688,6 +1017,9 @@ _HIDDEN_PARAMS = frozenset({"session_seconds", "tz_offset", "anchor_index"})
 _PERIOD_LABEL = {
     "rsi": "RSI Length", "adx": "ADX Smoothing", "stoch": "%K Length",
     "stochrsi": "Stochastic Length", "supertrend": "ATR Length",
+    "ichimoku": "Conversion Line Length", "awesome": "Fast Length",
+    "chaikin_osc": "Fast Length", "ultimate": "Short Length",
+    "connors_rsi": "RSI Length",
 }
 _PARAM_LABEL = {
     ("bbands", "mult"): "StdDev",
@@ -713,12 +1045,28 @@ _PARAM_LABEL = {
     ("psar", "step"): "Increment",
     ("psar", "cap"): "Max value",
     ("vwap", "anchor"): "Anchor Period",
+    ("ichimoku", "base_length"): "Base Line Length",
+    ("ichimoku", "span_b_length"): "Leading Span B Length",
+    ("ichimoku", "displacement"): "Displacement",
+    ("pivots", "pivot_type"): "Type", ("pivots", "timeframe"): "Pivots Timeframe",
+    ("awesome", "slow"): "Slow Length", ("chaikin_osc", "slow"): "Slow Length",
+    ("ultimate", "middle"): "Middle Length", ("ultimate", "long"): "Long Length",
+    ("kst", "roc2"): "ROC Length 2", ("kst", "roc3"): "ROC Length 3",
+    ("kst", "roc4"): "ROC Length 4", ("kst", "sma1"): "SMA Length 1",
+    ("kst", "sma2"): "SMA Length 2", ("kst", "sma3"): "SMA Length 3",
+    ("kst", "sma4"): "SMA Length 4", ("force", "n"): "Length",
+    ("eom", "divisor"): "Divisor", ("connors_rsi", "streak_length"): "Streak RSI Length",
+    ("connors_rsi", "rank_length"): "ROC Rank Length",
+    ("kama", "fast"): "Fast Length", ("kama", "slow"): "Slow Length",
+    ("alma", "offset"): "Offset", ("alma", "sigma"): "Sigma",
 }
 _PARAM_RANGE = {                       # key -> (min, max, step)
     "mult": (0.1, 50.0, 0.1),
     "start": (0.001, 1.0, 0.001),
     "step": (0.001, 1.0, 0.001),
     "cap":  (0.01, 1.0, 0.01),
+    "offset": (0.0, 1.0, 0.01), "sigma": (0.1, 20.0, 0.1),
+    "divisor": (1.0, 1000000000.0, 1.0),
 }
 
 # The choices behind every dropdown that is not a price source. Each list is
@@ -731,11 +1079,15 @@ _ENUM_VALUES = {
     "smoothing": ["rma", "sma", "ema", "wma"],
     "bands_style": ["atr", "tr", "range"],
     "anchor": ["session", "week", "month"],
+    "pivot_type": ["traditional", "fibonacci", "camarilla"],
+    "timeframe": ["auto", "day", "week", "month"],
 }
 _ENUM_LABELS = {
     **MA_LABELS,
     "atr": "Average True Range", "tr": "True Range", "range": "Range",
     "session": "Session", "week": "Week", "month": "Month",
+    "traditional": "Traditional", "fibonacci": "Fibonacci", "camarilla": "Camarilla",
+    "auto": "Auto", "day": "Daily",
 }
 
 
@@ -799,8 +1151,9 @@ def compute(name: str, rows: list[tuple], period: int = 0,
     n = int(period or spec["period"] or 14)
     if n < 1 or n > 500:
         raise ValueError("period must be between 1 and 500")
-    if len(rows) < n + 2:
-        raise ValueError(f"{name}({n}) needs at least {n + 2} bars, got {len(rows)}")
+    warmup = n if spec["period"] else 1
+    if len(rows) < warmup + 2:
+        raise ValueError(f"{name}({n}) needs at least {warmup + 2} bars, got {len(rows)}")
     # An instrument that prints no traded quantity cannot have a volume
     # indicator computed on it, and the arithmetic does not say so: measured
     # on NIFTY 50 daily bars, OBV and A/D come back a flat 0.0, VWAP quietly
@@ -840,7 +1193,7 @@ def compute(name: str, rows: list[tuple], period: int = 0,
     return {"lines": lines,
             "last": {k: (None if _last(v) is None else round(_last(v), 4))
                      for k, v in lines.items()},
-            "spec": {"name": name, "period": n, "source": source,
+            "spec": {"name": name, "period": n if spec["period"] else 0, "source": source,
                      "pane": spec["pane"], "group": spec["group"],
                      "formula": spec["formula"],
                      **({"bounds": list(spec["bounds"])} if "bounds" in spec else {}),
