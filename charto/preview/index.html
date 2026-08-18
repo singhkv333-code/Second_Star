@@ -6391,6 +6391,34 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .ind-radio span { white-space: nowrap; }
 .sym-picker.dropdown.floating { z-index: 260; }
 
+/* Compact indicator fields. Every editable value is paper-white in the
+   light theme; the "Another symbol" picker is the one quiet filled box and
+   deliberately has no outline. */
+.dlg.indicator-settings .dlg-row > .dlg-input,
+.dlg.indicator-settings .dlg-row > .dlg-select,
+.dlg.indicator-settings .dlg-row > .select-btn,
+.dlg.indicator-settings .ind-symbol-input {
+  height: 36px; border-radius: 7px;
+}
+:root[data-theme="light"] .dlg.indicator-settings .dlg-row > .dlg-input,
+:root[data-theme="light"] .dlg.indicator-settings .dlg-row > .dlg-select,
+:root[data-theme="light"] .dlg.indicator-settings .dlg-row > .select-btn {
+  background: #fff;
+}
+.dlg.indicator-settings .ind-symbol-input,
+.dlg.indicator-settings .ind-symbol-input:disabled {
+  background: var(--muted); border: 0; box-shadow: none;
+}
+.indicator-settings .dlg-row > label,
+.indicator-settings .dlg-row.plot > label {
+  min-height: 46px; padding-block: 5px;
+}
+.ind-symbol-choice {
+  grid-template-rows: 36px 36px; row-gap: 4px;
+}
+.ind-symbol-field { height: 36px; }
+.ind-symbol-field svg { top: 10px; }
+
 .dlg-wrap:has(.al-dlg) {
   background: color-mix(in srgb, var(--scrim) 72%, transparent);
   backdrop-filter: blur(1px);
