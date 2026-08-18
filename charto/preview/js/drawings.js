@@ -172,15 +172,34 @@ const Drawings = (() => {
       const span = bars[hi].time - bars[lo].time || 1;
       return logicalToX(lo + (t - bars[lo].time) / span);
     }
+    /** x → time, and it is the EXACT INVERSE of tToX above. That is the whole
+     *  specification, and it used not to be met.
+     *
+     *  The old version rounded to the NEAREST bar and then offset by whole
+     *  interval-seconds — `bars[round(l)].time + (l - round(l)) * iv` — while
+     *  tToX maps a time back through the SPAN between the two bars bracketing
+     *  it. Inside a session the two agree, because one bar to the next IS one
+     *  interval. Across an overnight or a weekend gap they diverge wildly: a
+     *  point half way between Tuesday's 15:15 close and Wednesday's 09:15 open
+     *  came back as "15:15 + 7 minutes", and tToX then read those 7 minutes as
+     *  7/64800ths of the gap and drew the point ON the close. Every drawing
+     *  whose anchor landed in a gap therefore moved the moment it was written,
+     *  and a shape dragged across one was stretched and re-angled — the anchor
+     *  in the gap slid to a bar edge while the others tracked the pointer.
+     *
+     *  Bracketing bars, so a fraction of the way between two bars round-trips
+     *  as that same fraction. Beyond either end there are no bars to bracket,
+     *  and both functions already extrapolate at one interval per bar. */
     function xToTime(x) {
       const bars = env.getBars(); if (!bars.length) return null;
       const iv = env.getIntervalSec();
       const logical = ts().coordinateToLogical(x);
       if (logical === null) return null;
-      const last = bars.length - 1, li = Math.round(logical);
-      if (li >= 0 && li <= last) return bars[li].time + Math.round((logical - li) * iv);
-      if (li > last) return bars[last].time + Math.round((logical - last) * iv);
-      return bars[0].time + Math.round(logical * iv);
+      const last = bars.length - 1;
+      if (logical >= last) return Math.round(bars[last].time + (logical - last) * iv);
+      if (logical <= 0) return Math.round(bars[0].time + logical * iv);
+      const lo = Math.floor(logical), f = logical - lo;
+      return Math.round(bars[lo].time + f * (bars[lo + 1].time - bars[lo].time));
     }
     const vToY = (v, key) => { const p = paneFor(key); return p ? p.series.priceToCoordinate(v) : null; };
     const yToV = (y, key) => { const p = paneFor(key); return p ? p.series.coordinateToPrice(y) : null; };
@@ -411,7 +430,8 @@ const Drawings = (() => {
           if (d && !d.locked && (d.pane || "price") === a.key) {
             const hi = handleAt(d, mx, my, a.key);
             if (hi >= 0) {
-              state.drag = { id: d.id, handle: hi, pane: a.key, start: a,
+              state.drag = { id: d.id, handle: hi, pane: a.key,
+                             sx: e2.clientX, sy: e2.clientY,
                              orig: JSON.parse(JSON.stringify(d.pts)) };
               state.consumedDown = true; setScroll(false); e2.preventDefault(); return;
             }
@@ -423,7 +443,8 @@ const Drawings = (() => {
           state.selId = hit;
           emitSelect();
           if (!d.locked) {
-            state.drag = { id: hit, handle: -1, pane: a.key, start: a,
+            state.drag = { id: hit, handle: -1, pane: a.key,
+                           sx: e2.clientX, sy: e2.clientY,
                            orig: JSON.parse(JSON.stringify(d.pts)) };
             setScroll(false);
           }
@@ -454,6 +475,44 @@ const Drawings = (() => {
       _ru();
     });
 
+    /** Move a whole shape by the distance the POINTER has travelled, in
+     *  pixels, re-projecting every anchor from the copy taken at mousedown.
+     *
+     *  It used to add a delta in SECONDS — `a.t - drag.start.t` — to each
+     *  anchor's time, and that is not a translation on this chart. The x axis
+     *  is a bar index, not a clock: bars are evenly spaced on screen while the
+     *  minutes between them are not, so one constant of seconds is a different
+     *  number of pixels at each end of a shape that spans a session close.
+     *  Dragging a trendline sideways therefore changed BOTH its angle and its
+     *  length, and crossing a gap made it jump, because the seconds delta was
+     *  re-read from a magnet-snapped anchor sixty times a second.
+     *
+     *  Pixels are what the eye is asking about, so pixels are what moves.
+     *  Every anchor is re-projected from the ORIGINAL points on each move, not
+     *  accumulated, so the shape cannot drift; and the price scale re-fitting
+     *  mid-drag simply re-projects with it. The pointer's own anchor is not
+     *  consulted at all, which is what makes the drag smooth: no magnet, no
+     *  rounding to a bar, nothing between the mouse and the shape.
+     *
+     *  All or nothing. A partial move — one anchor off the projectable range,
+     *  the rest translated — is the deformation this whole note is about. */
+    function dragShape(e2) {
+      const d = state.drawings.find((q) => q.id === state.drag.id);
+      if (!d) return;
+      const dx = e2.clientX - state.drag.sx, dy = e2.clientY - state.drag.sy;
+      const key = state.drag.pane;
+      const moved = [];
+      for (const q of state.drag.orig) {
+        const x = tToX(q.t), y = vToY(q.v, key);
+        if (x === null || y === null) return;
+        const t = xToTime(x + dx), v = yToV(y + dy, key);
+        if (t === null || v === null) return;
+        moved.push({ t, v });
+      }
+      d.pts = moved;
+      _ru();
+    }
+
     /** Record which shape the pointer is over, and repaint only when the
      *  answer CHANGED — a mouse move across an empty chart is null → null
      *  sixty times a second, and asking the panes to redraw for each of them
@@ -469,6 +528,10 @@ const Drawings = (() => {
     el.addEventListener("mouseleave", () => setHover(null));
 
     el.addEventListener("mousemove", (e2) => {
+      // Before the anchor: a whole-shape drag is pure pixel arithmetic and
+      // must not stall on a pointer position that has no price under it (the
+      // axes, a pane gap), nor be perturbed by the magnet. See dragShape.
+      if (state.drag && state.drag.handle < 0) { dragShape(e2); return; }
       const forced = state.draft ? state.draft.pane : (state.drag ? state.drag.pane : null);
       const a = anchorAt(e2, forced);
       if (!a) return;
@@ -489,12 +552,7 @@ const Drawings = (() => {
       if (state.drag) {
         const d = state.drawings.find((q) => q.id === state.drag.id);
         if (d) {
-          if (state.drag.handle >= 0) {
-            d.pts[state.drag.handle] = { t: a.t, v: a.v };
-          } else {
-            const dt = a.t - state.drag.start.t, dv = a.v - state.drag.start.v;
-            d.pts = state.drag.orig.map((q) => ({ t: q.t + dt, v: q.v + dv }));
-          }
+          d.pts[state.drag.handle] = { t: a.t, v: a.v };
           _ru();
         }
         return;

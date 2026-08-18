@@ -1940,8 +1940,19 @@ header > .btn, header > .badge { flex: none; }
 #chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
 #chart table tr:last-child td, #chart table tr:last-child td * { cursor: ew-resize; }
 #chart.drawing, #chart.drawing * { cursor: crosshair; }
+/* Over a DRAWING: the same pointing hand a candle gets, and for the same
+   reason — this is a thing you can pick up, and the chart has exactly one
+   gesture-with-a-hand vocabulary. It was `cursor: move` (the four-way arrow),
+   which is a different promise: that the shape is already being dragged. It
+   also lost to `#chart.on-bar` on specificity, so a trendline lying across a
+   candle showed the hand and the same trendline in empty space showed the
+   arrows — the cursor changed along one line. `!important`, like the panning
+   rule below it, so the ID selectors it has to beat cannot win.
+
+   ORDER MATTERS: panning comes after, so a pan that happens to travel over a
+   shape keeps the closed hand. */
+.stage.overdraw #chart, .stage.overdraw #chart * { cursor: pointer !important; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-.stage.overdraw #chart, .stage.overdraw #chart * { cursor: move; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -2281,13 +2292,87 @@ body.two-columns .readout .row { display: none; }
   font-variant-numeric: tabular-nums; white-space: nowrap;
   background: var(--chart-bg);
 }
+/* The currency badge is not a pill floating NEAR the scale — it is the head of
+   the scale's own column. It spans the full measured width of the price axis
+   (--axis-w, published by js/main.js), sits flush against the right edge, and
+   is square: a rounded 56px capsule inset 4px read as a chip someone had
+   dropped on the axis, with a strip of ticks visible either side of it. One
+   rectangle, one column, one edge — the ticks below it now line up with its
+   own centre, because both are centred on the same width (VENDOR_PATCHES §1). */
 .axis-note.cur {
-  /* spans the price-scale column, so the tick it covers is covered fully */
-  right: 4px; top: 6px; width: 56px; text-align: center;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 2px 0; letter-spacing: .04em;
+  right: 0; top: 0; width: var(--axis-w, 84px); text-align: center;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+  padding: 5px 0; letter-spacing: .04em;
 }
 .axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
+
+/* ── the crosshair's two plates ──────────────────────────────────────────
+   The price under the pointer on the price scale, the time under it on the
+   time scale. Built and driven by js/xhair.js, which the primary chart and
+   every secondary pane both attach. lightweight-charts draws both into the
+   axis CANVAS and they are turned off there (`labelVisible: false`) so these
+   can be glass:
+   backdrop-filter is a property of an element with a backdrop, and a canvas
+   has neither. The refraction itself comes from vendor/liquid-glass.js, the
+   same material as the menus and the ask group; everything here is the
+   dressing that turns a blurred backdrop into a surface — a tint, a lit top
+   rim, a dimmer bottom one, and a shadow so the plate sits ON the axis rather
+   than in it. The `backdrop-filter` below is the FLOOR: it is what Safari and
+   Firefox get, and what both plates wear for the frame before the module
+   attaches.
+
+   Opacity, not display, for show/hide. These appear and vanish many times a
+   second, and a display toggle collapses the box to zero — which trips the
+   module's ResizeObserver and has it regenerate a displacement map for a
+   plate that is not on screen, twice per pass across the chart. */
+.xh-plate {
+  position: absolute; z-index: 7; pointer-events: none;
+  opacity: 0; transition: opacity 90ms var(--ease-quartr);
+  font-size: 12px; line-height: 20px; height: 22px;
+  color: var(--foreground); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* A tint that STEPS OFF the surface, not one that matches it. Plain
+     translucent --card is #fbfbfc on light: a white plate on a white axis,
+     invisible but for its hairline (measured — the plate and the axis both
+     came out 255,255,255). Mixing the foreground in gives the glass a body
+     that is a shade darker than the chart on light and a shade lighter on
+     dark, so the readout is always found at a glance and is still glass. */
+  background: color-mix(in srgb, var(--foreground) 18%,
+                        color-mix(in srgb, var(--card) 60%, transparent));
+  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
+    0 6px 18px -10px rgb(0 0 0 / .5);
+  border-radius: var(--radius-xs, 5px);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+}
+.xh-plate.show { opacity: 1; }
+/* The full width of the scale, so the tick it lands on is covered rather than
+   half-covered — the one thing the library's opaque plate did get right. Its
+   text is centred on the same axis the ticks are, so a plate and the column it
+   sits in read as one column. */
+.xh-plate.price {
+  right: 0; width: var(--axis-w, 84px); text-align: center;
+  /* A NEGATIVE MARGIN centres it on `top`, not `transform: translateY(-50%)`.
+     The transform was the first version and it broke the glass: Chromium
+     samples a transformed element's backdrop from the wrong place, so the
+     plate came out light grey on a dark axis and dark grey on a light one —
+     inverted, measured off the rendered pixels (169,171,172 over an axis at
+     13,14,18). Half the plate's own fixed height does the same job with no
+     transform to confuse the compositor. Keep them in step if the height
+     changes. */
+  margin-top: -11px;
+}
+/* Centred in the time axis rather than pinned to its floor: the axis is only
+   ~26px and a plate resting on the bottom of it sat lower than the tick labels
+   beside it. `left` is written from JS, clamped so the plate never runs off
+   the left edge or under the price scale. */
+.xh-plate.time {
+  bottom: calc((var(--time-axis-h, 26px) - 22px) / 2);
+  padding: 0 8px; text-align: center;
+}
 
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
@@ -4565,19 +4650,19 @@ body.two-columns .readout .row { display: none; }
   position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 6;
   width: 16px; height: 16px; margin-top: -8px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  /* WHITE, in both themes, and that is not a missing token: the crosshair plate
-     under it is a dark slate on light and on dark alike (Theme.crosshairLabel),
-     and the library picks white for the price printed on it. The mark is one
-     more thing written on that plate, so it is written in the plate's ink. */
-  border: 1px solid rgba(255, 255, 255, .5);
+  /* THE APP'S INK, not white. It used to be white because the plate under it
+     was a dark slate in both themes and the library printed white on it; the
+     plate is glass now (.xh-plate), carrying --foreground like every other
+     surface in this app, and a white ring on frosted white is not a mark.
+     One ink, and it reads on the glass and on the bare axis alike. */
+  border: 1px solid color-mix(in srgb, var(--foreground) 40%, transparent);
   border-radius: 50%;
-  /* A disc of THE PLATE'S OWN COLOUR, published by js/main.js. On the plate it
-     is invisible and the mark reads as printed on it, which is the whole point.
-     It exists for the one frame the plate does not: reaching for the mark puts
-     the pointer on the price scale, the library draws the crosshair only over a
-     pane, and the plate goes — leaving, without this, a white ring standing on
-     a white chart. */
-  background: var(--plate, #434651); color: rgba(255, 255, 255, .78);
+  /* An OPAQUE disc of the chart's own background. The plate deliberately does
+     not follow the pointer onto the price scale (js/main.js says why), and the
+     reach for this mark ends there — so for those last twenty pixels the ring
+     is standing on bare axis, and without a fill of its own it would be a
+     hairline circle drawn over a tick label. */
+  background: var(--chart-bg); color: color-mix(in srgb, var(--foreground) 78%, transparent);
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr),
@@ -4591,10 +4676,10 @@ body.two-columns .readout .row { display: none; }
    resting on a mark is not a state the chart is in — a coloured disc here would
    also be a coloured disc landing on a coloured plate. */
 .alert-plus.hot {
-  /* Lightened plate, not a translucent white: the disc has to stay opaque for
-     the case above, where there is no plate behind it to tint. */
-  color: #fff; border-color: #fff;
-  background: color-mix(in srgb, #fff 18%, var(--plate, #434651));
+  /* Full ink and a tint of the accent — still OPAQUE, because the case above
+     (no plate behind it) is exactly the moment the pointer is on the mark. */
+  color: var(--primary); border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, var(--chart-bg));
 }
 /* The bare + inside the 16px ring — a little under half the circle, drawn
    heavier than the ring so the mark reads as a button with an action rather
@@ -6698,10 +6783,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=12"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=25"></script>
+  <script src="./js/drawings.js?v=26"></script>
   <script src="./js/scene.js?v=35"></script>
-  <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=97"></script>
+  <script src="./js/xhair.js?v=1"></script>
+  <script src="./js/panes.js?v=16"></script>
+  <script src="./js/main.js?v=103"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>

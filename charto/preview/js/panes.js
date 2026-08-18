@@ -214,8 +214,11 @@ const Panes = (() => {
       timeScale: { borderColor: P.border, timeVisible: true, secondsVisible: false, rightOffset: 4 },
       crosshair: {
         mode: LWC.CrosshairMode.Normal,
-        vertLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
-        horzLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
+        /* The two plates a crosshair prints on the axes are ours, in DOM and in
+         * glass (js/xhair.js) — on a secondary pane exactly as on the primary,
+         * or a split layout is two products in one window. */
+        vertLine: { color: P.crosshair, labelVisible: false },
+        horzLine: { color: P.crosshair, labelVisible: false },
       },
       autoSize: true,
     };
@@ -302,6 +305,24 @@ const Panes = (() => {
       openSettings: (id) => { if (onSettings) onSettings(id, sub.ind); },
       onChange: () => document.dispatchEvent(
         new CustomEvent("charto:indicators-changed")),
+    });
+
+    /* The crosshair's plates, the same module the primary uses. `panes()` is
+     * the shape the drawing layer already speaks — the price pane plus one row
+     * per indicator that owns a pane of its own — and it is read on every
+     * pointer move, so a study added or removed here needs no re-wiring. */
+    const SUB_IV = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+                     D: 86400, W: 604800, M: 2592000 };
+    sub.xhair = Xhair.attach(chart, {
+      root, canvas, intervalSec: () => SUB_IV[sub.interval] || 0,
+      panes: () => {
+        const out = [{ key: "price", pane: candle.getPane(), series: candle }];
+        for (const [, a] of sub.ind.active) {
+          if (a.def.kind !== "pane" || !a.series.length) continue;
+          out.push({ key: a.def.name, pane: a.series[0].getPane(), series: a.series[0] });
+        }
+        return out;
+      },
     });
 
     const fmt = (n) => Sym.of(sub.symbol).num(n);
@@ -400,6 +421,9 @@ const Panes = (() => {
       // floating boxes parented to `root`, and a torn-down chart cannot
       // answer the crosshair subscription still pointed at it
       try { sub.legend.destroy(); } catch { /* never created */ }
+      // …and the plates, which hold a live SVG filter each: a session of
+      // layout changes would otherwise leave one behind per pane ever opened
+      try { sub.xhair.destroy(); } catch { /* never created */ }
       try { chart.remove(); } catch { /* already gone */ }
       root.remove();
     };

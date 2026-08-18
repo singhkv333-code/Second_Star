@@ -6,61 +6,77 @@ deploy box, get the stock library and the ragged price scale back.
 
     python charto/preview/patch-vendor.py    # idempotent; run after any install
 
-That script carries the same six edits and is the thing to run. This file is
-why they exist. (The alternative is to stop ignoring `vendor/` and commit the
+That script carries the same five edits and is the thing to run. This file is
+why they exist. (Four sections below; §2 carries two of them.) (The alternative is to stop ignoring `vendor/` and commit the
 patched bundle — one decision, not made here.)
 
-They serve two ends. **§1–2: every value on the price scale ends at the same x.**
-Out of the box the library aligns three families of label three different ways,
-so a column of prices comes out ragged next to TradingView's own. **§3–5: the
-scale is one shape and stays there** — every plate the same width and the same
-height, and a constant strip of it at the left kept clear for the alert ⊕ that
-rides it. (The sections group the six edits; §2 carries two of them.)
+They serve one end: **the price scale is ONE column.** Out of the box the
+library left-aligns three families of label against the scale's inner edge and
+sizes each plate to its own text, so a column of prices comes out ragged and
+every plate is a different width. Here every family is **centred on the same
+axis**, in a plate that is always the **scale's own width**, with a constant
+strip at the left kept clear for the alert ⊕ that stands on it.
+
+> **The crosshair's two plates are no longer among them.** They are DOM now
+> (`.xh-plate` in index.html, built in js/xhair.js) so they can be glass like the
+> rest of the app, and the library is told not to draw them at all
+> (`crosshair.{horz,vert}Line.labelVisible: false`). Two patches that existed
+> only to make the canvas crosshair plate behave — one levelling every plate to
+> the crosshair's height, one pinning the pill text to the same right edge as
+> the ticks — went with it.
 
 Measured, not guessed — `_probe.html` (deleted; recreate if needed) wrapped
 `CanvasRenderingContext2D.fillText` and dumped the x, alignment and measured
-width of every label the chart drew. On a 64px scale the answer must be **54**
-for all of them: `width − tickLength(5) − padding(5)`.
+width of every label the chart drew.
 
-> Note on the branches below: `D` / `h.li` is the side the label's ARROW points,
-> not the side the scale is on. For a **right-hand** price scale — ours — `D` is
-> **false**. The first attempt patched the `D === true` branch, which is the one
-> a left-hand scale takes, and changed nothing on screen.
+> **Identifiers are not stable across builds.** Two different minifications of
+> v5.2.0 have been seen in `vendor/`: the price scale's media size is
+> `this.Lp` in one and `this.Qv` in the other, the label font `i.k` in one and
+> `i.P` in the other. Every patch in the script therefore carries a LIST of
+> (before, after) pairs — one per known shape, including the script's own
+> earlier output — and the first `before` that appears exactly once decides the
+> edit. Identifiers below are quoted from the build currently in `vendor/`.
+>
+> Note on the branches: `D` / `h.li` is the side the label's ARROW points, not
+> the side the scale is on. For a **right-hand** price scale — ours — `D` is
+> **false**, and `this.om` ("the scale is on the left") is false too. A first
+> attempt patched the true branches, which is what a left-hand scale takes, and
+> changed nothing on screen.
 
-## 1 · Tick labels, right-aligned
+## 1 · Tick labels, centred
 
 The plain tick labels were drawn left-aligned from the scale's left edge, so
 where they ended depended on how long the number was.
 
 ```js
 // before                                    // after
-t.textAlign = this.Yp ? "right" : "left";    t.textAlign = "right";
-const r = this.Yp ? Math.round(e - n.B)      const r = this.Yp ? Math.round(e - n.B)
-                  : Math.round(e + n.C + n.B);                 : Math.round(this.Lp.width - n.C - n.B);
+t.textAlign = this.om ? "right" : "left";    t.textAlign = "center";
+const r = this.om ? Math.round(e - s.V)      const r = this.om ? Math.round(e - s.V)
+                  : Math.round(e + s.C + s.V);                 : Math.round(this.Qv.width / 2);
 ```
 
-`this.Yp` is "the scale is on the left"; only the right-hand branch moves.
-Probe: `align=left x=10` → `align=right x=54`.
+`s.C` is the tick length and `s.V` the padding; `this.Qv` is the scale's own
+media size. Only the right-hand branch moves.
 
-## 2 · Pill labels, onto that same edge
+## 2 · Pill text onto that same centre
 
-The pills — crosshair, last price, price lines — were left-aligned at x=10 and
-ended at 52.16 for a 42px number, i.e. 2px short of the ticks and further short
-the shorter the number. In the pill geometry (`hi`), the `D === false` branch:
+The pills — the last-price label, and the price lines an armed alert draws —
+were left-aligned at the same inner edge, so they sat in a different place from
+the ticks they stack among. In the pill geometry (`hi`), the `D === false`
+branch:
 
 ```js
-A = E + o + d;              →   A = h.width - i.C - d;
+A = I + o + d;              →   A = h.width / 2;
 ```
 
 and the alignment itself:
 
 ```js
-t.textAlign = h.li ? "right" : "left";   →   t.textAlign = "right";
+t.font = i.P, t.textAlign = h.li ? "right" : "left";   →   … t.textAlign = "center";
 ```
 
-`h` is the media size, `i.C` the tick length, `d` the padding — the same
-`width − tickLength − padding` patch 1 gives the ticks. Only the TEXT moves;
-the pill's background rectangle is patch 3's business.
+`h` is the media size, `o` the tick length, `d` the padding. Only the TEXT
+moves; the pill's background rectangle is patch 3's business.
 
 ## 3 · One pill width — and it is the scale's
 
@@ -71,65 +87,34 @@ at the scale's LEFT edge and free at its right:
 M = i.S + d + f + w + o;    →   M = h.width - _ - 5;
 ```
 
-Two things were wrong with that, and the first version of this patch
-(`… + w + i.C`) only fixed one of them. `o` is `i.C` for a label that draws a
-tick nub and `0` for the crosshair label, so the crosshair pill came out 5px
-narrower than its neighbours and, once patch 2 pushed the text to an absolute
-right edge, that text ran past its own plate. Equalising the families fixed
-that — but every plate still breathed with `w`, and `w` is a measured string.
-Scroll from 980 to 1,005 and the plate grows by a digit; the ⊕ pinned to its
-edge is then either adrift from it or under it. Measured: the same plate came
-out 60px and 62px two zoom steps apart.
+Two things were wrong with that. Every plate breathed with `w`, and `w` is a
+measured string: scroll from 980 to 1,005 and the plate grows by a digit
+(measured — the same plate came out 60px and 62px two zoom steps apart). And a
+plate that hugs its own text cannot hold centred text in the scale's column —
+patch 2 would centre the number in a box that is itself off to one side, which
+is how the last-price pill ended up a small red box at the left of an axis whose
+ticks were centred.
 
 `h.width` is the scale's own media width and `_` its border, so the plate now
-runs the full scale less the 5px `nv()` (§4) reserves at the right — which is
-exactly the widest it ever was, so nothing about the right-hand alignment moves.
-It is simply the same width always. `o` still positions the tick nub inside it;
-`w` no longer decides anything.
+runs the full scale less the 5px patch 4 reserves at the right. It is the same
+width always, and its centre is the column's centre. `o` still positions the
+tick nub inside it; `w` no longer decides anything.
 
 ## 4 · Room at the left edge for the alert ⊕
 
-The mark that arms an alert at a price is drawn INSIDE the crosshair plate, at
-its left end — Groww's placement, and the only one where it needs no opaque disc
-of its own (see `.alert-plus` in index.html). The scale sizes itself to its
-widest number plus a constant, and that constant leaves ~15px clear at the left:
-enough for the 16px ring at a 3px inset in the common case, and 5px short of it
-by the time a price runs to six figures, where the ring landed on the leading
-digit.
+The mark that arms an alert at a price is drawn at the left end of the price
+scale, on the crosshair plate when there is one and on the bare axis when the
+pointer has reached for it (see `.alert-plus` in index.html). The scale sizes
+itself to its widest number plus a constant, and that constant leaves ~15px
+clear at the left: enough for the 16px ring at a 3px inset in the common case,
+and 5px short of it by the time a price runs to six figures, where a centred
+label grows toward the ring from both sides.
 
 ```js
-return us(Math.ceil(i.S + i.C + i.B + i.I + 5 + l))
+return Mn(Math.ceil(i.S + i.C + i.V + i.B + 5 + l))
                                   →   … + 5 + l + 12))
 ```
 
 Twelve, so the strip is ~24px clear at every magnitude. It costs nothing on a
 normal chart: `rightPriceScale.minimumWidth` (js/main.js) floors the scale at
 84px anyway, and an NSE equity's natural width lands under that either way.
-
-## 5 · One pill height — and it is the crosshair's
-
-§3 made every plate the same width; they were still two different heights. The
-plate's height is `fontSize + paddingTop + paddingBottom`, where the two
-paddings each take an extra the LABEL supplies — and only some labels supply
-one. The crosshair's view (`class N`) and the plugin views (`Ot`) set
-`Ti = Ri = 2/12 × fontSize`; the series' last-value label (`ut`) and the price
-lines (`vt`, which is what an armed alert draws) leave both at the `0` the
-defaults hold. Measured on the axis canvas at dpr 1.25: crosshair 27 device px,
-last price 21 — a 4px CSS difference between two plates that stack in the same
-column, one directly under the other.
-
-Rather than add the padding to each view that forgot it — two more edits, and
-one per view family the library grows later — it is taken in the geometry both
-already share (`hi`), where the label's own contribution simply stops being
-consulted:
-
-```js
-u = i.A + this.ei.Ti,   c = i.V + this.ei.Ri,
-                        →   u = i.A + i.P * 2 / 12,   c = i.V + i.P * 2 / 12,
-```
-
-`i.P` is the scale's font size, so this is the crosshair's own expression
-applied to every family — the taller of the two, deliberately: the ⊕ is a 16px
-ring drawn inside the crosshair plate, and levelling down to 17px would leave it
-half a pixel of air on each side. `Ti`/`Ri` are now unread; nothing else sets
-them.

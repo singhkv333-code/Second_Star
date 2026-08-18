@@ -19,46 +19,75 @@ BUNDLE = os.path.join(
     "vendor", "lightweight-charts.standalone.production.js",
 )
 
-# (name, befores, after). Every one of them serves a single end: each family of
-# price-scale label ends at the same x, `width - tickLength - padding`, in a
-# plate that is always the same size — the same width, and the same height.
+# (name, [(before, after), ...]). Every one of them serves a single end: the
+# price scale is ONE column — every family of label centred on the same axis,
+# in a plate that is always the scale's own width, with a constant strip at the
+# left kept clear for the alert mark that stands on it.
 #
-# `befores` is a tuple because a patch may be re-derived: an earlier release of
-# this script left its own shape in the bundle, and a re-run has to recognise
-# that shape as "stock" too rather than stopping on a file it wrote itself.
+# Each patch carries a LIST of (before, after) pairs because the same edit has
+# to be expressed against more than one shape of the file. Two of them are
+# different minifications of v5.2.0 — the identifiers are not stable across
+# builds, so `this.Lp.width` in one is `this.Qv.width` in the next — and the
+# rest are this script's own earlier output, which a re-run has to recognise as
+# something to rewrite rather than stop on. The FIRST pair whose `before`
+# appears exactly once decides the edit; every pair's `after` counts as "already
+# applied", so a bundle patched by an older release of this script is left alone
+# only when that older shape is still the intended one.
 PATCHES = [
     (
-        "tick labels right-aligned",
-        ('t.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
-         'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',),
-        't.textAlign="right",t.textBaseline="middle";'
-        'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)',
+        "tick labels centred on the scale",
+        [
+            # build A (identifiers om / Qv / s.C,s.V) — stock
+            ('t.textAlign=this.om?"right":"left",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(e+s.C+s.V)',
+             't.textAlign="center",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(this.Qv.width/2)'),
+            # build B (identifiers Yp / Lp / n.B,n.C) — stock
+            ('t.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',
+             't.textAlign="center",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width/2)'),
+            # build B, right-aligned by an earlier release of this script
+            ('t.textAlign="right",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)',
+             't.textAlign="center",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width/2)'),
+        ],
     ),
     (
-        "pill text onto that same edge",
-        ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',),
-        'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)',
+        "pill text onto that same centre",
+        [
+            ('let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=I+o+d)',
+             'let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=h.width/2)'),
+            ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',
+             'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width/2)'),
+            ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)',
+             'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width/2)'),
+        ],
     ),
     (
         "pill text alignment",
-        ('t.font=i.k,t.textAlign=h.li?"right":"left"',),
-        't.font=i.k,t.textAlign="right"',
+        [
+            ('t.font=i.P,t.textAlign=h.li?"right":"left"', 't.font=i.P,t.textAlign="center"'),
+            ('t.font=i.k,t.textAlign=h.li?"right":"left"', 't.font=i.k,t.textAlign="center"'),
+            ('t.font=i.k,t.textAlign="right"', 't.font=i.k,t.textAlign="center"'),
+        ],
     ),
     (
         "one pill width, and it is the scale's",
-        ('M=i.S+d+f+w+o,',          # stock
-         'M=i.S+d+f+w+i.C,'),       # this script's own earlier shape
-        'M=h.width-_-5,',
+        [
+            ('M=i.S+d+f+w+o,', 'M=h.width-_-5,'),
+            ('M=i.S+d+f+w+i.C,', 'M=h.width-_-5,'),
+        ],
     ),
     (
         "room at the scale's left edge for the alert mark",
-        ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',),
-        'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
-    ),
-    (
-        "one pill height, and it is the crosshair's",
-        ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',),
-        'u=i.A+i.P*2/12,c=i.V+i.P*2/12,',
+        [
+            ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l))',
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+12))'),
+            ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))'),
+        ],
     ),
 ]
 
@@ -71,23 +100,23 @@ def main() -> int:
     src = open(BUNDLE, encoding="utf8").read()
     applied, already, missing = [], [], []
 
-    for name, befores, after in PATCHES:
-        if after in src:
+    for name, variants in PATCHES:
+        if any(after in src for _, after in variants):
             already.append(name)
             continue
-        hit = next((b for b in befores if src.count(b) == 1), None)
+        hit = next(((b, a) for b, a in variants if src.count(b) == 1), None)
         if hit is not None:
-            src = src.replace(hit, after)
+            src = src.replace(hit[0], hit[1])
             applied.append(name)
         else:
-            # No shape this patch knows how to rewrite: a different version of
+            # No shape this patch knows how to rewrite: a different build of
             # the library, and guessing at it would be worse than stopping.
-            counts = ", ".join(str(src.count(b)) for b in befores)
+            counts = ", ".join(str(src.count(b)) for b, _ in variants)
             missing.append(f"{name} (matches: {counts})")
 
     if missing:
-        print("FAILED — the bundle does not look like the version these were "
-              "written against (5.2.0). Do not force it; re-derive the patches "
+        print("FAILED — the bundle does not look like any build these were "
+              "written against (v5.2.0). Do not force it; re-derive the patches "
               "against the new source. See VENDOR_PATCHES.md.")
         for m in missing:
             print("  -", m)
