@@ -3077,8 +3077,10 @@
     `<div class="item" data-acct="shortcuts"><span class="lead">`
     + Icons.svg("keyboard", "xs") + `Keyboard shortcuts</span>`
     + `<span class="sc">Ctrl + /</span></div>`;
-  const THEME_ROW = () => `<div class="item" data-acct="theme"><span class="lead">`
-    + themeBtn.innerHTML + `</span></div>`;
+  const THEME_ROW = () => `<div class="item" data-acct="theme" role="switch" `
+    + `aria-checked="${Theme.mode === "dark"}"><span class="lead">`
+    + Icons.svg(Theme.mode === "dark" ? "moon" : "sun", "xs")
+    + `<span>Dark mode</span></span><span class="theme-switch${Theme.mode === "dark" ? " on" : ""}" aria-hidden="true"></span></div>`;
 
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);

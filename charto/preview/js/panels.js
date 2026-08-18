@@ -861,6 +861,7 @@ const Panels = (() => {
   bar.innerHTML = WIDGETS.map((w) =>
     `<button type="button" class="tool" id="wb-${w.id}" data-widget="${w.id}" ` +
     `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
+    `<span class="wbar-label">${w.label}</span>` +
     `<span class="tip">${w.label}</span></button>`).join("");
 
   if (tabs) {
