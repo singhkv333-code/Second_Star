@@ -203,7 +203,9 @@ const Ctx = (() => {
    * module's inline style outranks it wherever it lands.
    */
   function glaze(m) {
-    if (!window.liquidGlass) return;
+    // Guarded, because the observer below can be handed the same long-lived
+    // menu on every open — a second lens on one element leaks the first.
+    if (!window.liquidGlass || m.__lg) return;
     try {
       m.__lg = liquidGlass(m, { scale: -42, chroma: 3, border: .09, mapBlur: 10,
                                 blur: 7, saturate: 1.45, fallbackBlur: 22 });
@@ -339,6 +341,45 @@ const Ctx = (() => {
     removeEventListener("resize", close);
     removeEventListener("blur", close);
     removeEventListener("wheel", close, { capture: true });
+  }
+
+  /* ── the same lens, for every other menu in the app ──────────────────────
+   * The header's lists and the rail's tool flyouts are `.dropdown`s — built by
+   * js/main.js, and by three dialog modules that have never heard of this file.
+   * They are the same object a right-click sheet is: a list of rows floated
+   * over candles. They wear the same paper in the stylesheet, and this gives
+   * them the same refraction.
+   *
+   * An OBSERVER rather than a call at each site. A dropdown is opened from a
+   * dozen places (a header button, a rail hover, a keyboard shortcut, a dialog
+   * re-render) and a glaze() bolted onto each of them is a dozen chances for
+   * the next menu to be added without one. `.open` is the one thing they all
+   * do, so that is what is watched.
+   *
+   * Glazed on first open and KEPT. These are long-lived nodes that spend most
+   * of their life display:none, where a filter costs nothing, and the module's
+   * own ResizeObserver re-generates the map when the list's size changes — so
+   * there is nothing to tear down and no work on the second open.
+   *
+   * `.select-menu` is skipped: it opens inside an opaque settings dialog, where
+   * glass has nothing behind it to refract (see the note beside its rule). */
+  function glazeMenus(root) {
+    const wanted = (n) => n && n.classList && n.classList.contains("dropdown")
+      && !n.classList.contains("select-menu");
+    for (const n of root.querySelectorAll(".dropdown.open")) {
+      if (wanted(n)) glaze(n);
+    }
+    new MutationObserver((recs) => {
+      for (const r of recs) {
+        const n = r.target;
+        if (wanted(n) && n.classList.contains("open")) glaze(n);
+      }
+    }).observe(root, { subtree: true, attributes: true, attributeFilter: ["class"] });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => glazeMenus(document.body));
+  } else {
+    glazeMenus(document.body);
   }
 
   return { open, close, isOpen: () => chain.length > 0 };

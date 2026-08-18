@@ -1017,18 +1017,6 @@
     return pe ? clientY - pe.getBoundingClientRect().top : clientY;
   }
 
-  /** True only when the pointer is over the pane's plotted area. Unlike
-   *  paneAtClient(), this deliberately has no price-pane fallback: chart axes
-   *  and other chrome live inside #chart too, but must not reveal controls
-   *  that are meaningful only over data. */
-  function isInsidePane(clientX, clientY, key) {
-    const p = panesList().find((q) => q.key === key);
-    const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
-    if (!pe) return false;
-    const r = pe.getBoundingClientRect();
-    return clientX >= r.left && clientX <= r.right
-        && clientY >= r.top && clientY <= r.bottom;
-  }
 
   const draw = Drawings.create(chart, candle, {
     getBars: () => state.bars,
@@ -2592,7 +2580,7 @@
    * is nothing here to hold on to. It re-asserts --axis-w / --time-axis-h as
    * the pointer moves; syncChartMetrics above is what puts them up before the
    * pointer has moved at all, and on every resize of the container. */
-  Xhair.attach(chart, {
+  const xhair = Xhair.attach(chart, {
     root: stageEl, canvas: chartEl, panes: panesList,
     intervalSec: () => IV_SEC[state.interval],
   });
@@ -2655,15 +2643,24 @@
   }
 
   function syncPlus(clientX, clientY) {
-    // coordinateToPrice answers null until the series has data and the price
-    // scale has been laid out, so for the first moment after a load there is
-    // simply no price under the pointer to offer. Nothing to report: the mark
-    // stays away and appears as soon as there is.
+    /* THE PLATE DECIDES, not the pointer. The mark is printed on the crosshair's
+     * price plate, so it appears exactly when that plate does, at exactly its y,
+     * carrying exactly the price written on it — one answer to "what level is
+     * being pointed at" instead of two that can drift apart.
+     *
+     * Which is also the whole of the fix for the mark that used to appear on
+     * the bare price scale with nothing around it: the plate does not follow the
+     * pointer over there (js/xhair.js), so neither does the mark. It survives
+     * only the straight reach the plate itself survives.
+     *
+     * Only over the PRICE pane: an alert is a level in rupees, and the plate
+     * over an RSI pane is reading a different scale. Only with the cursor tool
+     * and only signed in — an alert lives on the server, so offering the button
+     * to a signed-out user could only end in a refusal. */
+    const plate = xhair.plate();
     if (!Auth.user || draw.state.tool !== "cursor"
-        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
-    const y = yInPane(clientY, "price");
-    const px = y === null ? null : candle.coordinateToPrice(y);
-    if (px == null || !isFinite(px)) return hidePlus();
+        || !plate.shown || plate.key !== "price"
+        || plate.value == null || !isFinite(plate.value)) return hidePlus();
     // isConnected, not a null check: the chart library owns this container and
     // rebuilds its contents, so the node we made can be gone while the variable
     // still holds it.
@@ -2673,9 +2670,9 @@
     // of the container, which a symbol change does not cause. Guarded against
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
+    const px = plate.value;
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    const box = chartEl.getBoundingClientRect();
-    alertPlus.style.top = (clientY - box.top) + "px";
+    alertPlus.style.top = plate.top + "px";
     alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
       { maximumFractionDigits: 2 })}`;
     alertPlus.classList.add("show");
@@ -2684,6 +2681,9 @@
     alertPlus.classList.toggle("hot", onPlus(clientX, clientY));
   }
 
+  /* AFTER Xhair's own listener, which was bound further up this file — the
+   * mark reads the plate's state, so the plate has to have decided first.
+   * Registration order is what guarantees that. */
   chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
   chartEl.addEventListener("mouseleave", hidePlus);
   document.addEventListener("charto:draw-select", hidePlus);

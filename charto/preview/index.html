@@ -464,9 +464,15 @@ select.is-dressed { display: none; }
 /* The option list is the app's menu, not the OS's. Two classes deep so it
    outranks .dropdown's own `position: absolute; top: calc(100% + 6px)` —
    this one is placed in viewport coordinates by js/dlgkit.js. */
+/* The one menu that is NOT glass. This list opens inside a settings dialog —
+   an opaque card, over which a frosted sheet has nothing to refract and only
+   reads as a smudge — and it is a field's own values rather than something
+   floated over the chart. Opaque paper, and js/ctxmenu.js's observer skips it. */
 .dropdown.select-menu {
   position: fixed; top: auto; left: auto; z-index: 220; padding: var(--menu-pad);
   border-radius: 6px; box-shadow: none; max-height: 280px; min-width: 132px;
+  background: var(--menu-bg); border-color: var(--border);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 /* only the TYPE differs from a header menu's row — this list sits inside the
    indicator dialog, where every control is 14px. The box is the app's. */
@@ -565,12 +571,31 @@ select.is-dressed { display: none; }
 }
 
 /* dropdown-menu
-   The one surface that is NOT the card paper: a menu is the crisp white
-   sheet Groww/TradingView float over a chart, on the 6px radius .dlg already
-   measured off TradingView's own dialog. See --menu-bg. */
+   The one surface that is NOT the card paper: a menu is a sheet floated over a
+   chart, on the 6px radius .dlg already measured off TradingView's own dialog.
+
+   GLASS, on the same paper the right-click menus use (--ctx-*), because they
+   ARE the same object: a list of rows covering candles. The header's lists and
+   the rail's tool flyouts were the last opaque white cards left in the app, and
+   an opaque card over a chart hides how much of the chart it is standing on.
+   The rim and the two inset sheen lines are what read as thickness; the
+   refraction comes from vendor/liquid-glass.js, attached the first time a menu
+   opens (see the observer at the foot of js/ctxmenu.js — one lens for every
+   sheet in this app, rather than a second copy of its settings here).
+
+   The backdrop-filter below is the FLOOR: it is what Safari and Firefox get,
+   and what a menu wears for the frame before the module attaches. Where a
+   backdrop cannot be filtered at all it falls back to the opaque paper — a
+   translucent sheet with nothing behind it is unreadable, which is worse than
+   an honest solid one. */
 .menu-wrap { position: relative; }
 .dropdown {
-  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
+  background: var(--ctx-paper); border-radius: 6px;
+  border: 1px solid var(--ctx-rim);
+  box-shadow: inset 0 1px 0 var(--ctx-sheen), inset 0 -1px 0 var(--ctx-sheen-low),
+              var(--ctx-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
   min-width: 224px; padding: var(--menu-pad); display: none;
   /* a long menu (Indicators is 20 items) must scroll inside itself rather
@@ -856,7 +881,7 @@ select.is-dressed { display: none; }
   --ctx-shadow: 0 1px 2px rgba(15, 18, 22, .12), 0 12px 34px -10px rgba(15, 18, 22, .28);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .ctx { background: var(--menu-bg); }
+  .ctx, .dropdown { background: var(--menu-bg); }
 }
 
 /* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
@@ -1733,18 +1758,16 @@ header > .btn, header > .badge { flex: none; }
   left: calc(100% + 14px); top: -6px; right: auto;
   min-width: 263px; padding: var(--menu-pad);
   border-radius: 6px;
-  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .2);
+  /* No box-shadow of its own any more: the base .dropdown is glass, and a flat
+     drop shadow written over its two inset sheen lines erased the rim that
+     reads as thickness — the flyout came out a plain white card standing
+     beside three glass ones. */
   /* Lines carries seventeen tools across three sections now. On a short
      laptop that card is taller than the window, and a flyout whose last
      rows are off the bottom of the screen offers tools you cannot reach.
      It scrolls instead — the rail button stays where it is, which is what
      keeps the pointer's path to the menu short. */
   max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain;
-}
-:root[data-theme="dark"] .tool-wrap > .dropdown.side {
-  /* on a true-black page the same 20% wash is invisible; the edge does the
-     work there, and the shadow only has to seat the card off the chart */
-  box-shadow: 0 2px 8px 0 rgba(0, 0, 0, .6);
 }
 /* A section label, not a bordered header: a heading here names the band of
    rows UNDER it, so the rule the base .head draws would sit between a label
@@ -4647,22 +4670,31 @@ body.two-columns .readout .row { display: none; }
      the first frame, before the scale has been laid out. The plate starts at
      the scale's left edge, so `--axis-w − 19px` insets the 16px ring 3px into
      it — Groww draws its own at the same inset. */
-  position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 6;
+  /* z-index 8, ABOVE the crosshair's price plate (7) — and that is the whole
+     reason the mark used to be a ghost. It sat at 6, the plate went to 7 when
+     it became glass, and `#chart` does not create a stacking context of its own
+     — so the plate was painted OVER the mark and what reached the eye was a ⊕
+     seen through frosted glass (measured: the ring came out 109 on a plate at
+     65, a 44-level difference where the ink is a 250). No amount of re-colouring
+     fixes a thing that is behind the frost. The plate's backdrop-filter only
+     touches what is painted BELOW it, so at 8 the mark is drawn crisp on top. */
+  position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 8;
   width: 16px; height: 16px; margin-top: -8px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  /* THE APP'S INK, not white. It used to be white because the plate under it
-     was a dark slate in both themes and the library printed white on it; the
-     plate is glass now (.xh-plate), carrying --foreground like every other
-     surface in this app, and a white ring on frosted white is not a mark.
-     One ink, and it reads on the glass and on the bare axis alike. */
-  border: 1px solid color-mix(in srgb, var(--foreground) 40%, transparent);
+  /* THE APP'S INK, at near-full strength. It was white once, because the plate
+     under it was a dark slate in both themes and the library printed white on
+     it; the plate is glass now and carries --foreground like every other
+     surface here. */
+  border: 1px solid color-mix(in srgb, var(--foreground) 72%, transparent);
   border-radius: 50%;
-  /* An OPAQUE disc of the chart's own background. The plate deliberately does
-     not follow the pointer onto the price scale (js/main.js says why), and the
-     reach for this mark ends there — so for those last twenty pixels the ring
-     is standing on bare axis, and without a fill of its own it would be a
-     hairline circle drawn over a tick label. */
-  background: var(--chart-bg); color: color-mix(in srgb, var(--foreground) 78%, transparent);
+  /* A faint chip of the ink rather than an opaque disc. The mark now appears
+     ONLY on the plate — it is hidden the moment the plate is (js/main.js), and
+     the plate is frozen rather than dropped for the reach that ends on this
+     mark — so there is never bare axis behind it to cover. A solid fill here
+     read as a hole punched in the glass; this reads as a control resting on
+     it. */
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  color: var(--foreground);
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr),
@@ -4676,10 +4708,12 @@ body.two-columns .readout .row { display: none; }
    resting on a mark is not a state the chart is in — a coloured disc here would
    also be a coloured disc landing on a coloured plate. */
 .alert-plus.hot {
-  /* Full ink and a tint of the accent — still OPAQUE, because the case above
-     (no plate behind it) is exactly the moment the pointer is on the mark. */
-  color: var(--primary); border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 14%, var(--chart-bg));
+  /* FILLED with the accent, not tinted by it. `hot` is set the moment the
+     pointer is on the mark and the next click will arm an alert — the one
+     instant in this interaction where the app should be unambiguous. A 14%
+     wash was not: on the plate it read as the same grey disc. */
+  color: #fff; border-color: var(--primary);
+  background: var(--primary);
 }
 /* The bare + inside the 16px ring — a little under half the circle, drawn
    heavier than the ring so the mark reads as a button with an action rather
@@ -6756,7 +6790,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=27"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=6"></script>
+  <script src="./js/ctxmenu.js?v=7"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -6785,9 +6819,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/tools.js?v=17"></script>
   <script src="./js/drawings.js?v=26"></script>
   <script src="./js/scene.js?v=35"></script>
-  <script src="./js/xhair.js?v=1"></script>
+  <script src="./js/xhair.js?v=2"></script>
   <script src="./js/panes.js?v=16"></script>
-  <script src="./js/main.js?v=103"></script>
+  <script src="./js/main.js?v=105"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>

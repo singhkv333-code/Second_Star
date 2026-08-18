@@ -133,24 +133,67 @@ const Xhair = (() => {
       return `${date}  ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
     }
 
+    /* WHERE THE READOUT IS, as one object, because two things draw on it: this
+     * module, and the alert ⊕ that stands at the plate's left end (js/main.js).
+     * The mark used to take its own price and its own y from the pointer, which
+     * is a second answer to the same question — and the moment the plate stopped
+     * following the pointer onto the scale, the two disagreed and the mark was
+     * left standing on bare axis with nothing under it. */
+    const cur = { shown: false, top: 0, key: null, value: null };
+
+    /* THE REACH. The plates do not follow the pointer onto the price scale —
+     * over there the price they would print is the price of the row the pointer
+     * is already on, under a plate covering that very tick. But the ⊕ IS on the
+     * scale (it has to be: on the plot it covered candles and ate the clicks
+     * meant for drawings), so hiding everything the instant the pointer crosses
+     * the boundary makes the one-click alert unreachable.
+     *
+     * So the plate holds — frozen, not tracking — for a STRAIGHT reach at the
+     * mark, and for nothing else. `reachY` is the y the pointer left the plot
+     * at; drift more than a mark's height from it and the hold is over and does
+     * not come back until the pointer has been on the plot again. Hovering the
+     * scale, running up and down it, dragging it to rescale, or arriving on it
+     * from the toolbar all break the leash on the first move, which is every
+     * way of being "on the price axis" that is not reaching for the mark. */
+    const REACH = 14;
+    let reachY = null;
+
     function hide() {
+      reachY = null;
+      cur.shown = false; cur.key = null; cur.value = null;
       price.classList.remove("show");
       time.classList.remove("show");
     }
 
+    /** Freeze: leave both plates exactly where they are. Nothing is recomputed,
+     *  so the price under the mark is still the price the pointer chose. */
+    const holdStill = () => cur;
+
     function sync(clientX, clientY) {
       const m = metrics();
       const row = rowAt(clientY);
-      if (!row || !inPlot(row, clientX, clientY, m.w)) return hide();
+      if (!row || !inPlot(row, clientX, clientY, m.w)) {
+        const box0 = env.canvas.getBoundingClientRect();
+        const onScale = clientX >= box0.right - m.w && clientX <= box0.right
+          && clientY >= box0.top && clientY <= box0.bottom;
+        if (onScale && reachY !== null && Math.abs(clientY - reachY) <= REACH
+            && cur.shown) return holdStill();
+        return hide();
+      }
+      reachY = clientY;
       const box = env.canvas.getBoundingClientRect();
 
       const pe = row.pane.getHTMLElement();
       const y = clientY - pe.getBoundingClientRect().top;
       const v = row.series.coordinateToPrice(y);
-      if (v == null || !isFinite(v)) price.classList.remove("show");
-      else {
+      if (v == null || !isFinite(v)) {
+        price.classList.remove("show");
+        cur.shown = false; cur.value = null;
+      } else {
         price.textContent = fmtValue(row, v);
-        price.style.top = (clientY - box.top) + "px";
+        cur.top = clientY - box.top;
+        cur.shown = true; cur.key = row.key; cur.value = v;
+        price.style.top = cur.top + "px";
         price.classList.add("show");
       }
 
@@ -177,6 +220,10 @@ const Xhair = (() => {
 
     return {
       sync, hide,
+      /** The price plate's current state, for anything that has to stand ON it.
+       *  `top` is in the chart container's coordinates, `value` is the pane's
+       *  own raw number and `key` says which pane's units that is. */
+      plate: () => cur,
       /** For an owner that is torn down — a secondary pane dies with its
        *  layout, and a live SVG filter per pane ever opened is a leak. */
       destroy() {
