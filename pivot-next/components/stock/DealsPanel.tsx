@@ -3,21 +3,34 @@
 /**
  * Bulk and block deals — the only public surface that names who traded size.
  *
- * Both legs of a block are separate rows in the source and stay separate here.
- * Collapsing a matched pair into one line would hide which side a named fund
- * was on, which is the entire reason to look at this table.
+ * This was a date rail with two rows under each date, and it was the third
+ * thing on the page built out of exactly that: a label, a bar, a number. The
+ * page does not need a fourth list — it needs this section to answer the
+ * question the list could not, which is WHERE in the price history the size
+ * changed hands.
  *
- * A deal is a moment, so the layout is a timeline rather than a grid: the date
- * carries the left rail, and the rows under it are what happened that day.
+ * So the deals are plotted against price and time. A block at ₹774 in June and
+ * one at ₹992 the previous November are the same row in a list and a very
+ * different picture on an axis, and the axis is the picture the reader wants.
+ *
+ * Buy and sell legs of one block sit at identical coordinates, so the two
+ * sides are drawn as separate series with opposite pixel offsets — otherwise
+ * the second leg paints exactly over the first and half the deals vanish.
  */
 
+import dynamic from "next/dynamic";
 import * as React from "react";
 
 import type { Deal, DealsResponse } from "@/lib/api";
-import { EmptyNote, PanelHead, Segmented } from "./chrome";
+import { EmptyNote, PanelHead } from "./chrome";
 
-const BUY = "var(--color-profit)";
-const SELL = "var(--color-loss)";
+const EChart = dynamic(() => import("./EChart"), {
+  ssr: false,
+  loading: () => <div style={{ height: 260 }} />,
+});
+
+const BUY = "#4F8A5B";
+const SELL = "#C4643F";
 
 function dayLabel(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -25,24 +38,21 @@ function dayLabel(iso: string): string {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function crore(v: number | null): string {
+function crore(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
-  if (Math.abs(v) >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
-  if (Math.abs(v) >= 1e5) return `₹${(v / 1e5).toFixed(2)} L`;
-  return `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  const a = Math.abs(v);
+  const sign = v < 0 ? "−" : "";
+  if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(2)} Cr`;
+  if (a >= 1e5) return `${sign}₹${(a / 1e5).toFixed(2)} L`;
+  return `${sign}₹${a.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-/** Client names arrive in block capitals with the exchange's own account
- *  suffixes attached ("… MTBJ400045828"). The suffix is a settlement id, not
- *  part of anyone's name, so it is dropped and the rest cased back.
+/** Client names arrive in block capitals with the exchange's own settlement id
+ *  attached ("… MTBJ400045828"). The id is not part of anyone's name.
  *
- *  Cased UNIFORMLY. The obvious refinement — keep the vowel-less abbreviations
- *  the exchange uses ("TRST", "INVSTMNT") in capitals — produced rows reading
- *  "The Mtbj LTD. As TRST For GOVRNMNT Pension INVSTMNT Fund", which shouts in
- *  six places instead of one. A name that is uniformly quiet is easier to read
- *  than one that tries to preserve a source's own inconsistency. Only true
- *  initialisms are held back.
- */
+ *  Cased uniformly. Keeping the exchange's vowel-less abbreviations in capitals
+ *  produced "The Mtbj LTD. As TRST For GOVRNMNT Pension INVSTMNT Fund", which
+ *  shouts in six places instead of none; only true initialisms are held back. */
 const ACRONYMS = new Set([
   "ETF", "UTI", "LIC", "SBI", "NPS", "HDFC", "ICICI", "IDFC", "AMC",
   "LLP", "PTE", "PLC", "ODI", "LP", "NV", "BV", "SA", "AG", "II", "III",
@@ -56,25 +66,148 @@ function cleanClient(raw: string): string {
     .map((w) => {
       const bare = w.replace(/[^a-z]/g, "").toUpperCase();
       if (ACRONYMS.has(bare)) return w.toUpperCase();
-      // Capitalise the first LETTER, not the first character — "(singapore)"
-      // starts with a bracket, and charAt(0) left it lower-case.
       return w.replace(/[a-z]/, (c) => c.toUpperCase());
     })
     .join(" ");
 }
 
-type Filter = "all" | "block" | "bulk";
-
 export function DealsPanel({ data }: { data: DealsResponse }): React.ReactElement {
-  const [filter, setFilter] = React.useState<Filter>("all");
-  const [all, setAll] = React.useState(false);
+  const [showList, setShowList] = React.useState(false);
 
-  const deals = React.useMemo(
-    () => (filter === "all" ? data.deals : data.deals.filter((d) => d.kind === filter)),
-    [data.deals, filter],
+  const deals = data.deals ?? [];
+
+  /** Net and gross by counterparty. A fund that bought and sold the same
+   *  quantity nets to nothing and belongs low in the list however loud its
+   *  two rows looked; gross decides the ordering, net decides the colour. */
+  const parties = React.useMemo(() => {
+    const m = new Map<string, { name: string; net: number; gross: number; n: number }>();
+    deals.forEach((d) => {
+      const name = cleanClient(d.client);
+      const v = d.value ?? 0;
+      const signed = d.side?.toUpperCase() === "BUY" ? v : -v;
+      const cur = m.get(name) ?? { name, net: 0, gross: 0, n: 0 };
+      cur.net += signed;
+      cur.gross += v;
+      cur.n += 1;
+      m.set(name, cur);
+    });
+    return [...m.values()].sort((a, b) => b.gross - a.gross);
+  }, [deals]);
+
+  const option = React.useMemo(() => (deals.length ? scatterOption(deals) : null), [deals]);
+
+  if (!data.available || !deals.length) {
+    return <EmptyNote>No bulk or block deals reported for this symbol.</EmptyNote>;
+  }
+
+  const maxNet = Math.max(...parties.map((p) => Math.abs(p.net)), 1);
+  const topParties = parties.slice(0, 6);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PanelHead
+        title="Bulk and block deals"
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11.5, color: "var(--text-secondary)" }}>
+            <Key tone={BUY} label="Buy" />
+            <Key tone={SELL} label="Sell" />
+          </div>
+        }
+      />
+
+      {option ? (
+        <EChart option={option} height={260} ariaLabel="Bulk and block deals by price and date" />
+      ) : null}
+
+      {/* Who was on the other side, netted. This is the part a list of matched
+          pairs actively hides: both legs look equally large, and only the sum
+          says which way a fund actually moved. */}
+      <div style={{ borderTop: "1px solid var(--glass-border)", paddingTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+            Counterparties
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowList((v) => !v)}
+            style={{
+              border: "none", background: "transparent", padding: 0, cursor: "pointer",
+              fontFamily: "var(--font-ui)", fontSize: 11.5, color: "var(--text-secondary)",
+            }}
+          >
+            {showList ? "Hide every deal" : `Show all ${deals.length} deals`}
+          </button>
+        </div>
+
+        <div className="deal-parties" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 28 }}>
+          {topParties.map((p) => {
+            const tone = p.net > 0 ? BUY : p.net < 0 ? SELL : "var(--text-tertiary)";
+            const half = Math.min(50, (Math.abs(p.net) / maxNet) * 50);
+            return (
+              <div
+                key={p.name}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0,1fr) 88px 82px",
+                  gap: 12,
+                  alignItems: "center",
+                  minHeight: 36,
+                  borderTop: "1px solid var(--glass-border)",
+                }}
+              >
+                <span
+                  style={{ fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={p.name}
+                >
+                  {p.name}
+                </span>
+                {/* Diverging from a fixed centre: the side is the finding. */}
+                <span style={{ position: "relative", height: 14, display: "block" }}>
+                  <span style={{ position: "absolute", inset: 0, top: 5, height: 4, borderRadius: 2, background: "var(--bg-elevated)" }} />
+                  <span style={{ position: "absolute", left: "50%", top: 0, width: 1, height: 14, background: "var(--glass-border-hover)" }} />
+                  <span
+                    style={{
+                      position: "absolute", top: 5, height: 4, borderRadius: 2, background: tone,
+                      left: p.net >= 0 ? "50%" : `${50 - half}%`, width: `${half}%`,
+                    }}
+                  />
+                </span>
+                <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone }}>
+                  {crore(p.net)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {showList ? <DealList deals={deals} /> : null}
+
+      <style>{`
+        @media (max-width: 720px) {
+          .deal-parties { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 640px) {
+          .deal-day { grid-template-columns: 1fr !important; gap: 6px !important; }
+        }
+      `}</style>
+    </div>
   );
+}
 
-  // Grouped by day, newest first — the source is already in that order.
+function Key({ tone, label }: { tone: string; label: string }): React.ReactElement {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: tone }} />
+      {label}
+    </span>
+  );
+}
+
+/** Every deal, grouped by day. Behind a toggle: it is the audit trail, not the
+ *  headline, and it was the headline for exactly as long as it took to read it
+ *  once. */
+function DealList({ deals }: { deals: Deal[] }): React.ReactElement {
   const days = React.useMemo(() => {
     const out: { day: string; rows: Deal[] }[] = [];
     deals.forEach((d) => {
@@ -85,132 +218,117 @@ export function DealsPanel({ data }: { data: DealsResponse }): React.ReactElemen
     return out;
   }, [deals]);
 
-  const shown = all ? days : days.slice(0, 6);
-  const kinds = new Set(data.deals.map((d) => d.kind));
-
-  if (!data.available || !data.deals.length) {
-    return <EmptyNote>No bulk or block deals reported for this symbol.</EmptyNote>;
-  }
-
-  const biggest = Math.max(...data.deals.map((d) => d.value ?? 0), 1);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <PanelHead
-        title="Bulk and block deals"
-        right={
-          kinds.size > 1 ? (
-            <Segmented
-              value={filter}
-              options={[
-                { value: "all", label: "All" },
-                { value: "block", label: "Block" },
-                { value: "bulk", label: "Bulk" },
-              ]}
-              onChange={(v) => setFilter(v as Filter)}
-            />
-          ) : undefined
-        }
-      />
-
-      <div style={{ borderTop: "1px solid var(--glass-border)" }}>
-        {shown.map(({ day, rows }) => (
-          <div
-            key={day}
-            className="deal-day"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "128px minmax(0, 1fr)",
-              gap: 20,
-              padding: "13px 0",
-              borderBottom: "1px solid var(--glass-border)",
-            }}
-          >
-            <div style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)", paddingTop: 2 }}>
-              {dayLabel(day)}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 9, minWidth: 0 }}>
-              {rows.map((d, i) => (
-                <DealRow key={`${d.client}-${d.side}-${i}`} deal={d} biggest={biggest} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {days.length > 6 ? (
-        <button
-          type="button"
-          onClick={() => setAll((v) => !v)}
+    <div style={{ borderTop: "1px solid var(--glass-border)" }}>
+      {days.map(({ day, rows }) => (
+        <div
+          key={day}
+          className="deal-day"
           style={{
-            alignSelf: "flex-start",
-            border: "none",
-            background: "transparent",
-            padding: 0,
-            cursor: "pointer",
-            fontFamily: "var(--font-ui)",
-            fontSize: 11.5,
-            color: "var(--text-secondary)",
+            display: "grid",
+            gridTemplateColumns: "120px minmax(0, 1fr)",
+            gap: 18,
+            padding: "10px 0",
+            borderBottom: "1px solid var(--glass-border)",
           }}
         >
-          {all ? "Show recent" : `Show all ${days.length} days`}
-        </button>
-      ) : null}
-
-      <style>{`
-        @media (max-width: 640px) {
-          .deal-day { grid-template-columns: 1fr !important; gap: 8px !important; }
-        }
-      `}</style>
+          <div style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)", paddingTop: 1 }}>
+            {dayLabel(day)}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+            {rows.map((d, i) => {
+              const isBuy = d.side?.toUpperCase() === "BUY";
+              return (
+                <div key={`${d.client}-${d.side}-${i}`} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "baseline" }}>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: isBuy ? BUY : SELL, flexShrink: 0 }}>
+                      {isBuy ? "BUY" : "SELL"}
+                    </span>
+                    <span
+                      style={{ fontSize: 12.5, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={d.client}
+                    >
+                      {cleanClient(d.client)}
+                    </span>
+                    {d.kind === "bulk" ? (
+                      <span style={{ fontSize: 10, color: "var(--text-tertiary)", flexShrink: 0 }}>bulk</span>
+                    ) : null}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    {d.qty?.toLocaleString("en-IN")} @ ₹{d.price?.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                    <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>  {crore(d.value)}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function DealRow({ deal, biggest }: { deal: Deal; biggest: number }): React.ReactElement {
-  const isBuy = deal.side?.toUpperCase() === "BUY";
-  const tone = isBuy ? BUY : SELL;
-  const width = Math.max(3, ((deal.value ?? 0) / biggest) * 100);
+/** Deals against price and time.
+ *
+ *  Bubble area — not radius — tracks deal value, so a block ten times the size
+ *  looks ten times the size. ECharts sizes by diameter, hence the square root.
+ */
+function scatterOption(deals: Deal[]): Record<string, unknown> {
+  const values = deals.map((d) => d.value ?? 0);
+  const maxV = Math.max(...values, 1);
+  const size = (v: number): number => 6 + Math.sqrt(v / maxV) * 22;
 
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center" }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          {/* The side is the first thing read, so it carries the colour and
-              nothing else on the row competes for it. */}
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.05em", color: tone, flexShrink: 0 }}>
-            {isBuy ? "BUY" : "SELL"}
-          </span>
-          <span
-            style={{
-              fontSize: 12.5,
-              color: "var(--text-primary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={deal.client}
-          >
-            {cleanClient(deal.client)}
-          </span>
-          {deal.kind === "bulk" ? (
-            <span style={{ fontSize: 10, color: "var(--text-tertiary)", flexShrink: 0 }}>bulk</span>
-          ) : null}
-        </div>
-        {/* The bar is the deal's size relative to the largest on record, which
-            is the only way a ₹785 Cr block and a ₹4 Cr one read differently at
-            a glance. */}
-        <div style={{ height: 3, marginTop: 5, borderRadius: 2, background: "var(--bg-elevated)" }}>
-          <div style={{ width: `${width}%`, height: "100%", borderRadius: 2, background: tone, opacity: 0.7 }} />
-        </div>
-      </div>
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
-          {crore(deal.value)}
-        </div>
-        <div style={{ fontSize: 10.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
-          {deal.qty?.toLocaleString("en-IN")} @ ₹{deal.price?.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-        </div>
-      </div>
-    </div>
-  );
+  const point = (d: Deal) => ({
+    value: [`${d.d}T00:00:00`, d.price ?? 0],
+    symbolSize: size(d.value ?? 0),
+    // Bulk deals are the smaller, more frequent event; drawing them hollow
+    // keeps them present without letting them crowd the blocks.
+    itemStyle: {
+      color: d.side?.toUpperCase() === "BUY" ? BUY : SELL,
+      opacity: d.kind === "bulk" ? 0.45 : 0.78,
+      borderColor: d.side?.toUpperCase() === "BUY" ? BUY : SELL,
+      borderWidth: d.kind === "bulk" ? 1 : 0,
+    },
+    deal: d,
+  });
+
+  const buys = deals.filter((d) => d.side?.toUpperCase() === "BUY").map(point);
+  const sells = deals.filter((d) => d.side?.toUpperCase() !== "BUY").map(point);
+
+  return {
+    grid: { left: 8, right: 16, top: 18, bottom: 4, containLabel: true },
+    tooltip: {
+      trigger: "item",
+      formatter: (p: { data?: { deal?: Deal } }) => {
+        const d = p.data?.deal;
+        if (!d) return "";
+        const side = d.side?.toUpperCase() === "BUY" ? "Buy" : "Sell";
+        return [
+          `<div style="font-weight:600;margin-bottom:2px">${cleanClient(d.client)}</div>`,
+          `<div>${side} · ${d.kind} · ${dayLabel(d.d)}</div>`,
+          `<div>${d.qty?.toLocaleString("en-IN")} @ ₹${d.price?.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</div>`,
+          `<div style="font-weight:600">${crore(d.value)}</div>`,
+        ].join("");
+      },
+    },
+    xAxis: {
+      type: "time",
+      axisTick: { show: false },
+      axisLine: { show: false },
+      axisLabel: { fontSize: 10.5, hideOverlap: true },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      scale: true,
+      axisLabel: { fontSize: 10.5, formatter: (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` },
+      splitLine: { lineStyle: { type: "dashed", opacity: 0.5 } },
+    },
+    series: [
+      // Opposite offsets: both legs of a block share a date and a price, and
+      // without this the second one paints exactly over the first.
+      { name: "Buy", type: "scatter", data: buys, symbolOffset: [3, 0], emphasis: { scale: 1.15 } },
+      { name: "Sell", type: "scatter", data: sells, symbolOffset: [-3, 0], emphasis: { scale: 1.15 } },
+    ],
+  };
 }

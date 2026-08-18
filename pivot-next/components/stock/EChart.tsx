@@ -24,11 +24,13 @@
  */
 
 import * as React from "react";
-import { BarChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   DatasetComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
+  MarkPointComponent,
   TitleComponent,
   TooltipComponent,
 } from "echarts/components";
@@ -36,9 +38,9 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([
-  LineChart, BarChart, PieChart,
+  LineChart, BarChart, PieChart, ScatterChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
-  DatasetComponent, CanvasRenderer,
+  DatasetComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer,
 ]);
 
 /** Read a CSS custom property off the document root. ECharts takes concrete

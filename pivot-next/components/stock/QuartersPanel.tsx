@@ -134,11 +134,6 @@ export function QuartersPanel({
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <PanelHead
         title="Quarterly results"
-        sub={
-          latest
-            ? `${rows.length} quarters · latest ${latest.period_label ?? latest.period_end}`
-            : undefined
-        }
         right={
           data.bases_available.length > 1 ? (
             <Segmented
@@ -221,19 +216,7 @@ export function QuartersPanel({
         </MiniChart>
       </div>
 
-      <FinTable
-        data={rows}
-        columns={columns}
-        maxHeight={430}
-        caption={
-          <>
-            Every column is stored, not derived — margins, YoY, QoQ and TTM come
-            from <code style={{ fontSize: 11 }}>quarterly_metrics</code> as filed.
-            {" "}Matched on {data.matched_on.toUpperCase()}. An em-dash is a figure
-            the company did not report in that quarter.
-          </>
-        }
-      />
+      <FinTable data={rows} columns={columns} maxHeight={430} />
     </div>
   );
 }

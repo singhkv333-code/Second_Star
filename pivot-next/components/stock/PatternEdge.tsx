@@ -21,6 +21,7 @@ import * as React from "react";
 
 import { getPatterns, type PatternStat, type PatternsResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { PatternGlyph } from "./PatternGlyph";
 import { Segmented } from "./chrome";
 
 const HORIZONS = [5, 10, 20];
@@ -89,9 +90,9 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           style={{
             margin: 0,
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
+            fontSize: 17,
             fontWeight: 600,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.015em",
             color: "var(--text-primary)",
           }}
         >
@@ -112,7 +113,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           className="pat-head pat-row"
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
+            gridTemplateColumns: "58px minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
             gap: 12,
             alignItems: "center",
             padding: "8px 0",
@@ -124,6 +125,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
             borderBottom: "1px solid var(--glass-border)",
           }}
         >
+          <span />
           <span>Pattern</span>
           <span style={{ textAlign: "right" }}>Cases</span>
           <span style={{ textAlign: "right" }}>Hit</span>
@@ -160,7 +162,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
 
       <style>{`
         @media (max-width: 720px) {
-          .pat-row { grid-template-columns: minmax(0,1.4fr) 48px 52px minmax(90px,1fr) 78px !important; }
+          .pat-row { grid-template-columns: 50px minmax(0,1.4fr) 48px 52px minmax(90px,1fr) 78px !important; }
           .pat-row > .pat-control { display: none !important; }
         }
       `}</style>
@@ -183,13 +185,14 @@ function Row({ p, first }: { p: PatternStat; first: boolean }): React.ReactEleme
       className="pat-row"
       style={{
         display: "grid",
-        gridTemplateColumns: "minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
+        gridTemplateColumns: "58px minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
         gap: 12,
         alignItems: "center",
         minHeight: 38,
         borderTop: first ? undefined : "1px solid var(--glass-border)",
       }}
     >
+      <PatternGlyph kind={p.kind} />
       <span style={{ fontSize: 12.5, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {pretty(p.kind)}
       </span>

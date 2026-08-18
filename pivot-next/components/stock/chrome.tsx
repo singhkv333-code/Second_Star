@@ -42,9 +42,9 @@ export function PanelHead({
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
+            fontSize: 17,
             fontWeight: 600,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.015em",
             color: "var(--text-primary)",
           }}
         >
