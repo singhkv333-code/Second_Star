@@ -308,8 +308,8 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 @keyframes fade { from { opacity: 0; } }
 
 /* The uppercase micro-label — Pivot's spec, used by the dropdown header,
-   the exchange suffix, the auto-pill and the table head. It was written out
-   five times; it is one rule now.
+   the exchange suffix and the table head. It was written out five times; it
+   is one rule now.
    The provenance card's role LEFT this group: it is the title of a panel,
    not a label over a group of rows, and TradingView titles a panel in
    sentence-case ink. See .prov header. */
@@ -317,7 +317,6 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .symbol .ex,
 .readout .ex,
 .dropdown .head,
-.auto-pill,
 .prose thead th,
 .dlg-formula span {
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
@@ -2287,16 +2286,52 @@ body.two-columns .readout .row { display: none; }
   padding: 2px 7px; font-variant-numeric: tabular-nums;
 }
 
-/* TradingView's "auto" affordance — appears once you've moved the price
-   scale by hand, clicking it re-fits to the visible bars. */
-.auto-pill {
-  position: absolute; right: 8px; bottom: 36px; z-index: 6; display: none;
-  background: var(--popover); border: 1px solid var(--border); color: var(--muted-foreground);
-  padding: 3px 9px; border-radius: var(--radius-pill); cursor: pointer; box-shadow: var(--shadow);
-  transition: color var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr);
+/* The way back to the view the chart opened on — TradingView's corner and
+   TradingView's affordance, appearing only once the view has actually been
+   moved (see viewMoved() in js/main.js: the price scale pinned by hand, the
+   time scale panned off the live edge, or zoomed).
+
+   It replaces an "AUTO" pill that sat half over the price scale, in the app's
+   uppercase micro-label, naming a PROPERTY of the price scale — while the two
+   other things a reset has to undo, the zoom and the scroll, went unmentioned.
+   A round glyph button says "put it back" without naming anything.
+
+   INSIDE BOTH AXES. --axis-w and --time-axis-h are measured and published by
+   js/xhair.js, so the button sits in the plot's own bottom-right corner and
+   cannot land on a price or a date however wide the scale grows. The old pill's
+   `right: 8px; bottom: 36px` was two guesses at those same two numbers.
+
+   Glass, like the crosshair plates it shares a corner with: the refraction is
+   attached from js/main.js through Ctx.glass (one lens for the whole app), and
+   the backdrop-filter here is the floor under Safari, Firefox and the first
+   frame. */
+.view-reset {
+  position: absolute; z-index: 7; display: none;
+  right: calc(var(--axis-w, 84px) + 10px);
+  bottom: calc(var(--time-axis-h, 26px) + 10px);
+  width: 30px; height: 30px; padding: 0;
+  align-items: center; justify-content: center;
+  border-radius: 50%; cursor: pointer;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 18%,
+                        color-mix(in srgb, var(--card) 60%, transparent));
+  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
+    0 6px 18px -10px rgb(0 0 0 / .5);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  transition: color var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr);
 }
-.auto-pill.show { display: block; }
-.auto-pill:hover { color: var(--primary); border-color: var(--primary); }
+.view-reset.show { display: inline-flex; animation: fade var(--dur) ease-out; }
+.view-reset:hover { color: var(--primary); border-color: var(--primary); }
+.view-reset svg.icon { width: 15px; height: 15px; }
+/* The chart sets `cursor: crosshair` on itself and everything in it, and this
+   button is a sibling of that — but the rail's rules taught the same lesson
+   twice, so it is stated rather than assumed. */
+.view-reset, .view-reset * { cursor: pointer; }
 
 /* The currency badge (top of the price scale) and the clock badge (the corner
    where the two scales meet) — TradingView's two corners, as statements.
@@ -6790,7 +6825,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=27"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=7"></script>
+  <script src="./js/ctxmenu.js?v=8"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -6821,7 +6856,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/xhair.js?v=2"></script>
   <script src="./js/panes.js?v=16"></script>
-  <script src="./js/main.js?v=105"></script>
+  <script src="./js/main.js?v=107"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>

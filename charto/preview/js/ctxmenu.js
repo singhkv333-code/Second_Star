@@ -382,5 +382,12 @@ const Ctx = (() => {
     glazeMenus(document.body);
   }
 
-  return { open, close, isOpen: () => chain.length > 0 };
+  return {
+    open, close, isOpen: () => chain.length > 0,
+    /** THE app's lens, for anything outside this file that needs to be made of
+     *  the same glass — the chart's reset button, so far. Exported rather than
+     *  copied: the settings below are a look, and a second copy of them is a
+     *  second look the moment either is tuned. Idempotent (see glaze). */
+    glass: glaze,
+  };
 })();

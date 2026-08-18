@@ -250,10 +250,9 @@
       chart.applyOptions({ timeScale: { timeVisible: !["1d", "1w", "1mo"].includes(interval) } });
       paintTitle();
       paint();
-      // fresh data, fresh view: hand the price scale back to auto-fit
-      eachPriceScale((ps) => ps.applyOptions({ autoScale: true }));
-      paintAutoPill();
-      chart.timeScale().setVisibleLogicalRange({ from: bars.length - 180, to: bars.length + 6 });
+      // fresh data, fresh view — the same one the reset button lands on
+      paintResetBtn();
+      resetView(chart, bars.length);
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
       setText("barsLine", `${bars.length.toLocaleString()} × ${interval}`);
@@ -1252,21 +1251,90 @@
     } catch {}
   }
 
-  // "auto" pill: TradingView's way back to an auto-fitted price scale
-  const autoPill = document.createElement("button");
-  autoPill.className = "auto-pill";
-  autoPill.textContent = "auto";
-  autoPill.title = "Re-fit the price scale to the visible bars";
-  stageEl.appendChild(autoPill);
-  autoPill.addEventListener("click", () => {
-    eachPriceScale((ps) => ps.applyOptions({ autoScale: true }));
-    paintAutoPill();
-  });
+  /* ── the view, and the one way back to it ────────────────────────────────
+   * THE DEFAULT VIEW is what a chart opens on: the last VIEW_SPAN bars with a
+   * little room past the newest one, and a price scale free to fit them. One
+   * definition, used by the load, by this button, and by Alt+R — a "reset" that
+   * lands somewhere other than where the chart started is not a reset.
+   *
+   * Written here rather than through timeScale().resetTimeScale(), which does
+   * not do it: measured, that call restores the scroll position but leaves the
+   * bar spacing where the wheel left it, because the library treats the CURRENT
+   * spacing as the default the moment anything writes it. Alt+R promised "back
+   * to the default zoom" and delivered only the live edge.
+   */
+  const VIEW_SPAN = 180, VIEW_PAD = 6;
 
-  function paintAutoPill() {
+  /** Put one chart back at its default view. `n` is that chart's bar count —
+   *  a secondary pane holds its own data, so the caller supplies it. */
+  function resetView(t, n) {
+    if (!n) return;
+    t.timeScale().setVisibleLogicalRange({ from: n - VIEW_SPAN, to: n + VIEW_PAD });
+    for (const pane of t.panes()) {
+      try { pane.priceScale("right").applyOptions({ autoScale: true }); } catch {}
+    }
+  }
+
+  /** Is this chart's view still the default one? Three ways it can have moved,
+   *  and the button is offered if any of them has: the price scale pinned by
+   *  hand, the time scale panned off the live edge, or zoomed. All READ BACK
+   *  off the chart rather than tracked in a flag here — the chart is the one
+   *  that knows, and a flag would be wrong the first time anything else moved
+   *  the view (a symbol change, a shortcut, the chat drawing to a range). */
+  function viewMoved() {
     let manual = false;
     eachPriceScale((ps) => { if (!ps.options().autoScale) manual = true; });
-    autoPill.classList.toggle("show", manual);
+    if (manual) return true;
+    const n = state.bars.length;
+    if (!n) return false;
+    let r = null;
+    try { r = chart.timeScale().getVisibleLogicalRange(); } catch { /* pre-layout */ }
+    if (!r) return false;
+    // Measured against the DEFINITION above, not against the library's own
+    // rightOffset: the default view ends VIEW_PAD bars past the newest bar,
+    // which is a different number (scrollPosition reads 7 where rightOffset is
+    // 5), and comparing to the wrong one left the button on a chart that had
+    // not moved. Both halves survive an older page arriving — those bars are
+    // prepended and the range is shifted with them, so this measures the gap
+    // in BARS either way.
+    if (Math.abs(r.to - (n + VIEW_PAD)) > 1) return true;            // scrolled
+    const span = VIEW_SPAN + VIEW_PAD;
+    return Math.abs((r.to - r.from) - span) / span > 0.02;           // zoomed
+  }
+
+  /* TradingView's corner, and TradingView's affordance: one round glass button
+   * in the bottom-right of the PLOT — inside both axes, so it never covers a
+   * price or a date — that appears only once the view has been moved. It was an
+   * "AUTO" pill floating half over the price scale, which named a property of
+   * the price scale rather than the thing a hand reaches for it to do, and said
+   * nothing about the zoom or the scroll it also has to undo.
+   *
+   * It fires the verb, not the function: `Shortcuts.run("reset-view")` is what
+   * the right-click menu's "Reset view" row and Alt+R already fire, and a
+   * second call site calling resetView() directly would be a second definition
+   * to keep in step. The chart is passed explicitly because this button is
+   * drawn on the PRIMARY's stage — the shortcut's own default is the pane the
+   * toolbar is aimed at, which in a split layout is not this one. */
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "view-reset";
+  resetBtn.type = "button";
+  resetBtn.innerHTML = Icons.svg("rotateCw", "sm");
+  resetBtn.title = "Reset the view (⌥R)";
+  resetBtn.setAttribute("aria-label", "Reset the view");
+  stageEl.appendChild(resetBtn);
+  resetBtn.addEventListener("click", () => {
+    Shortcuts.run("reset-view", chart);
+    paintResetBtn();
+  });
+
+  function paintResetBtn() {
+    const on = viewMoved();
+    resetBtn.classList.toggle("show", on);
+    // Glazed the first time it is actually on screen and has a size — the lens
+    // is generated from the measured box, and one built for a display:none
+    // button is a filter that does nothing for the rest of the session. Ctx
+    // owns the settings; this is the same glass the menus are made of.
+    if (on && resetBtn.offsetWidth) Ctx.glass(resetBtn);
   }
 
   /* The two axis badges: what the price scale is quoted in, and which clock
@@ -1305,11 +1373,17 @@
   });
   window.addEventListener("mouseup", () => {
     if (panning) { panning = false; stageEl.classList.remove("panning"); }
-    paintAutoPill();
+    paintResetBtn();
   });
 
-  chartEl.addEventListener("wheel", () => paintAutoPill(), { passive: true });
-  chartEl.addEventListener("dblclick", () => setTimeout(paintAutoPill, 0));
+  /* Every way the VIEW can move, in one subscription: a wheel zoom, a pan, a
+   * double-click auto-fit, and the programmatic jumps too — the chat scrolling
+   * to a date, a shortcut, a symbol change. The three ad-hoc listeners this
+   * replaces (wheel, dblclick, and the pan's own mouseup) each covered one
+   * gesture and missed every other way the same thing happens. The mouseup
+   * below stays, because dragging the price SCALE pins it without moving the
+   * logical range at all. */
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => paintResetBtn());
 
   // ── chart-state envelope (Phase 1: the model can see the chart) ──
   // Pure read of state that already exists — no new math, no server round
@@ -3707,7 +3781,9 @@
    * the camera button is a second code path to keep in step with the first;
    * a shortcut that CLICKS the camera button is the same path, so the menu
    * closes, the toggled state paints and the status line says what it always
-   * said. Where there is no button — reset, invert — the work is here.
+   * said. Where there is no button — invert — the work is here. Reset has one
+   * now, and it goes the other way round: the button fires this verb, so the
+   * key, the right-click row and the button are one path.
    */
   (function bindShortcuts() {
     /** The chart the one toolbar is aimed at: the selected secondary pane,
@@ -3749,16 +3825,22 @@
     /* Alt+R — back to the default zoom, at the live edge, with the price
      * scale free again. Three separate things a chart drifts away from, and
      * a "reset" that fixed only the first would leave the reader hunting the
-     * other two.
+     * other two. resetView() up in this file is the one definition of where
+     * "default" is; this used to call the library's resetTimeScale(), which
+     * (measured) restores the scroll and leaves the zoom alone.
+     *
+     * The argument is the chart to reset, for a caller that knows — the
+     * button on the primary's stage means the primary, whatever pane the
+     * toolbar happens to be aimed at. Without one it falls back to the aimed
+     * pane, which is what a keystroke means.
      *
      * No status line on this one or the next, for the reason undo already
      * gives a few hundred lines up: they SHOW their result. A message saying
      * "view reset" beside a chart that visibly reset is narration. */
-    Shortcuts.on("reset-view", () => {
-      const t = aimed();
-      t.timeScale().resetTimeScale();
-      t.timeScale().scrollToRealTime();
-      try { t.priceScale("right").applyOptions({ autoScale: true }); } catch {}
+    Shortcuts.on("reset-view", (t) => {
+      const sub = Panes.activeSub();
+      if (t === chart || !sub) return resetView(chart, state.bars.length);
+      resetView(t || sub.chart, (sub.bars || []).length);
     });
 
     /* Alt+I — the price scale upside down, which is how a trader looks at a
