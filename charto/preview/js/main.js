@@ -3012,11 +3012,11 @@
     else selectRegionCapture();
   });
 
-  const themeBtn = el("themeToggle");
+  const themeBtn = document.createElement("button");
   function paintThemeBtn() {
     // show what you'd switch TO, the way macOS/Linear do it
-    themeBtn.innerHTML = Theme.mode === "dark" ? Icons.svg("sun", "sm") : Icons.svg("moon", "sm");
-    themeBtn.title = Theme.mode === "dark" ? "Switch to light" : "Switch to dark";
+    themeBtn.innerHTML = (Theme.mode === "dark" ? Icons.svg("sun", "xs") : Icons.svg("moon", "xs"))
+      + `<span>${Theme.mode === "dark" ? "Light mode" : "Dark mode"}</span>`;
   }
   themeBtn.addEventListener("click", () => { Theme.toggle(); });
   Theme.onChange(() => {
@@ -3077,6 +3077,8 @@
     `<div class="item" data-acct="shortcuts"><span class="lead">`
     + Icons.svg("keyboard", "xs") + `Keyboard shortcuts</span>`
     + `<span class="sc">Ctrl + /</span></div>`;
+  const THEME_ROW = () => `<div class="item" data-acct="theme"><span class="lead">`
+    + themeBtn.innerHTML + `</span></div>`;
 
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);
@@ -3093,6 +3095,7 @@
         + `<div class="acct-note">Layouts, drawings and conversations are `
         + `saved to this account.</div>`
         + `<div class="sep"></div>`
+        + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
         + `<div class="item" data-acct="logout"><span class="lead">`
@@ -3103,6 +3106,7 @@
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
         + `<div class="sep"></div>`
+        + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
         + `<div class="acct-note">Your charts, drawings and chats stay in this `
@@ -3119,6 +3123,7 @@
     const it = e.target.closest("[data-acct]");
     if (!it) return;
     closeMenus(null);
+    if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
     if (it.dataset.acct === "logout") {
       await Auth.logout();

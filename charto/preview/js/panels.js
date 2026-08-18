@@ -843,6 +843,8 @@ const Panels = (() => {
       render: renderWatch },
     { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
       render: renderAlerts },
+    { id: "journal", panel: "journalPanel", icon: "fileText", label: "Journal",
+      render: (host) => Journal.renderSidebar(host) },
   ];
   const byId = (id) => WIDGETS.find((w) => w.id === id);
 

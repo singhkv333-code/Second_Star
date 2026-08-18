@@ -167,7 +167,7 @@ const Journal = (() => {
   const grip=()=>`<div class="jq-grip" data-jq-grip aria-label="Resize journal pane"></div>`;
   function renderQuick(){const q=el("journalQuick");q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>${data.overview?.count||0} trades · process over outcome</span></div><div class="jq-tabs" role="tablist"><button class="jq-tab ${quickTab==="summary"?"active":""}" data-qtab="summary" role="tab">Trade log</button><button class="jq-tab ${quickTab==="new"?"active":""}" data-qtab="new" role="tab">New trade</button></div><span class="spacer"></span><button class="jq-full" data-full-journal>${ico("externalLink")}<span>Full journal</span></button><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body">${quickTab==="summary"?quickMetrics()+quickRows():quickForm()}</div>`}
   async function loadQuick(){const q=el("journalQuick");if(!Auth.user){q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>Your private trading record</span></div><span class="spacer"></span><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body"><div class="jq-empty"><div>Sign in to keep trades private and durable.<button type="button" class="btn cta" data-signin>Sign in</button></div></div></div>`;return}q.innerHTML=grip()+`<div class="jq-empty">Opening journal…</div>`;try{data=await call("/journal/bootstrap");renderQuick()}catch(e){q.innerHTML=grip()+`<div class="jq-empty"><div>${esc(e.message)}<button type="button" class="btn outline" data-quick-retry>Try again</button></div></div>`}}
-  function toggleQuick(force){const q=el("journalQuick"),stage=el("stage"),on=force===undefined?!q.classList.contains("open"):force;q.classList.toggle("open",on);stage.classList.toggle("journal-pane-open",on);q.setAttribute("aria-hidden",String(!on));el("journalBtn").classList.toggle("active",on);if(on)loadQuick()}
+  function toggleQuick(force){const q=el("journalQuick"),stage=el("stage"),on=force===undefined?!q.classList.contains("open"):force;q.classList.toggle("open",on);stage.classList.toggle("journal-pane-open",on);q.setAttribute("aria-hidden",String(!on));if(on)loadQuick()}
   async function saveQuick(form){if(quickBusy)return;const f=new FormData(form),v=(k)=>String(f.get(k)||"").trim(),n=(k)=>v(k)===""?null:Number(v(k));if(!v("symbol")||!n("quantity")||!n("entry_price")){toast("Instrument, quantity and entry price are required");return}quickBusy=true;renderQuick();try{await call("/journal/trades",{symbol:v("symbol"),side:v("side"),opened_at:Math.floor(Date.now()/1000),closed_at:n("exit_price")==null?null:Math.floor(Date.now()/1000),quantity:n("quantity"),entry_price:n("entry_price"),exit_price:n("exit_price"),fees:n("fees")||0,initial_risk:n("initial_risk"),status:n("exit_price")==null?"open":"closed",source:"manual"});quickTab="summary";await loadQuick();toast("Trade added to journal")}catch(e){toast(e.message)}finally{quickBusy=false}}
   async function quickTrade(id){toggleQuick(false);open();await load();const t=data.trades.find(x=>x.id===Number(id));if(t)openTrade(t)}
   function field(label,name,value,type="text",wide=false){return `<div class="j-field ${wide?"wide":""}"><label for="jf-${name}">${label}</label><input id="jf-${name}" name="${name}" type="${type}" value="${esc(value)}"></div>`;}
@@ -194,7 +194,16 @@ const Journal = (() => {
   }
   function closeDrawer(){const d=el("journalDrawer");d.classList.remove("open");d.setAttribute("aria-hidden","true");active=null;}
   async function save(){try{const out=await call(active?`/journal/trades/${active.id}`:"/journal/trades",payload());const i=data.trades.findIndex(t=>t.id===out.trade.id);if(i<0)data.trades.unshift(out.trade);else data.trades[i]=out.trade;data.overview=(await call("/journal/bootstrap")).overview;closeDrawer();render();toast(active?"Trade updated":"Trade added");}catch(e){toast(e.message)}}
-  async function remove(){if(!active||!confirm(`Delete ${active.symbol} from your journal?`))return;try{await call(`/journal/trades/${active.id}`,{delete:true});data.trades=data.trades.filter(t=>t.id!==active.id);closeDrawer();await load();toast("Trade deleted");}catch(e){toast(e.message)}}
+  function confirmDelete(symbol) {
+    return new Promise((resolve) => {
+      const wrap=document.createElement("div");wrap.className="dlg-wrap open pivot-confirm";
+      wrap.innerHTML=`<div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle"><header class="dlg-head"><div class="dlg-title" id="confirmTitle">Delete journal entry?</div></header><div class="dlg-body"><p>This removes <strong>${esc(symbol)}</strong> from your journal. This cannot be undone.</p></div><footer class="dlg-foot"><span class="spacer"></span><button class="btn outline" data-no>Cancel</button><button class="btn danger" data-yes>Delete</button></footer></div>`;
+      const done=(yes)=>{wrap.remove();resolve(yes)};
+      wrap.addEventListener("click",e=>{if(e.target===wrap||e.target.closest("[data-no]"))done(false);else if(e.target.closest("[data-yes]"))done(true)});
+      document.body.appendChild(wrap);wrap.querySelector("[data-no]").focus();
+    });
+  }
+  async function remove(){if(!active||!(await confirmDelete(active.symbol)))return;try{await call(`/journal/trades/${active.id}`,{delete:true});data.trades=data.trades.filter(t=>t.id!==active.id);closeDrawer();await load();toast("Trade deleted");}catch(e){toast(e.message)}}
   function ask(){if(!active)return;document.dispatchEvent(new CustomEvent("charto:journal-chat",{detail:{trade:active}}));close();toast("Trade attached to chat");}
   function openBook(b){
     active={kind:"playbook",value:b||null}; const spec=b?.spec||{};
@@ -248,11 +257,14 @@ const Journal = (() => {
   document.addEventListener("input",(e)=>{if(e.target.matches("[data-search]")){query=e.target.value;clearTimeout(render.timer);render.timer=setTimeout(render,180)}});
   document.addEventListener("change",(e)=>{if(e.target.matches("[data-side]")){side=e.target.value;render()}if(e.target.matches("[data-period]")){period=e.target.value;render()}});
   document.addEventListener("keydown",(e)=>{if(e.key==="Escape"&&el("journalDrawer").classList.contains("open"))closeDrawer()});
-  el("journalBtn").innerHTML=ico("fileText")+"<span>Journal</span>";
   el("journalBack").innerHTML=ico("chevronLeft")+"<span>Back to chart</span>";
-  el("journalBtn").addEventListener("click",()=>toggleQuick()); el("journalBack").addEventListener("click",close);
+  el("journalBack").addEventListener("click",close);
   const savedPane=Number(Store.get("journal_pane_h",260));if(savedPane>=150)el("stage").style.setProperty("--journal-pane-h",`${savedPane}px`);
   Auth.onChange(()=>{if(document.body.classList.contains("journal-open"))load();if(el("journalQuick").classList.contains("open"))loadQuick()});
   nav();
-  return {open,close,load,toggleQuick,getTrade:(id)=>data.trades.find(t=>t.id===Number(id))};
+  function renderSidebar(host) {
+    host.innerHTML=`<div class="side-head"><div><strong>Journal</strong><span>Process over outcome</span></div><button class="side-act" data-journal-full title="Open full journal">${ico("externalLink")}</button></div><div class="side-body"><div class="j-empty"><div>${ico("fileText","")}<strong>Your trading journal</strong>Review trades, capture a new entry, and keep decisions beside outcomes.<button class="btn cta" data-journal-full>Open journal</button></div></div></div>`;
+    host.querySelectorAll("[data-journal-full]").forEach((b)=>b.addEventListener("click",open));
+  }
+  return {open,close,load,toggleQuick,renderSidebar,getTrade:(id)=>data.trades.find(t=>t.id===Number(id))};
 })();

@@ -165,7 +165,7 @@
   // memory until something is saved, and the old key has just been deleted —
   // a reload before you next spoke would have lost the thread outright.
   persistChats();
-  let pending = false;
+  let pending = false, requestAbort = null;
   let pendingImage = null;   // a captured screenshot waiting to ride the next send
   let pendingDraw = null;    // the drawing this message is about, by ref
   let pendingJournal = null; // an exact journal record, attached deliberately
@@ -765,6 +765,7 @@
           // to send it away again
           if (turn.__wait) turn.__wait.writing();
           text += ev.text;
+          turn.__streamText = text;
           paint();
         } else if (ev.type === "tool") {
           tools.push(ev.name);
@@ -1444,7 +1445,11 @@
       autoGrow();
     }
     pending = true;
-    sendBtn.disabled = true;
+    requestAbort = new AbortController();
+    sendBtn.classList.add("stopping");
+    sendBtn.title = "Stop response";
+    sendBtn.setAttribute("aria-label", "Stop response");
+    sendBtn.innerHTML = '<span class="stop-glyph" aria-hidden="true"></span>';
 
     const ts = Date.now();
     turns.push({ role: "user", content: text, ts,
@@ -1496,6 +1501,7 @@
         // `messages`, and finding them twice would read as two occasions.
         body: JSON.stringify({ messages: wireHistory(), context, stream: true,
                                chat_id: activeId }),
+        signal: requestAbort.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // The follow-ups arrive on the tail of this same stream, so their sink
@@ -1575,18 +1581,34 @@
       // non-streaming path, which has no card event to insert from.
       finishTurn(turn, d.text, meta, acts, cards);
     } catch (e) {
-      turns.pop();   // keep the thread consistent with what the model saw
-      saveTurns();
-      failTurn(turn, e.message || String(e));
+      if (e && e.name === "AbortError") {
+        const partial = turn.__streamText || "Response stopped.";
+        turns.push({ role: "assistant", content: partial, meta: ["Stopped"], acts: [] });
+        saveTurns();
+        finishTurn(turn, partial, ["Stopped"], [], []);
+      } else {
+        turns.pop();   // keep the thread consistent with what the model saw
+        saveTurns();
+        failTurn(turn, e.message || String(e));
+      }
     } finally {
       pending = false;
-      sendBtn.disabled = false;
+      requestAbort = null;
+      sendBtn.classList.remove("stopping");
+      sendBtn.title = "Send (Enter)";
+      sendBtn.setAttribute("aria-label", "Send message");
+      sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
       input.focus();
     }
   }
 
   // ── composer ──────────────────────────────────────────
   sendBtn.innerHTML = Icons.svg("arrowUp", "sm");
+  sendBtn.addEventListener("click", (e) => {
+    if (!pending || !requestAbort) return;
+    e.preventDefault();
+    requestAbort.abort();
+  });
   el("chatNew").innerHTML = Icons.svg("plus", "sm");
   el("chatHistoryBtn").innerHTML = Icons.svg("clock", "sm");
   // Voice: the transcript is APPENDED to the draft and never sent. Speaking

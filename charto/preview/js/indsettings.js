@@ -481,19 +481,20 @@ const IndSettings = (() => {
     else close();                       // ok / ×: the edits are already live
   }
 
-  function applyDefaultsAction(what) {
+  async function applyDefaultsAction(what) {
     dlg.querySelector(".dlg-def-menu").classList.remove("open");
     if (what === "reset") {
       // a reset that leaves the length alone is not a reset
       const d = def();
-      const factory = ind.factory(id);
       const back = (d.inputs || []).find((f) => f.key === "period");
-      const restore = () => ind.replaceSettings(id, factory).then(() => {
+      try {
+        if (back && d.period !== back.default) id = await ind.setPeriod(id, back.default);
+        const factory = ind.factory(id);
+        if (factory) await ind.replaceSettings(id, factory);
         render(); notify();
-      });
-      if (back && d.period !== back.default) {
-        ind.setPeriod(id, back.default).then((nid) => { id = nid; restore(); });
-      } else restore();
+      } catch (e) {
+        console.warn("[charto] indicator reset failed", e);
+      }
       return;
     }
     if (what === "save") ind.saveAsDefault(id);
