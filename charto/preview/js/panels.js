@@ -867,7 +867,8 @@ const Panels = (() => {
   // group, rather than creating a second navigation rail on the right.
   const railSpacer = document.querySelector("#rail .rail-spacer");
   if (railSpacer) railSpacer.insertAdjacentHTML("afterend",
-    `<div class="rail-sep rail-widget-sep"></div>${widgetButtons}`);
+    `<div class="rail-sep rail-widget-sep"></div>${widgetButtons}`
+    + `<div class="rail-sep rail-export-sep"></div>`);
   bar.innerHTML = "";
 
   if (tabs) {

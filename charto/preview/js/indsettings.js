@@ -490,8 +490,16 @@ const IndSettings = (() => {
       try {
         if (back && d.period !== back.default) id = await ind.setPeriod(id, back.default);
         const factory = ind.factory(id);
-        if (factory) await ind.replaceSettings(id, factory);
-        render(); notify();
+        if (factory) {
+          // replaceSettings applies paint synchronously before awaiting fresh
+          // indicator values. Repaint the controls at that same moment so a
+          // yellow/dashed custom line visibly becomes its factory colour and
+          // solid style as soon as Reset settings is chosen.
+          const resetting = ind.replaceSettings(id, factory);
+          render(); notify();
+          await resetting;
+          render(); notify();
+        }
       } catch (e) {
         console.warn("[charto] indicator reset failed", e);
       }
