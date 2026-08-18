@@ -4121,6 +4121,7 @@ body.two-columns .readout .row { display: none; }
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--primary); box-shadow: 0 0 0 2px var(--background);
 }
+.wbar { display: none !important; }
 .wbar .tool { width: calc(100% - 12px); justify-content: flex-start; gap: 9px; padding: 0 10px; }
 .wbar-label { font-size: var(--text-sm); color: var(--muted-foreground); white-space: nowrap; }
 .wbar .tool:hover .wbar-label, .wbar .tool.active .wbar-label { color: var(--foreground); }
@@ -4135,17 +4136,6 @@ body.two-columns .readout .row { display: none; }
   .wbar { display: flex; }
 }
 
-.theme-switch {
-  width: 32px; height: 18px; padding: 2px; margin-left: auto; flex: none;
-  border-radius: 999px; background: #dfe1e3; border: 0;
-  display: inline-flex; align-items: center; transition: background var(--dur-fast);
-}
-.theme-switch::after {
-  content: ""; width: 12px; height: 12px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.18); transform: translateX(0); transition: transform var(--dur-fast);
-}
-.theme-switch.on { background: #6f7478; }
-.theme-switch.on::after { transform: translateX(14px); background: #fff; }
 
 /* ── the panel ─────────────────────────────────────────────────────────────
    NOT `.side` — the drawing rail's tool flyouts are `.dropdown.side`, and a
@@ -6830,7 +6820,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=25"></script>
+  <script src="./js/indicators.js?v=26"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -6851,7 +6841,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=23"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=88"></script>
+  <script src="./js/main.js?v=89"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>
@@ -6862,7 +6852,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=1"></script>
   <script src="./js/chat.js?v=143"></script>
-  <script src="./js/journal.js?v=5"></script>
+  <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
@@ -6870,8 +6860,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=14"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=9"></script>
+  <script src="./js/panels.js?v=10"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=10"></script>
+  <script src="./js/mobile.js?v=11"></script>
 </body>
 </html>

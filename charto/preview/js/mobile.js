@@ -362,7 +362,7 @@
    * else in this file, each one CLICKS the real button rather than owning a
    * state of its own. Read off #wbar, so a widget added there arrives here
    * with no edit to this file. */
-  const widgetBtns = [...document.querySelectorAll("#wbar [data-widget]")];
+  const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")];
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +

@@ -1100,8 +1100,11 @@ const Indicators = (() => {
       LIVE.set(id, clone(whole));
       relabel(def);
       persist(id);
+      // Paint presentation defaults immediately. A reset includes colours,
+      // widths and visibility; none of those should wait behind a MACD data
+      // request before the user can see that Reset settings worked.
+      restyle(id);
       if (JSON.stringify([whole.params, whole.symbolMode, whole.symbol]) !== before) await refetch(id);
-      else restyle(id);
     }
 
     /** Force every indicator pane to re-run autoscale — called when the
