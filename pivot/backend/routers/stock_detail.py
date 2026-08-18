@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sqlite3
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -718,3 +720,336 @@ def get_documents(
                 "documents": [dict(r) for r in rows]}
 
     return _cached(f"docs:{who['symbol']}:{doc_type}:{limit}", build)
+
+
+# ── shareholding ────────────────────────────────────────────────────────────
+#
+# The XBRL shareholding store (`shp.*`) is filed quarterly and arrives as a
+# TREE, not a flat list: `InstitutionsForeignMember` is the parent of the two
+# FPI categories, `NonInstitutionsMember` the parent of the two retail slabs.
+# Summing every row therefore double-counts to ~200%.
+#
+# So the categories are split into a non-overlapping TOP level, which is what
+# the stacked chart and the totals use, and a CHILD level per parent, which is
+# what the breakdown lists. A category we do not recognise is dropped rather
+# than bucketed into "other": a mis-parented row is worse than a missing one,
+# because it silently moves a percentage the reader is trying to trust.
+
+_SHP_TOP: dict[str, str] = {
+    "ShareholdingOfPromoterAndPromoterGroupMember": "Promoters",
+    "InstitutionsForeignMember": "Foreign institutions",
+    "InstitutionsDomesticMember": "Domestic institutions",
+    "NonInstitutionsMember": "Non-institutions",
+    "SharesHeldByNonPromoterNonPublicShareholdersMember": "Non-promoter non-public",
+}
+
+# Parent → {member: label}. The source spells "Category" two ways (a genuine
+# typo that reached the taxonomy, "Catergory"), and mutual funds two ways, so
+# both spellings map to one label rather than showing up as two slices.
+_SHP_CHILD: dict[str, dict[str, str]] = {
+    "Foreign institutions": {
+        "InstitutionsForeignPortfolioInvestorCategoryOneMember": "FPI category I",
+        "InstitutionsForeignPortfolioInvestorCatergoryOneMember": "FPI category I",
+        "InstitutionsForeignPortfolioInvestorCategoryTwoMember": "FPI category II",
+        "InstitutionsForeignPortfolioInvestorCatergoryTwoMember": "FPI category II",
+        "ForeignCompaniesMember": "Foreign companies",
+        "OtherInstitutionsForeignMember": "Other foreign",
+    },
+    "Domestic institutions": {
+        "MutualFundsOrUTIMember": "Mutual funds",
+        "MutualFundsOrUtiMember": "Mutual funds",
+        "InsuranceCompaniesMember": "Insurance",
+        "ProvidentFundsOrPensionFundsMember": "Pension funds",
+        "BanksMember": "Banks",
+        "AlternativeInvestmentFundsMember": "AIFs",
+        "NBFCsRegisteredWithRBIMember": "NBFCs",
+        "OtherFinancialInstitutionsMember": "Other financial",
+    },
+    "Non-institutions": {
+        "ResidentIndividualShareholdersHoldingNominalShareCapitalUpToRsTwoLakhMember": "Retail up to ₹2 lakh",
+        "ResidentIndividualShareholdersHoldingNominalShareCapitalInExcessOfRsTwoLakhMember": "Retail above ₹2 lakh",
+        "BodiesCorporateMember": "Bodies corporate",
+        "NonResidentIndiansMember": "NRIs",
+        "OtherNonInstitutionsMember": "Other non-institutions",
+    },
+}
+
+_SHP_TOP_ORDER = ("Promoters", "Foreign institutions", "Domestic institutions",
+                  "Non-institutions", "Non-promoter non-public")
+
+
+def _f(v: Any) -> Optional[float]:
+    """Numeric → float, rounded to the two decimals the source is filed at.
+
+    Every percentage here arrives as a Decimal that carries float noise from
+    the XBRL parse (30.620000000000005). Rounding at the boundary keeps that
+    out of the payload rather than out of the component."""
+    if v is None:
+        return None
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/{symbol}/shareholding")
+def get_shareholding(symbol: str, authorization: Optional[str] = Header(None)) -> dict:
+    """Who owns the company, quarter by quarter, plus promoter pledge.
+
+    Three payloads in one call because the panel draws them together: the
+    top-level series (the stacked chart), the latest two-level breakdown (the
+    bars), and the named holders above 1% (the table).
+    """
+    _auth(authorization)
+    who = _resolve(symbol)
+
+    def build() -> dict:
+        with FinancialsSessionLocal() as db:
+            filings = db.execute(text("""
+                SELECT id, quarter_end::text q, promoter_pct, public_pct,
+                       promoter_encumbered_pct, promoter_pledged, total_shares
+                  FROM shp.filings
+                 WHERE symbol = :s
+              ORDER BY quarter_end DESC
+                 LIMIT :n"""), {"s": who["symbol"], "n": _MAX_QUARTERS}).mappings().all()
+            if not filings:
+                return {"symbol": who["symbol"], "available": False,
+                        "quarters": [], "latest": None, "holders": []}
+
+            ids = [f["id"] for f in filings]
+            cats = db.execute(text("""
+                SELECT filing_id, category, pct, shareholders
+                  FROM shp.category
+                 WHERE filing_id = ANY(:ids)"""), {"ids": ids}).mappings().all()
+
+            latest_id = filings[0]["id"]
+            holders = db.execute(text("""
+                SELECT name, bucket, pct, shares
+                  FROM shp.holder
+                 WHERE filing_id = :f AND pct IS NOT NULL
+              ORDER BY pct DESC
+                 LIMIT 20"""), {"f": latest_id}).mappings().all()
+
+        # filing_id → {category: pct}
+        by_filing: dict[int, dict[str, float]] = {}
+        for c in cats:
+            pct = _f(c["pct"])
+            if pct is None:
+                continue
+            by_filing.setdefault(c["filing_id"], {})[c["category"]] = pct
+
+        # ── the stacked series, oldest → newest so the chart reads left to right
+        quarters = []
+        for f in reversed(filings):
+            got = by_filing.get(f["id"], {})
+            row: dict[str, Any] = {"quarter": f["q"],
+                                   "pledge_pct": _f(f["promoter_encumbered_pct"])}
+            for member, label in _SHP_TOP.items():
+                if member in got:
+                    row[label] = got[member]
+            # Promoter percentage is also carried on the filing header, and it
+            # is populated for ~35k filings where the category row is not.
+            if "Promoters" not in row and f["promoter_pct"] is not None:
+                row["Promoters"] = _f(f["promoter_pct"])
+            quarters.append(row)
+
+        # ── the latest breakdown, two levels deep
+        got = by_filing.get(latest_id, {})
+        groups = []
+        for label in _SHP_TOP_ORDER:
+            member = next((m for m, lab in _SHP_TOP.items() if lab == label), None)
+            pct = got.get(member) if member else None
+            if pct is None and label == "Promoters":
+                pct = _f(filings[0]["promoter_pct"])
+            if pct is None:
+                continue
+            children = []
+            for cm, clabel in _SHP_CHILD.get(label, {}).items():
+                cp = got.get(cm)
+                if cp is None:
+                    continue
+                # Both spellings map to one label; keep the larger rather than
+                # emitting the same slice twice.
+                prior = next((c for c in children if c["label"] == clabel), None)
+                if prior:
+                    prior["pct"] = max(prior["pct"], cp)
+                else:
+                    children.append({"label": clabel, "pct": cp})
+            children.sort(key=lambda c: c["pct"], reverse=True)
+            groups.append({"label": label, "pct": pct, "children": children})
+
+        return {
+            "symbol": who["symbol"],
+            "available": True,
+            "quarter": filings[0]["q"],
+            "quarters": quarters,
+            "groups": groups,
+            "pledge_pct": _f(filings[0]["promoter_encumbered_pct"]),
+            "promoter_pct": _f(filings[0]["promoter_pct"]),
+            "holders": [{"name": h["name"], "bucket": h["bucket"],
+                         "pct": _f(h["pct"]), "shares": _f(h["shares"])}
+                        for h in holders if (_f(h["pct"]) or 0) >= 0.5],
+        }
+
+    return _cached(f"shp:{who['symbol']}", build)
+
+
+# ── the flows layer (charto's local store) ──────────────────────────────────
+#
+# Delivery percentage, futures open interest and bulk/block deals live in
+# charto's SQLite rather than Postgres, because charto's request path is
+# stdlib-only and offline by design. This module opens that file READ-ONLY and
+# never writes to it, so the two services cannot fight over a lock.
+#
+# The file is optional. A deployment without charto attached simply reports
+# `available: false` and the page draws nothing — the same coverage rule the
+# rest of this module follows.
+
+_CHARTO_DB = os.environ.get(
+    "CHARTO_DB",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))))), "charto", "data", "charto_bars.db"),
+)
+
+
+def _charto(sql: str, args: tuple = ()) -> list[dict]:
+    """One read-only query against the charto store, or [] if it is absent.
+
+    Opened per call with `mode=ro` and a short timeout: these are indexed
+    lookups over a file another process is actively writing, so holding a
+    connection open across requests would be the only way to get a lock error.
+    """
+    if not os.path.exists(_CHARTO_DB):
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{_CHARTO_DB}?mode=ro", uri=True, timeout=3.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in conn.execute(sql, args)]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        logger.debug("charto read failed", exc_info=True)
+        return []
+
+
+@router.get("/{symbol}/flows")
+def get_flows(symbol: str, days: int = Query(180, ge=20, le=750),
+              authorization: Optional[str] = Header(None)) -> dict:
+    """Delivery percentage and futures open interest — did ownership move?
+
+    Delivery answers whether a day's volume was real transfer or intraday
+    churn; open interest answers whether a move was fresh positioning or an
+    unwind. Neither is visible in price, which is the whole reason the section
+    exists.
+
+    Open interest is summed ACROSS EXPIRIES per date. A single expiry's OI
+    falls to zero as it rolls, so charting one contract would show an unwind
+    every month that never happened.
+    """
+    _auth(authorization)
+    who = _resolve(symbol)
+    sym = who["symbol"]
+
+    def build() -> dict:
+        delivery = _charto(
+            "SELECT d, close, qty, deliv_qty, deliv_per, trades FROM delivery "
+            "WHERE symbol = ? ORDER BY d DESC LIMIT ?", (sym, days))
+        oi = _charto(
+            "SELECT d, SUM(oi) oi, SUM(oi_chg) oi_chg FROM fut_oi "
+            "WHERE symbol = ? GROUP BY d ORDER BY d DESC LIMIT ?", (sym, days))
+        if not delivery and not oi:
+            return {"symbol": sym, "available": False,
+                    "delivery": [], "oi": [], "summary": None}
+
+        delivery.reverse()
+        oi.reverse()
+
+        pcts = [r["deliv_per"] for r in delivery if r.get("deliv_per") is not None]
+        latest = delivery[-1] if delivery else None
+        median = None
+        if len(pcts) >= 5:
+            tail = sorted(pcts[-20:])
+            median = round(tail[len(tail) // 2], 2)
+
+        latest_oi = oi[-1] if oi else None
+        summary = {
+            "date": latest["d"] if latest else (latest_oi["d"] if latest_oi else None),
+            "delivery_pct": round(latest["deliv_per"], 2) if latest and latest.get("deliv_per") is not None else None,
+            "delivery_median_20d": median,
+            "volume": latest["qty"] if latest else None,
+            "delivered": latest["deliv_qty"] if latest else None,
+            "trades": latest["trades"] if latest else None,
+            "oi": latest_oi["oi"] if latest_oi else None,
+            "oi_chg": latest_oi["oi_chg"] if latest_oi else None,
+            "close": latest["close"] if latest else None,
+        }
+        return {"symbol": sym, "available": True, "summary": summary,
+                "delivery": delivery, "oi": oi}
+
+    return _cached(f"flows:{sym}:{days}", build)
+
+
+@router.get("/{symbol}/deals")
+def get_deals(symbol: str, limit: int = Query(60, ge=5, le=200),
+              authorization: Optional[str] = Header(None)) -> dict:
+    """Bulk and block deals, with the counterparty named.
+
+    The exchanges publish the client name on every deal above the reporting
+    threshold, which makes this the only public surface that says WHO traded
+    size rather than that size traded. Buy and sell legs of one block are two
+    separate rows in the source and are kept that way — collapsing them would
+    hide which side a named fund was on.
+    """
+    _auth(authorization)
+    who = _resolve(symbol)
+    sym = who["symbol"]
+
+    def build() -> dict:
+        rows = _charto(
+            "SELECT d, kind, client, side, qty, price FROM deals "
+            "WHERE symbol = ? ORDER BY d DESC, qty DESC LIMIT ?", (sym, limit))
+        for r in rows:
+            q, p = r.get("qty"), r.get("price")
+            r["value"] = round(q * p, 2) if q and p else None
+        return {"symbol": sym, "available": bool(rows), "deals": rows}
+
+    return _cached(f"deals:{sym}:{limit}", build)
+
+
+@router.get("/{symbol}/patterns")
+def get_patterns(symbol: str, interval: str = Query("1d"),
+                 horizon: int = Query(20),
+                 authorization: Optional[str] = Header(None)) -> dict:
+    """Pattern hit rates measured against a matched control.
+
+    These are UNIVERSE statistics, not a reading of this symbol's chart: every
+    row is the same pattern measured across 500 Indian equities, with the
+    control being the base rate of the same directional move on bars where the
+    pattern did NOT fire. `edge_pp` is the difference, and it is the only
+    number here worth acting on — a 58% hit rate against a 57% base rate is
+    noise wearing a pattern's name.
+
+    Rows are returned in both directions, including negative edges, because a
+    pattern that reliably fails is as useful as one that works and is the part
+    every other product leaves out.
+    """
+    _auth(authorization)
+    _resolve(symbol)
+
+    def build() -> dict:
+        rows = _charto(
+            "SELECT kind, family, interval, horizon, n, n_symbols, "
+            "       with_direction_rate_pct rate, control_base_rate_pct control, "
+            "       edge_pp edge, edge_se_pp se, avg_move_pct move "
+            "  FROM pattern_stats "
+            " WHERE scope = 'equity_in' AND interval = ? AND horizon = ? "
+            "   AND n >= 200 "
+            " ORDER BY edge_pp DESC", (interval, horizon))
+        opts = _charto(
+            "SELECT DISTINCT interval, horizon FROM pattern_stats "
+            " WHERE scope = 'equity_in' ORDER BY interval, horizon")
+        return {"available": bool(rows), "interval": interval, "horizon": horizon,
+                "options": opts, "patterns": rows}
+
+    return _cached(f"patterns:{interval}:{horizon}", build)

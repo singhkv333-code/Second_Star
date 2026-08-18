@@ -3107,3 +3107,143 @@ export function getStockDocuments(
     `/stock/${encodeURIComponent(symbol)}/documents?limit=${limit}${t}`,
   );
 }
+
+// ── shareholding (shp.* XBRL filings) ───────────────────────────────────────
+
+/** One quarter of the stacked series. The top-level bucket keys are dynamic —
+ *  a company with no promoter never emits a "Promoters" key at all — so the
+ *  row is indexed rather than typed field by field. */
+export type ShareholdingQuarter = {
+  quarter: string;
+  pledge_pct: number | null;
+  [bucket: string]: string | number | null;
+};
+
+export type ShareholdingGroup = {
+  label: string;
+  pct: number;
+  children: { label: string; pct: number }[];
+};
+
+export type ShareholdingHolder = {
+  name: string;
+  bucket: string | null;
+  pct: number | null;
+  shares: number | null;
+};
+
+export type ShareholdingResponse = {
+  symbol: string;
+  available: boolean;
+  quarter?: string;
+  quarters: ShareholdingQuarter[];
+  groups?: ShareholdingGroup[];
+  pledge_pct?: number | null;
+  promoter_pct?: number | null;
+  holders: ShareholdingHolder[];
+};
+
+export function getShareholding(
+  symbol: string,
+): Promise<ApiResult<ShareholdingResponse>> {
+  return request<ShareholdingResponse>(
+    `/stock/${encodeURIComponent(symbol)}/shareholding`,
+  );
+}
+
+// ── flows: delivery % and futures open interest ─────────────────────────────
+
+export type DeliveryRow = {
+  d: string;
+  close: number | null;
+  qty: number | null;
+  deliv_qty: number | null;
+  deliv_per: number | null;
+  trades: number | null;
+};
+
+export type OiRow = { d: string; oi: number | null; oi_chg: number | null };
+
+export type FlowsResponse = {
+  symbol: string;
+  available: boolean;
+  summary: {
+    date: string | null;
+    delivery_pct: number | null;
+    delivery_median_20d: number | null;
+    volume: number | null;
+    delivered: number | null;
+    trades: number | null;
+    oi: number | null;
+    oi_chg: number | null;
+    close: number | null;
+  } | null;
+  delivery: DeliveryRow[];
+  oi: OiRow[];
+};
+
+export function getFlows(
+  symbol: string,
+  days = 180,
+): Promise<ApiResult<FlowsResponse>> {
+  return request<FlowsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/flows?days=${days}`,
+  );
+}
+
+// ── bulk and block deals ────────────────────────────────────────────────────
+
+export type Deal = {
+  d: string;
+  kind: string;
+  client: string;
+  side: string;
+  qty: number | null;
+  price: number | null;
+  value: number | null;
+};
+
+export type DealsResponse = { symbol: string; available: boolean; deals: Deal[] };
+
+export function getDeals(
+  symbol: string,
+  limit = 60,
+): Promise<ApiResult<DealsResponse>> {
+  return request<DealsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/deals?limit=${limit}`,
+  );
+}
+
+// ── pattern statistics (universe base rates, with a control) ────────────────
+
+export type PatternStat = {
+  kind: string;
+  family: string;
+  interval: string;
+  horizon: number;
+  n: number;
+  n_symbols: number;
+  rate: number | null;
+  control: number | null;
+  edge: number | null;
+  se: number | null;
+  move: number | null;
+};
+
+export type PatternsResponse = {
+  available: boolean;
+  interval: string;
+  horizon: number;
+  options: { interval: string; horizon: number }[];
+  patterns: PatternStat[];
+};
+
+export function getPatterns(
+  symbol: string,
+  interval = "1d",
+  horizon = 20,
+): Promise<ApiResult<PatternsResponse>> {
+  return request<PatternsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}`,
+  );
+}

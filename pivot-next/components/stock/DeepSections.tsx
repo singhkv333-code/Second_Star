@@ -23,15 +23,19 @@
 import * as React from "react";
 
 import {
-  getStockMix, getStockSections,
-  type MixResponse, type StockSections,
+  getDeals, getFlows, getShareholding, getStockMix, getStockSections,
+  type DealsResponse, type FlowsResponse, type MixResponse,
+  type ShareholdingResponse, type StockSections,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { DealsPanel } from "./DealsPanel";
+import { FlowsPanel } from "./FlowsPanel";
 import { MixPanel } from "./MixPanel";
 import { PeerComparisonPanel } from "./PeerComparisonPanel";
+import { ShareholdingPanel } from "./ShareholdingPanel";
 import { PanelSkeleton } from "./chrome";
 
-type SectionId = "revenue_mix" | "peers";
+type SectionId = "revenue_mix" | "peers" | "shareholding" | "flows" | "deals";
 
 // Reading order, not coverage order: a person works down from the numbers to
 // the composition to the comparison.
@@ -40,8 +44,17 @@ type SectionId = "revenue_mix" | "peers";
 // Performance panel above already answers, asked over three months instead of
 // twelve, so it is a third tab up there rather than a fourth section down
 // here with its own heading and its own chart language.
+// Shareholding, flows and deals are appended BELOW the peer table rather than
+// slotted next to the mix chart. They are not variations on "what is this
+// company made of" — they are the market around it, which is a later question
+// than the business itself.
+//
+// None of the three is announced by /sections: shareholding lives in shp.*
+// and the flows pair in charto's store, neither of which the coverage call
+// counts. So each one loads unconditionally and reports its own emptiness by
+// returning `available: false`, and the section is dropped on that instead.
 const SECTION_ORDER: SectionId[] = [
-  "revenue_mix", "peers",
+  "revenue_mix", "peers", "shareholding", "flows", "deals",
 ];
 
 export function DeepSections({ symbol }: { symbol: string }): React.ReactElement | null {
@@ -49,12 +62,15 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
   const [failed, setFailed] = React.useState(false);
 
   const [mix, setMix] = React.useState<MixResponse | null>(null);
+  const [shp, setShp] = React.useState<ShareholdingResponse | null>(null);
+  const [flows, setFlows] = React.useState<FlowsResponse | null>(null);
+  const [deals, setDeals] = React.useState<DealsResponse | null>(null);
 
   // ── coverage ─────────────────────────────────────────────────────────────
   React.useEffect(() => {
     let dead = false;
     setSections(null); setFailed(false);
-    setMix(null);
+    setMix(null); setShp(null); setFlows(null); setDeals(null);
     getStockSections(symbol)
       .then((r) => {
         if (dead) return;
@@ -68,8 +84,15 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
   const available = React.useMemo<SectionId[]>(() => {
     if (!sections) return [];
     const c = sections.coverage;
-    return SECTION_ORDER.filter((t) => t === "peers" || (c[t]?.count ?? 0) > 0);
-  }, [sections]);
+    return SECTION_ORDER.filter((t) => {
+      if (t === "peers") return true;
+      // Self-reporting sections: drawn once their own fetch says it has data.
+      if (t === "shareholding") return shp?.available ?? false;
+      if (t === "flows") return flows?.available ?? false;
+      if (t === "deals") return deals?.available ?? false;
+      return (c[t]?.count ?? 0) > 0;
+    });
+  }, [sections, shp, flows, deals]);
 
   // ── section loads ───────────────────────────────────────────────────────
   React.useEffect(() => {
@@ -80,6 +103,21 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
       .catch(() => {});
     return () => { dead = true; };
   }, [available, symbol, mix]);
+
+  // These three do not wait on coverage — coverage does not know about them.
+  React.useEffect(() => {
+    let dead = false;
+    getShareholding(symbol)
+      .then((r) => { if (!dead && !isError(r)) setShp(r.data); })
+      .catch(() => {});
+    getFlows(symbol, 180)
+      .then((r) => { if (!dead && !isError(r)) setFlows(r.data); })
+      .catch(() => {});
+    getDeals(symbol, 80)
+      .then((r) => { if (!dead && !isError(r)) setDeals(r.data); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [symbol]);
 
   // A company with none of this data gets nothing rather than an empty shell —
   // the page above still stands on its own.
@@ -109,6 +147,24 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
       <ResearchSection id="peers" label="Peer comparison">
         <PeerComparisonPanel symbol={symbol} />
       </ResearchSection>
+
+      {available.includes("shareholding") && shp ? (
+        <ResearchSection id="shareholding" label="Shareholding">
+          <ShareholdingPanel data={shp} />
+        </ResearchSection>
+      ) : null}
+
+      {available.includes("flows") && flows ? (
+        <ResearchSection id="flows" label="Delivery and open interest">
+          <FlowsPanel data={flows} />
+        </ResearchSection>
+      ) : null}
+
+      {available.includes("deals") && deals ? (
+        <ResearchSection id="deals" label="Bulk and block deals">
+          <DealsPanel data={deals} />
+        </ResearchSection>
+      ) : null}
     </section>
   );
 }

@@ -153,9 +153,18 @@ export default function EChart({
     // tooltip (default white, default shadow, unconfined) while this file
     // looked like it was styling it. The tooltip is merged key-by-key instead,
     // caller wins per key.
-    const { tooltip: callerTip, ...restOption } = option as {
+    const { tooltip: callerTip, legend: callerLegend, ...restOption } = option as {
       tooltip?: Record<string, unknown>;
+      legend?: Record<string, unknown>;
     } & Record<string, unknown>;
+
+    // Legend needs the same key-by-key treatment as the tooltip, and for the
+    // same reason: ECharts does NOT cascade the root `textStyle.color` into
+    // legend labels — they fall back to its own #333, which is invisible on
+    // the dark ground. Any caller that sets `legend` at all was replacing the
+    // themed one wholesale, so the merge happens here rather than in every
+    // panel that draws a legend.
+    const legendTextStyle = (callerLegend?.textStyle ?? {}) as Record<string, unknown>;
 
     inst.current.setOption(
       {
@@ -178,6 +187,18 @@ export default function EChart({
           extraCssText: "box-shadow:0 4px 16px rgba(15,18,22,.10);border-radius:10px;",
           ...(callerTip ?? {}),
         },
+        ...(callerLegend
+          ? {
+              legend: {
+                ...callerLegend,
+                textStyle: { color: tokens.text, ...legendTextStyle },
+                inactiveColor: tokens.muted,
+                pageTextStyle: { color: tokens.muted },
+                pageIconColor: tokens.muted,
+                pageIconInactiveColor: tokens.border,
+              },
+            }
+          : {}),
         ...restOption,
       },
       // `true` — replace rather than merge. Switching between breakdowns

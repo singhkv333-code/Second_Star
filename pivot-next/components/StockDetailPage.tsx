@@ -70,6 +70,7 @@ import {
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
 import { DeepSections } from "@/components/stock/DeepSections";
+import { RowTrend } from "@/components/stock/RowTrend";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
 // ---------------------------------------------------------------------------
@@ -2862,6 +2863,10 @@ function FinancialsPanel({
   const [tab, setTab] = useState<FinPanelTab>("financials");
   // Full MC balance sheet lives behind a toggle inside the Balance Sheet tab.
   const [showFullBS, setShowFullBS] = useState(false);
+  // One row's series open at a time. Keyed by label rather than index so
+  // switching tabs — which swaps the whole row set — closes it rather than
+  // opening whatever now sits in that position.
+  const [openRow, setOpenRow] = useState<string | null>(null);
   const fullBsReady =
     balanceSheet !== null && balanceSheet.available && balanceSheet.rows.length > 0;
 
@@ -2994,7 +2999,7 @@ function FinancialsPanel({
               ).map((t) => {
                 const active = tab === t;
                 return (
-                  <button key={t} type="button" onClick={() => setTab(t)} style={{
+                  <button key={t} type="button" onClick={() => { setTab(t); setOpenRow(null); }} style={{
                     padding: "6px 14px", border: "none", background: "transparent",
                     fontSize: 12.5, fontFamily: "var(--font-ui)",
                     fontWeight: active ? 600 : 400,
@@ -3069,11 +3074,21 @@ function FinancialsPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => (
-                  <tr key={r.label || idx}
-                    style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none", transition: "background 120ms" }}
+                {rows.map((r, idx) => {
+                  const open = openRow === r.label;
+                  return (
+                  <Fragment key={r.label || idx}>
+                  <tr
+                    onClick={() => setOpenRow(open ? null : r.label)}
+                    aria-expanded={open}
+                    style={{
+                      borderBottom: idx < rows.length - 1 || open ? "1px solid var(--glass-border)" : "none",
+                      transition: "background 120ms",
+                      cursor: "pointer",
+                      background: open ? "var(--bg-base, #f8fafc)" : "transparent",
+                    }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
                   >
                     <td style={{ padding: "11px 12px" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -3097,7 +3112,19 @@ function FinancialsPanel({
                       </td>
                     ))}
                   </tr>
-                ))}
+                  {/* The row's own series, at full table width. Opened rather
+                      than always-on: a sparkline per row costs a column on
+                      every table and is too small to read a turn off. */}
+                  {open ? (
+                    <tr style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+                      <td colSpan={periods.length + 1} style={{ padding: 0, background: "var(--bg-base, #f8fafc)" }}>
+                        <RowTrend label={r.label} periods={periods} values={r.values} />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
