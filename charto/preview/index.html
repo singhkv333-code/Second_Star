@@ -2327,7 +2327,10 @@ body.two-columns .readout .row { display: none; }
 }
 .view-reset.show { display: inline-flex; animation: fade var(--dur) ease-out; }
 .view-reset:hover { color: var(--primary); border-color: var(--primary); }
-.view-reset svg.icon { width: 15px; height: 15px; }
+/* 13 in a 30px circle. The glyph is a full-bleed lucide arrow — it goes edge
+   to edge in its own 24 box — so it reads a size larger than a glyph with its
+   own padding would at the same number. */
+.view-reset svg.icon { width: 13px; height: 13px; }
 /* The chart sets `cursor: crosshair` on itself and everything in it, and this
    button is a sibling of that — but the rail's rules taught the same lesson
    twice, so it is stated rather than assumed. */
