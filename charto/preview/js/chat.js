@@ -1353,7 +1353,7 @@
       // gentler than the module's defaults: this is a panel you read tiles
       // off, not a lens. Enough bend at the rim to catch the glow behind it,
       // not enough to smear a 52px drawing.
-      glass = liquidGlass(groupEl, { scale: -64, chroma: 4, blur: 5,
+      glass = liquidGlass(trayEl, { scale: -64, chroma: 4, blur: 5,
                                      saturate: 1.35, fallbackBlur: 14 });
     } else if (!on && glass) {
       glass.destroy();

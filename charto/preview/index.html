@@ -329,7 +329,7 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 /* button — ghost (default) / outline / cta / danger / icon / on */
 .btn {
   display: inline-flex; align-items: center; gap: 7px; height: 30px;
-  padding: 0 11px; border-radius: var(--radius); cursor: pointer;
+  padding: 0 11px; border-radius: 6px; cursor: pointer;
   background: transparent; border: 1px solid transparent; color: var(--foreground);
   font-size: var(--text-base); font-weight: var(--weight-medium); white-space: nowrap;
   transition: background var(--dur) var(--ease-quartr),
@@ -653,7 +653,7 @@ select.is-dressed { display: none; }
 .ly-btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 30px; padding: 0 8px 0 10px; max-width: 190px;
-  background: none; border: 0; border-radius: var(--radius-sm);
+  background: none; border: 0; border-radius: 6px;
   color: var(--foreground); font: inherit; font-size: var(--text-sm);
   cursor: pointer; flex: none;
   transition: background var(--dur) var(--ease-quartr);
@@ -2687,7 +2687,7 @@ body.two-columns .readout .row { display: none; }
 }
 .chat-action {
   width: 30px; height: 30px; padding: 0; border: 0;
-  border-radius: var(--radius-sm); background: transparent;
+  border-radius: 6px; background: transparent;
   color: var(--muted-foreground); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
@@ -2696,7 +2696,7 @@ body.two-columns .readout .row { display: none; }
 .chat-action svg.icon { width: 17px; height: 17px; }
 
 .thread {
-  flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
+  position: relative; flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;
   padding: 8px 0; scroll-behavior: smooth;
 }
 /* Nothing has been asked yet, so there is no thread to hold the top of the
@@ -2704,8 +2704,8 @@ body.two-columns .readout .row { display: none; }
    Collapsing the thread lets the composer's auto margins centre the group
    in the space instead. :has() keeps the rule keyed to the one state that
    wants it — no class to set, nothing to forget to unset. */
-.chatpanel:has(.ask-group.has-tray) .thread { flex: 0 0 auto; }
-.chatpanel:has(.ask-group.has-tray) .composer-wrap { margin-block: auto; }
+.chatpanel:has(.ask-group.has-tray) .thread { flex: 1 1 auto; }
+.chatpanel:has(.ask-group.has-tray) .composer-wrap { margin-block: 0; }
 .thread-inner {
   max-width: 720px; margin: 0 auto; padding: 0 clamp(16px, 4%, 34px);
   display: flex; flex-direction: column; gap: 26px;
@@ -2716,7 +2716,7 @@ body.two-columns .readout .row { display: none; }
    row. A row-flex here put the footnote beside the bubble instead. */
 .turn.user { display: flex; flex-direction: column; align-items: flex-end; }
 .turn.user .bubble {
-  background: var(--muted); border-radius: var(--radius-lg); padding: 11px 16px;
+  background: var(--muted); border-radius: var(--radius-md); padding: 11px 16px;
   max-width: 88%; font-size: var(--text-xl); line-height: 1.55; color: var(--foreground);
   white-space: pre-wrap; word-break: break-word; user-select: text;
 }
@@ -3437,8 +3437,8 @@ body.two-columns .readout .row { display: none; }
    above it. Each is a different, deliberately low alpha; one flat tint at
    one opacity is what makes a panel look painted. */
 .ask-group.has-tray {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-2xl);
+  border: 0;
+  border-radius: 0;
   /* Translucent, because glass that is not translucent is just a panel.
      The refraction and the backdrop blur come from vendor/liquid-glass.js
      (an SVG feDisplacementMap driven through backdrop-filter, which only
@@ -3449,18 +3449,14 @@ body.two-columns .readout .row { display: none; }
      thickness; a hairline border a little brighter than the app's, since a
      glass edge catches light a flat one does not; and an outer shadow, so
      it sits ABOVE the pane rather than in it. */
-  background: color-mix(in srgb, var(--card) 46%, transparent);
-  border-color: color-mix(in srgb, var(--foreground) 14%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
-    0 12px 34px -14px rgb(0 0 0 / .5);
-  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
   position: relative;
   z-index: 1;
 }
 .ask-group.has-tray::after {
-  content: ""; position: absolute; inset: 0 0 auto 0; height: 58%;
+  content: none; position: absolute; inset: 0 0 auto 0; height: 58%;
   pointer-events: none; z-index: 2; border-radius: inherit;
   background: linear-gradient(180deg,
     color-mix(in srgb, var(--foreground) 7%, transparent) 0%,
@@ -3478,10 +3474,10 @@ body.two-columns .readout .row { display: none; }
      on this surface you act on, so it wants to sit proud of the glass
      rather than sink into it — mixed off the foreground so it lifts in
      dark and settles in light, either way reading as a field. */
-  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
-  border-color: color-mix(in srgb, var(--border) 90%, transparent);
-  border-radius: var(--radius-md);
-  margin: 0 6px 6px;
+  background: var(--card);
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  margin: 0;
 }
 
 .tpl { padding: 13px 14px 2px; position: relative; }
@@ -3500,7 +3496,7 @@ body.two-columns .readout .row { display: none; }
 .ask-shell { position: relative; }
 .ask-glow { display: none; }
 .ask-shell:has(.ask-group.has-tray) .ask-glow {
-  display: block; position: absolute; inset: 0; z-index: 0;
+  display: none; position: absolute; inset: 0; z-index: 0;
   border-radius: var(--radius-2xl); overflow: hidden; pointer-events: none;
 }
 .ask-glow::before, .ask-glow::after {
@@ -3533,9 +3529,18 @@ body.two-columns .readout .row { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .ask-glow::before, .ask-glow::after { animation: none; }
 }
-.ask-group.has-tray > .tpl {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  padding-bottom: 11px; margin-bottom: 7px;
+.thread > .tpl {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(720px, calc(100% - 32px));
+  transform: translate(-50%, -55%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  box-shadow: none;
+  padding: 13px 14px 12px;
+  margin: 0;
 }
 .tpl-head {
   font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
@@ -3573,7 +3578,7 @@ body.two-columns .readout .row { display: none; }
    not enough to read as padding. */
 .tpl-box {
   width: 62px; height: 62px; border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border: 0;
   background: color-mix(in srgb, var(--card) 60%, transparent);
   display: flex; align-items: center; justify-content: center;
   transition: border-color var(--dur) var(--ease-quartr),
@@ -3673,7 +3678,7 @@ body.two-columns .readout .row { display: none; }
 .composer-inner { max-width: 720px; margin: 0 auto; }
 .composer {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius-2xl); padding: 10px 10px 8px 14px;
+  border-radius: var(--radius-lg); padding: 10px 10px 8px 14px;
 }
 .composer textarea {
   width: 100%; resize: none; background: transparent; color: var(--foreground);
@@ -6772,6 +6777,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
         <div class="thread-inner" id="chatMsgs">
           
         </div>
+        <div class="tpl" id="tplTray" hidden></div>
       </div>
 
       <button class="to-bottom" id="toBottom" title="Jump to latest"></button>
@@ -6802,7 +6808,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           <div class="ask-shell" id="askShell">
           <div class="ask-glow" aria-hidden="true"></div>
           <div class="ask-group" id="askGroup">
-          <div class="tpl" id="tplTray" hidden></div>
           <form class="composer" id="chatForm">
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
