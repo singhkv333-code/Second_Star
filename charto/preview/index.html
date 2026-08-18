@@ -6419,6 +6419,31 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .ind-symbol-field { height: 36px; }
 .ind-symbol-field svg { top: 10px; }
 
+/* Carry the compact field rhythm through Style and Visibility as well. */
+.indicator-settings .dlg-colour-line,
+.indicator-settings .dlg-line-button {
+  height: 36px; border-radius: 7px;
+}
+.indicator-settings .dlg-colour-line .colour,
+.indicator-settings .hist-colour .colour {
+  width: 24px; height: 24px;
+}
+:root[data-theme="light"] .indicator-settings .dlg-colour-line,
+:root[data-theme="light"] .indicator-settings .dlg-line-button,
+:root[data-theme="light"] .indicator-settings .vis-number {
+  background: #fff;
+}
+.indicator-settings .hist-plot > .dlg-check { min-height: 34px; }
+.indicator-settings .hist-color-grid { row-gap: 6px; }
+.indicator-settings .vis-range-row { min-height: 46px; }
+.dlg.indicator-settings .vis-number { height: 36px; }
+.indicator-settings .dlg-foot {
+  min-height: 58px; padding-block: 10px;
+}
+.indicator-settings .dlg-foot .btn {
+  height: 36px; border-radius: 7px;
+}
+
 .dlg-wrap:has(.al-dlg) {
   background: color-mix(in srgb, var(--scrim) 72%, transparent);
   backdrop-filter: blur(1px);
