@@ -301,16 +301,30 @@ const Layouts = (() => {
     try {
       const d = await call("/layouts", { id: cur.id, share: !!on });
       cur.shared = d.shared;
+      cur.share_token = d.token || null;
       if (d.token) {
-        const link = `${location.origin}${location.pathname}?shared=${d.token}`;
-        await navigator.clipboard.writeText(link).catch(() => {});
-        toast("Link copied — anyone with it can view this layout");
+        toast("Sharing on — anyone with the link can view this layout");
       } else {
         toast("Sharing off — the old link no longer works");
       }
       paint();
       return true;
     } catch (e) { toast(e.message); return false; }
+  }
+
+  async function copyShareLink() {
+    if (!cur || !cur.id) return toast("Save this layout first");
+    try {
+      const d = cur.share_token ? { token: cur.share_token }
+        : await call("/layouts", { id: cur.id, share: true });
+      if (!d.token) throw new Error("Could not create a share link");
+      cur.shared = true;
+      cur.share_token = d.token;
+      const link = `${location.origin}${location.pathname}?shared=${d.token}`;
+      await navigator.clipboard.writeText(link);
+      toast("Link copied — anyone with it can view this layout");
+      paint(); renderMenu();
+    } catch (e) { toast(e.message || "Could not copy the link"); }
   }
 
   /** The bars on screen, as CSV. The chart's own series, not a re-fetch:
@@ -460,6 +474,8 @@ const Layouts = (() => {
       + toggleRow("autosave", "Autosave", !!(cur && cur.autosave))
       + toggleRow("share", "Share layout", !!(cur && cur.shared),
                   "Anyone with the link can view this layout, read-only.")
+      + (cur && cur.shared
+        ? row("link", "Copy link…", 'data-act="copylink"') : "")
       + `<div class="sep"></div>`
       + row("copy", "Make a copy…", 'data-act="copy"')
       + row("pen", "Rename…", 'data-act="rename"')
@@ -657,6 +673,7 @@ const Layouts = (() => {
       }
       m.classList.remove("open");
       if (act === "save") save();
+      else if (act === "copylink") copyShareLink();
       else if (act === "copy") copy();
       else if (act === "rename") rename();
       else if (act === "csv") downloadData();
