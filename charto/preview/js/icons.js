@@ -146,6 +146,7 @@ const Icons = (() => {
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+    layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
     camera: '<path d="M14.5 4h-5L7.2 6.8H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8.8a2 2 0 0 0-2-2h-3.2L14.5 4z"/><circle cx="12" cy="13" r="3.2"/>',
     // voice input, and the same glyph struck through for the failure flash —
     // the pair Pivot's composer uses, so the two products say it the same way

@@ -3121,6 +3121,20 @@
       { sep: true },
       shotRow(),
       { icon: "copy", label: "Duplicate", on: () => draw.clone(d.id) },
+      { icon: "layers", label: "Layer", sub: () => {
+        const i = draw.state.drawings.findIndex((q) => q.id === d.id);
+        const last = draw.state.drawings.length - 1;
+        return [
+          { label: "Bring to front", disabled: i < 0 || i === last,
+            on: () => draw.moveLayer(d.id, "front") },
+          { label: "Bring forward", disabled: i < 0 || i === last,
+            on: () => draw.moveLayer(d.id, "forward") },
+          { label: "Send backward", disabled: i <= 0,
+            on: () => draw.moveLayer(d.id, "backward") },
+          { label: "Send to back", disabled: i <= 0,
+            on: () => draw.moveLayer(d.id, "back") },
+        ];
+      } },
       { icon: "lock", label: "Lock", tick: !!d.locked,
         title: "A locked shape still selects and still answers — it only stops moving",
         // Nothing on the chart changes when a shape locks, so the only other
