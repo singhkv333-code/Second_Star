@@ -905,12 +905,12 @@ select.is-dressed { display: none; }
    fields at 6px radius, an 18px checkbox, and a 34px footer row. Colours
    stay on Pivot's tokens — TradingView's own light-theme ink (#0f0f0f text,
    rgb(46,46,46) commit button) is what --foreground already is. */
-/* Width is content-driven, like TradingView's: 380 is the floor (Inputs),
+/* Previously the width was content-driven,
    and a tab that needs more — Style's four controls in one row — widens the
    dialog instead of scrolling sideways inside it. */
 .dlg {
-  width: max-content; min-width: 380px;
-  max-width: min(560px, calc(100vw - 24px));
+  width: 476px; min-width: 380px;
+  max-width: min(476px, calc(100vw - 24px));
   max-height: min(700px, 88vh); max-height: min(700px, 88dvh);
   display: flex; flex-direction: column;
   border-radius: 6px; overflow: hidden;
@@ -985,10 +985,15 @@ select.is-dressed { display: none; }
 .dlg-row > label.dlg-check:only-child { grid-column: 1 / -1; }
 .dlg-ctl { display: flex; align-items: center; gap: 6px; }
 /* block-level children of the body sit across both columns */
-.dlg-sep, .dlg-note, .dlg-empty, .dlg-formula {
+.dlg-sep, .dlg-note, .dlg-empty, .dlg-formula, .dlg-section-label {
   grid-column: 1 / -1;
 }
 .dlg-sep { height: 1px; background: var(--border-soft); margin: 8px -20px; }
+.dlg-section-label {
+  margin: 8px 0 4px; color: var(--faint); font-size: 11px;
+  line-height: 16px; text-transform: uppercase;
+}
+.dlg-section-label.input-values { margin-top: 10px; }
 .dlg-hint { font-size: var(--text-sm); color: var(--faint); font-variant-numeric: tabular-nums; }
 /* prose does not get a vote on how wide the dialog is */
 .dlg-note, .dlg-empty {
@@ -1005,6 +1010,47 @@ select.is-dressed { display: none; }
 .dlg-ctl .dlg-select { width: 92px; min-width: 0; height: 34px; font-size: var(--text-md); padding: 0 24px 0 9px; }
 .dlg-ctl .dlg-select.tight { width: 74px; }
 .dlg-row.plot .dlg-check span { font-size: 14px; }
+
+/* TradingView's compact plot controls: colour and its sample are one field;
+   the adjacent waveform button opens the width/style/type palette. */
+.dlg-colour-line {
+  width: 92px; height: 42px; padding: 5px; display: inline-flex;
+  align-items: center; gap: 9px; cursor: pointer; background: var(--input);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.dlg-colour-line:hover, .dlg-line-button:hover { border-color: var(--faint); }
+.dlg-colour-line .colour {
+  width: 30px; height: 30px; flex: none; border-radius: 5px;
+  background: var(--sw); box-shadow: inset 0 0 0 1px var(--swatch-ring);
+}
+.dlg-colour-line i { width: 36px; border-top: 1px solid var(--sw); }
+.dlg-line-button {
+  width: 44px; height: 42px; padding: 0; display: inline-flex;
+  align-items: center; justify-content: center; cursor: pointer;
+  color: var(--foreground); background: var(--input);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.line-glyph { display: inline-block; width: 24px; border-top-style: solid; border-top-color: currentColor; }
+.line-glyph.lw-1 { border-top-width: 1px; }
+.line-glyph.lw-2 { border-top-width: 2px; }
+.line-glyph.lw-3 { border-top-width: 3px; }
+.line-glyph.lw-4 { border-top-width: 4px; }
+.line-glyph.ls-1 { border-top-style: dotted; }
+.line-glyph.ls-2 { border-top-style: dashed; }
+.ind-line-pop {
+  position: fixed; top: auto; left: auto; z-index: 240;
+  min-width: 184px; padding: 8px; overflow: visible;
+}
+.ind-line-pop-label { padding: 7px 8px 5px; font-size: 11px; color: var(--faint); text-transform: uppercase; }
+.ind-line-widths { display: flex; gap: 4px; padding: 0 4px 6px; }
+.ind-line-widths button {
+  width: 36px; height: 30px; display: inline-flex; align-items: center;
+  justify-content: center; border: 0; border-radius: 4px;
+  background: transparent; color: var(--foreground); cursor: pointer;
+}
+.ind-line-widths button:hover { background: var(--accent); }
+.ind-line-widths button.on { color: var(--primary); background: var(--primary-soft); }
+.ind-line-pop .item .line-glyph { margin-right: 10px; }
 
 /* TradingView's footer: Defaults on the left, Cancel and the commit on the
    right, all on one 32px line over a hairline. */
@@ -1023,6 +1069,85 @@ select.is-dressed { display: none; }
 .dlg-foot .btn { height: 34px; border-radius: 6px; font-size: 14px; padding: 0 11px; font-weight: 400; }
 /* the Defaults control is a 100px field, the same box as an input */
 .dlg-foot .dlg-def .btn { width: 100px; justify-content: space-between; }
+
+/* Indicator settings follows TradingView's complete modal geometry. Keeping
+   these rules scoped prevents the chart, alert and shortcut dialogs from
+   inheriting indicator-specific spacing. */
+.dlg-wrap:has(.indicator-settings) {
+  background: transparent;
+  backdrop-filter: none;
+}
+.dlg.indicator-settings {
+  width: 476px; min-width: 0; height: 666px;
+  max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px);
+  background: #fff; border: 1px solid #e7e7e7; border-radius: 9px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+}
+:root[data-theme="dark"] .dlg.indicator-settings { background: var(--card); }
+.indicator-settings .dlg-head { padding: 24px 26px 19px; }
+.indicator-settings .dlg-title {
+  font-size: 26px; line-height: 32px; font-weight: 600;
+}
+.indicator-settings .dlg-head .btn.icon { width: 32px; height: 32px; }
+.indicator-settings .dlg-head .btn.icon svg { width: 24px; height: 24px; }
+.indicator-settings .dlg-tabs { gap: 31px; padding: 0 26px; }
+.indicator-settings .dlg-tabs::after { left: 26px; right: 26px; height: 4px; }
+.indicator-settings .dlg-tab {
+  height: 43px; padding-bottom: 10px; font-size: 20px; line-height: 24px;
+}
+.indicator-settings .dlg-body {
+  padding: 18px 26px; grid-template-columns: 136px minmax(0, 1fr);
+  column-gap: 14px; align-content: start;
+}
+.indicator-settings .dlg-note,
+.indicator-settings .dlg-formula { display: none; }
+.indicator-settings .dlg-row > label {
+  min-height: 52px; padding: 5px 0; font-size: 17px;
+}
+.indicator-settings .dlg-row.plot > label { min-height: 64px; }
+.indicator-settings .dlg-check { gap: 10px; }
+.indicator-settings .dlg-check span,
+.indicator-settings .dlg-row.plot .dlg-check span { font-size: 17px; }
+.indicator-settings .dlg-check input {
+  width: 22px; height: 22px; border-radius: 4px;
+}
+.indicator-settings .dlg-check input:checked {
+  background-size: 14px 14px;
+}
+.indicator-settings .dlg-input,
+.indicator-settings .dlg-select,
+.indicator-settings .select-btn {
+  width: 124px; min-width: 124px; height: 44px; padding-left: 11px;
+  border-radius: 8px; font-size: 17px;
+}
+.indicator-settings .dlg-section-label {
+  font-size: 12px; line-height: 16px; margin: 7px 0 4px;
+}
+.indicator-settings .dlg-section-label.output-values { margin-top: 27px; }
+.indicator-settings .dlg-section-label.input-values { margin-top: 8px; }
+.indicator-settings .dlg-hint { font-size: 14px; }
+.indicator-settings .dlg-foot {
+  min-height: 84px; gap: 14px; padding: 19px 26px;
+  border-top-color: #e8e8e8;
+}
+.indicator-settings .dlg-foot .btn {
+  height: 44px; padding: 0 14px; border-radius: 8px; font-size: 17px;
+}
+.indicator-settings .dlg-foot .dlg-def .btn { width: 125px; }
+.indicator-settings .dlg-foot [data-act="cancel"] { min-width: 90px; }
+.indicator-settings .dlg-foot [data-act="ok"] { min-width: 54px; }
+.indicator-settings .dlg-colour-line { width: 92px; height: 44px; }
+.indicator-settings .dlg-line-button { width: 44px; height: 44px; }
+.indicator-settings .dlg-line-button svg {
+  width: 28px; height: 18px; fill: none; stroke: currentColor;
+  stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+
+@media (max-height: 690px), (max-width: 500px) {
+  .dlg.indicator-settings { height: calc(100dvh - 24px); }
+  .indicator-settings .dlg-title { font-size: 22px; }
+  .indicator-settings .dlg-tab { font-size: 17px; }
+}
 
 /* ── the chart-settings dialog ─────────────────────────────────────────────
    The same card as the indicator dialog with its tab strip replaced by a
@@ -6088,6 +6213,235 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 }
 @media (prefers-reduced-motion: reduce) { .j-drawer, .j-book, .j-toast { transition: none; } }
 
+/* Final Groww parity pass. These declarations intentionally live after every
+   generic dialog rule: alert-dialog selectors later in the sheet used to
+   stretch indicator selects and made the screenshots diverge. */
+.dlg.indicator-settings {
+  width: 476px; height: 686px; border-radius: 8px;
+}
+.dlg.indicator-settings[data-tab="visibility"] {
+  width: 565px; height: 562px;
+}
+.indicator-settings .dlg-head { padding: 20px 26px 14px; }
+.indicator-settings .dlg-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.indicator-settings .dlg-head .btn.icon { width: 28px; height: 28px; }
+.indicator-settings .dlg-head .btn.icon svg { width: 22px; height: 22px; }
+.indicator-settings .dlg-tabs { gap: 24px; padding: 0 26px; }
+.indicator-settings .dlg-tabs::after { left: 26px; right: 26px; }
+.indicator-settings .dlg-tab { height: 40px; padding-bottom: 8px; font-size: 16px; line-height: 20px; }
+.indicator-settings .dlg-tab:focus {
+  outline: 2px solid #00b386; outline-offset: -2px; border-radius: 8px;
+  padding-left: 10px; padding-right: 10px; margin-left: -10px; margin-right: -10px;
+}
+.indicator-settings .dlg-tab.active:focus::after { left: 10px; right: 10px; }
+.indicator-settings .dlg-body {
+  padding: 14px 26px; grid-template-columns: 164px minmax(0, 1fr);
+  column-gap: 14px; align-content: start;
+}
+.indicator-settings[data-tab="style"] .dlg-body { grid-template-columns: 140px minmax(0, 1fr); }
+.indicator-settings .dlg-row > label,
+.indicator-settings .dlg-row.plot > label { min-height: 62px; padding: 9px 0; font-size: 14px; }
+.indicator-settings .dlg-check { gap: 8px; }
+.indicator-settings .dlg-check span,
+.indicator-settings .dlg-row.plot .dlg-check span { font-size: 14px; }
+.indicator-settings .dlg-check input { width: 18px; height: 18px; }
+.dlg.indicator-settings .dlg-row > .dlg-input,
+.dlg.indicator-settings .dlg-row > .dlg-select,
+.dlg.indicator-settings .dlg-row > .select-btn,
+.dlg.indicator-settings .ind-symbol-input {
+  width: 125px; min-width: 125px; height: 43px; border-radius: 7px;
+  padding-left: 10px; font-size: 14px;
+}
+.indicator-settings .dlg-section-label { font-size: 10px; line-height: 14px; }
+.indicator-settings .dlg-section-label.output-values { margin-top: 25px; }
+.indicator-settings .dlg-colour-line { width: 92px; height: 42px; border-radius: 7px; }
+.indicator-settings .dlg-line-button { width: 44px; height: 42px; border-radius: 7px; }
+.indicator-settings .dlg-foot { min-height: 84px; padding: 18px 26px; gap: 14px; }
+.indicator-settings .dlg-foot .btn { height: 43px; border-radius: 7px; font-size: 14px; }
+.indicator-settings .dlg-foot .dlg-def .btn { width: 125px; }
+.indicator-settings .dlg-foot [data-act="cancel"] { min-width: 90px; }
+.indicator-settings .dlg-foot [data-act="ok"] { min-width: 54px; }
+
+.ind-symbol-choice {
+  grid-column: 1 / -1; display: grid; grid-template-columns: 164px 125px;
+  grid-template-rows: 43px 43px; column-gap: 14px; row-gap: 7px;
+  align-items: center; margin: 6px 0 8px;
+}
+.ind-radio { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14px; }
+.ind-radio input {
+  appearance: none; width: 20px; height: 20px; margin: 0; border-radius: 50%;
+  border: 1px solid var(--muted-foreground); background: var(--input); cursor: pointer;
+}
+.ind-radio input:checked { border: 6px solid var(--muted-foreground); }
+.ind-radio.another { grid-row: 2; }
+.ind-symbol-field { position: relative; grid-column: 2; grid-row: 2; width: 125px; height: 43px; }
+.ind-symbol-input { padding-right: 34px; }
+.ind-symbol-field svg {
+  position: absolute; width: 16px; height: 16px; right: 10px; top: 13px;
+  fill: none; stroke: var(--faint); stroke-width: 1.4; pointer-events: none;
+}
+.ind-symbol-input:disabled { background: var(--muted); color: var(--faint); }
+
+.hist-plot { grid-column: 1 / -1; margin: 4px 0 14px; }
+.hist-plot > .dlg-check { min-height: 38px; }
+.hist-color-grid {
+  display: grid; grid-template-columns: 88px 92px 44px;
+  align-items: center; gap: 10px 6px; padding: 4px 0 0 32px;
+}
+.hist-color-grid > span { font-size: 14px; }
+.hist-color-grid > i { width: 44px; }
+.hist-colour .colour { width: 30px; height: 30px; }
+.indicator-settings .hist-type svg { stroke-width: 1.4; }
+
+.indicator-settings[data-tab="visibility"] .dlg-body { display: block; padding-top: 15px; }
+.vis-range-row {
+  display: grid; grid-template-columns: 106px 125px 128px 125px;
+  column-gap: 8px; align-items: center; min-height: 62px;
+}
+.vis-range-row .dlg-check span { font-size: 14px; }
+.dlg.indicator-settings .vis-number {
+  width: 125px; min-width: 125px; height: 43px; padding: 0 10px;
+  border-radius: 7px; font-size: 14px;
+}
+.vis-slider { position: relative; width: 128px; height: 24px; }
+.vis-slider::before {
+  content: ""; position: absolute; left: 5px; right: 5px; top: 10px; height: 6px;
+  border-radius: 3px; background: linear-gradient(to right,
+    var(--border) 0 var(--lo), var(--muted-foreground) var(--lo) var(--hi),
+    var(--border) var(--hi) 100%);
+}
+.vis-slider input {
+  position: absolute; inset: 0; width: 100%; margin: 0; appearance: none;
+  background: transparent; pointer-events: none;
+}
+.vis-slider input::-webkit-slider-runnable-track { height: 6px; background: transparent; }
+.vis-slider input::-webkit-slider-thumb {
+  appearance: none; width: 15px; height: 15px; margin-top: -5px;
+  border: 2px solid var(--foreground); border-radius: 50%; background: var(--card);
+  pointer-events: auto; cursor: pointer;
+}
+.vis-slider input::-moz-range-track { height: 6px; background: transparent; }
+.vis-slider input::-moz-range-thumb {
+  width: 12px; height: 12px; border: 2px solid var(--foreground);
+  border-radius: 50%; background: var(--card); pointer-events: auto; cursor: pointer;
+}
+
+@media (max-width: 590px) {
+  .dlg.indicator-settings,
+  .dlg.indicator-settings[data-tab="visibility"] { width: calc(100vw - 24px); }
+  .indicator-settings[data-tab="visibility"] .dlg-body { overflow-x: auto; }
+}
+
+/* Requested UI cleanup: selection is neutral throughout settings, indicator
+   settings is a compact utility rather than a dominant window, and alerts use
+   the same quiet field/button rhythm as the rest of the chart. */
+.dlg-nav.active,
+.dlg-nav.active:hover {
+  background: var(--accent); color: var(--foreground); border-color: transparent;
+}
+.dlg-nav.active svg { color: var(--foreground); }
+
+.dlg.indicator-settings {
+  width: 380px; height: auto;
+  max-height: min(560px, calc(100dvh - 24px));
+}
+.dlg.indicator-settings[data-tab="visibility"] {
+  width: 480px; height: auto;
+  max-height: min(500px, calc(100dvh - 24px));
+}
+.indicator-settings .dlg-head { padding: 16px 20px 10px; }
+.indicator-settings .dlg-tabs { padding: 0 20px; }
+.indicator-settings .dlg-tabs::after { left: 20px; right: 20px; }
+.indicator-settings .dlg-tab:focus {
+  outline: none; padding-left: 0; padding-right: 0; margin-left: 0; margin-right: 0;
+}
+.indicator-settings .dlg-tab.active:focus::after { left: 0; right: 0; }
+.indicator-settings .dlg-body {
+  padding: 10px 20px; grid-template-columns: 150px minmax(0, 1fr);
+  column-gap: 12px;
+}
+.indicator-settings[data-tab="style"] .dlg-body {
+  grid-template-columns: 126px minmax(0, 1fr);
+}
+.indicator-settings .dlg-row > label,
+.indicator-settings .dlg-row.plot > label {
+  min-height: 54px; padding: 6px 0; white-space: nowrap;
+}
+.indicator-settings .dlg-foot { min-height: 68px; padding: 12px 20px; }
+.ind-symbol-choice {
+  grid-template-columns: 150px 125px; grid-template-rows: 40px 40px;
+  column-gap: 12px; row-gap: 4px; margin: 2px 0 5px;
+}
+.hist-color-grid { padding-left: 26px; grid-template-columns: 82px 92px 44px; }
+.indicator-settings .dlg-section-label.output-values { margin-top: 18px; }
+.dlg.indicator-settings[data-tab="visibility"] .dlg-body { padding: 10px 20px; }
+.vis-range-row {
+  grid-template-columns: 94px 105px 110px 105px; column-gap: 8px; min-height: 56px;
+}
+.dlg.indicator-settings .vis-number { width: 105px; min-width: 105px; }
+.vis-slider { width: 110px; }
+.ind-symbol-field,
+.ind-symbol-field .ind-symbol-input { cursor: pointer; }
+.ind-radio span { white-space: nowrap; }
+.sym-picker.dropdown.floating { z-index: 260; }
+
+.dlg-wrap:has(.al-dlg) {
+  background: color-mix(in srgb, var(--scrim) 72%, transparent);
+  backdrop-filter: blur(1px);
+}
+.dlg.al-dlg {
+  width: min(400px, calc(100vw - 24px)); max-height: min(620px, calc(100dvh - 24px));
+  border-radius: 8px;
+}
+.al-dlg .dlg-head { padding: 17px 20px 12px; }
+.al-dlg .dlg-title { font-size: 20px; line-height: 28px; }
+.al-dlg .dlg-body {
+  padding: 10px 20px 14px; grid-template-columns: 72px minmax(0, 1fr);
+  column-gap: 12px; align-content: start;
+}
+.al-dlg .dlg-row > label,
+.al-dlg .al-condrow > label {
+  min-height: 46px; padding: 7px 0; font-size: 14px; align-self: start;
+}
+.al-dlg .dlg-input,
+.al-dlg .dlg-select,
+.al-dlg .select-btn { height: 38px; border-radius: 7px; font-size: 14px; }
+.al-dlg .al-line { gap: 5px; }
+.al-dlg .al-cond-row { gap: 5px; }
+.al-dlg .dlg-sep { margin: 12px -20px; }
+.al-dlg .al-addrow { margin-top: 3px; }
+.al-dlg .dlg-input:focus,
+.al-dlg .select-btn:focus { outline: none; border-color: var(--faint); box-shadow: none; }
+.al-dlg .al-check { margin: 0 20px 10px; }
+.al-dlg .dlg-foot { min-height: 64px; padding: 12px 20px; gap: 10px; }
+.al-dlg .dlg-foot .btn { height: 38px; border-radius: 7px; font-size: 14px; }
+
+@media (max-width: 540px) {
+  .dlg.indicator-settings,
+  .dlg.indicator-settings[data-tab="visibility"] { width: calc(100vw - 24px); }
+}
+
+/* Pivot's modal overlay: a single 60% black veil, without Charto's extra
+   blur. Every modal family uses it so opening Layouts, Alerts, or Settings
+   never changes the backdrop language. */
+.dlg-wrap,
+.dlg-wrap:has(.indicator-settings),
+.dlg-wrap:has(.al-dlg),
+.ly-back {
+  background: rgba(0, 0, 0, .60);
+  backdrop-filter: none;
+}
+
+/* Fixed-width footer actions centre their labels on both axes. Defaults is
+   excluded because its chevron intentionally occupies the opposite edge. */
+.dlg-foot [data-act="cancel"],
+.dlg-foot [data-act="ok"] {
+  align-items: center; justify-content: center; line-height: 1;
+}
+
+/* A saved layout is a quiet thumbnail, not an outlined hover target. */
+.ly-card { border-radius: 6px; }
+.ly-card:hover { border-color: var(--border); background: var(--accent); }
 </style>
 </head>
 <body>
@@ -6454,7 +6808,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=13"></script>
   <script src="./js/theme.js?v=8"></script>
   <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=26"></script>
+  <script src="./js/icons.js?v=27"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -6463,7 +6817,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=23"></script>
+  <script src="./js/indicators.js?v=24"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -6471,7 +6825,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before either dialog: both are built out of its colour picker, its
        dressed selects and its card positioning -->
   <script src="./js/dlgkit.js?v=2"></script>
-  <script src="./js/indsettings.js?v=7"></script>
+  <script src="./js/indsettings.js?v=12"></script>
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
@@ -6484,10 +6838,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=23"></script>
   <script src="./js/scene.js?v=35"></script>
   <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=85"></script>
+  <script src="./js/main.js?v=86"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=7"></script>
+  <script src="./js/layouts.js?v=8"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
@@ -6500,7 +6854,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=13"></script>
+  <script src="./js/alerts.js?v=14"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=7"></script>

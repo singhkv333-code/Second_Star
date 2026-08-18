@@ -417,7 +417,7 @@
     el("roTitle").innerHTML =
       `<span class="sym-btn" data-sym-btn title="Change instrument">`
       + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${SYMBOL}</span>`
-      + `<span class="sep">·</span>${state.interval}`
+      + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
   }
   // Delegated once: paintTitle rewrites its own children on every interval
@@ -743,7 +743,7 @@
     ["Minutes", [["1m", "1m", "1 minute"], ["5m", "5m", "5 minutes"],
                  ["15m", "15m", "15 minutes"], ["30m", "30m", "30 minutes"]]],
     ["Hours", [["1h", "1h", "1 hour"]]],
-    ["Days", [["1d", "D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
+    ["Days", [["1d", "1D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
   ];
   const ivBtn = el("intervalBtn"), ivMenu = el("intervalMenu");
   ivMenu.innerHTML = IV_MENU.map(([sec, rows]) =>

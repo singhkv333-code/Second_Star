@@ -308,6 +308,15 @@ const Indicators = (() => {
     "1m": "minutes", "5m": "minutes", "15m": "minutes", "30m": "minutes",
     "1h": "hours", "1d": "days", "1w": "weeks", "1mo": "months",
   };
+  const VALUE_OF = {
+    "1m": 1, "5m": 5, "15m": 15, "30m": 30,
+    "1h": 1, "1d": 1, "1w": 1, "1mo": 1,
+  };
+  const RANGE_DEFAULTS = {
+    minutes: { min: 1, max: 59 }, hours: { min: 1, max: 24 },
+    days: { min: 1, max: 366 }, weeks: { min: 1, max: 52 },
+    months: { min: 1, max: 12 },
+  };
 
   /* The dashed reference levels a bounded oscillator is READ against.
    *
@@ -364,6 +373,7 @@ const Indicators = (() => {
         visible: true,
         color: hist ? Theme.c("histUp") : roleColor(n, i + off),
         colorDown: hist ? Theme.c("histDown") : undefined,
+        colors: hist ? ["#22ab94", "#ace5dc", "#ffb1b5", "#ff5252"] : undefined,
         custom: false,          // a theme switch repaints only untouched plots
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
@@ -383,15 +393,19 @@ const Indicators = (() => {
     for (const b of BUCKETS) visibility[b.key] = true;
     return {
       params,
+      symbolMode: "main",
+      symbol: "",
       style: {
         plots: plotDefaults(def, slot),
         slot,          // null on pane indicators — they do not rotate
         precision: "default",
         statusLine: true,
-        priceLabel: false,
+        inputsStatusLine: true,
+        priceLabel: true,
         priceLine: false,
       },
       visibility,
+      visibilityRanges: clone(RANGE_DEFAULTS),
       hidden: false,
     };
   }
@@ -519,7 +533,10 @@ const Indicators = (() => {
 
     const intervalOk = (st) => {
       const b = BUCKET_OF[ctx.interval];
-      return !b || st.visibility[b] !== false;
+      if (!b || st.visibility[b] === false) return !b;
+      const range = (st.visibilityRanges || {})[b] || RANGE_DEFAULTS[b];
+      const value = VALUE_OF[ctx.interval];
+      return value == null || !range || (value >= range.min && value <= range.max);
     };
     const shown = (st, line) =>
       !st.hidden && intervalOk(st) && (st.style.plots[line] || {}).visible !== false;
@@ -706,11 +723,14 @@ const Indicators = (() => {
           pane,
           hist,
           data: hist
-            ? lines[n].map((p) => ({
-                ...p,
-                color: p.value >= 0 ? plot.color
-                  : (plot.colorDown || plot.color),
-              }))
+            ? lines[n].map((p, i, all) => {
+                const prev = i ? all[i - 1].value : p.value;
+                const colors = plot.colors || [plot.color, plot.color,
+                  plot.colorDown || plot.color, plot.colorDown || plot.color];
+                const rising = prev == null || p.value >= prev;
+                const ci = p.value >= 0 ? (rising ? 0 : 1) : (rising ? 2 : 3);
+                return { ...p, color: colors[ci] };
+              })
             : breakGaps(lines[n]),
           // `opts` marks a plot the legend can quote a single value for.
           // A histogram is a shape, not a reading, so it stays out of it —
@@ -851,7 +871,8 @@ const Indicators = (() => {
         let pane = a.pane || 0;
         try { pane = a.series[0].getPane().paneIndex(); } catch { /* torn down */ }
         rows.push({
-          id, label: a.def.label, kind: a.def.kind, pane,
+          id, label: st.style.inputsStatusLine === false ? a.def.base : a.def.label,
+          kind: a.def.kind, pane,
           color: color || Theme.c("legend"), values, hidden, off,
         });
       }
@@ -872,7 +893,8 @@ const Indicators = (() => {
       active.set(id, { pending: true, def, series: [], data: [] });
       let lines;
       try {
-        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params, ctx.symbol);
+        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params,
+          st.symbolMode === "another" && st.symbol ? st.symbol : ctx.symbol);
       } catch (e) {
         active.delete(id);
         throw e;                       // caller surfaces it; never a silent no-op
@@ -990,8 +1012,10 @@ const Indicators = (() => {
     async function refetch(id) {
       const a = active.get(id);
       if (!a || a.pending) return;
+      const current = settings(id);
       const lines = await fetchSeries(a.def, ctx.interval, ctx.limit,
-                                      settings(id).params, ctx.symbol);
+        current.params,
+        current.symbolMode === "another" && current.symbol ? current.symbol : ctx.symbol);
       if (!active.has(id)) return;
       a.raw = lines;
       restyle(id);
@@ -1047,13 +1071,13 @@ const Indicators = (() => {
     async function applySettings(id, patch) {
       const st = settings(id);
       if (!st) return;
-      const before = JSON.stringify(st.params);
+      const before = JSON.stringify([st.params, st.symbolMode, st.symbol]);
       const next = merge(st, patch);
       LIVE.set(id, next);
       const def = CATALOG.find((c) => c.id === id);
       if (def) relabel(def);
       persist(id);
-      if (JSON.stringify(next.params) !== before) {
+      if (JSON.stringify([next.params, next.symbolMode, next.symbol]) !== before) {
         await refetch(id);              // the math moved
       } else {
         restyle(id);                    // only the paint moved
@@ -1065,11 +1089,12 @@ const Indicators = (() => {
     async function replaceSettings(id, whole) {
       const def = CATALOG.find((c) => c.id === id);
       if (!def) return;
-      const before = JSON.stringify((settings(id) || {}).params);
+      const old = settings(id) || {};
+      const before = JSON.stringify([old.params, old.symbolMode, old.symbol]);
       LIVE.set(id, clone(whole));
       relabel(def);
       persist(id);
-      if (JSON.stringify(whole.params) !== before) await refetch(id);
+      if (JSON.stringify([whole.params, whole.symbolMode, whole.symbol]) !== before) await refetch(id);
       else restyle(id);
     }
 

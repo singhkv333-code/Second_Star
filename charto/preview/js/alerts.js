@@ -798,7 +798,7 @@ const Alerts = (() => {
         </div>
       </div>
       <div class="dlg-sep"></div>
-      ${row("Interval", sel("interval", IVS.map((v) => [v, v]), draft.interval))}
+      ${row("Interval", sel("interval", IVS.map((v) => [v, v === "1d" ? "1D" : v]), draft.interval))}
       ${row("Trigger", sel("freq", FREQS, draft.freq))}
       ${row("Expires", sel("expires_days", expiryOptions(), draft.expires_days))}
       ${row("Note", `<input class="dlg-input wide" data-f="note" ` +
