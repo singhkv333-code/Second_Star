@@ -569,9 +569,14 @@ const IndSettings = (() => {
     }, true);
     // the kit dismisses its own popovers on a document press; the Defaults
     // menu is this dialog's, so it is dismissed here
-    document.addEventListener("pointerdown", () => {
+    document.addEventListener("pointerdown", (e) => {
       closeLineOptions();
       if (!dlg) return;
+      // Do not dismiss the Defaults menu on the pointer-down that is meant
+      // to choose one of its rows. Hiding it here removes the hit target
+      // before the browser can dispatch click, which made Reset settings,
+      // Save as default and Clear saved default all appear inert.
+      if (e.target.closest(".dlg-def")) return;
       const m = dlg.querySelector(".dlg-def-menu");
       if (m) m.classList.remove("open");
     });
