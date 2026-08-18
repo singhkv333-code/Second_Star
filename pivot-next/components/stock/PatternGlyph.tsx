@@ -149,12 +149,18 @@ export function PatternGlyph({
           return (
             <g key={i}>
               <line x1={cx} x2={cx} y1={y(h)} y2={y(l)} stroke={tone} strokeWidth={1} />
+              {/* Both directions filled. The hollow-up / solid-down
+                  convention is real on a live chart, where the outline reads
+                  against a full grid — at 26 pixels it just made every bullish
+                  glyph fainter than its bearish twin, so a three-white-soldiers
+                  sketch disappeared next to three-black-crows. Colour already
+                  carries the direction; weight should not fight it. */}
               <rect
                 x={cx - bodyW / 2}
                 y={top}
                 width={bodyW}
                 height={bh}
-                fill={up ? "none" : tone}
+                fill={tone}
                 stroke={tone}
                 strokeWidth={1}
                 rx={0.5}

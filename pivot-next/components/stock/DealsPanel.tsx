@@ -29,8 +29,12 @@ const EChart = dynamic(() => import("./EChart"), {
   loading: () => <div style={{ height: 260 }} />,
 });
 
-const BUY = "#4F8A5B";
-const SELL = "#C4643F";
+// The earth pair this started on — a muted moss against a terracotta — sat at
+// nearly the same lightness and chroma, so the two legs of a block overlapped
+// into one brown disc and the legend was doing all the work. These are far
+// apart in hue and hold their own on either ground.
+const BUY = "#30A46C";
+const SELL = "#E5484D";
 
 function dayLabel(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -281,13 +285,15 @@ function scatterOption(deals: Deal[]): Record<string, unknown> {
   const point = (d: Deal) => ({
     value: [`${d.d}T00:00:00`, d.price ?? 0],
     symbolSize: size(d.value ?? 0),
-    // Bulk deals are the smaller, more frequent event; drawing them hollow
-    // keeps them present without letting them crowd the blocks.
+    // A softer fill under a full-strength rim of the same hue. Two bubbles at
+    // the same coordinates then still read as two — the rims cross rather than
+    // the fills merging, which is what a flat 0.78 opacity could not do.
     itemStyle: {
       color: d.side?.toUpperCase() === "BUY" ? BUY : SELL,
-      opacity: d.kind === "bulk" ? 0.45 : 0.78,
+      opacity: d.kind === "bulk" ? 0.34 : 0.5,
       borderColor: d.side?.toUpperCase() === "BUY" ? BUY : SELL,
-      borderWidth: d.kind === "bulk" ? 1 : 0,
+      borderWidth: 1.4,
+      borderType: d.kind === "bulk" ? "dashed" : "solid",
     },
     deal: d,
   });
@@ -327,8 +333,8 @@ function scatterOption(deals: Deal[]): Record<string, unknown> {
     series: [
       // Opposite offsets: both legs of a block share a date and a price, and
       // without this the second one paints exactly over the first.
-      { name: "Buy", type: "scatter", data: buys, symbolOffset: [3, 0], emphasis: { scale: 1.15 } },
-      { name: "Sell", type: "scatter", data: sells, symbolOffset: [-3, 0], emphasis: { scale: 1.15 } },
+      { name: "Buy", type: "scatter", data: buys, symbolOffset: [6, 0], emphasis: { scale: 1.15 } },
+      { name: "Sell", type: "scatter", data: sells, symbolOffset: [-6, 0], emphasis: { scale: 1.15 } },
     ],
   };
 }
