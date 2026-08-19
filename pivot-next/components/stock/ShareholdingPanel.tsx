@@ -32,13 +32,26 @@ const EChart = dynamic(() => import("./EChart"), {
  *  left to the content, because neither of the two has an intrinsic height. */
 const CHART_H = 330;
 
-/** Fixed by owner class, not by position. */
+/** Fixed by owner class, not by position.
+ *
+ *  One hue, five steps of it, darkest first. The earlier set was four
+ *  unrelated earth colours — a brown, a terracotta, a green and a mustard —
+ *  which read as four separate subjects rather than as four slices of one
+ *  register, and none of them appears anywhere else in the product. This is
+ *  the platform's own teal (--pivot-blue) walked from ink to mist. A single-
+ *  hue ramp is the standard treatment for part-of-whole data: it makes the
+ *  parts read as parts, and in a light theme the darkest step carrying the
+ *  largest share is what the eye already expects.
+ *
+ *  Ordered by the size these classes usually take, not alphabetically, so the
+ *  ramp descends across a typical company's register.
+ */
 const OWNER_COLOR: Record<string, string> = {
-  "Promoters": "#8A6D3B",
-  "Foreign institutions": "#C4643F",
-  "Domestic institutions": "#4F8A5B",
-  "Non-institutions": "#C0A03C",
-  "Non-promoter non-public": "#7A7268",
+  "Promoters": "#0e3a48",
+  "Foreign institutions": "#2b8098",
+  "Domestic institutions": "#5cb8ce",
+  "Non-institutions": "#a5dae7",
+  "Non-promoter non-public": "#d6eef4",
 };
 const OWNER_ORDER = [
   "Promoters", "Foreign institutions", "Domestic institutions",
@@ -53,6 +66,48 @@ function lighten(hex: string, t: number): string {
   const n = parseInt(hex.slice(1), 16);
   const mix = (c: number) => Math.round(c + (255 - c) * t);
   return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
+
+/** The parts of one class, with the dust swept together.
+ *
+ *  A company files sub-categories down to 0.00%: NBFCs at 0.01%, four kinds of
+ *  retail at a fifth of a percent each. Drawn honestly they are two-pixel
+ *  slivers stacked down the right edge — unlabellable, unclickable, and the
+ *  reason the map's edge looked frayed. Anything under one percent is summed
+ *  into a tile that says how many it stands for, which is both tidier and
+ *  more truthful than a tile too small to carry its own name. The full split
+ *  is still a hover away on every tile.
+ */
+function childTiles(
+  children: { label: string; pct: number }[],
+  base: string,
+): {
+  name: string; value: number;
+  label: { show: boolean }; itemStyle: { color: string };
+}[] {
+  const big = children.filter((c) => c.pct >= 1.0);
+  const rest = children.filter((c) => c.pct > 0 && c.pct < 1.0);
+  const restSum = rest.reduce((a, c) => a + c.pct, 0);
+  // A tile under about a percent of the register is a few pixels wide, and
+  // ECharts truncates its label to the first character — which is where the
+  // stray "4" and "0" on the right edge came from. Below that width the tile
+  // is drawn as a band of colour and says nothing; the tooltip still names it.
+  const named = (pct: number) => ({ show: pct >= 1.2 });
+  const tiles = big.map((c, i) => ({
+    name: c.label,
+    value: c.pct,
+    label: named(c.pct),
+    itemStyle: { color: lighten(base, 0.14 + Math.min(i, 3) * 0.15) },
+  }));
+  if (restSum > 0) {
+    tiles.push({
+      name: rest.length === 1 ? rest[0]!.label : `${rest.length} smaller`,
+      value: restSum,
+      label: named(restSum),
+      itemStyle: { color: lighten(base, 0.66) },
+    });
+  }
+  return tiles.length > 1 ? tiles : [];
 }
 
 /** The holder bucket arrives as an XBRL member name in PascalCase. */
@@ -120,22 +175,15 @@ export function ShareholdingPanel({
   // one on the same scale rather than against its own parent.
   const treemap = React.useMemo(() => {
     const nodes = groups.map((g) => {
-      const base = OWNER_COLOR[g.label] ?? "#7A7268";
+      const base = OWNER_COLOR[g.label] ?? "#8fa3ab";
+      const parts = g.children.length > 1 ? childTiles(g.children, base) : [];
       return {
         name: g.label,
         value: g.pct,
         itemStyle: { color: base },
         // A class with no filed split stays one tile. Splitting it into a
         // single child would draw a border around itself.
-        children: g.children.length > 1
-          ? g.children
-            .filter((c) => c.pct > 0)
-            .map((c, i) => ({
-              name: c.label,
-              value: c.pct,
-              itemStyle: { color: lighten(base, 0.22 + i * 0.11) },
-            }))
-          : undefined,
+        children: parts.length ? parts : undefined,
       };
     });
     if (!nodes.length) return null;
@@ -155,8 +203,8 @@ export function ShareholdingPanel({
         // them into their parent and the panel would lose the only place the
         // FPI and mutual-fund splits are visible at all.
         levels: [
-          { itemStyle: { gapWidth: 3, borderWidth: 0 } },
-          { itemStyle: { gapWidth: 1, borderWidth: 0 } },
+          { itemStyle: { gapWidth: 2, borderWidth: 0, borderRadius: 3 } },
+          { itemStyle: { gapWidth: 2, borderWidth: 0, borderRadius: 3 } },
         ],
         label: {
           show: true,
@@ -181,7 +229,7 @@ export function ShareholdingPanel({
         // class, so the parts inherit their parent's hue and are read through
         // it.
         upperLabel: { show: false },
-        itemStyle: { borderWidth: 0, borderColor: "transparent", gapWidth: 3 },
+        itemStyle: { borderWidth: 0, borderColor: "transparent", gapWidth: 2, borderRadius: 3 },
         data: nodes,
       }],
     };
@@ -421,7 +469,7 @@ function riverOption(
   });
 
   return {
-    color: classes.map((c) => OWNER_COLOR[c] ?? "#7A7268"),
+    color: classes.map((c) => OWNER_COLOR[c] ?? "#8fa3ab"),
     legend: {
       type: "scroll", top: 0, left: 0, itemWidth: 8, itemHeight: 8,
       itemGap: 16, icon: "circle", textStyle: { fontSize: 11 },
