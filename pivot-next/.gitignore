@@ -9,6 +9,10 @@
 
 # next.js
 /.next/
+# A crashed build leaves the whole cache behind as `.next.corrupt-<stamp>/`,
+# which the bare `/.next/` rule does not match — 182 MB of webpack cache
+# went into a commit that way once.
+/.next.corrupt-*/
 /out/
 
 # production
