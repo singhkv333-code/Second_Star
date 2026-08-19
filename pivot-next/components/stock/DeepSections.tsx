@@ -23,8 +23,8 @@
 import * as React from "react";
 
 import {
-  getDeals, getFlows, getShareholding, getStockMix, getStockSections,
-  type DealsResponse, type FlowsResponse, type MixResponse,
+  getCompanyScores, getDeals, getFlows, getShareholding, getStockMix, getStockSections,
+  type CompanyScores, type DealsResponse, type FlowsResponse, type MixResponse,
   type ShareholdingResponse, type StockSections,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
@@ -33,9 +33,10 @@ import { FlowsPanel } from "./FlowsPanel";
 import { MixPanel } from "./MixPanel";
 import { PeerComparisonPanel } from "./PeerComparisonPanel";
 import { ShareholdingPanel } from "./ShareholdingPanel";
+import { SolvencyValuePanel } from "./SolvencyValuePanel";
 import { PanelSkeleton } from "./chrome";
 
-type SectionId = "revenue_mix" | "peers" | "shareholding" | "flows" | "deals";
+type SectionId = "scores" | "revenue_mix" | "peers" | "shareholding" | "flows" | "deals";
 
 // Reading order, not coverage order: a person works down from the numbers to
 // the composition to the comparison.
@@ -53,14 +54,19 @@ type SectionId = "revenue_mix" | "peers" | "shareholding" | "flows" | "deals";
 // and the flows pair in charto's store, neither of which the coverage call
 // counts. So each one loads unconditionally and reports its own emptiness by
 // returning `available: false`, and the section is dropped on that instead.
+// Scores lead. They are arithmetic over the statements the panel directly
+// above them prints, so they read as the conclusion of that panel rather than
+// a new subject — and they are the shortest thing here, which is the right
+// thing to meet first.
 const SECTION_ORDER: SectionId[] = [
-  "revenue_mix", "peers", "shareholding", "flows", "deals",
+  "scores", "revenue_mix", "peers", "shareholding", "flows", "deals",
 ];
 
-export function DeepSections({ symbol }: { symbol: string }): React.ReactElement | null {
+export function DeepSections({ symbol, price }: { symbol: string; price?: number | null }): React.ReactElement | null {
   const [sections, setSections] = React.useState<StockSections | null>(null);
   const [failed, setFailed] = React.useState(false);
 
+  const [scores, setScores] = React.useState<CompanyScores | null>(null);
   const [mix, setMix] = React.useState<MixResponse | null>(null);
   const [shp, setShp] = React.useState<ShareholdingResponse | null>(null);
   const [flows, setFlows] = React.useState<FlowsResponse | null>(null);
@@ -70,7 +76,7 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
   React.useEffect(() => {
     let dead = false;
     setSections(null); setFailed(false);
-    setMix(null); setShp(null); setFlows(null); setDeals(null);
+    setScores(null); setMix(null); setShp(null); setFlows(null); setDeals(null);
     getStockSections(symbol)
       .then((r) => {
         if (dead) return;
@@ -87,12 +93,13 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
     return SECTION_ORDER.filter((t) => {
       if (t === "peers") return true;
       // Self-reporting sections: drawn once their own fetch says it has data.
+      if (t === "scores") return scores?.available ?? false;
       if (t === "shareholding") return shp?.available ?? false;
       if (t === "flows") return flows?.available ?? false;
       if (t === "deals") return deals?.available ?? false;
       return (c[t]?.count ?? 0) > 0;
     });
-  }, [sections, shp, flows, deals]);
+  }, [sections, scores, shp, flows, deals]);
 
   // ── section loads ───────────────────────────────────────────────────────
   React.useEffect(() => {
@@ -107,6 +114,9 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
   // These three do not wait on coverage — coverage does not know about them.
   React.useEffect(() => {
     let dead = false;
+    getCompanyScores(symbol)
+      .then((r) => { if (!dead && !isError(r)) setScores(r.data); })
+      .catch(() => {});
     getShareholding(symbol)
       .then((r) => { if (!dead && !isError(r)) setShp(r.data); })
       .catch(() => {});
@@ -139,6 +149,12 @@ export function DeepSections({ symbol }: { symbol: string }): React.ReactElement
       }}
     >
       {sections === null ? <PanelSkeleton rows={7} /> : null}
+
+      {available.includes("scores") && scores ? (
+        <ResearchSection id="scores" label="Solvency and value">
+          <SolvencyValuePanel data={scores} price={price ?? null} />
+        </ResearchSection>
+      ) : null}
 
       {available.includes("revenue_mix") ? <ResearchSection id="revenue_mix" label="Segment mix">
         {mix ? <MixPanel data={mix} /> : <PanelSkeleton rows={6} />}

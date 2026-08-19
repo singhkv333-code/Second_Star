@@ -19,6 +19,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from backend.config import settings
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.cache import redis_client
+from backend.market import company_scores
 from backend.market import financials_db as fdb
 from backend.market import yfinance_fundamentals as yff
 
@@ -413,4 +414,53 @@ def get_statement(
         redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
     except Exception:  # noqa: BLE001 — cache write is best-effort
         logger.debug("statement cache write failed for %s", sym, exc_info=True)
+    return result
+
+
+# ── the four scores the statements imply ────────────────────────────────────
+# Altman Z, Ohlson O, Graham and DuPont are arithmetic over the three grids
+# above, so they are computed here rather than in the browser: the finance
+# lives next to the data it reads, one period and one basis for every term,
+# and a missing input comes back as a stated reason instead of a NaN.
+_SCORES_CACHE_PREFIX = "financials:scores:v1:"
+
+
+@router.get("/{symbol}/scores")
+def get_scores(
+    symbol: str,
+    basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Solvency-and-value scores for `symbol`, all as of one filed period.
+
+    Shape:
+      {
+        "available": bool, "kind": "corporate" | "bank",
+        "period": "Mar 26", "basis": ..., "unit": "Rs. Cr.",
+        "quadrants": [{key, label, caption, value, band, verdict, format,
+                       unavailable_reason, ...model-specific fields}, x4],
+        "radar": [{key, label, detail, value, display, cap, scaled}, x5],
+        "source": "moneycontrol"
+      }
+    """
+    _auth(authorization)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    cache_key = f"{_SCORES_CACHE_PREFIX}{sym}:{basis}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("scores cache read miss/error for %s", sym, exc_info=True)
+
+    result = company_scores.compute_scores(sym, basis=basis)
+    try:
+        redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("scores cache write failed for %s", sym, exc_info=True)
     return result

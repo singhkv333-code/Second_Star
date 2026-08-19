@@ -1043,6 +1043,67 @@ export function getStatement(
   );
 }
 
+/** One cell of the solvency-and-value matrix: a model, its number, and the
+ *  fields that model happens to carry (Altman's five terms, Ohlson's implied
+ *  probability, Graham's EPS and book value, DuPont's three legs). A cell with
+ *  `value: null` carries the reason instead — a bank has no working capital,
+ *  so Altman is not a gap in the data but a model that does not apply. */
+export type ScoreQuadrant = {
+  key: string;
+  label: string;
+  caption: string;
+  format: "plain" | "pct" | "rupees";
+  value: number | null;
+  band?: "good" | "watch" | "risk";
+  verdict?: string;
+  unavailable_reason: string | null;
+  terms?: Record<string, number>;
+  probability_pct?: number;
+  eps?: number;
+  book_value_per_share?: number;
+  delta_pp?: number;
+  margin_pct?: number;
+  asset_turnover?: number;
+  equity_multiplier?: number;
+};
+
+/** One spoke of the radar: a filed ratio, its own display string, and where it
+ *  sits against the ceiling that spoke is scaled to. */
+export type ScoreAxis = {
+  key: string;
+  label: string;
+  detail: string;
+  value: number | null;
+  display: string;
+  cap: number;
+  scaled: number | null;
+};
+
+export type CompanyScores = {
+  available: boolean;
+  symbol: string;
+  kind: "corporate" | "bank";
+  basis: "consolidated" | "standalone";
+  period: string;
+  unit: string;
+  quadrants: ScoreQuadrant[];
+  radar: ScoreAxis[];
+  source: string;
+  reason?: string;
+};
+
+/** `GET /api/financials/{symbol}/scores` — Altman Z, Ohlson O, Graham and
+ *  DuPont, plus the five ratios they are built from, every term read out of
+ *  ONE period of ONE basis of the same statements the page already quotes. */
+export function getCompanyScores(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+): Promise<ApiResult<CompanyScores>> {
+  return request<CompanyScores>(
+    `/financials/${encodeURIComponent(symbol)}/scores?basis=${basis}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Orders — chat-confirm register flow (POST /orders/register)
 //

@@ -511,7 +511,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
               those tabs, so it contributes nothing at all for a symbol with
               no deep data (and returns null for an index). */}
           {quoteState.kind === "ok" && !isIndexQuote && (
-            <DeepSections symbol={symbol} />
+            <DeepSections symbol={symbol} price={quoteState.quote.ltp} />
           )}
         </>
       )}
@@ -635,7 +635,7 @@ function PhoneLayout({
           one of its two tabs — they are neither "overview" nor "financials",
           and burying them under a tab the reader has to guess at is how a
           section stops existing. */}
-      {!quote.is_index && <DeepSections symbol={quote.symbol} />}
+      {!quote.is_index && <DeepSections symbol={quote.symbol} price={quote.ltp} />}
 
     </div>
   );
