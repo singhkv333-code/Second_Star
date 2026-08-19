@@ -137,9 +137,18 @@ export function ShareholdingPanel({
         className="shp-grid"
         style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.1fr) minmax(0, 1fr)", gap: 28 }}
       >
-        <div style={{ minWidth: 0 }}>
+        {/* The chart takes its height from the row, which the readout beside
+            it sets. Fixed at 300 it left a half-screen of white under itself
+            for any company that files a deep breakdown — the two columns are
+            one object, and one of them ending two-thirds early reads as a
+            rendering fault rather than as a chart that happens to be short.
+            The floor keeps it usable once the columns stack on a phone, where
+            the row is no longer sized by anything. */}
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 300 }}>
           {option ? (
-            <EChart option={option} height={300} ariaLabel="Shareholding by owner class over time" />
+            <div style={{ flex: 1, minHeight: 300 }}>
+              <EChart option={option} height="100%" ariaLabel="Shareholding by owner class over time" />
+            </div>
           ) : null}
         </div>
 

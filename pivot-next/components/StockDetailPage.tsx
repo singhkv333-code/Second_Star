@@ -50,7 +50,9 @@ import {
   getBalanceSheet,
   getMetricSeries,
   getStockQuarters,
+  getStatement,
   type QuartersResponse,
+  type StatementResponse,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
@@ -2416,7 +2418,7 @@ function FinancialsTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildBalanceSheetFromDB(financials);
+    if (financials?.available) return buildBalanceSheetFromDB(financials, null);
     return buildBalanceSheetEstimate();
   }, [financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -2441,7 +2443,7 @@ function ProfitLossTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildProfitLossFromDB(financials);
+    if (financials?.available) return buildProfitLossFromDB(financials, null);
     return buildProfitLoss(quote);
   }, [quote, financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -2483,7 +2485,40 @@ function pickByFY(
   return hit?.value ?? null;
 }
 
-function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
+/** The summary panel shows the SAME NUMBER OF ROWS on every tab.
+ *
+ *  Three tabs of a single panel that disagree on height are three panels; the
+ *  chart beside them is one size, and a tab that runs past it makes the reader
+ *  scroll to change tabs. So each tab is built to this count and pads with an
+ *  em-dash rather than dropping a line — which is the opposite of the rule the
+ *  detail page follows, and right for the opposite reason: there, an absent
+ *  line is information; here, a moving row count is noise. */
+const SUMMARY_ROWS = 7;
+
+/** One filed ratio, read out of the ratio sheet and keyed by fiscal year.
+ *
+ *  Read, not computed. Debt/equity and ROE could both be divided out of the
+ *  history series already on this page, and doing so would put a second,
+ *  silently different number next to the one the statements page quotes for
+ *  the same year. MC files these; both surfaces quote the filing. */
+function ratioByFY(
+  ratios: StatementResponse | null,
+  lineItem: string,
+  fy: string,
+): number | null {
+  if (!ratios) return null;
+  const row = ratios.rows.find((r) => r.line_item.trim() === lineItem);
+  if (!row) return null;
+  // "Mar 26" → FY26. The ratio sheet is labelled by period end, the summary
+  // by fiscal year, and the two only ever meet here.
+  const period = ratios.periods.find((p) => `FY${p.slice(-2)}` === fy);
+  return period ? (row.values[period] ?? null) : null;
+}
+
+function buildBalanceSheetFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const equity = f.history["total_equity"] ?? [];
   const reserves = f.history["reserves"] ?? [];
   const debt = f.history["total_debt"] ?? [];
@@ -2509,7 +2544,29 @@ function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : `₹${v.toFixed(2)}`;
       }),
     },
+    // The three balance-sheet ratios worth the row: what it owes against what
+    // it owns, whether it can pay this year's bills, and what the equity
+    // earned. Filed values, so they cannot disagree with the ratio sheet.
+    ratioRow("Debt / Equity", ratios, "Total Debt/Equity (X)", (v) => `${v.toFixed(2)}×`),
+    ratioRow("Current Ratio", ratios, "Current Ratio (X)", (v) => `${v.toFixed(2)}×`),
+    ratioRow("Return on Equity", ratios, "Return on Networth / Equity (%)", (v) => `${v.toFixed(1)}%`),
   ];
+}
+
+/** A ratio-sheet line, shaped as a summary row across the fiscal years. */
+function ratioRow(
+  label: string,
+  ratios: StatementResponse | null,
+  lineItem: string,
+  fmt: (v: number) => string,
+): FinancialRow {
+  return {
+    label,
+    values: FY_YEARS.map((fy) => {
+      const v = ratioByFY(ratios, lineItem, fy);
+      return v === null || !Number.isFinite(v) ? "—" : fmt(v);
+    }),
+  };
 }
 
 // Estimated fallback for the Balance Sheet tab. We don't fabricate balance
@@ -2525,7 +2582,10 @@ function buildBalanceSheetEstimate(): FinancialRow[] {
   ];
 }
 
-function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
+function buildProfitLossFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const revenue = f.history["revenue"] ?? [];
   const op = f.history["operating_profit"] ?? [];
   const net = f.history["net_profit"] ?? [];
@@ -2556,6 +2616,10 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : v.toFixed(2);
       }),
     },
+    // Two filed ratios, to the same seven rows the other tabs carry: what the
+    // revenue kept, and what the capital earned.
+    ratioRow("Net Margin", ratios, "Net Profit Margin (%)", (v) => `${v.toFixed(1)}%`),
+    ratioRow("Return on Capital", ratios, "Return on Capital Employed (%)", (v) => `${v.toFixed(1)}%`),
   ];
 }
 
@@ -2888,6 +2952,12 @@ function FinancialsPanel({
   const [quarters, setQuarters] = useState<QuartersResponse | null>(null);
   const [hasQuarters, setHasQuarters] = useState(false);
   const [qBasis, setQBasis] = useState<"consolidated" | "standalone">("consolidated");
+  // The filed ratio sheet, for the ratio rows on the Balance Sheet and P&L
+  // tabs. Read rather than divided out of the history series already here, so
+  // this panel and the statements page cannot quote different numbers for the
+  // same year. Absent for a company MC files no ratios for, and those rows
+  // then print em-dashes without changing the row count.
+  const [ratios, setRatios] = useState<StatementResponse | null>(null);
 
   // A new company answers the question again from scratch, and must not
   // inherit the last one's tab — landing on Quarterly Results for a company
@@ -2896,6 +2966,15 @@ function FinancialsPanel({
     setHasQuarters(false);
     setQBasis("consolidated");
     setTab((t) => (t === "quarters" ? "financials" : t));
+  }, [quote.symbol]);
+
+  useEffect(() => {
+    let dead = false;
+    setRatios(null);
+    getStatement(quote.symbol, "ratios", "consolidated", 10)
+      .then((r) => { if (!dead && !isError(r) && r.data.available) setRatios(r.data); })
+      .catch(() => {});
+    return () => { dead = true; };
   }, [quote.symbol]);
 
   useEffect(() => {
@@ -2916,12 +2995,12 @@ function FinancialsPanel({
 
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
-    () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
-    [financials],
+    () => financials?.available ? buildBalanceSheetFromDB(financials, ratios) : buildBalanceSheetEstimate(),
+    [financials, ratios],
   );
   const plRows = useMemo(
-    () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
-    [quote, financials],
+    () => financials?.available ? buildProfitLossFromDB(financials, ratios) : buildProfitLoss(quote),
+    [quote, financials, ratios],
   );
 
   // Quarters, shaped into exactly the row/period pair the other two tabs
@@ -2945,48 +3024,28 @@ function FinancialsPanel({
     // reconciled, and it is cheaper to do it once here than in six formatters.
     const line = (label: string, pick: (q: typeof qs[number]) => number | null | undefined, fmt: (v: number | null) => string) =>
       ({ label, values: qs.map((q) => fmt(pick(q) ?? null)) });
-    // Hoisted: the expense and margin lines below both ask it, and a line this
-    // company does not file is absent rather than a row of em-dashes.
-    // `!= null` is loose on purpose — the API omits a metric rather than
-    // sending null, and `!== null` says true for undefined.
-    const any = (k: keyof typeof qs[number]) => qs.some((q) => q[k] != null);
     const pct = (v: number | null) =>
       (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`;
     const rupees = (v: number | null) =>
       (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`;
 
+    // Seven rows, fixed, like the other two tabs. The full quarterly P&L —
+    // every expense line, the tax block, the YoY pair — is on the statements
+    // page; this is the summary, and a summary that runs three times the
+    // height of the tab beside it is not one.
+    //
+    // Fixed rather than filtered, so a company that files no margin keeps the
+    // shape and prints an em-dash. On this panel the row count is a promise
+    // the three tabs make to each other.
     const out = [
       line("Revenue", (q) => q.revenue, fmtCrFromMC),
+      line("Profit Before Tax", (q) => q.pbt, fmtCrFromMC),
+      line("Tax", (q) => q.tax, fmtCrFromMC),
+      line("Net Profit", (q) => q.net_profit, fmtCrFromMC),
+      line("Net Margin", (q) => q.net_margin_pct, pct),
+      line("EPS", (q) => q.eps_basic, rupees),
+      line("Revenue YoY", (q) => q.revenue_yoy_pct, pct),
     ];
-    // The quarterly store carries a full P&L — income, the expense lines, the
-    // tax block, per-share and the margins — and the panel was quoting two
-    // rows of it. Every line below is reported, not derived; each is dropped
-    // when this company files nothing for it, so a bank does not get a row of
-    // em-dashes where its raw-material cost would be.
-    if (any("other_income")) out.push(line("Other Income", (q) => q.other_income, fmtCrFromMC));
-    if (any("employee_cost")) out.push(line("Employee Cost", (q) => q.employee_cost, fmtCrFromMC));
-    if (any("raw_material")) out.push(line("Raw Material", (q) => q.raw_material, fmtCrFromMC));
-    if (any("other_expenses")) out.push(line("Other Expenses", (q) => q.other_expenses, fmtCrFromMC));
-    if (any("depreciation")) out.push(line("Depreciation", (q) => q.depreciation, fmtCrFromMC));
-    if (any("interest")) out.push(line("Interest", (q) => q.interest, fmtCrFromMC));
-    if (any("provisions")) out.push(line("Provisions", (q) => q.provisions, fmtCrFromMC));
-    if (any("ebitda")) out.push(line("EBITDA", (q) => q.ebitda, fmtCrFromMC));
-    if (any("exceptional")) out.push(line("Exceptional", (q) => q.exceptional, fmtCrFromMC));
-    if (any("pbt")) out.push(line("Profit Before Tax", (q) => q.pbt, fmtCrFromMC));
-    if (any("tax")) out.push(line("Tax", (q) => q.tax, fmtCrFromMC));
-    out.push(line("Net Profit", (q) => q.net_profit, fmtCrFromMC));
-    // Same rule the quarterly table already used: a line this company does
-    // not file is absent rather than a row of em-dashes.
-    // `!= null` — loose on purpose, and the same reason as above: an omitted
-    // metric arrives undefined, and `!== null` says true for undefined. That
-    // is what put a Net Margin row and an EPS row of pure em-dashes on TCS,
-    // which is the exact "dead column" this test exists to prevent.
-    if (any("operating_margin_pct")) out.push(line("Operating Margin", (q) => q.operating_margin_pct, pct));
-    if (any("net_margin_pct")) out.push(line("Net Margin", (q) => q.net_margin_pct, pct));
-    if (any("tax_rate_pct")) out.push(line("Tax Rate", (q) => q.tax_rate_pct, pct));
-    if (any("eps_basic")) out.push(line("EPS", (q) => q.eps_basic, rupees));
-    if (any("revenue_yoy_pct")) out.push(line("Revenue YoY", (q) => q.revenue_yoy_pct, pct));
-    if (any("net_profit_yoy_pct")) out.push(line("Net Profit YoY", (q) => q.net_profit_yoy_pct, pct));
     return out;
   }, [quarters]);
 

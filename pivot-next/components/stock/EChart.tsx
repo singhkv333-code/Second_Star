@@ -106,7 +106,12 @@ function sameTokens(a: ChartTokens, b: ChartTokens): boolean {
 export type EChartProps = {
   /** ECharts option object, minus theming — this component injects that. */
   option: Record<string, unknown>;
-  height?: number;
+  /** A pixel height, or a CSS length. "100%" lets the chart take its height
+   *  from whatever the parent row is already as tall as — which is how a chart
+   *  sitting beside a long readout stops leaving a field of white below
+   *  itself. The ResizeObserver below is what makes that work: the canvas is
+   *  sized once the row has been laid out, not at init. */
+  height?: number | string;
   /** Announced to screen readers; a canvas is otherwise opaque to them. */
   ariaLabel: string;
 };

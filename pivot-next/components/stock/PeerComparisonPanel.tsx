@@ -119,13 +119,22 @@ const C = {
 /** Every column a reader can add, in the order the picker lists them. */
 const ALL_COLS: Col[] = Object.values(C);
 
+/** Eight numeric columns is what fits beside the company name at a laptop
+ *  width without the table needing a scrollbar. A view is only worth naming if
+ *  it can be read in one glance, and a glance does not include a horizontal
+ *  scroll — so a tab is capped here and the rest of the catalog is reachable
+ *  through the picker, where the reader is choosing to trade width for detail.
+ */
+const MAX_TAB_COLS = 8;
+
 const COLUMNS: Record<TabId, Col[]> = {
   // Overall is the tab most people never leave, so it carries one column from
-  // each question rather than seven from two of them: what it costs, what it
-  // earns on capital, what it owes, what it pays, how it has traded.
-  overall: [C.price, C.mcap, C.pb, C.ev, C.roe, C.roce, C.npm, C.de, C.eps, C.r1y],
+  // each question rather than several from two of them: what it costs, what it
+  // earns on capital, what it owes, how it has traded. EV/EBITDA and EPS moved
+  // off it to make that fit — both are a click away under Fundamentals.
+  overall: [C.price, C.mcap, C.pb, C.roe, C.roce, C.npm, C.de, C.r1y],
   performance: [C.price, C.r1m, C.r3m, C.r6m, C.r1y, C.hi52],
-  fundamentals: [C.mcap, C.rev, C.np, C.eps, C.bvps, C.roe, C.roce, C.npm, C.de, C.cur, C.icov, C.payout, C.pb, C.ev],
+  fundamentals: [C.mcap, C.rev, C.np, C.eps, C.roe, C.npm, C.de, C.pb],
   technicals: [C.price, C.rsi, C.d50, C.d200, C.hi52],
 };
 
@@ -188,7 +197,11 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
     [data],
   );
 
-  const base = COLUMNS[tab];
+  // Sliced, so the cap is enforced rather than merely documented — a column
+  // added to a tab above without counting cannot quietly bring back the
+  // scrollbar. Columns the reader adds are NOT capped: that scroll is a trade
+  // they chose to make.
+  const base = COLUMNS[tab].slice(0, MAX_TAB_COLS);
   const cols = React.useMemo(() => {
     const seen = new Set(base.map((c) => c.id));
     const added = extra
@@ -228,10 +241,7 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <PanelHead
-        title="Peer comparison"
-        sub={data.sector ? `${data.peers.length} largest ${data.sector} companies by market cap` : undefined}
-      />
+      <PanelHead title="Peer comparison" />
 
       {/* The same tab strip the Financial Performance panel uses, sitting on
           the hairline the table hangs from. The picker rides at the far end:
@@ -354,7 +364,7 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
                       key={c.id}
                       className="tabular-nums"
                       style={{
-                        padding: "10px 12px", textAlign: "right",
+                        padding: "10px 10px", textAlign: "center",
                         fontFamily: "var(--font-mono)", fontSize: 11.5,
                         fontWeight: r.is_current ? 600 : 400,
                         color: v === null
@@ -522,8 +532,21 @@ function ColumnPicker({
 }
 
 const head: React.CSSProperties = {
-  padding: "8px 12px",
-  textAlign: "right",
+  // Longhand, because the group-band row overrides paddingBottom and
+  // paddingLeft on top of this. React warns when a shorthand and a longhand
+  // for the same property both change across a rerender, and it is right to:
+  // which one wins depends on key order, so the band's padding was a coin
+  // flip on re-render.
+  paddingTop: 8,
+  paddingRight: 10,
+  paddingBottom: 8,
+  paddingLeft: 10,
+  // Centred, and the cells below match. Right-alignment is the rule for a
+  // column of magnitudes read against each other, but these columns are
+  // different units in different formats — a percentage beside a multiple
+  // beside a price — so a shared right edge lined up decimal points that mean
+  // nothing to each other while leaving the header floating off its numbers.
+  textAlign: "center",
   fontSize: 10.5,
   fontWeight: 600,
   letterSpacing: "0.05em",
