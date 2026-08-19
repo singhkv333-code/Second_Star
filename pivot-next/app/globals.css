@@ -1704,3 +1704,58 @@ body:has(.app-shell-root) {
 .driver-popover.pivot-tour .driver-popover-arrow-side-bottom {
   border-bottom-color: var(--bg-primary);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Stock detail page — phone
+
+   The page is built out of inline styles, which a class cannot outrank
+   without `!important`; the two rules below are the only two that need to,
+   and both only zero a horizontal padding.
+
+   The type ramp is variables rather than a set of overrides because the page
+   sets its sizes inline too. Each variable is named for its DESKTOP value and
+   holds exactly that value here, so nothing above 640px moves; the phone
+   block re-points the same names at a scale where the smallest label is 11px
+   instead of 9.5px. Compressed rather than shifted — the gap between a label
+   and its number has to survive, or the hierarchy goes with the size.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --sd-f95: 9.5px;
+  --sd-f10: 10px;
+  --sd-f105: 10.5px;
+  --sd-f11: 11px;
+  --sd-f115: 11.5px;
+  --sd-f12: 12px;
+  --sd-f125: 12.5px;
+  --sd-f13: 13px;
+}
+
+@media (max-width: 639.98px) {
+  :root {
+    --sd-f95: 11px;
+    --sd-f10: 11.5px;
+    --sd-f105: 12px;
+    --sd-f11: 12.5px;
+    --sd-f115: 13px;
+    --sd-f12: 13.5px;
+    --sd-f125: 14px;
+    --sd-f13: 14.5px;
+  }
+
+  /* The scroll container already pads the page 12px. A second 20px inside
+     every section spent a sixth of a phone screen on nothing. */
+  .stock-gutter {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* A table too wide to fit reads as broken when it is clipped by a margin
+     and as scrollable when it runs off the edge of the screen, so the ones
+     that scroll sideways are let out to the full width to say so. */
+  .stock-bleed {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}

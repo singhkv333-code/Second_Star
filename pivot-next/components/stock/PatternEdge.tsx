@@ -90,9 +90,9 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           style={{
             margin: 0,
             fontFamily: "var(--font-ui)",
-            fontSize: 17,
+            fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.015em",
+            letterSpacing: "-0.022em",
             color: "var(--text-primary)",
           }}
         >

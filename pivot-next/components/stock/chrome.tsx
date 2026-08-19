@@ -12,6 +12,28 @@
 
 import * as React from "react";
 
+/** True below the page's phone breakpoint — the same 639.98px the page layout
+ *  itself switches on, so a panel and the layout around it never disagree
+ *  about which device they are on.
+ *
+ *  Only for the things CSS cannot reach: a canvas chart's axis font, how many
+ *  sessions of history are worth drawing at 350px, whether a row is one line
+ *  or two. Everything that is only a size or a gap belongs in a media query.
+ *
+ *  Starts false so the server render and the first client render agree; the
+ *  effect corrects it before paint. */
+export function usePhone(): boolean {
+  const [phone, setPhone] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const sync = (): void => setPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return phone;
+}
+
 export function PanelHead({
   title,
   sub,
@@ -34,17 +56,18 @@ export function PanelHead({
       <div>
         {/* This IS the section heading now — there is no eyebrow above it and
             no wrapper title above that, so it carries the whole level.
-            14/600 is not a taste call: it is the size "Financial Performance"
+            21/600 is not a taste call: it is the size "Financial Performance"
             is set in one section up. Two headings at the same level of a
             document that disagree on size read as two different pages that
-            happen to be stacked. */}
+            happen to be stacked — which is why "Performance" and "Key Metrics",
+            left behind at 14, came up with the rest of them. */}
         <h3
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 17,
+            fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.015em",
+            letterSpacing: "-0.022em",
             color: "var(--text-primary)",
           }}
         >
