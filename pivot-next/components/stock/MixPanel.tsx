@@ -54,7 +54,7 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <PanelHead title="Segment mix" />
+      <PanelHead title="Segment Mix" />
 
       {/* The breakdowns laid out flat rather than folded into a select: a
           company's own choice of how to cut itself up is worth seeing at once,

@@ -133,7 +133,7 @@ export function QuartersPanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <PanelHead
-        title="Quarterly results"
+        title="Quarterly Results"
         right={
           data.bases_available.length > 1 ? (
             <Segmented

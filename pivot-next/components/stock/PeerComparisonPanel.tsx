@@ -241,7 +241,7 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <PanelHead title="Peer comparison" />
+      <PanelHead title="Peer Comparison" />
 
       {/* The same tab strip the Financial Performance panel uses, sitting on
           the hairline the table hangs from. The picker rides at the far end:

@@ -67,7 +67,7 @@ export function OwnershipPanel({ data }: { data: OwnershipResponse }): React.Rea
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <PanelHead
-        title="Ownership & profile"
+        title="Ownership & Profile"
         right={
           data.website ? (
             <a

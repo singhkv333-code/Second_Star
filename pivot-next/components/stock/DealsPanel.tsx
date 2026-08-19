@@ -110,7 +110,7 @@ export function DealsPanel({ data }: { data: DealsResponse }): React.ReactElemen
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <PanelHead
-        title="Bulk and block deals"
+        title="Bulk and Block Deals"
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11.5, color: "var(--text-secondary)" }}>
             <Key tone={BUY} label="Buy" />

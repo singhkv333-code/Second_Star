@@ -72,7 +72,7 @@ export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElemen
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <PanelHead
-        title="Delivery and open interest"
+        title="Delivery and Open Interest"
         right={
           <Segmented
             value={view}

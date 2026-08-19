@@ -96,7 +96,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
             color: "var(--text-primary)",
           }}
         >
-          Pattern edge
+          Pattern Edge
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <Segmented value={interval} options={INTERVALS} onChange={setInterval} />
