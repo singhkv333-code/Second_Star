@@ -47,7 +47,6 @@ import {
   getSparkline,
   getOhlc,
   getFinancials,
-  getBalanceSheet,
   getMetricSeries,
   getStockQuarters,
   getStatement,
@@ -60,7 +59,6 @@ import {
   type FinancialsResponse,
   type FinancialsHistoryPoint,
   type MetricSeriesResponse,
-  type BalanceSheetResponse,
 } from "@/lib/api";
 import { isError, type ApiResult } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
@@ -265,8 +263,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
-  const [balanceSheet, setBalanceSheet] = useState<BalanceSheetResponse | null>(null);
-  const [bsBasis, setBsBasis] = useState<"consolidated" | "standalone">("consolidated");
   // Phone reflows the page: chart on top, then Performance, then a 2-way
   // Overview/Financials switch (desktop keeps the two-column overview+chart row).
   const [isPhone, setIsPhone] = useState(false);
@@ -330,24 +326,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
       });
     return () => { cancelled = true; };
   }, [symbol]);
-
-  // ── Full balance sheet grid (Moneycontrol DB, every line item) ─────────
-  // Separate fetch from the flat `financials` snapshot above — this powers
-  // the Balance Sheet tab's full statement view. Re-fetches on a basis
-  // toggle (standalone/consolidated) as well as symbol change.
-  useEffect(() => {
-    let cancelled = false;
-    setBalanceSheet(null);
-    getBalanceSheet(symbol, bsBasis)
-      .then((res) => {
-        if (cancelled) return;
-        setBalanceSheet(isError(res) ? null : res.data);
-      })
-      .catch(() => {
-        if (!cancelled) setBalanceSheet(null);
-      });
-    return () => { cancelled = true; };
-  }, [symbol, bsBasis]);
 
   // ── Sparkline series (one per ticker) ──────────────────────────────────
   useEffect(() => {
@@ -445,9 +423,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           <PhoneLayout
             quote={quoteState.quote}
             financials={financials}
-            balanceSheet={balanceSheet}
-            bsBasis={bsBasis}
-            onBsBasisChange={setBsBasis}
             tickers={tickers}
             peerQuotes={peerQuotes}
             series={series}
@@ -526,9 +501,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <FinancialsPanel
               quote={quoteState.quote}
               financials={financials}
-              balanceSheet={balanceSheet}
-              bsBasis={bsBasis}
-              onBsBasisChange={setBsBasis}
             />
           )}
 
@@ -563,9 +535,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 function PhoneLayout({
   quote,
   financials,
-  balanceSheet,
-  bsBasis,
-  onBsBasisChange,
   tickers,
   peerQuotes,
   series,
@@ -576,9 +545,6 @@ function PhoneLayout({
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
-  balanceSheet: BalanceSheetResponse | null;
-  bsBasis: "consolidated" | "standalone";
-  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
   series: SeriesEntry[];
@@ -660,9 +626,6 @@ function PhoneLayout({
             <FinancialsPanel
               quote={quote}
               financials={financials}
-              balanceSheet={balanceSheet}
-              bsBasis={bsBasis}
-              onBsBasisChange={onBsBasisChange}
             />
           </>
         )
@@ -2991,26 +2954,15 @@ function FinBarChart({
 function FinancialsPanel({
   quote,
   financials,
-  balanceSheet,
-  bsBasis,
-  onBsBasisChange,
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
-  balanceSheet: BalanceSheetResponse | null;
-  bsBasis: "consolidated" | "standalone";
-  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
-  // Full MC balance sheet lives behind a toggle inside the Balance Sheet tab.
-  const [showFullBS, setShowFullBS] = useState(false);
   // One row's series open at a time. Keyed by label rather than index so
   // switching tabs — which swaps the whole row set — closes it rather than
   // opening whatever now sits in that position.
   const [openRow, setOpenRow] = useState<string | null>(null);
-  const fullBsReady =
-    balanceSheet !== null && balanceSheet.available && balanceSheet.rows.length > 0;
-
   // ── the quarterly tab ───────────────────────────────────────────────────
   // Quarters used to be a section of its own below, with a different heading
   // size, its own stat tiles and three sparklines — a second financials panel
@@ -3157,38 +3109,13 @@ function FinancialsPanel({
 
         {/* Header: title row + tabs row */}
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
-          {/* Title + source badge */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+          {/* Title. The heading owns this row alone, like every other section
+              heading on the page — the way out to the full statement moved
+              down to the tab strip, next to the tab it opens. */}
+          <div style={{ marginBottom: 10 }}>
             <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
-            {/* The way out to the whole statement. This panel is a summary —
-                four balance-sheet lines and two P&L lines — over a store that
-                holds a hundred and twenty line items across twenty-three
-                periods, and until there was somewhere to send a reader, the
-                summary read as all we had. It carries the open tab across so
-                the reader lands on the statement they were already reading. */}
-            <Link
-              href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
-                tab === "financials" ? "balance_sheet"
-                  : tab === "ratios" ? "ratios"
-                  // Quarterly has no statement of its own over there; the P&L
-                  // is the same lines over twelve months, which is the nearest
-                  // true thing rather than a tab that does not exist.
-                  : "profit_loss"
-              }`}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                padding: "5px 12px", borderRadius: 99,
-                border: "1px solid var(--glass-border)",
-                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
-                color: "var(--text-secondary)", textDecoration: "none",
-                whiteSpace: "nowrap", transition: "border-color 120ms, color 120ms",
-              }}
-            >
-              See detail
-              <ChevronRight size={13} aria-hidden="true" />
-            </Link>
           </div>
           {/* Tabs. The basis switch rides at the far end of this row when the
               quarterly tab is open — it belongs to that tab and only that tab,
@@ -3220,26 +3147,58 @@ function FinancialsPanel({
                 );
               })}
             </div>
-            {tab === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
-              <div style={{ display: "inline-flex", gap: 14, paddingBottom: 7 }}>
-                {quarters!.bases_available.map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setQBasis(b as "consolidated" | "standalone")}
-                    style={{
-                      border: "none", background: "transparent", cursor: "pointer",
-                      padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
-                      fontWeight: qBasis === b ? 600 : 400,
-                      color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
-                      transition: "color 0.15s",
-                    }}
-                  >
-                    {b === "consolidated" ? "Consolidated" : "Standalone"}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 18, paddingBottom: 7 }}>
+              {tab === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
+                <div style={{ display: "inline-flex", gap: 14 }}>
+                  {quarters!.bases_available.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setQBasis(b as "consolidated" | "standalone")}
+                      style={{
+                        border: "none", background: "transparent", cursor: "pointer",
+                        padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
+                        fontWeight: qBasis === b ? 600 : 400,
+                        color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
+                        transition: "color 0.15s",
+                      }}
+                    >
+                      {b === "consolidated" ? "Consolidated" : "Standalone"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* The way out to the whole statement. This panel is a summary —
+                  four balance-sheet lines and two P&L lines — over a store that
+                  holds a hundred and twenty line items across twenty-three
+                  periods, and until there was somewhere to send a reader, the
+                  summary read as all we had. It carries the open tab across so
+                  the reader lands on the statement they were already reading,
+                  which is why it belongs on the tab row and not above it: it
+                  changes meaning with the tab, so it should sit beside it.
+                  No pill either — a bordered capsule at the end of a row of
+                  flat tabs reads as the loudest control in the panel, when it
+                  is the quietest thing here. Plain text and a chevron. */}
+              <Link
+                href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
+                  tab === "financials" ? "balance_sheet"
+                    : tab === "ratios" ? "ratios"
+                    // Quarterly has no statement of its own over there; the P&L
+                    // is the same lines over twelve months, which is the nearest
+                    // true thing rather than a tab that does not exist.
+                    : "profit_loss"
+                }`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                  color: "var(--text-secondary)", textDecoration: "none",
+                  whiteSpace: "nowrap", transition: "color 120ms",
+                }}
+              >
+                See detail
+                <ChevronRight size={13} aria-hidden="true" />
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -3339,191 +3298,6 @@ function FinancialsPanel({
           </div>
         </div>
 
-        {/* Full balance sheet — opens inline on the Balance Sheet tab only */}
-        {tab === "financials" && fullBsReady && (
-          <div
-            className="px-2 sm:px-5"
-            style={{ borderTop: "1px solid var(--glass-border)", paddingTop: 14, paddingBottom: 14 }}
-          >
-            <button
-              type="button"
-              onClick={() => setShowFullBS((v) => !v)}
-              aria-expanded={showFullBS}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "7px 14px", border: "1px solid var(--glass-border)",
-                borderRadius: 99, background: "transparent", cursor: "pointer",
-                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
-                color: "var(--text-secondary)", transition: "background 120ms, color 120ms",
-              }}
-            >
-              {showFullBS ? "Hide full balance sheet" : "View full balance sheet"}
-              <ChevronDown
-                size={14}
-                aria-hidden="true"
-                style={{ transform: showFullBS ? "rotate(180deg)" : "none", transition: "transform 160ms" }}
-              />
-            </button>
-            {showFullBS && (
-              <div style={{ marginTop: 14 }}>
-                <FullBalanceSheetSection
-                  balanceSheet={balanceSheet}
-                  basis={bsBasis}
-                  onBasisChange={onBsBasisChange}
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Fixed width for the pinned Line-Item column. Bounding it (rather than
- *  letting `nowrap` size it to the longest label) is what keeps the value
- *  columns reachable on a phone — names wrap inside this width instead. */
-const LINE_ITEM_COL_W = 168;
-
-/** Full Moneycontrol balance sheet: every line item, section headers, real
- *  fiscal-year columns (not the synthetic FY_YEARS used by the summary panel
- *  above). A self-contained card (positioned by its caller), horizontally
- *  scrollable with a sticky Line-Item column so the wide multi-year grid reads
- *  well on laptop and phone alike. Sourced only from a real MC scrape
- *  (mc_html/mc_api) — never yfinance, never fabricated, so it renders nothing
- *  rather than guessing when a company has no scraped balance sheet. */
-function FullBalanceSheetSection({
-  balanceSheet,
-  basis,
-  onBasisChange,
-}: {
-  balanceSheet: BalanceSheetResponse | null;
-  basis: "consolidated" | "standalone";
-  onBasisChange: (basis: "consolidated" | "standalone") => void;
-}): React.ReactElement | null {
-  // Nothing to show while loading or when no real scrape exists.
-  if (balanceSheet === null || !balanceSheet.available || balanceSheet.rows.length === 0) {
-    return null;
-  }
-
-  const { periods, rows, unit } = balanceSheet;
-  const cardBg = "var(--bg-primary)";
-
-  return (
-    <div
-      style={{
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg, 16px)",
-        overflow: "hidden",
-        background: cardBg,
-        minWidth: 0,
-        maxWidth: "100%",
-      }}
-    >
-      {/* Header — title + basis toggle; wraps on narrow phones */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 10,
-          padding: "14px 16px",
-          borderBottom: "1px solid var(--glass-border)",
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
-          Full Balance Sheet{unit ? ` (${unit})` : ""}
-        </span>
-        <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
-          {(["consolidated", "standalone"] as const).map((b) => {
-            const active = basis === b;
-            return (
-              <button key={b} type="button" onClick={() => onBasisChange(b)} style={{
-                padding: "5px 12px", border: "none", cursor: "pointer",
-                fontSize: 11.5, fontFamily: "var(--font-ui)", fontWeight: active ? 600 : 400,
-                background: active ? "var(--pivot-blue, #1b7cc7)" : "transparent",
-                color: active ? "#fff" : "var(--text-secondary)",
-                textTransform: "capitalize", transition: "background 120ms, color 120ms",
-              }}>
-                {b}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Grid — horizontal scroll inside the card; Line-Item column sticks */}
-      <div style={{ overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
-        <table style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", width: "max-content", minWidth: "100%" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-              <th style={{ padding: "10px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap", position: "sticky", left: 0, zIndex: 2, background: cardBg, borderRight: "1px solid var(--glass-border)", width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W }}>
-                Line Item
-              </th>
-              {periods.map((p, i) => (
-                <th key={p} style={{
-                  padding: "10px 12px", fontSize: 10.5, fontWeight: 600,
-                  textTransform: "uppercase", letterSpacing: "0.06em",
-                  textAlign: "right", whiteSpace: "nowrap",
-                  color: i === 0 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
-                }}>
-                  {p}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => {
-              const prevSection = idx > 0 ? (rows[idx - 1]?.section ?? null) : null;
-              const showSectionHeader = r.section !== null && r.section !== prevSection;
-              return (
-                <Fragment key={r.line_item + idx}>
-                  {showSectionHeader && (
-                    <tr key={`sec-${idx}`} style={{ background: "var(--bg-base, #f8fafc)" }}>
-                      {/* Full-width band; only the label is pinned so the
-                          heading stays readable while scrolling sideways. */}
-                      <td colSpan={periods.length + 1} style={{
-                        padding: "9px 12px", fontSize: 10, fontWeight: 700,
-                        textTransform: "uppercase", letterSpacing: "0.06em",
-                        color: "var(--text-tertiary)", whiteSpace: "nowrap",
-                        background: "var(--bg-base, #f8fafc)",
-                      }}>
-                        <span style={{ position: "sticky", left: 12, display: "inline-block" }}>
-                          {r.section}
-                        </span>
-                      </td>
-                    </tr>
-                  )}
-                  <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-                    <td style={{
-                      padding: "9px 12px", fontSize: 12, color: "var(--text-primary)",
-                      // Bounded + wrapping so long names can't eat the whole
-                      // phone width and squeeze the value columns off-screen.
-                      whiteSpace: "normal", lineHeight: 1.35,
-                      width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W,
-                      position: "sticky", left: 0, zIndex: 1, background: cardBg,
-                      borderRight: "1px solid var(--glass-border)",
-                    }}>
-                      {r.line_item}
-                    </td>
-                    {periods.map((p, i) => (
-                      <td key={p} className="tabular-nums" style={{
-                        padding: "9px 12px", textAlign: "right",
-                        fontSize: 11.5, fontFamily: "var(--font-mono)",
-                        fontWeight: i === 0 ? 600 : 400,
-                        color: i === 0 ? "var(--text-primary)" : "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                      }}>
-                        {r.value_texts[p] ?? "—"}
-                      </td>
-                    ))}
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
       </div>
     </div>
   );
