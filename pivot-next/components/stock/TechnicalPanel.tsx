@@ -31,7 +31,7 @@ export function TechnicalPanel({ quote }: { quote: StockQuote }): React.ReactEle
     <section aria-label="Technical analysis" style={{ marginTop: 32, padding: "0 20px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>Technical analysis</h2>
+          <h2 style={{ margin: 0, fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>Technical analysis</h2>
           <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--text-tertiary)" }}>Daily timeframe · indicators calculated from the latest one-year OHLC history</div>
         </div>
         {source ? <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{source === "kite" ? "Kite" : "yfinance, EOD"}</span> : null}

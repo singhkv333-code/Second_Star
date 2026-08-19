@@ -67,7 +67,11 @@ export function PanelHead({
             fontFamily: "var(--font-ui)",
             fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.022em",
+            // Block letters. Uppercase at a tight negative tracking closes up
+            // into a wall, so the letter-spacing flips positive — the two go
+            // together and neither reads without the other.
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
             color: "var(--text-primary)",
           }}
         >

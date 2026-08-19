@@ -235,11 +235,10 @@ function HolderTable({
 }): React.ReactElement {
   const [all, setAll] = React.useState(false);
   const shown = all ? holders : holders.slice(0, 10);
-  const max = Math.max(...holders.map((h) => h.pct ?? 0), 1);
 
   return (
     <div style={{ marginTop: 4, borderTop: "1px solid var(--glass-border)", paddingTop: 14 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
         <span style={{ fontSize: 10.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
           Named holders
         </span>
@@ -257,49 +256,53 @@ function HolderTable({
         ) : null}
       </div>
 
-      <div className="shp-holders" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 28 }}>
+      {/* One line per holder: a name and a number.
+       *
+       *  It used to be five things — a rule, a name, the holder's class on a
+       *  second line, a 46px bar and the percentage — for one fact each, and
+       *  four holders cost eight lines of text and four hairlines.
+       *
+       *  The bar went first: it was scaled against the largest holder, and
+       *  with a promoter at 71% beside a fund at 1.3% every other bar was an
+       *  empty track. A bar that is always empty is not a reading.
+       *
+       *  The class line went next. It is real information, so it moves to the
+       *  row's title rather than being dropped — but it was a grey second line
+       *  under every name, which is the pattern this page is trying not to
+       *  have.
+       */}
+      <div className="shp-holders" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 40 }}>
         {shown.map((h) => (
           <div
             key={h.name}
+            title={holderClass(h.bucket) || undefined}
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0,1fr) auto",
-              gap: 12,
-              alignItems: "center",
-              minHeight: 34,
-              borderTop: "1px solid var(--glass-border)",
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 14,
+              padding: "5px 0",
             }}
           >
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={h.name}
-              >
-                {titleCase(h.name)}
-              </div>
-              <div style={{ fontSize: 10.5, color: "var(--text-secondary)" }}>{holderClass(h.bucket)}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 46, height: 4, borderRadius: 2, background: "var(--bg-elevated)" }}>
-                <div
-                  style={{
-                    width: `${((h.pct ?? 0) / max) * 100}%`,
-                    height: "100%",
-                    borderRadius: 2,
-                    background: "#4F8A5B",
-                  }}
-                />
-              </div>
-              <span style={{ width: 48, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
-                {num(h.pct, { dp: 2, pct: true })}
-              </span>
-            </div>
+            <span
+              style={{
+                fontSize: 12.5,
+                color: "var(--text-primary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {titleCase(h.name)}
+            </span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 12,
+              fontWeight: 600, fontVariantNumeric: "tabular-nums",
+              color: "var(--text-primary)", whiteSpace: "nowrap",
+            }}>
+              {num(h.pct, { dp: 2, pct: true })}
+            </span>
           </div>
         ))}
       </div>

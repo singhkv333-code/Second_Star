@@ -1285,7 +1285,8 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
           fontFamily: "var(--font-ui)",
           fontSize: 21,
           fontWeight: 600,
-          letterSpacing: "-0.022em",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
           color: "var(--text-primary)",
           marginBottom: 16,
         }}
@@ -2500,14 +2501,20 @@ const SUMMARY_ROWS = 7;
  *  Read, not computed. Debt/equity and ROE could both be divided out of the
  *  history series already on this page, and doing so would put a second,
  *  silently different number next to the one the statements page quotes for
- *  the same year. MC files these; both surfaces quote the filing. */
+ *  the same year. MC files these; both surfaces quote the filing.
+ *
+ *  Takes CANDIDATE names because MC files banks under a different vocabulary
+ *  from everyone else — return on equity is "Return on Networth / Equity (%)"
+ *  for TCS and "Return on Equity / Networth (%)" for HDFCBANK, and ROCE is
+ *  "Return on Capital Employed (%)" against a bare "Roce (%)". First hit
+ *  wins. */
 function ratioByFY(
   ratios: StatementResponse | null,
-  lineItem: string,
+  lineItems: string[],
   fy: string,
 ): number | null {
   if (!ratios) return null;
-  const row = ratios.rows.find((r) => r.line_item.trim() === lineItem);
+  const row = ratios.rows.find((r) => lineItems.includes(r.line_item.trim()));
   if (!row) return null;
   // "Mar 26" → FY26. The ratio sheet is labelled by period end, the summary
   // by fiscal year, and the two only ever meet here.
@@ -2544,12 +2551,57 @@ function buildBalanceSheetFromDB(
         return v === null ? "—" : `₹${v.toFixed(2)}`;
       }),
     },
-    // The three balance-sheet ratios worth the row: what it owes against what
-    // it owns, whether it can pay this year's bills, and what the equity
-    // earned. Filed values, so they cannot disagree with the ratio sheet.
-    ratioRow("Debt / Equity", ratios, "Total Debt/Equity (X)", (v) => `${v.toFixed(2)}×`),
-    ratioRow("Current Ratio", ratios, "Current Ratio (X)", (v) => `${v.toFixed(2)}×`),
-    ratioRow("Return on Equity", ratios, "Return on Networth / Equity (%)", (v) => `${v.toFixed(1)}%`),
+    // Three balance-sheet ratios: what it owes against what it owns, whether
+    // it can pay this year's bills, and what the equity earned. Filed values,
+    // so they cannot disagree with the ratio sheet — and swapped for a bank,
+    // which files none of the first two.
+    ...(filesBankRatios(ratios)
+      ? [
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+          ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], (v) => `${v.toFixed(1)}%`),
+          ratioRow("CASA", ratios, ["Casa (%)"], (v) => `${v.toFixed(1)}%`),
+        ]
+      : [
+          ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+        ]),
+  ];
+}
+
+/** The ratio summary tab: seven filed ratios spanning what the company earns,
+ *  what it owes and what it is priced at.
+ *
+ *  Every one is read from MC's ratio sheet, so the summary and the statements
+ *  page cannot disagree — and so this tab costs no arithmetic at all. The
+ *  labels are ours; the numbers are the filing's. */
+function buildRatioRows(ratios: StatementResponse | null): FinancialRow[] {
+  const pctFmt = (v: number) => `${v.toFixed(1)}%`;
+  const mult = (v: number) => `${v.toFixed(2)}×`;
+
+  // A bank has no debt/equity, no current ratio and no EV/EBITDA to file, so
+  // asking for them printed five em-dashes out of seven — the dead rows this
+  // page exists to avoid. It gets the three that describe a bank instead.
+  if (filesBankRatios(ratios)) {
+    return [
+      ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+      ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+      ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+      ratioRow("Operating Margin", ratios, ["Operating Profit Margin (%)"], pctFmt),
+      ratioRow("Net Interest Margin", ratios, ["Net Interest Margin (%)"], pctFmt),
+      ratioRow("CASA", ratios, ["Casa (%)"], pctFmt),
+      ratioRow("Cost to Income", ratios, ["Cost to Income (%)"], pctFmt),
+    ];
+  }
+
+  return [
+    ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, pctFmt),
+    ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+    ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], mult),
+    ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], mult),
+    ratioRow("EV / EBITDA", ratios, ["EV/EBITDA (X)"], mult),
   ];
 }
 
@@ -2557,17 +2609,34 @@ function buildBalanceSheetFromDB(
 function ratioRow(
   label: string,
   ratios: StatementResponse | null,
-  lineItem: string,
+  lineItems: string | string[],
   fmt: (v: number) => string,
 ): FinancialRow {
+  const names = Array.isArray(lineItems) ? lineItems : [lineItems];
   return {
     label,
     values: FY_YEARS.map((fy) => {
-      const v = ratioByFY(ratios, lineItem, fy);
+      const v = ratioByFY(ratios, names, fy);
       return v === null || !Number.isFinite(v) ? "—" : fmt(v);
     }),
   };
 }
+
+/** MC files banks under their own ratio vocabulary — no debt/equity, no
+ *  current ratio, no EV/EBITDA, and instead the three that actually describe a
+ *  bank: what the deposits cost, what the spread is, what the branch network
+ *  costs to run. Detected by the presence of those lines rather than by a
+ *  sector string, because the ratio sheet is the thing being read. */
+function filesBankRatios(ratios: StatementResponse | null): boolean {
+  if (!ratios) return false;
+  return ratios.rows.some((r) => {
+    const li = r.line_item.trim();
+    return li === "Casa (%)" || li === "Net Interest Margin (%)";
+  });
+}
+
+const ROE_NAMES = ["Return on Networth / Equity (%)", "Return on Equity / Networth (%)"];
+const ROCE_NAMES = ["Return on Capital Employed (%)", "Roce (%)"];
 
 // Estimated fallback for the Balance Sheet tab. We don't fabricate balance
 // sheets when the financials DB has no data — the line items show as
@@ -2618,8 +2687,8 @@ function buildProfitLossFromDB(
     },
     // Two filed ratios, to the same seven rows the other tabs carry: what the
     // revenue kept, and what the capital earned.
-    ratioRow("Net Margin", ratios, "Net Profit Margin (%)", (v) => `${v.toFixed(1)}%`),
-    ratioRow("Return on Capital", ratios, "Return on Capital Employed (%)", (v) => `${v.toFixed(1)}%`),
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], (v) => `${v.toFixed(1)}%`),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, (v) => `${v.toFixed(1)}%`),
   ];
 }
 
@@ -2692,7 +2761,11 @@ function KeyMetricsStrip({
             fontFamily: "var(--font-ui)",
             fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.022em",
+            // Block letters. Uppercase at a tight negative tracking closes up
+            // into a wall, so the letter-spacing flips positive — the two go
+            // together and neither reads without the other.
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
             color: "var(--text-primary)",
           }}
         >
@@ -2774,7 +2847,7 @@ function KeyMetricsStrip({
 // FinancialsPanel — bar chart (left) + data table (right)
 // ---------------------------------------------------------------------------
 
-type FinPanelTab = "financials" | "pl" | "quarters";
+type FinPanelTab = "financials" | "pl" | "quarters" | "ratios";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
@@ -2800,10 +2873,15 @@ function FinBarChart({
   periods,
   metricA,
   metricB,
+  unit = "cr",
 }: {
   periods: string[];
   metricA: { label: string; values: (number | null)[]; color: string };
   metricB: { label: string; values: (number | null)[]; color: string };
+  /** What the bars are counted in. The legend used to say "(Cr)" and the
+   *  readout used to print a ₹ regardless — which on the ratio tab labelled a
+   *  return on equity as crores of rupees. */
+  unit?: "cr" | "pct";
 }): React.ReactElement {
   const [hover, setHover] = useState<number | null>(null);
   const allVals = [...metricA.values, ...metricB.values].filter((n): n is number => n !== null);
@@ -2816,7 +2894,7 @@ function FinBarChart({
         {[metricA, metricB].map((m) => (
           <span key={m.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-ui)", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
-            {m.label} (Cr)
+            {m.label}{unit === "cr" ? " (Cr)" : " (%)"}
           </span>
         ))}
       </div>
@@ -2834,7 +2912,9 @@ function FinBarChart({
                 return (
                   <div key={m.label}>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
-                      ₹{v !== null ? fmtShort(v) : "—"}
+                      {v === null ? "—"
+                        : unit === "cr" ? `₹${fmtShort(v)}`
+                        : `${v.toFixed(1)}%`}
                     </span>
                     <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)", marginLeft: 4 }}>{m.label}</span>
                   </div>
@@ -2856,7 +2936,7 @@ function FinBarChart({
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <div key={f} style={{ position: "absolute", left: 0, right: 32, bottom: `${f * 100}%`, borderTop: "1px dotted var(--glass-border)", pointerEvents: "none" }}>
             <span style={{ position: "absolute", right: -30, top: -8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
-              {fmtShort(maxVal * f)}
+              {unit === "cr" ? fmtShort(maxVal * f) : `${(maxVal * f).toFixed(0)}%`}
             </span>
           </div>
         ))}
@@ -2965,7 +3045,7 @@ function FinancialsPanel({
   useEffect(() => {
     setHasQuarters(false);
     setQBasis("consolidated");
-    setTab((t) => (t === "quarters" ? "financials" : t));
+    setTab((t) => (t === "quarters" || t === "ratios" ? "financials" : t));
   }, [quote.symbol]);
 
   useEffect(() => {
@@ -3049,16 +3129,32 @@ function FinancialsPanel({
     return out;
   }, [quarters]);
 
+  const rRows = useMemo(() => buildRatioRows(ratios), [ratios]);
+  // A company MC files no ratio sheet for does not get an empty fourth tab.
+  const hasRatios = !!ratios && rRows.some((r) => r.values.some((v) => v !== "—"));
+
   const periods = tab === "quarters" ? qPeriods : FY_YEARS;
-  const rows = tab === "financials" ? bsRows : tab === "pl" ? plRows : qRows;
+  const rows = tab === "financials" ? bsRows
+    : tab === "pl" ? plRows
+    : tab === "ratios" ? rRows
+    : qRows;
   const _source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
     rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
 
   const cfg = tab === "financials"
-    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
-    : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
+    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b", unit: "cr" as const }
+    : tab === "ratios"
+      // The two that say most about quality, and the pair a reader compares:
+      // ROCE above ROE means the equity is not carrying the return alone. A
+      // bank has no ROCE row, so it charts the spread against the return
+      // instead — which is the same question asked of a balance sheet made of
+      // deposits.
+      ? filesBankRatios(ratios)
+        ? { a: "Return on Equity", b: "Net Interest Margin", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+        : { a: "Return on Equity", b: "Return on Capital", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+      : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
 
   return (
     <div style={{ marginTop: 28, minWidth: 0, maxWidth: "100%" }}>
@@ -3068,7 +3164,7 @@ function FinancialsPanel({
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
           {/* Title + source badge */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
+            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
             {/* The way out to the whole statement. This panel is a summary —
@@ -3079,7 +3175,12 @@ function FinancialsPanel({
                 the reader lands on the statement they were already reading. */}
             <Link
               href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
-                tab === "financials" ? "balance_sheet" : tab === "pl" ? "profit_loss" : "profit_loss"
+                tab === "financials" ? "balance_sheet"
+                  : tab === "ratios" ? "ratios"
+                  // Quarterly has no statement of its own over there; the P&L
+                  // is the same lines over twelve months, which is the nearest
+                  // true thing rather than a tab that does not exist.
+                  : "profit_loss"
               }`}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 5,
@@ -3100,10 +3201,12 @@ function FinancialsPanel({
               row that is empty two-thirds of the time. */}
           <div style={{ display: "flex", gap: 0, alignItems: "flex-end", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 0 }}>
-              {(hasQuarters
-                ? (["financials", "pl", "quarters"] as const)
-                : (["financials", "pl"] as const)
-              ).map((t) => {
+              {([
+                "financials" as const,
+                "pl" as const,
+                ...(hasQuarters ? ["quarters" as const] : []),
+                ...(hasRatios ? ["ratios" as const] : []),
+              ]).map((t) => {
                 const active = tab === t;
                 return (
                   <button key={t} type="button" onClick={() => { setTab(t); setOpenRow(null); }} style={{
@@ -3114,7 +3217,10 @@ function FinancialsPanel({
                     borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
                     cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
                   }}>
-                    {t === "financials" ? "Balance Sheet" : t === "pl" ? "Profit and Loss" : "Quarterly Results"}
+                    {t === "financials" ? "Balance Sheet"
+                      : t === "pl" ? "Profit and Loss"
+                      : t === "quarters" ? "Quarterly Results"
+                      : "Ratios"}
                   </button>
                 );
               })}
@@ -3154,6 +3260,7 @@ function FinancialsPanel({
             ) : (
               <FinBarChart
                 periods={periods}
+                unit={cfg.unit}
                 metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
                 metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
               />
@@ -3330,7 +3437,7 @@ function FullBalanceSheetSection({
           borderBottom: "1px solid var(--glass-border)",
         }}
       >
-        <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
+        <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
           Full Balance Sheet{unit ? ` (${unit})` : ""}
         </span>
         <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
@@ -3465,7 +3572,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
