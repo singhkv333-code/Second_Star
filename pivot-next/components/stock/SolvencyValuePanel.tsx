@@ -22,6 +22,8 @@
  * related set into four unrelated ones, and the borders end up carrying more
  * ink than the numbers. The quadrant under the pointer takes a wash instead —
  * the shape it fills IS the quadrant, so the affordance costs no new geometry.
+ * Held and hovered wear the same wash: the radar's caption already names the
+ * score it is drawing, so the matrix does not need a second state to say it.
  *
  * Colour is carried by the verdict, never by the number. A green 10.92 and a
  * red 2.31 read as a scoreboard; the number is the fact and the verdict is the
@@ -230,7 +232,7 @@ function Cell({
     color = price > q.value ? "var(--color-warn)" : "var(--color-profit)";
   }
 
-  const selected = state === "selected";
+  const selected = state === "selected";   // ARIA only — see the wash below
   return (
     <div
       role="button"
@@ -257,20 +259,14 @@ function Cell({
         minWidth: 0,
         cursor: "pointer",
         borderRadius: 12,
-        background: selected ? "var(--accent-wash)"
-          : state === "hovered" ? "var(--surface-hover)" : "transparent",
-        // The accent edge is what marks the HELD selection. A wash alone is a
-        // hover, and the two have to stay distinguishable while the pointer is
-        // sitting on one of them.
-        boxShadow: selected ? "inset 2px 0 0 0 var(--pivot-blue)" : "none",
-        transition: "background 140ms ease, box-shadow 140ms ease",
+        background: state === "idle" ? "transparent" : "var(--surface-hover)",
+        transition: "background 140ms ease",
         outline: "none",
       }}
     >
       <div style={{
         fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600,
-        color: selected ? "var(--pivot-blue)" : "var(--text-primary)",
-        letterSpacing: "-0.01em", transition: "color 140ms ease",
+        color: "var(--text-primary)", letterSpacing: "-0.01em",
       }}>
         {q.label}
       </div>

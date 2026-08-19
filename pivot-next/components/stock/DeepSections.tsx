@@ -54,12 +54,13 @@ type SectionId = "scores" | "revenue_mix" | "peers" | "shareholding" | "flows" |
 // and the flows pair in charto's store, neither of which the coverage call
 // counts. So each one loads unconditionally and reports its own emptiness by
 // returning `available: false`, and the section is dropped on that instead.
-// Scores lead. They are arithmetic over the statements the panel directly
-// above them prints, so they read as the conclusion of that panel rather than
-// a new subject — and they are the shortest thing here, which is the right
-// thing to meet first.
+// Scores sit after the peer table. They are arithmetic over the statements,
+// so they could open this run — but a score is a JUDGEMENT, and a judgement
+// reads better once the reader has seen what the company sells and how it
+// stands against the companies it competes with. Mix, then peers, then the
+// verdict those two have been building toward.
 const SECTION_ORDER: SectionId[] = [
-  "scores", "revenue_mix", "peers", "shareholding", "flows", "deals",
+  "revenue_mix", "peers", "scores", "shareholding", "flows", "deals",
 ];
 
 export function DeepSections({ symbol, price }: { symbol: string; price?: number | null }): React.ReactElement | null {
@@ -150,12 +151,6 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
     >
       {sections === null ? <PanelSkeleton rows={7} /> : null}
 
-      {available.includes("scores") && scores ? (
-        <ResearchSection id="scores" label="Solvency and value">
-          <SolvencyValuePanel data={scores} price={price ?? null} />
-        </ResearchSection>
-      ) : null}
-
       {available.includes("revenue_mix") ? <ResearchSection id="revenue_mix" label="Segment mix">
         {mix ? <MixPanel data={mix} /> : <PanelSkeleton rows={6} />}
       </ResearchSection> : null}
@@ -163,6 +158,12 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
       <ResearchSection id="peers" label="Peer comparison">
         <PeerComparisonPanel symbol={symbol} />
       </ResearchSection>
+
+      {available.includes("scores") && scores ? (
+        <ResearchSection id="scores" label="Solvency and value">
+          <SolvencyValuePanel data={scores} price={price ?? null} />
+        </ResearchSection>
+      ) : null}
 
       {available.includes("shareholding") && shp ? (
         <ResearchSection id="shareholding" label="Shareholding">
