@@ -22,6 +22,15 @@ import * as React from "react";
  *
  *  Starts false so the server render and the first client render agree; the
  *  effect corrects it before paint. */
+/** The space between one section of the stock page and the next.
+ *
+ *  Sections used to set their own top margin — 24 on Performance, 32 on
+ *  Technical Analysis, 26 on Pattern Edge, 36 on Key Metrics, 28 on Financial
+ *  Performance — so the page's rhythm changed every time it changed subject,
+ *  and at the low end a heading sat closer to the chart above it than to its
+ *  own content. One value, and a roomier one. */
+export const SECTION_GAP = 56;
+
 export function usePhone(): boolean {
   const [phone, setPhone] = React.useState(false);
   React.useEffect(() => {

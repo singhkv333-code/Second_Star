@@ -34,7 +34,7 @@ import { MixPanel } from "./MixPanel";
 import { PeerComparisonPanel } from "./PeerComparisonPanel";
 import { ShareholdingPanel } from "./ShareholdingPanel";
 import { SolvencyValuePanel } from "./SolvencyValuePanel";
-import { PanelSkeleton } from "./chrome";
+import { PanelSkeleton, SECTION_GAP } from "./chrome";
 
 type SectionId = "scores" | "revenue_mix" | "peers" | "shareholding" | "flows" | "deals";
 
@@ -138,10 +138,10 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
     <section
       aria-label="Company detail"
       style={{
-        marginTop: 28,
+        marginTop: SECTION_GAP,
         display: "flex",
         flexDirection: "column",
-        gap: 40,
+        gap: SECTION_GAP,
         // Financial Performance above pads its header 20px in. These sections
         // started at 0, so every heading below it began a fifth of an inch to
         // the left of the one above — the misalignment was between SECTIONS,

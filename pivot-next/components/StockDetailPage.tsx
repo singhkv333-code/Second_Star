@@ -72,6 +72,7 @@ import {
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
 import { DeepSections } from "@/components/stock/DeepSections";
+import { SECTION_GAP } from "@/components/stock/chrome";
 import { RowTrend } from "@/components/stock/RowTrend";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
@@ -1241,7 +1242,7 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
   return (
     // Full-width section; 20px inset aligns with Key Metrics / Financial
     // Performance below.
-    <div style={{ marginTop: 24, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <h2
         className="m-0"
         style={{
@@ -2309,10 +2310,17 @@ const FY_YEARS: string[] = (() => {
   return [y - 4, y - 3, y - 2, y - 1, y].map((n) => `FY${String(n).slice(2)}`);
 })();
 
-/** Both Financials and P&L pad to this row count so the boxes
- *  always align at the bottom regardless of metric mix. The P&L
- *  walkdown has 7 rows currently (Revenue → COGS → Gross Profit →
- *  Opex → Operating Income → Tax → Net Income), so we anchor on 7. */
+/** The summary panel shows the SAME NUMBER OF ROWS on every tab.
+ *
+ *  Three tabs of one panel that disagree on height are three panels: the chart
+ *  beside them is one size, and a tab that runs past it makes the reader
+ *  scroll to change tabs. So each tab is built to this count and pads with an
+ *  em-dash rather than dropping a line — the opposite of the rule the detail
+ *  page follows, and right for the opposite reason. There, an absent line is
+ *  information; here, a moving row count is noise.
+ *
+ *  Passed in as `minRows` at each call site rather than read from here, so it
+ *  stands as the reference value the call sites agree on. */
 const _SHARED_TABLE_ROWS = 7;
 
 type FinancialRow = { label: string; values: (string | null)[] };
@@ -2447,16 +2455,6 @@ function pickByFY(
   const hit = arr.find((r) => r.period_end && yearLabel(r.period_end) === fy);
   return hit?.value ?? null;
 }
-
-/** The summary panel shows the SAME NUMBER OF ROWS on every tab.
- *
- *  Three tabs of a single panel that disagree on height are three panels; the
- *  chart beside them is one size, and a tab that runs past it makes the reader
- *  scroll to change tabs. So each tab is built to this count and pads with an
- *  em-dash rather than dropping a line — which is the opposite of the rule the
- *  detail page follows, and right for the opposite reason: there, an absent
- *  line is information; here, a moving row count is noise. */
-const SUMMARY_ROWS = 7;
 
 /** One filed ratio, read out of the ratio sheet and keyed by fiscal year.
  *
@@ -2708,7 +2706,7 @@ function KeyMetricsStrip({
   return (
     // Horizontal padding matches the Financial Performance panel below so the
     // heading + tiles line up with it (instead of sitting flush-left).
-    <div style={{ marginTop: 36, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <div
         style={{
           display: "flex",
@@ -3104,7 +3102,7 @@ function FinancialsPanel({
       : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
 
   return (
-    <div style={{ marginTop: 28, minWidth: 0, maxWidth: "100%" }}>
+    <div style={{ marginTop: SECTION_GAP, minWidth: 0, maxWidth: "100%" }}>
       <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden", minWidth: 0 }}>
 
         {/* Header: title row + tabs row */}
@@ -3203,7 +3201,7 @@ function FinancialsPanel({
         </div>
 
         {/* Body: chart left | table right (table gets a bit more room) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_6fr]">
+        <div className="grid grid-cols-1 lg:grid-cols-[4.3fr_6.7fr]">
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
@@ -3226,12 +3224,12 @@ function FinancialsPanel({
             <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
               <thead>
                 <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  <th style={{ width: "25%", padding: "12px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
                   {periods.map((y, i) => (
                     <th key={y} style={{
-                      padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
+                      padding: "12px 6px", fontSize: 11, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
                       color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
@@ -3258,21 +3256,25 @@ function FinancialsPanel({
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
                   >
-                    <td style={{ padding: "11px 12px" }}>
+                    <td style={{ padding: "12px 10px" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                         <span style={{
                           width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
                           background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
                         }} />
-                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
                           {r.label}
                         </span>
                       </span>
                     </td>
                     {r.values.map((v, i) => (
                       <td key={i} className="tabular-nums" style={{
-                        padding: "11px 8px", textAlign: "right",
-                        fontSize: 11.5, fontFamily: "var(--font-mono)",
+                        padding: "12px 6px", textAlign: "right", whiteSpace: "nowrap",
+                        // The numbers are the row. At 11.5 they were set
+                        // SMALLER than the label beside them and barely above
+                        // the column header, which reads as a table of names
+                        // with footnotes rather than a table of figures.
+                        fontSize: 13, fontFamily: "var(--font-mono)",
                         fontWeight: i === periods.length - 1 ? 600 : 400,
                         color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
                       }}>
@@ -3376,7 +3378,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary, #f8fafc)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <td style={{ padding: "10px 14px", fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                <td style={{ padding: "11px 14px", fontSize: 13.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                   {r ? r.label : ""}
                 </td>
                 <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -3385,7 +3387,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 {FY_YEARS.map((_, i) => {
                   const isLatest = i === latestIdx;
                   return (
-                    <td key={i} className="tabular-nums" style={{ padding: "10px 14px", fontSize: 12.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    <td key={i} className="tabular-nums" style={{ padding: "11px 14px", fontSize: 13.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                       {r ? (r.values[i] ?? "—") : ""}
                     </td>
                   );

@@ -22,7 +22,7 @@ import * as React from "react";
 import { getPatterns, type PatternStat, type PatternsResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { PatternGlyph } from "./PatternGlyph";
-import { Segmented } from "./chrome";
+import { Segmented, SECTION_GAP } from "./chrome";
 
 const HORIZONS = [5, 10, 20];
 const INTERVALS = [
@@ -75,7 +75,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
   const shown = all ? ranked : ranked.slice(0, 8);
 
   return (
-    <div style={{ marginTop: 26 }}>
+    <div style={{ marginTop: SECTION_GAP }}>
       <div
         style={{
           display: "flex",
