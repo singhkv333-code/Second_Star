@@ -24,11 +24,12 @@
  */
 
 import * as React from "react";
-import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart, ThemeRiverChart } from "echarts/charts";
 import {
   DatasetComponent,
   GridComponent,
   LegendComponent,
+  SingleAxisComponent,
   MarkLineComponent,
   MarkPointComponent,
   TitleComponent,
@@ -38,8 +39,11 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([
-  LineChart, BarChart, PieChart, ScatterChart,
+  LineChart, BarChart, PieChart, ScatterChart, ThemeRiverChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
+  // themeRiver does not lay out on a cartesian grid — it needs a singleAxis,
+  // and without the component registered the series renders nothing at all.
+  SingleAxisComponent,
   DatasetComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer,
 ]);
 

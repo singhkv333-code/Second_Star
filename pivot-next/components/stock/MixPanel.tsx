@@ -46,7 +46,7 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
   const chart: MixChart | undefined =
     charts.find((c) => String(c.id) === id) ?? richest ?? charts[0];
 
-  const option = React.useMemo(() => (chart ? stackedOption(chart) : null), [chart]);
+  const option = React.useMemo(() => (chart ? bumpOption(chart) : null), [chart]);
 
   if (!charts.length || !chart) {
     return <EmptyNote>No segment breakdown available for this company.</EmptyNote>;
@@ -120,7 +120,7 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
             <EChart
               option={option}
               height={320}
-              ariaLabel={`${chart.title}: share of total by segment over time`}
+              ariaLabel={`${chart.title}: segments ranked by share over time`}
             />
           ) : null}
         </div>
@@ -219,48 +219,83 @@ const RAMP = [
   "#DB7F3C", "#CE5F55", "#B85D86", "#8C63AE", "#5B6FB5",
 ];
 
-/** Build the stacked-area option for one breakdown.
+/** Build the bump chart for one breakdown.
  *
- *  Segments do not all share a time axis — a segment the company started
- *  reporting in 2021 has fewer points than one it has reported since 2015 —
- *  so the union of timestamps forms the axis and each series is aligned onto
- *  it, with gaps left null rather than zero. A zero would draw a band
- *  collapsing to nothing, which reads as "this segment earned nothing" rather
- *  than "this segment was not reported yet".
+ *  A bump chart answers the question a stacked area could not: not "how big is
+ *  each segment" but "which one is winning, and when did that change". The
+ *  stack drew eight bands whose thickness the reader had to compare across a
+ *  moving baseline; here every segment is a line on a rank axis, and a
+ *  crossing IS the finding — the quarter a vertical overtook another is a
+ *  place where two lines visibly swap.
+ *
+ *  The rank axis is INVERTED, which is the one rule of the form: rank 1 sits
+ *  at the top, where a reader expects the leader.
+ *
+ *  Rank is computed per period among the segments REPORTED in that period. A
+ *  segment the company had not begun disclosing is null rather than last —
+ *  ranking it below the others would draw a line climbing from the floor and
+ *  invent a rise that never happened.
  */
-function stackedOption(chart: MixChart): Record<string, unknown> {
+function bumpOption(chart: MixChart): Record<string, unknown> {
   const times = Array.from(
     new Set(chart.series.flatMap((s) => s.points.map((p) => p.t))),
   ).sort((a, b) => a - b);
-  const byTime = (s: MixChart["series"][number]) => {
-    const m = new Map(s.points.map((p) => [p.t, p.pct]));
-    return times.map((t) => (m.has(t) ? m.get(t)! : null));
-  };
-  // Both en-IN and en-GB render September as "Sept" while every other month
-  // is three characters, so one axis label sits wider than the rest. Sliced
-  // rather than switching locale again — the width has to be uniform whatever
-  // ICU decides a short month is.
+
   const labels = times.map((t) => {
     const d = new Date(t);
     const m = d.toLocaleString("en-GB", { month: "short" }).slice(0, 3);
     return `${m} '${String(d.getFullYear()).slice(2)}`;
   });
 
+  // pct by segment by time, then a rank per time over the segments present.
+  const pctAt = new Map<string, Map<number, number>>();
+  chart.series.forEach((s) => {
+    pctAt.set(s.name, new Map(s.points.map((p) => [p.t, p.pct])));
+  });
+
+  const rankAt = new Map<string, (number | null)[]>();
+  chart.series.forEach((s) => rankAt.set(s.name, []));
+  times.forEach((t) => {
+    const present = chart.series
+      .map((s) => ({ name: s.name, pct: pctAt.get(s.name)?.get(t) }))
+      .filter((r): r is { name: string; pct: number } => typeof r.pct === "number")
+      .sort((a, b) => b.pct - a.pct);
+    const rank = new Map(present.map((r, i) => [r.name, i + 1]));
+    chart.series.forEach((s) => rankAt.get(s.name)!.push(rank.get(s.name) ?? null));
+  });
+
+  const n = chart.series.length;
+
   return {
-    grid: { left: 8, right: 10, top: 10, bottom: 46, containLabel: true },
+    // Room on the right for the end labels, which is where a bump chart is
+    // read from: the reader finds the line they care about by its name at the
+    // finish, then traces it back.
+    grid: { left: 8, right: 132, top: 12, bottom: 40, containLabel: true },
     legend: {
       type: "scroll", bottom: 0, itemWidth: 9, itemHeight: 9,
-      itemGap: 12, textStyle: { fontSize: 11 },
+      itemGap: 12, icon: "circle", textStyle: { fontSize: 11 },
     },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "line", lineStyle: { width: 1, opacity: 0.45 } },
-      valueFormatter: (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`),
-      // A segment the company did not report that period is absent from the
-      // tooltip rather than listed as "—". Ten rows of em-dash is how a
-      // company that reports three segments gets a tooltip the height of the
-      // chart, which is what pushed the old one over the whole panel.
-      order: "valueDesc",
+      formatter: (params: unknown) => {
+        const rows = (Array.isArray(params) ? params : [params]) as {
+          axisValue?: string; seriesName?: string; data?: number | null; color?: string;
+        }[];
+        const when = rows[0]?.axisValue ?? "";
+        const t = times[labels.indexOf(when)];
+        const body = rows
+          .filter((r) => r.data !== null && r.data !== undefined)
+          .sort((a, b) => (a.data as number) - (b.data as number))
+          .map((r) => {
+            const share = t !== undefined ? pctAt.get(r.seriesName ?? "")?.get(t) : undefined;
+            return `<div style="display:flex;gap:12px;justify-content:space-between">
+              <span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${r.color};margin-right:6px"></span>#${r.data} ${r.seriesName}</span>
+              <strong>${typeof share === "number" ? `${share.toFixed(1)}%` : "—"}</strong></div>`;
+          })
+          .join("");
+        return `<div style="font-weight:600;margin-bottom:3px">${when}</div>${body}`;
+      },
     },
     xAxis: {
       type: "category", data: labels, boundaryGap: false,
@@ -268,27 +303,37 @@ function stackedOption(chart: MixChart): Record<string, unknown> {
       axisLabel: { fontSize: 10, hideOverlap: true },
     },
     yAxis: {
-      type: "value", max: 100, splitNumber: 4,
-      axisLabel: { fontSize: 10, formatter: "{value}%" },
-      splitLine: { lineStyle: { opacity: 0.35 } },
+      type: "value",
+      // The rule of the form.
+      inverse: true,
+      min: 1, max: n, interval: 1,
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { fontSize: 10, formatter: (v: number) => `#${v}` },
+      splitLine: { lineStyle: { opacity: 0.3 } },
     },
     series: chart.series.map((s) => ({
       name: s.name,
       type: "line",
-      stack: "total",
-      // Opaque, with a hairline of the page's own background drawn along each
-      // band's top edge. Translucent bands stacked ten deep mix into each
-      // other and every colour drifts toward the one beneath it, which is the
-      // other half of why this chart read as muddy. A solid fill keeps each
-      // segment the colour its swatch says it is, and the separator is what
-      // replaces the opacity as the thing that tells two bands apart.
-      areaStyle: { opacity: 1 },
-      lineStyle: { width: 1.25, color: "#fff", opacity: 0.9 },
-      symbol: "none",
-      smooth: 0.2,
+      // Straight between ranks, not smoothed: a spline through rank positions
+      // draws an overshoot that reads as a crossing which did not happen.
+      smooth: false,
+      symbol: "circle",
+      symbolSize: 8,
+      lineStyle: { width: 2.5 },
+      // A rank line must break where the segment was not reported, or it
+      // teleports across the gap.
       connectNulls: false,
-      emphasis: { disabled: true },
-      data: byTime(s),
+      emphasis: { focus: "series", lineStyle: { width: 4 } },
+      endLabel: {
+        show: true,
+        fontSize: 10.5,
+        distance: 8,
+        formatter: "{a}",
+        // Long vertical names would otherwise run past the canvas edge.
+        overflow: "truncate",
+        width: 120,
+      },
+      data: rankAt.get(s.name),
     })),
   };
 }

@@ -78,7 +78,7 @@ export function ShareholdingPanel({
   );
 
   const option = React.useMemo(
-    () => (quarters.length > 1 ? stackedOption(quarters, classes) : null),
+    () => (quarters.length > 1 ? riverOption(quarters, classes) : null),
     [quarters, classes],
   );
 
@@ -332,61 +332,98 @@ function titleCase(s: string): string {
     .join(" ");
 }
 
-/** Stacked area over quarters.
+/** The ownership river.
  *
- *  Stacked rather than overlaid because the classes sum to the whole company:
- *  the reader's question is "how is the cake divided", and overlaid lines make
- *  that a mental addition. The 100% ceiling is fixed so a quarter that filed a
- *  class the others did not cannot rescale the whole chart.
+ *  A streamgraph rather than a stack on a zero baseline. ECharts' `themeRiver`
+ *  centres the baseline instead of pinning it to the floor, which is the whole
+ *  point: with a flat bottom, every band above the largest one inherits its
+ *  wobble, so a promoter block that moves half a point drags four other classes
+ *  with it and none of them can be read on their own. Centred, each band
+ *  carries only its own change.
+ *
+ *  The usual objection to streamgraphs — that you cannot read a value off a
+ *  floating baseline — mostly does not apply here, because these five classes
+ *  sum to exactly 100 by construction. The river's total thickness is constant,
+ *  so the shape is pure composition and the axis it would otherwise need is
+ *  the one thing it does not miss. The readout beside it carries the numbers.
+ *
+ *  themeRiver takes one series of [time, value, name] triples rather than a
+ *  series per class, and it lays out on a `singleAxis`, not a grid.
  */
-function stackedOption(
+function riverOption(
   quarters: ShareholdingResponse["quarters"],
   classes: string[],
 ): Record<string, unknown> {
-  const axis = quarters.map((q) => quarterLabel(q.quarter));
+  const data: [string, number, string][] = [];
+  quarters.forEach((q) => {
+    classes.forEach((c) => {
+      const v = q[c];
+      // Absent rather than zero. A class the company had not begun filing is
+      // not a class that owned nothing, and themeRiver reads a zero as a real
+      // measurement that pinches the river shut.
+      if (typeof v === "number") data.push([q.quarter, v, c]);
+    });
+  });
+
   return {
     color: classes.map((c) => OWNER_COLOR[c] ?? "#7A7268"),
-    // The legend sits ABOVE the plot, not below it. Below, `containLabel`
-    // reserves only enough room for the axis text, so the legend was drawn
-    // straight through the quarter labels. Above, it has the top band to
-    // itself and the axis keeps its own line. `right: 20` is for the last
-    // tick, which is centred on the final point and otherwise loses its year
-    // over the edge of the canvas.
-    grid: { left: 8, right: 20, top: 34, bottom: 4, containLabel: true },
     legend: {
-      type: "scroll", top: 0, left: 0, itemWidth: 8, itemHeight: 8, itemGap: 16,
-      icon: "circle", textStyle: { fontSize: 11 },
+      type: "scroll", top: 0, left: 0, itemWidth: 8, itemHeight: 8,
+      itemGap: 16, icon: "circle", textStyle: { fontSize: 11 },
+      data: classes,
     },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "line" },
-      valueFormatter: (v: number | null) => (v === null || v === undefined ? "—" : `${v.toFixed(2)}%`),
+      axisPointer: { type: "line", lineStyle: { width: 1, opacity: 0.45 } },
+      // themeRiver's own formatter prints the raw date; these are quarters and
+      // the reader knows them by label.
+      formatter: (params: unknown) => {
+        const rows = Array.isArray(params) ? params : [params];
+        const first = rows[0] as { value?: [string, number, string] } | undefined;
+        const when = first?.value?.[0];
+        const head = when ? quarterLabel(String(when).slice(0, 10)) : "";
+        const body = rows
+          .map((r) => {
+            const p = r as { value?: [string, number, string]; color?: string };
+            const name = p.value?.[2] ?? "";
+            const pct = p.value?.[1];
+            return `<div style="display:flex;gap:10px;justify-content:space-between">
+              <span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${p.color};margin-right:6px"></span>${name}</span>
+              <strong>${typeof pct === "number" ? `${pct.toFixed(2)}%` : "—"}</strong></div>`;
+          })
+          .join("");
+        return `<div style="font-weight:600;margin-bottom:3px">${head}</div>${body}`;
+      },
     },
-    xAxis: {
-      type: "category",
-      data: axis,
-      boundaryGap: false,
+    singleAxis: {
+      type: "time",
+      // The end labels are CENTRED on the first and last points, so half of
+      // each hangs outside the axis — at left: 8 the opening quarter read
+      // "ep 24". The insets are half a label wide.
+      top: 34, bottom: 30, left: 34, right: 34,
       axisTick: { show: false },
       axisLine: { show: false },
-      axisLabel: { fontSize: 10.5 },
+      axisLabel: {
+        fontSize: 10.5,
+        formatter: (v: number) => quarterLabel(new Date(v).toISOString().slice(0, 10)),
+      },
+      splitLine: { show: false },
     },
-    yAxis: {
-      type: "value",
-      max: 100,
-      splitNumber: 4,
-      axisLabel: { fontSize: 10.5, formatter: "{value}%" },
-      splitLine: { lineStyle: { type: "dashed", opacity: 0.5 } },
-    },
-    series: classes.map((c) => ({
-      name: c,
-      type: "line",
-      stack: "owners",
-      areaStyle: { opacity: 0.9 },
-      lineStyle: { width: 0 },
-      symbol: "none",
-      smooth: 0.2,
-      emphasis: { focus: "series" },
-      data: quarters.map((q) => (typeof q[c] === "number" ? q[c] : null)),
-    })),
+    series: [{
+      type: "themeRiver",
+      // A hairline of the page's ground between bands, the same separator the
+      // stacked charts on this page use — without it two adjacent earth tones
+      // meet with no edge and the river reads as one mass.
+      itemStyle: { borderColor: "#fff", borderWidth: 0.8 },
+      emphasis: { focus: "series", itemStyle: { shadowBlur: 0 } },
+      // The class names ride in the tooltip and the legend; printed on the
+      // bands as well they collide with each other on the thin ones.
+      label: { show: false },
+      // Nearly none. These five classes sum to 100 by construction, so the
+      // river is a constant-thickness band and the gap is pure margin — 8%
+      // top and bottom left a fifth of the panel empty for no reading.
+      boundaryGap: ["2%", "2%"],
+      data,
+    }],
   };
 }
