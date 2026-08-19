@@ -1470,8 +1470,10 @@
         // that never works. The main chart is the page's own symbol.
         main_chart: SYMBOL,
         indicators: sub.ind.snapshot(w.first.time).map((x) => ({
-          label: x.label, now: r2(x.now),
+          ...x, now: r2(x.now),
           at_window_start: x.at === null ? null : r2(x.at),
+          lines: Object.fromEntries(Object.entries(x.lines || {})
+            .map(([k, v]) => [k, r2(v)])),
         })),
       };
     }
@@ -1541,7 +1543,10 @@
       // happen to be present.
       main_chart: SYMBOL,
       indicators: ind.snapshot(first.time).map((x) => ({
-        label: x.label, now: r2(x.now), at_window_start: x.at === null ? null : r2(x.at),
+        ...x, now: r2(x.now),
+        at_window_start: x.at === null ? null : r2(x.at),
+        lines: Object.fromEntries(Object.entries(x.lines || {})
+          .map(([k, v]) => [k, r2(v)])),
       })),
       drawings,
       chat_drawings: chat_drawings.length ? chat_drawings : undefined,
