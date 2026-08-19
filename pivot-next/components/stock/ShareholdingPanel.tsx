@@ -28,6 +28,10 @@ const EChart = dynamic(() => import("./EChart"), {
   loading: () => <div style={{ height: 300 }} />,
 });
 
+/** The height of the row both charts live in. Stated once here rather than
+ *  left to the content, because neither of the two has an intrinsic height. */
+const CHART_H = 330;
+
 /** Fixed by owner class, not by position. */
 const OWNER_COLOR: Record<string, string> = {
   "Promoters": "#8A6D3B",
@@ -40,6 +44,16 @@ const OWNER_ORDER = [
   "Promoters", "Foreign institutions", "Domestic institutions",
   "Non-institutions", "Non-promoter non-public",
 ];
+
+/** A child tile, lit off its parent. Mixing the class colour toward the page
+ *  rather than giving each sub-category a hue of its own keeps the treemap
+ *  readable as four blocks with parts, instead of fifteen unrelated colours
+ *  that happen to be adjacent. */
+function lighten(hex: string, t: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * t);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
 
 /** The holder bucket arrives as an XBRL member name in PascalCase. */
 function holderClass(bucket: string | null): string {
@@ -98,6 +112,81 @@ export function ShareholdingPanel({
     return moves[0] ?? null;
   }, [quarters, classes]);
 
+  // The composition as AREA. The rail here used to be a column of label-and-
+  // value rows — four bars and fifteen numbers, which is a table wearing a
+  // chart's clothes, and it repeated in text what the streamgraph beside it
+  // already draws. A treemap says the same thing as one picture: a promoter
+  // block you cannot miss, and every sub-category sized against every other
+  // one on the same scale rather than against its own parent.
+  const treemap = React.useMemo(() => {
+    const nodes = groups.map((g) => {
+      const base = OWNER_COLOR[g.label] ?? "#7A7268";
+      return {
+        name: g.label,
+        value: g.pct,
+        itemStyle: { color: base },
+        // A class with no filed split stays one tile. Splitting it into a
+        // single child would draw a border around itself.
+        children: g.children.length > 1
+          ? g.children
+            .filter((c) => c.pct > 0)
+            .map((c, i) => ({
+              name: c.label,
+              value: c.pct,
+              itemStyle: { color: lighten(base, 0.22 + i * 0.11) },
+            }))
+          : undefined,
+      };
+    });
+    if (!nodes.length) return null;
+    return {
+      tooltip: {
+        formatter: (p: { name?: string; value?: number }) =>
+          `${p.name} <b>${(p.value ?? 0).toFixed(2)}%</b>`,
+      },
+      series: [{
+        type: "treemap",
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        animationDuration: 260,
+        top: 2, bottom: 2, left: 0, right: 0,
+        // Sub-categories are drawn, not folded away: leafDepth would collapse
+        // them into their parent and the panel would lose the only place the
+        // FPI and mutual-fund splits are visible at all.
+        levels: [
+          { itemStyle: { gapWidth: 3, borderWidth: 0 } },
+          { itemStyle: { gapWidth: 1, borderWidth: 0 } },
+        ],
+        label: {
+          show: true,
+          position: "insideTopLeft",
+          formatter: (p: { name?: string; value?: number }) =>
+            `{n|${p.name}}\n{v|${(p.value ?? 0).toFixed(2)}%}`,
+          rich: {
+            n: { fontSize: 11.5, fontWeight: 500, color: "#fff", lineHeight: 15,
+                 fontFamily: "var(--font-ui)" },
+            v: { fontSize: 14, fontWeight: 600, color: "#fff", lineHeight: 18,
+                 fontFamily: "var(--font-ui)" },
+          },
+          // ECharts hides a label that will not fit its tile, which is the
+          // behaviour we want: the 0.01% bank tile is a sliver, and a name
+          // crammed into it would be the only illegible thing on the page.
+          overflow: "truncate",
+        },
+        // No band header on a class that files a split. ECharts reserves the
+        // top of the parent tile for it, and at this width "Domestic
+        // institutions 13.47%" truncates to nothing useful while eating the
+        // room its four parts need. The legend above already maps colour to
+        // class, so the parts inherit their parent's hue and are read through
+        // it.
+        upperLabel: { show: false },
+        itemStyle: { borderWidth: 0, borderColor: "transparent", gapWidth: 3 },
+        data: nodes,
+      }],
+    };
+  }, [groups]);
+
   if (!data.available || !groups.length) {
     return <EmptyNote>No shareholding filings available for this company.</EmptyNote>;
   }
@@ -135,7 +224,7 @@ export function ShareholdingPanel({
 
       <div
         className="shp-grid"
-        style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.1fr) minmax(0, 1fr)", gap: 28 }}
+        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.75fr) minmax(0, 1fr)", gap: 24 }}
       >
         {/* The chart takes its height from the row, which the readout beside
             it sets. Fixed at 300 it left a half-screen of white under itself
@@ -144,64 +233,32 @@ export function ShareholdingPanel({
             rendering fault rather than as a chart that happens to be short.
             The floor keeps it usable once the columns stack on a phone, where
             the row is no longer sized by anything. */}
-        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 300 }}>
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", height: CHART_H }}>
           {option ? (
-            <div style={{ flex: 1, minHeight: 300 }}>
+            <div style={{ flex: 1, minHeight: 0 }}>
               <EChart option={option} height="100%" ariaLabel="Shareholding by owner class over time" />
             </div>
           ) : null}
         </div>
 
-        {/* The latest column, two levels deep. The parent carries the bar; the
-            children sit under it as plain rows, because a second bar at a
-            second scale inside the first one is a chart, not a readout. */}
+        {/* The latest quarter as area. No border down the left: the treemap is
+            already a block with its own edges, and a rule between two charts
+            draws a seam where the eye does not need one. */}
         <div
           className="shp-split"
-          style={{
-            borderLeft: "1px solid var(--glass-border)",
-            paddingLeft: 24,
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-          }}
+          style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, height: CHART_H }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-tertiary)" }}>
-            <span>{data.quarter ? quarterLabel(data.quarter) : "Latest"}</span>
-            <span>Share</span>
+          <div style={{
+            fontSize: 11, fontWeight: 650, letterSpacing: "0.08em",
+            textTransform: "uppercase", color: "var(--text-primary)",
+          }}>
+            {data.quarter ? quarterLabel(data.quarter) : "Latest"}
           </div>
-
-          {groups.map((g) => (
-            <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "var(--text-primary)" }}>{g.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
-                  {num(g.pct, { dp: 2, pct: true })}
-                </span>
-              </div>
-              <div style={{ height: 4, borderRadius: 2, background: "var(--bg-elevated)" }}>
-                <div
-                  style={{
-                    width: `${Math.min(100, g.pct)}%`,
-                    height: "100%",
-                    borderRadius: 2,
-                    background: OWNER_COLOR[g.label] ?? "#7A7268",
-                  }}
-                />
-              </div>
-              {g.children.length ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 2 }}>
-                  {g.children.map((c) => (
-                    <div key={c.label} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{c.label}</span>
-                      <span style={{ fontSize: 11, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
-                        {num(c.pct, { dp: 2, pct: true })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+          {treemap ? (
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <EChart option={treemap} height="100%" ariaLabel="Shareholding split this quarter" />
             </div>
-          ))}
+          ) : null}
         </div>
       </div>
 
@@ -210,12 +267,7 @@ export function ShareholdingPanel({
       <style>{`
         @media (max-width: 720px) {
           .shp-grid { grid-template-columns: 1fr !important; gap: 20px !important; }
-          .shp-split {
-            border-left: none !important;
-            border-top: 1px solid var(--glass-border);
-            padding-left: 0 !important;
-            padding-top: 16px;
-          }
+          .shp-split { padding-top: 4px; }
         }
       `}</style>
     </div>

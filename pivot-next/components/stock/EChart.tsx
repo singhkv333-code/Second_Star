@@ -24,7 +24,7 @@
  */
 
 import * as React from "react";
-import { BarChart, LineChart, PieChart, ScatterChart, ThemeRiverChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart, ThemeRiverChart, TreemapChart } from "echarts/charts";
 import {
   DatasetComponent,
   GridComponent,
@@ -40,6 +40,10 @@ import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([
   LineChart, BarChart, PieChart, ScatterChart, ThemeRiverChart,
+  // Registered like every other series here: an unregistered type does not
+  // warn, it draws an empty canvas, which is indistinguishable from a chart
+  // whose data never arrived.
+  TreemapChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   // themeRiver does not lay out on a cartesian grid — it needs a singleAxis,
   // and without the component registered the series renders nothing at all.

@@ -108,7 +108,12 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
         </div>
       </div>
 
-      <div style={{ borderTop: "1px solid var(--glass-border)", borderBottom: "1px solid var(--glass-border)" }}>
+      {/* One rule in the whole table, under the header. The frame used to be
+          eleven: a box around the block and a line between every pair of rows,
+          which is more ink than the eight numbers those lines were separating.
+          Rows are held apart by their own height now, and the row under the
+          pointer lifts on a wash instead. */}
+      <div style={{ margin: "0 -10px" }}>
         <div
           className="pat-head pat-row"
           style={{
@@ -116,12 +121,12 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
             gridTemplateColumns: "58px minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
             gap: 12,
             alignItems: "center",
-            padding: "8px 0",
+            padding: "6px 10px 10px",
             fontSize: 10.5,
             fontWeight: 650,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
-            color: "var(--text-tertiary)",
+            color: "var(--text-primary)",
             borderBottom: "1px solid var(--glass-border)",
           }}
         >
@@ -136,9 +141,9 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
 
         {!data
           ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} style={{ height: 38, borderTop: i ? "1px solid var(--glass-border)" : undefined }} />
+              <div key={i} style={{ height: 42 }} />
             ))
-          : shown.map((p, i) => <Row key={`${p.kind}-${p.interval}-${p.horizon}`} p={p} first={i === 0} />)}
+          : shown.map((p) => <Row key={`${p.kind}-${p.interval}-${p.horizon}`} p={p} />)}
       </div>
 
       {ranked.length > 8 ? (
@@ -170,7 +175,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
   );
 }
 
-function Row({ p, first }: { p: PatternStat; first: boolean }): React.ReactElement {
+function Row({ p }: { p: PatternStat }): React.ReactElement {
   const edge = p.edge ?? 0;
   const se = p.se ?? 0;
   // Two standard errors is the conventional bar for "this is not the sample
@@ -188,18 +193,22 @@ function Row({ p, first }: { p: PatternStat; first: boolean }): React.ReactEleme
         gridTemplateColumns: "58px minmax(0,1.5fr) 54px 58px 58px minmax(120px, 1.4fr) 92px",
         gap: 12,
         alignItems: "center",
-        minHeight: 38,
-        borderTop: first ? undefined : "1px solid var(--glass-border)",
+        minHeight: 42,
+        padding: "0 10px",
+        borderRadius: 10,
+        transition: "background 120ms ease",
       }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-hover)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
       <PatternGlyph kind={p.kind} />
-      <span style={{ fontSize: 12.5, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 13.5, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {pretty(p.kind)}
       </span>
       <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
         {compactN(p.n)}
       </span>
-      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
+      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12.5, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
         {p.rate !== null ? `${p.rate.toFixed(1)}%` : "—"}
       </span>
       <span className="pat-control" style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
@@ -208,24 +217,27 @@ function Row({ p, first }: { p: PatternStat; first: boolean }): React.ReactEleme
 
       {/* The diverging bar. The centre rule is the control, so the bar is
           literally the distance from it. */}
-      <span style={{ position: "relative", height: 16, display: "block" }}>
-        <span style={{ position: "absolute", inset: 0, top: 6, height: 4, borderRadius: 2, background: "var(--bg-elevated)" }} />
-        <span style={{ position: "absolute", left: "50%", top: 1, width: 1, height: 14, background: "var(--glass-border-hover)" }} />
+      <span style={{ position: "relative", height: 18, display: "block" }}>
+        <span style={{ position: "absolute", inset: 0, top: 6, height: 6, borderRadius: 3, background: "var(--surface-track)" }} />
+        {/* The control is a tick the height of the bar, not a rule through the
+            row: it marks where zero is, and it only has to reach as far as the
+            thing it is marking. */}
+        <span style={{ position: "absolute", left: "50%", top: 4, width: 1, height: 10, background: "var(--glass-border-hover)" }} />
         <span
           style={{
             position: "absolute",
             top: 6,
-            height: 4,
-            borderRadius: 2,
+            height: 6,
+            borderRadius: 3,
             background: tone,
-            opacity: solid ? 0.95 : 0.4,
+            opacity: solid ? 1 : 0.38,
             left: edge >= 0 ? "50%" : `${50 - half}%`,
             width: `${half}%`,
           }}
         />
       </span>
 
-      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone, opacity: solid ? 1 : 0.6 }}>
+      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone, opacity: solid ? 1 : 0.6 }}>
         {edge >= 0 ? "+" : "−"}{Math.abs(edge).toFixed(1)}
         <span style={{ fontWeight: 400, color: "var(--text-secondary)" }}> ±{se.toFixed(1)}</span>
       </span>
