@@ -352,3 +352,65 @@ def get_balance_sheet(
     except Exception:  # noqa: BLE001 — cache write is best-effort
         logger.debug("balance_sheet cache write failed for %s", sym, exc_info=True)
     return result
+
+
+# ── every statement, not just the balance sheet ─────────────────────────────
+# `mc.statement_lines` carries four grids per company under one schema —
+# balance_sheet, profit_loss, cash_flow and ratios — each with section headers
+# and the same 23 periods. Only the first was ever served, so the page showed
+# four rows of a store holding a hundred and twenty. This is the same payload
+# shape as /balance_sheet above, parameterised by which grid is wanted.
+_ST_CACHE_PREFIX = "financials:st:v1:"
+
+
+@router.get("/{symbol}/statement")
+def get_statement(
+    symbol: str,
+    type: str = Query("balance_sheet", pattern="^(balance_sheet|profit_loss|cash_flow|ratios)$"),
+    basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
+    years: int = Query(10, ge=1, le=25),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """One statement grid for `symbol`.
+
+    Shape is identical to /balance_sheet — `available`, `periods`, and `rows`
+    of {section, line_item, values, value_texts} — so one table component reads
+    all four. `ratios` is the same shape by luck rather than design: MC
+    publishes its ratio sheet as a line-item grid like any other statement,
+    which is why the ratio view costs no new plumbing.
+    """
+    _auth(authorization)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    cache_key = f"{_ST_CACHE_PREFIX}{sym}:{type}:{basis}:{years}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("statement cache read miss/error for %s", sym, exc_info=True)
+
+    company = fdb.get_company(sym)
+    grid = fdb.get_statement(sym, statement=type, basis=basis, years=years)
+
+    result = {
+        "available": bool(grid and grid.get("rows")),
+        "company": company.to_dict() if company is not None else None,
+        "statement": type,
+        # The fetcher falls back to the other basis when the asked-for one is
+        # empty, so this reports what was actually READ, not what was asked.
+        "basis": (grid or {}).get("basis", basis),
+        "unit": (grid or {}).get("unit"),
+        "periods": (grid or {}).get("periods", []),
+        "rows": (grid or {}).get("rows", []),
+        "source": "moneycontrol",
+    }
+    try:
+        redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("statement cache write failed for %s", sym, exc_info=True)
+    return result

@@ -24,6 +24,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { Plus } from "lucide-react";
 
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
@@ -31,12 +32,19 @@ import { getStockPeers, type PeerComparisonResponse, type PeerPrice } from "@/li
 import { isError } from "@/lib/types";
 import { EmptyNote, PanelHead, PanelSkeleton, Segmented } from "./chrome";
 
-// One request covers all four tabs: eight fundamentals (the server's cap) plus
-// the price block it now returns unasked. Switching tabs is then a re-render,
-// not a round trip.
+// One request covers every tab AND anything the reader adds later: the whole
+// server catalog, plus the price block it returns unasked. Switching tabs or
+// adding a column is then a re-render, not a round trip — which is the only
+// reason a custom column can appear instantly.
+//
+// Bank-only fields ride along too. They come back null for a company that
+// files no NPA, and a column of em-dashes is not offered: `AVAILABLE` below
+// drops any field this peer set has no number for.
 const FIELDS = [
-  "market_cap", "net_profit", "roe", "net_profit_margin",
-  "debt_to_equity", "price_to_book", "ev_to_ebitda", "eps_basic",
+  "market_cap", "revenue", "net_profit", "roe", "roce", "net_profit_margin",
+  "debt_to_equity", "price_to_book", "ev_to_ebitda", "current_ratio",
+  "interest_coverage", "dividend_payout", "eps_basic", "book_value_per_share",
+  "gross_npa_pct", "net_npa_pct", "net_interest_margin",
 ];
 
 type TabId = "overall" | "performance" | "fundamentals" | "technicals";
@@ -56,6 +64,11 @@ type Col = {
   get: (row: Row) => number | null;
   fmt: (v: number) => string;
   tone?: boolean;
+  /** Which band of the header this column sits under. The Overall tab reads
+   *  across four unrelated questions — what it costs, what it earns, what it
+   *  owes, how it has traded — and eight ungrouped columns made the reader
+   *  work out which was which from the labels alone. */
+  group?: string;
 };
 
 type Row = PeerComparisonResponse["peers"][number];
@@ -70,37 +83,85 @@ const mult = (v: number): string => `${v.toFixed(2)}×`;
 const cr = (v: number): string =>
   `${(v / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
+const one = (v: number): string => `${v.toFixed(1)}%`;
+const two = (v: number): string => v.toFixed(2);
+const whole = (v: number): string => v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+
 const C = {
-  price: { id: "price", label: "Price", get: (r: Row) => px(r)?.price ?? null, fmt: inr },
-  mcap: { id: "mcap", label: "Mkt cap ₹cr", get: (r: Row) => r.values.market_cap ?? null, fmt: cr },
-  pb: { id: "pb", label: "P/B", get: (r: Row) => r.values.price_to_book ?? null, fmt: mult },
-  roe: { id: "roe", label: "ROE", get: (r: Row) => r.values.roe ?? null, fmt: (v: number) => `${v.toFixed(1)}%` },
-  npm: { id: "npm", label: "Net margin", get: (r: Row) => r.values.net_profit_margin ?? null, fmt: (v: number) => `${v.toFixed(1)}%` },
-  de: { id: "de", label: "Debt / equity", get: (r: Row) => r.values.debt_to_equity ?? null, fmt: mult },
-  ev: { id: "ev", label: "EV / EBITDA", get: (r: Row) => r.values.ev_to_ebitda ?? null, fmt: mult },
-  np: { id: "np", label: "Net profit ₹cr", get: (r: Row) => r.values.net_profit ?? null, fmt: (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 0 }) },
-  eps: { id: "eps", label: "EPS ₹", get: (r: Row) => r.values.eps_basic ?? null, fmt: (v: number) => v.toFixed(2) },
-  r1m: { id: "r1m", label: "1M", get: (r: Row) => px(r)?.ret_1m ?? null, fmt: pct, tone: true },
-  r3m: { id: "r3m", label: "3M", get: (r: Row) => px(r)?.ret_3m ?? null, fmt: pct, tone: true },
-  r6m: { id: "r6m", label: "6M", get: (r: Row) => px(r)?.ret_6m ?? null, fmt: pct, tone: true },
-  r1y: { id: "r1y", label: "1Y", get: (r: Row) => px(r)?.ret_1y ?? null, fmt: pct, tone: true },
-  rsi: { id: "rsi", label: "RSI 14", get: (r: Row) => px(r)?.rsi14 ?? null, fmt: (v: number) => v.toFixed(0) },
-  d50: { id: "d50", label: "vs 50 DMA", get: (r: Row) => px(r)?.vs_50dma ?? null, fmt: pct, tone: true },
-  d200: { id: "d200", label: "vs 200 DMA", get: (r: Row) => px(r)?.vs_200dma ?? null, fmt: pct, tone: true },
-  hi52: { id: "hi52", label: "From 52w high", get: (r: Row) => px(r)?.from_52w_high ?? null, fmt: pct, tone: true },
+  price: { id: "price", label: "Price", get: (r: Row) => px(r)?.price ?? null, fmt: inr, group: "Price" },
+  mcap: { id: "mcap", label: "Mkt cap ₹cr", get: (r: Row) => r.values.market_cap ?? null, fmt: cr, group: "Size" },
+  rev: { id: "rev", label: "Revenue ₹cr", get: (r: Row) => r.values.revenue ?? null, fmt: whole, group: "Size" },
+  np: { id: "np", label: "Net profit ₹cr", get: (r: Row) => r.values.net_profit ?? null, fmt: whole, group: "Size" },
+  pb: { id: "pb", label: "P/B", get: (r: Row) => r.values.price_to_book ?? null, fmt: mult, group: "Valuation" },
+  ev: { id: "ev", label: "EV / EBITDA", get: (r: Row) => r.values.ev_to_ebitda ?? null, fmt: mult, group: "Valuation" },
+  roe: { id: "roe", label: "ROE", get: (r: Row) => r.values.roe ?? null, fmt: one, group: "Returns" },
+  roce: { id: "roce", label: "ROCE", get: (r: Row) => r.values.roce ?? null, fmt: one, group: "Returns" },
+  npm: { id: "npm", label: "Net margin", get: (r: Row) => r.values.net_profit_margin ?? null, fmt: one, group: "Returns" },
+  de: { id: "de", label: "Debt / equity", get: (r: Row) => r.values.debt_to_equity ?? null, fmt: mult, group: "Balance sheet" },
+  cur: { id: "cur", label: "Current ratio", get: (r: Row) => r.values.current_ratio ?? null, fmt: mult, group: "Balance sheet" },
+  icov: { id: "icov", label: "Interest cover", get: (r: Row) => r.values.interest_coverage ?? null, fmt: mult, group: "Balance sheet" },
+  eps: { id: "eps", label: "EPS ₹", get: (r: Row) => r.values.eps_basic ?? null, fmt: two, group: "Per share" },
+  bvps: { id: "bvps", label: "Book value ₹", get: (r: Row) => r.values.book_value_per_share ?? null, fmt: two, group: "Per share" },
+  payout: { id: "payout", label: "Dividend payout", get: (r: Row) => r.values.dividend_payout ?? null, fmt: one, group: "Per share" },
+  gnpa: { id: "gnpa", label: "Gross NPA", get: (r: Row) => r.values.gross_npa_pct ?? null, fmt: one, group: "Asset quality" },
+  nnpa: { id: "nnpa", label: "Net NPA", get: (r: Row) => r.values.net_npa_pct ?? null, fmt: one, group: "Asset quality" },
+  nim: { id: "nim", label: "NIM", get: (r: Row) => r.values.net_interest_margin ?? null, fmt: one, group: "Asset quality" },
+  r1m: { id: "r1m", label: "1M", get: (r: Row) => px(r)?.ret_1m ?? null, fmt: pct, tone: true, group: "Returns" },
+  r3m: { id: "r3m", label: "3M", get: (r: Row) => px(r)?.ret_3m ?? null, fmt: pct, tone: true, group: "Returns" },
+  r6m: { id: "r6m", label: "6M", get: (r: Row) => px(r)?.ret_6m ?? null, fmt: pct, tone: true, group: "Returns" },
+  r1y: { id: "r1y", label: "1Y", get: (r: Row) => px(r)?.ret_1y ?? null, fmt: pct, tone: true, group: "Returns" },
+  rsi: { id: "rsi", label: "RSI 14", get: (r: Row) => px(r)?.rsi14 ?? null, fmt: (v: number) => v.toFixed(0), group: "Technicals" },
+  d50: { id: "d50", label: "vs 50 DMA", get: (r: Row) => px(r)?.vs_50dma ?? null, fmt: pct, tone: true, group: "Technicals" },
+  d200: { id: "d200", label: "vs 200 DMA", get: (r: Row) => px(r)?.vs_200dma ?? null, fmt: pct, tone: true, group: "Technicals" },
+  hi52: { id: "hi52", label: "From 52w high", get: (r: Row) => px(r)?.from_52w_high ?? null, fmt: pct, tone: true, group: "Technicals" },
 } satisfies Record<string, Col>;
 
+/** Every column a reader can add, in the order the picker lists them. */
+const ALL_COLS: Col[] = Object.values(C);
+
 const COLUMNS: Record<TabId, Col[]> = {
-  overall: [C.price, C.mcap, C.pb, C.roe, C.npm, C.de, C.r1y],
+  // Overall is the tab most people never leave, so it carries one column from
+  // each question rather than seven from two of them: what it costs, what it
+  // earns on capital, what it owes, what it pays, how it has traded.
+  overall: [C.price, C.mcap, C.pb, C.ev, C.roe, C.roce, C.npm, C.de, C.eps, C.r1y],
   performance: [C.price, C.r1m, C.r3m, C.r6m, C.r1y, C.hi52],
-  fundamentals: [C.mcap, C.np, C.eps, C.roe, C.npm, C.de, C.pb, C.ev],
+  fundamentals: [C.mcap, C.rev, C.np, C.eps, C.bvps, C.roe, C.roce, C.npm, C.de, C.cur, C.icov, C.payout, C.pb, C.ev],
   technicals: [C.price, C.rsi, C.d50, C.d200, C.hi52],
 };
+
+/** Columns the reader added, kept across visits and companies.
+ *
+ *  Per browser rather than per account: it is a reading preference, not data,
+ *  and a round trip to store it would be a worse trade than losing it on a new
+ *  device. Guarded because Safari in private mode throws on access. */
+const EXTRA_KEY = "pivot_peer_extra_cols";
+
+function loadExtra(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(EXTRA_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export function PeerComparisonPanel({ symbol }: { symbol: string }): React.ReactElement {
   const [tab, setTab] = React.useState<TabId>("overall");
   const [data, setData] = React.useState<PeerComparisonResponse | null>(null);
   const [sort, setSort] = React.useState<{ col: string; dir: 1 | -1 } | null>(null);
+  // Read after mount, never during render: localStorage on the server is
+  // undefined and a first render that disagrees with the server's is a
+  // hydration error.
+  const [extra, setExtra] = React.useState<string[]>([]);
+  const [picking, setPicking] = React.useState(false);
+  React.useEffect(() => { setExtra(loadExtra()); }, []);
+
+  const saveExtra = React.useCallback((next: string[]) => {
+    setExtra(next);
+    try { window.localStorage.setItem(EXTRA_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  }, []);
 
   // The mark is how a row is found. Six companies in one sector have names
   // that all start the same way — Tata Consultancy, Tata Elxsi — so the glyph
@@ -119,7 +180,27 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
     return () => { dead = true; };
   }, [symbol]);
 
-  const cols = COLUMNS[tab];
+  // A column is only offered, and only added, when this peer set actually has
+  // a number for it — otherwise "add NIM" on a software sector adds a column
+  // of em-dashes and reads as a broken feature rather than an absent metric.
+  const hasValue = React.useCallback(
+    (c: Col) => (data?.peers ?? []).some((p) => c.get(p) !== null && c.get(p) !== undefined),
+    [data],
+  );
+
+  const base = COLUMNS[tab];
+  const cols = React.useMemo(() => {
+    const seen = new Set(base.map((c) => c.id));
+    const added = extra
+      .map((id) => ALL_COLS.find((c) => c.id === id))
+      .filter((c): c is Col => !!c && !seen.has(c.id));
+    return [...base, ...added];
+  }, [base, extra]);
+
+  const offerable = React.useMemo(
+    () => ALL_COLS.filter((c) => !cols.some((x) => x.id === c.id) && hasValue(c)),
+    [cols, hasValue],
+  );
 
   const rows = React.useMemo(() => {
     const list = [...(data?.peers ?? [])];
@@ -153,29 +234,83 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
       />
 
       {/* The same tab strip the Financial Performance panel uses, sitting on
-          the hairline the table hangs from. */}
-      <div style={{ borderBottom: "1px solid var(--glass-border)" }}>
+          the hairline the table hangs from. The picker rides at the far end:
+          the four tabs are the views we think are worth naming, and this is
+          the admission that a reader may want a fifth. */}
+      <div style={{
+        borderBottom: "1px solid var(--glass-border)",
+        display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+        gap: 12, flexWrap: "wrap",
+      }}>
         <Segmented value={tab} options={TABS} onChange={(v) => { setTab(v as TabId); setSort(null); }} underline />
+        <ColumnPicker
+          open={picking}
+          onOpen={setPicking}
+          offerable={offerable}
+          added={extra}
+          onAdd={(id) => saveExtra([...extra, id])}
+          onClear={() => saveExtra([])}
+        />
       </div>
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
           <thead>
+            {/* The band row. Runs of one are left blank rather than labelled —
+                a "group" of a single column is a second label for it. */}
             <tr>
-              <th style={{ ...head, textAlign: "left", paddingLeft: 0 }}>Company</th>
-              {cols.map((c) => (
+              <th style={{ ...head, paddingLeft: 0, paddingBottom: 2 }} />
+              {groupSpans(cols).map((g, i) => (
                 <th
-                  key={c.id}
-                  onClick={() => toggle(c.id)}
-                  title={`Sort by ${c.label}`}
-                  style={{ ...head, cursor: "pointer", color: sort?.col === c.id ? "var(--text-primary)" : "var(--text-tertiary)" }}
+                  key={`${g.label}-${i}`}
+                  colSpan={g.span}
+                  style={{
+                    ...head, paddingBottom: 2, textAlign: "center",
+                    fontSize: 9.5, letterSpacing: "0.08em",
+                    color: "var(--text-tertiary)",
+                    opacity: g.span > 1 ? 1 : 0,
+                  }}
                 >
-                  {c.label}
-                  <span style={{ opacity: sort?.col === c.id ? 1 : 0, marginLeft: 4 }}>
-                    {sort?.dir === 1 ? "↑" : "↓"}
-                  </span>
+                  {g.label}
                 </th>
               ))}
+            </tr>
+            <tr>
+              <th style={{ ...head, textAlign: "left", paddingLeft: 0 }}>Company</th>
+              {cols.map((c) => {
+                const isExtra = extra.includes(c.id) && !COLUMNS[tab].some((b) => b.id === c.id);
+                return (
+                  <th
+                    key={c.id}
+                    onClick={() => toggle(c.id)}
+                    title={`Sort by ${c.label}`}
+                    style={{ ...head, cursor: "pointer", color: sort?.col === c.id ? "var(--text-primary)" : "var(--text-tertiary)" }}
+                  >
+                    {c.label}
+                    <span style={{ opacity: sort?.col === c.id ? 1 : 0, marginLeft: 4 }}>
+                      {sort?.dir === 1 ? "↑" : "↓"}
+                    </span>
+                    {/* Only a column the reader added can be removed. The four
+                        named views are the product's opinion; taking a column
+                        out of one of them would leave the tab lying about
+                        which view it is. */}
+                    {isExtra ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${c.label}`}
+                        onClick={(e) => { e.stopPropagation(); saveExtra(extra.filter((x) => x !== c.id)); }}
+                        style={{
+                          marginLeft: 5, border: "none", background: "transparent",
+                          padding: 0, cursor: "pointer", color: "var(--text-tertiary)",
+                          fontSize: 12, lineHeight: 1, verticalAlign: "middle",
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -243,6 +378,145 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
       <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>
         Fundamentals from the latest reported filings · price columns from one year of daily closes
       </div>
+    </div>
+  );
+}
+
+/** Consecutive columns sharing a group, collapsed into header spans. */
+function groupSpans(cols: Col[]): { label: string; span: number }[] {
+  const out: { label: string; span: number }[] = [];
+  cols.forEach((c) => {
+    const label = c.group ?? "";
+    const last = out[out.length - 1];
+    if (last && last.label === label) last.span += 1;
+    else out.push({ label, span: 1 });
+  });
+  return out;
+}
+
+/** Add-a-column control.
+ *
+ *  A menu rather than a settings screen: the whole interaction is "which one",
+ *  and the list is the catalog minus what is already on screen minus what this
+ *  peer set has no number for. Closes on outside click and on Escape, because
+ *  a menu that only closes by re-clicking its own trigger is a menu people
+ *  leave open.
+ */
+function ColumnPicker({
+  open, onOpen, offerable, added, onAdd, onClear,
+}: {
+  open: boolean;
+  onOpen: (v: boolean) => void;
+  offerable: Col[];
+  added: string[];
+  onAdd: (id: string) => void;
+  onClear: () => void;
+}): React.ReactElement | null {
+  const host = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent): void => {
+      if (host.current && !host.current.contains(e.target as Node)) onOpen(false);
+    };
+    const esc = (e: KeyboardEvent): void => { if (e.key === "Escape") onOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open, onOpen]);
+
+  if (!offerable.length && !added.length) return null;
+
+  // Grouped in the menu the way they are grouped in the header, so "where
+  // would this land" is answered before it is added.
+  const byGroup = new Map<string, Col[]>();
+  offerable.forEach((c) => {
+    const g = c.group ?? "Other";
+    byGroup.set(g, [...(byGroup.get(g) ?? []), c]);
+  });
+
+  return (
+    <div ref={host} style={{ position: "relative", paddingBottom: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {added.length ? (
+          <button
+            type="button"
+            onClick={onClear}
+            style={{
+              border: "none", background: "transparent", padding: 0, cursor: "pointer",
+              fontFamily: "var(--font-ui)", fontSize: "var(--sd-f115)", color: "var(--text-secondary)",
+            }}
+          >
+            Reset
+          </button>
+        ) : null}
+        {offerable.length ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => onOpen(!open)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "4px 11px", borderRadius: 99,
+              border: "1px solid var(--glass-border)", background: "transparent",
+              cursor: "pointer", fontFamily: "var(--font-ui)",
+              fontSize: "var(--sd-f115)", fontWeight: 500, color: "var(--text-secondary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Plus size={12} aria-hidden="true" />
+            Add ratio
+          </button>
+        ) : null}
+      </div>
+
+      {open && offerable.length ? (
+        <div
+          role="menu"
+          style={{
+            position: "absolute", right: 0, top: "100%", zIndex: 30,
+            marginTop: 6, minWidth: 210, maxHeight: 320, overflowY: "auto",
+            padding: "6px 0",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "0 8px 28px rgba(15,18,22,.12)",
+          }}
+        >
+          {[...byGroup.entries()].map(([group, list]) => (
+            <div key={group}>
+              <div style={{
+                padding: "7px 12px 3px", fontSize: "var(--sd-f10)", fontWeight: 650,
+                letterSpacing: "0.06em", textTransform: "uppercase",
+                color: "var(--text-tertiary)",
+              }}>
+                {group}
+              </div>
+              {list.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { onAdd(c.id); onOpen(false); }}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left",
+                    padding: "6px 12px", border: "none", background: "transparent",
+                    cursor: "pointer", fontFamily: "var(--font-ui)",
+                    fontSize: "var(--sd-f125)", color: "var(--text-primary)",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

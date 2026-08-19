@@ -1019,6 +1019,30 @@ export function getBalanceSheet(
   );
 }
 
+/** The four line-item grids MC publishes. All four share the balance sheet's
+ *  shape, so one table component reads every one of them. */
+export type StatementType = "balance_sheet" | "profit_loss" | "cash_flow" | "ratios";
+
+export type StatementResponse = BalanceSheetResponse & { statement: StatementType };
+
+/** `GET /api/financials/{symbol}/statement` — one full statement grid.
+ *
+ *  `ratios` is in here rather than in a computed-metrics endpoint because MC
+ *  files its ratio sheet as a line-item statement like any other: thirty-odd
+ *  ratios under Per Share / Profitability / Liquidity / Coverage / Valuation,
+ *  already sectioned, already multi-year. Nothing is derived on the client. */
+export function getStatement(
+  symbol: string,
+  type: StatementType,
+  basis: "consolidated" | "standalone" = "consolidated",
+  years = 10,
+): Promise<ApiResult<StatementResponse>> {
+  return request<StatementResponse>(
+    `/financials/${encodeURIComponent(symbol)}/statement`
+      + `?type=${type}&basis=${basis}&years=${years}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Orders — chat-confirm register flow (POST /orders/register)
 //

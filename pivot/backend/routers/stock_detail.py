@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal
 import os
 import sqlite3
 from typing import Any, Optional
@@ -47,7 +48,11 @@ logger = logging.getLogger(__name__)
 
 # Bump the version whenever a payload SHAPE changes — a cached v1 body served
 # to v2 client code is a KeyError, not a stale number.
-_CACHE_PREFIX = "stockdetail:v3:"
+# v4: quarterly NUMERIC columns are floats on the wire, not the strings
+# psycopg2's Decimal serialised to. A cached v3 payload would keep feeding
+# the page the old shape until its TTL ran out, which is a day of the very
+# em-dashes the fix removes.
+_CACHE_PREFIX = "stockdetail:v4:"
 _CACHE_TTL = 6 * 3600          # fundamentals move quarterly; 6h is generous
 _MAX_QUARTERS = 40
 _MAX_FACTS = 1200
@@ -307,7 +312,12 @@ def get_peers(
     unknown = [f for f in chosen if f not in _PEER_FIELDS]
     if unknown:
         raise HTTPException(status_code=400, detail=f"unsupported peer fields: {', '.join(unknown)}")
-    chosen = list(dict.fromkeys(chosen))[:8]
+    # Capped at the catalog rather than at eight. The cap existed because the
+    # table showed a fixed set of columns; now that a reader can add their own
+    # ratios to it, a cap below the catalog means the picker offers fields the
+    # request then silently drops. Every extra field is one more column in a
+    # bulk read that is already batched per company.
+    chosen = list(dict.fromkeys(chosen))[:len(_PEER_FIELDS)]
     if EnrichSessionLocal is None:
         return {"symbol": who["symbol"], "available": False, "sector": None,
                 "fields": [], "catalog": _PEER_FIELDS, "peers": []}
@@ -511,7 +521,7 @@ def get_quarters(
                 {"i": who["isin"]}).scalars().all()
         return {"symbol": who["symbol"], "basis": basis, "matched_on": used,
                 "bases_available": sorted(b for b in avail if b),
-                "quarters": [dict(r) for r in rows]}
+                "quarters": [_nums(dict(r)) for r in rows]}
 
     return _cached(f"q:{who['symbol']}:{basis}:{limit}", build)
 
@@ -790,6 +800,27 @@ def _f(v: Any) -> Optional[float]:
         return round(float(v), 2)
     except (TypeError, ValueError):
         return None
+
+
+def _nums(row: dict) -> dict:
+    """Decimal columns → float, in place.
+
+    Postgres NUMERIC comes back as `Decimal`, which FastAPI serialises as a
+    JSON *string*. The TypeScript on the other end declares these as
+    `number | null`, so the compiler cannot see the mismatch and neither can a
+    reader of either file — but `Number.isFinite("18.56")` is false, so every
+    metric the page formatted through a finite-check printed an em-dash while
+    the ones that happened to do arithmetic (which coerces) rendered fine.
+    That is why Net Margin and EPS were blank on a row whose Revenue was not.
+
+    Fixed at the boundary rather than in the component: the same payload feeds
+    the detail page, the peer table and chat, and each of them would otherwise
+    need its own parse.
+    """
+    for k, v in row.items():
+        if isinstance(v, Decimal):
+            row[k] = float(v)
+    return row
 
 
 @router.get("/{symbol}/shareholding")

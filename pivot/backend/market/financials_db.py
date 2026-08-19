@@ -1327,18 +1327,26 @@ def get_company_fundamentals_bulk(
     return latest, history
 
 
-def get_balance_sheet_statement(
+#: The statements MC publishes as line-item grids. All four are scraped into
+#: `mc.statement_lines` under the same schema and the same 23 periods — only
+#: the balance sheet was ever read out of it, which is why the page could show
+#: four rows of a store holding a hundred and twenty.
+STATEMENTS: tuple[str, ...] = ("balance_sheet", "profit_loss", "cash_flow", "ratios")
+
+
+def get_statement(
     symbol_or_sc_id: str,
     *,
+    statement: str = "balance_sheet",
     basis: str = "consolidated",
     years: int = 10,
     as_of_date: date | None = None,
     session: Session | None = None,
 ) -> dict | None:
-    """Full balance sheet grid for one company: every line item MC publishes
-    under statement='balance_sheet', with section headers and a multi-year
+    """Full line-item grid for one company and one statement: every line item
+    MC publishes under `statement`, with section headers and a multi-year
     column, straight from mc_html/mc_api — never pivot_derived (that source
-    has no balance_sheet rows anyway) and never fabricated.
+    has no statement rows anyway) and never fabricated.
 
     Falls back from `basis` to the other basis if the preferred one has no
     rows, mirroring `get_fundamental_history`. Returns None only when the
@@ -1363,14 +1371,15 @@ def get_balance_sheet_statement(
                            value_numeric, value_text, unit
                     FROM mc.statement_lines
                     WHERE sc_id = :sc
-                      AND statement = 'balance_sheet'
+                      AND statement = :statement
                       AND basis = :basis
                       AND source IN ('mc_html', 'mc_api')
                       AND (:as_of IS NULL OR availability_date <= :as_of)
                     ORDER BY line_order, period_end DESC
                     """
                 ),
-                {"sc": sc_id, "basis": active_basis, "as_of": as_of_date},
+                {"sc": sc_id, "basis": active_basis, "as_of": as_of_date,
+                 "statement": statement},
             ).fetchall()
             if raw_rows:
                 used_basis = active_basis
@@ -1411,6 +1420,15 @@ def get_balance_sheet_statement(
     finally:
         if owns:
             s.close()
+
+
+def get_balance_sheet_statement(
+    symbol_or_sc_id: str, **kw: object
+) -> dict | None:
+    """The balance sheet, by its old name. `get_statement` generalised this to
+    every statement MC publishes; existing callers keep working unchanged."""
+    kw.pop("statement", None)
+    return get_statement(symbol_or_sc_id, statement="balance_sheet", **kw)  # type: ignore[arg-type]
 
 
 def get_ohlcv(

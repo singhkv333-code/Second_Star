@@ -30,10 +30,12 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
   ChevronDown,
+  ChevronRight,
   Maximize2,
   Minimize2,
   Search,
@@ -2943,24 +2945,48 @@ function FinancialsPanel({
     // reconciled, and it is cheaper to do it once here than in six formatters.
     const line = (label: string, pick: (q: typeof qs[number]) => number | null | undefined, fmt: (v: number | null) => string) =>
       ({ label, values: qs.map((q) => fmt(pick(q) ?? null)) });
+    // Hoisted: the expense and margin lines below both ask it, and a line this
+    // company does not file is absent rather than a row of em-dashes.
+    // `!= null` is loose on purpose — the API omits a metric rather than
+    // sending null, and `!== null` says true for undefined.
+    const any = (k: keyof typeof qs[number]) => qs.some((q) => q[k] != null);
+    const pct = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`;
+    const rupees = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`;
+
     const out = [
       line("Revenue", (q) => q.revenue, fmtCrFromMC),
-      line("Net Profit", (q) => q.net_profit, fmtCrFromMC),
     ];
+    // The quarterly store carries a full P&L — income, the expense lines, the
+    // tax block, per-share and the margins — and the panel was quoting two
+    // rows of it. Every line below is reported, not derived; each is dropped
+    // when this company files nothing for it, so a bank does not get a row of
+    // em-dashes where its raw-material cost would be.
+    if (any("other_income")) out.push(line("Other Income", (q) => q.other_income, fmtCrFromMC));
+    if (any("employee_cost")) out.push(line("Employee Cost", (q) => q.employee_cost, fmtCrFromMC));
+    if (any("raw_material")) out.push(line("Raw Material", (q) => q.raw_material, fmtCrFromMC));
+    if (any("other_expenses")) out.push(line("Other Expenses", (q) => q.other_expenses, fmtCrFromMC));
+    if (any("depreciation")) out.push(line("Depreciation", (q) => q.depreciation, fmtCrFromMC));
+    if (any("interest")) out.push(line("Interest", (q) => q.interest, fmtCrFromMC));
+    if (any("provisions")) out.push(line("Provisions", (q) => q.provisions, fmtCrFromMC));
+    if (any("ebitda")) out.push(line("EBITDA", (q) => q.ebitda, fmtCrFromMC));
+    if (any("exceptional")) out.push(line("Exceptional", (q) => q.exceptional, fmtCrFromMC));
+    if (any("pbt")) out.push(line("Profit Before Tax", (q) => q.pbt, fmtCrFromMC));
+    if (any("tax")) out.push(line("Tax", (q) => q.tax, fmtCrFromMC));
+    out.push(line("Net Profit", (q) => q.net_profit, fmtCrFromMC));
     // Same rule the quarterly table already used: a line this company does
     // not file is absent rather than a row of em-dashes.
     // `!= null` — loose on purpose, and the same reason as above: an omitted
     // metric arrives undefined, and `!== null` says true for undefined. That
     // is what put a Net Margin row and an EPS row of pure em-dashes on TCS,
     // which is the exact "dead column" this test exists to prevent.
-    const any = (k: keyof typeof qs[number]) => qs.some((q) => q[k] != null);
-    if (any("ebitda")) out.push(line("EBITDA", (q) => q.ebitda, fmtCrFromMC));
-    if (any("operating_margin_pct"))
-      out.push(line("Operating Margin", (q) => q.operating_margin_pct, (v) => (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`));
-    if (any("net_margin_pct"))
-      out.push(line("Net Margin", (q) => q.net_margin_pct, (v) => (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`));
-    if (any("eps_basic"))
-      out.push(line("EPS", (q) => q.eps_basic, (v) => (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`));
+    if (any("operating_margin_pct")) out.push(line("Operating Margin", (q) => q.operating_margin_pct, pct));
+    if (any("net_margin_pct")) out.push(line("Net Margin", (q) => q.net_margin_pct, pct));
+    if (any("tax_rate_pct")) out.push(line("Tax Rate", (q) => q.tax_rate_pct, pct));
+    if (any("eps_basic")) out.push(line("EPS", (q) => q.eps_basic, rupees));
+    if (any("revenue_yoy_pct")) out.push(line("Revenue YoY", (q) => q.revenue_yoy_pct, pct));
+    if (any("net_profit_yoy_pct")) out.push(line("Net Profit YoY", (q) => q.net_profit_yoy_pct, pct));
     return out;
   }, [quarters]);
 
@@ -2982,10 +3008,32 @@ function FinancialsPanel({
         {/* Header: title row + tabs row */}
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
           {/* Title + source badge */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
             <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
+            {/* The way out to the whole statement. This panel is a summary —
+                four balance-sheet lines and two P&L lines — over a store that
+                holds a hundred and twenty line items across twenty-three
+                periods, and until there was somewhere to send a reader, the
+                summary read as all we had. It carries the open tab across so
+                the reader lands on the statement they were already reading. */}
+            <Link
+              href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
+                tab === "financials" ? "balance_sheet" : tab === "pl" ? "profit_loss" : "profit_loss"
+              }`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "5px 12px", borderRadius: 99,
+                border: "1px solid var(--glass-border)",
+                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                color: "var(--text-secondary)", textDecoration: "none",
+                whiteSpace: "nowrap", transition: "border-color 120ms, color 120ms",
+              }}
+            >
+              See detail
+              <ChevronRight size={13} aria-hidden="true" />
+            </Link>
           </div>
           {/* Tabs. The basis switch rides at the far end of this row when the
               quarterly tab is open — it belongs to that tab and only that tab,
