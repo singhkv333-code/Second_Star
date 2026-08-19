@@ -247,71 +247,223 @@ def _dupont(bs: dict, pl: dict, rt: dict, period: str) -> dict:
     }
 
 
-# ── the radar: the ratios the scores are made of ───────────────────────────
-# Each axis is a real filed ratio scaled against a stated ceiling, because a
-# radar whose axes carry different units is a shape without a meaning. The
-# ceiling is the value at which an axis reads full — not a maximum the company
-# cannot pass; anything above simply pins at 100.
-
-_CORPORATE_AXES = [
-    ("liquidity", "Liquidity", "Working capital / assets", 0.50),
-    ("retained", "Retained", "Reserves / assets", 0.80),
-    ("profitability", "Profitability", "EBIT / assets", 0.30),
-    ("solvency", "Solvency", "Market value / liabilities", 8.0),
-    ("efficiency", "Efficiency", "Sales / assets", 2.0),
-]
-
-_BANK_AXES = [
-    ("roe", "Return", "Return on equity", 25.0),
-    ("roa", "Assets", "Return on assets", 2.5),
-    ("nim", "Margin", "Net interest margin", 5.0),
-    ("casa", "Funding", "CASA share of deposits", 60.0),
-    ("efficiency", "Efficiency", "100 - cost to income", 60.0),
-]
-
+# ── the radars: one per score, each drawn from that score's own inputs ─────
+# A single radar for the whole panel could only ever be one model's inputs
+# wearing a neutral label. These are five (or three, or four) axes per score,
+# taken straight from the formula above it, so selecting a score answers "and
+# what is that number made of".
+#
+# Every axis reads outward-is-stronger and is scaled against a stated ceiling,
+# because a radar whose axes carry different units is a shape without a
+# meaning. `invert` is for the ratios where less is better — a bank's funding
+# cost, a company's leverage under Ohlson — so the shape stays readable
+# without the reader having to remember which spokes to flip.
 
 def _axis(key: str, label: str, detail: str, value: Optional[float], cap: float,
-          display: str) -> dict:
-    scaled = None if value is None else max(0.0, min(100.0, value / cap * 100.0))
+          display: str, invert: bool = False) -> Optional[dict]:
+    if value is None:
+        return None
+    frac = value / cap
+    health = (1.0 - frac) if invert else frac
     return {
         "key": key, "label": label, "detail": detail,
-        "value": None if value is None else round(value, 4),
-        "display": display, "cap": cap,
-        "scaled": None if scaled is None else round(scaled, 1),
+        "value": round(value, 4), "display": display, "cap": cap,
+        "scaled": round(max(0.0, min(100.0, health * 100.0)), 1),
     }
 
 
-def _corporate_radar(altman: dict) -> list[dict]:
-    t = altman.get("terms") or {}
-    out = []
-    for key, label, detail, cap in _CORPORATE_AXES:
-        src = {"liquidity": "working_capital", "retained": "retained_earnings",
-               "profitability": "ebit", "solvency": "market_value",
-               "efficiency": "sales"}[key]
-        v = t.get(src)
-        if key == "solvency":
-            display = "—" if v is None else f"{v:.1f}x"
-        elif key == "efficiency":
-            display = "—" if v is None else f"{v:.2f}x"
-        else:
-            display = "—" if v is None else f"{v * 100:.0f}%"
-        out.append(_axis(key, label, detail, v, cap, display))
-    return out
+def _axes(*items: Optional[dict]) -> list[dict]:
+    """Drop the axes whose input was not filed. Under three spokes there is no
+    shape left to read, so the caller falls back to the company radar."""
+    out = [a for a in items if a is not None]
+    return out if len(out) >= 3 else []
 
 
-def _bank_radar(rt: dict, period: str) -> list[dict]:
+def _pct(v: Optional[float], digits: int = 0) -> str:
+    return "—" if v is None else f"{v * 100:.{digits}f}%"
+
+
+def _x(v: Optional[float], digits: int = 2) -> str:
+    return "—" if v is None else f"{v:.{digits}f}x"
+
+
+def _radar_altman(bs: dict, pl: dict, rt: dict, period: str) -> list[dict]:
+    """The five terms of Z, each as the ratio Altman weighted."""
+    ta = _pick(bs, period, "Total Assets", "Total Capital And Liabilities")
+    ca = _pick(bs, period, "Total Current Assets")
+    cl = _pick(bs, period, "Total Current Liabilities")
+    re_ = _pick(bs, period, "Total Reserves and Surplus", "Reserves and Surplus")
+    eq = _pick(bs, period, "Total Shareholders Funds")
+    ncl = _pick(bs, period, "Total Non-Current Liabilities")
+    pbt = _pick(pl, period, "Profit/Loss Before Tax")
+    fin = _pick(pl, period, "Finance Costs")
+    sales = _pick(pl, period, "Total Operating Revenues", "Revenue From Operations [Net]")
+    pb = _pick(rt, period, "Price/BV (X)", "Price To Book Value (X)", "Price To Book Value (%)")
+    if ta in (None, 0):
+        return []
+    tl = ((ncl or 0.0) + cl) if cl is not None else None
+    wc = _div((ca - cl) if (ca is not None and cl is not None) else None, ta)
+    ebit = (pbt + (fin or 0.0)) if pbt is not None else None
+    mve = (pb * eq) if (pb is not None and eq is not None) else None
+    return _axes(
+        _axis("liquidity", "Liquidity", "Working capital / assets", wc, 0.50, _pct(wc)),
+        _axis("retained", "Retained", "Reserves / assets", _div(re_, ta), 0.80, _pct(_div(re_, ta))),
+        _axis("profitability", "Profitability", "EBIT / assets", _div(ebit, ta), 0.30, _pct(_div(ebit, ta))),
+        _axis("solvency", "Solvency", "Market value / liabilities", _div(mve, tl), 8.0,
+              _x(_div(mve, tl), 1)),
+        _axis("efficiency", "Efficiency", "Sales / assets", _div(sales, ta), 2.0, _x(_div(sales, ta))),
+    )
+
+
+def _radar_ohlson(bs: dict, pl: dict, cf: dict, period: str) -> list[dict]:
+    """Ohlson's own inputs, turned the healthy way up.
+
+    Three of the nine terms are binary flags and one is a two-year earnings
+    swing — none of them is a spoke. What is left is the five continuous ones,
+    with leverage inverted so that outward still means stronger.
+    """
+    ta = _pick(bs, period, "Total Assets", "Total Capital And Liabilities")
+    ca = _pick(bs, period, "Total Current Assets")
+    cl = _pick(bs, period, "Total Current Liabilities")
+    ncl = _pick(bs, period, "Total Non-Current Liabilities")
+    ni = _pick(pl, period, "Profit/Loss For The Period", "Profit/Loss From Continuing Operations",
+               "Net Profit / Loss for The Year")
+    ffo = _pick(cf, period, "Net CashFlow From Operating Activities",
+                "Net Cash Flow From Operating Activities")
+    if ta in (None, 0):
+        return []
+    tl = ((ncl or 0.0) + cl) if cl is not None else None
+    lev = _div(tl, ta)
+    wc = _div((ca - cl) if (ca is not None and cl is not None) else None, ta)
+    # Size enters the model as a log, so it enters the radar as one too: the
+    # span from a ₹400 Cr balance sheet to a ₹12 lakh Cr one is eight natural
+    # logs, and on a linear axis every listed company but the largest would
+    # pin at zero.
+    size = None if ta <= 0 else max(0.0, math.log(ta) - 6.0)
+    return _axes(
+        _axis("size", "Size", "Log of total assets", size, 8.0,
+              "—" if ta is None else f"₹{ta / 1000:.1f}k Cr"),
+        _axis("leverage", "Low leverage", "Liabilities / assets", lev, 1.0, _pct(lev), invert=True),
+        _axis("liquidity", "Liquidity", "Working capital / assets", wc, 0.50, _pct(wc)),
+        _axis("cash", "Cash cover", "Operating cash flow / liabilities", _div(ffo, tl), 0.50,
+              _pct(_div(ffo, tl))),
+        _axis("profitability", "Profitability", "Net profit / assets", _div(ni, ta), 0.20,
+              _pct(_div(ni, ta), 1)),
+    )
+
+
+def _radar_graham(rt: dict, period: str, periods: list[str]) -> list[dict]:
+    """Graham's defensive tests, not the two inputs of his formula.
+
+    The number itself is only sqrt(22.5 * EPS * BVPS) — two spokes, no shape.
+    The tests behind it are the interesting part: a P/E under 15, a P/B under
+    1.5, current assets twice current liabilities, an uninterrupted dividend
+    and earnings that grew. Each spoke is how far past its own test the
+    company is, so a full pentagon is a stock Graham would have looked at.
+    """
+    eps = _pick(rt, period, "Basic EPS (Rs.)", "Diluted EPS (Rs.)")
+    bvps = _pick(rt, period, "Book Value [ExclRevalReserve]/Share (Rs.)",
+                 "Book Value [Excl. Reval Reserve]/Share (Rs.)",
+                 "Book Value [InclRevalReserve]/Share (Rs.)",
+                 "Book Value [Incl. Reval Reserve]/Share (Rs.)")
+    pb = _pick(rt, period, "Price/BV (X)", "Price To Book Value (X)", "Price To Book Value (%)")
+    cr = _pick(rt, period, "Current Ratio (X)")
+    payout = _pick(rt, period, "Dividend Payout Ratio (NP) (%)")
+    roe = _pick(rt, period, "Return on Networth / Equity (%)", "Return on Equity / Networth (%)")
+
+    pe = None
+    if pb is not None and bvps is not None and eps not in (None, 0):
+        pe = (pb * bvps) / eps                      # filed price/book back to a filed P/E
+
+    # Earnings growth over as many filed years as there are, up to five.
+    growth = None
+    older = [p for p in periods[1:6] if _pick(rt, p, "Basic EPS (Rs.)", "Diluted EPS (Rs.)")]
+    if eps and eps > 0 and older:
+        back = older[-1]
+        eps_then = _pick(rt, back, "Basic EPS (Rs.)", "Diluted EPS (Rs.)")
+        n = periods.index(back)
+        if eps_then and eps_then > 0 and n > 0:
+            growth = ((eps / eps_then) ** (1.0 / n) - 1.0) * 100
+
+    return _axes(
+        _axis("earnings", "Earnings", "P/E against Graham's 15", None if pe in (None, 0) else 15.0 / pe,
+              1.5, "—" if pe is None else f"{pe:.1f}x P/E"),
+        _axis("book", "Book", "P/B against Graham's 1.5", None if pb in (None, 0) else 1.5 / pb,
+              1.5, "—" if pb is None else f"{pb:.2f}x P/B"),
+        _axis("liquidity", "Liquidity", "Current ratio against his 2.0", cr, 3.0, _x(cr)),
+        _axis("dividend", "Dividend", "Payout of net profit", payout, 60.0,
+              "—" if payout is None else f"{payout:.0f}%"),
+        _axis("growth", "Growth", "Compound EPS growth on file", growth, 15.0,
+              "—" if growth is None else f"{growth:.1f}%"),
+        _axis("return", "Return", "Return on equity", roe, 25.0,
+              "—" if roe is None else f"{roe:.1f}%"),
+    )
+
+
+def _radar_dupont(bs: dict, pl: dict, period: str) -> list[dict]:
+    """The five-step DuPont: the three legs on the panel, with the margin split
+    into the three things that actually move it — tax, interest, operations.
+    All five multiply back to the ROE printed above them."""
+    ta = _pick(bs, period, "Total Assets", "Total Capital And Liabilities")
+    eq = _pick(bs, period, "Total Shareholders Funds")
+    ni = _pick(pl, period, "Profit/Loss For The Period", "Profit/Loss From Continuing Operations",
+               "Net Profit / Loss for The Year")
+    pbt = _pick(pl, period, "Profit/Loss Before Tax")
+    fin = _pick(pl, period, "Finance Costs")
+    sales = _pick(pl, period, "Total Operating Revenues", "Revenue From Operations [Net]",
+                  "Total Interest Earned")
+    ebit = (pbt + (fin or 0.0)) if pbt is not None else None
+    tax_burden, interest_burden = _div(ni, pbt), _div(pbt, ebit)
+    op_margin, turnover, leverage = _div(ebit, sales), _div(sales, ta), _div(ta, eq)
+    return _axes(
+        _axis("tax", "Tax burden", "Net profit / pre-tax profit", tax_burden, 1.0, _pct(tax_burden)),
+        _axis("interest", "Interest burden", "Pre-tax profit / EBIT", interest_burden, 1.0,
+              _pct(interest_burden)),
+        _axis("margin", "Operating margin", "EBIT / sales", op_margin, 0.30, _pct(op_margin)),
+        _axis("turnover", "Asset turnover", "Sales / assets", turnover, 2.0, _x(turnover)),
+        _axis("leverage", "Leverage", "Assets / equity", leverage, 3.0, _x(leverage)),
+    )
+
+
+def _radar_bank(rt: dict, period: str) -> list[dict]:
+    """What a bank is judged on: what it earns, on what, at what spread, funded
+    how, run at what cost."""
     roe = _pick(rt, period, "Return on Equity / Networth (%)", "Return on Networth / Equity (%)")
     roa = _pick(rt, period, "Return on Assets (%)")
     nim = _pick(rt, period, "Net Interest Margin (%)")
     casa = _pick(rt, period, "Casa (%)")
     cti = _pick(rt, period, "Cost to Income (%)")
-    eff = None if cti is None else max(0.0, 100.0 - cti)
-    vals = {"roe": roe, "roa": roa, "nim": nim, "casa": casa, "efficiency": eff}
-    return [
-        _axis(key, label, detail, vals[key], cap,
-              "—" if vals[key] is None else f"{vals[key]:.1f}%")
-        for key, label, detail, cap in _BANK_AXES
-    ]
+    return _axes(
+        _axis("roe", "Return", "Return on equity", roe, 25.0, "—" if roe is None else f"{roe:.1f}%"),
+        _axis("roa", "Assets", "Return on assets", roa, 2.5, "—" if roa is None else f"{roa:.2f}%"),
+        _axis("nim", "Margin", "Net interest margin", nim, 5.0, "—" if nim is None else f"{nim:.2f}%"),
+        _axis("casa", "Funding", "CASA share of deposits", casa, 60.0,
+              "—" if casa is None else f"{casa:.1f}%"),
+        _axis("efficiency", "Efficiency", "Cost to income", cti, 100.0,
+              "—" if cti is None else f"{cti:.1f}%", invert=True),
+    )
+
+
+def _radar_bank_spread(rt: dict, period: str) -> list[dict]:
+    """Where the margin comes from and what eats it — every spoke is a share of
+    the same balance sheet, so they are directly comparable."""
+    ii = _pick(rt, period, "Interest Income/Total Assets (%)")
+    ie = _pick(rt, period, "Interest Expenses/Total Assets (%)")
+    fee = _pick(rt, period, "Non-Interest Income/Total Assets (%)")
+    opex = _pick(rt, period, "Operating Expenses/Total Assets (%)")
+    nim = _pick(rt, period, "Net Interest Margin (%)")
+    return _axes(
+        _axis("yield", "Yield", "Interest income / assets", ii, 10.0,
+              "—" if ii is None else f"{ii:.2f}%"),
+        _axis("cost", "Funding cost", "Interest expense / assets", ie, 8.0,
+              "—" if ie is None else f"{ie:.2f}%", invert=True),
+        _axis("fees", "Fees", "Non-interest income / assets", fee, 4.0,
+              "—" if fee is None else f"{fee:.2f}%"),
+        _axis("opex", "Operating cost", "Operating expenses / assets", opex, 6.0,
+              "—" if opex is None else f"{opex:.2f}%", invert=True),
+        _axis("nim", "Margin", "Net interest margin", nim, 5.0,
+              "—" if nim is None else f"{nim:.2f}%"),
+    )
 
 
 # ── the bank pair that replaces Altman and Ohlson ──────────────────────────
@@ -377,33 +529,44 @@ def compute_scores(symbol: str, *, basis: str = "consolidated") -> dict:
 
     graham = _graham(rt, period)
     dupont = _dupont(bs, pl, rt, period)
+    graham_radar = _radar_graham(rt, period, periods)
+    dupont_radar = _radar_dupont(bs, pl, period)
 
     if is_bank:
+        default_radar = _radar_bank(rt, period)
         quadrants = [
             {**_bank_quadrant(rt, period, prior, "Casa (%)", "CASA", "Funding"),
-             "format": "pct"},
+             "format": "pct", "radar": default_radar},
             {**graham, "key": "graham", "label": "Graham Number", "caption": "Value",
-             "format": "rupees"},
+             "format": "rupees", "radar": graham_radar},
             {**_bank_quadrant(rt, period, prior, "Net Interest Margin (%)",
-                              "Net Interest Margin", "Spread"), "format": "pct"},
+                              "Net Interest Margin", "Spread"),
+             "format": "pct", "radar": _radar_bank_spread(rt, period)},
             {**dupont, "key": "dupont", "label": "DuPont ROE", "caption": "Returns",
-             "format": "pct"},
+             "format": "pct", "radar": dupont_radar},
         ]
-        radar = _bank_radar(rt, period)
     else:
         altman = _altman_z(bs, pl, rt, period)
         ohlson = _ohlson_o(bs, pl, cf, period, prior)
+        default_radar = _radar_altman(bs, pl, rt, period)
         quadrants = [
             {**altman, "key": "altman", "label": "Altman Z", "caption": "Solvency",
-             "format": "plain"},
+             "format": "plain", "radar": default_radar},
             {**graham, "key": "graham", "label": "Graham Number", "caption": "Value",
-             "format": "rupees"},
+             "format": "rupees", "radar": graham_radar},
             {**ohlson, "key": "ohlson", "label": "Ohlson O", "caption": "Distress odds",
-             "format": "plain"},
+             "format": "plain", "radar": _radar_ohlson(bs, pl, cf, period)},
             {**dupont, "key": "dupont", "label": "DuPont ROE", "caption": "Returns",
-             "format": "pct"},
+             "format": "pct", "radar": dupont_radar},
         ]
-        radar = _corporate_radar(altman)
+
+    # A score whose own inputs are too patchy to draw falls back to the
+    # company radar rather than to an empty frame — the shape still belongs to
+    # the same company, and an empty chart on selection reads as a broken
+    # control rather than as missing data.
+    for q in quadrants:
+        if not q.get("radar"):
+            q["radar"] = default_radar
 
     return {
         "available": any(q.get("value") is not None for q in quadrants),
@@ -413,6 +576,6 @@ def compute_scores(symbol: str, *, basis: str = "consolidated") -> dict:
         "period": period,
         "unit": UNIT,
         "quadrants": quadrants,
-        "radar": radar,
+        "radar": default_radar,
         "source": "moneycontrol",
     }

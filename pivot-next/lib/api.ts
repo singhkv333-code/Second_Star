@@ -1057,6 +1057,9 @@ export type ScoreQuadrant = {
   band?: "good" | "watch" | "risk";
   verdict?: string;
   unavailable_reason: string | null;
+  /** The spokes for THIS score — the inputs of its own formula. Falls back to
+   *  the company radar when a score's inputs are too patchy to draw. */
+  radar: ScoreAxis[];
   terms?: Record<string, number>;
   probability_pct?: number;
   eps?: number;
