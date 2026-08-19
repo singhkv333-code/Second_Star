@@ -343,7 +343,9 @@ def _radar_ohlson(bs: dict, pl: dict, cf: dict, period: str) -> list[dict]:
     return _axes(
         _axis("size", "Size", "Log of total assets", size, 8.0,
               "—" if ta is None else f"₹{ta / 1000:.1f}k Cr"),
-        _axis("leverage", "Low leverage", "Liabilities / assets", lev, 1.0, _pct(lev), invert=True),
+        _axis("equity", "Equity", "Equity share of assets",
+              None if lev is None else max(0.0, 1.0 - lev), 1.0,
+              _pct(None if lev is None else 1.0 - lev)),
         _axis("liquidity", "Liquidity", "Working capital / assets", wc, 0.50, _pct(wc)),
         _axis("cash", "Cash cover", "Operating cash flow / liabilities", _div(ffo, tl), 0.50,
               _pct(_div(ffo, tl))),
@@ -416,10 +418,10 @@ def _radar_dupont(bs: dict, pl: dict, period: str) -> list[dict]:
     tax_burden, interest_burden = _div(ni, pbt), _div(pbt, ebit)
     op_margin, turnover, leverage = _div(ebit, sales), _div(sales, ta), _div(ta, eq)
     return _axes(
-        _axis("tax", "Tax burden", "Net profit / pre-tax profit", tax_burden, 1.0, _pct(tax_burden)),
-        _axis("interest", "Interest burden", "Pre-tax profit / EBIT", interest_burden, 1.0,
+        _axis("tax", "Tax", "Net profit / pre-tax profit", tax_burden, 1.0, _pct(tax_burden)),
+        _axis("interest", "Interest", "Pre-tax profit / EBIT", interest_burden, 1.0,
               _pct(interest_burden)),
-        _axis("margin", "Operating margin", "EBIT / sales", op_margin, 0.30, _pct(op_margin)),
+        _axis("margin", "Margin", "EBIT / sales", op_margin, 0.30, _pct(op_margin)),
         _axis("turnover", "Asset turnover", "Sales / assets", turnover, 2.0, _x(turnover)),
         _axis("leverage", "Leverage", "Assets / equity", leverage, 3.0, _x(leverage)),
     )
@@ -455,11 +457,11 @@ def _radar_bank_spread(rt: dict, period: str) -> list[dict]:
     return _axes(
         _axis("yield", "Yield", "Interest income / assets", ii, 10.0,
               "—" if ii is None else f"{ii:.2f}%"),
-        _axis("cost", "Funding cost", "Interest expense / assets", ie, 8.0,
+        _axis("cost", "Funding", "Interest expense / assets", ie, 8.0,
               "—" if ie is None else f"{ie:.2f}%", invert=True),
         _axis("fees", "Fees", "Non-interest income / assets", fee, 4.0,
               "—" if fee is None else f"{fee:.2f}%"),
-        _axis("opex", "Operating cost", "Operating expenses / assets", opex, 6.0,
+        _axis("opex", "Opex", "Operating expenses / assets", opex, 6.0,
               "—" if opex is None else f"{opex:.2f}%", invert=True),
         _axis("nim", "Margin", "Net interest margin", nim, 5.0,
               "—" if nim is None else f"{nim:.2f}%"),
