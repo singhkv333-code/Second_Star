@@ -112,12 +112,11 @@ export function SolvencyValuePanel({
   const activeKey = hovered ?? selected;
   const active = quadrants.find((q) => q.key === activeKey) ?? quadrants[0];
 
-  const cell = (q: ScoreQuadrant, side: "left" | "right", row: "top" | "bottom") => (
+  const cell = (q: ScoreQuadrant, side: "left" | "right") => (
     <Cell
       q={q}
       price={price}
       side={side}
-      row={row}
       state={q.key === selected ? "selected" : q.key === hovered ? "hovered" : "idle"}
       onSelect={() => setSelected(q.key)}
       onHover={(on) => setHovered(on ? q.key : null)}
@@ -161,21 +160,26 @@ export function SolvencyValuePanel({
             <Caption text={tl.caption} side="left" />
             <Caption text={tr.caption} side="right" />
 
-            {cell(tl, "left", "top")}
-            {cell(tr, "right", "top")}
-            {cell(bl, "left", "bottom")}
-            {cell(br, "right", "bottom")}
+            {cell(tl, "left")}
+            {cell(tr, "right")}
+            {cell(bl, "left")}
+            {cell(br, "right")}
 
             <Caption text={bl.caption} side="left" />
             <Caption text={br.caption} side="right" />
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+        {/* The caption sits IN the chart, not above it. The radar's top band is
+            empty by construction — the first spoke label starts 60px down —
+            and a line of text stacked above the frame only pushed the shape
+            further from the numbers it explains. */}
+        <div style={{ position: "relative" }}>
           <div style={{
+            position: "absolute", top: 4, left: 0, right: 0, textAlign: "center",
             fontFamily: "var(--font-ui)", fontSize: 10.5, fontWeight: 650,
             letterSpacing: "0.09em", textTransform: "uppercase",
-            color: "var(--pivot-blue)",
+            color: "var(--pivot-blue)", pointerEvents: "none", zIndex: 1,
           }}>
             {active?.label ?? ""}
           </div>
@@ -204,9 +208,8 @@ function Caption({ text, side }: { text: string; side: "left" | "right" }): Reac
       fontFamily: "var(--font-ui)", fontSize: 10.5, fontWeight: 650,
       letterSpacing: "0.09em", textTransform: "uppercase",
       color: "var(--text-primary)",
-      padding: side === "left"
-        ? "0 clamp(12px, 2vw, 26px) 0 0"
-        : "0 0 0 clamp(12px, 2vw, 26px)",
+      paddingLeft: side === "right" ? 20 : 0,
+      paddingRight: side === "left" ? 20 : 0,
       height: 22, lineHeight: "22px",
     }}>
       {text}
@@ -215,9 +218,9 @@ function Caption({ text, side }: { text: string; side: "left" | "right" }): Reac
 }
 
 function Cell({
-  q, price, side, row, state, onSelect, onHover,
+  q, price, side, state, onSelect, onHover,
 }: {
-  q: ScoreQuadrant; price: number | null; side: "left" | "right"; row: "top" | "bottom";
+  q: ScoreQuadrant; price: number | null; side: "left" | "right";
   state: CellState; onSelect: () => void; onHover: (on: boolean) => void;
 }): React.ReactElement {
   const line = subline(q, price);
@@ -247,44 +250,61 @@ function Cell({
       onFocus={() => onHover(true)}
       onBlur={() => onHover(false)}
       style={{
-        // The padding, not a border, is what separates the quadrants: each cell
-        // is pushed off the axis it touches and left flush with the outer edge,
-        // which is how the crosshair stays legible with nothing drawn around
-        // it. The wash then fills exactly that quadrant and nothing else.
-        padding: side === "left"
-          ? "14px clamp(12px, 2vw, 26px) 14px 0"
-          : "14px 0 14px clamp(12px, 2vw, 26px)",
-        paddingTop: row === "top" ? 4 : 14,
-        paddingBottom: row === "top" ? 14 : 4,
+        position: "relative",
+        // Vertical padding is the SAME on both rows. It used to be 4/14 on the
+        // top row and 14/4 on the bottom so the content cleared the axis, and
+        // that asymmetry went straight into the wash: two rectangles of
+        // different heights, neither lining up with the other.
+        padding: "14px 0",
         minWidth: 0,
         cursor: "pointer",
-        borderRadius: 12,
-        background: state === "idle" ? "transparent" : "var(--surface-hover)",
-        transition: "background 140ms ease",
         outline: "none",
       }}
     >
+      {/* The wash is its own layer, inset off the crosshair rather than
+          bounded by the cell. Painted as the cell's background it ran up to
+          both axes and covered the lines it was supposed to sit inside — the
+          crosshair looked broken wherever the pointer was. */}
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 2, bottom: 2,
+          left: side === "left" ? -10 : 8,
+          right: side === "left" ? 8 : -10,
+          borderRadius: 12,
+          background: state === "idle" ? "transparent" : "var(--surface-hover)",
+          transition: "background 140ms ease",
+          pointerEvents: "none",
+        }}
+      />
       <div style={{
-        fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600,
-        color: "var(--text-primary)", letterSpacing: "-0.01em",
+        position: "relative",
+        paddingLeft: side === "right" ? 20 : 0,
+        paddingRight: side === "left" ? 20 : 0,
       }}>
-        {q.label}
-      </div>
-      <div style={{
-        fontFamily: "var(--font-ui)", fontSize: "clamp(27px, 2.7vw, 36px)", fontWeight: 600,
-        letterSpacing: "-0.03em", lineHeight: 1.1, marginTop: 4,
-        color: "var(--text-primary)", fontVariantNumeric: "tabular-nums",
-      }}>
-        {formatValue(q)}
-      </div>
-      {line ? (
         <div style={{
-          fontFamily: "var(--font-ui)", fontSize: 13.5, fontWeight: 500,
-          marginTop: 6, color, letterSpacing: "-0.005em",
+          fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600,
+          color: "var(--text-primary)", letterSpacing: "-0.01em",
         }}>
-          {line}
+          {q.label}
         </div>
-      ) : null}
+        <div style={{
+          fontFamily: "var(--font-ui)", fontSize: "clamp(27px, 2.7vw, 36px)", fontWeight: 600,
+          letterSpacing: "-0.03em", lineHeight: 1.1, marginTop: 4,
+          color: "var(--text-primary)", fontVariantNumeric: "tabular-nums",
+        }}>
+          {formatValue(q)}
+        </div>
+        {line ? (
+          <div style={{
+            fontFamily: "var(--font-ui)", fontSize: 13.5, fontWeight: 500,
+            marginTop: 6, color, letterSpacing: "-0.005em",
+          }}>
+            {line}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
