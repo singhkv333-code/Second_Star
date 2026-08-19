@@ -1,0 +1,2609 @@
+- generic [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - generic [ref=f2e3]: Charto.
+    - generic [ref=f2e4]:
+      - generic "Search companies" [ref=f2e5] [cursor=pointer]:
+        - generic [ref=f2e6]: RELIANCE
+        - generic [ref=f2e7]: NSE
+      - generic [ref=f2e182]:
+        - textbox "Search instruments…" [active] [ref=f2e184]
+        - generic [ref=f2e185]:
+          - generic [ref=f2e186] [cursor=pointer]:
+            - generic [ref=f2e187]: 360ONE
+            - generic [ref=f2e188]: ~6s
+            - link "360ONE — open company page in a new tab" [ref=f2e189]:
+              - /url: http://localhost:5175/stock/360ONE?theme=light
+          - generic [ref=f2e194] [cursor=pointer]:
+            - generic [ref=f2e195]: 3MINDIA
+            - generic [ref=f2e196]: ~6s
+            - link "3MINDIA — open company page in a new tab" [ref=f2e197]:
+              - /url: http://localhost:5175/stock/3MINDIA?theme=light
+          - generic [ref=f2e202] [cursor=pointer]:
+            - generic [ref=f2e203]: AADHARHFC
+            - generic [ref=f2e204]: ~6s
+            - link "AADHARHFC — open company page in a new tab" [ref=f2e205]:
+              - /url: http://localhost:5175/stock/AADHARHFC?theme=light
+          - generic [ref=f2e210] [cursor=pointer]:
+            - generic [ref=f2e211]: AARTIIND
+            - generic [ref=f2e212]: ~6s
+            - link "AARTIIND — open company page in a new tab" [ref=f2e213]:
+              - /url: http://localhost:5175/stock/AARTIIND?theme=light
+          - generic [ref=f2e218] [cursor=pointer]:
+            - generic [ref=f2e219]: AAVAS
+            - generic [ref=f2e220]: ~6s
+            - link "AAVAS — open company page in a new tab" [ref=f2e221]:
+              - /url: http://localhost:5175/stock/AAVAS?theme=light
+          - generic [ref=f2e226] [cursor=pointer]:
+            - generic [ref=f2e227]: ABB
+            - generic [ref=f2e228]: ~6s
+            - link "ABB — open company page in a new tab" [ref=f2e229]:
+              - /url: http://localhost:5175/stock/ABB?theme=light
+          - generic [ref=f2e234] [cursor=pointer]:
+            - generic [ref=f2e235]: ABBOTINDIA
+            - generic [ref=f2e236]: ~6s
+            - link "ABBOTINDIA — open company page in a new tab" [ref=f2e237]:
+              - /url: http://localhost:5175/stock/ABBOTINDIA?theme=light
+          - generic [ref=f2e242] [cursor=pointer]:
+            - generic [ref=f2e243]: ABCAPITAL
+            - generic [ref=f2e244]: ~6s
+            - link "ABCAPITAL — open company page in a new tab" [ref=f2e245]:
+              - /url: http://localhost:5175/stock/ABCAPITAL?theme=light
+          - generic [ref=f2e250] [cursor=pointer]:
+            - generic [ref=f2e251]: ABDL
+            - generic [ref=f2e252]: ~6s
+            - link "ABDL — open company page in a new tab" [ref=f2e253]:
+              - /url: http://localhost:5175/stock/ABDL?theme=light
+          - generic [ref=f2e258] [cursor=pointer]:
+            - generic [ref=f2e259]: ABFRL
+            - generic [ref=f2e260]: ~6s
+            - link "ABFRL — open company page in a new tab" [ref=f2e261]:
+              - /url: http://localhost:5175/stock/ABFRL?theme=light
+          - generic [ref=f2e266] [cursor=pointer]:
+            - generic [ref=f2e267]: ABLBL
+            - generic [ref=f2e268]: ~6s
+            - link "ABLBL — open company page in a new tab" [ref=f2e269]:
+              - /url: http://localhost:5175/stock/ABLBL?theme=light
+          - generic [ref=f2e274] [cursor=pointer]:
+            - generic [ref=f2e275]: ABREL
+            - generic [ref=f2e276]: ~6s
+            - link "ABREL — open company page in a new tab" [ref=f2e277]:
+              - /url: http://localhost:5175/stock/ABREL?theme=light
+          - generic [ref=f2e282] [cursor=pointer]:
+            - generic [ref=f2e283]: ABSLAMC
+            - generic [ref=f2e284]: ~6s
+            - link "ABSLAMC — open company page in a new tab" [ref=f2e285]:
+              - /url: http://localhost:5175/stock/ABSLAMC?theme=light
+          - generic [ref=f2e290] [cursor=pointer]:
+            - generic [ref=f2e291]: ACC
+            - generic [ref=f2e292]: ~6s
+            - link "ACC — open company page in a new tab" [ref=f2e293]:
+              - /url: http://localhost:5175/stock/ACC?theme=light
+          - generic [ref=f2e298] [cursor=pointer]:
+            - generic [ref=f2e299]: ACE
+            - generic [ref=f2e300]: ~6s
+            - link "ACE — open company page in a new tab" [ref=f2e301]:
+              - /url: http://localhost:5175/stock/ACE?theme=light
+          - generic [ref=f2e306] [cursor=pointer]:
+            - generic [ref=f2e307]: ACMESOLAR
+            - generic [ref=f2e308]: ~6s
+            - link "ACMESOLAR — open company page in a new tab" [ref=f2e309]:
+              - /url: http://localhost:5175/stock/ACMESOLAR?theme=light
+          - generic [ref=f2e314] [cursor=pointer]:
+            - generic [ref=f2e315]: ACUTAAS
+            - generic [ref=f2e316]: ~6s
+            - link "ACUTAAS — open company page in a new tab" [ref=f2e317]:
+              - /url: http://localhost:5175/stock/ACUTAAS?theme=light
+          - generic [ref=f2e322] [cursor=pointer]:
+            - generic [ref=f2e323]: ADANIENSOL
+            - generic [ref=f2e324]: ~6s
+            - link "ADANIENSOL — open company page in a new tab" [ref=f2e325]:
+              - /url: http://localhost:5175/stock/ADANIENSOL?theme=light
+          - generic [ref=f2e330] [cursor=pointer]:
+            - generic [ref=f2e331]: ADANIENT
+            - generic [ref=f2e332]: ~6s
+            - link "ADANIENT — open company page in a new tab" [ref=f2e333]:
+              - /url: http://localhost:5175/stock/ADANIENT?theme=light
+          - generic [ref=f2e338] [cursor=pointer]:
+            - generic [ref=f2e339]: ADANIGREEN
+            - generic [ref=f2e340]: ~6s
+            - link "ADANIGREEN — open company page in a new tab" [ref=f2e341]:
+              - /url: http://localhost:5175/stock/ADANIGREEN?theme=light
+          - generic [ref=f2e346] [cursor=pointer]:
+            - generic [ref=f2e347]: ADANIPORTS
+            - generic [ref=f2e348]: ~6s
+            - link "ADANIPORTS — open company page in a new tab" [ref=f2e349]:
+              - /url: http://localhost:5175/stock/ADANIPORTS?theme=light
+          - generic [ref=f2e354] [cursor=pointer]:
+            - generic [ref=f2e355]: ADANIPOWER
+            - generic [ref=f2e356]: ~6s
+            - link "ADANIPOWER — open company page in a new tab" [ref=f2e357]:
+              - /url: http://localhost:5175/stock/ADANIPOWER?theme=light
+          - generic [ref=f2e362] [cursor=pointer]:
+            - generic [ref=f2e363]: AEGISLOG
+            - generic [ref=f2e364]: ~6s
+            - link "AEGISLOG — open company page in a new tab" [ref=f2e365]:
+              - /url: http://localhost:5175/stock/AEGISLOG?theme=light
+          - generic [ref=f2e370] [cursor=pointer]:
+            - generic [ref=f2e371]: AEGISVOPAK
+            - generic [ref=f2e372]: ~6s
+            - link "AEGISVOPAK — open company page in a new tab" [ref=f2e373]:
+              - /url: http://localhost:5175/stock/AEGISVOPAK?theme=light
+          - generic [ref=f2e378] [cursor=pointer]:
+            - generic [ref=f2e379]: AFCONS
+            - generic [ref=f2e380]: ~6s
+            - link "AFCONS — open company page in a new tab" [ref=f2e381]:
+              - /url: http://localhost:5175/stock/AFCONS?theme=light
+          - generic [ref=f2e386] [cursor=pointer]:
+            - generic [ref=f2e387]: AFFLE
+            - generic [ref=f2e388]: ~6s
+            - link "AFFLE — open company page in a new tab" [ref=f2e389]:
+              - /url: http://localhost:5175/stock/AFFLE?theme=light
+          - generic [ref=f2e394] [cursor=pointer]:
+            - generic [ref=f2e395]: AIAENG
+            - generic [ref=f2e396]: ~6s
+            - link "AIAENG — open company page in a new tab" [ref=f2e397]:
+              - /url: http://localhost:5175/stock/AIAENG?theme=light
+          - generic [ref=f2e402] [cursor=pointer]:
+            - generic [ref=f2e403]: AIIL
+            - generic [ref=f2e404]: ~6s
+            - link "AIIL — open company page in a new tab" [ref=f2e405]:
+              - /url: http://localhost:5175/stock/AIIL?theme=light
+          - generic [ref=f2e410] [cursor=pointer]:
+            - generic [ref=f2e411]: AJANTPHARM
+            - generic [ref=f2e412]: ~6s
+            - link "AJANTPHARM — open company page in a new tab" [ref=f2e413]:
+              - /url: http://localhost:5175/stock/AJANTPHARM?theme=light
+          - generic [ref=f2e418] [cursor=pointer]:
+            - generic [ref=f2e419]: ALKEM
+            - generic [ref=f2e420]: ~6s
+            - link "ALKEM — open company page in a new tab" [ref=f2e421]:
+              - /url: http://localhost:5175/stock/ALKEM?theme=light
+          - generic [ref=f2e426] [cursor=pointer]:
+            - generic [ref=f2e427]: AMBER
+            - generic [ref=f2e428]: ~6s
+            - link "AMBER — open company page in a new tab" [ref=f2e429]:
+              - /url: http://localhost:5175/stock/AMBER?theme=light
+          - generic [ref=f2e434] [cursor=pointer]:
+            - generic [ref=f2e435]: AMBUJACEM
+            - generic [ref=f2e436]: ~6s
+            - link "AMBUJACEM — open company page in a new tab" [ref=f2e437]:
+              - /url: http://localhost:5175/stock/AMBUJACEM?theme=light
+          - generic [ref=f2e442] [cursor=pointer]:
+            - generic [ref=f2e443]: ANANDRATHI
+            - generic [ref=f2e444]: ~6s
+            - link "ANANDRATHI — open company page in a new tab" [ref=f2e445]:
+              - /url: http://localhost:5175/stock/ANANDRATHI?theme=light
+          - generic [ref=f2e450] [cursor=pointer]:
+            - generic [ref=f2e451]: ANANTRAJ
+            - generic [ref=f2e452]: ~6s
+            - link "ANANTRAJ — open company page in a new tab" [ref=f2e453]:
+              - /url: http://localhost:5175/stock/ANANTRAJ?theme=light
+          - generic [ref=f2e458] [cursor=pointer]:
+            - generic [ref=f2e459]: ANGELONE
+            - generic [ref=f2e460]: ~6s
+            - link "ANGELONE — open company page in a new tab" [ref=f2e461]:
+              - /url: http://localhost:5175/stock/ANGELONE?theme=light
+          - generic [ref=f2e466] [cursor=pointer]:
+            - generic [ref=f2e467]: ANTHEM
+            - generic [ref=f2e468]: ~6s
+            - link "ANTHEM — open company page in a new tab" [ref=f2e469]:
+              - /url: http://localhost:5175/stock/ANTHEM?theme=light
+          - generic [ref=f2e474] [cursor=pointer]:
+            - generic [ref=f2e475]: ANURAS
+            - generic [ref=f2e476]: ~6s
+            - link "ANURAS — open company page in a new tab" [ref=f2e477]:
+              - /url: http://localhost:5175/stock/ANURAS?theme=light
+          - generic [ref=f2e482] [cursor=pointer]:
+            - generic [ref=f2e483]: APARINDS
+            - generic [ref=f2e484]: ~6s
+            - link "APARINDS — open company page in a new tab" [ref=f2e485]:
+              - /url: http://localhost:5175/stock/APARINDS?theme=light
+          - generic [ref=f2e490] [cursor=pointer]:
+            - generic [ref=f2e491]: APLAPOLLO
+            - generic [ref=f2e492]: ~6s
+            - link "APLAPOLLO — open company page in a new tab" [ref=f2e493]:
+              - /url: http://localhost:5175/stock/APLAPOLLO?theme=light
+          - generic [ref=f2e498] [cursor=pointer]:
+            - generic [ref=f2e499]: APOLLOHOSP
+            - generic [ref=f2e500]: ~6s
+            - link "APOLLOHOSP — open company page in a new tab" [ref=f2e501]:
+              - /url: http://localhost:5175/stock/APOLLOHOSP?theme=light
+          - generic [ref=f2e506] [cursor=pointer]:
+            - generic [ref=f2e507]: APOLLOTYRE
+            - generic [ref=f2e508]: ~6s
+            - link "APOLLOTYRE — open company page in a new tab" [ref=f2e509]:
+              - /url: http://localhost:5175/stock/APOLLOTYRE?theme=light
+          - generic [ref=f2e514] [cursor=pointer]:
+            - generic [ref=f2e515]: APTUS
+            - generic [ref=f2e516]: ~6s
+            - link "APTUS — open company page in a new tab" [ref=f2e517]:
+              - /url: http://localhost:5175/stock/APTUS?theme=light
+          - generic [ref=f2e522] [cursor=pointer]:
+            - generic [ref=f2e523]: ARE&M
+            - generic [ref=f2e524]: ~6s
+            - link "ARE&M — open company page in a new tab" [ref=f2e525]:
+              - /url: http://localhost:5175/stock/ARE%26M?theme=light
+          - generic [ref=f2e530] [cursor=pointer]:
+            - generic [ref=f2e531]: ASAHIINDIA
+            - generic [ref=f2e532]: ~6s
+            - link "ASAHIINDIA — open company page in a new tab" [ref=f2e533]:
+              - /url: http://localhost:5175/stock/ASAHIINDIA?theme=light
+          - generic [ref=f2e538] [cursor=pointer]:
+            - generic [ref=f2e539]: ASHOKLEY
+            - generic [ref=f2e540]: ~6s
+            - link "ASHOKLEY — open company page in a new tab" [ref=f2e541]:
+              - /url: http://localhost:5175/stock/ASHOKLEY?theme=light
+          - generic [ref=f2e546] [cursor=pointer]:
+            - generic [ref=f2e547]: ASIANPAINT
+            - generic [ref=f2e548]: ~6s
+            - link "ASIANPAINT — open company page in a new tab" [ref=f2e549]:
+              - /url: http://localhost:5175/stock/ASIANPAINT?theme=light
+          - generic [ref=f2e554] [cursor=pointer]:
+            - generic [ref=f2e555]: ASTERDM
+            - generic [ref=f2e556]: ~6s
+            - link "ASTERDM — open company page in a new tab" [ref=f2e557]:
+              - /url: http://localhost:5175/stock/ASTERDM?theme=light
+          - generic [ref=f2e562] [cursor=pointer]:
+            - generic [ref=f2e563]: ASTRAL
+            - generic [ref=f2e564]: ~6s
+            - link "ASTRAL — open company page in a new tab" [ref=f2e565]:
+              - /url: http://localhost:5175/stock/ASTRAL?theme=light
+          - generic [ref=f2e570] [cursor=pointer]:
+            - generic [ref=f2e571]: ATGL
+            - generic [ref=f2e572]: ~6s
+            - link "ATGL — open company page in a new tab" [ref=f2e573]:
+              - /url: http://localhost:5175/stock/ATGL?theme=light
+          - generic [ref=f2e578] [cursor=pointer]:
+            - generic [ref=f2e579]: ATHERENERG
+            - generic [ref=f2e580]: ~6s
+            - link "ATHERENERG — open company page in a new tab" [ref=f2e581]:
+              - /url: http://localhost:5175/stock/ATHERENERG?theme=light
+          - generic [ref=f2e586] [cursor=pointer]:
+            - generic [ref=f2e587]: ATUL
+            - generic [ref=f2e588]: ~6s
+            - link "ATUL — open company page in a new tab" [ref=f2e589]:
+              - /url: http://localhost:5175/stock/ATUL?theme=light
+          - generic [ref=f2e594] [cursor=pointer]:
+            - generic [ref=f2e595]: AUBANK
+            - generic [ref=f2e596]: ~6s
+            - link "AUBANK — open company page in a new tab" [ref=f2e597]:
+              - /url: http://localhost:5175/stock/AUBANK?theme=light
+          - generic [ref=f2e602] [cursor=pointer]:
+            - generic [ref=f2e603]: AUROPHARMA
+            - generic [ref=f2e604]: ~6s
+            - link "AUROPHARMA — open company page in a new tab" [ref=f2e605]:
+              - /url: http://localhost:5175/stock/AUROPHARMA?theme=light
+          - generic [ref=f2e610] [cursor=pointer]:
+            - generic [ref=f2e611]: AWL
+            - generic [ref=f2e612]: ~6s
+            - link "AWL — open company page in a new tab" [ref=f2e613]:
+              - /url: http://localhost:5175/stock/AWL?theme=light
+          - generic [ref=f2e618] [cursor=pointer]:
+            - generic [ref=f2e619]: AXISBANK
+            - generic [ref=f2e620]: ~6s
+            - link "AXISBANK — open company page in a new tab" [ref=f2e621]:
+              - /url: http://localhost:5175/stock/AXISBANK?theme=light
+          - generic [ref=f2e626] [cursor=pointer]:
+            - generic [ref=f2e627]: BAJAJ-AUTO
+            - generic [ref=f2e628]: ~6s
+            - link "BAJAJ-AUTO — open company page in a new tab" [ref=f2e629]:
+              - /url: http://localhost:5175/stock/BAJAJ-AUTO?theme=light
+          - generic [ref=f2e634] [cursor=pointer]:
+            - generic [ref=f2e635]: BAJAJFINSV
+            - generic [ref=f2e636]: ~6s
+            - link "BAJAJFINSV — open company page in a new tab" [ref=f2e637]:
+              - /url: http://localhost:5175/stock/BAJAJFINSV?theme=light
+          - generic [ref=f2e642] [cursor=pointer]:
+            - generic [ref=f2e643]: BAJAJHFL
+            - generic [ref=f2e644]: ~6s
+            - link "BAJAJHFL — open company page in a new tab" [ref=f2e645]:
+              - /url: http://localhost:5175/stock/BAJAJHFL?theme=light
+          - generic [ref=f2e650] [cursor=pointer]:
+            - generic [ref=f2e651]: BAJAJHLDNG
+            - generic [ref=f2e652]: ~6s
+            - link "BAJAJHLDNG — open company page in a new tab" [ref=f2e653]:
+              - /url: http://localhost:5175/stock/BAJAJHLDNG?theme=light
+          - generic [ref=f2e658] [cursor=pointer]:
+            - generic [ref=f2e659]: BAJFINANCE
+            - generic [ref=f2e660]: ~6s
+            - link "BAJFINANCE — open company page in a new tab" [ref=f2e661]:
+              - /url: http://localhost:5175/stock/BAJFINANCE?theme=light
+          - generic [ref=f2e666] [cursor=pointer]:
+            - generic [ref=f2e667]: BALKRISIND
+            - generic [ref=f2e668]: ~6s
+            - link "BALKRISIND — open company page in a new tab" [ref=f2e669]:
+              - /url: http://localhost:5175/stock/BALKRISIND?theme=light
+          - generic [ref=f2e674] [cursor=pointer]:
+            - generic [ref=f2e675]: BALRAMCHIN
+            - generic [ref=f2e676]: ~6s
+            - link "BALRAMCHIN — open company page in a new tab" [ref=f2e677]:
+              - /url: http://localhost:5175/stock/BALRAMCHIN?theme=light
+          - generic [ref=f2e682] [cursor=pointer]:
+            - generic [ref=f2e683]: BANDHANBNK
+            - generic [ref=f2e684]: ~6s
+            - link "BANDHANBNK — open company page in a new tab" [ref=f2e685]:
+              - /url: http://localhost:5175/stock/BANDHANBNK?theme=light
+          - generic [ref=f2e690] [cursor=pointer]:
+            - generic [ref=f2e691]: BANKBARODA
+            - generic [ref=f2e692]: ~6s
+            - link "BANKBARODA — open company page in a new tab" [ref=f2e693]:
+              - /url: http://localhost:5175/stock/BANKBARODA?theme=light
+          - generic [ref=f2e698] [cursor=pointer]:
+            - generic [ref=f2e699]: BANKINDIA
+            - generic [ref=f2e700]: ~6s
+            - link "BANKINDIA — open company page in a new tab" [ref=f2e701]:
+              - /url: http://localhost:5175/stock/BANKINDIA?theme=light
+          - generic [ref=f2e706] [cursor=pointer]:
+            - generic [ref=f2e707]: BATAINDIA
+            - generic [ref=f2e708]: ~6s
+            - link "BATAINDIA — open company page in a new tab" [ref=f2e709]:
+              - /url: http://localhost:5175/stock/BATAINDIA?theme=light
+          - generic [ref=f2e714] [cursor=pointer]:
+            - generic [ref=f2e715]: BAYERCROP
+            - generic [ref=f2e716]: ~6s
+            - link "BAYERCROP — open company page in a new tab" [ref=f2e717]:
+              - /url: http://localhost:5175/stock/BAYERCROP?theme=light
+          - generic [ref=f2e722] [cursor=pointer]:
+            - generic [ref=f2e723]: BBTC
+            - generic [ref=f2e724]: ~6s
+            - link "BBTC — open company page in a new tab" [ref=f2e725]:
+              - /url: http://localhost:5175/stock/BBTC?theme=light
+          - generic [ref=f2e730] [cursor=pointer]:
+            - generic [ref=f2e731]: BDL
+            - generic [ref=f2e732]: ~6s
+            - link "BDL — open company page in a new tab" [ref=f2e733]:
+              - /url: http://localhost:5175/stock/BDL?theme=light
+          - generic [ref=f2e738] [cursor=pointer]:
+            - generic [ref=f2e739]: BEL
+            - generic [ref=f2e740]: ~6s
+            - link "BEL — open company page in a new tab" [ref=f2e741]:
+              - /url: http://localhost:5175/stock/BEL?theme=light
+          - generic [ref=f2e746] [cursor=pointer]:
+            - generic [ref=f2e747]: BELRISE
+            - generic [ref=f2e748]: ~6s
+            - link "BELRISE — open company page in a new tab" [ref=f2e749]:
+              - /url: http://localhost:5175/stock/BELRISE?theme=light
+          - generic [ref=f2e754] [cursor=pointer]:
+            - generic [ref=f2e755]: BEML
+            - generic [ref=f2e756]: ~6s
+            - link "BEML — open company page in a new tab" [ref=f2e757]:
+              - /url: http://localhost:5175/stock/BEML?theme=light
+          - generic [ref=f2e762] [cursor=pointer]:
+            - generic [ref=f2e763]: BERGEPAINT
+            - generic [ref=f2e764]: ~6s
+            - link "BERGEPAINT — open company page in a new tab" [ref=f2e765]:
+              - /url: http://localhost:5175/stock/BERGEPAINT?theme=light
+          - generic [ref=f2e770] [cursor=pointer]:
+            - generic [ref=f2e771]: BHARATFORG
+            - generic [ref=f2e772]: ~6s
+            - link "BHARATFORG — open company page in a new tab" [ref=f2e773]:
+              - /url: http://localhost:5175/stock/BHARATFORG?theme=light
+          - generic [ref=f2e778] [cursor=pointer]:
+            - generic [ref=f2e779]: BHARTIARTL
+            - generic [ref=f2e780]: ~6s
+            - link "BHARTIARTL — open company page in a new tab" [ref=f2e781]:
+              - /url: http://localhost:5175/stock/BHARTIARTL?theme=light
+          - generic [ref=f2e786] [cursor=pointer]:
+            - generic [ref=f2e787]: BHARTIHEXA
+            - generic [ref=f2e788]: ~6s
+            - link "BHARTIHEXA — open company page in a new tab" [ref=f2e789]:
+              - /url: http://localhost:5175/stock/BHARTIHEXA?theme=light
+          - generic [ref=f2e794] [cursor=pointer]:
+            - generic [ref=f2e795]: BHEL
+            - generic [ref=f2e796]: ~6s
+            - link "BHEL — open company page in a new tab" [ref=f2e797]:
+              - /url: http://localhost:5175/stock/BHEL?theme=light
+          - generic [ref=f2e802] [cursor=pointer]:
+            - generic [ref=f2e803]: BIKAJI
+            - generic [ref=f2e804]: ~6s
+            - link "BIKAJI — open company page in a new tab" [ref=f2e805]:
+              - /url: http://localhost:5175/stock/BIKAJI?theme=light
+          - generic [ref=f2e810] [cursor=pointer]:
+            - generic [ref=f2e811]: BIOCON
+            - generic [ref=f2e812]: ~6s
+            - link "BIOCON — open company page in a new tab" [ref=f2e813]:
+              - /url: http://localhost:5175/stock/BIOCON?theme=light
+          - generic [ref=f2e818] [cursor=pointer]:
+            - generic [ref=f2e819]: BLS
+            - generic [ref=f2e820]: ~6s
+            - link "BLS — open company page in a new tab" [ref=f2e821]:
+              - /url: http://localhost:5175/stock/BLS?theme=light
+          - generic [ref=f2e826] [cursor=pointer]:
+            - generic [ref=f2e827]: BLUEDART
+            - generic [ref=f2e828]: ~6s
+            - link "BLUEDART — open company page in a new tab" [ref=f2e829]:
+              - /url: http://localhost:5175/stock/BLUEDART?theme=light
+          - generic [ref=f2e834] [cursor=pointer]:
+            - generic [ref=f2e835]: BLUEJET
+            - generic [ref=f2e836]: ~6s
+            - link "BLUEJET — open company page in a new tab" [ref=f2e837]:
+              - /url: http://localhost:5175/stock/BLUEJET?theme=light
+          - generic [ref=f2e842] [cursor=pointer]:
+            - generic [ref=f2e843]: BLUESTARCO
+            - generic [ref=f2e844]: ~6s
+            - link "BLUESTARCO — open company page in a new tab" [ref=f2e845]:
+              - /url: http://localhost:5175/stock/BLUESTARCO?theme=light
+          - generic [ref=f2e850] [cursor=pointer]:
+            - generic [ref=f2e851]: BOSCHLTD
+            - generic [ref=f2e852]: ~6s
+            - link "BOSCHLTD — open company page in a new tab" [ref=f2e853]:
+              - /url: http://localhost:5175/stock/BOSCHLTD?theme=light
+          - generic [ref=f2e858] [cursor=pointer]:
+            - generic [ref=f2e859]: BPCL
+            - generic [ref=f2e860]: ~6s
+            - link "BPCL — open company page in a new tab" [ref=f2e861]:
+              - /url: http://localhost:5175/stock/BPCL?theme=light
+          - generic [ref=f2e866] [cursor=pointer]:
+            - generic [ref=f2e867]: BRIGADE
+            - generic [ref=f2e868]: ~6s
+            - link "BRIGADE — open company page in a new tab" [ref=f2e869]:
+              - /url: http://localhost:5175/stock/BRIGADE?theme=light
+          - generic [ref=f2e874] [cursor=pointer]:
+            - generic [ref=f2e875]: BRITANNIA
+            - generic [ref=f2e876]: ~6s
+            - link "BRITANNIA — open company page in a new tab" [ref=f2e877]:
+              - /url: http://localhost:5175/stock/BRITANNIA?theme=light
+          - generic [ref=f2e882] [cursor=pointer]:
+            - generic [ref=f2e883]: BSE
+            - generic [ref=f2e884]: ~6s
+            - link "BSE — open company page in a new tab" [ref=f2e885]:
+              - /url: http://localhost:5175/stock/BSE?theme=light
+          - generic [ref=f2e890] [cursor=pointer]:
+            - generic [ref=f2e891]: BSOFT
+            - generic [ref=f2e892]: ~6s
+            - link "BSOFT — open company page in a new tab" [ref=f2e893]:
+              - /url: http://localhost:5175/stock/BSOFT?theme=light
+          - generic [ref=f2e898] [cursor=pointer]:
+            - generic [ref=f2e899]: CAMS
+            - generic [ref=f2e900]: ~6s
+            - link "CAMS — open company page in a new tab" [ref=f2e901]:
+              - /url: http://localhost:5175/stock/CAMS?theme=light
+          - generic [ref=f2e906] [cursor=pointer]:
+            - generic [ref=f2e907]: CANBK
+            - generic [ref=f2e908]: ~6s
+            - link "CANBK — open company page in a new tab" [ref=f2e909]:
+              - /url: http://localhost:5175/stock/CANBK?theme=light
+          - generic [ref=f2e914] [cursor=pointer]:
+            - generic [ref=f2e915]: CANFINHOME
+            - generic [ref=f2e916]: ~6s
+            - link "CANFINHOME — open company page in a new tab" [ref=f2e917]:
+              - /url: http://localhost:5175/stock/CANFINHOME?theme=light
+          - generic [ref=f2e922] [cursor=pointer]:
+            - generic [ref=f2e923]: CANHLIFE
+            - generic [ref=f2e924]: ~6s
+            - link "CANHLIFE — open company page in a new tab" [ref=f2e925]:
+              - /url: http://localhost:5175/stock/CANHLIFE?theme=light
+          - generic [ref=f2e930] [cursor=pointer]:
+            - generic [ref=f2e931]: CAPLIPOINT
+            - generic [ref=f2e932]: ~6s
+            - link "CAPLIPOINT — open company page in a new tab" [ref=f2e933]:
+              - /url: http://localhost:5175/stock/CAPLIPOINT?theme=light
+          - generic [ref=f2e938] [cursor=pointer]:
+            - generic [ref=f2e939]: CARBORUNIV
+            - generic [ref=f2e940]: ~6s
+            - link "CARBORUNIV — open company page in a new tab" [ref=f2e941]:
+              - /url: http://localhost:5175/stock/CARBORUNIV?theme=light
+          - generic [ref=f2e946] [cursor=pointer]:
+            - generic [ref=f2e947]: CARTRADE
+            - generic [ref=f2e948]: ~6s
+            - link "CARTRADE — open company page in a new tab" [ref=f2e949]:
+              - /url: http://localhost:5175/stock/CARTRADE?theme=light
+          - generic [ref=f2e954] [cursor=pointer]:
+            - generic [ref=f2e955]: CASTROLIND
+            - generic [ref=f2e956]: ~6s
+            - link "CASTROLIND — open company page in a new tab" [ref=f2e957]:
+              - /url: http://localhost:5175/stock/CASTROLIND?theme=light
+          - generic [ref=f2e962] [cursor=pointer]:
+            - generic [ref=f2e963]: CCL
+            - generic [ref=f2e964]: ~6s
+            - link "CCL — open company page in a new tab" [ref=f2e965]:
+              - /url: http://localhost:5175/stock/CCL?theme=light
+          - generic [ref=f2e970] [cursor=pointer]:
+            - generic [ref=f2e971]: CDSL
+            - generic [ref=f2e972]: ~6s
+            - link "CDSL — open company page in a new tab" [ref=f2e973]:
+              - /url: http://localhost:5175/stock/CDSL?theme=light
+          - generic [ref=f2e978] [cursor=pointer]:
+            - generic [ref=f2e979]: CEATLTD
+            - generic [ref=f2e980]: ~6s
+            - link "CEATLTD — open company page in a new tab" [ref=f2e981]:
+              - /url: http://localhost:5175/stock/CEATLTD?theme=light
+          - generic [ref=f2e986] [cursor=pointer]:
+            - generic [ref=f2e987]: CEMPRO
+            - generic [ref=f2e988]: ~6s
+            - link "CEMPRO — open company page in a new tab" [ref=f2e989]:
+              - /url: http://localhost:5175/stock/CEMPRO?theme=light
+          - generic [ref=f2e994] [cursor=pointer]:
+            - generic [ref=f2e995]: CENTRALBK
+            - generic [ref=f2e996]: ~6s
+            - link "CENTRALBK — open company page in a new tab" [ref=f2e997]:
+              - /url: http://localhost:5175/stock/CENTRALBK?theme=light
+          - generic [ref=f2e1002] [cursor=pointer]:
+            - generic [ref=f2e1003]: CESC
+            - generic [ref=f2e1004]: ~6s
+            - link "CESC — open company page in a new tab" [ref=f2e1005]:
+              - /url: http://localhost:5175/stock/CESC?theme=light
+          - generic [ref=f2e1010] [cursor=pointer]:
+            - generic [ref=f2e1011]: CGCL
+            - generic [ref=f2e1012]: ~6s
+            - link "CGCL — open company page in a new tab" [ref=f2e1013]:
+              - /url: http://localhost:5175/stock/CGCL?theme=light
+          - generic [ref=f2e1018] [cursor=pointer]:
+            - generic [ref=f2e1019]: CGPOWER
+            - generic [ref=f2e1020]: ~6s
+            - link "CGPOWER — open company page in a new tab" [ref=f2e1021]:
+              - /url: http://localhost:5175/stock/CGPOWER?theme=light
+          - generic [ref=f2e1026] [cursor=pointer]:
+            - generic [ref=f2e1027]: CHALET
+            - generic [ref=f2e1028]: ~6s
+            - link "CHALET — open company page in a new tab" [ref=f2e1029]:
+              - /url: http://localhost:5175/stock/CHALET?theme=light
+          - generic [ref=f2e1034] [cursor=pointer]:
+            - generic [ref=f2e1035]: CHAMBLFERT
+            - generic [ref=f2e1036]: ~6s
+            - link "CHAMBLFERT — open company page in a new tab" [ref=f2e1037]:
+              - /url: http://localhost:5175/stock/CHAMBLFERT?theme=light
+          - generic [ref=f2e1042] [cursor=pointer]:
+            - generic [ref=f2e1043]: CHENNPETRO
+            - generic [ref=f2e1044]: ~6s
+            - link "CHENNPETRO — open company page in a new tab" [ref=f2e1045]:
+              - /url: http://localhost:5175/stock/CHENNPETRO?theme=light
+          - generic [ref=f2e1050] [cursor=pointer]:
+            - generic [ref=f2e1051]: CHOICEIN
+            - generic [ref=f2e1052]: ~6s
+            - link "CHOICEIN — open company page in a new tab" [ref=f2e1053]:
+              - /url: http://localhost:5175/stock/CHOICEIN?theme=light
+          - generic [ref=f2e1058] [cursor=pointer]:
+            - generic [ref=f2e1059]: CHOLAFIN
+            - generic [ref=f2e1060]: ~6s
+            - link "CHOLAFIN — open company page in a new tab" [ref=f2e1061]:
+              - /url: http://localhost:5175/stock/CHOLAFIN?theme=light
+          - generic [ref=f2e1066] [cursor=pointer]:
+            - generic [ref=f2e1067]: CHOLAHLDNG
+            - generic [ref=f2e1068]: ~6s
+            - link "CHOLAHLDNG — open company page in a new tab" [ref=f2e1069]:
+              - /url: http://localhost:5175/stock/CHOLAHLDNG?theme=light
+          - generic [ref=f2e1074] [cursor=pointer]:
+            - generic [ref=f2e1075]: CIEINDIA
+            - generic [ref=f2e1076]: ~6s
+            - link "CIEINDIA — open company page in a new tab" [ref=f2e1077]:
+              - /url: http://localhost:5175/stock/CIEINDIA?theme=light
+          - generic [ref=f2e1082] [cursor=pointer]:
+            - generic [ref=f2e1083]: CIPLA
+            - generic [ref=f2e1084]: ~6s
+            - link "CIPLA — open company page in a new tab" [ref=f2e1085]:
+              - /url: http://localhost:5175/stock/CIPLA?theme=light
+          - generic [ref=f2e1090] [cursor=pointer]:
+            - generic [ref=f2e1091]: CLEAN
+            - generic [ref=f2e1092]: ~6s
+            - link "CLEAN — open company page in a new tab" [ref=f2e1093]:
+              - /url: http://localhost:5175/stock/CLEAN?theme=light
+          - generic [ref=f2e1098] [cursor=pointer]:
+            - generic [ref=f2e1099]: COALINDIA
+            - generic [ref=f2e1100]: ~6s
+            - link "COALINDIA — open company page in a new tab" [ref=f2e1101]:
+              - /url: http://localhost:5175/stock/COALINDIA?theme=light
+          - generic [ref=f2e1106] [cursor=pointer]:
+            - generic [ref=f2e1107]: COCHINSHIP
+            - generic [ref=f2e1108]: ~6s
+            - link "COCHINSHIP — open company page in a new tab" [ref=f2e1109]:
+              - /url: http://localhost:5175/stock/COCHINSHIP?theme=light
+          - generic [ref=f2e1114] [cursor=pointer]:
+            - generic [ref=f2e1115]: COFORGE
+            - generic [ref=f2e1116]: ~6s
+            - link "COFORGE — open company page in a new tab" [ref=f2e1117]:
+              - /url: http://localhost:5175/stock/COFORGE?theme=light
+          - generic [ref=f2e1122] [cursor=pointer]:
+            - generic [ref=f2e1123]: COHANCE
+            - generic [ref=f2e1124]: ~6s
+            - link "COHANCE — open company page in a new tab" [ref=f2e1125]:
+              - /url: http://localhost:5175/stock/COHANCE?theme=light
+          - generic [ref=f2e1130] [cursor=pointer]:
+            - generic [ref=f2e1131]: COLPAL
+            - generic [ref=f2e1132]: ~6s
+            - link "COLPAL — open company page in a new tab" [ref=f2e1133]:
+              - /url: http://localhost:5175/stock/COLPAL?theme=light
+          - generic [ref=f2e1138] [cursor=pointer]:
+            - generic [ref=f2e1139]: CONCOR
+            - generic [ref=f2e1140]: ~6s
+            - link "CONCOR — open company page in a new tab" [ref=f2e1141]:
+              - /url: http://localhost:5175/stock/CONCOR?theme=light
+          - generic [ref=f2e1146] [cursor=pointer]:
+            - generic [ref=f2e1147]: CONCORDBIO
+            - generic [ref=f2e1148]: ~6s
+            - link "CONCORDBIO — open company page in a new tab" [ref=f2e1149]:
+              - /url: http://localhost:5175/stock/CONCORDBIO?theme=light
+          - generic [ref=f2e1154] [cursor=pointer]:
+            - generic [ref=f2e1155]: COROMANDEL
+            - generic [ref=f2e1156]: ~6s
+            - link "COROMANDEL — open company page in a new tab" [ref=f2e1157]:
+              - /url: http://localhost:5175/stock/COROMANDEL?theme=light
+          - generic [ref=f2e1162] [cursor=pointer]:
+            - generic [ref=f2e1163]: CPPLUS
+            - generic [ref=f2e1164]: ~6s
+            - link "CPPLUS — open company page in a new tab" [ref=f2e1165]:
+              - /url: http://localhost:5175/stock/CPPLUS?theme=light
+          - generic [ref=f2e1170] [cursor=pointer]:
+            - generic [ref=f2e1171]: CRAFTSMAN
+            - generic [ref=f2e1172]: ~6s
+            - link "CRAFTSMAN — open company page in a new tab" [ref=f2e1173]:
+              - /url: http://localhost:5175/stock/CRAFTSMAN?theme=light
+          - generic [ref=f2e1178] [cursor=pointer]:
+            - generic [ref=f2e1179]: CREDITACC
+            - generic [ref=f2e1180]: ~6s
+            - link "CREDITACC — open company page in a new tab" [ref=f2e1181]:
+              - /url: http://localhost:5175/stock/CREDITACC?theme=light
+          - generic [ref=f2e1186] [cursor=pointer]:
+            - generic [ref=f2e1187]: CRISIL
+            - generic [ref=f2e1188]: ~6s
+            - link "CRISIL — open company page in a new tab" [ref=f2e1189]:
+              - /url: http://localhost:5175/stock/CRISIL?theme=light
+          - generic [ref=f2e1194] [cursor=pointer]:
+            - generic [ref=f2e1195]: CROMPTON
+            - generic [ref=f2e1196]: ~6s
+            - link "CROMPTON — open company page in a new tab" [ref=f2e1197]:
+              - /url: http://localhost:5175/stock/CROMPTON?theme=light
+          - generic [ref=f2e1202] [cursor=pointer]:
+            - generic [ref=f2e1203]: CUB
+            - generic [ref=f2e1204]: ~6s
+            - link "CUB — open company page in a new tab" [ref=f2e1205]:
+              - /url: http://localhost:5175/stock/CUB?theme=light
+          - generic [ref=f2e1210] [cursor=pointer]:
+            - generic [ref=f2e1211]: CUMMINSIND
+            - generic [ref=f2e1212]: ~6s
+            - link "CUMMINSIND — open company page in a new tab" [ref=f2e1213]:
+              - /url: http://localhost:5175/stock/CUMMINSIND?theme=light
+          - generic [ref=f2e1218] [cursor=pointer]:
+            - generic [ref=f2e1219]: CYIENT
+            - generic [ref=f2e1220]: ~6s
+            - link "CYIENT — open company page in a new tab" [ref=f2e1221]:
+              - /url: http://localhost:5175/stock/CYIENT?theme=light
+          - generic [ref=f2e1226] [cursor=pointer]:
+            - generic [ref=f2e1227]: DABUR
+            - generic [ref=f2e1228]: ~6s
+            - link "DABUR — open company page in a new tab" [ref=f2e1229]:
+              - /url: http://localhost:5175/stock/DABUR?theme=light
+          - generic [ref=f2e1234] [cursor=pointer]:
+            - generic [ref=f2e1235]: DALBHARAT
+            - generic [ref=f2e1236]: ~6s
+            - link "DALBHARAT — open company page in a new tab" [ref=f2e1237]:
+              - /url: http://localhost:5175/stock/DALBHARAT?theme=light
+          - generic [ref=f2e1242] [cursor=pointer]:
+            - generic [ref=f2e1243]: DATAPATTNS
+            - generic [ref=f2e1244]: ~6s
+            - link "DATAPATTNS — open company page in a new tab" [ref=f2e1245]:
+              - /url: http://localhost:5175/stock/DATAPATTNS?theme=light
+          - generic [ref=f2e1250] [cursor=pointer]:
+            - generic [ref=f2e1251]: DCMSHRIRAM
+            - generic [ref=f2e1252]: ~6s
+            - link "DCMSHRIRAM — open company page in a new tab" [ref=f2e1253]:
+              - /url: http://localhost:5175/stock/DCMSHRIRAM?theme=light
+          - generic [ref=f2e1258] [cursor=pointer]:
+            - generic [ref=f2e1259]: DEEPAKFERT
+            - generic [ref=f2e1260]: ~6s
+            - link "DEEPAKFERT — open company page in a new tab" [ref=f2e1261]:
+              - /url: http://localhost:5175/stock/DEEPAKFERT?theme=light
+          - generic [ref=f2e1266] [cursor=pointer]:
+            - generic [ref=f2e1267]: DEEPAKNTR
+            - generic [ref=f2e1268]: ~6s
+            - link "DEEPAKNTR — open company page in a new tab" [ref=f2e1269]:
+              - /url: http://localhost:5175/stock/DEEPAKNTR?theme=light
+          - generic [ref=f2e1274] [cursor=pointer]:
+            - generic [ref=f2e1275]: DELHIVERY
+            - generic [ref=f2e1276]: ~6s
+            - link "DELHIVERY — open company page in a new tab" [ref=f2e1277]:
+              - /url: http://localhost:5175/stock/DELHIVERY?theme=light
+          - generic [ref=f2e1282] [cursor=pointer]:
+            - generic [ref=f2e1283]: DEVYANI
+            - generic [ref=f2e1284]: ~6s
+            - link "DEVYANI — open company page in a new tab" [ref=f2e1285]:
+              - /url: http://localhost:5175/stock/DEVYANI?theme=light
+          - generic [ref=f2e1290] [cursor=pointer]:
+            - generic [ref=f2e1291]: DIVISLAB
+            - generic [ref=f2e1292]: ~6s
+            - link "DIVISLAB — open company page in a new tab" [ref=f2e1293]:
+              - /url: http://localhost:5175/stock/DIVISLAB?theme=light
+          - generic [ref=f2e1298] [cursor=pointer]:
+            - generic [ref=f2e1299]: DIXON
+            - generic [ref=f2e1300]: ~6s
+            - link "DIXON — open company page in a new tab" [ref=f2e1301]:
+              - /url: http://localhost:5175/stock/DIXON?theme=light
+          - generic [ref=f2e1306] [cursor=pointer]:
+            - generic [ref=f2e1307]: DLF
+            - generic [ref=f2e1308]: ~6s
+            - link "DLF — open company page in a new tab" [ref=f2e1309]:
+              - /url: http://localhost:5175/stock/DLF?theme=light
+          - generic [ref=f2e1314] [cursor=pointer]:
+            - generic [ref=f2e1315]: DMART
+            - generic [ref=f2e1316]: ~6s
+            - link "DMART — open company page in a new tab" [ref=f2e1317]:
+              - /url: http://localhost:5175/stock/DMART?theme=light
+          - generic [ref=f2e1322] [cursor=pointer]:
+            - generic [ref=f2e1323]: DOMS
+            - generic [ref=f2e1324]: ~6s
+            - link "DOMS — open company page in a new tab" [ref=f2e1325]:
+              - /url: http://localhost:5175/stock/DOMS?theme=light
+          - generic [ref=f2e1330] [cursor=pointer]:
+            - generic [ref=f2e1331]: DRREDDY
+            - generic [ref=f2e1332]: ~6s
+            - link "DRREDDY — open company page in a new tab" [ref=f2e1333]:
+              - /url: http://localhost:5175/stock/DRREDDY?theme=light
+          - generic [ref=f2e1338] [cursor=pointer]:
+            - generic [ref=f2e1339]: ECLERX
+            - generic [ref=f2e1340]: ~6s
+            - link "ECLERX — open company page in a new tab" [ref=f2e1341]:
+              - /url: http://localhost:5175/stock/ECLERX?theme=light
+          - generic [ref=f2e1346] [cursor=pointer]:
+            - generic [ref=f2e1347]: EICHERMOT
+            - generic [ref=f2e1348]: ~6s
+            - link "EICHERMOT — open company page in a new tab" [ref=f2e1349]:
+              - /url: http://localhost:5175/stock/EICHERMOT?theme=light
+          - generic [ref=f2e1354] [cursor=pointer]:
+            - generic [ref=f2e1355]: EIDPARRY
+            - generic [ref=f2e1356]: ~6s
+            - link "EIDPARRY — open company page in a new tab" [ref=f2e1357]:
+              - /url: http://localhost:5175/stock/EIDPARRY?theme=light
+          - generic [ref=f2e1362] [cursor=pointer]:
+            - generic [ref=f2e1363]: EIHOTEL
+            - generic [ref=f2e1364]: ~6s
+            - link "EIHOTEL — open company page in a new tab" [ref=f2e1365]:
+              - /url: http://localhost:5175/stock/EIHOTEL?theme=light
+          - generic [ref=f2e1370] [cursor=pointer]:
+            - generic [ref=f2e1371]: ELECON
+            - generic [ref=f2e1372]: ~6s
+            - link "ELECON — open company page in a new tab" [ref=f2e1373]:
+              - /url: http://localhost:5175/stock/ELECON?theme=light
+          - generic [ref=f2e1378] [cursor=pointer]:
+            - generic [ref=f2e1379]: ELGIEQUIP
+            - generic [ref=f2e1380]: ~6s
+            - link "ELGIEQUIP — open company page in a new tab" [ref=f2e1381]:
+              - /url: http://localhost:5175/stock/ELGIEQUIP?theme=light
+          - generic [ref=f2e1386] [cursor=pointer]:
+            - generic [ref=f2e1387]: EMAMILTD
+            - generic [ref=f2e1388]: ~6s
+            - link "EMAMILTD — open company page in a new tab" [ref=f2e1389]:
+              - /url: http://localhost:5175/stock/EMAMILTD?theme=light
+          - generic [ref=f2e1394] [cursor=pointer]:
+            - generic [ref=f2e1395]: EMCURE
+            - generic [ref=f2e1396]: ~6s
+            - link "EMCURE — open company page in a new tab" [ref=f2e1397]:
+              - /url: http://localhost:5175/stock/EMCURE?theme=light
+          - generic [ref=f2e1402] [cursor=pointer]:
+            - generic [ref=f2e1403]: EMMVEE
+            - generic [ref=f2e1404]: ~6s
+            - link "EMMVEE — open company page in a new tab" [ref=f2e1405]:
+              - /url: http://localhost:5175/stock/EMMVEE?theme=light
+          - generic [ref=f2e1410] [cursor=pointer]:
+            - generic [ref=f2e1411]: ENDURANCE
+            - generic [ref=f2e1412]: ~6s
+            - link "ENDURANCE — open company page in a new tab" [ref=f2e1413]:
+              - /url: http://localhost:5175/stock/ENDURANCE?theme=light
+          - generic [ref=f2e1418] [cursor=pointer]:
+            - generic [ref=f2e1419]: ENGINERSIN
+            - generic [ref=f2e1420]: ~6s
+            - link "ENGINERSIN — open company page in a new tab" [ref=f2e1421]:
+              - /url: http://localhost:5175/stock/ENGINERSIN?theme=light
+          - generic [ref=f2e1426] [cursor=pointer]:
+            - generic [ref=f2e1427]: ENRIN
+            - generic [ref=f2e1428]: ~6s
+            - link "ENRIN — open company page in a new tab" [ref=f2e1429]:
+              - /url: http://localhost:5175/stock/ENRIN?theme=light
+          - generic [ref=f2e1434] [cursor=pointer]:
+            - generic [ref=f2e1435]: ERIS
+            - generic [ref=f2e1436]: ~6s
+            - link "ERIS — open company page in a new tab" [ref=f2e1437]:
+              - /url: http://localhost:5175/stock/ERIS?theme=light
+          - generic [ref=f2e1442] [cursor=pointer]:
+            - generic [ref=f2e1443]: ESCORTS
+            - generic [ref=f2e1444]: ~6s
+            - link "ESCORTS — open company page in a new tab" [ref=f2e1445]:
+              - /url: http://localhost:5175/stock/ESCORTS?theme=light
+          - generic [ref=f2e1450] [cursor=pointer]:
+            - generic [ref=f2e1451]: ETERNAL
+            - generic [ref=f2e1452]: ~6s
+            - link "ETERNAL — open company page in a new tab" [ref=f2e1453]:
+              - /url: http://localhost:5175/stock/ETERNAL?theme=light
+          - generic [ref=f2e1458] [cursor=pointer]:
+            - generic [ref=f2e1459]: EXIDEIND
+            - generic [ref=f2e1460]: ~6s
+            - link "EXIDEIND — open company page in a new tab" [ref=f2e1461]:
+              - /url: http://localhost:5175/stock/EXIDEIND?theme=light
+          - generic [ref=f2e1466] [cursor=pointer]:
+            - generic [ref=f2e1467]: FACT
+            - generic [ref=f2e1468]: ~6s
+            - link "FACT — open company page in a new tab" [ref=f2e1469]:
+              - /url: http://localhost:5175/stock/FACT?theme=light
+          - generic [ref=f2e1474] [cursor=pointer]:
+            - generic [ref=f2e1475]: FEDERALBNK
+            - generic [ref=f2e1476]: ~6s
+            - link "FEDERALBNK — open company page in a new tab" [ref=f2e1477]:
+              - /url: http://localhost:5175/stock/FEDERALBNK?theme=light
+          - generic [ref=f2e1482] [cursor=pointer]:
+            - generic [ref=f2e1483]: FINCABLES
+            - generic [ref=f2e1484]: ~6s
+            - link "FINCABLES — open company page in a new tab" [ref=f2e1485]:
+              - /url: http://localhost:5175/stock/FINCABLES?theme=light
+          - generic [ref=f2e1490] [cursor=pointer]:
+            - generic [ref=f2e1491]: FIRSTCRY
+            - generic [ref=f2e1492]: ~6s
+            - link "FIRSTCRY — open company page in a new tab" [ref=f2e1493]:
+              - /url: http://localhost:5175/stock/FIRSTCRY?theme=light
+          - generic [ref=f2e1498] [cursor=pointer]:
+            - generic [ref=f2e1499]: FIVESTAR
+            - generic [ref=f2e1500]: ~6s
+            - link "FIVESTAR — open company page in a new tab" [ref=f2e1501]:
+              - /url: http://localhost:5175/stock/FIVESTAR?theme=light
+          - generic [ref=f2e1506] [cursor=pointer]:
+            - generic [ref=f2e1507]: FLUOROCHEM
+            - generic [ref=f2e1508]: ~6s
+            - link "FLUOROCHEM — open company page in a new tab" [ref=f2e1509]:
+              - /url: http://localhost:5175/stock/FLUOROCHEM?theme=light
+          - generic [ref=f2e1514] [cursor=pointer]:
+            - generic [ref=f2e1515]: FORCEMOT
+            - generic [ref=f2e1516]: ~6s
+            - link "FORCEMOT — open company page in a new tab" [ref=f2e1517]:
+              - /url: http://localhost:5175/stock/FORCEMOT?theme=light
+          - generic [ref=f2e1522] [cursor=pointer]:
+            - generic [ref=f2e1523]: FORTIS
+            - generic [ref=f2e1524]: ~6s
+            - link "FORTIS — open company page in a new tab" [ref=f2e1525]:
+              - /url: http://localhost:5175/stock/FORTIS?theme=light
+          - generic [ref=f2e1530] [cursor=pointer]:
+            - generic [ref=f2e1531]: FSL
+            - generic [ref=f2e1532]: ~6s
+            - link "FSL — open company page in a new tab" [ref=f2e1533]:
+              - /url: http://localhost:5175/stock/FSL?theme=light
+          - generic [ref=f2e1538] [cursor=pointer]:
+            - generic [ref=f2e1539]: GABRIEL
+            - generic [ref=f2e1540]: ~6s
+            - link "GABRIEL — open company page in a new tab" [ref=f2e1541]:
+              - /url: http://localhost:5175/stock/GABRIEL?theme=light
+          - generic [ref=f2e1546] [cursor=pointer]:
+            - generic [ref=f2e1547]: GAIL
+            - generic [ref=f2e1548]: ~6s
+            - link "GAIL — open company page in a new tab" [ref=f2e1549]:
+              - /url: http://localhost:5175/stock/GAIL?theme=light
+          - generic [ref=f2e1554] [cursor=pointer]:
+            - generic [ref=f2e1555]: GALLANTT
+            - generic [ref=f2e1556]: ~6s
+            - link "GALLANTT — open company page in a new tab" [ref=f2e1557]:
+              - /url: http://localhost:5175/stock/GALLANTT?theme=light
+          - generic [ref=f2e1562] [cursor=pointer]:
+            - generic [ref=f2e1563]: GESHIP
+            - generic [ref=f2e1564]: ~6s
+            - link "GESHIP — open company page in a new tab" [ref=f2e1565]:
+              - /url: http://localhost:5175/stock/GESHIP?theme=light
+          - generic [ref=f2e1570] [cursor=pointer]:
+            - generic [ref=f2e1571]: GICRE
+            - generic [ref=f2e1572]: ~6s
+            - link "GICRE — open company page in a new tab" [ref=f2e1573]:
+              - /url: http://localhost:5175/stock/GICRE?theme=light
+          - generic [ref=f2e1578] [cursor=pointer]:
+            - generic [ref=f2e1579]: GILLETTE
+            - generic [ref=f2e1580]: ~6s
+            - link "GILLETTE — open company page in a new tab" [ref=f2e1581]:
+              - /url: http://localhost:5175/stock/GILLETTE?theme=light
+          - generic [ref=f2e1586] [cursor=pointer]:
+            - generic [ref=f2e1587]: GLAND
+            - generic [ref=f2e1588]: ~6s
+            - link "GLAND — open company page in a new tab" [ref=f2e1589]:
+              - /url: http://localhost:5175/stock/GLAND?theme=light
+          - generic [ref=f2e1594] [cursor=pointer]:
+            - generic [ref=f2e1595]: GLAXO
+            - generic [ref=f2e1596]: ~6s
+            - link "GLAXO — open company page in a new tab" [ref=f2e1597]:
+              - /url: http://localhost:5175/stock/GLAXO?theme=light
+          - generic [ref=f2e1602] [cursor=pointer]:
+            - generic [ref=f2e1603]: GLENMARK
+            - generic [ref=f2e1604]: ~6s
+            - link "GLENMARK — open company page in a new tab" [ref=f2e1605]:
+              - /url: http://localhost:5175/stock/GLENMARK?theme=light
+          - generic [ref=f2e1610] [cursor=pointer]:
+            - generic [ref=f2e1611]: GMDCLTD
+            - generic [ref=f2e1612]: ~6s
+            - link "GMDCLTD — open company page in a new tab" [ref=f2e1613]:
+              - /url: http://localhost:5175/stock/GMDCLTD?theme=light
+          - generic [ref=f2e1618] [cursor=pointer]:
+            - generic [ref=f2e1619]: GMRAIRPORT
+            - generic [ref=f2e1620]: ~6s
+            - link "GMRAIRPORT — open company page in a new tab" [ref=f2e1621]:
+              - /url: http://localhost:5175/stock/GMRAIRPORT?theme=light
+          - generic [ref=f2e1626] [cursor=pointer]:
+            - generic [ref=f2e1627]: GODFRYPHLP
+            - generic [ref=f2e1628]: ~6s
+            - link "GODFRYPHLP — open company page in a new tab" [ref=f2e1629]:
+              - /url: http://localhost:5175/stock/GODFRYPHLP?theme=light
+          - generic [ref=f2e1634] [cursor=pointer]:
+            - generic [ref=f2e1635]: GODIGIT
+            - generic [ref=f2e1636]: ~6s
+            - link "GODIGIT — open company page in a new tab" [ref=f2e1637]:
+              - /url: http://localhost:5175/stock/GODIGIT?theme=light
+          - generic [ref=f2e1642] [cursor=pointer]:
+            - generic [ref=f2e1643]: GODREJCP
+            - generic [ref=f2e1644]: ~6s
+            - link "GODREJCP — open company page in a new tab" [ref=f2e1645]:
+              - /url: http://localhost:5175/stock/GODREJCP?theme=light
+          - generic [ref=f2e1650] [cursor=pointer]:
+            - generic [ref=f2e1651]: GODREJIND
+            - generic [ref=f2e1652]: ~6s
+            - link "GODREJIND — open company page in a new tab" [ref=f2e1653]:
+              - /url: http://localhost:5175/stock/GODREJIND?theme=light
+          - generic [ref=f2e1658] [cursor=pointer]:
+            - generic [ref=f2e1659]: GODREJPROP
+            - generic [ref=f2e1660]: ~6s
+            - link "GODREJPROP — open company page in a new tab" [ref=f2e1661]:
+              - /url: http://localhost:5175/stock/GODREJPROP?theme=light
+          - generic [ref=f2e1666] [cursor=pointer]:
+            - generic [ref=f2e1667]: GPIL
+            - generic [ref=f2e1668]: ~6s
+            - link "GPIL — open company page in a new tab" [ref=f2e1669]:
+              - /url: http://localhost:5175/stock/GPIL?theme=light
+          - generic [ref=f2e1674] [cursor=pointer]:
+            - generic [ref=f2e1675]: GRANULES
+            - generic [ref=f2e1676]: ~6s
+            - link "GRANULES — open company page in a new tab" [ref=f2e1677]:
+              - /url: http://localhost:5175/stock/GRANULES?theme=light
+          - generic [ref=f2e1682] [cursor=pointer]:
+            - generic [ref=f2e1683]: GRAPHITE
+            - generic [ref=f2e1684]: ~6s
+            - link "GRAPHITE — open company page in a new tab" [ref=f2e1685]:
+              - /url: http://localhost:5175/stock/GRAPHITE?theme=light
+          - generic [ref=f2e1690] [cursor=pointer]:
+            - generic [ref=f2e1691]: GRASIM
+            - generic [ref=f2e1692]: ~6s
+            - link "GRASIM — open company page in a new tab" [ref=f2e1693]:
+              - /url: http://localhost:5175/stock/GRASIM?theme=light
+          - generic [ref=f2e1698] [cursor=pointer]:
+            - generic [ref=f2e1699]: GRAVITA
+            - generic [ref=f2e1700]: ~6s
+            - link "GRAVITA — open company page in a new tab" [ref=f2e1701]:
+              - /url: http://localhost:5175/stock/GRAVITA?theme=light
+          - generic [ref=f2e1706] [cursor=pointer]:
+            - generic [ref=f2e1707]: GROWW
+            - generic [ref=f2e1708]: ~6s
+            - link "GROWW — open company page in a new tab" [ref=f2e1709]:
+              - /url: http://localhost:5175/stock/GROWW?theme=light
+          - generic [ref=f2e1714] [cursor=pointer]:
+            - generic [ref=f2e1715]: GRSE
+            - generic [ref=f2e1716]: ~6s
+            - link "GRSE — open company page in a new tab" [ref=f2e1717]:
+              - /url: http://localhost:5175/stock/GRSE?theme=light
+          - generic [ref=f2e1722] [cursor=pointer]:
+            - generic [ref=f2e1723]: GVT&D
+            - generic [ref=f2e1724]: ~6s
+            - link "GVT&D — open company page in a new tab" [ref=f2e1725]:
+              - /url: http://localhost:5175/stock/GVT%26D?theme=light
+          - generic [ref=f2e1730] [cursor=pointer]:
+            - generic [ref=f2e1731]: HAL
+            - generic [ref=f2e1732]: ~6s
+            - link "HAL — open company page in a new tab" [ref=f2e1733]:
+              - /url: http://localhost:5175/stock/HAL?theme=light
+          - generic [ref=f2e1738] [cursor=pointer]:
+            - generic [ref=f2e1739]: HAVELLS
+            - generic [ref=f2e1740]: ~6s
+            - link "HAVELLS — open company page in a new tab" [ref=f2e1741]:
+              - /url: http://localhost:5175/stock/HAVELLS?theme=light
+          - generic [ref=f2e1746] [cursor=pointer]:
+            - generic [ref=f2e1747]: HBLENGINE
+            - generic [ref=f2e1748]: ~6s
+            - link "HBLENGINE — open company page in a new tab" [ref=f2e1749]:
+              - /url: http://localhost:5175/stock/HBLENGINE?theme=light
+          - generic [ref=f2e1754] [cursor=pointer]:
+            - generic [ref=f2e1755]: HCLTECH
+            - generic [ref=f2e1756]: ~6s
+            - link "HCLTECH — open company page in a new tab" [ref=f2e1757]:
+              - /url: http://localhost:5175/stock/HCLTECH?theme=light
+          - generic [ref=f2e1762] [cursor=pointer]:
+            - generic [ref=f2e1763]: HDBFS
+            - generic [ref=f2e1764]: ~6s
+            - link "HDBFS — open company page in a new tab" [ref=f2e1765]:
+              - /url: http://localhost:5175/stock/HDBFS?theme=light
+          - generic [ref=f2e1770] [cursor=pointer]:
+            - generic [ref=f2e1771]: HDFCAMC
+            - generic [ref=f2e1772]: ~6s
+            - link "HDFCAMC — open company page in a new tab" [ref=f2e1773]:
+              - /url: http://localhost:5175/stock/HDFCAMC?theme=light
+          - generic [ref=f2e1778] [cursor=pointer]:
+            - generic [ref=f2e1779]: HDFCBANK
+            - generic [ref=f2e1780]: ~6s
+            - link "HDFCBANK — open company page in a new tab" [ref=f2e1781]:
+              - /url: http://localhost:5175/stock/HDFCBANK?theme=light
+          - generic [ref=f2e1786] [cursor=pointer]:
+            - generic [ref=f2e1787]: HDFCLIFE
+            - generic [ref=f2e1788]: ~6s
+            - link "HDFCLIFE — open company page in a new tab" [ref=f2e1789]:
+              - /url: http://localhost:5175/stock/HDFCLIFE?theme=light
+          - generic [ref=f2e1794] [cursor=pointer]:
+            - generic [ref=f2e1795]: HEG
+            - generic [ref=f2e1796]: ~6s
+            - link "HEG — open company page in a new tab" [ref=f2e1797]:
+              - /url: http://localhost:5175/stock/HEG?theme=light
+          - generic [ref=f2e1802] [cursor=pointer]:
+            - generic [ref=f2e1803]: HEROMOTOCO
+            - generic [ref=f2e1804]: ~6s
+            - link "HEROMOTOCO — open company page in a new tab" [ref=f2e1805]:
+              - /url: http://localhost:5175/stock/HEROMOTOCO?theme=light
+          - generic [ref=f2e1810] [cursor=pointer]:
+            - generic [ref=f2e1811]: HEXT
+            - generic [ref=f2e1812]: ~6s
+            - link "HEXT — open company page in a new tab" [ref=f2e1813]:
+              - /url: http://localhost:5175/stock/HEXT?theme=light
+          - generic [ref=f2e1818] [cursor=pointer]:
+            - generic [ref=f2e1819]: HFCL
+            - generic [ref=f2e1820]: ~6s
+            - link "HFCL — open company page in a new tab" [ref=f2e1821]:
+              - /url: http://localhost:5175/stock/HFCL?theme=light
+          - generic [ref=f2e1826] [cursor=pointer]:
+            - generic [ref=f2e1827]: HINDALCO
+            - generic [ref=f2e1828]: ~6s
+            - link "HINDALCO — open company page in a new tab" [ref=f2e1829]:
+              - /url: http://localhost:5175/stock/HINDALCO?theme=light
+          - generic [ref=f2e1834] [cursor=pointer]:
+            - generic [ref=f2e1835]: HINDCOPPER
+            - generic [ref=f2e1836]: ~6s
+            - link "HINDCOPPER — open company page in a new tab" [ref=f2e1837]:
+              - /url: http://localhost:5175/stock/HINDCOPPER?theme=light
+          - generic [ref=f2e1842] [cursor=pointer]:
+            - generic [ref=f2e1843]: HINDPETRO
+            - generic [ref=f2e1844]: ~6s
+            - link "HINDPETRO — open company page in a new tab" [ref=f2e1845]:
+              - /url: http://localhost:5175/stock/HINDPETRO?theme=light
+          - generic [ref=f2e1850] [cursor=pointer]:
+            - generic [ref=f2e1851]: HINDUNILVR
+            - generic [ref=f2e1852]: ~6s
+            - link "HINDUNILVR — open company page in a new tab" [ref=f2e1853]:
+              - /url: http://localhost:5175/stock/HINDUNILVR?theme=light
+          - generic [ref=f2e1858] [cursor=pointer]:
+            - generic [ref=f2e1859]: HINDZINC
+            - generic [ref=f2e1860]: ~6s
+            - link "HINDZINC — open company page in a new tab" [ref=f2e1861]:
+              - /url: http://localhost:5175/stock/HINDZINC?theme=light
+          - generic [ref=f2e1866] [cursor=pointer]:
+            - generic [ref=f2e1867]: HOMEFIRST
+            - generic [ref=f2e1868]: ~6s
+            - link "HOMEFIRST — open company page in a new tab" [ref=f2e1869]:
+              - /url: http://localhost:5175/stock/HOMEFIRST?theme=light
+          - generic [ref=f2e1874] [cursor=pointer]:
+            - generic [ref=f2e1875]: HONASA
+            - generic [ref=f2e1876]: ~6s
+            - link "HONASA — open company page in a new tab" [ref=f2e1877]:
+              - /url: http://localhost:5175/stock/HONASA?theme=light
+          - generic [ref=f2e1882] [cursor=pointer]:
+            - generic [ref=f2e1883]: HONAUT
+            - generic [ref=f2e1884]: ~6s
+            - link "HONAUT — open company page in a new tab" [ref=f2e1885]:
+              - /url: http://localhost:5175/stock/HONAUT?theme=light
+          - generic [ref=f2e1890] [cursor=pointer]:
+            - generic [ref=f2e1891]: HSCL
+            - generic [ref=f2e1892]: ~6s
+            - link "HSCL — open company page in a new tab" [ref=f2e1893]:
+              - /url: http://localhost:5175/stock/HSCL?theme=light
+          - generic [ref=f2e1898] [cursor=pointer]:
+            - generic [ref=f2e1899]: HUDCO
+            - generic [ref=f2e1900]: ~6s
+            - link "HUDCO — open company page in a new tab" [ref=f2e1901]:
+              - /url: http://localhost:5175/stock/HUDCO?theme=light
+          - generic [ref=f2e1906] [cursor=pointer]:
+            - generic [ref=f2e1907]: HYUNDAI
+            - generic [ref=f2e1908]: ~6s
+            - link "HYUNDAI — open company page in a new tab" [ref=f2e1909]:
+              - /url: http://localhost:5175/stock/HYUNDAI?theme=light
+          - generic [ref=f2e1914] [cursor=pointer]:
+            - generic [ref=f2e1915]: ICICIAMC
+            - generic [ref=f2e1916]: ~6s
+            - link "ICICIAMC — open company page in a new tab" [ref=f2e1917]:
+              - /url: http://localhost:5175/stock/ICICIAMC?theme=light
+          - generic [ref=f2e1922] [cursor=pointer]:
+            - generic [ref=f2e1923]: ICICIBANK
+            - generic [ref=f2e1924]: ~6s
+            - link "ICICIBANK — open company page in a new tab" [ref=f2e1925]:
+              - /url: http://localhost:5175/stock/ICICIBANK?theme=light
+          - generic [ref=f2e1930] [cursor=pointer]:
+            - generic [ref=f2e1931]: ICICIGI
+            - generic [ref=f2e1932]: ~6s
+            - link "ICICIGI — open company page in a new tab" [ref=f2e1933]:
+              - /url: http://localhost:5175/stock/ICICIGI?theme=light
+          - generic [ref=f2e1938] [cursor=pointer]:
+            - generic [ref=f2e1939]: ICICIPRULI
+            - generic [ref=f2e1940]: ~6s
+            - link "ICICIPRULI — open company page in a new tab" [ref=f2e1941]:
+              - /url: http://localhost:5175/stock/ICICIPRULI?theme=light
+          - generic [ref=f2e1946] [cursor=pointer]:
+            - generic [ref=f2e1947]: IDBI
+            - generic [ref=f2e1948]: ~6s
+            - link "IDBI — open company page in a new tab" [ref=f2e1949]:
+              - /url: http://localhost:5175/stock/IDBI?theme=light
+          - generic [ref=f2e1954] [cursor=pointer]:
+            - generic [ref=f2e1955]: IDEA
+            - generic [ref=f2e1956]: ~6s
+            - link "IDEA — open company page in a new tab" [ref=f2e1957]:
+              - /url: http://localhost:5175/stock/IDEA?theme=light
+          - generic [ref=f2e1962] [cursor=pointer]:
+            - generic [ref=f2e1963]: IDFCFIRSTB
+            - generic [ref=f2e1964]: ~6s
+            - link "IDFCFIRSTB — open company page in a new tab" [ref=f2e1965]:
+              - /url: http://localhost:5175/stock/IDFCFIRSTB?theme=light
+          - generic [ref=f2e1970] [cursor=pointer]:
+            - generic [ref=f2e1971]: IEX
+            - generic [ref=f2e1972]: ~6s
+            - link "IEX — open company page in a new tab" [ref=f2e1973]:
+              - /url: http://localhost:5175/stock/IEX?theme=light
+          - generic [ref=f2e1978] [cursor=pointer]:
+            - generic [ref=f2e1979]: IFCI
+            - generic [ref=f2e1980]: ~6s
+            - link "IFCI — open company page in a new tab" [ref=f2e1981]:
+              - /url: http://localhost:5175/stock/IFCI?theme=light
+          - generic [ref=f2e1986] [cursor=pointer]:
+            - generic [ref=f2e1987]: IGIL
+            - generic [ref=f2e1988]: ~6s
+            - link "IGIL — open company page in a new tab" [ref=f2e1989]:
+              - /url: http://localhost:5175/stock/IGIL?theme=light
+          - generic [ref=f2e1994] [cursor=pointer]:
+            - generic [ref=f2e1995]: IGL
+            - generic [ref=f2e1996]: ~6s
+            - link "IGL — open company page in a new tab" [ref=f2e1997]:
+              - /url: http://localhost:5175/stock/IGL?theme=light
+          - generic [ref=f2e2002] [cursor=pointer]:
+            - generic [ref=f2e2003]: IIFL
+            - generic [ref=f2e2004]: ~6s
+            - link "IIFL — open company page in a new tab" [ref=f2e2005]:
+              - /url: http://localhost:5175/stock/IIFL?theme=light
+          - generic [ref=f2e2010] [cursor=pointer]:
+            - generic [ref=f2e2011]: IKS
+            - generic [ref=f2e2012]: ~6s
+            - link "IKS — open company page in a new tab" [ref=f2e2013]:
+              - /url: http://localhost:5175/stock/IKS?theme=light
+          - generic [ref=f2e2018] [cursor=pointer]:
+            - generic [ref=f2e2019]: INDGN
+            - generic [ref=f2e2020]: ~6s
+            - link "INDGN — open company page in a new tab" [ref=f2e2021]:
+              - /url: http://localhost:5175/stock/INDGN?theme=light
+          - generic [ref=f2e2026] [cursor=pointer]:
+            - generic [ref=f2e2027]: INDHOTEL
+            - generic [ref=f2e2028]: ~6s
+            - link "INDHOTEL — open company page in a new tab" [ref=f2e2029]:
+              - /url: http://localhost:5175/stock/INDHOTEL?theme=light
+          - generic [ref=f2e2034] [cursor=pointer]:
+            - generic [ref=f2e2035]: INDIACEM
+            - generic [ref=f2e2036]: ~6s
+            - link "INDIACEM — open company page in a new tab" [ref=f2e2037]:
+              - /url: http://localhost:5175/stock/INDIACEM?theme=light
+          - generic [ref=f2e2042] [cursor=pointer]:
+            - generic [ref=f2e2043]: INDIAMART
+            - generic [ref=f2e2044]: ~6s
+            - link "INDIAMART — open company page in a new tab" [ref=f2e2045]:
+              - /url: http://localhost:5175/stock/INDIAMART?theme=light
+          - generic [ref=f2e2050] [cursor=pointer]:
+            - generic [ref=f2e2051]: INDIANB
+            - generic [ref=f2e2052]: ~6s
+            - link "INDIANB — open company page in a new tab" [ref=f2e2053]:
+              - /url: http://localhost:5175/stock/INDIANB?theme=light
+          - generic [ref=f2e2058] [cursor=pointer]:
+            - generic [ref=f2e2059]: INDIGO
+            - generic [ref=f2e2060]: ~6s
+            - link "INDIGO — open company page in a new tab" [ref=f2e2061]:
+              - /url: http://localhost:5175/stock/INDIGO?theme=light
+          - generic [ref=f2e2066] [cursor=pointer]:
+            - generic [ref=f2e2067]: INDUSINDBK
+            - generic [ref=f2e2068]: ~6s
+            - link "INDUSINDBK — open company page in a new tab" [ref=f2e2069]:
+              - /url: http://localhost:5175/stock/INDUSINDBK?theme=light
+          - generic [ref=f2e2074] [cursor=pointer]:
+            - generic [ref=f2e2075]: INDUSTOWER
+            - generic [ref=f2e2076]: ~6s
+            - link "INDUSTOWER — open company page in a new tab" [ref=f2e2077]:
+              - /url: http://localhost:5175/stock/INDUSTOWER?theme=light
+          - generic [ref=f2e2082] [cursor=pointer]:
+            - generic [ref=f2e2083]: INFY
+            - generic [ref=f2e2084]: ~6s
+            - link "INFY — open company page in a new tab" [ref=f2e2085]:
+              - /url: http://localhost:5175/stock/INFY?theme=light
+          - generic [ref=f2e2090] [cursor=pointer]:
+            - generic [ref=f2e2091]: INOXWIND
+            - generic [ref=f2e2092]: ~6s
+            - link "INOXWIND — open company page in a new tab" [ref=f2e2093]:
+              - /url: http://localhost:5175/stock/INOXWIND?theme=light
+          - generic [ref=f2e2098] [cursor=pointer]:
+            - generic [ref=f2e2099]: INTELLECT
+            - generic [ref=f2e2100]: ~6s
+            - link "INTELLECT — open company page in a new tab" [ref=f2e2101]:
+              - /url: http://localhost:5175/stock/INTELLECT?theme=light
+          - generic [ref=f2e2106] [cursor=pointer]:
+            - generic [ref=f2e2107]: IOB
+            - generic [ref=f2e2108]: ~6s
+            - link "IOB — open company page in a new tab" [ref=f2e2109]:
+              - /url: http://localhost:5175/stock/IOB?theme=light
+          - generic [ref=f2e2114] [cursor=pointer]:
+            - generic [ref=f2e2115]: IOC
+            - generic [ref=f2e2116]: ~6s
+            - link "IOC — open company page in a new tab" [ref=f2e2117]:
+              - /url: http://localhost:5175/stock/IOC?theme=light
+          - generic [ref=f2e2122] [cursor=pointer]:
+            - generic [ref=f2e2123]: IPCALAB
+            - generic [ref=f2e2124]: ~6s
+            - link "IPCALAB — open company page in a new tab" [ref=f2e2125]:
+              - /url: http://localhost:5175/stock/IPCALAB?theme=light
+          - generic [ref=f2e2130] [cursor=pointer]:
+            - generic [ref=f2e2131]: IRB
+            - generic [ref=f2e2132]: ~6s
+            - link "IRB — open company page in a new tab" [ref=f2e2133]:
+              - /url: http://localhost:5175/stock/IRB?theme=light
+          - generic [ref=f2e2138] [cursor=pointer]:
+            - generic [ref=f2e2139]: IRCON
+            - generic [ref=f2e2140]: ~6s
+            - link "IRCON — open company page in a new tab" [ref=f2e2141]:
+              - /url: http://localhost:5175/stock/IRCON?theme=light
+          - generic [ref=f2e2146] [cursor=pointer]:
+            - generic [ref=f2e2147]: IRCTC
+            - generic [ref=f2e2148]: ~6s
+            - link "IRCTC — open company page in a new tab" [ref=f2e2149]:
+              - /url: http://localhost:5175/stock/IRCTC?theme=light
+          - generic [ref=f2e2154] [cursor=pointer]:
+            - generic [ref=f2e2155]: IREDA
+            - generic [ref=f2e2156]: ~6s
+            - link "IREDA — open company page in a new tab" [ref=f2e2157]:
+              - /url: http://localhost:5175/stock/IREDA?theme=light
+          - generic [ref=f2e2162] [cursor=pointer]:
+            - generic [ref=f2e2163]: IRFC
+            - generic [ref=f2e2164]: ~6s
+            - link "IRFC — open company page in a new tab" [ref=f2e2165]:
+              - /url: http://localhost:5175/stock/IRFC?theme=light
+          - generic [ref=f2e2170] [cursor=pointer]:
+            - generic [ref=f2e2171]: ITC
+            - generic [ref=f2e2172]: ~6s
+            - link "ITC — open company page in a new tab" [ref=f2e2173]:
+              - /url: http://localhost:5175/stock/ITC?theme=light
+          - generic [ref=f2e2178] [cursor=pointer]:
+            - generic [ref=f2e2179]: ITCHOTELS
+            - generic [ref=f2e2180]: ~6s
+            - link "ITCHOTELS — open company page in a new tab" [ref=f2e2181]:
+              - /url: http://localhost:5175/stock/ITCHOTELS?theme=light
+          - generic [ref=f2e2186] [cursor=pointer]:
+            - generic [ref=f2e2187]: ITI
+            - generic [ref=f2e2188]: ~6s
+            - link "ITI — open company page in a new tab" [ref=f2e2189]:
+              - /url: http://localhost:5175/stock/ITI?theme=light
+          - generic [ref=f2e2194] [cursor=pointer]:
+            - generic [ref=f2e2195]: J&KBANK
+            - generic [ref=f2e2196]: ~6s
+            - link "J&KBANK — open company page in a new tab" [ref=f2e2197]:
+              - /url: http://localhost:5175/stock/J%26KBANK?theme=light
+          - generic [ref=f2e2202] [cursor=pointer]:
+            - generic [ref=f2e2203]: JAINREC
+            - generic [ref=f2e2204]: ~6s
+            - link "JAINREC — open company page in a new tab" [ref=f2e2205]:
+              - /url: http://localhost:5175/stock/JAINREC?theme=light
+          - generic [ref=f2e2210] [cursor=pointer]:
+            - generic [ref=f2e2211]: JBMA
+            - generic [ref=f2e2212]: ~6s
+            - link "JBMA — open company page in a new tab" [ref=f2e2213]:
+              - /url: http://localhost:5175/stock/JBMA?theme=light
+          - generic [ref=f2e2218] [cursor=pointer]:
+            - generic [ref=f2e2219]: JINDALSAW
+            - generic [ref=f2e2220]: ~6s
+            - link "JINDALSAW — open company page in a new tab" [ref=f2e2221]:
+              - /url: http://localhost:5175/stock/JINDALSAW?theme=light
+          - generic [ref=f2e2226] [cursor=pointer]:
+            - generic [ref=f2e2227]: JINDALSTEL
+            - generic [ref=f2e2228]: ~6s
+            - link "JINDALSTEL — open company page in a new tab" [ref=f2e2229]:
+              - /url: http://localhost:5175/stock/JINDALSTEL?theme=light
+          - generic [ref=f2e2234] [cursor=pointer]:
+            - generic [ref=f2e2235]: JIOFIN
+            - generic [ref=f2e2236]: ~6s
+            - link "JIOFIN — open company page in a new tab" [ref=f2e2237]:
+              - /url: http://localhost:5175/stock/JIOFIN?theme=light
+          - generic [ref=f2e2242] [cursor=pointer]:
+            - generic [ref=f2e2243]: JKCEMENT
+            - generic [ref=f2e2244]: ~6s
+            - link "JKCEMENT — open company page in a new tab" [ref=f2e2245]:
+              - /url: http://localhost:5175/stock/JKCEMENT?theme=light
+          - generic [ref=f2e2250] [cursor=pointer]:
+            - generic [ref=f2e2251]: JKTYRE
+            - generic [ref=f2e2252]: ~6s
+            - link "JKTYRE — open company page in a new tab" [ref=f2e2253]:
+              - /url: http://localhost:5175/stock/JKTYRE?theme=light
+          - generic [ref=f2e2258] [cursor=pointer]:
+            - generic [ref=f2e2259]: JMFINANCIL
+            - generic [ref=f2e2260]: ~6s
+            - link "JMFINANCIL — open company page in a new tab" [ref=f2e2261]:
+              - /url: http://localhost:5175/stock/JMFINANCIL?theme=light
+          - generic [ref=f2e2266] [cursor=pointer]:
+            - generic [ref=f2e2267]: JPPOWER
+            - generic [ref=f2e2268]: ~6s
+            - link "JPPOWER — open company page in a new tab" [ref=f2e2269]:
+              - /url: http://localhost:5175/stock/JPPOWER?theme=light
+          - generic [ref=f2e2274] [cursor=pointer]:
+            - generic [ref=f2e2275]: JSL
+            - generic [ref=f2e2276]: ~6s
+            - link "JSL — open company page in a new tab" [ref=f2e2277]:
+              - /url: http://localhost:5175/stock/JSL?theme=light
+          - generic [ref=f2e2282] [cursor=pointer]:
+            - generic [ref=f2e2283]: JSWCEMENT
+            - generic [ref=f2e2284]: ~6s
+            - link "JSWCEMENT — open company page in a new tab" [ref=f2e2285]:
+              - /url: http://localhost:5175/stock/JSWCEMENT?theme=light
+          - generic [ref=f2e2290] [cursor=pointer]:
+            - generic [ref=f2e2291]: JSWDULUX
+            - generic [ref=f2e2292]: ~6s
+            - link "JSWDULUX — open company page in a new tab" [ref=f2e2293]:
+              - /url: http://localhost:5175/stock/JSWDULUX?theme=light
+          - generic [ref=f2e2298] [cursor=pointer]:
+            - generic [ref=f2e2299]: JSWENERGY
+            - generic [ref=f2e2300]: ~6s
+            - link "JSWENERGY — open company page in a new tab" [ref=f2e2301]:
+              - /url: http://localhost:5175/stock/JSWENERGY?theme=light
+          - generic [ref=f2e2306] [cursor=pointer]:
+            - generic [ref=f2e2307]: JSWINFRA
+            - generic [ref=f2e2308]: ~6s
+            - link "JSWINFRA — open company page in a new tab" [ref=f2e2309]:
+              - /url: http://localhost:5175/stock/JSWINFRA?theme=light
+          - generic [ref=f2e2314] [cursor=pointer]:
+            - generic [ref=f2e2315]: JSWSTEEL
+            - generic [ref=f2e2316]: ~6s
+            - link "JSWSTEEL — open company page in a new tab" [ref=f2e2317]:
+              - /url: http://localhost:5175/stock/JSWSTEEL?theme=light
+          - generic [ref=f2e2322] [cursor=pointer]:
+            - generic [ref=f2e2323]: JUBLFOOD
+            - generic [ref=f2e2324]: ~6s
+            - link "JUBLFOOD — open company page in a new tab" [ref=f2e2325]:
+              - /url: http://localhost:5175/stock/JUBLFOOD?theme=light
+          - generic [ref=f2e2330] [cursor=pointer]:
+            - generic [ref=f2e2331]: JUBLINGREA
+            - generic [ref=f2e2332]: ~6s
+            - link "JUBLINGREA — open company page in a new tab" [ref=f2e2333]:
+              - /url: http://localhost:5175/stock/JUBLINGREA?theme=light
+          - generic [ref=f2e2338] [cursor=pointer]:
+            - generic [ref=f2e2339]: JUBLPHARMA
+            - generic [ref=f2e2340]: ~6s
+            - link "JUBLPHARMA — open company page in a new tab" [ref=f2e2341]:
+              - /url: http://localhost:5175/stock/JUBLPHARMA?theme=light
+          - generic [ref=f2e2346] [cursor=pointer]:
+            - generic [ref=f2e2347]: JWL
+            - generic [ref=f2e2348]: ~6s
+            - link "JWL — open company page in a new tab" [ref=f2e2349]:
+              - /url: http://localhost:5175/stock/JWL?theme=light
+          - generic [ref=f2e2354] [cursor=pointer]:
+            - generic [ref=f2e2355]: JYOTICNC
+            - generic [ref=f2e2356]: ~6s
+            - link "JYOTICNC — open company page in a new tab" [ref=f2e2357]:
+              - /url: http://localhost:5175/stock/JYOTICNC?theme=light
+          - generic [ref=f2e2362] [cursor=pointer]:
+            - generic [ref=f2e2363]: KAJARIACER
+            - generic [ref=f2e2364]: ~6s
+            - link "KAJARIACER — open company page in a new tab" [ref=f2e2365]:
+              - /url: http://localhost:5175/stock/KAJARIACER?theme=light
+          - generic [ref=f2e2370] [cursor=pointer]:
+            - generic [ref=f2e2371]: KALYANKJIL
+            - generic [ref=f2e2372]: ~6s
+            - link "KALYANKJIL — open company page in a new tab" [ref=f2e2373]:
+              - /url: http://localhost:5175/stock/KALYANKJIL?theme=light
+          - generic [ref=f2e2378] [cursor=pointer]:
+            - generic [ref=f2e2379]: KARURVYSYA
+            - generic [ref=f2e2380]: ~6s
+            - link "KARURVYSYA — open company page in a new tab" [ref=f2e2381]:
+              - /url: http://localhost:5175/stock/KARURVYSYA?theme=light
+          - generic [ref=f2e2386] [cursor=pointer]:
+            - generic [ref=f2e2387]: KAYNES
+            - generic [ref=f2e2388]: ~6s
+            - link "KAYNES — open company page in a new tab" [ref=f2e2389]:
+              - /url: http://localhost:5175/stock/KAYNES?theme=light
+          - generic [ref=f2e2394] [cursor=pointer]:
+            - generic [ref=f2e2395]: KEC
+            - generic [ref=f2e2396]: ~6s
+            - link "KEC — open company page in a new tab" [ref=f2e2397]:
+              - /url: http://localhost:5175/stock/KEC?theme=light
+          - generic [ref=f2e2402] [cursor=pointer]:
+            - generic [ref=f2e2403]: KEI
+            - generic [ref=f2e2404]: ~6s
+            - link "KEI — open company page in a new tab" [ref=f2e2405]:
+              - /url: http://localhost:5175/stock/KEI?theme=light
+          - generic [ref=f2e2410] [cursor=pointer]:
+            - generic [ref=f2e2411]: KFINTECH
+            - generic [ref=f2e2412]: ~6s
+            - link "KFINTECH — open company page in a new tab" [ref=f2e2413]:
+              - /url: http://localhost:5175/stock/KFINTECH?theme=light
+          - generic [ref=f2e2418] [cursor=pointer]:
+            - generic [ref=f2e2419]: KIMS
+            - generic [ref=f2e2420]: ~6s
+            - link "KIMS — open company page in a new tab" [ref=f2e2421]:
+              - /url: http://localhost:5175/stock/KIMS?theme=light
+          - generic [ref=f2e2426] [cursor=pointer]:
+            - generic [ref=f2e2427]: KIRLOSENG
+            - generic [ref=f2e2428]: ~6s
+            - link "KIRLOSENG — open company page in a new tab" [ref=f2e2429]:
+              - /url: http://localhost:5175/stock/KIRLOSENG?theme=light
+          - generic [ref=f2e2434] [cursor=pointer]:
+            - generic [ref=f2e2435]: KOTAKBANK
+            - generic [ref=f2e2436]: ~6s
+            - link "KOTAKBANK — open company page in a new tab" [ref=f2e2437]:
+              - /url: http://localhost:5175/stock/KOTAKBANK?theme=light
+          - generic [ref=f2e2442] [cursor=pointer]:
+            - generic [ref=f2e2443]: KPIL
+            - generic [ref=f2e2444]: ~6s
+            - link "KPIL — open company page in a new tab" [ref=f2e2445]:
+              - /url: http://localhost:5175/stock/KPIL?theme=light
+          - generic [ref=f2e2450] [cursor=pointer]:
+            - generic [ref=f2e2451]: KPITTECH
+            - generic [ref=f2e2452]: ~6s
+            - link "KPITTECH — open company page in a new tab" [ref=f2e2453]:
+              - /url: http://localhost:5175/stock/KPITTECH?theme=light
+          - generic [ref=f2e2458] [cursor=pointer]:
+            - generic [ref=f2e2459]: KPRMILL
+            - generic [ref=f2e2460]: ~6s
+            - link "KPRMILL — open company page in a new tab" [ref=f2e2461]:
+              - /url: http://localhost:5175/stock/KPRMILL?theme=light
+          - generic [ref=f2e2466] [cursor=pointer]:
+            - generic [ref=f2e2467]: LALPATHLAB
+            - generic [ref=f2e2468]: ~6s
+            - link "LALPATHLAB — open company page in a new tab" [ref=f2e2469]:
+              - /url: http://localhost:5175/stock/LALPATHLAB?theme=light
+          - generic [ref=f2e2474] [cursor=pointer]:
+            - generic [ref=f2e2475]: LATENTVIEW
+            - generic [ref=f2e2476]: ~6s
+            - link "LATENTVIEW — open company page in a new tab" [ref=f2e2477]:
+              - /url: http://localhost:5175/stock/LATENTVIEW?theme=light
+          - generic [ref=f2e2482] [cursor=pointer]:
+            - generic [ref=f2e2483]: LAURUSLABS
+            - generic [ref=f2e2484]: ~6s
+            - link "LAURUSLABS — open company page in a new tab" [ref=f2e2485]:
+              - /url: http://localhost:5175/stock/LAURUSLABS?theme=light
+          - generic [ref=f2e2490] [cursor=pointer]:
+            - generic [ref=f2e2491]: LEMONTREE
+            - generic [ref=f2e2492]: ~6s
+            - link "LEMONTREE — open company page in a new tab" [ref=f2e2493]:
+              - /url: http://localhost:5175/stock/LEMONTREE?theme=light
+          - generic [ref=f2e2498] [cursor=pointer]:
+            - generic [ref=f2e2499]: LENSKART
+            - generic [ref=f2e2500]: ~6s
+            - link "LENSKART — open company page in a new tab" [ref=f2e2501]:
+              - /url: http://localhost:5175/stock/LENSKART?theme=light
+          - generic [ref=f2e2506] [cursor=pointer]:
+            - generic [ref=f2e2507]: LGEINDIA
+            - generic [ref=f2e2508]: ~6s
+            - link "LGEINDIA — open company page in a new tab" [ref=f2e2509]:
+              - /url: http://localhost:5175/stock/LGEINDIA?theme=light
+          - generic [ref=f2e2514] [cursor=pointer]:
+            - generic [ref=f2e2515]: LICHSGFIN
+            - generic [ref=f2e2516]: ~6s
+            - link "LICHSGFIN — open company page in a new tab" [ref=f2e2517]:
+              - /url: http://localhost:5175/stock/LICHSGFIN?theme=light
+          - generic [ref=f2e2522] [cursor=pointer]:
+            - generic [ref=f2e2523]: LICI
+            - generic [ref=f2e2524]: ~6s
+            - link "LICI — open company page in a new tab" [ref=f2e2525]:
+              - /url: http://localhost:5175/stock/LICI?theme=light
+          - generic [ref=f2e2530] [cursor=pointer]:
+            - generic [ref=f2e2531]: LINDEINDIA
+            - generic [ref=f2e2532]: ~6s
+            - link "LINDEINDIA — open company page in a new tab" [ref=f2e2533]:
+              - /url: http://localhost:5175/stock/LINDEINDIA?theme=light
+          - generic [ref=f2e2538] [cursor=pointer]:
+            - generic [ref=f2e2539]: LLOYDSME
+            - generic [ref=f2e2540]: ~6s
+            - link "LLOYDSME — open company page in a new tab" [ref=f2e2541]:
+              - /url: http://localhost:5175/stock/LLOYDSME?theme=light
+          - generic [ref=f2e2546] [cursor=pointer]:
+            - generic [ref=f2e2547]: LODHA
+            - generic [ref=f2e2548]: ~6s
+            - link "LODHA — open company page in a new tab" [ref=f2e2549]:
+              - /url: http://localhost:5175/stock/LODHA?theme=light
+          - generic [ref=f2e2554] [cursor=pointer]:
+            - generic [ref=f2e2555]: LT
+            - generic [ref=f2e2556]: ~6s
+            - link "LT — open company page in a new tab" [ref=f2e2557]:
+              - /url: http://localhost:5175/stock/LT?theme=light
+          - generic [ref=f2e2562] [cursor=pointer]:
+            - generic [ref=f2e2563]: LTF
+            - generic [ref=f2e2564]: ~6s
+            - link "LTF — open company page in a new tab" [ref=f2e2565]:
+              - /url: http://localhost:5175/stock/LTF?theme=light
+          - generic [ref=f2e2570] [cursor=pointer]:
+            - generic [ref=f2e2571]: LTFOODS
+            - generic [ref=f2e2572]: ~6s
+            - link "LTFOODS — open company page in a new tab" [ref=f2e2573]:
+              - /url: http://localhost:5175/stock/LTFOODS?theme=light
+          - generic [ref=f2e2578] [cursor=pointer]:
+            - generic [ref=f2e2579]: LTM
+            - generic [ref=f2e2580]: ~6s
+            - link "LTM — open company page in a new tab" [ref=f2e2581]:
+              - /url: http://localhost:5175/stock/LTM?theme=light
+          - generic [ref=f2e2586] [cursor=pointer]:
+            - generic [ref=f2e2587]: LTTS
+            - generic [ref=f2e2588]: ~6s
+            - link "LTTS — open company page in a new tab" [ref=f2e2589]:
+              - /url: http://localhost:5175/stock/LTTS?theme=light
+          - generic [ref=f2e2594] [cursor=pointer]:
+            - generic [ref=f2e2595]: LUPIN
+            - generic [ref=f2e2596]: ~6s
+            - link "LUPIN — open company page in a new tab" [ref=f2e2597]:
+              - /url: http://localhost:5175/stock/LUPIN?theme=light
+          - generic [ref=f2e2602] [cursor=pointer]:
+            - generic [ref=f2e2603]: M&M
+            - generic [ref=f2e2604]: ~6s
+            - link "M&M — open company page in a new tab" [ref=f2e2605]:
+              - /url: http://localhost:5175/stock/M%26M?theme=light
+          - generic [ref=f2e2610] [cursor=pointer]:
+            - generic [ref=f2e2611]: M&MFIN
+            - generic [ref=f2e2612]: ~6s
+            - link "M&MFIN — open company page in a new tab" [ref=f2e2613]:
+              - /url: http://localhost:5175/stock/M%26MFIN?theme=light
+          - generic [ref=f2e2618] [cursor=pointer]:
+            - generic [ref=f2e2619]: MAHABANK
+            - generic [ref=f2e2620]: ~6s
+            - link "MAHABANK — open company page in a new tab" [ref=f2e2621]:
+              - /url: http://localhost:5175/stock/MAHABANK?theme=light
+          - generic [ref=f2e2626] [cursor=pointer]:
+            - generic [ref=f2e2627]: MANAPPURAM
+            - generic [ref=f2e2628]: ~6s
+            - link "MANAPPURAM — open company page in a new tab" [ref=f2e2629]:
+              - /url: http://localhost:5175/stock/MANAPPURAM?theme=light
+          - generic [ref=f2e2634] [cursor=pointer]:
+            - generic [ref=f2e2635]: MANKIND
+            - generic [ref=f2e2636]: ~6s
+            - link "MANKIND — open company page in a new tab" [ref=f2e2637]:
+              - /url: http://localhost:5175/stock/MANKIND?theme=light
+          - generic [ref=f2e2642] [cursor=pointer]:
+            - generic [ref=f2e2643]: MAPMYINDIA
+            - generic [ref=f2e2644]: ~6s
+            - link "MAPMYINDIA — open company page in a new tab" [ref=f2e2645]:
+              - /url: http://localhost:5175/stock/MAPMYINDIA?theme=light
+          - generic [ref=f2e2650] [cursor=pointer]:
+            - generic [ref=f2e2651]: MARICO
+            - generic [ref=f2e2652]: ~6s
+            - link "MARICO — open company page in a new tab" [ref=f2e2653]:
+              - /url: http://localhost:5175/stock/MARICO?theme=light
+          - generic [ref=f2e2658] [cursor=pointer]:
+            - generic [ref=f2e2659]: MARUTI
+            - generic [ref=f2e2660]: ~6s
+            - link "MARUTI — open company page in a new tab" [ref=f2e2661]:
+              - /url: http://localhost:5175/stock/MARUTI?theme=light
+          - generic [ref=f2e2666] [cursor=pointer]:
+            - generic [ref=f2e2667]: MAXHEALTH
+            - generic [ref=f2e2668]: ~6s
+            - link "MAXHEALTH — open company page in a new tab" [ref=f2e2669]:
+              - /url: http://localhost:5175/stock/MAXHEALTH?theme=light
+          - generic [ref=f2e2674] [cursor=pointer]:
+            - generic [ref=f2e2675]: MAZDOCK
+            - generic [ref=f2e2676]: ~6s
+            - link "MAZDOCK — open company page in a new tab" [ref=f2e2677]:
+              - /url: http://localhost:5175/stock/MAZDOCK?theme=light
+          - generic [ref=f2e2682] [cursor=pointer]:
+            - generic [ref=f2e2683]: MCX
+            - generic [ref=f2e2684]: ~6s
+            - link "MCX — open company page in a new tab" [ref=f2e2685]:
+              - /url: http://localhost:5175/stock/MCX?theme=light
+          - generic [ref=f2e2690] [cursor=pointer]:
+            - generic [ref=f2e2691]: MEDANTA
+            - generic [ref=f2e2692]: ~6s
+            - link "MEDANTA — open company page in a new tab" [ref=f2e2693]:
+              - /url: http://localhost:5175/stock/MEDANTA?theme=light
+          - generic [ref=f2e2698] [cursor=pointer]:
+            - generic [ref=f2e2699]: MEESHO
+            - generic [ref=f2e2700]: ~6s
+            - link "MEESHO — open company page in a new tab" [ref=f2e2701]:
+              - /url: http://localhost:5175/stock/MEESHO?theme=light
+          - generic [ref=f2e2706] [cursor=pointer]:
+            - generic [ref=f2e2707]: MFSL
+            - generic [ref=f2e2708]: ~6s
+            - link "MFSL — open company page in a new tab" [ref=f2e2709]:
+              - /url: http://localhost:5175/stock/MFSL?theme=light
+          - generic [ref=f2e2714] [cursor=pointer]:
+            - generic [ref=f2e2715]: MGL
+            - generic [ref=f2e2716]: ~6s
+            - link "MGL — open company page in a new tab" [ref=f2e2717]:
+              - /url: http://localhost:5175/stock/MGL?theme=light
+          - generic [ref=f2e2722] [cursor=pointer]:
+            - generic [ref=f2e2723]: MINDACORP
+            - generic [ref=f2e2724]: ~6s
+            - link "MINDACORP — open company page in a new tab" [ref=f2e2725]:
+              - /url: http://localhost:5175/stock/MINDACORP?theme=light
+          - generic [ref=f2e2730] [cursor=pointer]:
+            - generic [ref=f2e2731]: MMTC
+            - generic [ref=f2e2732]: ~6s
+            - link "MMTC — open company page in a new tab" [ref=f2e2733]:
+              - /url: http://localhost:5175/stock/MMTC?theme=light
+          - generic [ref=f2e2738] [cursor=pointer]:
+            - generic [ref=f2e2739]: MOTHERSON
+            - generic [ref=f2e2740]: ~6s
+            - link "MOTHERSON — open company page in a new tab" [ref=f2e2741]:
+              - /url: http://localhost:5175/stock/MOTHERSON?theme=light
+          - generic [ref=f2e2746] [cursor=pointer]:
+            - generic [ref=f2e2747]: MOTILALOFS
+            - generic [ref=f2e2748]: ~6s
+            - link "MOTILALOFS — open company page in a new tab" [ref=f2e2749]:
+              - /url: http://localhost:5175/stock/MOTILALOFS?theme=light
+          - generic [ref=f2e2754] [cursor=pointer]:
+            - generic [ref=f2e2755]: MPHASIS
+            - generic [ref=f2e2756]: ~6s
+            - link "MPHASIS — open company page in a new tab" [ref=f2e2757]:
+              - /url: http://localhost:5175/stock/MPHASIS?theme=light
+          - generic [ref=f2e2762] [cursor=pointer]:
+            - generic [ref=f2e2763]: MRF
+            - generic [ref=f2e2764]: ~6s
+            - link "MRF — open company page in a new tab" [ref=f2e2765]:
+              - /url: http://localhost:5175/stock/MRF?theme=light
+          - generic [ref=f2e2770] [cursor=pointer]:
+            - generic [ref=f2e2771]: MRPL
+            - generic [ref=f2e2772]: ~6s
+            - link "MRPL — open company page in a new tab" [ref=f2e2773]:
+              - /url: http://localhost:5175/stock/MRPL?theme=light
+          - generic [ref=f2e2778] [cursor=pointer]:
+            - generic [ref=f2e2779]: MSUMI
+            - generic [ref=f2e2780]: ~6s
+            - link "MSUMI — open company page in a new tab" [ref=f2e2781]:
+              - /url: http://localhost:5175/stock/MSUMI?theme=light
+          - generic [ref=f2e2786] [cursor=pointer]:
+            - generic [ref=f2e2787]: MUTHOOTFIN
+            - generic [ref=f2e2788]: ~6s
+            - link "MUTHOOTFIN — open company page in a new tab" [ref=f2e2789]:
+              - /url: http://localhost:5175/stock/MUTHOOTFIN?theme=light
+          - generic [ref=f2e2794] [cursor=pointer]:
+            - generic [ref=f2e2795]: NAM-INDIA
+            - generic [ref=f2e2796]: ~6s
+            - link "NAM-INDIA — open company page in a new tab" [ref=f2e2797]:
+              - /url: http://localhost:5175/stock/NAM-INDIA?theme=light
+          - generic [ref=f2e2802] [cursor=pointer]:
+            - generic [ref=f2e2803]: NATCOPHARM
+            - generic [ref=f2e2804]: ~6s
+            - link "NATCOPHARM — open company page in a new tab" [ref=f2e2805]:
+              - /url: http://localhost:5175/stock/NATCOPHARM?theme=light
+          - generic [ref=f2e2810] [cursor=pointer]:
+            - generic [ref=f2e2811]: NATIONALUM
+            - generic [ref=f2e2812]: ~6s
+            - link "NATIONALUM — open company page in a new tab" [ref=f2e2813]:
+              - /url: http://localhost:5175/stock/NATIONALUM?theme=light
+          - generic [ref=f2e2818] [cursor=pointer]:
+            - generic [ref=f2e2819]: NAUKRI
+            - generic [ref=f2e2820]: ~6s
+            - link "NAUKRI — open company page in a new tab" [ref=f2e2821]:
+              - /url: http://localhost:5175/stock/NAUKRI?theme=light
+          - generic [ref=f2e2826] [cursor=pointer]:
+            - generic [ref=f2e2827]: NAVA
+            - generic [ref=f2e2828]: ~6s
+            - link "NAVA — open company page in a new tab" [ref=f2e2829]:
+              - /url: http://localhost:5175/stock/NAVA?theme=light
+          - generic [ref=f2e2834] [cursor=pointer]:
+            - generic [ref=f2e2835]: NAVINFLUOR
+            - generic [ref=f2e2836]: ~6s
+            - link "NAVINFLUOR — open company page in a new tab" [ref=f2e2837]:
+              - /url: http://localhost:5175/stock/NAVINFLUOR?theme=light
+          - generic [ref=f2e2842] [cursor=pointer]:
+            - generic [ref=f2e2843]: NBCC
+            - generic [ref=f2e2844]: ~6s
+            - link "NBCC — open company page in a new tab" [ref=f2e2845]:
+              - /url: http://localhost:5175/stock/NBCC?theme=light
+          - generic [ref=f2e2850] [cursor=pointer]:
+            - generic [ref=f2e2851]: NCC
+            - generic [ref=f2e2852]: ~6s
+            - link "NCC — open company page in a new tab" [ref=f2e2853]:
+              - /url: http://localhost:5175/stock/NCC?theme=light
+          - generic [ref=f2e2858] [cursor=pointer]:
+            - generic [ref=f2e2859]: NESTLEIND
+            - generic [ref=f2e2860]: ~6s
+            - link "NESTLEIND — open company page in a new tab" [ref=f2e2861]:
+              - /url: http://localhost:5175/stock/NESTLEIND?theme=light
+          - generic [ref=f2e2866] [cursor=pointer]:
+            - generic [ref=f2e2867]: NETWEB
+            - generic [ref=f2e2868]: ~6s
+            - link "NETWEB — open company page in a new tab" [ref=f2e2869]:
+              - /url: http://localhost:5175/stock/NETWEB?theme=light
+          - generic [ref=f2e2874] [cursor=pointer]:
+            - generic [ref=f2e2875]: NEULANDLAB
+            - generic [ref=f2e2876]: ~6s
+            - link "NEULANDLAB — open company page in a new tab" [ref=f2e2877]:
+              - /url: http://localhost:5175/stock/NEULANDLAB?theme=light
+          - generic [ref=f2e2882] [cursor=pointer]:
+            - generic [ref=f2e2883]: NEWGEN
+            - generic [ref=f2e2884]: ~6s
+            - link "NEWGEN — open company page in a new tab" [ref=f2e2885]:
+              - /url: http://localhost:5175/stock/NEWGEN?theme=light
+          - generic [ref=f2e2890] [cursor=pointer]:
+            - generic [ref=f2e2891]: NH
+            - generic [ref=f2e2892]: ~6s
+            - link "NH — open company page in a new tab" [ref=f2e2893]:
+              - /url: http://localhost:5175/stock/NH?theme=light
+          - generic [ref=f2e2898] [cursor=pointer]:
+            - generic [ref=f2e2899]: NHPC
+            - generic [ref=f2e2900]: ~6s
+            - link "NHPC — open company page in a new tab" [ref=f2e2901]:
+              - /url: http://localhost:5175/stock/NHPC?theme=light
+          - generic [ref=f2e2906] [cursor=pointer]:
+            - generic [ref=f2e2907]: NIACL
+            - generic [ref=f2e2908]: ~6s
+            - link "NIACL — open company page in a new tab" [ref=f2e2909]:
+              - /url: http://localhost:5175/stock/NIACL?theme=light
+          - generic [ref=f2e2914] [cursor=pointer]:
+            - generic [ref=f2e2915]: NIVABUPA
+            - generic [ref=f2e2916]: ~6s
+            - link "NIVABUPA — open company page in a new tab" [ref=f2e2917]:
+              - /url: http://localhost:5175/stock/NIVABUPA?theme=light
+          - generic [ref=f2e2922] [cursor=pointer]:
+            - generic [ref=f2e2923]: NLCINDIA
+            - generic [ref=f2e2924]: ~6s
+            - link "NLCINDIA — open company page in a new tab" [ref=f2e2925]:
+              - /url: http://localhost:5175/stock/NLCINDIA?theme=light
+          - generic [ref=f2e2930] [cursor=pointer]:
+            - generic [ref=f2e2931]: NMDC
+            - generic [ref=f2e2932]: ~6s
+            - link "NMDC — open company page in a new tab" [ref=f2e2933]:
+              - /url: http://localhost:5175/stock/NMDC?theme=light
+          - generic [ref=f2e2938] [cursor=pointer]:
+            - generic [ref=f2e2939]: NSLNISP
+            - generic [ref=f2e2940]: ~6s
+            - link "NSLNISP — open company page in a new tab" [ref=f2e2941]:
+              - /url: http://localhost:5175/stock/NSLNISP?theme=light
+          - generic [ref=f2e2946] [cursor=pointer]:
+            - generic [ref=f2e2947]: NTPC
+            - generic [ref=f2e2948]: ~6s
+            - link "NTPC — open company page in a new tab" [ref=f2e2949]:
+              - /url: http://localhost:5175/stock/NTPC?theme=light
+          - generic [ref=f2e2954] [cursor=pointer]:
+            - generic [ref=f2e2955]: NTPCGREEN
+            - generic [ref=f2e2956]: ~6s
+            - link "NTPCGREEN — open company page in a new tab" [ref=f2e2957]:
+              - /url: http://localhost:5175/stock/NTPCGREEN?theme=light
+          - generic [ref=f2e2962] [cursor=pointer]:
+            - generic [ref=f2e2963]: NUVAMA
+            - generic [ref=f2e2964]: ~6s
+            - link "NUVAMA — open company page in a new tab" [ref=f2e2965]:
+              - /url: http://localhost:5175/stock/NUVAMA?theme=light
+          - generic [ref=f2e2970] [cursor=pointer]:
+            - generic [ref=f2e2971]: NUVOCO
+            - generic [ref=f2e2972]: ~6s
+            - link "NUVOCO — open company page in a new tab" [ref=f2e2973]:
+              - /url: http://localhost:5175/stock/NUVOCO?theme=light
+          - generic [ref=f2e2978] [cursor=pointer]:
+            - generic [ref=f2e2979]: NYKAA
+            - generic [ref=f2e2980]: ~6s
+            - link "NYKAA — open company page in a new tab" [ref=f2e2981]:
+              - /url: http://localhost:5175/stock/NYKAA?theme=light
+          - generic [ref=f2e2986] [cursor=pointer]:
+            - generic [ref=f2e2987]: OBEROIRLTY
+            - generic [ref=f2e2988]: ~6s
+            - link "OBEROIRLTY — open company page in a new tab" [ref=f2e2989]:
+              - /url: http://localhost:5175/stock/OBEROIRLTY?theme=light
+          - generic [ref=f2e2994] [cursor=pointer]:
+            - generic [ref=f2e2995]: OFSS
+            - generic [ref=f2e2996]: ~6s
+            - link "OFSS — open company page in a new tab" [ref=f2e2997]:
+              - /url: http://localhost:5175/stock/OFSS?theme=light
+          - generic [ref=f2e3002] [cursor=pointer]:
+            - generic [ref=f2e3003]: OIL
+            - generic [ref=f2e3004]: ~6s
+            - link "OIL — open company page in a new tab" [ref=f2e3005]:
+              - /url: http://localhost:5175/stock/OIL?theme=light
+          - generic [ref=f2e3010] [cursor=pointer]:
+            - generic [ref=f2e3011]: OLAELEC
+            - generic [ref=f2e3012]: ~6s
+            - link "OLAELEC — open company page in a new tab" [ref=f2e3013]:
+              - /url: http://localhost:5175/stock/OLAELEC?theme=light
+          - generic [ref=f2e3018] [cursor=pointer]:
+            - generic [ref=f2e3019]: OLECTRA
+            - generic [ref=f2e3020]: ~6s
+            - link "OLECTRA — open company page in a new tab" [ref=f2e3021]:
+              - /url: http://localhost:5175/stock/OLECTRA?theme=light
+          - generic [ref=f2e3026] [cursor=pointer]:
+            - generic [ref=f2e3027]: ONESOURCE
+            - generic [ref=f2e3028]: ~6s
+            - link "ONESOURCE — open company page in a new tab" [ref=f2e3029]:
+              - /url: http://localhost:5175/stock/ONESOURCE?theme=light
+          - generic [ref=f2e3034] [cursor=pointer]:
+            - generic [ref=f2e3035]: ONGC
+            - generic [ref=f2e3036]: ~6s
+            - link "ONGC — open company page in a new tab" [ref=f2e3037]:
+              - /url: http://localhost:5175/stock/ONGC?theme=light
+          - generic [ref=f2e3042] [cursor=pointer]:
+            - generic [ref=f2e3043]: PAGEIND
+            - generic [ref=f2e3044]: ~6s
+            - link "PAGEIND — open company page in a new tab" [ref=f2e3045]:
+              - /url: http://localhost:5175/stock/PAGEIND?theme=light
+          - generic [ref=f2e3050] [cursor=pointer]:
+            - generic [ref=f2e3051]: PARADEEP
+            - generic [ref=f2e3052]: ~6s
+            - link "PARADEEP — open company page in a new tab" [ref=f2e3053]:
+              - /url: http://localhost:5175/stock/PARADEEP?theme=light
+          - generic [ref=f2e3058] [cursor=pointer]:
+            - generic [ref=f2e3059]: PATANJALI
+            - generic [ref=f2e3060]: ~6s
+            - link "PATANJALI — open company page in a new tab" [ref=f2e3061]:
+              - /url: http://localhost:5175/stock/PATANJALI?theme=light
+          - generic [ref=f2e3066] [cursor=pointer]:
+            - generic [ref=f2e3067]: PAYTM
+            - generic [ref=f2e3068]: ~6s
+            - link "PAYTM — open company page in a new tab" [ref=f2e3069]:
+              - /url: http://localhost:5175/stock/PAYTM?theme=light
+          - generic [ref=f2e3074] [cursor=pointer]:
+            - generic [ref=f2e3075]: PCBL
+            - generic [ref=f2e3076]: ~6s
+            - link "PCBL — open company page in a new tab" [ref=f2e3077]:
+              - /url: http://localhost:5175/stock/PCBL?theme=light
+          - generic [ref=f2e3082] [cursor=pointer]:
+            - generic [ref=f2e3083]: PERSISTENT
+            - generic [ref=f2e3084]: ~6s
+            - link "PERSISTENT — open company page in a new tab" [ref=f2e3085]:
+              - /url: http://localhost:5175/stock/PERSISTENT?theme=light
+          - generic [ref=f2e3090] [cursor=pointer]:
+            - generic [ref=f2e3091]: PETRONET
+            - generic [ref=f2e3092]: ~6s
+            - link "PETRONET — open company page in a new tab" [ref=f2e3093]:
+              - /url: http://localhost:5175/stock/PETRONET?theme=light
+          - generic [ref=f2e3098] [cursor=pointer]:
+            - generic [ref=f2e3099]: PFC
+            - generic [ref=f2e3100]: ~6s
+            - link "PFC — open company page in a new tab" [ref=f2e3101]:
+              - /url: http://localhost:5175/stock/PFC?theme=light
+          - generic [ref=f2e3106] [cursor=pointer]:
+            - generic [ref=f2e3107]: PFIZER
+            - generic [ref=f2e3108]: ~6s
+            - link "PFIZER — open company page in a new tab" [ref=f2e3109]:
+              - /url: http://localhost:5175/stock/PFIZER?theme=light
+          - generic [ref=f2e3114] [cursor=pointer]:
+            - generic [ref=f2e3115]: PFOCUS
+            - generic [ref=f2e3116]: ~6s
+            - link "PFOCUS — open company page in a new tab" [ref=f2e3117]:
+              - /url: http://localhost:5175/stock/PFOCUS?theme=light
+          - generic [ref=f2e3122] [cursor=pointer]:
+            - generic [ref=f2e3123]: PGEL
+            - generic [ref=f2e3124]: ~6s
+            - link "PGEL — open company page in a new tab" [ref=f2e3125]:
+              - /url: http://localhost:5175/stock/PGEL?theme=light
+          - generic [ref=f2e3130] [cursor=pointer]:
+            - generic [ref=f2e3131]: PHOENIXLTD
+            - generic [ref=f2e3132]: ~6s
+            - link "PHOENIXLTD — open company page in a new tab" [ref=f2e3133]:
+              - /url: http://localhost:5175/stock/PHOENIXLTD?theme=light
+          - generic [ref=f2e3138] [cursor=pointer]:
+            - generic [ref=f2e3139]: PIDILITIND
+            - generic [ref=f2e3140]: ~6s
+            - link "PIDILITIND — open company page in a new tab" [ref=f2e3141]:
+              - /url: http://localhost:5175/stock/PIDILITIND?theme=light
+          - generic [ref=f2e3146] [cursor=pointer]:
+            - generic [ref=f2e3147]: PIIND
+            - generic [ref=f2e3148]: ~6s
+            - link "PIIND — open company page in a new tab" [ref=f2e3149]:
+              - /url: http://localhost:5175/stock/PIIND?theme=light
+          - generic [ref=f2e3154] [cursor=pointer]:
+            - generic [ref=f2e3155]: PINELABS
+            - generic [ref=f2e3156]: ~6s
+            - link "PINELABS — open company page in a new tab" [ref=f2e3157]:
+              - /url: http://localhost:5175/stock/PINELABS?theme=light
+          - generic [ref=f2e3162] [cursor=pointer]:
+            - generic [ref=f2e3163]: PIRAMALFIN
+            - generic [ref=f2e3164]: ~6s
+            - link "PIRAMALFIN — open company page in a new tab" [ref=f2e3165]:
+              - /url: http://localhost:5175/stock/PIRAMALFIN?theme=light
+          - generic [ref=f2e3170] [cursor=pointer]:
+            - generic [ref=f2e3171]: PNB
+            - generic [ref=f2e3172]: ~6s
+            - link "PNB — open company page in a new tab" [ref=f2e3173]:
+              - /url: http://localhost:5175/stock/PNB?theme=light
+          - generic [ref=f2e3178] [cursor=pointer]:
+            - generic [ref=f2e3179]: PNBHOUSING
+            - generic [ref=f2e3180]: ~6s
+            - link "PNBHOUSING — open company page in a new tab" [ref=f2e3181]:
+              - /url: http://localhost:5175/stock/PNBHOUSING?theme=light
+          - generic [ref=f2e3186] [cursor=pointer]:
+            - generic [ref=f2e3187]: POLICYBZR
+            - generic [ref=f2e3188]: ~6s
+            - link "POLICYBZR — open company page in a new tab" [ref=f2e3189]:
+              - /url: http://localhost:5175/stock/POLICYBZR?theme=light
+          - generic [ref=f2e3194] [cursor=pointer]:
+            - generic [ref=f2e3195]: POLYCAB
+            - generic [ref=f2e3196]: ~6s
+            - link "POLYCAB — open company page in a new tab" [ref=f2e3197]:
+              - /url: http://localhost:5175/stock/POLYCAB?theme=light
+          - generic [ref=f2e3202] [cursor=pointer]:
+            - generic [ref=f2e3203]: POLYMED
+            - generic [ref=f2e3204]: ~6s
+            - link "POLYMED — open company page in a new tab" [ref=f2e3205]:
+              - /url: http://localhost:5175/stock/POLYMED?theme=light
+          - generic [ref=f2e3210] [cursor=pointer]:
+            - generic [ref=f2e3211]: POONAWALLA
+            - generic [ref=f2e3212]: ~6s
+            - link "POONAWALLA — open company page in a new tab" [ref=f2e3213]:
+              - /url: http://localhost:5175/stock/POONAWALLA?theme=light
+          - generic [ref=f2e3218] [cursor=pointer]:
+            - generic [ref=f2e3219]: POWERGRID
+            - generic [ref=f2e3220]: ~6s
+            - link "POWERGRID — open company page in a new tab" [ref=f2e3221]:
+              - /url: http://localhost:5175/stock/POWERGRID?theme=light
+          - generic [ref=f2e3226] [cursor=pointer]:
+            - generic [ref=f2e3227]: POWERINDIA
+            - generic [ref=f2e3228]: ~6s
+            - link "POWERINDIA — open company page in a new tab" [ref=f2e3229]:
+              - /url: http://localhost:5175/stock/POWERINDIA?theme=light
+          - generic [ref=f2e3234] [cursor=pointer]:
+            - generic [ref=f2e3235]: PPLPHARMA
+            - generic [ref=f2e3236]: ~6s
+            - link "PPLPHARMA — open company page in a new tab" [ref=f2e3237]:
+              - /url: http://localhost:5175/stock/PPLPHARMA?theme=light
+          - generic [ref=f2e3242] [cursor=pointer]:
+            - generic [ref=f2e3243]: PREMIERENE
+            - generic [ref=f2e3244]: ~6s
+            - link "PREMIERENE — open company page in a new tab" [ref=f2e3245]:
+              - /url: http://localhost:5175/stock/PREMIERENE?theme=light
+          - generic [ref=f2e3250] [cursor=pointer]:
+            - generic [ref=f2e3251]: PRESTIGE
+            - generic [ref=f2e3252]: ~6s
+            - link "PRESTIGE — open company page in a new tab" [ref=f2e3253]:
+              - /url: http://localhost:5175/stock/PRESTIGE?theme=light
+          - generic [ref=f2e3258] [cursor=pointer]:
+            - generic [ref=f2e3259]: PTCIL
+            - generic [ref=f2e3260]: ~6s
+            - link "PTCIL — open company page in a new tab" [ref=f2e3261]:
+              - /url: http://localhost:5175/stock/PTCIL?theme=light
+          - generic [ref=f2e3266] [cursor=pointer]:
+            - generic [ref=f2e3267]: PVRINOX
+            - generic [ref=f2e3268]: ~6s
+            - link "PVRINOX — open company page in a new tab" [ref=f2e3269]:
+              - /url: http://localhost:5175/stock/PVRINOX?theme=light
+          - generic [ref=f2e3274] [cursor=pointer]:
+            - generic [ref=f2e3275]: PWL
+            - generic [ref=f2e3276]: ~6s
+            - link "PWL — open company page in a new tab" [ref=f2e3277]:
+              - /url: http://localhost:5175/stock/PWL?theme=light
+          - generic [ref=f2e3282] [cursor=pointer]:
+            - generic [ref=f2e3283]: RADICO
+            - generic [ref=f2e3284]: ~6s
+            - link "RADICO — open company page in a new tab" [ref=f2e3285]:
+              - /url: http://localhost:5175/stock/RADICO?theme=light
+          - generic [ref=f2e3290] [cursor=pointer]:
+            - generic [ref=f2e3291]: RAILTEL
+            - generic [ref=f2e3292]: ~6s
+            - link "RAILTEL — open company page in a new tab" [ref=f2e3293]:
+              - /url: http://localhost:5175/stock/RAILTEL?theme=light
+          - generic [ref=f2e3298] [cursor=pointer]:
+            - generic [ref=f2e3299]: RAINBOW
+            - generic [ref=f2e3300]: ~6s
+            - link "RAINBOW — open company page in a new tab" [ref=f2e3301]:
+              - /url: http://localhost:5175/stock/RAINBOW?theme=light
+          - generic [ref=f2e3306] [cursor=pointer]:
+            - generic [ref=f2e3307]: RAMCOCEM
+            - generic [ref=f2e3308]: ~6s
+            - link "RAMCOCEM — open company page in a new tab" [ref=f2e3309]:
+              - /url: http://localhost:5175/stock/RAMCOCEM?theme=light
+          - generic [ref=f2e3314] [cursor=pointer]:
+            - generic [ref=f2e3315]: RBLBANK
+            - generic [ref=f2e3316]: ~6s
+            - link "RBLBANK — open company page in a new tab" [ref=f2e3317]:
+              - /url: http://localhost:5175/stock/RBLBANK?theme=light
+          - generic [ref=f2e3322] [cursor=pointer]:
+            - generic [ref=f2e3323]: RECLTD
+            - generic [ref=f2e3324]: ~6s
+            - link "RECLTD — open company page in a new tab" [ref=f2e3325]:
+              - /url: http://localhost:5175/stock/RECLTD?theme=light
+          - generic [ref=f2e3330] [cursor=pointer]:
+            - generic [ref=f2e3331]: REDINGTON
+            - generic [ref=f2e3332]: ~6s
+            - link "REDINGTON — open company page in a new tab" [ref=f2e3333]:
+              - /url: http://localhost:5175/stock/REDINGTON?theme=light
+          - generic [ref=f2e3338] [cursor=pointer]:
+            - generic [ref=f2e3339]: RELIANCE
+            - link "RELIANCE — open company page in a new tab" [ref=f2e3341]:
+              - /url: http://localhost:5175/stock/RELIANCE?theme=light
+          - generic [ref=f2e3346] [cursor=pointer]:
+            - generic [ref=f2e3347]: RHIM
+            - generic [ref=f2e3348]: ~6s
+            - link "RHIM — open company page in a new tab" [ref=f2e3349]:
+              - /url: http://localhost:5175/stock/RHIM?theme=light
+          - generic [ref=f2e3354] [cursor=pointer]:
+            - generic [ref=f2e3355]: RITES
+            - generic [ref=f2e3356]: ~6s
+            - link "RITES — open company page in a new tab" [ref=f2e3357]:
+              - /url: http://localhost:5175/stock/RITES?theme=light
+          - generic [ref=f2e3362] [cursor=pointer]:
+            - generic [ref=f2e3363]: RKFORGE
+            - generic [ref=f2e3364]: ~6s
+            - link "RKFORGE — open company page in a new tab" [ref=f2e3365]:
+              - /url: http://localhost:5175/stock/RKFORGE?theme=light
+          - generic [ref=f2e3370] [cursor=pointer]:
+            - generic [ref=f2e3371]: RPOWER
+            - generic [ref=f2e3372]: ~6s
+            - link "RPOWER — open company page in a new tab" [ref=f2e3373]:
+              - /url: http://localhost:5175/stock/RPOWER?theme=light
+          - generic [ref=f2e3378] [cursor=pointer]:
+            - generic [ref=f2e3379]: RRKABEL
+            - generic [ref=f2e3380]: ~6s
+            - link "RRKABEL — open company page in a new tab" [ref=f2e3381]:
+              - /url: http://localhost:5175/stock/RRKABEL?theme=light
+          - generic [ref=f2e3386] [cursor=pointer]:
+            - generic [ref=f2e3387]: RVNL
+            - generic [ref=f2e3388]: ~6s
+            - link "RVNL — open company page in a new tab" [ref=f2e3389]:
+              - /url: http://localhost:5175/stock/RVNL?theme=light
+          - generic [ref=f2e3394] [cursor=pointer]:
+            - generic [ref=f2e3395]: SAGILITY
+            - generic [ref=f2e3396]: ~6s
+            - link "SAGILITY — open company page in a new tab" [ref=f2e3397]:
+              - /url: http://localhost:5175/stock/SAGILITY?theme=light
+          - generic [ref=f2e3402] [cursor=pointer]:
+            - generic [ref=f2e3403]: SAIL
+            - generic [ref=f2e3404]: ~6s
+            - link "SAIL — open company page in a new tab" [ref=f2e3405]:
+              - /url: http://localhost:5175/stock/SAIL?theme=light
+          - generic [ref=f2e3410] [cursor=pointer]:
+            - generic [ref=f2e3411]: SAILIFE
+            - generic [ref=f2e3412]: ~6s
+            - link "SAILIFE — open company page in a new tab" [ref=f2e3413]:
+              - /url: http://localhost:5175/stock/SAILIFE?theme=light
+          - generic [ref=f2e3418] [cursor=pointer]:
+            - generic [ref=f2e3419]: SAMMAANCAP
+            - generic [ref=f2e3420]: ~6s
+            - link "SAMMAANCAP — open company page in a new tab" [ref=f2e3421]:
+              - /url: http://localhost:5175/stock/SAMMAANCAP?theme=light
+          - generic [ref=f2e3426] [cursor=pointer]:
+            - generic [ref=f2e3427]: SAPPHIRE
+            - generic [ref=f2e3428]: ~6s
+            - link "SAPPHIRE — open company page in a new tab" [ref=f2e3429]:
+              - /url: http://localhost:5175/stock/SAPPHIRE?theme=light
+          - generic [ref=f2e3434] [cursor=pointer]:
+            - generic [ref=f2e3435]: SARDAEN
+            - generic [ref=f2e3436]: ~6s
+            - link "SARDAEN — open company page in a new tab" [ref=f2e3437]:
+              - /url: http://localhost:5175/stock/SARDAEN?theme=light
+          - generic [ref=f2e3442] [cursor=pointer]:
+            - generic [ref=f2e3443]: SAREGAMA
+            - generic [ref=f2e3444]: ~6s
+            - link "SAREGAMA — open company page in a new tab" [ref=f2e3445]:
+              - /url: http://localhost:5175/stock/SAREGAMA?theme=light
+          - generic [ref=f2e3450] [cursor=pointer]:
+            - generic [ref=f2e3451]: SBFC
+            - generic [ref=f2e3452]: ~6s
+            - link "SBFC — open company page in a new tab" [ref=f2e3453]:
+              - /url: http://localhost:5175/stock/SBFC?theme=light
+          - generic [ref=f2e3458] [cursor=pointer]:
+            - generic [ref=f2e3459]: SBICARD
+            - generic [ref=f2e3460]: ~6s
+            - link "SBICARD — open company page in a new tab" [ref=f2e3461]:
+              - /url: http://localhost:5175/stock/SBICARD?theme=light
+          - generic [ref=f2e3466] [cursor=pointer]:
+            - generic [ref=f2e3467]: SBILIFE
+            - generic [ref=f2e3468]: ~6s
+            - link "SBILIFE — open company page in a new tab" [ref=f2e3469]:
+              - /url: http://localhost:5175/stock/SBILIFE?theme=light
+          - generic [ref=f2e3474] [cursor=pointer]:
+            - generic [ref=f2e3475]: SBIN
+            - generic [ref=f2e3476]: ~6s
+            - link "SBIN — open company page in a new tab" [ref=f2e3477]:
+              - /url: http://localhost:5175/stock/SBIN?theme=light
+          - generic [ref=f2e3482] [cursor=pointer]:
+            - generic [ref=f2e3483]: SCHAEFFLER
+            - generic [ref=f2e3484]: ~6s
+            - link "SCHAEFFLER — open company page in a new tab" [ref=f2e3485]:
+              - /url: http://localhost:5175/stock/SCHAEFFLER?theme=light
+          - generic [ref=f2e3490] [cursor=pointer]:
+            - generic [ref=f2e3491]: SCHNEIDER
+            - generic [ref=f2e3492]: ~6s
+            - link "SCHNEIDER — open company page in a new tab" [ref=f2e3493]:
+              - /url: http://localhost:5175/stock/SCHNEIDER?theme=light
+          - generic [ref=f2e3498] [cursor=pointer]:
+            - generic [ref=f2e3499]: SCI
+            - generic [ref=f2e3500]: ~6s
+            - link "SCI — open company page in a new tab" [ref=f2e3501]:
+              - /url: http://localhost:5175/stock/SCI?theme=light
+          - generic [ref=f2e3506] [cursor=pointer]:
+            - generic [ref=f2e3507]: SHREECEM
+            - generic [ref=f2e3508]: ~6s
+            - link "SHREECEM — open company page in a new tab" [ref=f2e3509]:
+              - /url: http://localhost:5175/stock/SHREECEM?theme=light
+          - generic [ref=f2e3514] [cursor=pointer]:
+            - generic [ref=f2e3515]: SHRIRAMFIN
+            - generic [ref=f2e3516]: ~6s
+            - link "SHRIRAMFIN — open company page in a new tab" [ref=f2e3517]:
+              - /url: http://localhost:5175/stock/SHRIRAMFIN?theme=light
+          - generic [ref=f2e3522] [cursor=pointer]:
+            - generic [ref=f2e3523]: SHYAMMETL
+            - generic [ref=f2e3524]: ~6s
+            - link "SHYAMMETL — open company page in a new tab" [ref=f2e3525]:
+              - /url: http://localhost:5175/stock/SHYAMMETL?theme=light
+          - generic [ref=f2e3530] [cursor=pointer]:
+            - generic [ref=f2e3531]: SIEMENS
+            - generic [ref=f2e3532]: ~6s
+            - link "SIEMENS — open company page in a new tab" [ref=f2e3533]:
+              - /url: http://localhost:5175/stock/SIEMENS?theme=light
+          - generic [ref=f2e3538] [cursor=pointer]:
+            - generic [ref=f2e3539]: SIGNATURE
+            - generic [ref=f2e3540]: ~6s
+            - link "SIGNATURE — open company page in a new tab" [ref=f2e3541]:
+              - /url: http://localhost:5175/stock/SIGNATURE?theme=light
+          - generic [ref=f2e3546] [cursor=pointer]:
+            - generic [ref=f2e3547]: SJVN
+            - generic [ref=f2e3548]: ~6s
+            - link "SJVN — open company page in a new tab" [ref=f2e3549]:
+              - /url: http://localhost:5175/stock/SJVN?theme=light
+          - generic [ref=f2e3554] [cursor=pointer]:
+            - generic [ref=f2e3555]: SOBHA
+            - generic [ref=f2e3556]: ~6s
+            - link "SOBHA — open company page in a new tab" [ref=f2e3557]:
+              - /url: http://localhost:5175/stock/SOBHA?theme=light
+          - generic [ref=f2e3562] [cursor=pointer]:
+            - generic [ref=f2e3563]: SOLARINDS
+            - generic [ref=f2e3564]: ~6s
+            - link "SOLARINDS — open company page in a new tab" [ref=f2e3565]:
+              - /url: http://localhost:5175/stock/SOLARINDS?theme=light
+          - generic [ref=f2e3570] [cursor=pointer]:
+            - generic [ref=f2e3571]: SONACOMS
+            - generic [ref=f2e3572]: ~6s
+            - link "SONACOMS — open company page in a new tab" [ref=f2e3573]:
+              - /url: http://localhost:5175/stock/SONACOMS?theme=light
+          - generic [ref=f2e3578] [cursor=pointer]:
+            - generic [ref=f2e3579]: SONATSOFTW
+            - generic [ref=f2e3580]: ~6s
+            - link "SONATSOFTW — open company page in a new tab" [ref=f2e3581]:
+              - /url: http://localhost:5175/stock/SONATSOFTW?theme=light
+          - generic [ref=f2e3586] [cursor=pointer]:
+            - generic [ref=f2e3587]: SPLPETRO
+            - generic [ref=f2e3588]: ~6s
+            - link "SPLPETRO — open company page in a new tab" [ref=f2e3589]:
+              - /url: http://localhost:5175/stock/SPLPETRO?theme=light
+          - generic [ref=f2e3594] [cursor=pointer]:
+            - generic [ref=f2e3595]: SRF
+            - generic [ref=f2e3596]: ~6s
+            - link "SRF — open company page in a new tab" [ref=f2e3597]:
+              - /url: http://localhost:5175/stock/SRF?theme=light
+          - generic [ref=f2e3602] [cursor=pointer]:
+            - generic [ref=f2e3603]: STARHEALTH
+            - generic [ref=f2e3604]: ~6s
+            - link "STARHEALTH — open company page in a new tab" [ref=f2e3605]:
+              - /url: http://localhost:5175/stock/STARHEALTH?theme=light
+          - generic [ref=f2e3610] [cursor=pointer]:
+            - generic [ref=f2e3611]: SUMICHEM
+            - generic [ref=f2e3612]: ~6s
+            - link "SUMICHEM — open company page in a new tab" [ref=f2e3613]:
+              - /url: http://localhost:5175/stock/SUMICHEM?theme=light
+          - generic [ref=f2e3618] [cursor=pointer]:
+            - generic [ref=f2e3619]: SUNDARMFIN
+            - generic [ref=f2e3620]: ~6s
+            - link "SUNDARMFIN — open company page in a new tab" [ref=f2e3621]:
+              - /url: http://localhost:5175/stock/SUNDARMFIN?theme=light
+          - generic [ref=f2e3626] [cursor=pointer]:
+            - generic [ref=f2e3627]: SUNPHARMA
+            - generic [ref=f2e3628]: ~6s
+            - link "SUNPHARMA — open company page in a new tab" [ref=f2e3629]:
+              - /url: http://localhost:5175/stock/SUNPHARMA?theme=light
+          - generic [ref=f2e3634] [cursor=pointer]:
+            - generic [ref=f2e3635]: SUNTV
+            - generic [ref=f2e3636]: ~6s
+            - link "SUNTV — open company page in a new tab" [ref=f2e3637]:
+              - /url: http://localhost:5175/stock/SUNTV?theme=light
+          - generic [ref=f2e3642] [cursor=pointer]:
+            - generic [ref=f2e3643]: SUPREMEIND
+            - generic [ref=f2e3644]: ~6s
+            - link "SUPREMEIND — open company page in a new tab" [ref=f2e3645]:
+              - /url: http://localhost:5175/stock/SUPREMEIND?theme=light
+          - generic [ref=f2e3650] [cursor=pointer]:
+            - generic [ref=f2e3651]: SUZLON
+            - generic [ref=f2e3652]: ~6s
+            - link "SUZLON — open company page in a new tab" [ref=f2e3653]:
+              - /url: http://localhost:5175/stock/SUZLON?theme=light
+          - generic [ref=f2e3658] [cursor=pointer]:
+            - generic [ref=f2e3659]: SWANCORP
+            - generic [ref=f2e3660]: ~6s
+            - link "SWANCORP — open company page in a new tab" [ref=f2e3661]:
+              - /url: http://localhost:5175/stock/SWANCORP?theme=light
+          - generic [ref=f2e3666] [cursor=pointer]:
+            - generic [ref=f2e3667]: SWIGGY
+            - generic [ref=f2e3668]: ~6s
+            - link "SWIGGY — open company page in a new tab" [ref=f2e3669]:
+              - /url: http://localhost:5175/stock/SWIGGY?theme=light
+          - generic [ref=f2e3674] [cursor=pointer]:
+            - generic [ref=f2e3675]: SYNGENE
+            - generic [ref=f2e3676]: ~6s
+            - link "SYNGENE — open company page in a new tab" [ref=f2e3677]:
+              - /url: http://localhost:5175/stock/SYNGENE?theme=light
+          - generic [ref=f2e3682] [cursor=pointer]:
+            - generic [ref=f2e3683]: SYRMA
+            - generic [ref=f2e3684]: ~6s
+            - link "SYRMA — open company page in a new tab" [ref=f2e3685]:
+              - /url: http://localhost:5175/stock/SYRMA?theme=light
+          - generic [ref=f2e3690] [cursor=pointer]:
+            - generic [ref=f2e3691]: TARIL
+            - generic [ref=f2e3692]: ~6s
+            - link "TARIL — open company page in a new tab" [ref=f2e3693]:
+              - /url: http://localhost:5175/stock/TARIL?theme=light
+          - generic [ref=f2e3698] [cursor=pointer]:
+            - generic [ref=f2e3699]: TATACAP
+            - generic [ref=f2e3700]: ~6s
+            - link "TATACAP — open company page in a new tab" [ref=f2e3701]:
+              - /url: http://localhost:5175/stock/TATACAP?theme=light
+          - generic [ref=f2e3706] [cursor=pointer]:
+            - generic [ref=f2e3707]: TATACHEM
+            - generic [ref=f2e3708]: ~6s
+            - link "TATACHEM — open company page in a new tab" [ref=f2e3709]:
+              - /url: http://localhost:5175/stock/TATACHEM?theme=light
+          - generic [ref=f2e3714] [cursor=pointer]:
+            - generic [ref=f2e3715]: TATACOMM
+            - generic [ref=f2e3716]: ~6s
+            - link "TATACOMM — open company page in a new tab" [ref=f2e3717]:
+              - /url: http://localhost:5175/stock/TATACOMM?theme=light
+          - generic [ref=f2e3722] [cursor=pointer]:
+            - generic [ref=f2e3723]: TATACONSUM
+            - generic [ref=f2e3724]: ~6s
+            - link "TATACONSUM — open company page in a new tab" [ref=f2e3725]:
+              - /url: http://localhost:5175/stock/TATACONSUM?theme=light
+          - generic [ref=f2e3730] [cursor=pointer]:
+            - generic [ref=f2e3731]: TATAELXSI
+            - generic [ref=f2e3732]: ~6s
+            - link "TATAELXSI — open company page in a new tab" [ref=f2e3733]:
+              - /url: http://localhost:5175/stock/TATAELXSI?theme=light
+          - generic [ref=f2e3738] [cursor=pointer]:
+            - generic [ref=f2e3739]: TATAINVEST
+            - generic [ref=f2e3740]: ~6s
+            - link "TATAINVEST — open company page in a new tab" [ref=f2e3741]:
+              - /url: http://localhost:5175/stock/TATAINVEST?theme=light
+          - generic [ref=f2e3746] [cursor=pointer]:
+            - generic [ref=f2e3747]: TATAPOWER
+            - generic [ref=f2e3748]: ~6s
+            - link "TATAPOWER — open company page in a new tab" [ref=f2e3749]:
+              - /url: http://localhost:5175/stock/TATAPOWER?theme=light
+          - generic [ref=f2e3754] [cursor=pointer]:
+            - generic [ref=f2e3755]: TATASTEEL
+            - generic [ref=f2e3756]: ~6s
+            - link "TATASTEEL — open company page in a new tab" [ref=f2e3757]:
+              - /url: http://localhost:5175/stock/TATASTEEL?theme=light
+          - generic [ref=f2e3762] [cursor=pointer]:
+            - generic [ref=f2e3763]: TATATECH
+            - generic [ref=f2e3764]: ~6s
+            - link "TATATECH — open company page in a new tab" [ref=f2e3765]:
+              - /url: http://localhost:5175/stock/TATATECH?theme=light
+          - generic [ref=f2e3770] [cursor=pointer]:
+            - generic [ref=f2e3771]: TBOTEK
+            - generic [ref=f2e3772]: ~6s
+            - link "TBOTEK — open company page in a new tab" [ref=f2e3773]:
+              - /url: http://localhost:5175/stock/TBOTEK?theme=light
+          - generic [ref=f2e3778] [cursor=pointer]:
+            - generic [ref=f2e3779]: TCS
+            - generic [ref=f2e3780]: ~6s
+            - link "TCS — open company page in a new tab" [ref=f2e3781]:
+              - /url: http://localhost:5175/stock/TCS?theme=light
+          - generic [ref=f2e3786] [cursor=pointer]:
+            - generic [ref=f2e3787]: TECHM
+            - generic [ref=f2e3788]: ~6s
+            - link "TECHM — open company page in a new tab" [ref=f2e3789]:
+              - /url: http://localhost:5175/stock/TECHM?theme=light
+          - generic [ref=f2e3794] [cursor=pointer]:
+            - generic [ref=f2e3795]: TECHNOE
+            - generic [ref=f2e3796]: ~6s
+            - link "TECHNOE — open company page in a new tab" [ref=f2e3797]:
+              - /url: http://localhost:5175/stock/TECHNOE?theme=light
+          - generic [ref=f2e3802] [cursor=pointer]:
+            - generic [ref=f2e3803]: TEGA
+            - generic [ref=f2e3804]: ~6s
+            - link "TEGA — open company page in a new tab" [ref=f2e3805]:
+              - /url: http://localhost:5175/stock/TEGA?theme=light
+          - generic [ref=f2e3810] [cursor=pointer]:
+            - generic [ref=f2e3811]: TEJASNET
+            - generic [ref=f2e3812]: ~6s
+            - link "TEJASNET — open company page in a new tab" [ref=f2e3813]:
+              - /url: http://localhost:5175/stock/TEJASNET?theme=light
+          - generic [ref=f2e3818] [cursor=pointer]:
+            - generic [ref=f2e3819]: TENNIND
+            - generic [ref=f2e3820]: ~6s
+            - link "TENNIND — open company page in a new tab" [ref=f2e3821]:
+              - /url: http://localhost:5175/stock/TENNIND?theme=light
+          - generic [ref=f2e3826] [cursor=pointer]:
+            - generic [ref=f2e3827]: THELEELA
+            - generic [ref=f2e3828]: ~6s
+            - link "THELEELA — open company page in a new tab" [ref=f2e3829]:
+              - /url: http://localhost:5175/stock/THELEELA?theme=light
+          - generic [ref=f2e3834] [cursor=pointer]:
+            - generic [ref=f2e3835]: THERMAX
+            - generic [ref=f2e3836]: ~6s
+            - link "THERMAX — open company page in a new tab" [ref=f2e3837]:
+              - /url: http://localhost:5175/stock/THERMAX?theme=light
+          - generic [ref=f2e3842] [cursor=pointer]:
+            - generic [ref=f2e3843]: TIINDIA
+            - generic [ref=f2e3844]: ~6s
+            - link "TIINDIA — open company page in a new tab" [ref=f2e3845]:
+              - /url: http://localhost:5175/stock/TIINDIA?theme=light
+          - generic [ref=f2e3850] [cursor=pointer]:
+            - generic [ref=f2e3851]: TIMKEN
+            - generic [ref=f2e3852]: ~6s
+            - link "TIMKEN — open company page in a new tab" [ref=f2e3853]:
+              - /url: http://localhost:5175/stock/TIMKEN?theme=light
+          - generic [ref=f2e3858] [cursor=pointer]:
+            - generic [ref=f2e3859]: TITAGARH
+            - generic [ref=f2e3860]: ~6s
+            - link "TITAGARH — open company page in a new tab" [ref=f2e3861]:
+              - /url: http://localhost:5175/stock/TITAGARH?theme=light
+          - generic [ref=f2e3866] [cursor=pointer]:
+            - generic [ref=f2e3867]: TITAN
+            - generic [ref=f2e3868]: ~6s
+            - link "TITAN — open company page in a new tab" [ref=f2e3869]:
+              - /url: http://localhost:5175/stock/TITAN?theme=light
+          - generic [ref=f2e3874] [cursor=pointer]:
+            - generic [ref=f2e3875]: TMCV
+            - generic [ref=f2e3876]: ~6s
+            - link "TMCV — open company page in a new tab" [ref=f2e3877]:
+              - /url: http://localhost:5175/stock/TMCV?theme=light
+          - generic [ref=f2e3882] [cursor=pointer]:
+            - generic [ref=f2e3883]: TMPV
+            - generic [ref=f2e3884]: ~6s
+            - link "TMPV — open company page in a new tab" [ref=f2e3885]:
+              - /url: http://localhost:5175/stock/TMPV?theme=light
+          - generic [ref=f2e3890] [cursor=pointer]:
+            - generic [ref=f2e3891]: TORNTPHARM
+            - generic [ref=f2e3892]: ~6s
+            - link "TORNTPHARM — open company page in a new tab" [ref=f2e3893]:
+              - /url: http://localhost:5175/stock/TORNTPHARM?theme=light
+          - generic [ref=f2e3898] [cursor=pointer]:
+            - generic [ref=f2e3899]: TORNTPOWER
+            - generic [ref=f2e3900]: ~6s
+            - link "TORNTPOWER — open company page in a new tab" [ref=f2e3901]:
+              - /url: http://localhost:5175/stock/TORNTPOWER?theme=light
+          - generic [ref=f2e3906] [cursor=pointer]:
+            - generic [ref=f2e3907]: TRAVELFOOD
+            - generic [ref=f2e3908]: ~6s
+            - link "TRAVELFOOD — open company page in a new tab" [ref=f2e3909]:
+              - /url: http://localhost:5175/stock/TRAVELFOOD?theme=light
+          - generic [ref=f2e3914] [cursor=pointer]:
+            - generic [ref=f2e3915]: TRENT
+            - generic [ref=f2e3916]: ~6s
+            - link "TRENT — open company page in a new tab" [ref=f2e3917]:
+              - /url: http://localhost:5175/stock/TRENT?theme=light
+          - generic [ref=f2e3922] [cursor=pointer]:
+            - generic [ref=f2e3923]: TRIDENT
+            - generic [ref=f2e3924]: ~6s
+            - link "TRIDENT — open company page in a new tab" [ref=f2e3925]:
+              - /url: http://localhost:5175/stock/TRIDENT?theme=light
+          - generic [ref=f2e3930] [cursor=pointer]:
+            - generic [ref=f2e3931]: TRITURBINE
+            - generic [ref=f2e3932]: ~6s
+            - link "TRITURBINE — open company page in a new tab" [ref=f2e3933]:
+              - /url: http://localhost:5175/stock/TRITURBINE?theme=light
+          - generic [ref=f2e3938] [cursor=pointer]:
+            - generic [ref=f2e3939]: TTML
+            - generic [ref=f2e3940]: ~6s
+            - link "TTML — open company page in a new tab" [ref=f2e3941]:
+              - /url: http://localhost:5175/stock/TTML?theme=light
+          - generic [ref=f2e3946] [cursor=pointer]:
+            - generic [ref=f2e3947]: TVSMOTOR
+            - generic [ref=f2e3948]: ~6s
+            - link "TVSMOTOR — open company page in a new tab" [ref=f2e3949]:
+              - /url: http://localhost:5175/stock/TVSMOTOR?theme=light
+          - generic [ref=f2e3954] [cursor=pointer]:
+            - generic [ref=f2e3955]: UBL
+            - generic [ref=f2e3956]: ~6s
+            - link "UBL — open company page in a new tab" [ref=f2e3957]:
+              - /url: http://localhost:5175/stock/UBL?theme=light
+          - generic [ref=f2e3962] [cursor=pointer]:
+            - generic [ref=f2e3963]: UCOBANK
+            - generic [ref=f2e3964]: ~6s
+            - link "UCOBANK — open company page in a new tab" [ref=f2e3965]:
+              - /url: http://localhost:5175/stock/UCOBANK?theme=light
+          - generic [ref=f2e3970] [cursor=pointer]:
+            - generic [ref=f2e3971]: ULTRACEMCO
+            - generic [ref=f2e3972]: ~6s
+            - link "ULTRACEMCO — open company page in a new tab" [ref=f2e3973]:
+              - /url: http://localhost:5175/stock/ULTRACEMCO?theme=light
+          - generic [ref=f2e3978] [cursor=pointer]:
+            - generic [ref=f2e3979]: UNIONBANK
+            - generic [ref=f2e3980]: ~6s
+            - link "UNIONBANK — open company page in a new tab" [ref=f2e3981]:
+              - /url: http://localhost:5175/stock/UNIONBANK?theme=light
+          - generic [ref=f2e3986] [cursor=pointer]:
+            - generic [ref=f2e3987]: UNITDSPR
+            - generic [ref=f2e3988]: ~6s
+            - link "UNITDSPR — open company page in a new tab" [ref=f2e3989]:
+              - /url: http://localhost:5175/stock/UNITDSPR?theme=light
+          - generic [ref=f2e3994] [cursor=pointer]:
+            - generic [ref=f2e3995]: UNOMINDA
+            - generic [ref=f2e3996]: ~6s
+            - link "UNOMINDA — open company page in a new tab" [ref=f2e3997]:
+              - /url: http://localhost:5175/stock/UNOMINDA?theme=light
+          - generic [ref=f2e4002] [cursor=pointer]:
+            - generic [ref=f2e4003]: UPL
+            - generic [ref=f2e4004]: ~6s
+            - link "UPL — open company page in a new tab" [ref=f2e4005]:
+              - /url: http://localhost:5175/stock/UPL?theme=light
+          - generic [ref=f2e4010] [cursor=pointer]:
+            - generic [ref=f2e4011]: URBANCO
+            - generic [ref=f2e4012]: ~6s
+            - link "URBANCO — open company page in a new tab" [ref=f2e4013]:
+              - /url: http://localhost:5175/stock/URBANCO?theme=light
+          - generic [ref=f2e4018] [cursor=pointer]:
+            - generic [ref=f2e4019]: USHAMART
+            - generic [ref=f2e4020]: ~6s
+            - link "USHAMART — open company page in a new tab" [ref=f2e4021]:
+              - /url: http://localhost:5175/stock/USHAMART?theme=light
+          - generic [ref=f2e4026] [cursor=pointer]:
+            - generic [ref=f2e4027]: UTIAMC
+            - generic [ref=f2e4028]: ~6s
+            - link "UTIAMC — open company page in a new tab" [ref=f2e4029]:
+              - /url: http://localhost:5175/stock/UTIAMC?theme=light
+          - generic [ref=f2e4034] [cursor=pointer]:
+            - generic [ref=f2e4035]: VBL
+            - generic [ref=f2e4036]: ~6s
+            - link "VBL — open company page in a new tab" [ref=f2e4037]:
+              - /url: http://localhost:5175/stock/VBL?theme=light
+          - generic [ref=f2e4042] [cursor=pointer]:
+            - generic [ref=f2e4043]: VEDL
+            - generic [ref=f2e4044]: ~6s
+            - link "VEDL — open company page in a new tab" [ref=f2e4045]:
+              - /url: http://localhost:5175/stock/VEDL?theme=light
+          - generic [ref=f2e4050] [cursor=pointer]:
+            - generic [ref=f2e4051]: VIJAYA
+            - generic [ref=f2e4052]: ~6s
+            - link "VIJAYA — open company page in a new tab" [ref=f2e4053]:
+              - /url: http://localhost:5175/stock/VIJAYA?theme=light
+          - generic [ref=f2e4058] [cursor=pointer]:
+            - generic [ref=f2e4059]: VMM
+            - generic [ref=f2e4060]: ~6s
+            - link "VMM — open company page in a new tab" [ref=f2e4061]:
+              - /url: http://localhost:5175/stock/VMM?theme=light
+          - generic [ref=f2e4066] [cursor=pointer]:
+            - generic [ref=f2e4067]: VOLTAS
+            - generic [ref=f2e4068]: ~6s
+            - link "VOLTAS — open company page in a new tab" [ref=f2e4069]:
+              - /url: http://localhost:5175/stock/VOLTAS?theme=light
+          - generic [ref=f2e4074] [cursor=pointer]:
+            - generic [ref=f2e4075]: VTL
+            - generic [ref=f2e4076]: ~6s
+            - link "VTL — open company page in a new tab" [ref=f2e4077]:
+              - /url: http://localhost:5175/stock/VTL?theme=light
+          - generic [ref=f2e4082] [cursor=pointer]:
+            - generic [ref=f2e4083]: WAAREEENER
+            - generic [ref=f2e4084]: ~6s
+            - link "WAAREEENER — open company page in a new tab" [ref=f2e4085]:
+              - /url: http://localhost:5175/stock/WAAREEENER?theme=light
+          - generic [ref=f2e4090] [cursor=pointer]:
+            - generic [ref=f2e4091]: WELCORP
+            - generic [ref=f2e4092]: ~6s
+            - link "WELCORP — open company page in a new tab" [ref=f2e4093]:
+              - /url: http://localhost:5175/stock/WELCORP?theme=light
+          - generic [ref=f2e4098] [cursor=pointer]:
+            - generic [ref=f2e4099]: WELSPUNLIV
+            - generic [ref=f2e4100]: ~6s
+            - link "WELSPUNLIV — open company page in a new tab" [ref=f2e4101]:
+              - /url: http://localhost:5175/stock/WELSPUNLIV?theme=light
+          - generic [ref=f2e4106] [cursor=pointer]:
+            - generic [ref=f2e4107]: WHIRLPOOL
+            - generic [ref=f2e4108]: ~6s
+            - link "WHIRLPOOL — open company page in a new tab" [ref=f2e4109]:
+              - /url: http://localhost:5175/stock/WHIRLPOOL?theme=light
+          - generic [ref=f2e4114] [cursor=pointer]:
+            - generic [ref=f2e4115]: WIPRO
+            - generic [ref=f2e4116]: ~6s
+            - link "WIPRO — open company page in a new tab" [ref=f2e4117]:
+              - /url: http://localhost:5175/stock/WIPRO?theme=light
+          - generic [ref=f2e4122] [cursor=pointer]:
+            - generic [ref=f2e4123]: WOCKPHARMA
+            - generic [ref=f2e4124]: ~6s
+            - link "WOCKPHARMA — open company page in a new tab" [ref=f2e4125]:
+              - /url: http://localhost:5175/stock/WOCKPHARMA?theme=light
+          - generic [ref=f2e4130] [cursor=pointer]:
+            - generic [ref=f2e4131]: YESBANK
+            - generic [ref=f2e4132]: ~6s
+            - link "YESBANK — open company page in a new tab" [ref=f2e4133]:
+              - /url: http://localhost:5175/stock/YESBANK?theme=light
+          - generic [ref=f2e4138] [cursor=pointer]:
+            - generic [ref=f2e4139]: ZEEL
+            - generic [ref=f2e4140]: ~6s
+            - link "ZEEL — open company page in a new tab" [ref=f2e4141]:
+              - /url: http://localhost:5175/stock/ZEEL?theme=light
+          - generic [ref=f2e4146] [cursor=pointer]:
+            - generic [ref=f2e4147]: ZENSARTECH
+            - generic [ref=f2e4148]: ~6s
+            - link "ZENSARTECH — open company page in a new tab" [ref=f2e4149]:
+              - /url: http://localhost:5175/stock/ZENSARTECH?theme=light
+          - generic [ref=f2e4154] [cursor=pointer]:
+            - generic [ref=f2e4155]: ZENTEC
+            - generic [ref=f2e4156]: ~6s
+            - link "ZENTEC — open company page in a new tab" [ref=f2e4157]:
+              - /url: http://localhost:5175/stock/ZENTEC?theme=light
+          - generic [ref=f2e4162] [cursor=pointer]:
+            - generic [ref=f2e4163]: ZFCVINDIA
+            - generic [ref=f2e4164]: ~6s
+            - link "ZFCVINDIA — open company page in a new tab" [ref=f2e4165]:
+              - /url: http://localhost:5175/stock/ZFCVINDIA?theme=light
+          - generic [ref=f2e4170] [cursor=pointer]:
+            - generic [ref=f2e4171]: ZYDUSLIFE
+            - generic [ref=f2e4172]: ~6s
+            - link "ZYDUSLIFE — open company page in a new tab" [ref=f2e4173]:
+              - /url: http://localhost:5175/stock/ZYDUSLIFE?theme=light
+          - generic [ref=f2e4178] [cursor=pointer]:
+            - generic [ref=f2e4179]: ZYDUSWELL
+            - generic [ref=f2e4180]: ~6s
+            - link "ZYDUSWELL — open company page in a new tab" [ref=f2e4181]:
+              - /url: http://localhost:5175/stock/ZYDUSWELL?theme=light
+    - button "1h" [ref=f2e10] [cursor=pointer]
+    - button "Indicators" [ref=f2e13] [cursor=pointer]
+    - button "Undo" [ref=f2e20] [cursor=pointer]
+    - button "Redo" [disabled] [ref=f2e24]
+    - button "Layout — Single chart" [ref=f2e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f2e33] [cursor=pointer]
+    - group "Panels" [ref=f2e38]:
+      - button "Watchlist" [ref=f2e39] [cursor=pointer]
+      - button "Alerts" [ref=f2e43] [cursor=pointer]
+    - button "Switch to dark" [ref=f2e49] [cursor=pointer]
+    - button "Chat" [ref=f2e52] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f2e56] [cursor=pointer]
+  - generic [ref=f2e60]:
+    - generic [ref=f2e61]:
+      - button "Cursor / select" [ref=f2e62] [cursor=pointer]
+      - button "Lines" [ref=f2e67] [cursor=pointer]
+      - button "Fibonacci" [ref=f2e73] [cursor=pointer]
+      - button "Shapes" [ref=f2e76] [cursor=pointer]
+      - button "Measure" [ref=f2e80] [cursor=pointer]
+      - button "Position" [ref=f2e88] [cursor=pointer]
+      - button "Annotations" [ref=f2e93] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f2e97] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f2e102] [cursor=pointer]
+      - button "Clear all drawings" [ref=f2e106] [cursor=pointer]
+    - generic [ref=f2e111]:
+      - table [ref=f2e114]:
+        - row [ref=f2e4186]:
+          - cell
+          - cell [ref=f2e4187]
+          - cell [ref=f2e125]
+          - button "Hide 1 drawing — nothing is deleted" [ref=f2e4188] [cursor=pointer]
+        - row [ref=f2e4191]:
+          - cell [ref=f2e4192]
+        - row [ref=f2e4194]:
+          - cell
+          - cell [ref=f2e4195]
+          - cell [ref=f2e4199]
+        - row [ref=f2e4203]:
+          - cell [ref=f2e4204]
+        - row [ref=f2e4206]:
+          - cell
+          - cell [ref=f2e4207]:
+            - link "Charting by TradingView" [ref=f2e4211] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f2e4216]
+        - row [ref=f2e132]:
+          - cell
+          - cell [ref=f2e133]
+          - cell [ref=f2e137]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f2e4220] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 1h
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,268.5
+          - generic: H 1,272
+          - generic: L 1,266.9
+          - generic: C 1,267.7
+          - generic: V 18,40,260
+          - text: "-0.9 (-0.07%)"
+        - generic:
+          - generic [ref=f2e4221] [cursor=pointer]:
+            - generic [ref=f2e4222]: SMA 20
+            - generic [ref=f2e4223]: ·1,276.94
+          - generic [ref=f2e4224] [cursor=pointer]:
+            - generic [ref=f2e4225]: EMA 21
+            - generic [ref=f2e4226]: ·1,276.85
+          - generic [ref=f2e4227] [cursor=pointer]:
+            - generic [ref=f2e4228]: Supertrend 10 3
+            - generic [ref=f2e4229]: ·1,267.13
+          - button "Hide indicators" [ref=f2e4230] [cursor=pointer]
+      - generic [ref=f2e4233] [cursor=pointer]:
+        - generic [ref=f2e4234]: MACD 12 26 9
+        - generic [ref=f2e4235]: ·-4.84 -4.58
+      - generic [ref=f2e4236] [cursor=pointer]:
+        - generic [ref=f2e4237]: RSI 14
+        - generic [ref=f2e4238]: ·30.70
+    - generic "Drag to resize · double-click to reset" [ref=f2e143]
+    - complementary [ref=f2e144]:
+      - generic [ref=f2e146]:
+        - generic [ref=f2e147]:
+          - generic [ref=f2e148]: old thread
+          - generic [ref=f2e150]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=f2e151]: 06 Aug
+            - button "Retry" [ref=f2e152] [cursor=pointer]
+            - button "Copy prompt" [ref=f2e156] [cursor=pointer]
+        - generic [ref=f2e160]:
+          - paragraph [ref=f2e162]: An answer from before.
+          - generic [ref=f2e163]:
+            - button "Copy reply" [ref=f2e164] [cursor=pointer]
+            - generic [ref=f2e168]: 2.4s
+      - generic [ref=f2e171]:
+        - textbox "Ask about this chart…" [ref=f2e172]
+        - generic [ref=f2e173]:
+          - button "Conversation options" [ref=f2e175] [cursor=pointer]
+          - button "RELIANCE" [ref=f2e177] [cursor=pointer]
+          - button "Send (Enter)" [ref=f2e179] [cursor=pointer]

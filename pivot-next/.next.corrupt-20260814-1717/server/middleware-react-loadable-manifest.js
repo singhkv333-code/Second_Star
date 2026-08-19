@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"components/stock/MixPanel.tsx -> ./EChart\":{\"id\":\"components/stock/MixPanel.tsx -> ./EChart\",\"files\":[\"static/chunks/_app-pages-browser_components_stock_EChart_tsx.js\"]}}"

@@ -851,6 +851,8 @@ const Panels = (() => {
       render: renderWatch },
     { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
       render: renderAlerts },
+    { id: "journal", panel: "journalPanel", icon: "fileText", label: "Journal",
+      render: (host) => Journal.renderSidebar(host) },
   ];
   const byId = (id) => WIDGETS.find((w) => w.id === id);
 
@@ -864,10 +866,18 @@ const Panels = (() => {
    */
   const tabs = el("wtabs");
 
-  bar.innerHTML = WIDGETS.map((w) =>
+  const widgetButtons = WIDGETS.map((w) =>
     `<button type="button" class="tool" id="wb-${w.id}" data-widget="${w.id}" ` +
     `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
     `<span class="tip">${w.label}</span></button>`).join("");
+  // Watchlist, Alerts and Journal belong to the existing LEFT tool rail.
+  // Put them below the flexible spacer so they remain a distinct bottom
+  // group, rather than creating a second navigation rail on the right.
+  const railSpacer = document.querySelector("#rail .rail-spacer");
+  if (railSpacer) railSpacer.insertAdjacentHTML("afterend",
+    `<div class="rail-sep rail-widget-sep"></div>${widgetButtons}`
+    + `<div class="rail-sep rail-export-sep"></div>`);
+  bar.innerHTML = "";
 
   if (tabs) {
     tabs.innerHTML = WIDGETS.map((w) =>
@@ -964,7 +974,15 @@ const Panels = (() => {
     // the charts are autoSize — they re-measure themselves off the layout
   }
 
-  const toggle = (id) => show(openId === id ? null : id);
+  const toggle = (id) => {
+    if (id === "journal") {
+      show(null);
+      Journal.toggleQuick();
+      return;
+    }
+    Journal.toggleQuick(false);
+    show(openId === id ? null : id);
+  };
 
   // one handler shape, both renderings — the bar and the header's buttons
   // carry the same data-widget, so neither needs its own branch
@@ -972,7 +990,7 @@ const Panels = (() => {
     const b = e.target.closest("[data-widget]");
     if (b) toggle(b.dataset.widget);
   };
-  bar.addEventListener("click", onPick);
+  el("rail").addEventListener("click", onPick);
   if (tabs) tabs.addEventListener("click", onPick);
 
   /* ══ inside the panels ═════════════════════════════════════════════════

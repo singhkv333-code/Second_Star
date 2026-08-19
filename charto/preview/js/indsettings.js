@@ -49,8 +49,15 @@ const IndSettings = (() => {
   };
 
   const SOURCE_LABEL = {
-    close: "close", open: "open", high: "high", low: "low",
-    hl2: "hl2", hlc3: "hlc3", ohlc4: "ohlc4", volume: "volume",
+    close: "Close", open: "Open", high: "High", low: "Low",
+    hl2: "HL2", hlc3: "HLC3", ohlc4: "OHLC4", volume: "Volume",
+  };
+  const INPUT_ORDER = {
+    macd: ["fast", "slow", "source", "signal", "osc_ma", "signal_ma"],
+  };
+  const VIS_RANGES = {
+    minutes: [1, 59], hours: [1, 24], days: [1, 366],
+    weeks: [1, 52], months: [1, 12],
   };
 
   let wrap = null, dlg = null;
@@ -61,6 +68,7 @@ const IndSettings = (() => {
   let tab = "inputs";
   let notify = () => {};
   let subtitle = "";
+  let linePop = null;
 
   const st = () => ind.settings(id);
   const def = () => ind.CATALOG.find((c) => c.id === id);
@@ -77,12 +85,27 @@ const IndSettings = (() => {
   function inputsHTML() {
     const d = def();
     const s = st();
-    const fields = d.inputs || [];
+    let fields = d.inputs || [];
+    const order = INPUT_ORDER[d.name];
+    if (order) fields = fields.slice().sort((a, b) => {
+      const ai = order.indexOf(a.key), bi = order.indexOf(b.key);
+      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+    });
+    const symbol = `<div class="ind-symbol-choice">
+      <label class="ind-radio"><input type="radio" name="ind-symbol" value="main" data-symbol-mode
+        ${s.symbolMode !== "another" ? "checked" : ""}><span>Main chart symbol</span></label>
+      <label class="ind-radio another"><input type="radio" name="ind-symbol" value="another" data-symbol-mode
+        ${s.symbolMode === "another" ? "checked" : ""}><span>Another symbol</span></label>
+      <div class="ind-symbol-field" data-symbol-picker><input class="dlg-input ind-symbol-input" data-ind-symbol
+        value="${esc(s.symbol || "")}" placeholder="${s.symbolMode === "another" ? "Select symbol" : ""}"
+        readonly ${s.symbolMode === "another" ? "" : "disabled"} aria-label="Another symbol">
+        ${Icons.svg("pen", "xs")}</div>
+    </div>`;
     if (!fields.length) {
       // Two very different silences. An indicator with no knobs is a fact;
       // an unreachable catalogue is a failure, and saying "no inputs" to
       // cover it is exactly the fake-success this codebase forbids.
-      return (d.formula
+      return symbol + (d.formula
         ? `<p class="dlg-empty">${esc(TITLES[d.name] || d.base)} takes no inputs —
            it reads the bars directly.</p>`
         : `<p class="dlg-empty">Could not read the indicator catalogue from the
@@ -117,7 +140,7 @@ const IndSettings = (() => {
       return row(f.label,
         numberHTML(f, isPeriod ? d.period : cur(f), isPeriod ? "period" : f.key));
     }).join("");
-    return rows + formulaHTML();
+    return symbol + rows;
   }
 
   function formulaHTML() {
@@ -140,31 +163,29 @@ const IndSettings = (() => {
     const plots = (d.lines || []).map((n) => {
       const p = s.style.plots[n] || {};
       const isHist = p.plotType === "columns";
-      const swatches = isHist
-        ? swatchHTML(n, "color", p.color, "Growing")
-          + swatchHTML(n, "colorDown", p.colorDown || p.color, "Falling")
-        : swatchHTML(n, "color", p.color, "Colour");
-      const widthSel = isHist ? "" :
-        `<select class="dlg-select tight" data-plot="${n}" data-key="width">` +
-        Indicators.WIDTHS.map((w) =>
-          `<option value="${w}"${w === p.width ? " selected" : ""}>${w}px</option>`).join("") +
-        `</select>`;
-      const styleSel = isHist ? "" :
-        `<select class="dlg-select tight" data-plot="${n}" data-key="lineStyle">` +
-        Indicators.LINE_STYLES.map((o) =>
-          `<option value="${o.id}"${o.id === (p.lineStyle || 0) ? " selected" : ""}>${o.label}</option>`).join("") +
-        `</select>`;
-      const typeSel =
-        `<select class="dlg-select" data-plot="${n}" data-key="plotType">` +
-        Indicators.PLOT_TYPES.map((o) =>
-          `<option value="${o.id}"${o.id === p.plotType ? " selected" : ""}>${o.label}</option>`).join("") +
-        `</select>`;
+      if (isHist) {
+        const colors = p.colors || [p.color, p.color,
+          p.colorDown || p.color, p.colorDown || p.color];
+        return `<div class="hist-plot">
+          <label class="dlg-check"><input type="checkbox" data-plot="${n}" data-key="visible"
+            ${p.visible !== false ? "checked" : ""}><span>${esc(Indicators.lineLabel(n))}</span></label>
+          <div class="hist-color-grid">${colors.map((c, i) =>
+            `<span>Color ${i}</span>${histColorHTML(n, `color${i}`, c, `Color ${i}`)}${i === 0
+              ? `<button type="button" class="dlg-line-button hist-type" data-line-options="${n}" title="Histogram type"><svg viewBox="0 0 28 18" aria-hidden="true"><path d="M4 16V8h4v8M12 16V3h4v13M20 16V10h4v6"/></svg></button>` : "<i></i>"}`
+          ).join("")}</div>
+        </div>`;
+      }
+      const swatches = `<button type="button" class="dlg-colour-line" data-swatch="${n}" data-key="color"
+             title="Line colour" style="--sw:${p.color}"><span class="colour"></span><i></i></button>`;
+      const lineButton =
+        `<button type="button" class="dlg-line-button" data-line-options="${n}"
+           title="Line width, style and plot type"><svg viewBox="0 0 28 18" aria-hidden="true"><path d="M2 14l7-7 6 6 7-8 4 4"/></svg></button>`;
       return `<div class="dlg-row plot">
         <label class="dlg-check">
           <input type="checkbox" data-plot="${n}" data-key="visible"${p.visible !== false ? " checked" : ""}>
           <span>${esc(Indicators.lineLabel(n))}</span>
         </label>
-        <div class="dlg-ctl">${swatches}${widthSel}${styleSel}${typeSel}</div>
+        <div class="dlg-ctl">${swatches}${lineButton}</div>
       </div>`;
     }).join("");
 
@@ -172,11 +193,12 @@ const IndSettings = (() => {
       `<option value="${v}"${String(v) === String(s.style.precision) ? " selected" : ""}>` +
       `${v === "default" ? "Default" : v}</option>`).join("");
 
-    return plots + `<div class="dlg-sep"></div>` +
+    return plots + `<div class="dlg-section-label output-values">OUTPUT VALUES</div>` +
       row("Precision", `<select class="dlg-select" data-style="precision">${prec}</select>`) +
-      toggleRow("statusLine", "Values in status line", s.style.statusLine) +
       toggleRow("priceLabel", "Labels on price scale", s.style.priceLabel) +
-      toggleRow("priceLine", "Price line", s.style.priceLine);
+      toggleRow("statusLine", "Values in status line", s.style.statusLine) +
+      `<div class="dlg-section-label input-values">INPUT VALUES</div>` +
+      toggleRow("inputsStatusLine", "Inputs in status line", s.style.inputsStatusLine !== false);
   }
 
   const toggleRow = (key, label, on) =>
@@ -184,23 +206,27 @@ const IndSettings = (() => {
        <input type="checkbox" data-style="${key}"${on ? " checked" : ""}>
        <span>${esc(label)}</span></label></div>`;
 
-  function swatchHTML(line, key, color, title) {
-    return `<button type="button" class="dlg-swatch" title="${title}"
-      data-swatch="${line}" data-key="${key}"
-      style="--sw:${color}"><span></span></button>`;
-  }
-
   function visibilityHTML() {
     const s = st();
-    return `<p class="dlg-note">The timeframes this indicator draws on. An
-      interval that is switched off keeps the settings — the plot simply does
-      not appear there.</p>` +
-      Indicators.BUCKETS.map((b) => `<div class="dlg-row">
-        <label class="dlg-check">
-          <input type="checkbox" data-vis="${b.key}"${s.visibility[b.key] !== false ? " checked" : ""}>
-          <span>${b.label}</span></label>
-        <span class="dlg-hint">${b.note}</span>
-      </div>`).join("");
+    const clean = Indicators.BUCKETS.map((b) => {
+      const limits = VIS_RANGES[b.key];
+      const value = (s.visibilityRanges || {})[b.key] || { min: limits[0], max: limits[1] };
+      const left = ((value.min - limits[0]) / (limits[1] - limits[0])) * 100;
+      const right = ((value.max - limits[0]) / (limits[1] - limits[0])) * 100;
+      return `<div class="vis-range-row">
+        <label class="dlg-check"><input type="checkbox" data-vis="${b.key}"
+          ${s.visibility[b.key] !== false ? "checked" : ""}><span>${b.label}</span></label>
+        <input class="dlg-input vis-number" type="number" data-vis-number="${b.key}" data-edge="min"
+          min="${limits[0]}" max="${limits[1]}" value="${value.min}">
+        <div class="vis-slider" style="--lo:${left}%;--hi:${right}%">
+          <input type="range" data-vis-range="${b.key}" data-edge="min" min="${limits[0]}" max="${limits[1]}" value="${value.min}">
+          <input type="range" data-vis-range="${b.key}" data-edge="max" min="${limits[0]}" max="${limits[1]}" value="${value.max}">
+        </div>
+        <input class="dlg-input vis-number" type="number" data-vis-number="${b.key}" data-edge="max"
+          min="${limits[0]}" max="${limits[1]}" value="${value.max}">
+      </div>`;
+    }).join("");
+    return clean;
   }
 
   function bodyHTML() {
@@ -221,6 +247,7 @@ const IndSettings = (() => {
   }
 
   function render() {
+    dlg.dataset.tab = tab;
     dlg.querySelector(".dlg-title").textContent = titleText();
     dlg.querySelectorAll(".dlg-tab").forEach((b) =>
       b.classList.toggle("active", b.dataset.tab === tab));
@@ -238,14 +265,67 @@ const IndSettings = (() => {
   /** The kit's picker, aimed at one plot's colour key. */
   function openSwatch(btn) {
     const line = btn.dataset.swatch, key = btn.dataset.key;
+    const histIndex = /^color([0-3])$/.exec(key);
+    const plot = st().style.plots[line] || {};
     DlgKit.openSwatch(btn, {
-      value: (st().style.plots[line] || {})[key] || "#ffffff",
+      value: histIndex ? (plot.colors || [])[Number(histIndex[1])] : plot[key] || "#ffffff",
       onPick: (v) => set(line, key, v),
+    });
+  }
+
+  function histColorHTML(line, key, color, title) {
+    return `<button type="button" class="dlg-colour-line hist-colour" title="${title}"
+      data-swatch="${line}" data-key="${key}" style="--sw:${color}">
+      <span class="colour"></span><i></i></button>`;
+  }
+
+  function closeLineOptions() {
+    if (linePop) { linePop.remove(); linePop = null; }
+  }
+
+  function openLineOptions(btn) {
+    closeLineOptions();
+    DlgKit.closePopovers();
+    const line = btn.dataset.lineOptions;
+    const p = st().style.plots[line] || {};
+    linePop = document.createElement("div");
+    linePop.className = "dropdown ind-line-pop open";
+    const lineControls = p.plotType === "columns" ? "" :
+      `<div class="ind-line-pop-label">Thickness</div><div class="ind-line-widths">${
+      Indicators.WIDTHS.map((w) => `<button data-line="${line}" data-key="width" data-value="${w}" class="${w === p.width ? "on" : ""}"><span class="line-glyph ls-0 lw-${w}"></span></button>`).join("")
+    }</div><div class="ind-line-pop-label">Style</div>${
+      Indicators.LINE_STYLES.map((o) => `<div class="item${o.id === (p.lineStyle || 0) ? " on" : ""}" data-line="${line}" data-key="lineStyle" data-value="${o.id}"><span class="lead"><span class="line-glyph ls-${o.id} lw-2"></span>${esc(o.label)}</span></div>`).join("")
+    }`;
+    linePop.innerHTML = lineControls + `<div class="ind-line-pop-label">Plot</div>${
+      Indicators.PLOT_TYPES.map((o) => `<div class="item${o.id === p.plotType ? " on" : ""}" data-line="${line}" data-key="plotType" data-value="${o.id}"><span class="lead">${esc(o.label)}</span></div>`).join("")}`;
+    document.body.appendChild(linePop);
+    const r = btn.getBoundingClientRect();
+    linePop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - linePop.offsetWidth - 8))}px`;
+    linePop.style.top = `${r.bottom + 6}px`;
+    linePop.addEventListener("pointerdown", (e) => e.stopPropagation());
+    linePop.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-line][data-key]");
+      if (!opt) return;
+      const key = opt.dataset.key;
+      const value = key === "plotType" ? opt.dataset.value : Number(opt.dataset.value);
+      set(opt.dataset.line, key, value);
+      closeLineOptions();
+      render();
     });
   }
 
   // ── writes ──────────────────────────────────────────────
   function set(line, key, value) {
+    const histIndex = /^color([0-3])$/.exec(key);
+    if (histIndex) {
+      const current = st().style.plots[line] || {};
+      const colors = (current.colors || [current.color, current.color,
+        current.colorDown || current.color, current.colorDown || current.color]).slice();
+      colors[Number(histIndex[1])] = value;
+      ind.applySettings(id, { style: { plots: { [line]: { colors, custom: true } } } })
+        .then(notify).catch(() => {});
+      return;
+    }
     const patch = { style: { plots: { [line]: { [key]: value } } } };
     // any colour the user picks is a decision the theme toggle must respect
     if (key === "color" || key === "colorDown") patch.style.plots[line].custom = true;
@@ -283,9 +363,47 @@ const IndSettings = (() => {
     } catch (e) { /* the manager keeps the old series; nothing to undo */ }
   }
 
+  function setVisibilityRange(bucket, edge, raw, row) {
+    const limits = VIS_RANGES[bucket];
+    if (!limits) return;
+    const old = (st().visibilityRanges || {})[bucket] || { min: limits[0], max: limits[1] };
+    let value = Math.round(Math.max(limits[0], Math.min(limits[1], Number(raw))));
+    if (!Number.isFinite(value)) return;
+    const next = { ...old, [edge]: value };
+    if (next.min > next.max) next[edge === "min" ? "max" : "min"] = value;
+    if (row) {
+      row.querySelectorAll(`[data-edge="min"]`).forEach((x) => { x.value = next.min; });
+      row.querySelectorAll(`[data-edge="max"]`).forEach((x) => { x.value = next.max; });
+      const lo = ((next.min - limits[0]) / (limits[1] - limits[0])) * 100;
+      const hi = ((next.max - limits[0]) / (limits[1] - limits[0])) * 100;
+      row.querySelector(".vis-slider").style.cssText = `--lo:${lo}%;--hi:${hi}%`;
+    }
+    ind.applySettings(id, { visibilityRanges: { [bucket]: next } })
+      .then(notify).catch(() => {});
+  }
+
+  function openSymbolPicker() {
+    const anchor = dlg && dlg.querySelector("[data-symbol-picker]");
+    if (!anchor || st().symbolMode !== "another") return;
+    Universe.open({
+      anchor,
+      current: st().symbol,
+      note: "This indicator will use the selected symbol.",
+      onPick: (symbol) => {
+        ind.applySettings(id, { symbolMode: "another", symbol })
+          .then(() => { render(); notify(); }).catch(() => {});
+      },
+    });
+  }
+
   // ── wiring ──────────────────────────────────────────────
   function onInput(e) {
     const t = e.target;
+    if (t.dataset.visRange) {
+      setVisibilityRange(t.dataset.visRange, t.dataset.edge, t.value,
+        t.closest(".vis-range-row"));
+      return;
+    }
     if (t.dataset.param) return;                 // numbers commit on change
     if (t.dataset.plot) {
       const v = t.type === "checkbox" ? t.checked
@@ -313,14 +431,37 @@ const IndSettings = (() => {
   // divide the field types between them rather than overlapping.
   function onChange(e) {
     const t = e.target;
+    if (t.dataset.symbolMode !== undefined) {
+      const patch = t.value === "another"
+        ? { symbolMode: "another", symbol: st().symbol || ind.symbol }
+        : { symbolMode: "main" };
+      ind.applySettings(id, patch).then(() => {
+        render(); notify();
+        if (t.value === "another") setTimeout(openSymbolPicker, 0);
+      }).catch(() => {});
+      return;
+    }
+    if (t.dataset.indSymbol !== undefined) {
+      ind.applySettings(id, { symbol: t.value.trim().toUpperCase() }).then(notify).catch(() => {});
+      return;
+    }
+    if (t.dataset.visNumber) {
+      setVisibilityRange(t.dataset.visNumber, t.dataset.edge, t.value,
+        t.closest(".vis-range-row"));
+      return;
+    }
     if (!t.dataset.param) return;
     setParam(t.dataset.param, t.type === "checkbox" ? t.checked : t.value);
   }
 
   function onClick(e) {
     e.stopPropagation();
+    if (e.target.closest("[data-symbol-picker]")) { openSymbolPicker(); return; }
     const sw = e.target.closest("[data-swatch]");
     if (sw) { openSwatch(sw); return; }
+    const line = e.target.closest("[data-line-options]");
+    if (line) { openLineOptions(line); return; }
+    closeLineOptions();
     DlgKit.closeSwatch();
 
     const d = e.target.closest("[data-def]");
@@ -340,19 +481,28 @@ const IndSettings = (() => {
     else close();                       // ok / ×: the edits are already live
   }
 
-  function applyDefaultsAction(what) {
+  async function applyDefaultsAction(what) {
     dlg.querySelector(".dlg-def-menu").classList.remove("open");
     if (what === "reset") {
       // a reset that leaves the length alone is not a reset
       const d = def();
-      const factory = ind.factory(id);
       const back = (d.inputs || []).find((f) => f.key === "period");
-      const restore = () => ind.replaceSettings(id, factory).then(() => {
-        render(); notify();
-      });
-      if (back && d.period !== back.default) {
-        ind.setPeriod(id, back.default).then((nid) => { id = nid; restore(); });
-      } else restore();
+      try {
+        if (back && d.period !== back.default) id = await ind.setPeriod(id, back.default);
+        const factory = ind.factory(id);
+        if (factory) {
+          // replaceSettings applies paint synchronously before awaiting fresh
+          // indicator values. Repaint the controls at that same moment so a
+          // yellow/dashed custom line visibly becomes its factory colour and
+          // solid style as soon as Reset settings is chosen.
+          const resetting = ind.replaceSettings(id, factory);
+          render(); notify();
+          await resetting;
+          render(); notify();
+        }
+      } catch (e) {
+        console.warn("[charto] indicator reset failed", e);
+      }
       return;
     }
     if (what === "save") ind.saveAsDefault(id);
@@ -375,7 +525,7 @@ const IndSettings = (() => {
     wrap = document.createElement("div");
     wrap.className = "dlg-wrap";
     wrap.innerHTML = `
-      <div class="dlg" role="dialog" aria-modal="true">
+      <div class="dlg indicator-settings" role="dialog" aria-modal="true">
         <header class="dlg-head">
           <div class="dlg-title"></div>
           <button class="btn icon" data-act="close" title="Close"></button>
@@ -419,8 +569,14 @@ const IndSettings = (() => {
     }, true);
     // the kit dismisses its own popovers on a document press; the Defaults
     // menu is this dialog's, so it is dismissed here
-    document.addEventListener("pointerdown", () => {
+    document.addEventListener("pointerdown", (e) => {
+      closeLineOptions();
       if (!dlg) return;
+      // Do not dismiss the Defaults menu on the pointer-down that is meant
+      // to choose one of its rows. Hiding it here removes the hit target
+      // before the browser can dispatch click, which made Reset settings,
+      // Save as default and Clear saved default all appear inert.
+      if (e.target.closest(".dlg-def")) return;
       const m = dlg.querySelector(".dlg-def-menu");
       if (m) m.classList.remove("open");
     });
@@ -444,6 +600,8 @@ const IndSettings = (() => {
   }
 
   function close() {
+    closeLineOptions();
+    Universe.close();
     DlgKit.closePopovers();
     if (wrap) wrap.classList.remove("open");
   }

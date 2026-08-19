@@ -1031,7 +1031,7 @@ _PARAM_LABEL = {
     ("supertrend", "mult"): "Factor",
     ("macd", "fast"): "Fast Length",
     ("macd", "slow"): "Slow Length",
-    ("macd", "signal"): "Signal Smoothing",
+    ("macd", "signal"): "Signal Length",
     ("macd", "osc_ma"): "Oscillator MA Type",
     ("macd", "signal_ma"): "Signal Line MA Type",
     ("atr", "smoothing"): "Smoothing",

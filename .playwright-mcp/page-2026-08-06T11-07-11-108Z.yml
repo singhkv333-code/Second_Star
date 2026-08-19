@@ -1,0 +1,129 @@
+- generic [ref=f20e1]:
+  - banner [ref=f20e2]:
+    - generic [ref=f20e3]: Charto.
+    - generic "Search companies" [ref=f20e5] [cursor=pointer]:
+      - generic [ref=f20e6]: RELIANCE
+      - generic [ref=f20e7]: NSE
+    - button "1h" [ref=f20e10] [cursor=pointer]
+    - button "Indicators" [ref=f20e13] [cursor=pointer]
+    - generic [ref=f20e189]: 8 drawn by chat
+    - button "Clear what the chat drew" [ref=f20e190] [cursor=pointer]
+    - button "Layout — Two columns" [ref=f20e20] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f20e24] [cursor=pointer]
+    - group "Panels" [ref=f20e29]:
+      - button "Watchlist" [ref=f20e30] [cursor=pointer]
+      - button "Alerts" [ref=f20e34] [cursor=pointer]
+    - button "Switch to dark" [ref=f20e40] [cursor=pointer]
+    - button "Chat" [ref=f20e43] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f20e47] [cursor=pointer]
+  - generic [ref=f20e51]:
+    - generic [ref=f20e52]:
+      - button "Cursor / select" [ref=f20e53] [cursor=pointer]
+      - button "Lines" [ref=f20e58] [cursor=pointer]
+      - button "Channels" [ref=f20e64] [cursor=pointer]
+      - button "Fibonacci" [active] [ref=f20e70] [cursor=pointer]
+      - button "Shapes" [ref=f20e73] [cursor=pointer]
+      - button "Measure" [ref=f20e77] [cursor=pointer]
+      - button "Position" [ref=f20e85] [cursor=pointer]
+      - button "Annotations" [ref=f20e90] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f20e94] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f20e99] [cursor=pointer]
+      - button "Clear all drawings" [ref=f20e103] [cursor=pointer]
+    - generic [ref=f20e107]:
+      - generic [ref=f20e108]:
+        - table [ref=f20e111]:
+          - row "R 1,312.02 · held 4/4 R 1,294.40 · held 3/3 R 1,276.63 · held 2/2 R 1,316.73 · held 2/2 S 1,249.80 · 1 touch falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed" [ref=f20e194]:
+            - cell
+            - cell [ref=f20e195]
+            - cell [ref=f20e122]
+            - generic:
+              - generic [ref=f20e196]: R 1,312.02 · held 4/4
+              - generic [ref=f20e197]: R 1,294.40 · held 3/3
+              - generic [ref=f20e198]: R 1,276.63 · held 2/2
+              - generic [ref=f20e199]: R 1,316.73 · held 2/2
+              - generic [ref=f20e200]: S 1,249.80 · 1 touch
+              - generic [ref=f20e201]: falling wedge · width 2.78 · unresolved
+              - generic [ref=f20e202]: bear flag · pole -6.00 · confirmed
+              - generic [ref=f20e203]: double top · neckline 1,271.00 · confirmed
+          - row [ref=f20e204]:
+            - cell [ref=f20e205]
+          - row [ref=f20e207]:
+            - cell
+            - cell [ref=f20e208]:
+              - link "Charting by TradingView" [ref=f20e212] [cursor=pointer]:
+                - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+            - cell [ref=f20e217]
+          - row [ref=f20e126]:
+            - cell
+            - cell [ref=f20e127]
+            - cell [ref=f20e131]
+        - generic:
+          - generic:
+            - generic "Change instrument" [ref=f20e221] [cursor=pointer]: RELIANCE
+            - generic: ·
+            - text: 1h
+            - generic: ·
+            - generic: NSE
+          - generic:
+            - generic: O 1,268.5
+            - generic: H 1,272
+            - generic: L 1,266.9
+            - generic: C 1,267.7
+            - generic: V 18,40,260
+            - text: "-0.9 (-0.07%)"
+          - generic:
+            - generic [ref=f20e222] [cursor=pointer]:
+              - generic [ref=f20e223]: SMA 20
+              - generic [ref=f20e224]: ·1,276.94
+            - generic [ref=f20e225] [cursor=pointer]:
+              - generic [ref=f20e226]: EMA 21
+              - generic [ref=f20e227]: ·1,276.85
+            - generic [ref=f20e228] [cursor=pointer]:
+              - generic [ref=f20e229]: Supertrend 10 3
+              - generic [ref=f20e230]: ·1,267.13
+            - button "Hide indicators" [ref=f20e231] [cursor=pointer]
+        - generic [ref=f20e234] [cursor=pointer]:
+          - generic [ref=f20e235]: MACD 12 26 9
+          - generic [ref=f20e236]: ·-4.84 -4.58
+      - generic [ref=f20e137]:
+        - table [ref=f20e140]:
+          - row [ref=f20e141]:
+            - cell
+            - cell [ref=f20e142]:
+              - link "Charting by TradingView" [ref=f20e146] [cursor=pointer]:
+                - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+            - cell [ref=f20e151]
+          - row [ref=f20e155]:
+            - cell
+            - cell [ref=f20e156]
+            - cell [ref=f20e160]
+        - generic:
+          - generic:
+            - generic [ref=f20e237] [cursor=pointer]: RELIANCE
+            - generic: ·
+            - text: 1h
+            - generic: ·
+            - generic: NSE
+          - generic:
+            - generic: O 1,268.5
+            - generic: H 1,272
+            - generic: L 1,266.9
+            - generic: C 1,267.7
+            - generic: V 18,40,260
+    - generic "Drag to resize · double-click to reset" [ref=f20e165]
+    - complementary [ref=f20e166]:
+      - generic [ref=f20e167]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f20e171]:
+        - generic [ref=f20e172]:
+          - textbox "Ask about this chart…" [ref=f20e173]
+          - generic [ref=f20e174]:
+            - button "Conversation options" [ref=f20e176] [cursor=pointer]
+            - button "RELIANCE" [ref=f20e178] [cursor=pointer]
+            - button "Send (Enter)" [ref=f20e180] [cursor=pointer]
+        - generic [ref=f20e183]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f20e184]:
+    - generic [ref=f20e185]: "1h: 140 bars in 132ms · last ₹1,267.7"
+    - generic [ref=f20e238]: Fib retracement — click 2 points
+    - generic [ref=f20e186]: local store · kite 1-min
+    - generic [ref=f20e187]: ·
+    - generic [ref=f20e188]: 140 × 1h

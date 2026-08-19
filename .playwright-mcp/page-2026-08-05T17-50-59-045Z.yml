@@ -1,0 +1,243 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: Charto.
+    - generic "Search companies" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: RELIANCE
+      - generic [ref=e7]: NSE
+    - generic [ref=e9]:
+      - button "1m" [ref=e10] [cursor=pointer]
+      - button "5m" [ref=e11] [cursor=pointer]
+      - button "15m" [ref=e12] [cursor=pointer]
+      - button "30m" [ref=e13] [cursor=pointer]
+      - button "1h" [ref=e14] [cursor=pointer]
+      - button "D" [ref=e15] [cursor=pointer]
+      - button "W" [ref=e16] [cursor=pointer]
+      - button "M" [ref=e17] [cursor=pointer]
+    - button "Indicators" [ref=e20] [cursor=pointer]
+    - button "Layout — Single chart" [ref=e27] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e31] [cursor=pointer]
+    - button "Switch to light" [ref=e35] [cursor=pointer]
+    - button "Chat" [ref=e42] [cursor=pointer]
+  - generic [ref=e45]:
+    - generic [ref=e46]:
+      - button "Cursor / select" [ref=e47] [cursor=pointer]
+      - button "Lines" [ref=e52] [cursor=pointer]
+      - button "Channels" [ref=e58] [cursor=pointer]
+      - button "Fibonacci" [ref=e64] [cursor=pointer]
+      - button "Shapes" [ref=e67] [cursor=pointer]
+      - button "Measure" [ref=e71] [cursor=pointer]
+      - button "Position" [ref=e79] [cursor=pointer]
+      - button "Annotations" [ref=e84] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e88] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e93] [cursor=pointer]
+      - button "Clear all drawings" [ref=e97] [cursor=pointer]
+    - generic [ref=e102]:
+      - table [ref=e105]:
+        - row [ref=e106]:
+          - cell
+          - cell [ref=e107]:
+            - link "Charting by TradingView" [ref=e111] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/index.html
+          - cell [ref=e116]
+        - row [ref=e120]:
+          - cell
+          - cell [ref=e121]
+          - cell [ref=e125]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e128] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+      - generic [ref=e129]: Loading…
+    - toolbar "Panels" [ref=e131]:
+      - button "Watchlist" [ref=e132] [cursor=pointer]
+      - button "Alerts" [ref=e134] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=e138]
+    - complementary [ref=e139]:
+      - generic [ref=e141]:
+        - generic [ref=e142]: Mark the biggest drop on this chart and tell me the levels.
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - paragraph [ref=e147]:
+              - text: The biggest drop on the visible chart was the
+              - strong [ref=e148]: 24 Jul 2026, 09:15 candle
+              - text: ":"
+            - list [ref=e149]:
+              - listitem [ref=e150]:
+                - strong [ref=e151]: "High:"
+                - text: 1,270.8
+              - listitem [ref=e152]:
+                - strong [ref=e153]: "Low:"
+                - text: 1,249.8
+              - listitem [ref=e154]:
+                - strong [ref=e155]: "Close:"
+                - text: 1,264.8
+              - listitem [ref=e156]:
+                - text: It broke sharply below the prior session’s
+                - strong [ref=e157]: 1,272.5 close
+                - text: .
+            - paragraph [ref=e158]: I can identify it, but I’m unable to place the marker on the chart in this turn.
+            - heading "Relevant levels" [level=3] [ref=e159]
+            - table [ref=e161]:
+              - rowgroup [ref=e162]:
+                - row [ref=e163]:
+                  - columnheader "Level" [ref=e164]
+                  - columnheader "Role" [ref=e165]
+                  - columnheader "Evidence" [ref=e166]
+              - rowgroup [ref=e167]:
+                - row [ref=e168]:
+                  - cell [ref=e169]:
+                    - strong [ref=e170]: 1,249.8
+                  - cell "Support" [ref=e171]
+                  - cell "Session low; not re-tested since" [ref=e172]
+                - row [ref=e173]:
+                  - cell [ref=e174]:
+                    - strong [ref=e175]: 1,292.2
+                  - cell "Resistance" [ref=e176]
+                  - cell "2 touches; held on 1 of 1 graded re-tests" [ref=e177]
+                - row [ref=e178]:
+                  - cell [ref=e179]:
+                    - strong [ref=e180]: 1,294.5
+                  - cell "Resistance" [ref=e181]
+                  - cell "3 touches; held on 2 of 2 graded re-tests" [ref=e182]
+                - row [ref=e183]:
+                  - cell [ref=e184]:
+                    - strong [ref=e185]: 1,307.5
+                  - cell "Resistance" [ref=e186]
+                  - cell "2 touches; held on 1 of 1 graded re-tests" [ref=e187]
+                - row [ref=e188]:
+                  - cell [ref=e189]:
+                    - strong [ref=e190]: 1,316.7
+                  - cell "Resistance" [ref=e191]
+                  - cell "2 touches; held on 1 of 1 graded re-tests" [ref=e192]
+            - paragraph [ref=e193]:
+              - text: The immediate reference range from the drop is therefore
+              - strong [ref=e194]: 1,249.8–1,270.8
+              - text: ", with"
+              - strong [ref=e195]: 1,249.8
+              - text: the key downside level and
+              - strong [ref=e196]: 1,292.2–1,294.5
+              - text: the nearest overhead resistance area.
+          - generic [ref=e197]:
+            - button "Copy reply" [ref=e198] [cursor=pointer]
+            - generic [ref=e202]: 28.4s · 52,645 in / 1,070 out · computed via get_bars, get_levels, get_anchors
+        - generic [ref=e203]: Draw the key support and resistance levels on this chart.
+        - generic [ref=e206]:
+          - generic [ref=e207]:
+            - paragraph [ref=e208]: Key support and resistance levels are now drawn on the chart as zones.
+            - heading "Resistance" [level=3] [ref=e209]
+            - list [ref=e210]:
+              - listitem [ref=e211]:
+                - strong [ref=e212]: 1,276.63
+                - text: — held
+                - strong [ref=e213]: 2 of 2
+                - text: re-tests; nearest overhead zone
+              - listitem [ref=e214]:
+                - strong [ref=e215]: 1,294.40
+                - text: — held
+                - strong [ref=e216]: 3 of 3
+                - text: re-tests
+              - listitem [ref=e217]:
+                - strong [ref=e218]: 1,312.02
+                - text: — held
+                - strong [ref=e219]: 4 of 4
+                - text: re-tests
+              - listitem [ref=e220]:
+                - strong [ref=e221]: 1,316.73
+                - text: — held
+                - strong [ref=e222]: 2 of 2
+                - text: re-tests
+            - heading "Support" [level=3] [ref=e223]
+            - list [ref=e224]:
+              - listitem [ref=e225]:
+                - strong [ref=e226]: 1,249.80
+                - text: — touched once and
+                - strong [ref=e227]: never re-tested
+                - text: ", so it has no established hold/break record yet"
+            - paragraph [ref=e228]:
+              - text: The closest marked level is
+              - strong [ref=e229]: 1,276.63 resistance
+              - text: ", just above the last price of"
+              - strong [ref=e230]: 1,267.7
+              - text: . These are historical reactions, not predictions or trade advice.
+          - generic [ref=e231]:
+            - button "Copy reply" [ref=e232] [cursor=pointer]
+            - generic [ref=e236]: 7.8s · 14,917 in / 261 out · computed via get_levels
+        - generic [ref=e237]: Draw the chart patterns you can find on the 5 minute chart.
+        - generic [ref=e240]:
+          - generic [ref=e241]:
+            - paragraph [ref=e242]:
+              - text: I scanned the latest
+              - strong [ref=e243]: 300 five-minute bars
+              - text: "and drew the three clearest chart patterns on the chart:"
+            - list [ref=e244]:
+              - listitem [ref=e245]:
+                - strong [ref=e246]: Falling wedge
+                - text: — 28 Jul, 10:35–15:30
+                - list [ref=e247]:
+                  - listitem [ref=e248]:
+                    - text: "Current width:"
+                    - strong [ref=e249]: 2.78 points
+                  - listitem [ref=e250]:
+                    - strong [ref=e251]: Unresolved
+                    - text: ; neither edge has confirmed a breakout.
+            - list [ref=e252]:
+              - listitem [ref=e253]:
+                - strong [ref=e254]: Bear flag
+                - text: — 28 Jul, 10:55–13:30
+                - list [ref=e255]:
+                  - listitem [ref=e256]:
+                    - text: "Pole:"
+                    - strong [ref=e257]: 1,278.1 → 1,272.1
+                  - listitem [ref=e258]:
+                    - text: "Flag range:"
+                    - strong [ref=e259]: 1,271.0–1,274.0
+                  - listitem [ref=e260]:
+                    - strong [ref=e261]: Confirmed breakdown
+                    - text: at
+                    - strong [ref=e262]: 13:45
+                    - text: .
+            - list [ref=e263]:
+              - listitem [ref=e264]:
+                - strong [ref=e265]: Double top
+                - text: — 28 Jul, 12:35–13:20
+                - list [ref=e266]:
+                  - listitem [ref=e267]:
+                    - text: "Peaks:"
+                    - strong [ref=e268]: 1,274.0
+                    - text: and
+                    - strong [ref=e269]: 1,273.1
+                  - listitem [ref=e270]:
+                    - text: "Neckline:"
+                    - strong [ref=e271]: 1,271.0
+                  - listitem [ref=e272]:
+                    - strong [ref=e273]: Confirmed breakdown
+                    - text: at
+                    - strong [ref=e274]: 13:45
+                    - text: .
+            - paragraph [ref=e275]:
+              - text: The detector also found several recent bullish candlestick formations near the close, including
+              - strong [ref=e276]: three outside up
+              - text: ","
+              - strong [ref=e277]: bullish engulfing
+              - text: ", and"
+              - strong [ref=e278]: tweezer bottom
+              - text: patterns. I did not draw those individually to avoid cluttering the chart.
+          - generic [ref=e279]:
+            - button "Copy reply" [ref=e280] [cursor=pointer]
+            - generic [ref=e284]: 9.4s · 18,771 in / 340 out · computed via get_patterns
+      - generic [ref=e286]:
+        - generic [ref=e287]:
+          - textbox "Ask about this chart…" [ref=e288]
+          - generic [ref=e289]:
+            - button "Conversation options" [ref=e291] [cursor=pointer]
+            - button "RELIANCE" [ref=e293] [cursor=pointer]
+            - button "Send (Enter)" [ref=e295] [cursor=pointer]
+        - generic [ref=e298]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=e299]:
+    - generic [ref=e300]: ready
+    - generic [ref=e301]: local store · kite 1-min
+    - generic [ref=e302]: ·
+    - generic [ref=e303]: —

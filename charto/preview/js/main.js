@@ -415,7 +415,7 @@
     el("roTitle").innerHTML =
       `<span class="sym-btn" data-sym-btn title="Change instrument">`
       + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${SYMBOL}</span>`
-      + `<span class="sep">·</span>${state.interval}`
+      + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
   }
   // Delegated once: paintTitle rewrites its own children on every interval
@@ -745,7 +745,7 @@
     ["Minutes", [["1m", "1m", "1 minute"], ["5m", "5m", "5 minutes"],
                  ["15m", "15m", "15 minutes"], ["30m", "30m", "30 minutes"]]],
     ["Hours", [["1h", "1h", "1 hour"]]],
-    ["Days", [["1d", "D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
+    ["Days", [["1d", "1D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
   ];
   const ivBtn = el("intervalBtn"), ivMenu = el("intervalMenu");
   ivMenu.innerHTML = IV_MENU.map(([sec, rows]) =>
@@ -3178,6 +3178,20 @@
       { sep: true },
       shotRow(),
       { icon: "copy", label: "Duplicate", on: () => draw.clone(d.id) },
+      { icon: "layers", label: "Layer", sub: () => {
+        const i = draw.state.drawings.findIndex((q) => q.id === d.id);
+        const last = draw.state.drawings.length - 1;
+        return [
+          { label: "Bring to front", disabled: i < 0 || i === last,
+            on: () => draw.moveLayer(d.id, "front") },
+          { label: "Bring forward", disabled: i < 0 || i === last,
+            on: () => draw.moveLayer(d.id, "forward") },
+          { label: "Send backward", disabled: i <= 0,
+            on: () => draw.moveLayer(d.id, "backward") },
+          { label: "Send to back", disabled: i <= 0,
+            on: () => draw.moveLayer(d.id, "back") },
+        ];
+      } },
       { icon: "lock", label: "Lock", tick: !!d.locked,
         title: "A locked shape still selects and still answers — it only stops moving",
         // Nothing on the chart changes when a shape locks, so the only other
@@ -3433,11 +3447,11 @@
     else selectRegionCapture();
   });
 
-  const themeBtn = el("themeToggle");
+  const themeBtn = document.createElement("button");
   function paintThemeBtn() {
     // show what you'd switch TO, the way macOS/Linear do it
-    themeBtn.innerHTML = Theme.mode === "dark" ? Icons.svg("sun", "sm") : Icons.svg("moon", "sm");
-    themeBtn.title = Theme.mode === "dark" ? "Switch to light" : "Switch to dark";
+    themeBtn.innerHTML = (Theme.mode === "dark" ? Icons.svg("sun", "xs") : Icons.svg("moon", "xs"))
+      + `<span>${Theme.mode === "dark" ? "Light mode" : "Dark mode"}</span>`;
   }
   themeBtn.addEventListener("click", () => { Theme.toggle(); });
   Theme.onChange(() => {
@@ -3497,6 +3511,10 @@
     `<div class="item" data-acct="shortcuts"><span class="lead">`
     + Icons.svg("keyboard", "xs") + `Keyboard shortcuts</span>`
     + `<span class="sc">Ctrl + /</span></div>`;
+  const THEME_ROW = () => `<div class="item" data-acct="theme" role="switch" `
+    + `aria-checked="${Theme.mode === "dark"}"><span class="lead">`
+    + Icons.svg(Theme.mode === "dark" ? "moon" : "sun", "xs")
+    + `<span>Dark mode</span></span><span class="switch${Theme.mode === "dark" ? " on" : ""}" aria-hidden="true"><i></i></span></div>`;
 
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);
@@ -3513,6 +3531,7 @@
         + `<div class="acct-note">Layouts, drawings and conversations are `
         + `saved to this account.</div>`
         + `<div class="sep"></div>`
+        + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
         + `<div class="item" data-acct="logout"><span class="lead">`
@@ -3523,6 +3542,7 @@
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
         + `<div class="sep"></div>`
+        + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
         + `<div class="acct-note">Your charts, drawings and chats stay in this `
@@ -3539,6 +3559,7 @@
     const it = e.target.closest("[data-acct]");
     if (!it) return;
     closeMenus(null);
+    if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
     if (it.dataset.acct === "logout") {
       await Auth.logout();

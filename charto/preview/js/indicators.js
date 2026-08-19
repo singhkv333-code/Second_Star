@@ -343,6 +343,15 @@ const Indicators = (() => {
     "1m": "minutes", "5m": "minutes", "15m": "minutes", "30m": "minutes",
     "1h": "hours", "1d": "days", "1w": "weeks", "1mo": "months",
   };
+  const VALUE_OF = {
+    "1m": 1, "5m": 5, "15m": 15, "30m": 30,
+    "1h": 1, "1d": 1, "1w": 1, "1mo": 1,
+  };
+  const RANGE_DEFAULTS = {
+    minutes: { min: 1, max: 59 }, hours: { min: 1, max: 24 },
+    days: { min: 1, max: 366 }, weeks: { min: 1, max: 52 },
+    months: { min: 1, max: 12 },
+  };
 
   /* The dashed reference levels a bounded oscillator is READ against.
    *
@@ -404,6 +413,7 @@ const Indicators = (() => {
         visible: true,
         color: hist ? Theme.c("histUp") : roleColor(n, i + off),
         colorDown: hist ? Theme.c("histDown") : undefined,
+        colors: hist ? ["#22ab94", "#ace5dc", "#ffb1b5", "#ff5252"] : undefined,
         custom: false,          // a theme switch repaints only untouched plots
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
@@ -424,15 +434,19 @@ const Indicators = (() => {
     for (const b of BUCKETS) visibility[b.key] = true;
     return {
       params,
+      symbolMode: "main",
+      symbol: "",
       style: {
         plots: plotDefaults(def, slot),
         slot,          // null on pane indicators — they do not rotate
         precision: "default",
         statusLine: true,
-        priceLabel: false,
+        inputsStatusLine: true,
+        priceLabel: true,
         priceLine: false,
       },
       visibility,
+      visibilityRanges: clone(RANGE_DEFAULTS),
       hidden: false,
     };
   }
@@ -540,6 +554,7 @@ const Indicators = (() => {
   // ── manager ───────────────────────────────────────────
   function createManager(chart) {
     const active = new Map();
+    const refetchSeq = new Map();
     // The legend is DOM now (js/indlegend.js), not a canvas primitive: a row
     // that carries the eye, the gear and the × has to be reachable by a
     // pointer, and nothing drawn into the chart's own canvas ever is. This is
@@ -560,7 +575,10 @@ const Indicators = (() => {
 
     const intervalOk = (st) => {
       const b = BUCKET_OF[ctx.interval];
-      return !b || st.visibility[b] !== false;
+      if (!b || st.visibility[b] === false) return !b;
+      const range = (st.visibilityRanges || {})[b] || RANGE_DEFAULTS[b];
+      const value = VALUE_OF[ctx.interval];
+      return value == null || !range || (value >= range.min && value <= range.max);
     };
     const shown = (st, line) =>
       !st.hidden && intervalOk(st) && (st.style.plots[line] || {}).visible !== false;
@@ -779,16 +797,14 @@ const Indicators = (() => {
           pane,
           hist,
           data: hist
-            ? lines[n].map((p, i, arr) => ({
-                ...p,
-                // AO convention is momentum change: green when this bar is
-                // above the previous AO bar, red when below. Other column
-                // studies (MACD histogram) retain their sign-based coloring.
-                color: def.name === "awesome"
-                  ? (i && p.value >= arr[i - 1].value ? plot.color
-                    : (plot.colorDown || plot.color))
-                  : (p.value >= 0 ? plot.color : (plot.colorDown || plot.color)),
-              }))
+            ? lines[n].map((p, i, all) => {
+                const prev = i ? all[i - 1].value : p.value;
+                const colors = plot.colors || [plot.color, plot.color,
+                  plot.colorDown || plot.color, plot.colorDown || plot.color];
+                const rising = prev == null || p.value >= prev;
+                const ci = p.value >= 0 ? (rising ? 0 : 1) : (rising ? 2 : 3);
+                return { ...p, color: colors[ci] };
+              })
             : breakGaps(lines[n]),
           // Histograms still have a measured value at each bar (AO and the
           // MACD histogram are read by their sign and magnitude). Keeping the
@@ -933,7 +949,8 @@ const Indicators = (() => {
         let pane = a.pane || 0;
         try { pane = a.series[0].getPane().paneIndex(); } catch { /* torn down */ }
         rows.push({
-          id, label: a.def.label, kind: a.def.kind, pane,
+          id, label: st.style.inputsStatusLine === false ? a.def.base : a.def.label,
+          kind: a.def.kind, pane,
           color: color || Theme.c("legend"), values, hidden, off,
         });
       }
@@ -954,7 +971,8 @@ const Indicators = (() => {
       active.set(id, { pending: true, def, series: [], data: [] });
       let lines;
       try {
-        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params, ctx.symbol);
+        lines = await fetchSeries(def, ctx.interval, ctx.limit, st.params,
+          st.symbolMode === "another" && st.symbol ? st.symbol : ctx.symbol);
       } catch (e) {
         active.delete(id);
         throw e;                       // caller surfaces it; never a silent no-op
@@ -1072,9 +1090,16 @@ const Indicators = (() => {
     async function refetch(id) {
       const a = active.get(id);
       if (!a || a.pending) return;
+      const seq = (refetchSeq.get(id) || 0) + 1;
+      refetchSeq.set(id, seq);
+      const current = settings(id);
       const lines = await fetchSeries(a.def, ctx.interval, ctx.limit,
-                                      settings(id).params, ctx.symbol);
-      if (!active.has(id)) return;
+        current.params,
+        current.symbolMode === "another" && current.symbol ? current.symbol : ctx.symbol);
+      // Input edits can overlap. A slow request for the old MACD lengths must
+      // never land after Reset settings and repaint the old calculation over
+      // the restored 12/26/9 result.
+      if (!active.has(id) || refetchSeq.get(id) !== seq) return;
       a.raw = lines;
       restyle(id);
     }
@@ -1129,13 +1154,13 @@ const Indicators = (() => {
     async function applySettings(id, patch) {
       const st = settings(id);
       if (!st) return;
-      const before = JSON.stringify(st.params);
+      const before = JSON.stringify([st.params, st.symbolMode, st.symbol]);
       const next = merge(st, patch);
       LIVE.set(id, next);
       const def = CATALOG.find((c) => c.id === id);
       if (def) relabel(def);
       persist(id);
-      if (JSON.stringify(next.params) !== before) {
+      if (JSON.stringify([next.params, next.symbolMode, next.symbol]) !== before) {
         await refetch(id);              // the math moved
       } else {
         restyle(id);                    // only the paint moved
@@ -1147,12 +1172,16 @@ const Indicators = (() => {
     async function replaceSettings(id, whole) {
       const def = CATALOG.find((c) => c.id === id);
       if (!def) return;
-      const before = JSON.stringify((settings(id) || {}).params);
+      const old = settings(id) || {};
+      const before = JSON.stringify([old.params, old.symbolMode, old.symbol]);
       LIVE.set(id, clone(whole));
       relabel(def);
       persist(id);
-      if (JSON.stringify(whole.params) !== before) await refetch(id);
-      else restyle(id);
+      // Paint presentation defaults immediately. A reset includes colours,
+      // widths and visibility; none of those should wait behind a MACD data
+      // request before the user can see that Reset settings worked.
+      restyle(id);
+      if (JSON.stringify([whole.params, whole.symbolMode, whole.symbol]) !== before) await refetch(id);
     }
 
     /** Force every indicator pane to re-run autoscale — called when the

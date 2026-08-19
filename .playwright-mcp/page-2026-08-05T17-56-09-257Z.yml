@@ -1,0 +1,78 @@
+- generic [active] [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - generic [ref=f2e3]: Charto.
+    - generic "Search companies" [ref=f2e5] [cursor=pointer]:
+      - generic [ref=f2e6]: RELIANCE
+      - generic [ref=f2e7]: NSE
+    - generic [ref=f2e9]:
+      - button "1m" [ref=f2e10] [cursor=pointer]
+      - button "5m" [ref=f2e11] [cursor=pointer]
+      - button "15m" [ref=f2e12] [cursor=pointer]
+      - button "30m" [ref=f2e13] [cursor=pointer]
+      - button "1h" [ref=f2e14] [cursor=pointer]
+      - button "D" [ref=f2e15] [cursor=pointer]
+      - button "W" [ref=f2e16] [cursor=pointer]
+      - button "M" [ref=f2e17] [cursor=pointer]
+    - button "Indicators" [ref=f2e20] [cursor=pointer]
+    - button "Layout — Single chart" [ref=f2e27] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f2e31] [cursor=pointer]
+    - button "Switch to light" [ref=f2e35] [cursor=pointer]
+    - button "Chat" [ref=f2e42] [cursor=pointer]
+  - generic [ref=f2e45]:
+    - generic [ref=f2e46]:
+      - button "Cursor / select" [ref=f2e47] [cursor=pointer]
+      - button "Lines" [ref=f2e52] [cursor=pointer]
+      - button "Channels" [ref=f2e58] [cursor=pointer]
+      - button "Fibonacci" [ref=f2e64] [cursor=pointer]
+      - button "Shapes" [ref=f2e67] [cursor=pointer]
+      - button "Measure" [ref=f2e71] [cursor=pointer]
+      - button "Position" [ref=f2e79] [cursor=pointer]
+      - button "Annotations" [ref=f2e84] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f2e88] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f2e93] [cursor=pointer]
+      - button "Clear all drawings" [ref=f2e97] [cursor=pointer]
+    - generic [ref=f2e102]:
+      - table [ref=f2e105]:
+        - row [ref=f2e106]:
+          - cell
+          - cell [ref=f2e107]:
+            - link "Charting by TradingView" [ref=f2e111] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/index.html
+          - cell [ref=f2e116]
+        - row [ref=f2e120]:
+          - cell
+          - cell [ref=f2e121]
+          - cell [ref=f2e125]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f2e128] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 15m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+    - toolbar "Panels" [ref=f2e129]:
+      - button "Watchlist" [ref=f2e130] [cursor=pointer]
+      - button "Alerts" [ref=f2e132] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f2e136]
+    - complementary [ref=f2e137]:
+      - generic [ref=f2e138]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f2e142]:
+        - generic [ref=f2e143]:
+          - textbox "Ask about this chart…" [ref=f2e144]
+          - generic [ref=f2e145]:
+            - button "Conversation options" [ref=f2e147] [cursor=pointer]
+            - button "RELIANCE" [ref=f2e149] [cursor=pointer]
+            - button "Send (Enter)" [ref=f2e151] [cursor=pointer]
+        - generic [ref=f2e154]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f2e155]:
+    - generic [ref=f2e156]: "15m: 501 bars in 47ms · last ₹1,267.7"
+    - generic [ref=f2e157]: local store · kite 1-min
+    - generic [ref=f2e158]: ·
+    - generic [ref=f2e159]: 501 × 15m

@@ -922,6 +922,28 @@ const Drawings = (() => {
         env.setStatus(`copied to ${copy.ref}`);
         return copy.ref;
       },
+      /** Change one shape's paint and hit-test order.
+       *
+       *  The drawings array is the layer stack: the renderer walks it from
+       *  back to front, and hit-testing walks it in reverse. Reordering that
+       *  one source therefore keeps what is visible and what the pointer
+       *  selects in agreement. Like every structural edit, it persists and
+       *  enters the shared undo history through save(). */
+      moveLayer(id, where) {
+        const from = state.drawings.findIndex((q) => q.id === (id || state.selId));
+        if (from < 0 || state.drawings.length < 2) return false;
+        let to = from;
+        if (where === "front") to = state.drawings.length - 1;
+        else if (where === "forward") to = Math.min(state.drawings.length - 1, from + 1);
+        else if (where === "backward") to = Math.max(0, from - 1);
+        else if (where === "back") to = 0;
+        if (to === from) return false;
+        const [drawing] = state.drawings.splice(from, 1);
+        state.drawings.splice(to, 0, drawing);
+        save(); _ru(); emitSelect();
+        env.setStatus(`${drawing.ref} layer moved`);
+        return true;
+      },
       /** Lock or unlock one shape. Presentation of the lock is the menu's
        *  tick — nothing is drawn on the chart for it, because a padlock
        *  floating beside a trendline is more ink than the state is worth. */

@@ -259,7 +259,6 @@
    * an indicator or a drawing. Each tile is one real button. */
   SHEETS.more = { title: "More", fill(b) {
     const chatOn = !el("chatPanel").classList.contains("hidden");
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
     const drawn = el("sceneClear").style.display !== "none";
     b.innerHTML =
       '<div class="sheet-sec">Chart</div><div class="sheet-grid">' +
@@ -275,10 +274,6 @@
         tile('data-more="chat"', Icons.svg("chat"), chatOn ? "Hide chat" : "Show chat",
              chatOn ? "on" : "") +
         (drawn ? tile('data-more="scene"', Icons.svg("eraser"), "Clear chat drawings") : "") +
-      "</div>" +
-      '<div class="sheet-sec">Appearance</div><div class="sheet-grid">' +
-        tile('data-more="theme"', Icons.svg(dark ? "sun" : "moon"),
-             dark ? "Light theme" : "Dark theme") +
       "</div>" +
       // The header's avatar is one of the controls this width hides, and it
       // is the only door to signing out — so it gets a tile here rather than
@@ -356,11 +351,6 @@
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
       case "chat": return act(el("chatToggle"));
       case "scene": return act(el("sceneClear"));
-      case "theme":
-        // repaints the app in place; the sheet stays, so the choice is one
-        // tap to reverse
-        el("themeToggle").click();
-        return repaint();
     }
   });
 
@@ -372,7 +362,7 @@
    * else in this file, each one CLICKS the real button rather than owning a
    * state of its own. Read off #wbar, so a widget added there arrives here
    * with no edit to this file. */
-  const widgetBtns = [...document.querySelectorAll("#wbar [data-widget]")];
+  const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")];
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +

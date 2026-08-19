@@ -58,29 +58,20 @@ export type ChatMode = "automation" | "agent" | "backtest" | null;
 /**
  * Where a chat turn is posted.
  *
- * DE-WIRED (temporary): when NEXT_PUBLIC_PIVOTTED_BASE is set, chat talks to
- * Pivotted — the research/analysis chat in `pivotted/` — instead of Pivot's
- * own /chat/stream. Pivotted speaks this exact SSE dialect (start /
- * tool_start / tool_done / delta / done{response}), so nothing downstream
- * changes and unsetting the env var restores Pivot.
- *
- * What is deliberately absent when de-wired: logiccard and raw_data, so no
- * card renders and nothing is committable. That is the point of the split —
- * Pivotted researches and does not build, register or deploy anything.
+ * This used to fork on NEXT_PUBLIC_PIVOTTED_BASE, sending the tab to Pivotted
+ * — the research chat in `pivotted/` — instead of Pivot's own /chat/stream.
+ * That de-wiring was always temporary and charto-deploy has since removed it;
+ * the branch is dropped here rather than in ChatDemo only because the function
+ * moved out of that component in the meantime.
  *
  * Every surface reads it from here, so the two cannot disagree about which
  * brain the product is currently talking to.
  */
 export function chatStreamUrl(): string {
-  const pivotted =
-    typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOTTED_BASE;
   const base =
     (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
     "/api";
-  const legacyBase = base.replace(/\/api\/?$/, "");
-  return pivotted
-    ? `${pivotted.replace(/\/$/, "")}/chat/stream`
-    : `${legacyBase}/chat/stream`;
+  return `${base.replace(/\/api\/?$/, "")}/chat/stream`;
 }
 
 /**

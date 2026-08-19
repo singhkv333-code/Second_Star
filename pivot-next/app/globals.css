@@ -9,7 +9,7 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98.8%;
+    --background: 0 0% 100%;
     --foreground: 0 0% 9%;
 
     --card: 0 0% 100%;
@@ -58,7 +58,7 @@
            tint. Light mode mirrors that: --bg-base is near-pure white and
            the warm grey moves into --bg-elevated where it does the same
            job — used only for sidebar-active / hover / selected states. */
-    --bg-base:       #fcfcfc;   /* page bg — ChatGPT light canvas */
+    --bg-base:       #ffffff;   /* page bg — paper white */
     --bg-primary:    #fbfbfc;   /* card surface — very subtle tint */
     --bg-secondary:  #fafafa;   /* ElevenLabs' exact greyish sidebar surface */
     --bg-card:       #fbfbfc;

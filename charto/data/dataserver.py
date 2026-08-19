@@ -10989,10 +10989,13 @@ def _layout_share(uid: int, lid: int, on: bool) -> tuple[int, dict]:
     still holds a valid-looking token is the shape of an accident.
     """
     with _users_lock:
-        if not _users.execute("SELECT 1 FROM layouts WHERE user_id=? AND id=?",
-                              (uid, lid)).fetchone():
+        row = _users.execute("SELECT share_token FROM layouts WHERE user_id=? AND id=?",
+                             (uid, lid)).fetchone()
+        if not row:
             return 404, {"error": "no such layout"}
-        tok = secrets.token_urlsafe(18) if on else None
+        # Asking for an already-shared layout's link must not invalidate the
+        # link people already have. Mint only on the private -> shared edge.
+        tok = (row[0] or secrets.token_urlsafe(18)) if on else None
         _users.execute("UPDATE layouts SET share_token=? WHERE user_id=? AND id=?",
                        (tok, uid, lid))
         _users.commit()

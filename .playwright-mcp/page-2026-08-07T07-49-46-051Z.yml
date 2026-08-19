@@ -1,0 +1,113 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: Charto.
+    - generic "Search companies" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: RELIANCE
+      - generic [ref=e7]: NSE
+    - button "1h" [ref=e10] [cursor=pointer]
+    - button "Indicators" [ref=e13] [cursor=pointer]
+    - button "Undo" [disabled] [ref=e20]
+    - button "Redo" [disabled] [ref=e24]
+    - button "Clear what the chat drew" [ref=e182] [cursor=pointer]
+    - button "Layout — Single chart" [ref=e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e33] [cursor=pointer]
+    - group "Panels" [ref=e38]:
+      - button "Watchlist" [ref=e39] [cursor=pointer]
+      - button "Alerts" [ref=e43] [cursor=pointer]
+    - button "Switch to dark" [ref=e49] [cursor=pointer]
+    - button "Chat" [ref=e52] [cursor=pointer]
+    - button "Sign in to Charto" [ref=e56] [cursor=pointer]
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - button "Cursor / select" [ref=e62] [cursor=pointer]
+      - button "Lines" [ref=e67] [cursor=pointer]
+      - button "Fibonacci" [ref=e73] [cursor=pointer]
+      - button "Shapes" [ref=e76] [cursor=pointer]
+      - button "Measure" [ref=e80] [cursor=pointer]
+      - button "Position" [ref=e88] [cursor=pointer]
+      - button "Annotations" [ref=e93] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e97] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e102] [cursor=pointer]
+      - button "Clear all drawings" [ref=e106] [cursor=pointer]
+    - generic [ref=e111]:
+      - table [ref=e114]:
+        - row "falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed S 1,249.80 · 1 touch R 1,271.60 · 1 touch" [ref=e186]:
+          - cell
+          - cell [ref=e187]
+          - cell [ref=e125]
+          - generic:
+            - button "Hide 7 drawings — nothing is deleted" [ref=e188] [cursor=pointer]
+            - generic [ref=e191]: falling wedge · width 2.78 · unresolved
+            - generic [ref=e192]: bear flag · pole -6.00 · confirmed
+            - generic [ref=e193]: double top · neckline 1,271.00 · confirmed
+            - generic [ref=e194]: S 1,249.80 · 1 touch
+            - generic [ref=e195]: R 1,271.60 · 1 touch
+        - row [ref=e196]:
+          - cell [ref=e197]
+        - row [ref=e199]:
+          - cell
+          - cell [ref=e200]
+          - cell [ref=e204]
+        - row [ref=e208]:
+          - cell [ref=e209]
+        - row [ref=e211]:
+          - cell
+          - cell [ref=e212]:
+            - link "Charting by TradingView" [ref=e216] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=e221]
+        - row [ref=e132]:
+          - cell
+          - cell [ref=e133]
+          - cell [ref=e137]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e225] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 1h
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,268.5
+          - generic: H 1,272
+          - generic: L 1,266.9
+          - generic: C 1,267.7
+          - generic: V 18,40,260
+          - text: "-0.9 (-0.07%)"
+        - generic:
+          - generic [ref=e226] [cursor=pointer]:
+            - generic [ref=e227]: SMA 20
+            - generic [ref=e228]: ·1,276.94
+          - generic [ref=e229] [cursor=pointer]:
+            - generic [ref=e230]: EMA 21
+            - generic [ref=e231]: ·1,276.85
+          - generic [ref=e232] [cursor=pointer]:
+            - generic [ref=e233]: Supertrend 10 3
+            - generic [ref=e234]: ·1,267.13
+          - button "Hide indicators" [ref=e235] [cursor=pointer]
+      - generic [ref=e238] [cursor=pointer]:
+        - generic [ref=e239]: MACD 12 26 9
+        - generic [ref=e240]: ·-4.84 -4.58
+      - generic [ref=e241] [cursor=pointer]:
+        - generic [ref=e242]: RSI 14
+        - generic [ref=e243]: ·30.70
+    - generic "Drag to resize · double-click to reset" [ref=e143]
+    - complementary [ref=e144]:
+      - generic [ref=e146]:
+        - generic [ref=e147]:
+          - generic [ref=e148]: old thread
+          - generic [ref=e150]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=e151]: 06 Aug
+            - button "Retry" [ref=e152] [cursor=pointer]
+            - button "Copy prompt" [ref=e156] [cursor=pointer]
+        - generic [ref=e160]:
+          - paragraph [ref=e162]: An answer from before.
+          - generic [ref=e163]:
+            - button "Copy reply" [ref=e164] [cursor=pointer]
+            - generic [ref=e168]: 2.4s
+      - generic [ref=e171]:
+        - textbox "Ask about this chart…" [ref=e172]
+        - generic [ref=e173]:
+          - button "Conversation options" [ref=e175] [cursor=pointer]
+          - button "RELIANCE" [ref=e177] [cursor=pointer]
+          - button "Send (Enter)" [ref=e179] [cursor=pointer]
