@@ -228,6 +228,14 @@ const RAMP = [
  *  collapsing to nothing, which reads as "this segment earned nothing" rather
  *  than "this segment was not reported yet".
  */
+/** What ECharts hands an axis-trigger formatter, narrowed to what is used. */
+type TipRow = {
+  seriesName?: string;
+  value?: number | null;
+  color?: string;
+  axisValueLabel?: string;
+};
+
 function stackedOption(chart: MixChart): Record<string, unknown> {
   const times = Array.from(
     new Set(chart.series.flatMap((s) => s.points.map((p) => p.t))),
@@ -255,12 +263,53 @@ function stackedOption(chart: MixChart): Record<string, unknown> {
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "line", lineStyle: { width: 1, opacity: 0.45 } },
-      valueFormatter: (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`),
-      // A segment the company did not report that period is absent from the
-      // tooltip rather than listed as "—". Ten rows of em-dash is how a
-      // company that reports three segments gets a tooltip the height of the
-      // chart, which is what pushed the old one over the whole panel.
-      order: "valueDesc",
+      // The box moves to the half the pointer is NOT in, and pins to the top.
+      // Following the cursor, it sat on top of the bands being pointed at:
+      // eight rows of white covering a third of the chart is a readout that
+      // hides the thing it is reading.
+      position: (
+        point: number[],
+        _params: unknown,
+        _dom: unknown,
+        _rect: unknown,
+        size: { viewSize: number[]; contentSize: number[] },
+      ) => {
+        const vw = size.viewSize[0] ?? 0;
+        const w = size.contentSize[0] ?? 0;
+        return [(point[0] ?? 0) < vw / 2 ? Math.max(8, vw - w - 8) : 8, 8];
+      },
+      padding: [9, 11],
+      // Five rows and a remainder, not one row per segment. A company that
+      // reports nine of them turned the tooltip into a second legend, sorted
+      // by a number the reader then had to re-read against the chart.
+      formatter: (params: TipRow[]) => {
+        const rows = params
+          .filter((r) => typeof r.value === "number")
+          .sort((a, b) => (b.value as number) - (a.value as number));
+        const head = rows[0]?.axisValueLabel ?? "";
+        const shown = rows.slice(0, 5);
+        const rest = rows.slice(5);
+        const restSum = rest.reduce((a, r) => a + (r.value as number), 0);
+        const line = (dot: string, name: string, val: string) =>
+          `<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;`
+          + `line-height:19px;white-space:nowrap">`
+          + `<span style="display:flex;align-items:center;gap:7px;min-width:0">${dot}`
+          + `<span style="overflow:hidden;text-overflow:ellipsis;max-width:200px">${name}</span></span>`
+          + `<b style="font-variant-numeric:tabular-nums;font-weight:600">${val}</b></div>`;
+        const dot = (c: string) =>
+          `<span style="width:7px;height:7px;border-radius:50%;background:${c};`
+          + `display:inline-block;flex:none"></span>`;
+        return [
+          `<div style="font-size:10.5px;font-weight:650;letter-spacing:.08em;`
+          + `text-transform:uppercase;opacity:.65;margin-bottom:5px">${head}</div>`,
+          ...shown.map((r) => line(dot(r.color ?? "#999"), r.seriesName ?? "", `${(r.value as number).toFixed(1)}%`)),
+          rest.length
+            ? line(`<span style="width:7px;flex:none"></span>`,
+                   `<span style="opacity:.65">${rest.length} more</span>`,
+                   `${restSum.toFixed(1)}%`)
+            : "",
+        ].join("");
+      },
     },
     xAxis: {
       type: "category", data: labels, boundaryGap: false,
