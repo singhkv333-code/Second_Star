@@ -1256,16 +1256,39 @@ const Indicators = (() => {
       remove, recomputeAll, retheme, restyle,
       isActive: (id) => active.has(id),
       /** Current value + value at `fromTime`, for the chat context envelope.
-       *  The FIRST named line is the one that represents the indicator. */
+       *
+       *  `now` stays as the first named line for the compact context sentence,
+       *  but `lines` carries the whole study. A channel is not honestly
+       *  readable from one number: Keltner's upper, basis and lower are the
+       *  facts needed to say whether price is inside or outside it. Identity
+       *  and live inputs ride beside them so a card never has to reverse-parse
+       *  a display label such as "Keltner 20 2 10". */
       snapshot(fromTime) {
         const out = [];
-        for (const [, a] of active) {
+        for (const [id, a] of active) {
           const idx = (a.specs || []).findIndex((s) => s.opts);
           const arr = (a.data || [])[idx < 0 ? 0 : idx] || [];
           if (!arr.length) continue;
           let at = null;
           for (const p of arr) if (p.time >= fromTime) { at = p.value; break; }
-          out.push({ label: a.def.label, now: arr[arr.length - 1].value, at });
+          const st = settings(id) || {};
+          const lines = {};
+          const latest = Math.max(-1, ...(a.specs || []).map((s) =>
+            (s.data && s.data.length ? s.data[s.data.length - 1].time : -1)));
+          for (const s of (a.specs || [])) {
+            if (!s.line || !s.data || !s.data.length) continue;
+            // Exact-time lookup matters for conditional plots such as
+            // Supertrend: the inactive leg's last non-null point is stale.
+            const last = valueAt(s.data, latest);
+            if (last && Number.isFinite(last.value)) lines[s.line] = last.value;
+          }
+          const now = Object.values(lines)[0];
+          if (!Number.isFinite(now)) continue;
+          out.push({
+            id, name: a.def.name, label: a.def.label, kind: a.def.kind,
+            period: a.def.period || 0, params: { ...(st.params || {}) },
+            lines, now, at,
+          });
         }
         return out;
       },

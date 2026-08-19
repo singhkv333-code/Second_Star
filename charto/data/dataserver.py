@@ -5381,9 +5381,93 @@ def _rsi_state(now, prev) -> tuple[str, str]:
            ("below 50", "below the midline")
 
 
+def _chart_study_reads(interval: str, price: float) -> list[dict]:
+    """Build measured rows for studies currently applied to the chart.
+
+    The standard indicator panel remains fixed and comparable across calls.
+    User-applied studies therefore get a separate section. Values come from
+    the frontend's plotted series, and are used only for the chart interval
+    that supplied them so a 5-minute channel cannot leak onto a daily card.
+    """
+    if interval != getattr(_req, "ctx_interval", ""):
+        return []
+    studies = getattr(_req, "chart_indicators", None) or []
+    out: list[dict] = []
+    for raw in studies[:12]:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("name") or "Indicator")[:80]
+        name = str(raw.get("name") or "").lower()
+        kind = str(raw.get("kind") or "")
+        lines = {str(k): float(v) for k, v in (raw.get("lines") or {}).items()
+                 if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        now = raw.get("now")
+        if not isinstance(now, (int, float)) or isinstance(now, bool):
+            now = None
+
+        upper, middle, lower = (lines.get("upper"), lines.get("middle"),
+                                lines.get("lower"))
+        if upper is not None and lower is not None:
+            basis = middle if middle is not None else (upper + lower) / 2
+            bullish = price >= basis
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            if price > upper:
+                note = "Price is above the upper channel"
+            elif price < lower:
+                note = "Price is below the lower channel"
+            else:
+                side = "above" if price > basis else "below" if price < basis else "on"
+                note = f"Price is inside the channel, {side} its basis"
+            out.append({"name": label, "study": name, "state": state,
+                        "note": note, "tone": tone})
+            continue
+
+        value = now
+        if value is None and lines:
+            value = next(iter(lines.values()))
+        if value is None:
+            continue
+        if kind == "overlay":
+            side = "above" if price > value else "below" if price < value else "on"
+            state = "bullish" if side == "above" else "bearish" if side == "below" else "neutral"
+            note = f"Price is {side} the plotted line"
+            tone = "up" if side == "above" else "down" if side == "below" else ""
+        elif name == "macd" and lines.get("macd") is not None and lines.get("signal") is not None:
+            bullish = lines["macd"] >= lines["signal"]
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"MACD line is {'above' if bullish else 'below'} its signal"
+        elif name in ("rsi", "mfi"):
+            bullish = value >= 50
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"{name.upper()} is {'above' if bullish else 'below'} 50"
+        elif name in ("stoch", "stochrsi") and lines.get("k") is not None and lines.get("d") is not None:
+            bullish = lines["k"] >= lines["d"]
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"%K is {'above' if bullish else 'below'} %D"
+        elif name == "adx" and lines.get("plus_di") is not None and lines.get("minus_di") is not None:
+            bullish = lines["plus_di"] >= lines["minus_di"]
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"+DI is {'above' if bullish else 'below'} -DI"
+        elif name == "aroon" and lines.get("aroon_up") is not None and lines.get("aroon_down") is not None:
+            bullish = lines["aroon_up"] >= lines["aroon_down"]
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"Aroon Up is {'above' if bullish else 'below'} Aroon Down"
+        elif name in ("cci", "roc", "cmf", "williams_r"):
+            pivot = -50 if name == "williams_r" else 0
+            bullish = value >= pivot
+            state, tone = ("bullish", "up") if bullish else ("bearish", "down")
+            note = f"Reading is {'above' if bullish else 'below'} {pivot}"
+        else:
+            state, note, tone = "neutral", "No directional bias from this study alone", ""
+        out.append({"name": label, "study": name, "state": state,
+                    "note": note, "tone": tone})
+    return out
+
+
 def _read_card(interval: str, bars: int, window: str, price: float,
                overlays: list[dict], zone: dict | None, mom: dict,
-               alignment: dict, momentum: str) -> dict | None:
+               alignment: dict, momentum: str,
+               chart_studies: list[dict] | None = None) -> dict | None:
     """The studies panel, in the shape a card renders.
 
     Same rule as every other card in this file: everything here was computed
@@ -5398,6 +5482,7 @@ def _read_card(interval: str, bars: int, window: str, price: float,
                   "price": round(price, 2),
                   "alignment": alignment.get("word") or "",
                   "momentum": momentum,
+                  "chart_studies": chart_studies or [],
                   "overlays": [
                       {"name": o["name"], "value": o["value"],
                        "side": o["price_side"],
@@ -5438,7 +5523,7 @@ def _read_card(interval: str, bars: int, window: str, price: float,
                       "tone": "up" if macd["histogram"] > 0 else "down"})
     if tiles:
         card["readings"] = tiles
-    return card if (card.get("overlays") or tiles) else None
+    return card if (card.get("overlays") or tiles or chart_studies) else None
 
 
 def tool_read_indicators(interval: str = "1d", lookback_bars: int = 400,
@@ -5491,6 +5576,7 @@ def tool_read_indicators(interval: str = "1d", lookback_bars: int = 400,
 
     rsi_v = (mom.get("rsi") or {}).get("value")
     momentum = _rsi_band(rsi_v) if rsi_v is not None else ""
+    chart_studies = _chart_study_reads(interval, last)
 
     window = f"{_ist(rows[0][0], wt)} → {_ist(rows[-1][0], wt)} {_tzl()}"
     res: dict = {
@@ -5500,6 +5586,8 @@ def tool_read_indicators(interval: str = "1d", lookback_bars: int = 400,
         **({"flip_band": zone} if zone else {}),
         **mom,
     }
+    if chart_studies:
+        res["on_chart"] = chart_studies
     if missing:
         res["not_computed"] = missing
         res["_missing_note"] = (
@@ -5508,7 +5596,7 @@ def tool_read_indicators(interval: str = "1d", lookback_bars: int = 400,
             "do not substitute a different study without saying you switched.")
 
     card = _read_card(interval, len(rows), window, last, overlays, zone,
-                      mom, align, momentum)
+                      mom, align, momentum, chart_studies)
     if card:
         _card_add(card)
         res["_card_note"] = (
@@ -5722,11 +5810,13 @@ def tool_confirm_reversal(direction: str = "bullish", interval: str = "1d",
     if card:
         _card_add(card)
         res["_card_note"] = (
-            "A checklist panel carrying every stage and every condition — each "
-            "with the reading it is at NOW and whether it is met — is already "
-            "rendered beside your reply. Do not transcribe it. Say which stage "
-            "is the one that matters on this chart and why, and say plainly "
-            "that none of this is a prediction that the reversal happens.")
+            "The checklist panel already shows every stage, threshold, current "
+            "reading, met state and condition count. Reply with a synthesis of "
+            "at most two short sentences: no heading, list, recap, 'already met' "
+            "section, count, threshold or indicator value. Name only the most "
+            "consequential unmet item by concept and explain what its absence "
+            "means. If nothing is unmet, say only that the checklist is filled. "
+            "Either way, make clear this is confirmation criteria, not a forecast.")
     res["provenance"] = {
         "interval": interval, "bars_scanned": len(rows), "window": window,
         "stage_sources": ("stage 1 from the declared overlay panel; stage 2 "
@@ -10222,6 +10312,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
     _req.ctx_interval = str((context or {}).get("interval") or "")
+    _req.chart_indicators = ((context or {}).get("indicators") or [])
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
@@ -10312,6 +10403,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
     _req.ctx_interval = str((context or {}).get("interval") or "")
+    _req.chart_indicators = ((context or {}).get("indicators") or [])
     tool_trace: list[dict] = []
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
