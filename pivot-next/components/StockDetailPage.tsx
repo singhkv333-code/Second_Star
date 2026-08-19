@@ -1285,8 +1285,7 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
           fontFamily: "var(--font-ui)",
           fontSize: 21,
           fontWeight: 600,
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
+          letterSpacing: "-0.022em",
           color: "var(--text-primary)",
           marginBottom: 16,
         }}
@@ -2761,11 +2760,7 @@ function KeyMetricsStrip({
             fontFamily: "var(--font-ui)",
             fontSize: 21,
             fontWeight: 600,
-            // Block letters. Uppercase at a tight negative tracking closes up
-            // into a wall, so the letter-spacing flips positive — the two go
-            // together and neither reads without the other.
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
+            letterSpacing: "-0.022em",
             color: "var(--text-primary)",
           }}
         >
@@ -3164,7 +3159,7 @@ function FinancialsPanel({
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
           {/* Title + source badge */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
+            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
             {/* The way out to the whole statement. This panel is a summary —
@@ -3437,7 +3432,7 @@ function FullBalanceSheetSection({
           borderBottom: "1px solid var(--glass-border)",
         }}
       >
-        <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
+        <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
           Full Balance Sheet{unit ? ` (${unit})` : ""}
         </span>
         <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
@@ -3572,7 +3567,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
