@@ -12,7 +12,8 @@ bundle:
 3. Right-align the pill text.
 4. Give every price pill the full width of the price-scale column.
 5. Reserve a 24px strip at the pill's left for Charto's alert mark and gap.
-6. Give series and crosshair pills the same height.
+6. Give series and crosshair pills the same height on the minification whose
+   fields represent vertical padding; preserve native geometry on the other.
 
 Together these produce the compact rectangular side badges and native bottom
 date badge used by the local chart. The patcher recognizes both known v5.2.0
