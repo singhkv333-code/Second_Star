@@ -86,6 +86,8 @@ PATCHES = [
         [
             ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',
              'u=i.A+i.P*2/12,c=i.V+i.P*2/12,'),
+            ('u=i.A+this.ei.Ti,c=i.I+this.ei.Ri,',
+             'u=i.A+i.P*2/12,c=i.I+i.P*2/12,'),
         ],
     ),
 ]
