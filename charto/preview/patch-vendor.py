@@ -86,10 +86,12 @@ PATCHES = [
         [
             ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',
              'u=i.A+i.P*2/12,c=i.V+i.P*2/12,'),
-            # Build A's second field is not vertical padding. Preserve its
-            # native geometry; changing it suppresses series/indicator labels.
+            # Build A stores the numeric font height in i.k; i.P is its CSS
+            # font string and arithmetic on it yields NaN (hiding the labels).
+            ('u=i.A+this.ei.Ti,c=i.I+this.ei.Ri,',
+             'u=i.A+i.k*2/12,c=i.I+i.k*2/12,'),
             ('u=i.A+i.P*2/12,c=i.I+i.P*2/12,',
-             'u=i.A+this.ei.Ti,c=i.I+this.ei.Ri,'),
+             'u=i.A+i.k*2/12,c=i.I+i.k*2/12,'),
         ],
     ),
 ]
