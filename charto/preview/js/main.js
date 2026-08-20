@@ -2723,7 +2723,8 @@
   function makePlus() {
     const b = document.createElement("div");
     b.className = "alert-plus";
-    b.innerHTML = Icons.svg("plus", "xs");
+    b.innerHTML = `<span class="alert-plus-mark">${Icons.svg("plus", "xs")}</span>`
+      + `<span class="alert-plus-value"></span>`;
     chartEl.appendChild(b);
     return b;
   }
@@ -2739,7 +2740,9 @@
    *  mark is drawn wholly inside the scale; its target now is too. */
   function onPlus(x, y) {
     if (!alertPlus || !alertPlus.classList.contains("show")) return false;
-    const r = alertPlus.getBoundingClientRect();
+    const mark = alertPlus.querySelector(".alert-plus-mark");
+    if (!mark) return false;
+    const r = mark.getBoundingClientRect();
     const scaleLeft = chartEl.getBoundingClientRect().right - metrics.ps;
     return x >= Math.max(r.left - PLUS_PAD, scaleLeft) && x <= r.right + PLUS_PAD
         && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
@@ -2779,6 +2782,11 @@
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
+    const value = alertPlus.querySelector(".alert-plus-value");
+    if (value) {
+      try { value.textContent = candle.priceFormatter().format(plusPrice); }
+      catch { value.textContent = String(plusPrice); }
+    }
     const box = chartBox;
     if (clientX < box.right - metrics.ps) {
       releaseCrosshair();
