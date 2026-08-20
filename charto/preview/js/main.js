@@ -74,14 +74,9 @@
       rightPriceScale: { borderColor: P.border },
       timeScale: { borderColor: P.border },
       crosshair: {
-        /* The two plates the crosshair prints on the axes are OURS, in DOM —
-         * see the crosshair section further down. The library draws them into
-         * the axis canvas, and canvas cannot be glass: `backdrop-filter` needs
-         * an element with a backdrop behind it. Turning them off here rather
-         * than painting over them means there is one plate per axis and not a
-         * DOM one sitting on a canvas one it happens to cover. */
-        vertLine: { color: P.crosshair, labelVisible: false },
-        horzLine: { color: P.crosshair, labelVisible: false },
+        /* Keep the library's native scrolling plates tied to both axes. */
+        vertLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
+        horzLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
       },
     };
   }
@@ -180,6 +175,10 @@
   }
   syncChartMetrics();
   new ResizeObserver(syncChartMetrics).observe(chartEl);
+
+  const publishPlate = () =>
+    stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
+  publishPlate();
 
   const candle = chart.addSeries(LWC.CandlestickSeries, {
     upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
@@ -1351,6 +1350,18 @@
    */
   el("curNote").textContent = Sym.code;
   const tzNote = el("tzNote");
+  const CROSSHAIR_TIME_HALF_WIDTH = 58;
+  chart.subscribeCrosshairMove((p) => {
+    const x = p && p.point && Number.isFinite(p.point.x) ? p.point.x : null;
+    if (x == null) return tzNote.classList.remove("under-crosshair");
+    const chartBox = chartEl.getBoundingClientRect();
+    const noteBox = tzNote.getBoundingClientRect();
+    const noteLeft = noteBox.left - chartBox.left;
+    const noteRight = noteBox.right - chartBox.left;
+    const overlaps = x + CROSSHAIR_TIME_HALF_WIDTH >= noteLeft
+      && x - CROSSHAIR_TIME_HALF_WIDTH <= noteRight;
+    tzNote.classList.toggle("under-crosshair", overlaps);
+  });
   function paintClock() {
     const t = new Date(Date.now() + Sym.tz * 1000);
     const hh = String(t.getUTCHours()).padStart(2, "0");
@@ -2655,22 +2666,31 @@
    * It lands at the left end of the crosshair's price plate while the pointer
    * is over the plot, and stands on the bare axis for the last twenty pixels of
    * the reach for it, because the plate deliberately does not follow the
-   * pointer onto the scale (js/xhair.js says why). So it carries an opaque disc
+   * pointer onto the scale. So it carries an opaque disc
    * of the chart's own background and is drawn in the app's ink rather than the
    * plate's — one appearance that reads in both places and in both themes.
    */
   let alertPlus = null, plusPrice = null;
 
-  /* The crosshair's two plates, in DOM and in glass — js/xhair.js says why,
-   * and js/panes.js attaches the same thing to every secondary pane. It binds
-   * its own pointer listeners and lives as long as this chart does, so there
-   * is nothing here to hold on to. It re-asserts --axis-w / --time-axis-h as
-   * the pointer moves; syncChartMetrics above is what puts them up before the
-   * pointer has moved at all, and on every resize of the container. */
-  const xhair = Xhair.attach(chart, {
-    root: stageEl, canvas: chartEl, panes: panesList,
-    intervalSec: () => IV_SEC[state.interval],
-  });
+  /* Keep the native crosshair plate visible during the last part of a reach
+   * from the pane onto the price scale, where the library normally clears it. */
+  let heldTime = null, holding = false;
+
+  function releaseCrosshair() {
+    if (!holding) return;
+    holding = false;
+    try { chart.clearCrosshairPosition(); } catch {}
+  }
+
+  const holdTime = () => (heldTime != null ? heldTime
+    : (state.bars.length ? state.bars[state.bars.length - 1].time : null));
+
+  function holdCrosshair(price) {
+    const t = holdTime();
+    if (t == null) return;
+    try { chart.setCrosshairPosition(price, t, candle); holding = true; }
+    catch { holding = false; }
+  }
 
   function hidePlus() {
     // `hot` goes with `show`, or it outlives the mark: the cursor rule keys off
@@ -2678,6 +2698,7 @@
     // leaves a pointer cursor standing over a scale with no mark on it.
     if (alertPlus) alertPlus.classList.remove("show", "hot");
     plusPrice = null;
+    releaseCrosshair();
   }
 
   /** The ⊕ is a DRAWING, not a control. `pointer-events: none`, no listener of
@@ -2737,17 +2758,18 @@
      *
      * Which is also the whole of the fix for the mark that used to appear on
      * the bare price scale with nothing around it: the plate does not follow the
-     * pointer over there (js/xhair.js), so neither does the mark. It survives
+     * pointer over there, so neither does the mark. It survives
      * only the straight reach the plate itself survives.
      *
      * Only over the PRICE pane: an alert is a level in rupees, and the plate
      * over an RSI pane is reading a different scale. Only with the cursor tool
      * and only signed in — an alert lives on the server, so offering the button
      * to a signed-out user could only end in a refusal. */
-    const plate = xhair.plate();
     if (!Auth.user || draw.state.tool !== "cursor"
-        || !plate.shown || plate.key !== "price"
-        || plate.value == null || !isFinite(plate.value)) return hidePlus();
+        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
+    const y = yInPane(clientY, "price");
+    const px = y === null ? null : candle.coordinateToPrice(y);
+    if (px == null || !isFinite(px)) return hidePlus();
     // isConnected, not a null check: the chart library owns this container and
     // rebuilds its contents, so the node we made can be gone while the variable
     // still holds it.
@@ -2757,9 +2779,16 @@
     // of the container, which a symbol change does not cause. Guarded against
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
-    const px = plate.value;
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    alertPlus.style.top = plate.top + "px";
+    const box = chartEl.getBoundingClientRect();
+    if (clientX < box.right - metrics.ps) {
+      releaseCrosshair();
+      const t = chart.timeScale().coordinateToTime(clientX - box.left);
+      if (t != null) heldTime = t;
+    } else {
+      holdCrosshair(px);
+    }
+    alertPlus.style.top = (clientY - box.top) + "px";
     alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
       { maximumFractionDigits: 2 })}`;
     alertPlus.classList.add("show");
@@ -2768,9 +2797,6 @@
     alertPlus.classList.toggle("hot", onPlus(clientX, clientY));
   }
 
-  /* AFTER Xhair's own listener, which was bound further up this file — the
-   * mark reads the plate's state, so the plate has to have decided first.
-   * Registration order is what guarantees that. */
   chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
   chartEl.addEventListener("mouseleave", hidePlus);
   document.addEventListener("charto:draw-select", hidePlus);
@@ -3462,6 +3488,7 @@
   Theme.onChange(() => {
     paintThemeBtn();
     chart.applyOptions(chartTheme());
+    publishPlate();
     if (state.bars.length) {          // a toggle mid-load must not wipe series
       // retheme repaints the LINES and re-emits the legend, whose row colours
       // are baked in at render time — without that pass a name kept the other
