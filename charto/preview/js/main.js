@@ -1329,11 +1329,6 @@
   function paintResetBtn() {
     const on = viewMoved();
     resetBtn.classList.toggle("show", on);
-    // Glazed the first time it is actually on screen and has a size — the lens
-    // is generated from the measured box, and one built for a display:none
-    // button is a filter that does nothing for the rest of the session. Ctx
-    // owns the settings; this is the same glass the menus are made of.
-    if (on && resetBtn.offsetWidth) Ctx.glass(resetBtn);
   }
 
   /* The two axis badges: what the price scale is quoted in, and which clock
@@ -2651,9 +2646,9 @@
    * there is — no dialog, no typing, and the level is exactly the one being
    * pointed at rather than one transcribed into a field.
    *
-   * Only in the price pane, only with the cursor tool, and only signed in: an
-   * alert lives on the server, so offering the button to a signed-out user could
-   * only end in a refusal. It hides the moment the pointer leaves.
+   * Only in the price pane and only with the cursor tool. Signed-out users can
+   * still see the affordance; Alerts.open explains that sign-in is required.
+   * It hides the moment the pointer leaves.
    *
    * ON THE SCALE, not beside it — Groww's placement, and the one that ends
    * three separate complaints at once. Floating on the CHART it was a 20px disc
@@ -2762,11 +2757,15 @@
      * only the straight reach the plate itself survives.
      *
      * Only over the PRICE pane: an alert is a level in rupees, and the plate
-     * over an RSI pane is reading a different scale. Only with the cursor tool
-     * and only signed in — an alert lives on the server, so offering the button
-     * to a signed-out user could only end in a refusal. */
-    if (!Auth.user || draw.state.tool !== "cursor"
-        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
+     * over an RSI pane is reading a different scale. */
+    const chartBox = chartEl.getBoundingClientRect();
+    const price = panesList().find((p) => p.key === "price");
+    const paneEl = price && price.pane.getHTMLElement && price.pane.getHTMLElement();
+    const paneBox = paneEl && paneEl.getBoundingClientRect();
+    const insidePrice = paneBox
+      && clientX >= chartBox.left && clientX <= chartBox.right
+      && clientY >= paneBox.top && clientY <= paneBox.bottom;
+    if (draw.state.tool !== "cursor" || !insidePrice) return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return hidePlus();
@@ -2780,7 +2779,7 @@
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    const box = chartEl.getBoundingClientRect();
+    const box = chartBox;
     if (clientX < box.right - metrics.ps) {
       releaseCrosshair();
       const t = chart.timeScale().coordinateToTime(clientX - box.left);
