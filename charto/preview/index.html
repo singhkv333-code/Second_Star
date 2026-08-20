@@ -4783,8 +4783,8 @@ body.two-columns .readout .row { display: none; }
      65, a 44-level difference where the ink is a 250). No amount of re-colouring
      fixes a thing that is behind the frost. The plate's backdrop-filter only
      touches what is painted BELOW it, so at 8 the mark is drawn crisp on top. */
-  position: absolute; right: 0; z-index: 6;
-  width: var(--axis-w, 84px); height: 22px; margin-top: -11px;
+  position: absolute; right: 1px; z-index: 6;
+  width: calc(var(--axis-w, 84px) - 1px); height: 22px; margin-top: -11px;
   padding: 0 6px 0 3px;
   display: inline-flex; align-items: center;
   /* THE APP'S INK, at near-full strength. It was white once, because the plate
