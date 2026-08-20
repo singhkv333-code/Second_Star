@@ -72,9 +72,13 @@ PATCHES = [
         "room at the scale's left edge for the alert mark",
         [
             ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l))',
-             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+12))'),
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
+            ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+12))',
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
             ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',
-             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))'),
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
+            ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
         ],
     ),
     (

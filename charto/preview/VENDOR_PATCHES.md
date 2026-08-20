@@ -11,7 +11,7 @@ bundle:
 2. Put price-pill text on that same edge.
 3. Right-align the pill text.
 4. Give every price pill the full width of the price-scale column.
-5. Reserve a narrow strip at the pill's left for Charto's alert mark.
+5. Reserve a 24px strip at the pill's left for Charto's alert mark and gap.
 6. Give series and crosshair pills the same height.
 
 Together these produce the compact rectangular side badges and native bottom
