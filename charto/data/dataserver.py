@@ -28,11 +28,13 @@ import logging
 import queue
 import re
 import secrets
+import socket
 import sqlite3
 import sys
 from os import environ
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -53,6 +55,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
+import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -4621,7 +4624,8 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
                       draw_ids: list | None = None, draw_mode: str = "add",
-                      mark_limit: int = 5, max_draw: int = 3) -> dict:
+                      mark_limit: int = 5, max_draw: int = 3,
+                      draw_candle_at: str | None = None) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -4697,7 +4701,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     # The cap is `mark_limit`, an argument with a default — not a slice buried
     # in this loop. It has to be nameable, changeable and REPORTED, or the
     # reply invents a rule to explain why the chart shows fewer than the list.
-    cpicked = cands if (draw and not draw_ids) else []
+    # The pattern drawer addresses a candlestick signal by its qualifying bar;
+    # chart formations use their stable detector id instead.
+    if draw_candle_at:
+        cpicked = [c for c in cands if str(c.get("t")) == str(draw_candle_at)]
+    else:
+        cpicked = cands if (draw and not draw_ids) else []
     n_marks = max(0, int(mark_limit if mark_limit is not None else 5))
     if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
@@ -8341,6 +8350,17 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
     return out
 
 
+def _execution_system() -> str:
+    """The execution-mode system contract, from Pivot's own prompt modules.
+
+    Guarded on purpose. `execution_bridge.system_prompt()` degrades to its
+    adapter text when Pivot cannot be imported, so a misconfigured server
+    answers in a mode that explains itself instead of raising inside the
+    chat turn and 500-ing every message.
+    """
+    return execution_bridge.system_prompt()
+
+
 TOOLS = [
     {"type": "function", "name": "explain_move",
      "description": "ALWAYS the first call for any why-is-it-moving / why-did-it-fall / what-happened question, including when the user gives no dates — the chart context's visible high, low and change describe the move but explain nothing, and an answer assembled from those plus a news headline has skipped every measurement that decides whether the move needed a cause at all. The evidence pack for 'why did it move / what happened' over a date window, in ONE call: how abnormal the move is versus this stock's own history, how much of it the index accounts for (beta-expected vs residual), where inside each session it happened (overnight gap vs morning vs last hour, volume concentration), WHO ACTED (delivery % with own-history percentile, futures OI quadrant, bulk/block deals in the window), results dates nearby, levels crossed, patterns ending in the window, and how similar past moves resolved (with the base rate). Call this FIRST for any cause/why question about a move, drop, rally or spike — it usually answers it without further calls.",
@@ -9218,6 +9238,50 @@ for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
 
 
+# Pivot's builder, dispatched through the same seam as everything else. The
+# tool keeps ITS name — the model was calibrated on `propose_dsl_workflow`,
+# and renaming it here would fork the contract from the descriptions and
+# worked examples that teach it.
+#
+# The card is added HERE rather than inside the bridge because a card is a
+# Charto concept: `_card_take()` is per-request thread-local state the bridge
+# has no business reaching into. The bridge returns data; the seam decides
+# what the chart shows.
+# Pivot's render hint → Charto's card kind. A hint with no entry here renders
+# nothing and the model answers in prose, which is the right failure: a card
+# the FE cannot draw is worse than no card, and an unmapped hint is a missing
+# renderer rather than a broken one. The four quant results share one kind
+# because they are one shape — a stat block with a verdict over it.
+_PIVOT_CARD_KINDS = {
+    "workflow_draft_card": "workflow_draft",
+    "indicator_backtest_chart": "strategy_backtest",
+    "strategy_builder_card": "strategy_basket",
+    "option_chain_card": "option_chain",
+    "option_strategy_card": "option_strategy",
+    "pairs_backtest": "quant_result",
+    "portfolio_backtest": "quant_result",
+    "cointegration_test": "quant_result",
+    "pairs_scan": "quant_result",
+}
+
+
+def _pivot_tool(name: str):
+    def call(**args):
+        who = getattr(_req, "user", None)
+        result = execution_bridge.dispatch(
+            name, args, user_id=(who[0] if who else 0))
+        hint = result.get("_render_hint") if isinstance(result, dict) else None
+        kind = _PIVOT_CARD_KINDS.get(hint)
+        if kind:
+            _card_add({"kind": kind, **result})
+        return result
+    return call
+
+
+for _n in execution_bridge.PIVOT_TOOLS:
+    _DISPATCH[_n] = _pivot_tool(_n)
+
+
 def _teach_alert_grammar() -> None:
     """Put the ENGINE's own address grammar into the alert tools' schema.
 
@@ -9466,11 +9530,28 @@ def run_tool(name: str, args: dict) -> dict:
 
 
 def _fn_params(fn) -> set:
+    """The parameter names a tool declares, or EMPTY for "accepts anything".
+
+    Empty is the caller's signal to skip the drop-unknown-kwargs filter, and a
+    function whose signature is `(**args)` belongs in that class: it accepts
+    every name, and reporting its one VAR_KEYWORD parameter as the allowlist
+    means every real argument is "unknown" and gets dropped.
+
+    That is not hypothetical. The alert tools are `def call(**args)` closures,
+    so `set_alert(symbol=…, price=…)` was arriving with NOTHING — the engine
+    ran its no-argument path and the reply described a result that had ignored
+    the user's actual request. The filter's own premise is "the function does
+    not have this parameter"; for a **kwargs function that premise is false,
+    so the filter must not run at all.
+    """
     import inspect
     try:
-        return set(inspect.signature(fn).parameters)
+        params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return set()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return set()
+    return set(params)
 
 
 def _run_tool(name: str, fn, args: dict) -> dict:
@@ -9909,6 +9990,57 @@ SUGGEST_PROMPT = (
 )
 
 
+# Execution mode's follow-ups are a different job, and the research prompt is
+# actively wrong for it: that one tells the model the app "cannot place
+# orders" and to "never suggest a buy/sell", which is a description of the
+# OTHER mode. Pointed at a strategy the user just built, it steered every
+# follow-up away from the mode's own subject.
+#
+# What a builder wants next is not a deeper reading. It is: does this survive
+# contact with history, what is it missing, and where would it actually have
+# traded. The third of those is why `mark` is on the execution tool surface —
+# a backtest already returns its fills with dates, so "show me the entries on
+# the chart" is a real request against real data, not a picture.
+SUGGEST_PROMPT_EXECUTION = (
+    "You write the three things a user is most likely to want NEXT, given a "
+    "strategy-building conversation.\n\n"
+    "This is a strategy builder for Indian markets (NSE/BSE equities, "
+    "indices, MCX commodities). It translates rules into validated, "
+    "approval-gated automations, backtests them on historical bars with a "
+    "trust verdict, and can draw on the chart. It cannot predict, and it "
+    "does not know the user's portfolio.\n\n"
+    "Rules:\n"
+    "- Each must be an instruction this app can act on: amend the rule, add "
+    "or tighten an exit, size it, change the interval, backtest it over a "
+    "named window, or MARK the backtest's entries and exits on the chart.\n"
+    "- Follow the thread. If a draft was just built, the obvious next moves "
+    "are testing it, giving it the exit it lacks, and seeing it on the "
+    "chart. If a backtest just ran, they are changing one parameter and "
+    "re-running, or looking at where the losing trades happened.\n"
+    "- Three DIFFERENT directions, not three rewordings. Tightening the "
+    "rule, proving it, and visualising it are good axes.\n"
+    "- Name the actual symbol and the actual numbers under discussion, not "
+    "'this strategy'. Write them as the user would type them: first person, "
+    "plain, imperative, no pleasantries.\n"
+    "- Under 60 characters each.\n\n"
+    "Never suggest a prediction, a price target, or advice on whether to "
+    "take the trade. The measurable version is always the right one:\n"
+    "  'Will this strategy work?' -> 'Backtest it over the last three "
+    "years'\n"
+    "  'Is this a good entry?' -> 'Show me where it entered on the chart'\n"
+    "  'Should I add a stop?' -> 'Add a 3% stop from entry'\n\n"
+    "Return exactly three lines. One per line. No numbering, no bullets, no "
+    "quotes, no commentary."
+)
+
+
+def _suggest_prompt() -> str:
+    """The follow-up contract for the mode the turn was asked in."""
+    return (SUGGEST_PROMPT_EXECUTION
+            if getattr(_req, "chat_mode", "chat") == "execution"
+            else SUGGEST_PROMPT)
+
+
 def suggest_clean(raw: str) -> str:
     """One suggestion line, as it should be shown.
 
@@ -9950,7 +10082,7 @@ def _suggest_stream(messages: list[dict]):
         return
     payload = {
         "model": LLM_DEPLOYMENT,
-        "input": [{"role": "system", "content": SUGGEST_PROMPT}, *tail],
+        "input": [{"role": "system", "content": _suggest_prompt()}, *tail],
         "max_output_tokens": 700,
         "reasoning": {"effort": "low"},
         "service_tier": LLM_SERVICE_TIER,
@@ -10034,11 +10166,49 @@ def _suggest_events(messages: list[dict], answer: str):
         yield {"type": "suggest_done", "suggestions": []}
 
 
+# Charto's own tools that execution mode keeps. Two groups, for two reasons.
+#
+# The chart READS are here because a strategy is usually described against
+# something visible — "buy when it breaks the level it keeps failing at" needs
+# the level before it can become a rule.
+#
+# The ALERT tools are here because Pivot refuses them. Its proposal tools
+# reject a notify-only draft outright (alerts left that chat surface in
+# 0ae2ded), while Charto's alert engine actually persists a rule, catches up
+# on boot and fires on the live tick. So "tell me when" resolves to the
+# system that can do it, not to the one that would have to apologise.
+_EXECUTION_CHARTO_TOOLS = {
+    "get_bars", "get_indicator", "read_indicators", "multi_timeframe",
+    "get_patterns", "get_levels", "evaluate_pattern", "get_trend",
+    "get_anchors", "get_gaps", "get_trendlines", "plan_position",
+    "screen_universe",
+    "set_alert", "list_alerts", "update_alert", "cancel_alert", "check_alert",
+    # The ink. A backtest returns its fills with real dates and prices, so
+    # "show me where it entered" is a request against data we already have
+    # rather than a drawing of a strategy's vibe. Without these on the
+    # surface the follow-up suggests itself and then cannot be answered.
+    "mark", "draw_shape",
+}
+
+
+def _tools_for_request() -> list[dict]:
+    """Chat mode gets Charto's surface; execution mode gets Pivot's builder.
+
+    Execution mode is deliberately NOT a subset of chat — it ADDS Pivot's
+    proposal and backtest tools, which Charto has no local equivalent of, and
+    subtracts the reads that only serve market commentary.
+    """
+    if getattr(_req, "chat_mode", "chat") != "execution":
+        return TOOLS
+    kept = [t for t in TOOLS if t.get("name") in _EXECUTION_CHARTO_TOOLS]
+    return kept + execution_bridge.tools()
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": wire,
-        "tools": TOOLS,
+        "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
@@ -10052,8 +10222,13 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     )
     # macOS system python ships no CA bundle — use certifi's when available
     # (present in the pivot venv; run the server with .venv/bin/python).
-    with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:4000]
+        logging.error("model request rejected (%s): %s", exc.code, detail)
+        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
 
 
 def _ssl_ctx():
@@ -10077,7 +10252,7 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": wire,
-        "tools": TOOLS,
+        "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
@@ -10090,7 +10265,13 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=180, context=_ssl_ctx()) as resp:
+    try:
+        response = urllib.request.urlopen(req, timeout=180, context=_ssl_ctx())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:4000]
+        logging.error("model stream rejected (%s): %s", exc.code, detail)
+        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
+    with response as resp:
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -10212,8 +10393,11 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
-                                    READING_RULES, CAUSAL_RULES) if x)
+    mode_rules = (_execution_system()
+                  if getattr(_req, "chat_mode", "chat") == "execution" else "")
+    common = (build_context_block(context), FORMAT_RULES)
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -10302,8 +10486,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": _creds_error()}
         return
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
-                                    READING_RULES, CAUSAL_RULES) if x)
+    mode_rules = (_execution_system()
+                  if getattr(_req, "chat_mode", "chat") == "execution" else "")
+    common = (build_context_block(context), FORMAT_RULES)
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -12212,6 +12399,41 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, res)
                 res["scene"] = patch
                 return self._send(200, res)
+            if u.path == "/patterns/draw":
+                # This is the button-level path into the same detector chat
+                # uses. It avoids an LLM turn and returns only chart geometry.
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                interval = q.get("interval", "1d")
+                lookback = max(60, min(int(q.get("lookback_bars", 300) or 300), 1500))
+                family = q.get("family", "chart")
+                _scene.items = []
+                _scene.cards = []
+                if family == "candlestick":
+                    kinds = [x.strip().lower().replace(" ", "_")
+                             for x in (q.get("kinds") or "").split(",") if x.strip()]
+                    res = tool_get_patterns(
+                        interval=interval, lookback_bars=lookback,
+                        families=["candlestick"], kinds=kinds or None,
+                        draw_candle_at=q.get("at"), mark_limit=1)
+                else:
+                    pid = q.get("id", "").strip()
+                    if not pid:
+                        return self._send(400, {"error": "pattern id is required"})
+                    res = tool_get_patterns(
+                        interval=interval, lookback_bars=lookback,
+                        families=["chart"], draw_ids=[pid])
+                patch = _scene_take()
+                cards = _card_take()
+                if "error" in res:
+                    return self._send(400, res)
+                if not patch:
+                    return self._send(404, {
+                        "error": "That formation is no longer present in the selected scan window."
+                    })
+                return self._send(200, {"scene": patch, "cards": cards,
+                                        "drawn": res.get("drawn", [])})
             if u.path == "/live":
                 # start/stop a venue driver inside this process — see the
                 # _DRIVERS comment for why a CLI process cannot move a chart
@@ -12425,6 +12647,36 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(msgs, list):
                 return self._send(400, {"error": "messages[] required"})
             return self._send_events(_suggest_stream(msgs))
+        if u.path == "/execution/backtest":
+            # The draft card's Backtest button. It runs the SAME tool the
+            # model would call, with the draft's own steps — but a button is
+            # not a question, and routing it through a chat turn would spend
+            # an inference hop restating a request the card already holds
+            # exactly. Pivot's own card calls its API directly for this
+            # reason; this is that call.
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            steps = body.get("steps")
+            if not isinstance(steps, list) or not steps:
+                return self._send(400, {"error": "steps[] required"})
+            args = {"steps": steps, "name": str(body.get("name") or "Draft")}
+            # `period` is the FETCH window (default 5y); start/end clip it
+            # afterwards. A one-click backtest names none of them and gets the
+            # tool's own defaults, which is the right answer for a button.
+            for key in ("period", "start_date", "end_date", "interval",
+                        "benchmark_symbol"):
+                if body.get(key):
+                    args[key] = str(body[key])
+            for key in ("starting_capital", "quantity"):
+                if body.get(key) is not None:
+                    args[key] = body[key]
+            who = _auth_user(self.headers)
+            res = execution_bridge.dispatch(
+                "backtest_workflow", args, user_id=(who[0] if who else 0))
+            return self._send(400 if res.get("error") else 200, res)
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:
@@ -12443,6 +12695,8 @@ class Handler(BaseHTTPRequestHandler):
             # out request sets user None and the tool says so honestly.
             _req.user = _auth_user(self.headers)
             _req.chat_id = str(body.get("chat_id") or "")[:64]
+            _req.chat_mode = ("execution"
+                              if body.get("mode") == "execution" else "chat")
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
@@ -12477,6 +12731,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_stream(messages, ctx)
             return self._send(200, llm_chat(messages, ctx))
         except Exception as exc:  # noqa: BLE001
+            # LOG the traceback, don't just relay the string. A chat turn that
+            # 500s writes nothing to the log otherwise, so the only record of
+            # the failure is a message in a browser the developer isn't
+            # holding — an intermittent one is then undiagnosable by
+            # construction. Two turns in the first suite run died this way and
+            # left no trace at all.
+            logging.exception("charto: chat turn failed")
+            # An upstream read timeout is not an internal error, and relaying
+            # it as `TimeoutError: The read operation timed out` tells the
+            # user nothing they can act on. It is a boundary — the model did
+            # not answer in time — and it gets said in one line, with the one
+            # thing worth doing about it. Everything else still surfaces as
+            # itself; guessing at causes would be worse than the raw string.
+            if isinstance(exc, (TimeoutError, socket.timeout)):
+                return self._send(504, {
+                    "error": "The model did not respond in time. "
+                             "Send that again.",
+                })
             return self._send(500, {"error": str(exc)})
 
     def log_message(self, fmt: str, *args) -> None:  # quiet

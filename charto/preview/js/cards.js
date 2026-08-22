@@ -218,15 +218,22 @@ const Cards = (() => {
      * (case and the "Entry:" prefix removed) because the two are generated
      * separately and need not match to the character. */
     const _norm = (t) => String(t || "").toLowerCase()
-      .replace(/^\s*entry\s*:\s*/, "")
+      .replace(/^\s*(?:entry|exit)\s*:\s*/, "")
       // …and the per-leaf "of SYMBOL". The description is generated with it
       // and the step's readback without it (the bridge strips it once it
       // knows the draft is single-symbol), so the two would never compare
       // equal on the one shape this check exists to catch.
       .replace(/\s+of\s+[a-z0-9&.\-]+/g, "")
       .replace(/\s+/g, " ").trim();
-    const _backs = steps.map((x) => _norm(x && x.readback)).filter(Boolean);
-    const desc = _backs.includes(_norm(c.description)) ? "" : c.description;
+    const _backs = new Set(steps.map((x) => _norm(x && x.readback)).filter(Boolean));
+    /* A two-sided strategy's description is the steps JOINED — "Entry: … ·
+     * Exit: …" — so it has to be split on the same separator before it can
+     * be compared. Suppressed only when EVERY part is a step's own sentence;
+     * a description carrying anything the steps do not say is kept whole. */
+    const _parts = String(c.description || "").split("·")
+      .map(_norm).filter(Boolean);
+    const desc = (_parts.length && _parts.every((x) => _backs.has(x)))
+      ? "" : c.description;
 
     const payload = attrJSON({ name: c.name, steps: steps });
     return `<div class="wf-card" data-wf data-draft="${payload}">`
@@ -435,6 +442,8 @@ const Cards = (() => {
     const mc = m.monte_carlo || {};
     const sp = m.sub_periods || {};
     const sym = c.symbol || "";
+    const closedCount = (c.trades || []).length;
+    const openCount = (c.open_lots || []).length;
     const fin = (x) => x != null && Number.isFinite(Number(x));
     const num = (x, d) => (fin(x) ? n2(sym, x) + (d || "") : "—");
     const pct = (x) => (fin(x) ? signed(sym, x, "%") : "—");
@@ -455,11 +464,21 @@ const Cards = (() => {
     const strip = stat("Return", pct(m.total_return_pct), way(m.total_return_pct))
       + stat("CAGR", fin(m.cagr_pct) ? pct(m.cagr_pct) : "—", way(m.cagr_pct))
       + stat("Max drawdown", depth(m.max_drawdown_pct), "down")
-      + stat("Hit rate", fin(m.hit_rate_pct) ? num(m.hit_rate_pct, "%") : "—",
-             "", m.n_wins == null ? "" : `${esc(m.n_wins)} won`)
+      /* Hit rate is over CLOSED round-trips, and a strategy that has not
+       * closed one has no hit rate — it does not have a hit rate of zero.
+       * The engine reports 0.0 for both cases, so beside "Trades 49" the
+       * card read "0.00% · 0 won", which says forty-nine losing trades
+       * about a strategy that has not sold anything. Undefined is the
+       * honest answer, and the qualifier says why it is undefined. */
+      + (closedCount === 0 && openCount > 0
+          ? stat("Hit rate", "—", "", "nothing closed yet")
+          : stat("Hit rate", fin(m.hit_rate_pct) ? num(m.hit_rate_pct, "%") : "—",
+                 "", m.n_wins == null ? "" : `${esc(m.n_wins)} won`))
       + stat("Sharpe", num(m.sharpe), "",
              fin(fs.deflated_sharpe) ? `deflated ${num(fs.deflated_sharpe)}` : "")
-      + stat("Trades", m.n_trades ?? "—", "");
+      // …and the count says WHICH it is counting, for the same reason.
+      + stat("Trades", m.n_trades ?? "—", "",
+             closedCount === 0 && openCount > 0 ? `${openCount} still held` : "");
 
     // The comparison that decides whether any of this was worth doing. Two
     // figures the payload already carries, drawn against one shared scale so

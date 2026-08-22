@@ -491,9 +491,27 @@ def _humanize(draft: dict) -> None:
                 # above EMA(50)" restates that conditions exist and nothing
                 # else — the body already proves it. Once there is a sentence
                 # to read, the heading gets out of its way.
-                step["label"] = "Entry"
+                #
+                # The role comes from the STEP TYPE, never from position or
+                # from the config key: an exit condition is stored under
+                # `entry` too (the tree slot is named for the schema, not for
+                # what the step does), so labelling every readback-bearing
+                # step "Entry" put that word over "unrealised P&L >= 0.08" —
+                # the take-profit rule announced as an entry.
+                _role = _STEP_ROLE.get(step.get("step_type"))
+                if _role:
+                    step["label"] = _role
             except Exception:  # noqa: BLE001 — a card without a sentence is fine
                 pass
+
+
+# Which steps get a one-word heading in place of the registry's generic
+# sentence. Only the condition-bearing types: everything else already has a
+# label that says what it does ("Place an order", "Your portfolio").
+_STEP_ROLE = {
+    "trigger.compound": "Entry",
+    "trigger.exit_compound": "Exit",
+}
 
 
 def _drop_non_values(args: Optional[dict]) -> dict:
