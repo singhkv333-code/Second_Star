@@ -3339,6 +3339,46 @@ body.two-columns .readout .row { display: none; }
            box-shadow: 0 0 0 1px var(--background); }
 .wf-mark.b { background: var(--up); }
 .wf-mark.s { background: var(--down); }
+/* The bootstrap, drawn. Percentile bands are the textbook fan, but bands
+   drawn OVER a visible cloud are the same spread twice — 32 paths at 9%
+   already stack into a density gradient, which is the honest version of a
+   band and the one that shows individual runs. */
+.wf-fan { width: 100%; height: 96px; display: block; color: var(--muted-foreground); }
+.wf-fan.up { color: var(--up); }
+.wf-fan.down { color: var(--down); }
+.wf-fan path { fill: none; vector-effect: non-scaling-stroke;
+               stroke-linejoin: round; stroke-linecap: round; }
+.wf-fan .sim { stroke: var(--muted-foreground); stroke-width: 1; opacity: .13; }
+/* Where the middle of the cloud ran. Dashed, because a pointwise median is
+   not a path any single run took and should not read as one. */
+.wf-fan .med { stroke: var(--muted-foreground); stroke-width: 1.25;
+               stroke-dasharray: 4 3; opacity: .8; }
+.wf-fan .act { stroke: currentColor; stroke-width: 2; }
+.wf-fan .zero { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3;
+                vector-effect: non-scaling-stroke; }
+/* Where YOUR run finished inside the spread — the one place the eye should
+   land. DOM, so it stays round in a horizontally stretched plot. */
+.wf-tip { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+          transform: translate(-50%, -50%); pointer-events: auto;
+          box-shadow: 0 0 0 2px var(--background); }
+.wf-tip.up { background: var(--up); }
+.wf-tip.down { background: var(--down); }
+.wf-tip::before { content: ""; position: absolute; inset: -6px; }
+.wf-key { display: flex; align-items: center; gap: 12px; margin-top: 8px;
+          font-size: var(--text-2xs); color: var(--muted-foreground); }
+/* The fan and the drawdown bars are two readings of the same resampling and
+   sit in one section, so the gap between them has to come from here — with
+   none, the legend row landed on the first bar's label. */
+.wf-card .wf-chart + .scan-bars { margin-top: 16px; }
+.wf-key span { display: inline-flex; align-items: center; gap: 5px; }
+/* Each key carries its own series' mark, so the legend is read off the same
+   shapes as the plot rather than off a colour the reader has to remember. */
+.wf-key span::before { content: ""; width: 12px; height: 0; flex: none;
+                       border-top-width: 2px; border-top-style: solid; }
+.wf-key .k-act::before { border-color: var(--foreground); }
+.wf-key .k-med::before { border-top-style: dashed; border-color: currentColor; }
+.wf-key .k-sim::before { border-top-width: 1px; border-color: currentColor;
+                         opacity: .45; }
 /* The dot is 4px because that is how big it should LOOK; the thing you have
    to hit with a pointer is 14px. Separating the two is the only way to have
    a mark that is both unobtrusive and reachable. */
@@ -3357,10 +3397,15 @@ body.two-columns .readout .row { display: none; }
    Bars and the zero line are both positioned against the padding box, so they
    shift together and stay aligned. */
 .wf-cols { position: relative; display: flex; align-items: stretch; gap: 3px;
-           height: 75px; padding-top: 19px; justify-content: flex-start; }
+           height: 75px; padding-top: 19px; justify-content: space-between; }
 /* Capped: six periods across a 440px card gave 73px slabs, which read
    as a bar chart of something else entirely. A column is a tick on a
-   timeline, so it stays column-shaped however few there are. */
+   timeline, so it stays column-shaped however few there are.
+   The cap needs space-between above it, though: left-aligned, six capped
+   columns bunched into the first third and left the rest of the plot
+   empty, which reads as periods the strategy did not have. These columns
+   are a TIME axis and have to span the window they cover. Once there are
+   enough of them to fill the row on their own it is a no-op. */
 .wf-col { position: relative; flex: 1 1 0; min-width: 0; max-width: 34px; }
 .wf-col i { position: absolute; left: 0; right: 0; border-radius: 2px;
             background: var(--muted-foreground); opacity: .55; }
@@ -7726,7 +7771,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=20"></script>
+  <script src="./js/cards.js?v=24"></script>
   <script src="./js/patterns-panel.js?v=7"></script>
   <script src="./js/chat.js?v=148"></script>
   <script src="./js/journal.js?v=6"></script>

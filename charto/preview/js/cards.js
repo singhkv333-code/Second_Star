@@ -452,9 +452,11 @@ const Cards = (() => {
     if (fin(mc.dd_worst_pct)) mcRows.push({
       label: "Worst", value: Math.abs(mc.dd_worst_pct),
       text: depth(mc.dd_worst_pct), tone: "down" });
-    const mcBlock = mcRows.length
-      ? section("Drawdown across resamples",
-                mc.n_sims ? `${mc.n_sims} runs` : "", bars(mcRows))
+    const fan = mcFan(mc, c.equity_curve || []);
+    const mcBlock = (mcRows.length || fan)
+      ? section("The same edge, reshuffled",
+                mc.n_sims ? `${mc.n_sims} runs` : "",
+                fan + (mcRows.length ? bars(mcRows) : ""))
       : "";
 
     // The rigor rows only appear when the engine actually computed them — an
@@ -561,6 +563,96 @@ const Cards = (() => {
       + `<span>${esc(String(rows[rows.length - 1].t).slice(0, 10))}</span></div></div>`;
   }
 
+  /* The bootstrap, drawn.
+   *
+   * "Chance of a loss: 31%" is a number you either trust or you don't. The
+   * same fact as a cloud of runs — the same edge, its periods reshuffled in
+   * blocks — around the one path that actually happened is a fact you can
+   * SEE, and it answers the question the equity curve is silently begging:
+   * was this the strategy, or was this the ordering?
+   *
+   * Three things, and deliberately no fourth. The cloud is the spread. The
+   * median is where the middle of it ran. The bold line is you. Percentile
+   * bands on top of a visible cloud would be the same information drawn
+   * twice.
+   *
+   * Every series is the engine's own; this derives a pixel path from them
+   * and never a statistic.
+   */
+  function mcFan(mc, points) {
+    const paths = (mc || {}).paths || {};
+    const sample = (paths.sample || []).filter((r) => Array.isArray(r) && r.length > 2);
+    const median = paths.points || [];
+    if (!sample.length || median.length < 3) return "";
+
+    // The realised path, on the simulations' own scale (% from the start) and
+    // resampled to their x-grid so the two can be laid over each other.
+    const eq = (points || []).map((p) => Number(p && p.v))
+      .filter(Number.isFinite);
+    const N = median.length;
+    let actual = [];
+    if (eq.length > 2 && eq[0]) {
+      actual = Array.from({ length: N }, (_, i) => {
+        const at = (i / (N - 1)) * (eq.length - 1);
+        const lo = Math.floor(at), hi = Math.min(eq.length - 1, lo + 1);
+        const v = eq[lo] + (eq[hi] - eq[lo]) * (at - lo);
+        return (v / eq[0] - 1) * 100;
+      });
+    }
+
+    /* The scale is the CLOUD's 1st-to-99th percentile, not its extremes.
+     * Two runaway resamples out of a thousand would otherwise set the range
+     * and flatten the other thirty into a single grey line — the shape of
+     * the spread is the point, and it cannot survive being scaled by its own
+     * tails. The few paths that leave the frame are clipped by the viewBox,
+     * which is honest: they are drawn as far as the plot goes. The realised
+     * path and zero are always inside the range, because those two are the
+     * comparison the whole picture exists to make.
+     */
+    const pool = sample.flat().filter(Number.isFinite).sort((a, b) => a - b);
+    if (!pool.length) return "";
+    const q = (f) => pool[Math.min(pool.length - 1,
+                                   Math.max(0, Math.round(f * (pool.length - 1))))];
+    const must = actual.filter(Number.isFinite).concat(0);
+    let lo = Math.min(q(0.01), ...must), hi = Math.max(q(0.99), ...must);
+    const pad = ((hi - lo) || 1) * 0.1;
+    lo -= pad; hi += pad;
+    const W = 100, H = 76, span = (hi - lo) || 1;
+    const xAt = (i) => (i / (N - 1)) * W;
+    const yAt = (v) => H - ((v - lo) / span) * H;
+    const d = (row) => row.map((v, i) =>
+      `${i ? "L" : "M"}${xAt(i).toFixed(2)} ${yAt(v).toFixed(2)}`).join(" ");
+
+    const cloud = sample.map((row) =>
+      `<path class="sim" d="${d(row)}"/>`).join("");
+    const end = actual.length ? actual[actual.length - 1] : null;
+    const up = end != null && end >= 0;
+    // The one place the eye should land: where YOUR run finished inside the
+    // spread. DOM, not SVG — the plot is stretched with
+    // preserveAspectRatio="none", so an SVG circle in it is drawn as an
+    // ellipse (see the equity curve's marks for the same reason).
+    const tip = end == null ? "" :
+      `<span class="wf-tip ${up ? "up" : "down"}"`
+      + ` data-v="${esc(`Your run · ${end >= 0 ? "+" : "−"}`
+                        + `${Math.abs(end).toFixed(1)}%`)}"`
+      + ` style="left:100%;top:${(yAt(end) / H * 100).toFixed(2)}%"></span>`;
+
+    return `<div class="wf-chart"><div class="wf-plot">`
+      + `<svg class="wf-fan${up ? " up" : " down"}" viewBox="0 0 ${W} ${H}"`
+      + ` preserveAspectRatio="none" aria-hidden="true">`
+      + `${cloud}`
+      + `<line class="zero" x1="0" y1="${yAt(0).toFixed(2)}"`
+      + ` x2="${W}" y2="${yAt(0).toFixed(2)}"/>`
+      + `<path class="med" d="${d(median)}"/>`
+      + (actual.length ? `<path class="act" d="${d(actual)}"/>` : "")
+      + `</svg>${tip}</div>`
+      + `<div class="wf-key">`
+      + `<span class="k-act">Your run</span>`
+      + `<span class="k-med">Median</span>`
+      + `<span class="k-sim">${sample.length} of ${mc.n_sims || 0} runs</span>`
+      + `</div></div>`;
+  }
+
   /** Signed columns off a zero line — the shape for "was it every period, or
    *  one of them". Heights are geometry from the given list; no figure here
    *  is computed or printed. */
@@ -593,7 +685,11 @@ const Cards = (() => {
   function tradeRows(trades, sym) {
     if (!trades.length) return "";
     const rows = trades.slice(0, MAX_TRADE_ROWS).map((t) => {
-      const ret = Number(t.return_pct);
+      /* return_pct is a FRACTION (0.059 = 5.9%), unlike every *_pct on the
+       * metrics block, which are already percentages. Printed straight it
+       * turned a 5.91% trade into "+0.06%" — off by two orders of magnitude
+       * in the one column a reader checks the strategy against. */
+      const ret = Number(t.return_pct) * 100;
       const cls = Number.isFinite(ret) ? (ret > 0 ? "up" : ret < 0 ? "down" : "") : "";
       const why = String(t.exit_reason || "");
       return `<tr><td>${esc(String(t.entry_date || "").slice(0, 10))}</td>`
