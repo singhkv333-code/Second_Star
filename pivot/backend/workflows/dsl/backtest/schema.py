@@ -356,6 +356,15 @@ class ForwardStats(_Strict):
     deflated_sharpe: Optional[float] = None
 
 
+class MonteCarloPaths(_Strict):
+    """The resampled runs themselves, for drawing the bootstrap rather than
+    only reporting it. Signed cumulative return %, every series sharing one
+    x-grid. ``points`` is the POINTWISE median across all sims — the centre of
+    the cloud at each step, deliberately not any single run's trajectory."""
+    points: list[float] = Field(default_factory=list)
+    sample: list[list[float]] = Field(default_factory=list)
+
+
 class MonteCarlo(_Strict):
     """Circular-block-bootstrap distribution of max-drawdown + terminal wealth
     from the realised return path. Computed by
@@ -373,6 +382,7 @@ class MonteCarlo(_Strict):
     prob_loss: Optional[float] = None
     prob_dd_worse_than_tol: Optional[float] = None
     drawdown_tolerance_pct: Optional[float] = None
+    paths: Optional[MonteCarloPaths] = None
 
 
 class SubPeriods(_Strict):

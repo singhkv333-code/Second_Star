@@ -78,6 +78,8 @@ def monte_carlo_robustness(
     block_size: Optional[int] = None,
     drawdown_tolerance_pct: float = -20.0,
     seed: int = 1_234_567,
+    keep_paths: int = 0,
+    path_points: int = 100,
 ) -> Optional[dict]:
     """Bootstrap distribution of max-drawdown + terminal wealth from a backtest's
     per-period (fractional) returns.
@@ -87,7 +89,18 @@ def monte_carlo_robustness(
 
     ``block_size`` defaults to ~T**(1/3) (the standard rule of thumb), floored
     at 2 so blocks always preserve some adjacency. ``drawdown_tolerance_pct`` is
-    the user's pain threshold for the ``prob_dd_worse_than_tol`` probability."""
+    the user's pain threshold for the ``prob_dd_worse_than_tol`` probability.
+
+    ``keep_paths`` > 0 additionally returns a ``paths`` block for drawing the
+    simulation instead of only reporting it: ``keep_paths`` whole resampled
+    equity paths (evenly spaced through the run, so the sample is not the
+    first N) plus the POINTWISE median across all ``n_sims``, both as signed
+    cumulative return % and downsampled to ``path_points`` columns.
+
+    The pointwise median is the centre of the cloud at each step, which is
+    what a fan chart's middle line means — it is deliberately NOT any single
+    simulation's trajectory, and nothing downstream should describe it as a
+    path that was run."""
     r = _clean(period_returns)
     n = len(r)
     if n < _MIN_OBS:
@@ -108,6 +121,25 @@ def monte_carlo_robustness(
     terminal = equity[:, -1] - 1.0                   # terminal return, fractional
 
     tol = drawdown_tolerance_pct / 100.0
+    paths_block = None
+    if keep_paths > 0:
+        # cumulative return %, including the 1.0 start column so every drawn
+        # path begins at zero rather than at its first bar's move
+        pct = (equity - 1.0) * 100.0
+        cols = pct.shape[1]
+        idx = (np.linspace(0, cols - 1, min(path_points, cols))
+               .round().astype(int))
+        # Evenly spaced through the run rather than the first N: the bootstrap
+        # is unordered, but taking a contiguous head would still tie what gets
+        # drawn to generation order for no reason.
+        pick = (np.linspace(0, n_sims - 1, min(keep_paths, n_sims))
+                .round().astype(int))
+        paths_block = {
+            "points": [round(float(x), 2)
+                       for x in np.median(pct, axis=0)[idx].tolist()],
+            "sample": [[round(float(x), 2) for x in row.tolist()]
+                       for row in pct[np.ix_(pick, idx)]],
+        }
     return {
         "n_sims": int(n_sims),
         "block_size": int(block_size),
@@ -121,6 +153,7 @@ def monte_carlo_robustness(
         "prob_loss": round(float(np.mean(terminal < 0.0)), 4),
         "prob_dd_worse_than_tol": round(float(np.mean(max_dd < tol)), 4),
         "drawdown_tolerance_pct": drawdown_tolerance_pct,
+        **({"paths": paths_block} if paths_block else {}),
     }
 
 
