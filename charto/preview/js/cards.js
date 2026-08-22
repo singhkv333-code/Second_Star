@@ -382,13 +382,29 @@ const Cards = (() => {
         entry: { t: t0, v: Number(inBar.open) },
         exit: { t: t0, v: Number(inBar.open) },
         win: true, open: true,
-        text: l.quantity ? `Holding ${l.quantity}` : "Open",
+        // Explicit, because this is the only place the mark explains itself.
+        // "Holding 5" left the reader to guess whether 5 was a price, a
+        // count or a day; "Bought 5 · 2024-03-11" cannot be read two ways.
+        text: `Bought ${l.quantity || ""} · ${String(l.entry_date).slice(0, 10)}`
+          .replace("  ", " "),
       });
       if (lastBar) spans.push([t0, sceneT(lastBar)]);
     });
     if (spans.length) {
+      /* One line naming the layer. The shaded columns and the chevrons are
+       * unlabelled by design — forty-nine captions would bury the candles —
+       * but unlabelled is not the same as unexplained, and a reader looking
+       * at blue marks has to be able to find out what they are without
+       * hovering one. Counted from what was actually built, never from the
+       * payload, so it can never name more marks than are drawn. */
+      const nOpen = items.filter((x) => x.open).length;
+      const nClosed = items.length - nOpen;
+      const bits = [];
+      if (nClosed) bits.push(`${nClosed} trade${nClosed === 1 ? "" : "s"}`);
+      if (nOpen) bits.push(`${nOpen} still held`);
       items.push({ id: `${SCENE_PREFIX}rail`, kind: "exposure", pane: "price",
-                   owner: SCENE_OWNER, spans });
+                   owner: SCENE_OWNER, spans,
+                   label: `Strategy · ${bits.join(" · ")}` });
     }
     return items;
   }

@@ -808,7 +808,19 @@ const Scene = (() => {
           }
           // a position paints its own pills and centre chip — the generic
           // label chip would duplicate them
-          if (a.label && anchor && !NO_HALO.has(a.kind)) {
+          /* The strategy layer gets ONE line in the legend, carried by the
+           * rail, and none from its trades.
+           *
+           * Forty-nine marks would be forty-nine chips — a corner that has
+           * become a list of everything rather than a list of what is drawn.
+           * But without any line at all a reader is left with blue chevrons
+           * and no way to learn what they are; "what do these even mean" is
+           * a question the chart has to be able to answer about its own ink.
+           * So the layer names itself once, on the object that already spans
+           * all of it. */
+          if (a.kind === "exposure" && a.label) {
+            chip(a.label, 8, 20, Theme.c("accent"));
+          } else if (a.label && anchor && !NO_HALO.has(a.kind)) {
             const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
             const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
             chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);

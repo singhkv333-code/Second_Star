@@ -68,9 +68,6 @@ const Geo = (() => {
   const exposure = (spans, o = {}) =>
     ({ kind: "exposure", spans, ...o });
 
-  // Rail geometry, in pane pixels. One definition, read by project, hit and
-  // paint — three guesses at where 3 pixels sit is three chances to disagree.
-  const RAIL_H = 3, RAIL_GAP = 7;
 
   // ── plane maths ─────────────────────────────────────────
 
@@ -330,17 +327,27 @@ const Geo = (() => {
         return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0, y1 };
       }
       case "exposure": {
-        const segs = [];
+        const raw = [];
         for (const sp of prim.spans || []) {
           const a = X(sp[0]), b = X(sp[1]);
           if (a === null || b === null) continue;
-          segs.push([Math.min(a, b), Math.max(a, b)]);
+          raw.push([Math.min(a, b), Math.max(a, b)]);
         }
-        // The track spans the tested window, not the viewport: a rail that
-        // redrew its own extent on every pan would read as data changing.
-        const ends = segs.length
-          ? [segs[0][0], segs[segs.length - 1][1]] : null;
-        return ends ? { segs, ends, top: env.h - RAIL_GAP - RAIL_H } : null;
+        if (!raw.length) return null;
+        /* MERGED, and that is not a tidiness matter — it is the difference
+         * between a reading and a stain. Forty-nine lots each held to the
+         * window's end are forty-nine spans covering the same ground; drawn
+         * as forty-nine translucent fills they compound to opaque, and the
+         * chart would report "deeply invested" where it means "invested".
+         * One pass, one disjoint set, one fill each. */
+        raw.sort((p, q) => p[0] - q[0]);
+        const segs = [raw[0].slice()];
+        for (const sp of raw.slice(1)) {
+          const last = segs[segs.length - 1];
+          if (sp[0] <= last[1] + 1) last[1] = Math.max(last[1], sp[1]);
+          else segs.push(sp.slice());
+        }
+        return { segs, h: env.h };
       }
       case "position": {
         const x0 = X(prim.entry.t), x1 = X(prim.t1);
@@ -408,8 +415,10 @@ const Geo = (() => {
           && my > top - pad && my < bot + pad;
       }
       case "exposure": {
-        if (my < px.top - tol || my > px.top + RAIL_H + tol) return false;
-        return px.segs.some((sp) => mx > sp[0] - tol && mx < sp[1] + tol);
+        // A background wash is not a target. It spans most of the plot, so
+        // answering the pointer would mean every hover anywhere lands on it
+        // instead of on the trade or the candle actually under the cursor.
+        return false;
       }
       case "position": {
         if (mx < px.x0 - tol || mx > px.x1 + tol) return false;
@@ -720,26 +729,23 @@ const Geo = (() => {
         break;
       }
       case "exposure": {
-        const hot = !!s.detail;
-        const y = px.top, r = RAIL_H / 2;
+        /* Where the strategy was in the market, as SHADED TIME.
+         *
+         * This was a rail along the foot of the plot, and a 3px line asks to
+         * be read as another series. Participation is not a series — it is a
+         * property of a stretch of the time axis, the same shape a session
+         * or an event window has — so it is drawn as one: the columns of the
+         * chart where a position was open, tinted and nothing more.
+         *
+         * Very low alpha, and never the candle colours. The bars underneath
+         * are still the subject; this says which of them the strategy was
+         * present for, and a wash heavy enough to change how a candle reads
+         * would be answering a different question than the one asked.
+         */
         ctx.setLineDash([]);
-
-        /* The empty track first. It is the half of this object that carries
-         * the finding — filled spans alone would look like a busy strategy at
-         * any density, because there would be nothing to be busy against. */
-        ctx.fillStyle = rgba(Theme.c("separator"), hot ? 0.95 : 0.7);
-        ctx.beginPath();
-        ctx.roundRect(px.ends[0], y, Math.max(1, px.ends[1] - px.ends[0]),
-                      RAIL_H, r);
-        ctx.fill();
-
-        // Held. Accent blue, never the candle colours: this rail is about
-        // being IN the market, and a green one would read as a winning one.
-        ctx.fillStyle = rgba(Theme.c("accent"), hot ? 0.95 : 0.8);
+        ctx.fillStyle = rgba(Theme.c("accent"), s.detail ? 0.13 : 0.075);
         for (const sp of px.segs) {
-          ctx.beginPath();
-          ctx.roundRect(sp[0], y, Math.max(1.5, sp[1] - sp[0]), RAIL_H, r);
-          ctx.fill();
+          ctx.fillRect(sp[0], 0, Math.max(1, sp[1] - sp[0]), px.h);
         }
         break;
       }
