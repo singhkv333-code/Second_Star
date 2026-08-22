@@ -263,39 +263,67 @@ const Cards = (() => {
    * Bars are held in CHART time (main.js adds IST); annotations are handed
    * back in real time, because the scene layer adds it again on the way out.
    */
-  function barTimeFor(iso) {
+  function barFor(iso) {
     const bars = chartBars();
     if (!bars.length || !iso) return null;
     const day = Date.parse(String(iso).slice(0, 10) + "T00:00:00Z");
     if (!Number.isFinite(day)) return null;
-    const want = day / 1000 + IST;
+    // Chart-time midnight, and NOT the date plus IST: a daily bar is already
+    // keyed at chart-time midnight of its own session (the 27th's bar sits at
+    // 2022-09-27T00:00Z in chart time), so offsetting the target as well
+    // stepped every search one session late. Intraday resolves off the same
+    // line — the first bar after that day's chart-time midnight is 09:15.
+    const want = day / 1000;
     if (bars[bars.length - 1].time < want) return null;
-    if (bars[0].time >= want) return bars[0].time - IST;
+    if (bars[0].time >= want) return bars[0];
     let lo = 0, hi = bars.length - 1;
     while (hi - lo > 1) {
       const mid = (lo + hi) >> 1;
       if (bars[mid].time < want) lo = mid; else hi = mid;
     }
-    return bars[hi].time - IST;
+    return bars[hi];
   }
 
-  /** Trades → scene annotations. One per trade, plus the rail. */
+  /* Bars are held in CHART time (main.js adds IST); annotations are handed
+   * back in real time, because the scene layer adds it again on the way out. */
+  const sceneT = (bar) => bar.time - IST;
+
+  /* Trades → scene annotations. One per trade, plus the rail.
+   *
+   * The two price series do NOT agree, and pretending otherwise is the whole
+   * hazard here. Pivot back-adjusts for dividends; Charto's own store does
+   * not, so the same RELIANCE entry is ₹1087.82 to the engine and ₹1141 to
+   * this chart — a ladder that steps at every ex-date and closes to nothing
+   * on the most recent trade. Drawn at the engine's price, the object would
+   * float five percent clear of the candle it claims to be an entry on, and
+   * nothing on screen would tell the user which number was wrong.
+   *
+   * So each trade takes ONE anchor from the chart and ONE magnitude from the
+   * engine: the entry sits on this chart's own bar, and the exit is that
+   * anchor carried by the engine's own return. The object then lands on the
+   * candles it is about, its height is exactly the return the card prints,
+   * and the two can never disagree — because only one of them is measured
+   * here. No price is invented: both ends are a real bar or a real result.
+   */
   function strategyItems(c) {
     const items = [], spans = [];
     const bars = chartBars();
-    const lastT = bars.length ? bars[bars.length - 1].time - IST : null;
+    const lastBar = bars.length ? bars[bars.length - 1] : null;
     (c.trades || []).forEach((t, i) => {
-      const t0 = barTimeFor(t.entry_date);
+      const inBar = barFor(t.entry_date);
       // A trade still open at the end of the window closes at the last bar —
       // that is where the money still is, and dropping it would quietly
       // under-report how long the strategy holds.
-      const t1 = t.exit_date ? barTimeFor(t.exit_date) : lastT;
-      const ep = Number(t.entry_price);
-      const xp = t.exit_price == null ? ep : Number(t.exit_price);
-      if (t0 == null || t1 == null) return;
-      if (!Number.isFinite(ep) || !Number.isFinite(xp)) return;
-      const end = Math.max(t1, t0);
+      const outBar = t.exit_date ? barFor(t.exit_date) : lastBar;
+      if (!inBar || !outBar) return;
+      const ep = Number(inBar.open);
       const r = Number(t.return_pct);
+      if (!Number.isFinite(ep)) return;
+      // return_pct is the engine's PRICE return (net_pnl is the one after
+      // costs), so carrying the anchor by it lands where the exit bar sits
+      // on this chart's scale rather than on the engine's.
+      const xp = Number.isFinite(r) ? ep * (1 + r) : ep;
+      const t0 = sceneT(inBar), end = Math.max(sceneT(outBar), t0);
       items.push({
         id: `${SCENE_PREFIX}t${i}`, kind: "trade", pane: "price",
         owner: SCENE_OWNER,

@@ -576,10 +576,16 @@ const Geo = (() => {
         /* The body. Flat fill, no gradient: the height already carries the
          * magnitude, and shading it as well says the same thing twice in a
          * language the axis cannot check. */
-        ctx.fillStyle = rgba(c, hot ? 0.2 : 0.13);
+        ctx.fillStyle = rgba(c, hot ? 0.18 : 0.11);
         ctx.beginPath();
         ctx.roundRect(px.x0, top, w, hgt, Math.min(3, hgt / 2, w / 2));
         ctx.fill();
+        /* …and a defined boundary around it. A wash with no edge reads as a
+         * highlighter stroke; the edge is most of what makes a filled object
+         * look measured rather than smudged, and it costs a hairline. */
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(c, 0.38);
+        ctx.stroke();
 
         /* Entry level, then the step down (or up) to the exit. Two strokes,
          * because the eye reads "held here, left there" off a corner far
@@ -588,9 +594,21 @@ const Geo = (() => {
         ctx.strokeStyle = rgba(c, 0.55);
         ctx.beginPath();
         ctx.moveTo(px.x0, px.y0); ctx.lineTo(px.x1, px.y0); ctx.stroke();
-        ctx.strokeStyle = rgba(c, 0.8);
+
+        /* The two vertical edges are deliberately UNEQUAL, and that asymmetry
+         * is what makes this a trade rather than a zone. A symmetric tinted
+         * rectangle is the shape this chart already uses for a support band,
+         * so drawn evenly it would read as one — and a reader would have no
+         * way to tell which end the strategy went in at. Heavy edge = entry,
+         * hairline = exit; the object now points forwards in time. */
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = rgba(c, 0.9);
         ctx.beginPath();
-        ctx.moveTo(px.x1, px.y0); ctx.lineTo(px.x1, px.y1); ctx.stroke();
+        ctx.moveTo(px.x0, top); ctx.lineTo(px.x0, bot); ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(c, 0.45);
+        ctx.beginPath();
+        ctx.moveTo(px.x1, top); ctx.lineTo(px.x1, bot); ctx.stroke();
 
         /* Hover is GREY, everywhere in this layer. The object is already
          * spending its colour on the outcome, so lighting it brighter on
@@ -603,12 +621,22 @@ const Geo = (() => {
           ctx.stroke();
         }
 
-        // The two moments themselves, so a trade narrower than its own
-        // corner radius is still visibly a trade with two ends.
+        /* The two moments themselves: entry SOLID, exit HOLLOW. Same reason
+         * as the edges — a filled dot reads as arrival and an open one as
+         * departure, so the trade can be read end-to-end without a legend.
+         * Both wear a ring in the chart's own background so they stay
+         * findable over a candle body rather than sinking into it; that is a
+         * legibility device every plotting library uses, not a glow. */
+        const bg = Theme.c("chartBg");
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = bg;
         ctx.fillStyle = c;
-        for (const [dx, dy] of [[px.x0, px.y0], [px.x1, px.y1]]) {
-          ctx.beginPath(); ctx.arc(dx, dy, 2.4, 0, Math.PI * 2); ctx.fill();
-        }
+        ctx.beginPath(); ctx.arc(px.x0, px.y0, 3, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(px.x1, px.y1, 3, 0, Math.PI * 2);
+        ctx.fillStyle = bg; ctx.fill();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = c; ctx.stroke();
+
         if (!hot || !prim.text) break;
 
         /* One number, one plate, and only while pointed at. A backtest puts
@@ -634,7 +662,7 @@ const Geo = (() => {
         /* The empty track first. It is the half of this object that carries
          * the finding — filled spans alone would look like a busy strategy at
          * any density, because there would be nothing to be busy against. */
-        ctx.fillStyle = rgba(Theme.c("separator"), hot ? 0.5 : 0.32);
+        ctx.fillStyle = rgba(Theme.c("separator"), hot ? 0.95 : 0.7);
         ctx.beginPath();
         ctx.roundRect(px.ends[0], y, Math.max(1, px.ends[1] - px.ends[0]),
                       RAIL_H, r);
