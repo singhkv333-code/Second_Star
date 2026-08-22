@@ -41,6 +41,37 @@ const Geo = (() => {
   const position = (entry, stop, targets, o = {}) =>
     ({ kind: "position", entry, stop, targets, ...o });
 
+  // ── strategy layer ──────────────────────────────────────
+  /* One backtested trade, as its own object rather than a box with a label
+   * stacked on it. A composed box can only assert a rectangle; this asserts a
+   * TRADE, and so it can encode three things at once with no text at rest:
+   *
+   *   how long you were in it   → the object's WIDTH
+   *   what the trade returned   → its HEIGHT, and which way it leans
+   *   whether it worked         → its colour
+   *
+   * Duration is the dimension an entry/exit arrow pair destroys, and it is
+   * the one a reader asks about first. entry/exit: {t, v}; o: {win, text}.
+   */
+  const trade = (entry, exit, o = {}) =>
+    ({ kind: "trade", entry, exit, ...o });
+
+  /* Where the strategy actually held a position, as a rail along the foot of
+   * the plot. Pinned to the pane in PIXELS, never to a price — the rail makes
+   * no claim about value, only about participation, and a price-anchored
+   * version would rescale into a lie the moment the axis moved.
+   *
+   * The empty track matters as much as the filled spans: it is the only way
+   * to see at a glance whether a strategy actually traded, or sat in the
+   * market throughout and called it a strategy. spans: [[t1, t2], …].
+   */
+  const exposure = (spans, o = {}) =>
+    ({ kind: "exposure", spans, ...o });
+
+  // Rail geometry, in pane pixels. One definition, read by project, hit and
+  // paint — three guesses at where 3 pixels sit is three chances to disagree.
+  const RAIL_H = 3, RAIL_GAP = 7;
+
   // ── plane maths ─────────────────────────────────────────
 
   /** Distance from a point to a finite segment. */
@@ -292,6 +323,25 @@ const Geo = (() => {
         const pts = prim.pts.map(P);
         return pts.some((p) => !p) ? null : { pts };
       }
+      case "trade": {
+        const x0 = X(prim.entry.t), x1 = X(prim.exit.t);
+        const y0 = Y(prim.entry.v), y1 = Y(prim.exit.v);
+        if ([x0, x1, y0, y1].some((q) => q === null)) return null;
+        return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0, y1 };
+      }
+      case "exposure": {
+        const segs = [];
+        for (const sp of prim.spans || []) {
+          const a = X(sp[0]), b = X(sp[1]);
+          if (a === null || b === null) continue;
+          segs.push([Math.min(a, b), Math.max(a, b)]);
+        }
+        // The track spans the tested window, not the viewport: a rail that
+        // redrew its own extent on every pan would read as data changing.
+        const ends = segs.length
+          ? [segs[0][0], segs[segs.length - 1][1]] : null;
+        return ends ? { segs, ends, top: env.h - RAIL_GAP - RAIL_H } : null;
+      }
       case "position": {
         const x0 = X(prim.entry.t), x1 = X(prim.t1);
         const yE = Y(prim.entry.v), yS = Y(prim.stop.v);
@@ -344,6 +394,20 @@ const Geo = (() => {
         const inside = prim.fill && mx > px.x && mx < px.x + px.w
           && my > px.y && my < px.y + px.h;
         return nearEdge || !!inside;
+      }
+      case "trade": {
+        // A thin trade is still a trade. Below ~6px of height the body is
+        // too slim to point at, so the box it answers on is grown to a
+        // grabbable minimum around its own centre rather than left at the
+        // literal geometry.
+        const top = Math.min(px.y0, px.y1), bot = Math.max(px.y0, px.y1);
+        const pad = Math.max(0, 6 - (bot - top)) / 2 + tol;
+        return mx > px.x0 - tol && mx < px.x1 + tol
+          && my > top - pad && my < bot + pad;
+      }
+      case "exposure": {
+        if (my < px.top - tol || my > px.top + RAIL_H + tol) return false;
+        return px.segs.some((sp) => mx > sp[0] - tol && mx < sp[1] + tol);
       }
       case "position": {
         if (mx < px.x0 - tol || mx > px.x1 + tol) return false;
@@ -499,6 +563,93 @@ const Geo = (() => {
        * trying to judge it by. So they come up on `s.detail`, which the
        * owner sets when the pointer is over the shape, when it is selected,
        * and while it is being drawn — see js/drawings.js. */
+      case "trade": {
+        const GREEN = "#089981", RED = "#f23645";
+        const c = prim.win ? GREEN : RED;
+        const top = Math.min(px.y0, px.y1), bot = Math.max(px.y0, px.y1);
+        const w = Math.max(2, px.x1 - px.x0);
+        const hgt = Math.max(1.5, bot - top);
+        const hot = !!s.detail;
+        ctx.setLineDash([]);
+        ctx.lineJoin = "round";
+
+        /* The body. Flat fill, no gradient: the height already carries the
+         * magnitude, and shading it as well says the same thing twice in a
+         * language the axis cannot check. */
+        ctx.fillStyle = rgba(c, hot ? 0.2 : 0.13);
+        ctx.beginPath();
+        ctx.roundRect(px.x0, top, w, hgt, Math.min(3, hgt / 2, w / 2));
+        ctx.fill();
+
+        /* Entry level, then the step down (or up) to the exit. Two strokes,
+         * because the eye reads "held here, left there" off a corner far
+         * faster than off two disconnected arrowheads. */
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(c, 0.55);
+        ctx.beginPath();
+        ctx.moveTo(px.x0, px.y0); ctx.lineTo(px.x1, px.y0); ctx.stroke();
+        ctx.strokeStyle = rgba(c, 0.8);
+        ctx.beginPath();
+        ctx.moveTo(px.x1, px.y0); ctx.lineTo(px.x1, px.y1); ctx.stroke();
+
+        /* Hover is GREY, everywhere in this layer. The object is already
+         * spending its colour on the outcome, so lighting it brighter on
+         * hover would read as a better trade rather than as the pointer. */
+        if (hot) {
+          ctx.strokeStyle = rgba("#9598a1", 0.85);
+          ctx.beginPath();
+          ctx.roundRect(px.x0 - 0.5, top - 0.5, w + 1, hgt + 1,
+                        Math.min(3.5, hgt / 2 + 1, w / 2 + 1));
+          ctx.stroke();
+        }
+
+        // The two moments themselves, so a trade narrower than its own
+        // corner radius is still visibly a trade with two ends.
+        ctx.fillStyle = c;
+        for (const [dx, dy] of [[px.x0, px.y0], [px.x1, px.y1]]) {
+          ctx.beginPath(); ctx.arc(dx, dy, 2.4, 0, Math.PI * 2); ctx.fill();
+        }
+        if (!hot || !prim.text) break;
+
+        /* One number, one plate, and only while pointed at. A backtest puts
+         * dozens of these on a chart at once; anything permanent here is not
+         * a label, it is fog. Larger than the chart's own chrome because it
+         * is read at a glance and dismissed, never scanned. */
+        ctx.font = `600 12px ${FONT}`;
+        const pw = Math.round(ctx.measureText(prim.text).width) + 16, ph = 21;
+        const cx = (px.x0 + px.x1) / 2;
+        const x = Math.max(4, Math.min(cx - pw / 2, env.w - pw - 4));
+        const y = Math.max(2, top - ph - 5);
+        ctx.fillStyle = rgba("#131722", 0.93);
+        ctx.beginPath(); ctx.roundRect(x, y, pw, ph, 5); ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(prim.text, x + 8, y + 15);
+        break;
+      }
+      case "exposure": {
+        const hot = !!s.detail;
+        const y = px.top, r = RAIL_H / 2;
+        ctx.setLineDash([]);
+
+        /* The empty track first. It is the half of this object that carries
+         * the finding — filled spans alone would look like a busy strategy at
+         * any density, because there would be nothing to be busy against. */
+        ctx.fillStyle = rgba(Theme.c("separator"), hot ? 0.5 : 0.32);
+        ctx.beginPath();
+        ctx.roundRect(px.ends[0], y, Math.max(1, px.ends[1] - px.ends[0]),
+                      RAIL_H, r);
+        ctx.fill();
+
+        // Held. Accent blue, never the candle colours: this rail is about
+        // being IN the market, and a green one would read as a winning one.
+        ctx.fillStyle = rgba(Theme.c("accent"), hot ? 0.95 : 0.8);
+        for (const sp of px.segs) {
+          ctx.beginPath();
+          ctx.roundRect(sp[0], y, Math.max(1.5, sp[1] - sp[0]), RAIL_H, r);
+          ctx.fill();
+        }
+        break;
+      }
       case "position": {
         const GREEN = "#089981", RED = "#f23645";
         const detail = !!s.detail;
@@ -612,6 +763,7 @@ const Geo = (() => {
 
   return {
     point, hline, vline, segment, band, vband, box, poly, label, position,
+    trade, exposure,
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward, positionTone,

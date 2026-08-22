@@ -252,6 +252,8 @@ const Scene = (() => {
      *
      * Each entry returns an ARRAY of primitives: a fib is seven lines, and a
      * shape that needed more than one used to be undrawable from chat. */
+    // Filled objects opt out of the hover halo — see the note at its use.
+    const NO_HALO = new Set(["position", "trade", "exposure"]);
     const SHAPES = {
       box: (a) => [Geo.box(a.a, a.b, { fill: true })],
       vline: (a) => [Geo.vline(a.t)],
@@ -275,6 +277,14 @@ const Scene = (() => {
         ...(a.stroke === false ? { stroke: false } : {}),
         ...(a.solid ? { dash: [] } : {}),
       })],
+      /* The strategy layer. A backtest arrives as a LIST of trades, not as
+       * one shape, so each trade is its own annotation with its own id —
+       * that way the pointer can answer for a single trade out of forty,
+       * and clearing the strategy is one id_prefix scope rather than a
+       * kind sweep that would take the user's own boxes with it. */
+      trade: (a) => [Geo.trade(a.entry, a.exit,
+                               { win: !!a.win, text: a.text })],
+      exposure: (a) => [Geo.exposure(a.spans || [])],
       // ratios and colours come from Tools, the same source the user's own fib
       // tool draws from — one ladder, so the two layers cannot drift apart
       // trade-plan overlay from plan_position: reward box per target
@@ -668,7 +678,12 @@ const Scene = (() => {
          * pointer by putting up its target, stop and R:R plates, which is a
          * far louder answer than a glow. So it opts out, and hover on a plan
          * changes nothing but the cards. */
-        const halo = hot && a.kind !== "position";
+        /* …and the same is true of every filled object added since:
+         * a trade body or an exposure rail wearing a 9px wash of
+         * violet is exactly the glow this layer is supposed not to
+         * have. They answer the pointer in grey, in their own
+         * painter, which is both quieter and more precise. */
+        const halo = hot && !NO_HALO.has(a.kind);
         ctx.shadowColor = halo ? rgba(col, 0.55) : "transparent";
         ctx.shadowBlur = halo ? 9 : 0;
 
@@ -793,7 +808,7 @@ const Scene = (() => {
           }
           // a position paints its own pills and centre chip — the generic
           // label chip would duplicate them
-          if (a.label && anchor && a.kind !== "position") {
+          if (a.label && anchor && !NO_HALO.has(a.kind)) {
             const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
             const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
             chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);
@@ -902,6 +917,10 @@ const Scene = (() => {
       }
       if (a.kind === "vprofile") return vToY(a.poc, a.pane);
       if (a.kind === "label" || a.kind === "point") return vToY(a.a.v, a.pane);
+      if (a.kind === "trade") return vToY(a.entry.v, a.pane);
+      // the rail is pinned in pixels and owns no price, so it has no
+      // price-space anchor to raise a card against
+      if (a.kind === "exposure") return null;
       if (a.kind === "candle") {
         const m = markDot(a);
         return m ? m.cy : null;
@@ -1069,7 +1088,8 @@ const Scene = (() => {
       }
     });
 
-    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "drawing", "markers", "position", "vprofile", "candle", "label"]);
+    const DRAWN = new Set(["level", "zone", "segment", "box", "vline", "vband", "point", "poly", "fib", "drawing", "markers", "position", "vprofile", "candle", "label",
+                            "trade", "exposure"]);
 
     return {
       state,
