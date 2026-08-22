@@ -1691,6 +1691,7 @@
       // already on the chart, on the .chips-btn that syncChipsBtn drives.
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
+      document.dispatchEvent(new CustomEvent("charto:scene-changed"));
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
       indexChatRefs();        // new annotations → new mentions to link
       Undo.touch();           // what chat drew is undoable like anything else

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from backend.workflows.dsl.schema import (
     AggregateNode,
+    AlwaysNode,
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
@@ -68,12 +69,48 @@ _COMPONENT_PHRASES = {
 }
 
 
-def tree_to_english(tree) -> str:
-    """Render a Tree as a single human-readable sentence."""
-    return _render(tree, depth=0)
+def tree_to_english(tree, *, bare_symbol: bool = False) -> str:
+    """Render a Tree as a single human-readable sentence.
+
+    The per-leaf "of SYMBOL" disambiguates a tree that spans more than one
+    instrument. Where it cannot be telling the reader anything — a
+    single-symbol strategy on a card whose own title already names it — it
+    turns into noise: "price of RELIANCE crosses below EMA(50) of RELIANCE
+    OR price of RELIANCE crosses above EMA(50) of RELIANCE" says the word
+    four times.
+
+    ``bare_symbol`` drops it, and is OFF by default because this renderer
+    has no way to know its own context. Whether the symbol is redundant is a
+    fact about the whole CARD — a workflow whose first step watches RELIANCE
+    and whose second buys INFY needs it on both, though each tree alone
+    looks single-symbol — so only a caller that can see every tree may ask
+    for it. `tree_symbols` is there for exactly that decision."""
+    return _render(tree, depth=0, bare=bare_symbol)
 
 
-def _render(node, *, depth: int) -> str:
+def tree_symbols(tree) -> set:
+    """Every distinct symbol a tree refers to. For callers deciding whether
+    ``bare_symbol`` is safe across a whole card."""
+    return _symbols(tree)
+
+
+def _symbols(node) -> set:
+    """Every distinct symbol the tree refers to."""
+    found = set()
+    sym = getattr(node, "symbol", None)
+    if isinstance(sym, str) and sym:
+        found.add(sym.upper())
+    for attr in ("if_", "then", "else_", "left", "right", "second", "source"):
+        child = getattr(node, attr, None)
+        if child is not None and hasattr(child, "type"):
+            found |= _symbols(child)
+    for child in (getattr(node, "operands", None) or []):
+        if hasattr(child, "type"):
+            found |= _symbols(child)
+    return found
+
+
+def _render(node, *, depth: int, bare: bool = False) -> str:
     if isinstance(node, IndicatorNode):
         base = _render_indicator_paren(node)
         if node.component:
@@ -81,35 +118,48 @@ def _render(node, *, depth: int) -> str:
             base = f"{phrase} {base}"
         suffix = _offset_phrase(node.offset)
         tf_suffix = _timeframe_phrase(node.timeframe)
+        if bare:
+            return f"{base}{tf_suffix}{suffix}"
         return f"{base} of {node.symbol}{tf_suffix}{suffix}"
     if isinstance(node, PriceNode):
         basis_phrase = "" if node.basis == "close" else f" {node.basis}"
         suffix = _offset_phrase(node.offset)
-        return f"{basis_phrase.strip() or 'price'} of {node.symbol}{suffix}"
+        _p = basis_phrase.strip() or "price"
+        if bare:
+            return f"{_p}{suffix}"
+        return f"{_p} of {node.symbol}{suffix}"
     if isinstance(node, VolumeNode):
         suffix = _offset_phrase(node.offset)
         if node.bars == 1:
-            return f"volume of {node.symbol}{suffix}"
-        return f"{node.bars}-bar volume of {node.symbol}{suffix}"
+            return f"volume{suffix}" if bare else f"volume of {node.symbol}{suffix}"
+        return (f"{node.bars}-bar volume{suffix}" if bare
+                else f"{node.bars}-bar volume of {node.symbol}{suffix}")
     if isinstance(node, PositionNode):
         return _render_position(node)
     if isinstance(node, ConstantNode):
         return _format_number(node.value)
+    if isinstance(node, AlwaysNode):
+        # Without this the renderer fell through to the final repr() and a
+        # card printed "AlwaysNode(type='always')" at the user. Saying it in
+        # words also makes the node's live meaning legible: an entry that is
+        # always true is a rule with no condition on it.
+        return "always (no condition)"
     if isinstance(node, SessionDayNode):
         full = [_DAY_FULL[d] for d in node.days]
         return "on " + (full[0] if len(full) == 1 else " or ".join(full))
     if isinstance(node, GapNode):
-        return f"gap of {node.symbol}"
+        return "gap" if bare else f"gap of {node.symbol}"
     if isinstance(node, PctChangeNode):
-        return f"{node.bars}-bar % change of {node.symbol}"
+        return (f"{node.bars}-bar % change" if bare
+                else f"{node.bars}-bar % change of {node.symbol}")
     if isinstance(node, SpreadNode):
         return f"{node.a} / {node.b}"
     if isinstance(node, MathNode):
-        return _render_math(node, depth=depth)
+        return _render_math(node, depth=depth, bare=bare)
     if isinstance(node, ConditionalNode):
-        cond = _render(node.if_, depth=depth + 1)
-        then = _render(node.then, depth=depth + 1)
-        else_ = _render(node.else_, depth=depth + 1)
+        cond = _render(node.if_, depth=depth + 1, bare=bare)
+        then = _render(node.then, depth=depth + 1, bare=bare)
+        else_ = _render(node.else_, depth=depth + 1, bare=bare)
         return f"if ({cond}) then {then} else {else_}"
     if isinstance(node, AggregateNode):
         op_phrase = _AGG_PHRASES.get(node.op, node.op)
@@ -127,7 +177,7 @@ def _render(node, *, depth: int) -> str:
                 window_word = "previous"  # implies "up to, but not incl. now"
             except Exception:
                 src_node = node.source
-        src = _render(src_node, depth=depth + 1)
+        src = _render(src_node, depth=depth + 1, bare=bare)
         window = f"over the {window_word} {node.bars} bars"
         # "the lowest low of X over the previous 2000 bars" — a plain-English
         # noun phrase, not a function call, so the card reads like a sentence.
@@ -135,20 +185,20 @@ def _render(node, *, depth: int) -> str:
             # Two-source aggregate (correlation / valuewhen / barssince).
             # op_phrase already carries any needed "of" ("correlation of"),
             # so don't inject another one.
-            second = _render(node.second, depth=depth + 1)
+            second = _render(node.second, depth=depth + 1, bare=bare)
             return f"the {op_phrase} {src} and {second} {window}"
         return f"the {op_phrase} {src} {window}"
     if isinstance(node, ComparisonNode):
-        left = _render(node.left, depth=depth + 1)
-        right = _render(node.right, depth=depth + 1)
+        left = _render(node.left, depth=depth + 1, bare=bare)
+        right = _render(node.right, depth=depth + 1, bare=bare)
         op = _OP_PHRASES.get(node.op, node.op)
         return f"{left} {op} {right}"
     if isinstance(node, LogicNode):
         if node.op == "not":
-            inner = _render(node.operands[0], depth=depth + 1)
+            inner = _render(node.operands[0], depth=depth + 1, bare=bare)
             return f"NOT ({inner})"
         joiner = " AND " if node.op == "and" else " OR "
-        rendered = [_render(c, depth=depth + 1) for c in node.operands]
+        rendered = [_render(c, depth=depth + 1, bare=bare) for c in node.operands]
         joined = joiner.join(rendered)
         # Parenthesize when nested inside another logic / comparison
         # so the reader can see the grouping. The top-level call
@@ -163,6 +213,8 @@ _AGG_PHRASES = {
     "lowest": "lowest",
     "sum": "sum of",
     "avg": "average of",
+    "ema": "exponential average of",
+    "wma": "weighted average of",
     "std": "stdev of",
     "count_when": "count where",
     "any_when": "any of",
@@ -184,10 +236,10 @@ _DAY_FULL = {
 _MATH_INFIX = {"+": "+", "-": "-", "*": "×", "/": "÷"}
 
 
-def _render_math(node: MathNode, *, depth: int) -> str:
+def _render_math(node: MathNode, *, depth: int, bare: bool = False) -> str:
     """Render arithmetic. Binary ops as ``a + b``; unary as ``|a|``
     or ``-a``; variadic as ``min(a, b, c)`` / ``max(...)``."""
-    rendered = [_render(c, depth=depth + 1) for c in node.operands]
+    rendered = [_render(c, depth=depth + 1, bare=bare) for c in node.operands]
     if node.op in _MATH_INFIX and len(rendered) == 2:
         glue = _MATH_INFIX[node.op]
         body = f"{rendered[0]} {glue} {rendered[1]}"
@@ -276,14 +328,16 @@ def _render_indicator_paren(node: IndicatorNode) -> str:
     unchanged.
     """
     if node.indicator.lower() == "macd":
-        # Mirror backtest_indicators._macd_hist: slow EMA is clamped to
-        # at least 13 so MACD(12) on a fast-but-too-short slow still
-        # computes sensibly. Signal is fixed at 9 by convention.
-        fast = 12
-        slow = max(int(node.period), 13)
-        signal = 9
+        fast = int(node.settings.get("fast", 12))
+        slow = int(node.settings.get("slow", node.period or 26))
+        signal = int(node.settings.get("signal", 9))
         return f"MACD({fast},{slow},{signal})"
-    return f"{node.indicator.upper()}({node.period})"
+    extras = [
+        f"{key}={_format_number(value)}"
+        for key, value in sorted(node.settings.items())
+    ]
+    args = ",".join([str(node.period), *extras])
+    return f"{node.indicator.upper()}({args})"
 
 
 def _render_position(node: PositionNode) -> str:

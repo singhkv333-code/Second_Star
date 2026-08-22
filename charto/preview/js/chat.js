@@ -25,6 +25,7 @@
   // Mutated in PLACE, never rebound: every closure below holds this one array,
   // so opening a past conversation refills it rather than replacing it.
   const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
+  let chatMode = Store.get("chatmode", "chat") === "execution" ? "execution" : "chat";
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
     // The chart this turn was asked on. A conversation survives a symbol
@@ -1245,19 +1246,64 @@
       q: "How has {sym} reacted to its last few results? Mark them on the chart." },
   ];
 
+  /* Execution mode's own openings. NOT the research tiles reworded — a
+   * builder's blank page is a different blank page. Each one is a complete,
+   * buildable rule with every value the tools need already in it (a size, a
+   * threshold, a period), because a template that lands the user in a
+   * clarifying question has taught them the mode asks questions rather than
+   * that it builds things.
+   *
+   * Ordered the way the work actually goes: state a rule, give it an exit,
+   * size it, schedule it, then test it and look at it. */
+  const EXEC_TEMPLATES = [
+    { icon: "indicators", label: "Dip buy",
+      q: "Buy 10 {sym} when RSI(14) falls below 30." },
+    { icon: "cross", label: "Crossover",
+      q: "Buy 25 {sym} when the 20-day EMA crosses above the 50-day EMA." },
+    { icon: "levels", label: "Breakout",
+      q: "Buy 15 {sym} when it closes above the highest high of the last 20 days." },
+    { icon: "trendlines", label: "Trend filter",
+      q: "Buy 10 {sym} when RSI(14) is under 35 and price is above the 200-day SMA." },
+    { icon: "volumeProfile", label: "On volume",
+      q: "Buy 20 {sym} when volume is more than 1.5 times its 20-day average and the bar closes up." },
+    { icon: "exit", label: "Add an exit",
+      q: "Buy 10 {sym} when RSI(14) drops below 30, and sell when unrealised profit reaches 8%." },
+    { icon: "planTrade", label: "Stop loss",
+      q: "Buy 10 {sym} on a close above the 50-day SMA, with a 3% stop from my entry." },
+    { icon: "trail", label: "Trailing exit",
+      q: "Buy 10 {sym} when RSI(14) is below 30 and exit when drawdown from the peak reaches 4%." },
+    { icon: "schedule", label: "Schedule",
+      q: "Every Friday at 10:00, buy 5 {sym}." },
+    { icon: "compare", label: "Relative",
+      q: "Buy 15 {sym} when its 20-day return beats NIFTY's 20-day return." },
+    { icon: "evidence", label: "Backtest",
+      q: "Backtest buying {sym} when RSI(14) is under 35 and selling when it is over 65, over the last two years with 1 lakh." },
+    { icon: "squareoff", label: "Square off",
+      q: "Square off all my intraday positions at 15:15 every trading day." },
+  ];
+
   function templateGrid() {
     // the thread's own esc() leaves quotes alone, which is fine for text
     // nodes and wrong for an attribute — these prompts are going into one
     const attr = (s) => String(s).replace(/[&<>"]/g,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    const cards = TEMPLATES.map((t) => {
+    const cards = (chatMode === "execution" ? EXEC_TEMPLATES : TEMPLATES).map((t) => {
       const q = t.q.replace(/\{sym\}/g, Sym.name);
       const act = t.act ? ` data-act="${attr(t.act)}"` : "";
+      // `Icons.tile` THROWS on a name it doesn't carry, and the tiles are a
+      // separate curated family from the 24px glyphs — so a name borrowed
+      // from the wrong map took the whole tray down with it, and with it
+      // paintChatMode, which is what actually sets the mode on the panel. A
+      // missing illustration is worth one blank square, never a dead panel.
+      let art = "";
+      try { art = Icons.tile(t.icon); }
+      catch (e) { console.warn("[charto] no tile for", t.icon); }
       return `<button type="button" class="tpl-card" data-q="${attr(q)}"${act}>`
-        + `<span class="tpl-box">${Icons.tile(t.icon)}</span>`
+        + `<span class="tpl-box">${art}</span>`
         + `<span class="tpl-name">${attr(t.label)}</span></button>`;
     }).join("");
-    return `<div class="tpl-head">START ASKING WITH</div>`
+    return `<div class="tpl-head">${chatMode === "execution"
+        ? "START BUILDING WITH" : "START ASKING WITH"}</div>`
       + `<div class="tpl-grid">${cards}</div>`;
   }
 
@@ -1284,6 +1330,7 @@
    * It never runs at all under prefers-reduced-motion.
    */
   const PLACEHOLDER = "Ask about this chart…";
+  const EXECUTION_PLACEHOLDER = "Describe the strategy you want to build…";
   const TYPED = [
     "What's the trend here right now?",
     "Mark the levels that actually held",
@@ -1301,17 +1348,18 @@
       if (done) return;
       done = true;
       clearTimeout(timer);
-      input.placeholder = PLACEHOLDER;
+      input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
       input.classList.remove("ph-typing");
     }
     function step() {
       if (done) return;
+      if (chatMode === "execution") { retire(); return; }
       // A value in the box is the end of it, whoever put it there — the
       // template tiles fill the composer without firing `input`, so the
       // check has to be on the value and not only on the event.
       if (input.value) { retire(); return; }
       if (document.activeElement === input) {   // focused but still empty: hold
-        input.placeholder = PLACEHOLDER;
+        input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
         input.classList.remove("ph-typing");
         timer = setTimeout(step, 900);
         return;
@@ -1332,14 +1380,14 @@
     input.addEventListener("input", retire);
     input.addEventListener("focus", () => {
       if (done) return;
-      input.placeholder = PLACEHOLDER;
+      input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
       input.classList.remove("ph-typing");
     });
   })();
 
   const trayEl = el("tplTray");
   const groupEl = el("askGroup");
-  let trayBuilt = false;
+  let trayBuilt = null;   // which MODE the mounted tray was built for
   /* The refraction is attached only while the tray is up, and torn down
    * after. It costs a live SVG filter and a ResizeObserver, and with the
    * tray down the group is an ordinary composer that must look exactly as
@@ -1347,7 +1395,15 @@
    * one control the user types into for the rest of the session. */
   let glass = null;
   function showTray(on) {
-    if (on && !trayBuilt) { trayEl.innerHTML = templateGrid(); trayBuilt = true; }
+    on = !!on;
+    // `trayBuilt` used to be a boolean and the tray was chat-only, so the
+    // grid was built once and never again. With two modes the cache key has
+    // to be the MODE — otherwise flipping the switch on an empty thread
+    // leaves the other mode's openings sitting under the new placeholder.
+    if (on && trayBuilt !== chatMode) {
+      trayEl.innerHTML = templateGrid();
+      trayBuilt = chatMode;
+    }
     trayEl.hidden = !on;
     groupEl.classList.toggle("has-tray", !!on);
     if (on && !glass && window.liquidGlass) {
@@ -1441,7 +1497,11 @@
       setAttachment(null);
       setDrawTag(null);
       setJournalTag(null);
-      input.placeholder = "Ask about this chart…";
+      // Mode-aware, not the literal. Sending a message used to reset the box
+      // to the research prompt, so the builder asked you to "ask about this
+      // chart" the moment you finished building something on it.
+      input.placeholder = chatMode === "execution"
+        ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
       input.value = "";
       autoGrow();
     }
@@ -1501,7 +1561,7 @@
         // from a search of the earlier ones — its turns are already in
         // `messages`, and finding them twice would read as two occasions.
         body: JSON.stringify({ messages: wireHistory(), context, stream: true,
-                               chat_id: activeId }),
+                               chat_id: activeId, mode: chatMode }),
         signal: requestAbort.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1612,6 +1672,47 @@
   });
   el("chatNew").innerHTML = Icons.svg("plus", "sm");
   el("chatHistoryBtn").innerHTML = Icons.svg("clock", "sm");
+  /* The mode switch. Both halves are always visible and always the same size,
+   * so the state is the position of the lift, not a label you have to read.
+   * `aria-checked` carries the state for assistive tech AND is what the CSS
+   * paints off, so there is exactly one place the truth lives. */
+  const modeSwitch = el("chatModeSwitch");
+  const modeSegs = [...modeSwitch.querySelectorAll("[data-chat-mode]")];
+  function paintChatMode() {
+    const execution = chatMode === "execution";
+    input.placeholder = execution ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+    panel.dataset.chatMode = chatMode;
+    for (const seg of modeSegs) {
+      const on = seg.dataset.chatMode === chatMode;
+      seg.setAttribute("aria-checked", String(on));
+      // Only the selected segment is a tab stop — a radio group is ONE stop
+      // and the arrows move within it, so Tab doesn't have to walk past a
+      // control the user isn't changing.
+      seg.tabIndex = on ? 0 : -1;
+    }
+    showTray(!turns.length);
+  }
+  function setChatMode(next, { focus = false } = {}) {
+    next = next === "execution" ? "execution" : "chat";
+    if (next === chatMode) return;
+    chatMode = next;
+    Store.set("chatmode", chatMode);
+    paintChatMode();
+    if (focus) modeSegs.find((s) => s.dataset.chatMode === chatMode)?.focus();
+  }
+  modeSwitch.addEventListener("click", (e) => {
+    const seg = e.target.closest("[data-chat-mode]");
+    if (!seg) return;
+    setChatMode(seg.dataset.chatMode);
+    input.focus();
+  });
+  modeSwitch.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight"
+        && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    setChatMode(chatMode === "execution" ? "chat" : "execution", { focus: true });
+  });
+  paintChatMode();
   // Voice: the transcript is APPENDED to the draft and never sent. Speaking
   // is a way of adding to a half-typed question, and a mis-heard word should
   // be edited before it is asked, not after it is answered.

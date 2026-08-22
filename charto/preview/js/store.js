@@ -92,7 +92,8 @@ const Store = (() => {
   // held on the chart you happened to be looking at — a record of your own
   // questions that hid most of itself. What the chat drew stays scoped
   // ("scene"), because that IS about one instrument's bars.
-  const SCOPED = new Set(["chat", "scene", "vp", "draw_collapsed"]);
+  const SCOPED = new Set(["chat", "scene", "vp", "draw_collapsed",
+                          "pattern_ledger"]);
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
 

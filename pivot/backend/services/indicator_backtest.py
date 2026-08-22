@@ -29,7 +29,7 @@ Returns:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -93,6 +93,16 @@ class IndicatorBacktestResult:
     # own target-weight buy-and-hold rather than one arbitrary constituent.
     # The card falls back to `symbol` when this is unset (older callers).
     benchmark_label: Optional[str] = None
+    # Closed round-trips, in the same shape as the DSL engine's TradeRow, so
+    # one reader can draw either engine's result. This path pairs sells to
+    # their buys FIFO already — it needs the pairs to compute hit rate — and
+    # for a long time simply threw the pairing away, which left every
+    # trade-level reading ("show these on the chart") dead on this engine
+    # while working on the other. Empty for a strategy that never sells;
+    # `open_lots` carries those instead, because a position still held is not
+    # a trade that did not happen.
+    trades: list[dict] = field(default_factory=list)
+    open_lots: list[dict] = field(default_factory=list)
 
 
 _OperatorLiteral = Literal[

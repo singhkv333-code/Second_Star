@@ -209,13 +209,32 @@ const Cards = (() => {
     // The draft travels ON the card so the Backtest button can post the
     // exact steps the user is looking at, rather than the FE rebuilding a
     // request that could drift from what is rendered.
+    /* The description is dropped when it only restates the first step.
+     *
+     * A draft's description is written as "Entry: <the entry condition>",
+     * and the entry step's own tile carries that same sentence directly
+     * underneath — so the card opened by saying the same thing twice, in
+     * two type sizes, before showing anything new. Compared loosely
+     * (case and the "Entry:" prefix removed) because the two are generated
+     * separately and need not match to the character. */
+    const _norm = (t) => String(t || "").toLowerCase()
+      .replace(/^\s*entry\s*:\s*/, "")
+      // …and the per-leaf "of SYMBOL". The description is generated with it
+      // and the step's readback without it (the bridge strips it once it
+      // knows the draft is single-symbol), so the two would never compare
+      // equal on the one shape this check exists to catch.
+      .replace(/\s+of\s+[a-z0-9&.\-]+/g, "")
+      .replace(/\s+/g, " ").trim();
+    const _backs = steps.map((x) => _norm(x && x.readback)).filter(Boolean);
+    const desc = _backs.includes(_norm(c.description)) ? "" : c.description;
+
     const payload = attrJSON({ name: c.name, steps: steps });
     return `<div class="wf-card" data-wf data-draft="${payload}">`
       + `<div class="wf-top"><span class="wf-chip">Agent</span>`
       + `<span class="wf-state">${ttl}`
       + `<span class="wf-dot" aria-hidden="true"></span>Draft</span></div>`
       + `<h3 class="wf-title">${esc(c.name || "Strategy draft")}</h3>`
-      + (c.description ? `<p class="wf-desc">${esc(c.description)}</p>` : "")
+      + (desc ? `<p class="wf-desc">${esc(desc)}</p>` : "")
       + why
       + list
       + warnBlock
@@ -337,6 +356,29 @@ const Cards = (() => {
       });
       spans.push([t0, end]);
     });
+    /* A position still HELD is not a trade that did not happen.
+     *
+     * A buy-only strategy — "buy 5 every time price crosses the 50 EMA" —
+     * closes nothing, so it has no round-trips at all; reporting that as an
+     * empty chart would be the same lie as reporting it as no activity. Its
+     * open lots are drawn as entries and nothing else: there is no exit to
+     * draw a path to, and forty ribbons all running to the right edge would
+     * be forty overlapping shapes saying one thing the rail already says.
+     */
+    (c.open_lots || []).forEach((l, i) => {
+      const inBar = barFor(l.entry_date);
+      if (!inBar || !Number.isFinite(Number(inBar.open))) return;
+      const t0 = sceneT(inBar);
+      items.push({
+        id: `${SCENE_PREFIX}o${i}`, kind: "trade", pane: "price",
+        owner: SCENE_OWNER,
+        entry: { t: t0, v: Number(inBar.open) },
+        exit: { t: t0, v: Number(inBar.open) },
+        win: true, open: true,
+        text: l.quantity ? `Holding ${l.quantity}` : "Open",
+      });
+      if (lastBar) spans.push([t0, sceneT(lastBar)]);
+    });
     if (spans.length) {
       items.push({ id: `${SCENE_PREFIX}rail`, kind: "exposure", pane: "price",
                    owner: SCENE_OWNER, spans });
@@ -359,7 +401,9 @@ const Cards = (() => {
    */
   function strategyBlocker(c) {
     if (!window.__charto || !window.__charto.scene) return "No chart loaded.";
-    if (!(c.trades || []).length) return "This backtest took no trades.";
+    if (!(c.trades || []).length && !(c.open_lots || []).length) {
+      return "Nothing was bought or sold in this window.";
+    }
     const want = String(c.symbol || "").toUpperCase();
     const have = String(window.__charto.symbol || "").toUpperCase();
     if (want && have && want !== have) return `Open ${want} to see these trades.`;
@@ -463,7 +507,12 @@ const Cards = (() => {
     // empty "Monte-Carlo: —" implies a test that ran and said nothing.
     const rigor = [
       fin(fs.psr) ? ["Probabilistic Sharpe", num(fs.psr)] : null,
-      fin(fs.min_trl) ? ["Min track record", `${num(fs.min_trl)} obs`] : null,
+      // Rounded up to a whole bar: min-TRL is a COUNT of observations, and
+      // "54,863.60 obs" prints six-tenths of a trading day.
+      fin(fs.min_trl)
+        ? ["Min track record",
+           `${Math.ceil(Number(fs.min_trl)).toLocaleString("en-IN")} obs`]
+        : null,
       fs.n_obs ? ["Observations", String(fs.n_obs)] : null,
       (fs.num_trials && fs.num_trials > 1)
         ? ["Deflated for trials", String(fs.num_trials)] : null,

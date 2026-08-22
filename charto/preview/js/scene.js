@@ -283,7 +283,7 @@ const Scene = (() => {
        * and clearing the strategy is one id_prefix scope rather than a
        * kind sweep that would take the user's own boxes with it. */
       trade: (a) => [Geo.trade(a.entry, a.exit,
-                               { win: !!a.win, text: a.text })],
+                               { win: !!a.win, open: !!a.open, text: a.text })],
       exposure: (a) => [Geo.exposure(a.spans || [])],
       // ratios and colours come from Tools, the same source the user's own fib
       // tool draws from — one ladder, so the two layers cannot drift apart

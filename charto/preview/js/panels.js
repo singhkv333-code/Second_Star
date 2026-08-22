@@ -851,6 +851,8 @@ const Panels = (() => {
       render: renderWatch },
     { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
       render: renderAlerts },
+    { id: "patterns", panel: "patternsPanel", icon: "layers", label: "Patterns",
+      render: (host) => window.PatternDrawer && window.PatternDrawer.render(host) },
     { id: "journal", panel: "journalPanel", icon: "fileText", label: "Journal",
       render: (host) => Journal.renderSidebar(host) },
   ];
@@ -1107,6 +1109,15 @@ const Panels = (() => {
     if (e.target.id !== "alSearch") return;
     alertQuery = e.target.value;
     paintAlertBody();
+  });
+
+  // Pattern Drawer owns its compact controls, but it is still one of this
+  // shell's panels. Let it request a fresh render after a filter, search or
+  // detail toggle without duplicating the open-panel state in another module.
+  document.addEventListener("charto:patterns-panel-refresh", () => {
+    if (openId === "patterns" && window.PatternDrawer) {
+      window.PatternDrawer.render(el("patternsPanel"));
+    }
   });
 
   /* Two small menus, hung off the head the way the watchlist's are and

@@ -414,6 +414,41 @@ const Icons = (() => {
       + '<rect x="29" y="17" width="4" height="9" rx="1"/>'
       + '<path class="a" d="M25 11v21" stroke-dasharray="3 2.5"/>'
       + '<rect class="af" x="21.5" y="6.5" width="7" height="5" rx="1.4" stroke="none"/>',
+
+    /* ── the builder's five ────────────────────────────────────────────
+     * Execution mode opens on a blank page too, and the research tiles do
+     * not cover what a rule-builder starts from. Same family, same rules:
+     * 40×40, one accent, always drawn on a chart. Each one shows the
+     * MOMENT the rule is about, not an icon for the word.
+     */
+
+    // two averages meeting — the crossing is the event, so it is the accent
+    cross: '<path d="M7 32h26"/>'
+      + '<path d="M8 26c6 0 8-9 13-9s7 5 12 5"/>'
+      + '<path class="a" d="M8 15c7 2 10 12 15 12s6-4 11-4"/>',
+    // an entry that ends: the position runs, then closes at the marker
+    exit: '<path d="M7 32h26"/>'
+      + '<path d="M8 27c5-1 8-8 12-11s7-2 13-6"/>'
+      + '<path d="M14 20.5v9" stroke-dasharray="3 2.5"/>'
+      + '<path class="a" d="M27 10.5v19" stroke-dasharray="3 2.5"/>'
+      + '<circle class="af" cx="27" cy="10.5" r="2.6" stroke="none"/>',
+    // a stop that follows the high: the ratchet steps up under the move
+    trail: '<path d="M7 32h26"/>'
+      + '<path d="M8 28c6-2 9-9 14-13s7-3 11-5"/>'
+      + '<path class="a" d="M9 30h6v-4h6v-5h6v-4h6"/>',
+    // a rule that fires on the clock rather than on a level
+    schedule: '<path d="M7 32h26"/>'
+      + '<path d="M11 21v8M18 18v11M25 22v7M32 16v13"/>'
+      + '<path class="a" d="M11 11v21M25 11v21" stroke-dasharray="3 2.5"/>'
+      + '<circle class="af" cx="18" cy="8.5" r="3" stroke="none"/>',
+    // everything closed at a line in the session: one flat cut through
+    squareoff: '<path d="M7 32h26"/>'
+      + '<path d="M11 19v10M18 16v13M25 20v9"/>'
+      + '<rect x="9" y="21" width="4" height="6" rx="1"/>'
+      + '<rect x="16" y="19" width="4" height="8" rx="1"/>'
+      + '<rect x="23" y="22" width="4" height="5" rx="1"/>'
+      + '<path class="a" d="M30 9v23"/>'
+      + '<path class="a" d="M27 12l6 6M33 12l-6 6"/>',
   };
 
   /** tile(name) → the 40×40 template illustration. */

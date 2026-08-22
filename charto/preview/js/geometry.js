@@ -567,13 +567,46 @@ const Geo = (() => {
        * and while it is being drawn — see js/drawings.js. */
       case "trade": {
         const GREEN = "#089981", RED = "#f23645";
-        const c = prim.win ? GREEN : RED;
+        const c = prim.open ? Theme.c("accent") : prim.win ? GREEN : RED;
         const top = Math.min(px.y0, px.y1);
         const w = Math.max(2, px.x1 - px.x0);
         const hot = !!s.detail;
         const bg = Theme.c("chartBg");
         ctx.setLineDash([]);
         ctx.lineJoin = "round"; ctx.lineCap = "round";
+
+        /* A still-open lot is ONE end, not a path. It has an entry and no
+         * exit, so there is no curve to draw and no outcome to colour — it
+         * takes the neutral accent rather than borrowing green, which would
+         * claim a profit the position has not realised. The exposure rail
+         * already carries the fact that it is still held. */
+        if (prim.open) {
+          ctx.beginPath(); ctx.arc(px.x0, px.y0, 6.5, 0, Math.PI * 2);
+          ctx.fillStyle = c; ctx.fill();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = bg; ctx.stroke();
+          ctx.lineWidth = 1.7; ctx.strokeStyle = bg;
+          ctx.beginPath();
+          ctx.moveTo(px.x0 - 3, px.y0 + 1.6);
+          ctx.lineTo(px.x0, px.y0 - 2.1);
+          ctx.lineTo(px.x0 + 3, px.y0 + 1.6);
+          ctx.stroke();
+          if (hot) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = rgba("#9598a1", 0.75);
+            ctx.beginPath(); ctx.arc(px.x0, px.y0, 9, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (!hot || !prim.text) break;
+          ctx.font = `600 12px ${FONT}`;
+          const opw = Math.round(ctx.measureText(prim.text).width) + 16;
+          const ox = Math.max(4, Math.min(px.x0 - opw / 2, env.w - opw - 4));
+          const oy = Math.max(2, px.y0 - 21 - 12);
+          ctx.fillStyle = rgba("#131722", 0.93);
+          ctx.beginPath(); ctx.roundRect(ox, oy, opw, 21, 5); ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(prim.text, ox + 8, oy + 15);
+          break;
+        }
 
         /* The trade is drawn as a RIBBON, not a rectangle.
          *
