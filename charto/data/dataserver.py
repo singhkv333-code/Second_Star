@@ -9267,9 +9267,10 @@ _PIVOT_CARD_KINDS = {
 
 def _pivot_tool(name: str):
     def call(**args):
-        who = getattr(_req, "user", None)
-        result = execution_bridge.dispatch(
-            name, args, user_id=(who[0] if who else 0))
+        # No identity crosses into Pivot's engine — see execution_bridge
+        # .dispatch. Charto's user ids and Pivot's are unrelated numbering
+        # schemes over different databases.
+        result = execution_bridge.dispatch(name, args)
         hint = result.get("_render_hint") if isinstance(result, dict) else None
         kind = _PIVOT_CARD_KINDS.get(hint)
         if kind:
@@ -12673,9 +12674,7 @@ class Handler(BaseHTTPRequestHandler):
             for key in ("starting_capital", "quantity"):
                 if body.get(key) is not None:
                     args[key] = body[key]
-            who = _auth_user(self.headers)
-            res = execution_bridge.dispatch(
-                "backtest_workflow", args, user_id=(who[0] if who else 0))
+            res = execution_bridge.dispatch("backtest_workflow", args)
             return self._send(400 if res.get("error") else 200, res)
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})

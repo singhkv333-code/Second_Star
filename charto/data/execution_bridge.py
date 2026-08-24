@@ -577,14 +577,26 @@ class _session:
                 pass
 
 
-def dispatch(name: str, args: dict, *, user_id: int = 0,
-             timeout: float = 150.0) -> dict:
+def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
     """Run one Pivot tool and return a JSON-safe result for the model.
 
     `db` is None and `kite_token` empty by design: every tool on this surface
     proposes or simulates, and none of them reads a broker session or writes
     a row. If a tool added later needs either, it does not belong on a
     surface whose whole promise is that it cannot touch an account.
+
+    **There is no user_id parameter, and that is the point.** Charto's
+    accounts live in its own SQLite and Pivot's live in Postgres; the two
+    numbering schemes have nothing to do with each other. This function used
+    to take the caller's Charto id and hand it to Pivot's registry, so Charto
+    user 3 arrived as Pivot user 3 — and three of these tools open a real
+    Pivot session, which is a Charto account reading a stranger's rows.
+    Nothing user-scoped was reachable through the current twelve, so it never
+    fired; it was a trap set for whichever tool got added next.
+
+    Anonymous is the honest identity here. A tool that cannot answer without
+    knowing who is asking is a tool that has no business on a surface which
+    cannot tell.
     """
     ready, reason = available()
     if not ready:
@@ -594,7 +606,7 @@ def dispatch(name: str, args: dict, *, user_id: int = 0,
 
     async def _run(db):
         return await tool_registry.execute(
-            name, args or {}, kite_token="", db=db, user_id=user_id,
+            name, args or {}, kite_token="", db=db, user_id=0,
         )
 
     try:
