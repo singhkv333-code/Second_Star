@@ -44,11 +44,21 @@ while read -r p; do
   case "$p" in stream|chat|alerts/stream) t=4 ;; *) t=20 ;; esac
   ct="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' \
         --max-time "$t" "$SCHEME://$HOST/$p" 2>/dev/null)"
-  case "$ct" in
-    *text/html*)
+  case "$p:$ct" in
+    # The company page is a PAGE. text/html is the correct answer there, and
+    # the fall-through this script hunts for is indistinguishable from it by
+    # content-type alone — so these are checked by status instead: nginx's
+    # index.html fallback always answers 200, while a missing proxy target
+    # gives 502 and a missing route gives 404.
+    stock/*:200*|_next/*:*|__nextjs*:*)
+      printf '  ok      /%-16s %s\n' "$p" "$ct" ;;
+    stock/*:*)
+      printf '  BROKEN  /%-16s %s  <- company app not reachable\n' "$p" "$ct"
+      fail=1 ;;
+    *:*text/html*)
       printf '  BROKEN  /%-16s %s  <- falls through to index.html\n' "$p" "$ct"
       fail=1 ;;
-    "")
+    *:)
       printf '  ?       /%-16s no response within %ss\n' "$p" "$t" ;;
     *)
       # Any status is fine — 401/404 from the backend still proves the request

@@ -15,7 +15,15 @@
   const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
   // Pivot's stock page, copied into charto/web and served by `next dev`
   // there (see charto/web/README). Company links open it directly.
-  const COMPANY_PAGE = "http://localhost:5175";
+  /* The company page is same-origin, and the empty string is the point.
+   *
+   * It was an absolute http://localhost:5175 — a second port in the address
+   * bar, a different origin (so no shared cookie and no shared theme), and a
+   * link that is dead on every machine that is not the one it was written on.
+   * The page still runs as its own app; it is REACHED through this origin,
+   * proxied by serve.py in dev and by nginx on the VM, so one relative href
+   * works in both with no build-time switch. */
+  const COMPANY_PAGE = "";
 
   // Per-symbol: +05:30 for Indian instruments, 0 for crypto (whose bars the
   // dataserver folds on UTC midnight). Every `+ IST` / `- IST` below is a
