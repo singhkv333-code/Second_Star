@@ -3328,6 +3328,114 @@ def _api_sections(sym: str) -> tuple[int, dict]:
     }
 
 
+def _api_patterns(sym: str, interval: str, horizon: int) -> tuple[int, dict]:
+    """Candlestick and shape base rates, each against its own control.
+
+    Straight out of `pattern_stats`, which is the same ledger the chart's own
+    evidence panel reads — so a rate quoted here and a rate quoted there come
+    from one sweep. Pooled by SCOPE rather than per symbol: a single company
+    throws a few dozen instances of a given pattern, which is not enough to
+    separate an edge from noise, and the ledger was built pooled for exactly
+    that reason.
+
+    `control` is the unconditional base rate over the same universe and
+    horizon. It travels with every row because a rate without one is
+    decoration — 46% sounds like an edge until the control is 45.8%.
+    """
+    scope = scope_for(sym)
+    interval = interval if interval in ("15m", "1h", "1d") else "1d"
+    horizon = horizon if horizon in (5, 10, 20) else 20
+    try:
+        rows = list(_con.execute(
+            "SELECT kind, family, interval, horizon, n, n_symbols, "
+            "       with_direction_rate_pct, control_base_rate_pct, "
+            "       edge_pp, edge_se_pp, avg_move_pct "
+            "FROM pattern_stats WHERE scope=? AND interval=? AND horizon=? "
+            "ORDER BY ABS(COALESCE(edge_pp, 0)) DESC",
+            (scope, interval, horizon)))
+        opts = [{"interval": i, "horizon": h} for i, h in _con.execute(
+            "SELECT DISTINCT interval, horizon FROM pattern_stats "
+            "WHERE scope=? ORDER BY interval, horizon", (scope,))]
+    except sqlite3.Error:
+        rows, opts = [], []
+    return 200, {
+        "available": bool(rows), "interval": interval, "horizon": horizon,
+        "options": opts,
+        "patterns": [
+            {"kind": k, "family": f, "interval": iv, "horizon": hz,
+             "n": n, "n_symbols": ns, "rate": rate, "control": ctrl,
+             "edge": edge, "se": se, "move": mv}
+            for k, f, iv, hz, n, ns, rate, ctrl, edge, se, mv in rows],
+    }
+
+
+# What the peer table asks for -> the column charto actually stores. Anything
+# absent stays absent: the response type is nullable everywhere precisely so a
+# missing metric can print an em-dash instead of a fabricated zero.
+# id -> (stored column, label, unit). The unit is not decoration: the table
+# formats by it, so a multiple labelled as a percentage renders 6.35 as
+# "6.35%" — a wrong number rather than an ugly one.
+_PEER_FIELDS = {
+    "market_cap":           ("market_cap",     "Market cap",     "crore"),
+    "roe":                  ("roe",            "ROE",            "percent"),
+    "roa":                  ("roa",            "ROA",            "percent"),
+    "net_profit_margin":    ("net_margin",     "Net margin",     "percent"),
+    "debt_to_equity":       ("debt_to_equity", "Debt / equity",  "multiple"),
+    "price_to_book":        ("pb",             "P / B",          "multiple"),
+    "ev_to_ebitda":         ("ev_ebitda",      "EV / EBITDA",    "multiple"),
+    "current_ratio":        ("current_ratio",  "Current ratio",  "multiple"),
+    "eps_basic":            ("eps",            "EPS",            "rupee"),
+    "book_value_per_share": ("book_value_ps",  "Book value / sh", "rupee"),
+}
+
+
+def _peer_metric(fid: str) -> dict:
+    _, label, unit = _PEER_FIELDS[fid]
+    return {"id": fid, "label": label, "unit": unit}
+
+
+def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
+    """The symbol beside the peers charto already keeps for it."""
+    # Only fields charto can actually fill. The panel is handed a catalog of
+    # seventeen; asking for the other seven would render seven columns of
+    # em-dashes, which says "this company reports nothing" rather than "this
+    # store does not carry it".
+    want = [f for f in fields if f in _PEER_FIELDS] or list(_PEER_FIELDS)
+    base = company_page(sym, "1D")
+    peers = [{"symbol": sym, "name": base.get("long_name") or base.get("name") or sym,
+              "is_current": True}]
+    for p in (base.get("peers") or []):
+        ps = str(p.get("symbol") or "").upper()
+        if ps and ps != sym:
+            peers.append({"symbol": ps, "name": p.get("name") or ps,
+                          "is_current": False})
+    out = []
+    for row in peers:
+        prof = company_page(row["symbol"], "1D") if not row["is_current"] else base
+        m = prof.get("metrics") or {}
+        out.append({
+            "sc_id": prof.get("sc_id") or "", "symbol": row["symbol"],
+            "name": row["name"], "is_current": row["is_current"],
+            "values": {f: prof.get(_PEER_FIELDS[f][0]) for f in want},
+            "periods": {f: None for f in want},
+            "price": {
+                "price": prof.get("price"), "change_pct": m.get("ret_1d"),
+                "ret_1m": m.get("ret_1m"), "ret_3m": m.get("ret_3m"),
+                "ret_6m": m.get("ret_6m"), "ret_1y": m.get("ret_1y"),
+                "rsi14": m.get("rsi14"), "vs_50dma": m.get("sma50_rel"),
+                "vs_200dma": m.get("sma200_rel"),
+                "from_52w_high": m.get("dist_52w_high"),
+            },
+        })
+    return 200, {
+        "symbol": sym, "available": len(out) > 1,
+        "sector": base.get("sector"),
+        "fields": [_peer_metric(f) for f in want],
+        "catalog": [_peer_metric(f) for f in _PEER_FIELDS],
+        "peers": out,
+    }
+
+
 def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
     """The honest empty state for a section charto has no source for.
 
@@ -3460,7 +3568,17 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
             # `statement` is the balance sheet the page reads for its full
             # statement view — same stored payload, second name.
             if what in ("balance_sheet", "statement"):
-                return _api_balance_sheet(s_, q.get("basis", "consolidated"))
+                # `type` matters: the page asks this same route for ratios and
+                # for the profit-and-loss, and answering every one of them
+                # with the balance sheet is a wrong answer rather than a
+                # missing one. Only the sheet is stored.
+                kind = (q.get("type") or "balance_sheet").lower()
+                if kind in ("balance_sheet", "balancesheet", ""):
+                    return _api_balance_sheet(s_, q.get("basis", "consolidated"))
+                return 200, {"available": False, "company": None,
+                             "type": kind, "basis": q.get("basis", "consolidated"),
+                             "unit": None, "periods": [], "rows": [],
+                             "source": "not stored in charto"}
             # Scores (Altman/Ohlson/Graham/DuPont) are DERIVED, and deriving
             # them wrongly is worse than not showing them: the published
             # values only reproduce when the size term is read in the right
@@ -3489,9 +3607,18 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
             return _api_deals(s_, int(q.get("limit") or 60))
         if what == "sections":
             return _api_sections(s_)
-        if what in ("shareholding", "mix", "quarters"):
-            return _api_unavailable(s_, what)
-        return 404, {"detail": f"/stock/…/{what} is not served by charto"}
+        if what == "patterns":
+            return _api_patterns(s_, q.get("interval") or "1d",
+                                 int(q.get("horizon") or 20))
+        if what == "peers":
+            return _api_peers(
+                s_, [f for f in (q.get("fields") or "").split(",") if f])
+        # Anything else under /stock/ answers with the honest empty state
+        # rather than a 404. A panel handed a 404 has no data AND no answer,
+        # and several of them simply keep their skeleton up forever — which
+        # reads as a page still loading rather than a section with nothing in
+        # it. `available: false` is a fact; a 404 here is a dead end.
+        return _api_unavailable(s_, what)
     if tail[:2] == ["companies", "search"]:
         return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
     if tail[:2] == ["companies", "logos"]:
@@ -12237,7 +12364,7 @@ class Handler(BaseHTTPRequestHandler):
             if (self.headers.get("If-None-Match") or "").strip() == etag:
                 self.send_response(304)
                 self.send_header("ETag", etag)
-                if max_age:
+                if max_age:  # a 304 only ever follows a 200, so this is safe
                     self.send_header("Cache-Control", f"public, max-age={max_age}")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
@@ -12251,7 +12378,14 @@ class Handler(BaseHTTPRequestHandler):
         # which for a JSON body with no Last-Modified means the browser
         # re-fetches every time. Every company-page navigation was therefore
         # paying full price for data that had not moved since the last sync.
-        if max_age:
+        #
+        # SUCCESSES ONLY, and this is not a detail: the freshness is chosen by
+        # path, so a 404 was going out with `max-age=900` and sticking in the
+        # browser for fifteen minutes. Wiring a new endpoint then looked like
+        # it had not worked — curl said 200 while the page kept replaying the
+        # 404 it had cached before the route existed. The server-side cache
+        # already refused to store non-200s; the header has to agree.
+        if max_age and code == 200:
             self.send_header("Cache-Control", f"public, max-age={max_age}")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
