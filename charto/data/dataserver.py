@@ -3389,6 +3389,55 @@ _PEER_FIELDS = {
 }
 
 
+def _peer_group(sym: str, want: int = 6) -> list[tuple[str, str]]:
+    """The companies this one is worth being read beside.
+
+    Industry first, then SECTOR to fill. Industry alone was the whole peer
+    rule, and on this universe that is too fine a key to be useful: 559
+    instruments fall into 137 industries, the MEDIAN industry holds two
+    members, and 54 companies are the only member of theirs — so one company
+    in ten got "no comparable sector peers are available", and the median one
+    got a single peer to compare against.
+
+    The sector fill is ranked by how CLOSE in size a company is, not by how
+    large it is. A ₹2,800 crore maker read against the four biggest names in
+    Consumer Durables is a comparison whose every row is explained by scale;
+    ordering by |log(mcap) − log(own mcap)| picks the companies whose ratios
+    can differ for a reason other than size. Log, because size is
+    multiplicative — a ₹1,000 cr company is as far from ₹100 cr as ₹10,000 cr
+    is from it, and a linear distance would call the big one the near one.
+    """
+    import math
+    row = _con.execute(
+        "SELECT industry, sector FROM classification WHERE symbol=?",
+        (sym,)).fetchone()
+    if not row:
+        return []
+    ind, sector = row
+    q = ("SELECT c.symbol, c.name, p.market_cap FROM classification c "
+         "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+         "WHERE c.{}=? AND c.symbol!=?")
+    seen, out = {sym}, []
+    for s_, n_, _m in _con.execute(
+            q.format("industry") + " ORDER BY COALESCE(p.market_cap,0) DESC",
+            (ind, sym)):
+        if s_ not in seen:
+            seen.add(s_); out.append((s_, n_))
+    if len(out) >= want or not sector:
+        return out[:want]
+    mine = _con.execute(
+        "SELECT market_cap FROM company_profile WHERE symbol=?", (sym,)).fetchone()
+    base = math.log((mine[0] if mine and mine[0] else 0) or 1)
+    rest = [(s_, n_, m_) for s_, n_, m_ in
+            _con.execute(q.format("sector"), (sector, sym)) if s_ not in seen]
+    rest.sort(key=lambda r: abs(math.log(r[2] or 1) - base))
+    for s_, n_, _m in rest:
+        out.append((s_, n_))
+        if len(out) >= want:
+            break
+    return out[:want]
+
+
 def _peer_metric(fid: str) -> dict:
     _, label, unit = _PEER_FIELDS[fid]
     return {"id": fid, "label": label, "unit": unit}
@@ -3404,11 +3453,8 @@ def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
     base = company_page(sym, "1D")
     peers = [{"symbol": sym, "name": base.get("long_name") or base.get("name") or sym,
               "is_current": True}]
-    for p in (base.get("peers") or []):
-        ps = str(p.get("symbol") or "").upper()
-        if ps and ps != sym:
-            peers.append({"symbol": ps, "name": p.get("name") or ps,
-                          "is_current": False})
+    for ps, pn in _peer_group(sym):
+        peers.append({"symbol": ps, "name": pn or ps, "is_current": False})
     out = []
     for row in peers:
         prof = company_page(row["symbol"], "1D") if not row["is_current"] else base
