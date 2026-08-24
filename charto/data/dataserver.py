@@ -12813,4 +12813,26 @@ if __name__ == "__main__":
         print(f"charto alerts UNAVAILABLE: {_exc}")
 
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+    class _Server(ThreadingHTTPServer):
+        """ThreadingHTTPServer with a listen queue worth having.
+
+        The base class sets `request_queue_size = 5`, which is the second
+        argument to listen(2) — the number of connections the KERNEL will
+        hold while every accept thread is busy. Measured on the box:
+        `ss -ltn` reported `Send-Q 5` on :5174. Past five queued connections
+        the kernel refuses, and the browser gets a connection error rather
+        than a slow page — a cliff, not a slope, and one that arrives at a
+        handful of simultaneous users rather than at any interesting number.
+
+        nginx sits in front, so this queue only has to absorb the burst
+        nginx forwards; 128 is the usual ceiling and costs nothing when idle.
+
+        `daemon_threads` so a stuck request thread cannot keep the process
+        alive through a restart — deploy.sh restarts on every backend change
+        and a hung SSE handler would otherwise hold the port.
+        """
+        request_queue_size = 128
+        daemon_threads = True
+
+    _Server(("127.0.0.1", PORT), Handler).serve_forever()
