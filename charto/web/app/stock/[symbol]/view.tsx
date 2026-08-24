@@ -4,18 +4,24 @@ import { useEffect, useState } from "react";
 import { StockDetailPage } from "@/components/StockDetailPage";
 
 /**
- * Client wrapper that mounts Pivot's stock detail page — StockDetailPage is
- * copied here unchanged — under charto's own chrome instead of Pivot's
- * AppShell. charto has no sidebar to keep: the only navigation that makes
+ * Client wrapper that mounts the stock detail page under charto's own chrome
+ * instead of Pivot's AppShell. The page's LAYOUT is Pivot's, tracked against
+ * it; its DATA is charto's, served by dataserver.py's /api shim out of the
+ * same store the chart reads, so the two can never quote different numbers
+ * for one session. charto has no sidebar to keep: the only navigation that makes
  * sense from a company page is back to the chart for that symbol.
  *
  * Theme: Pivot applies its dark palette by toggling `.dark` on <html>, and
- * that lived in AppShell. This page runs on a DIFFERENT ORIGIN from the chart
- * (:5175 vs :5173), so it cannot read charto's stored choice — the chart
- * therefore sends it in the link as `?theme=`, and the choice is remembered
- * here so a reload or a peer click keeps it.
+ * that lived in AppShell. The chart sends its choice in the link as `?theme=`
+ * and it is remembered here so a reload or a peer click keeps it. (This page
+ * used to run on a different ORIGIN from the chart and could not read the
+ * stored choice at all; it is proxied onto the chart's origin now, so the
+ * localStorage read below is a real fallback rather than a dead branch.)
  */
-const CHART = "http://localhost:5173/index.html";
+// Relative, because the chart and this page are now ONE origin — nginx (and
+// serve.py in dev) proxy /stock/ here. An absolute localhost:5173 was a link
+// back to whichever machine happened to be reading the page.
+const CHART = "/index.html";
 const KEY = "charto_theme";
 
 export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElement {

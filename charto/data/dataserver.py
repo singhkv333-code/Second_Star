@@ -3215,6 +3215,137 @@ def _api_balance_sheet(sym: str, basis: str) -> tuple[int, dict]:
     return 200, json.loads(row[0])
 
 
+# ── the deep sections ───────────────────────────────────────────────────────
+#
+# The company page's lower half — flows, deals, shareholding, revenue mix,
+# quarters — asks Pivot's routes for each. Charto has the store behind three
+# of them and genuinely nothing behind the others, and the difference is
+# reported rather than papered over: every one of these responses carries
+# `available`, and the page already knows how to draw a section that says it
+# has no data. A filler number would be indistinguishable from a real one.
+
+
+def _api_flows(sym: str, days: int) -> tuple[int, dict]:
+    """Delivery quality and futures open interest, from charto's own tables.
+
+    Both are the same daily series the screener reads, so a delivery figure
+    here and a delivery figure there cannot disagree.
+    """
+    days = max(5, min(days or 120, 400))
+    try:
+        deliv = [
+            {"d": d, "close": c, "qty": q, "deliv_qty": dq,
+             "deliv_per": dp, "trades": tr}
+            for d, c, q, dq, dp, tr in _con.execute(
+                "SELECT d, close, qty, deliv_qty, deliv_per, trades "
+                "FROM delivery WHERE symbol=? ORDER BY d DESC LIMIT ?",
+                (sym, days))]
+        oi = [
+            {"d": d, "oi": o, "oi_chg": ch}
+            for d, o, ch in _con.execute(
+                "SELECT d, oi, oi_chg FROM fut_oi WHERE symbol=? "
+                "ORDER BY d DESC LIMIT ?", (sym, days))]
+    except sqlite3.Error:
+        deliv, oi = [], []
+    deliv.reverse(); oi.reverse()
+    summary = None
+    if deliv:
+        last = deliv[-1]
+        # The median of the last 20 sessions, not the mean: one block deal
+        # doubles a day's delivery and would drag an average into saying the
+        # stock is habitually better held than it is.
+        window = sorted(r["deliv_per"] for r in deliv[-20:]
+                        if r["deliv_per"] is not None)
+        med = window[len(window) // 2] if window else None
+        summary = {
+            "date": last["d"], "delivery_pct": last["deliv_per"],
+            "delivery_median_20d": med, "volume": last["qty"],
+            "delivered": last["deliv_qty"], "trades": last["trades"],
+            "oi": oi[-1]["oi"] if oi else None,
+            "oi_chg": oi[-1]["oi_chg"] if oi else None,
+            "close": last["close"],
+        }
+    return 200, {"symbol": sym, "available": bool(deliv or oi),
+                 "summary": summary, "delivery": deliv, "oi": oi}
+
+
+def _api_deals(sym: str, limit: int) -> tuple[int, dict]:
+    """Bulk and block deals. `value` is qty x price — the only figure here
+    this function computes, and it is arithmetic on two stored columns
+    rather than a number from anywhere else."""
+    limit = max(1, min(limit or 60, 300))
+    try:
+        rows = list(_con.execute(
+            "SELECT d, kind, client, side, qty, price FROM deals "
+            "WHERE symbol=? ORDER BY d DESC LIMIT ?", (sym, limit)))
+    except sqlite3.Error:
+        rows = []
+    deals = [{"d": d, "kind": k or "", "client": cl or "", "side": sd or "",
+              "qty": q, "price": pr,
+              "value": (q * pr) if (q is not None and pr is not None) else None}
+             for d, k, cl, sd, q, pr in rows]
+    return 200, {"symbol": sym, "available": bool(deals), "deals": deals}
+
+
+def _api_sections(sym: str) -> tuple[int, dict]:
+    """What this store actually holds for the symbol.
+
+    The page asks this first and hides the sections that come back empty, so
+    an honest count here is what stops it rendering five headings over
+    nothing. Counted live rather than declared, because a table that stopped
+    syncing should shrink this, not keep claiming coverage.
+    """
+    def count(sql: str) -> int:
+        try:
+            return int(_con.execute(sql, (sym,)).fetchone()[0] or 0)
+        except sqlite3.Error:
+            return 0
+    try:
+        ident = _con.execute(
+            "SELECT name, sc_id FROM company_profile WHERE symbol=?",
+            (sym,)).fetchone()
+    except sqlite3.Error:
+        ident = None
+    bases = count("SELECT COUNT(DISTINCT basis) FROM balance_sheet WHERE symbol=?")
+    return 200, {
+        "symbol": sym,
+        "isin": None,
+        "sc_id": (ident[1] if ident else None),
+        "name": (ident[0] if ident else None),
+        "bse_scripcode": None,
+        "coverage": {
+            # charto stores an earnings CALENDAR (`results`), not quarterly
+            # statements, so the quarters section has nothing to draw and
+            # says so instead of drawing a calendar as though it were one.
+            "quarters": {"count": 0, "latest": None, "bases": bases},
+            "annual_report": {"count": 0, "tasks": 0, "documents": 0,
+                              "latest_period": None},
+            "revenue_mix": {"count": 0},
+            "ownership": {"count": 0},
+            "documents": {"count": 0},
+        },
+    }
+
+
+def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
+    """The honest empty state for a section charto has no source for.
+
+    Shaped exactly like the real response so the page takes its normal
+    `available: false` path — a 404 here would render as a failure, which is
+    a different and wrong claim: nothing is broken, the data was never
+    collected.
+    """
+    base = {"symbol": sym, "available": False,
+            "source": "not stored in charto"}
+    if kind == "shareholding":
+        return 200, {**base, "quarters": [], "holders": [], "groups": [],
+                     "pledge_pct": None, "promoter_pct": None}
+    if kind == "mix":
+        return 200, {**base, "charts": [], "market_share": [],
+                     "source_name": None}
+    return 200, {**base, "quarters": [], "rows": [], "periods": []}
+
+
 def _api_search(q: str, limit: int) -> dict:
     q = (q or "").strip().upper()
     if not q:
@@ -3261,14 +3392,44 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                                "l": b["l"], "c": b["c"], "v": int(b["v"] or 0)}
                               for b in bars]}
     if tail[:1] == ["financials"]:
-        s = sym_of(1)
-        if len(tail) > 2:      # /financials/{sym}/balance_sheet
-            return _api_balance_sheet(s, q.get("basis", "consolidated"))
-        return _api_financials(s)
+        s_ = sym_of(1)
+        if len(tail) > 2:
+            what = tail[2]
+            # `statement` is the balance sheet the page reads for its full
+            # statement view — same stored payload, second name.
+            if what in ("balance_sheet", "statement"):
+                return _api_balance_sheet(s_, q.get("basis", "consolidated"))
+            # Scores (Altman/Ohlson/Graham/DuPont) are DERIVED, and deriving
+            # them wrongly is worse than not showing them: the published
+            # values only reproduce when the size term is read in the right
+            # unit and every ratio comes off ONE statement column. Charto has
+            # the inputs but not the computation, so it declines rather than
+            # publishing a number it cannot stand behind.
+            if what == "scores":
+                return 200, {"symbol": s_, "available": False,
+                             "basis": q.get("basis", "consolidated"),
+                             "scores": [],
+                             "source": "not computed in charto"}
+            return 404, {"detail": f"/financials/…/{what} is not served by charto"}
+        return _api_financials(s_)
     if tail[:2] == ["markets", "metric-series"]:
         return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
                      "range": q.get("range", "1Y"), "available": False,
                      "points": [], "source": "none"}
+    if tail[:1] == ["stock"] and len(tail) > 2:
+        s_ = sym_of(1)
+        what = tail[2]
+        if s_ not in _known_symbols():
+            return 404, {"detail": f"unknown symbol {s_}"}
+        if what == "flows":
+            return _api_flows(s_, int(q.get("days") or 120))
+        if what == "deals":
+            return _api_deals(s_, int(q.get("limit") or 60))
+        if what == "sections":
+            return _api_sections(s_)
+        if what in ("shareholding", "mix", "quarters"):
+            return _api_unavailable(s_, what)
+        return 404, {"detail": f"/stock/…/{what} is not served by charto"}
     if tail[:2] == ["companies", "search"]:
         return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
     if tail[:2] == ["companies", "logos"]:
