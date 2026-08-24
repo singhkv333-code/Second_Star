@@ -67,6 +67,24 @@ function normalise(symbol: string): string {
   return symbol.trim().toUpperCase().replace(/ /g, "_");
 }
 
+/** Whether a live-quote socket is configured at all.
+ *
+ * The base used to be DERIVED from the page's own origin whenever the env
+ * was unset, which assumes every deployment has a quote socket. charto does
+ * not: it serves no /api/ws/quotes, so the derived wss://<host>/api/ws/quotes
+ * 404'd on the handshake and reconnected, forever, in the console of a page
+ * whose prices are already current from the REST quote.
+ *
+ * An explicit empty value now means OFF, and no value at all still means
+ * "same origin" so Pivot's own deployment is unaffected. Guessing is the one
+ * behaviour removed.
+ */
+function wsConfigured(): boolean {
+  const env =
+    typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_WS_BASE;
+  return env !== "";
+}
+
 async function buildWsUrl(): Promise<string> {
   if (typeof window === "undefined") return "ws://localhost/api/ws/quotes";
   const envBase =
@@ -155,6 +173,11 @@ function resubscribeAll(): void {
 let connecting = false;
 
 async function connect(): Promise<void> {
+  // Nothing to connect to. Returning WITHOUT scheduling a reconnect is the
+  // point: the retry path exists for a socket that exists and is down, and
+  // running it against a deployment that has no socket is an infinite loop
+  // by construction.
+  if (!wsConfigured()) return;
   if (
     connecting ||
     (ws &&

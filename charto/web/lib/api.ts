@@ -282,11 +282,25 @@ async function _performRequest<T>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
+  /* Mutations never come from a cache; READS obey the server's own headers.
+   *
+   * `no-store` was set on every request regardless of method, which threw
+   * away the whole HTTP caching layer: a balance sheet that changes when a
+   * sync runs was re-fetched on every navigation and every peer click, and
+   * the ETag the server sends could never produce a 304 because the client
+   * had nothing stored to revalidate.
+   *
+   * `default` does not mean "cache aggressively" — it means the SERVER
+   * decides, which is the only side that knows how fast each thing moves.
+   * Anything it wants fresh it sends without a max-age, and that still
+   * revalidates on every use.
+   */
+  const method = options.method ?? "GET";
   const res = await fetch(url, {
-    method: options.method ?? "GET",
+    method,
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    cache: "no-store",
+    cache: method === "GET" ? "default" : "no-store",
   });
 
   // 204 No Content

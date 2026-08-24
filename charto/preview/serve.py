@@ -24,12 +24,25 @@ PORT = 5173
 # two prefixes from nginx, so the markup that works here works there with no
 # build-time switch.
 COMPANY_ORIGIN = os.environ.get("CHARTO_COMPANY_ORIGIN", "http://127.0.0.1:5175")
-PROXY_PREFIXES = ("/stock/", "/_next/", "/__nextjs")
+# …and the data server, for the same reason. The company page's API base is
+# inlined into its CLIENT bundle at build time, so it has to be an address the
+# browser can reach in every deployment — which means a relative "/api", which
+# means this origin has to serve it. nginx already does exactly this on the VM.
+DATA_ORIGIN = os.environ.get("CHARTO_DATA_ORIGIN", "http://127.0.0.1:5174")
+PROXY_PREFIXES = ("/stock/", "/_next/", "/__nextjs", "/api/")
 
 
 class NoCacheHandler(SimpleHTTPRequestHandler):
+    # Set while relaying, so the no-store below applies to the LOCAL files
+    # this server owns and not to a proxied response. Without it every
+    # relayed answer carried two Cache-Control headers — the upstream's and
+    # this one — and the company page's whole cache policy was cancelled by
+    # a rule that exists to stop Chrome holding stale chart JS.
+    _relaying = False
+
     def end_headers(self) -> None:
-        self.send_header("Cache-Control", "no-store, must-revalidate")
+        if not self._relaying:
+            self.send_header("Cache-Control", "no-store, must-revalidate")
         super().end_headers()
 
     def log_message(self, fmt: str, *args) -> None:  # quiet
@@ -52,7 +65,9 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
         dropping hop-by-hop ones. This exists so DEV has the same single
         origin production has; nginx does the real job on the VM.
         """
-        url = COMPANY_ORIGIN + self.path
+        target = DATA_ORIGIN if self.path.startswith("/api/") else COMPANY_ORIGIN
+        url = target + self.path
+        self._relaying = True
         req = urllib.request.Request(url, method=self.command)
         for h in ("Accept", "Accept-Language", "Cookie", "User-Agent",
                   "Referer", "RSC", "Next-Router-State-Tree"):
@@ -68,9 +83,10 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
             # Say WHICH server is down. "connection refused" in a browser
             # console next to a localhost:5173 URL sends you looking at the
             # wrong process entirely.
-            body = (f"The company page is not running.\n\n"
-                    f"Start it with: charto/web/start.sh   ({COMPANY_ORIGIN})\n"
-                    f"{exc}").encode()
+            who = ("The data server" if self.path.startswith("/api/")
+                   else "The company page")
+            body = (f"{who} is not running.\n\n"
+                    f"Expected at {target}\n{exc}").encode()
             status, headers = 502, None
         self.send_response(status)
         if headers is not None:

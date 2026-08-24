@@ -22,6 +22,7 @@ Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 import hmac
 import json
 import logging
@@ -3360,6 +3361,67 @@ def _api_search(q: str, limit: int) -> dict:
     return {"results": [{"symbol": s, "name": n or s, "sector": sec,
                          "has_fundamentals": True, "logo_url": lo}
                         for s, n, sec, lo in rows]}
+
+
+# How long each family of company data may be reused, in seconds.
+#
+# Set by how fast the underlying thing actually MOVES, not by a single tidy
+# number: a quote is stale in seconds and a balance sheet is stale when the
+# next sync runs. Getting this wrong in either direction is visible — too
+# long and the page argues with the chart, too short and every peer click
+# pays for a statement that has not changed since the last quarter.
+_API_MAX_AGE = (
+    ("markets/quote",     15),    # a live-ish price; revalidate almost at once
+    ("markets/sparkline", 60),    # bars, and the forming one only moves once a minute
+    ("markets/ohlc",      60),
+    ("stock/",            900),   # delivery, deals: published once, after close
+    ("financials",        1800),  # synced periodically; static between syncs
+    ("companies/",        3600),  # identity and logos barely move at all
+)
+
+
+def _api_max_age(path: str) -> int:
+    tail = path[len("/api/"):]
+    for prefix, age in _API_MAX_AGE:
+        if tail.startswith(prefix):
+            return age
+    return 0
+
+
+# One in-process answer cache, shared by every request thread.
+#
+# The browser headers above stop a client re-asking; this stops the SERVER
+# re-answering. That matters more than the millisecond it saves per call:
+# every read here goes through the single shared sqlite3 connection, so two
+# users on the same company serialise against each other for no reason. A hit
+# costs a dict lookup and touches no database at all.
+_api_cache: "OrderedDict[str, tuple[float, int, dict]]" = OrderedDict()
+_api_cache_lock = threading.Lock()
+_API_CACHE_MAX = 512
+
+
+def _api_cached(key: str, ttl: int):
+    if ttl <= 0:
+        return None
+    now = time.time()
+    with _api_cache_lock:
+        hit = _api_cache.get(key)
+        if not hit or now - hit[0] > ttl:
+            return None
+        _api_cache.move_to_end(key)      # keep the live set, evict the idle
+        return hit[1], hit[2]
+
+
+def _api_store(key: str, ttl: int, code: int, payload: dict) -> None:
+    # Only successes. A 404 cached for fifteen minutes is a symbol that stays
+    # missing for fifteen minutes after it arrives.
+    if ttl <= 0 or code != 200:
+        return
+    with _api_cache_lock:
+        _api_cache[key] = (time.time(), code, payload)
+        _api_cache.move_to_end(key)
+        while len(_api_cache) > _API_CACHE_MAX:
+            _api_cache.popitem(last=False)
 
 
 def api_route(path: str, q: dict) -> tuple[int, dict]:
@@ -12163,11 +12225,34 @@ def quotes_for(names: list[str]) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, payload: dict) -> None:
+    def _send(self, code: int, payload: dict, *, max_age: int = 0) -> None:
         body = json.dumps(payload).encode()
+        # An ETag turns a revalidation into a 304 with no body. Worth having
+        # even at max_age=0: the company page's largest response is a 16 KB
+        # financials blob that changes when the sync runs and not otherwise,
+        # so a reload should cost a round trip, not the payload.
+        etag = None
+        if code == 200 and len(body) > 512:
+            etag = '"%s"' % hashlib.blake2b(body, digest_size=12).hexdigest()
+            if (self.headers.get("If-None-Match") or "").strip() == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                if max_age:
+                    self.send_header("Cache-Control", f"public, max-age={max_age}")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                return
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        if etag:
+            self.send_header("ETag", etag)
+        # No header at all is NOT "no caching" — it is heuristic freshness,
+        # which for a JSON body with no Last-Modified means the browser
+        # re-fetches every time. Every company-page navigation was therefore
+        # paying full price for data that had not moved since the last sync.
+        if max_age:
+            self.send_header("Cache-Control", f"public, max-age={max_age}")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -12380,10 +12465,16 @@ class Handler(BaseHTTPRequestHandler):
         _req.symbol = symbol
         try:
             if u.path.startswith("/api/"):
-                # Pivot's stock page, copied verbatim into charto/web, calls
-                # its own backend's routes — served here from charto's store.
+                # The company page's own routes, served from charto's store.
+                age = _api_max_age(u.path)
+                key = u.path + "?" + "&".join(
+                    f"{k}={v}" for k, v in sorted(q.items()))
+                hit = _api_cached(key, age)
+                if hit is not None:
+                    return self._send(hit[0], hit[1], max_age=age)
                 code, payload = api_route(u.path, q)
-                return self._send(code, payload)
+                _api_store(key, age, code, payload)
+                return self._send(code, payload, max_age=age)
             if u.path == "/symbols":
                 have = _symbols_with_bars()
                 # names ride along so a reply that writes "Caplin Labs" can be
