@@ -55,13 +55,19 @@ from urllib.parse import parse_qs, unquote, urlparse
 # dataserver` (tests, tooling) is left exactly as it was.
 sys.modules.setdefault("dataserver", sys.modules[__name__])
 
+import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
-DB_PATH = Path(__file__).parent / "charto_bars.db"
+# The store is selectable so a laptop need not carry the full 29 GB of minute
+# history: `company_tables.py slim` builds a ~0.9 GB store with every company
+# table, the whole daily series and minute bars for a handful of symbols, and
+# CHARTO_DB points here at it. Unset, the full store is used exactly as before.
+DB_PATH = Path(environ.get("CHARTO_DB")
+               or Path(__file__).parent / "charto_bars.db")
 PORT = int(environ.get("CHARTO_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
@@ -3482,6 +3488,85 @@ def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
     }
 
 
+def _api_mix(sym: str) -> tuple[int, dict]:
+    """Segment splits — a current snapshot AND a series per segment.
+
+    Stored whole by `sync_tijori_mix.py` and served verbatim, the same way the
+    statements are: the shares are Tijori's, and recomputing them here would
+    put a second set of numbers against the same company.
+
+    A company with no breakdown answers `available: false` in the real
+    response shape rather than 404 — the panel then takes its empty path
+    instead of holding a skeleton up forever.
+    """
+    try:
+        row = _con.execute(
+            "SELECT payload FROM revenue_mix WHERE symbol=?", (sym,)).fetchone()
+    except sqlite3.Error:
+        row = None
+    if not row:
+        return _api_unavailable(sym, "mix")
+    try:
+        payload = json.loads(row[0])
+    except (ValueError, TypeError):
+        return _api_unavailable(sym, "mix")
+    return 200, {"symbol": sym, **payload}
+
+
+def _score_grid(sym: str, statement: str, basis: str) -> dict | None:
+    """One statement grid for the scorer, out of charto's own store.
+
+    The balance sheet lives in its own table because the Financial Performance
+    panel drew it first; the other three were synced later into `statement`.
+    Both are the same shape — periods plus line-item rows — which is what lets
+    one reader serve all four.
+
+    Falls back to the other basis when the asked-for one has no rows, the way
+    Pivot's own accessor does: a company that files only standalone should get
+    a score off the sheet it actually filed, not a blank.
+    """
+    for want in (basis, "standalone" if basis == "consolidated" else "consolidated"):
+        try:
+            if statement == "balance_sheet":
+                row = _con.execute(
+                    "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
+                    (sym, want)).fetchone()
+            else:
+                row = _con.execute(
+                    "SELECT payload FROM statement "
+                    "WHERE symbol=? AND statement=? AND basis=?",
+                    (sym, statement, want)).fetchone()
+        except sqlite3.Error:
+            return None
+        if not row:
+            continue
+        try:
+            payload = json.loads(row[0])
+        except (ValueError, TypeError):
+            continue
+        if payload.get("rows"):
+            return payload
+    return None
+
+
+def _api_scores(sym: str, basis: str) -> tuple[int, dict]:
+    """Altman Z, Ohlson O, Graham and DuPont for one company.
+
+    The computation is Pivot's `company_scores`, bound to charto's store —
+    the same arithmetic over the same Moneycontrol grids, so a score here and
+    a score there cannot disagree. Every input is pinned to ONE period column
+    of ONE basis, and a score whose inputs are missing comes back unavailable
+    with the reason rather than assembled out of two different years.
+    """
+    basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    try:
+        return 200, company_scores.compute_scores(sym, basis=basis)
+    except Exception:                       # never take the page down
+        logging.exception("charto scores failed for %s", sym)
+        return 200, {"available": False, "symbol": sym,
+                     "reason": "scores could not be computed"}
+
+
 def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
     """The honest empty state for a section charto has no source for.
 
@@ -3659,6 +3744,10 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
         if what == "peers":
             return _api_peers(
                 s_, [f for f in (q.get("fields") or "").split(",") if f])
+        if what == "mix":
+            return _api_mix(s_)
+        if what == "scores":
+            return _api_scores(s_, q.get("basis") or "consolidated")
         # Anything else under /stock/ answers with the honest empty state
         # rather than a 404. A panel handed a 404 has no data AND no answer,
         # and several of them simply keep their skeleton up forever — which
@@ -11127,6 +11216,11 @@ _CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
 _MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
 _con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
 _con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
+
+# The scorer reads its four statement grids through this one call, so it never
+# opens a database of its own — charto's store is the only source, and the
+# scores stop when the sync does rather than drifting onto Pivot's copy.
+company_scores.bind(_score_grid)
 
 # The served store carries deals only for symbols that have hydrated (41 of
 # them, 1.7k rows). The market-wide sweep is 153k rows over 3,446 symbols,
