@@ -981,6 +981,16 @@ def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
 
 
+def _rows_for(symbol: str, interval: str, limit: int) -> list[tuple]:
+    """`_rows` for an EXPLICIT symbol rather than the request's own.
+
+    The company page asks about the symbol in its URL, which is not always the
+    symbol the chart is on — `_sym()` is the chart's, stamped per request.
+    """
+    d = get_bars(symbol, interval, None, limit)
+    return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
+
+
 def _rows_safe(interval: str, limit: int) -> list[tuple]:
     """`_rows` for a SWEEP: a rung that cannot be fetched is empty, not fatal.
 
@@ -3327,30 +3337,137 @@ def _api_sections(sym: str) -> tuple[int, dict]:
             "quarters": {"count": 0, "latest": None, "bases": bases},
             "annual_report": {"count": 0, "tasks": 0, "documents": 0,
                               "latest_period": None},
-            "revenue_mix": {"count": 0},
+            "revenue_mix": {"count": count(
+                "SELECT COUNT(*) FROM revenue_mix WHERE symbol=?")},
             "ownership": {"count": 0},
             "documents": {"count": 0},
         },
     }
 
 
-def _api_patterns(sym: str, interval: str, horizon: int) -> tuple[int, dict]:
-    """Candlestick and shape base rates, each against its own control.
+# How many measured instances a symbol needs before its own rate is worth
+# printing. At 20 the standard error is still ~11pp, which is wide — but the
+# panel prints the error beside every rate, so a wide one reads as wide. Below
+# 20 the number stops carrying information at all and the row says so instead.
+_OWN_FLOOR = 20
 
-    Straight out of `pattern_stats`, which is the same ledger the chart's own
-    evidence panel reads — so a rate quoted here and a rate quoted there come
-    from one sweep. Pooled by SCOPE rather than per symbol: a single company
-    throws a few dozen instances of a given pattern, which is not enough to
-    separate an edge from noise, and the ledger was built pooled for exactly
-    that reason.
+# Bars to mine for a symbol's own record. Daily reaches the whole listed
+# history in ~2,800 bars; the intraday intervals are capped because the store
+# holds a million minute bars per symbol and a page load must not walk them.
+_OWN_BARS = {"1d": 4000, "1h": 6000, "15m": 8000}
 
-    `control` is the unconditional base rate over the same universe and
-    horizon. It travels with every row because a rate without one is
-    decoration — 46% sounds like an edge until the control is 45.8%.
+
+def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]:
+    """This symbol's OWN record for every pattern, on its own bars.
+
+    The rules are `tool_evaluate_pattern`'s, exactly, because a rate quoted
+    here and a rate quoted there must come from one definition: candles are
+    measured from the pattern bar, chart shapes only count once CONFIRMED and
+    are measured from the confirming break, instances closer together than the
+    horizon share a forward window and so are ONE piece of evidence, and the
+    edge-fitted shapes are skipped outright — they are fitted at the live edge
+    of a series, so mining them backwards would fabricate a history the
+    detector cannot claim.
+
+    Each pattern carries its own control: the unconditional rate of the same
+    directional move over the same horizon on the same bars. A hit rate
+    without the base rate it must beat is decoration, and the control has to
+    come from THIS symbol — a market-wide base rate against a single stock's
+    hit rate compares two different things.
     """
-    scope = scope_for(sym)
+    rows = _rows_for(sym, interval, _OWN_BARS.get(interval, 4000))
+    n = len(rows)
+    if n < 120:
+        return {}
+    closes = [r[4] for r in rows]
+    h = horizon
+    ist = lambda ts: ts                                            # noqa: E731
+
+    inst: dict[str, list[dict]] = {}
+    for f in patterns.candlesticks(rows, _atr(rows, 14), ist,
+                                   set(patterns.CANDLE_KINDS), limit=100000):
+        inst.setdefault(f["pattern"], []).append(
+            {"i": n - 1 - f["bars_ago"], "d": f["direction"]})
+    try:
+        chart = patterns.chart_patterns(rows, _pivots(rows, 5), _tolerance(rows),
+                                        ist, set(patterns.CHART_KINDS), limit=4000)
+    except Exception:                       # a detector must not fail the page
+        chart = []
+    for f in chart:
+        if f["pattern"] in _EDGE_ONLY or f.get("status") != "confirmed":
+            continue
+        end_i = n - 1 - f["bars_ago"]
+        inst.setdefault(f["pattern"], []).append(
+            {"i": min(n - 1, end_i + int(f.get("bars_to_break", 0))),
+             "d": f["direction"]})
+
+    # The control, once: every bar's forward move, reused by every pattern.
+    fwd = [(closes[j + h] - closes[j]) / closes[j] * 100 for j in range(n - h)]
+    up = sum(1 for x in fwd if x > 0)
+    base_up = up / len(fwd) * 100 if fwd else None
+
+    out: dict[str, dict] = {}
+    for kind, items in inst.items():
+        items.sort(key=lambda x: x["i"])
+        kept, last = [], -10 ** 9
+        for x in items:
+            if x["i"] - last >= h:
+                kept.append(x)
+                last = x["i"]
+        evals = [x for x in kept if x["i"] + h < n]
+        if not evals:
+            continue
+        direction = evals[0]["d"]
+        if direction not in ("bullish", "bearish"):
+            continue
+        good = sum(1 for e in evals
+                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0) == (direction == "bullish"))
+        m = len(evals)
+        rate = good / m * 100
+        control = base_up if direction == "bullish" else (
+            100 - base_up if base_up is not None else None)
+        moves = [(closes[e["i"] + h] - closes[e["i"]]) / closes[e["i"]] * 100
+                 for e in evals]
+        # Binomial standard error on the difference. The pattern rate carries
+        # the sampling error of m trials; the control is measured on every bar
+        # of the same series and is precise enough beside it to be taken as
+        # fixed, so the error printed is the pattern's own.
+        se = (rate * (100 - rate) / m) ** 0.5
+        out[kind] = {
+            "n": m, "rate": round(rate, 1),
+            "control": round(control, 1) if control is not None else None,
+            "edge": round(rate - control, 1) if control is not None else None,
+            "se": round(se, 1),
+            "move": round(sum(moves) / len(moves), 2),
+            "enough": m >= _OWN_FLOOR,
+        }
+    return out
+
+
+def _api_patterns(sym: str, interval: str, horizon: int,
+                  scope: str = "symbol") -> tuple[int, dict]:
+    """Candlestick and shape base rates — for THIS company, or for its market.
+
+    The panel used to serve only the pooled ledger, which is keyed by asset
+    CLASS: every Indian equity got byte-identical rows, under a heading that
+    read as though they were the company's own. The pooled numbers are good
+    numbers — 600k daily instances across 500 names — but they answer "does
+    this shape mean anything on Indian equities", not "has it meant anything
+    here", and the page was asking the second question.
+
+    So the company's own record leads and the market stays available beside
+    it. Both come from one definition of an instance (see
+    `_own_pattern_stats`), and both carry a control, so the two scopes are
+    comparable rather than merely adjacent.
+
+    A pattern this symbol has fired fewer than `_OWN_FLOOR` times keeps its
+    row — with the count, and `enough: false` — rather than being dropped or
+    quietly backfilled from the pooled table. A thin sample is a finding about
+    the company; a market number wearing the company's name is not.
+    """
     interval = interval if interval in ("15m", "1h", "1d") else "1d"
     horizon = horizon if horizon in (5, 10, 20) else 20
+    pooled_scope = scope_for(sym)
     try:
         rows = list(_con.execute(
             "SELECT kind, family, interval, horizon, n, n_symbols, "
@@ -3358,20 +3475,54 @@ def _api_patterns(sym: str, interval: str, horizon: int) -> tuple[int, dict]:
             "       edge_pp, edge_se_pp, avg_move_pct "
             "FROM pattern_stats WHERE scope=? AND interval=? AND horizon=? "
             "ORDER BY ABS(COALESCE(edge_pp, 0)) DESC",
-            (scope, interval, horizon)))
+            (pooled_scope, interval, horizon)))
         opts = [{"interval": i, "horizon": h} for i, h in _con.execute(
             "SELECT DISTINCT interval, horizon FROM pattern_stats "
-            "WHERE scope=? ORDER BY interval, horizon", (scope,))]
+            "WHERE scope=? ORDER BY interval, horizon", (pooled_scope,))]
     except sqlite3.Error:
         rows, opts = [], []
+
+    market = {k: {"kind": k, "family": f, "n": n, "n_symbols": ns,
+                  "rate": rate, "control": ctrl, "edge": edge, "se": se,
+                  "move": mv}
+              for k, f, iv, hz, n, ns, rate, ctrl, edge, se, mv in rows}
+
+    if scope == "universe":
+        out = [{**v, "interval": interval, "horizon": horizon, "enough": True}
+               for v in market.values()]
+        out.sort(key=lambda r: abs(r.get("edge") or 0), reverse=True)
+        return 200, {"available": bool(out), "scope": "universe",
+                     "symbol": sym, "interval": interval, "horizon": horizon,
+                     "options": opts, "patterns": out,
+                     # The widest row, not the first: a rare pattern fired on
+                     # five names would otherwise report the universe as five.
+                     "universe_symbols": max(
+                         (v["n_symbols"] for v in market.values()
+                          if v["n_symbols"]), default=None)}
+
+    own = _own_pattern_stats(sym, interval, horizon)
+    out = []
+    for kind, o in own.items():
+        m = market.get(kind) or {}
+        out.append({
+            "kind": kind, "family": m.get("family") or (
+                "candlestick" if kind in patterns.CANDLE_KINDS else "chart"),
+            "interval": interval, "horizon": horizon,
+            "n": o["n"], "rate": o["rate"], "control": o["control"],
+            "edge": o["edge"], "se": o["se"], "move": o["move"],
+            "enough": o["enough"],
+            # The market's own rate travels with the row so the reader can see
+            # whether this company is unusual or merely typical.
+            "market_rate": m.get("rate"), "market_edge": m.get("edge"),
+            "market_n": m.get("n"),
+        })
+    # Thin rows sink rather than vanish: the strongest measured edges first,
+    # then everything the company has not fired often enough to judge.
+    out.sort(key=lambda r: (r["enough"], abs(r.get("edge") or 0)), reverse=True)
     return 200, {
-        "available": bool(rows), "interval": interval, "horizon": horizon,
-        "options": opts,
-        "patterns": [
-            {"kind": k, "family": f, "interval": iv, "horizon": hz,
-             "n": n, "n_symbols": ns, "rate": rate, "control": ctrl,
-             "edge": edge, "se": se, "move": mv}
-            for k, f, iv, hz, n, ns, rate, ctrl, edge, se, mv in rows],
+        "available": bool(out), "scope": "symbol", "symbol": sym,
+        "interval": interval, "horizon": horizon, "options": opts,
+        "patterns": out, "min_cases": _OWN_FLOOR,
     }
 
 
@@ -3465,13 +3616,23 @@ def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
     for row in peers:
         prof = company_page(row["symbol"], "1D") if not row["is_current"] else base
         m = prof.get("metrics") or {}
+        quote = prof.get("price") if isinstance(prof.get("price"), dict) else None
         out.append({
             "sc_id": prof.get("sc_id") or "", "symbol": row["symbol"],
             "name": row["name"], "is_current": row["is_current"],
             "values": {f: prof.get(_PEER_FIELDS[f][0]) for f in want},
             "periods": {f: None for f in want},
+            # `company_page` returns the whole quote under "price" — last,
+            # open, high, low, volume, change. The panel's column is a single
+            # number, so handing it the dict rendered "[object Object]" in
+            # every row. The day's move is read off that same quote when the
+            # metric block has no ret_1d, which is most of the time: one
+            # object holds both, and taking price from it and change from
+            # elsewhere is how they come to disagree.
             "price": {
-                "price": prof.get("price"), "change_pct": m.get("ret_1d"),
+                "price": (quote or {}).get("last"),
+                "change_pct": (m.get("ret_1d") if m.get("ret_1d") is not None
+                               else (quote or {}).get("change_pct")),
                 "ret_1m": m.get("ret_1m"), "ret_3m": m.get("ret_3m"),
                 "ret_6m": m.get("ret_6m"), "ret_1y": m.get("ret_1y"),
                 "rsi14": m.get("rsi14"), "vs_50dma": m.get("sma50_rel"),
@@ -3710,17 +3871,8 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                              "type": kind, "basis": q.get("basis", "consolidated"),
                              "unit": None, "periods": [], "rows": [],
                              "source": "not stored in charto"}
-            # Scores (Altman/Ohlson/Graham/DuPont) are DERIVED, and deriving
-            # them wrongly is worse than not showing them: the published
-            # values only reproduce when the size term is read in the right
-            # unit and every ratio comes off ONE statement column. Charto has
-            # the inputs but not the computation, so it declines rather than
-            # publishing a number it cannot stand behind.
             if what == "scores":
-                return 200, {"symbol": s_, "available": False,
-                             "basis": q.get("basis", "consolidated"),
-                             "scores": [],
-                             "source": "not computed in charto"}
+                return _api_scores(s_, q.get("basis") or "consolidated")
             return 404, {"detail": f"/financials/…/{what} is not served by charto"}
         return _api_financials(s_)
     if tail[:2] == ["markets", "metric-series"]:
@@ -3740,7 +3892,8 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
             return _api_sections(s_)
         if what == "patterns":
             return _api_patterns(s_, q.get("interval") or "1d",
-                                 int(q.get("horizon") or 20))
+                                 int(q.get("horizon") or 20),
+                                 q.get("scope") or "symbol")
         if what == "peers":
             return _api_peers(
                 s_, [f for f in (q.get("fields") or "").split(",") if f])

@@ -3330,22 +3330,41 @@ export type PatternStat = {
   edge: number | null;
   se: number | null;
   move: number | null;
+  /** False when this company has fired the pattern too few times for its own
+   *  rate to carry information. The row is still shown — with its count — so
+   *  a thin sample reads as a thin sample rather than disappearing. */
+  enough?: boolean;
+  /** The same pattern's rate across the whole market, so a reader can see
+   *  whether this company is unusual or merely typical. Null in universe
+   *  scope, where the market rate IS the row. */
+  market_rate?: number | null;
+  market_edge?: number | null;
+  market_n?: number | null;
 };
+
+export type PatternScope = "symbol" | "universe";
 
 export type PatternsResponse = {
   available: boolean;
+  scope: PatternScope;
+  symbol: string;
   interval: string;
   horizon: number;
   options: { interval: string; horizon: number }[];
   patterns: PatternStat[];
+  /** Symbol scope only: the case count below which a row is marked thin. */
+  min_cases?: number;
+  /** Universe scope only: how many symbols the pooled rows were mined from. */
+  universe_symbols?: number | null;
 };
 
 export function getPatterns(
   symbol: string,
   interval = "1d",
   horizon = 20,
+  scope: PatternScope = "symbol",
 ): Promise<ApiResult<PatternsResponse>> {
   return request<PatternsResponse>(
-    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}`,
+    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}&scope=${scope}`,
   );
 }

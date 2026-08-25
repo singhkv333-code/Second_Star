@@ -3,10 +3,17 @@
 /**
  * Pattern edge — a hit rate is meaningless without the rate it beat.
  *
- * Every row is one pattern measured across the Indian equity universe, against
- * a CONTROL: the base rate of the same directional move on bars where the
- * pattern did not fire. A 58% hit rate against a 57% control is noise wearing
- * a pattern's name, and the only column worth reading is the difference.
+ * Every row is one pattern measured against a CONTROL: the base rate of the
+ * same directional move over the same horizon on the same bars. A 58% hit
+ * rate against a 57% control is noise wearing a pattern's name, and the only
+ * column worth reading is the difference.
+ *
+ * The rows are THIS COMPANY's by default. They used to be the pooled market
+ * ledger, which is keyed by asset class — so every Indian equity rendered a
+ * byte-identical table under a heading that read as the company's own. The
+ * market view is still one click away, because "is this shape unusual here or
+ * merely typical" is a real question; it is just not the one the page asks
+ * first.
  *
  * Negative edges are shown, not filtered. A pattern that reliably fails is as
  * useful as one that works, and hiding those rows would turn a measurement
@@ -19,12 +26,18 @@
 
 import * as React from "react";
 
-import { getPatterns, type PatternStat, type PatternsResponse } from "@/lib/api";
+import {
+  getPatterns, type PatternScope, type PatternStat, type PatternsResponse,
+} from "@/lib/api";
 import { isError } from "@/lib/types";
 import { PatternGlyph } from "./PatternGlyph";
 import { Segmented, SECTION_GAP } from "./chrome";
 
 const HORIZONS = [5, 10, 20];
+const SCOPES = [
+  { value: "symbol", label: "This stock" },
+  { value: "universe", label: "All NSE" },
+];
 const INTERVALS = [
   { value: "15m", label: "15m" },
   { value: "1h", label: "1h" },
@@ -48,6 +61,7 @@ function compactN(n: number): string {
 export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement | null {
   const [interval, setInterval] = React.useState("1d");
   const [horizon, setHorizon] = React.useState(20);
+  const [scope, setScope] = React.useState<PatternScope>("symbol");
   const [data, setData] = React.useState<PatternsResponse | null>(null);
   const [dead, setDead] = React.useState(false);
   const [all, setAll] = React.useState(false);
@@ -55,7 +69,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
   React.useEffect(() => {
     let cancelled = false;
     setData(null);
-    getPatterns(symbol, interval, horizon)
+    getPatterns(symbol, interval, horizon, scope)
       .then((r) => {
         if (cancelled) return;
         if (isError(r)) { setDead(true); return; }
@@ -63,15 +77,21 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
       })
       .catch(() => { if (!cancelled) setDead(true); });
     return () => { cancelled = true; };
-  }, [symbol, interval, horizon]);
+  }, [symbol, interval, horizon, scope]);
 
   if (dead) return null;
   const rows = data?.patterns ?? [];
   if (data && !rows.length) return null;
 
   // Strongest edges either way, which is where the information is — the middle
-  // of the list is a long tail of patterns that do nothing.
-  const ranked = [...rows].sort((a, b) => Math.abs(b.edge ?? 0) - Math.abs(a.edge ?? 0));
+  // of the list is a long tail of patterns that do nothing. Rows too thin to
+  // judge sink below the rest instead of ranking on an edge their sample
+  // cannot support: at nine cases a 30pp "edge" is one trade either way.
+  const ranked = [...rows].sort((a, b) => {
+    const thin = Number(a.enough === false) - Number(b.enough === false);
+    if (thin) return thin;
+    return Math.abs(b.edge ?? 0) - Math.abs(a.edge ?? 0);
+  });
   const shown = all ? ranked : ranked.slice(0, 8);
 
   return (
@@ -99,6 +119,11 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           Pattern Edge
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <Segmented
+            value={scope}
+            options={SCOPES}
+            onChange={(v) => setScope(v as PatternScope)}
+          />
           <Segmented value={interval} options={INTERVALS} onChange={setInterval} />
           <Segmented
             value={String(horizon)}
@@ -181,7 +206,12 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
   // Two standard errors is the conventional bar for "this is not the sample
   // talking". Below it the row is drawn muted rather than dropped: the reader
   // should see that the pattern was measured and came back inconclusive.
-  const solid = Math.abs(edge) >= 2 * se;
+  //
+  // Too few cases fails the same way and is drawn the same way, deliberately.
+  // Both say "this number is not load-bearing", and giving them two visual
+  // languages would suggest they are two different findings.
+  const thin = p.enough === false;
+  const solid = !thin && Math.abs(edge) >= 2 * se;
   const tone = edge > 0 ? "var(--color-profit)" : edge < 0 ? "var(--color-loss)" : "var(--text-tertiary)";
   const half = Math.min(50, (Math.abs(edge) / SCALE_PP) * 50);
 
@@ -205,7 +235,10 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
       <span style={{ fontSize: 13.5, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {pretty(p.kind)}
       </span>
-      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
+      <span
+        title={thin ? `${p.n} cases — too few to read an edge from` : undefined}
+        style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: thin ? "var(--text-tertiary)" : "var(--text-secondary)" }}
+      >
         {compactN(p.n)}
       </span>
       <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12.5, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>

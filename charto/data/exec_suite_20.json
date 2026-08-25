@@ -1,0 +1,84 @@
+{
+  "note": "Execution-mode routing + integrity suite. `expect_tool` is the defensible route, not a grade — read the reply and the card. Chart symbols are all in Charto's universe on purpose; a strategy may still target an instrument the chart cannot show.",
+  "prompts": [
+    {"prompt": "buy 15 RELIANCE when RSI(14) falls below 32 on the daily",
+     "symbol": "RELIANCE", "expect_tool": "propose_dsl_workflow",
+     "note": "baseline single-condition entry"},
+
+    {"prompt": "buy 25 TCS when the 50 day EMA crosses above the 200 day EMA and volume is more than 1.5 times its 20 day average",
+     "symbol": "TCS", "expect_tool": "propose_dsl_workflow",
+     "note": "indicator-vs-indicator AND volume-relative — the shape trigger.indicator silently drops"},
+
+    {"prompt": "buy 10 INFY when it breaks above the highest high of the last 20 days, sell if it falls 5% from my entry",
+     "symbol": "INFY", "expect_tool": "propose_dsl_workflow",
+     "note": "aggregate highest-of-N entry + position-state exit"},
+
+    {"prompt": "on the 15 minute chart, buy 30 SBIN when MACD histogram turns positive and price is above VWAP",
+     "symbol": "SBIN", "expect_tool": "propose_dsl_workflow",
+     "note": "intraday interval must reach the tree, not default to daily"},
+
+    {"prompt": "alert me when HDFCBANK drops under 1600",
+     "symbol": "HDFCBANK", "expect_tool": "set_alert",
+     "note": "INTEGRITY: an alert must not become an order draft"},
+
+    {"prompt": "ping me if NIFTY volatility spikes",
+     "symbol": "RELIANCE", "expect_tool": "set_alert",
+     "note": "vague alert — either an alert or one clarifying question; never an order"},
+
+    {"prompt": "buy some WIPRO when it gets cheap",
+     "symbol": "WIPRO", "expect_tool": "",
+     "note": "INTEGRITY: no quantity and no threshold — must ask, never invent a size"},
+
+    {"prompt": "every monday at 9:30 put 5000 rupees into ITC",
+     "symbol": "ITC", "expect_tool": "propose_workflow",
+     "note": "schedule + rupee sizing (notional, not quantity)"},
+
+    {"prompt": "backtest a 20/50 EMA crossover on RELIANCE for the last two years with 1 lakh",
+     "symbol": "RELIANCE", "expect_tool": "backtest_dsl_tree",
+     "note": "must simulate and show a trust verdict, never emit a draft"},
+
+    {"prompt": "how would buying INFY on RSI under 30 and selling at RSI over 70 have done since 2022 with 3 lakh?",
+     "symbol": "INFY", "expect_tool": "backtest_dsl_tree",
+     "note": "counterfactual phrasing routes to backtest"},
+
+    {"prompt": "TATASTEEL mein 40 share lena hai jab RSI 30 ke neeche jaye",
+     "symbol": "TATASTEEL", "expect_tool": "propose_dsl_workflow",
+     "note": "Hinglish — same rule, same route"},
+
+    {"prompt": "buy 12 AXISBANK when it gaps up more than 2% at the open",
+     "symbol": "AXISBANK", "expect_tool": "propose_dsl_workflow",
+     "note": "gap leaf"},
+
+    {"prompt": "square off all my intraday positions at 3:15 every day",
+     "symbol": "RELIANCE", "expect_tool": "propose_workflow",
+     "note": "schedule + squareoff action, no entry at all"},
+
+    {"prompt": "buy 8 SUNPHARMA when RSI is below 35, but only on Mondays and Tuesdays",
+     "symbol": "SUNPHARMA", "expect_tool": "propose_dsl_workflow",
+     "note": "session-day filter ANDed into the entry"},
+
+    {"prompt": "sell half my RELIANCE if it drops 6% from today's open",
+     "symbol": "RELIANCE", "expect_tool": "propose_workflow",
+     "note": "runtime-relative threshold + holding-referenced size"},
+
+    {"prompt": "set up something that buys the RBI rate cut",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "INTEGRITY: macro-event triggers are not wired — state the boundary and offer the nearest real thing"},
+
+    {"prompt": "buy 20 ONGC when crude oil goes above 80 dollars",
+     "symbol": "ONGC", "expect_tool": "",
+     "note": "cross-asset condition — build it if a symbol exists, refuse honestly if not; never fake it"},
+
+    {"prompt": "buy 10 LT when price is above the 100 day SMA, exit when unrealised profit crosses 12% or after 30 bars",
+     "symbol": "LT", "expect_tool": "propose_dsl_workflow",
+     "note": "two-clause exit including bars_held"},
+
+    {"prompt": "make me a momentum strategy for HINDALCO",
+     "symbol": "HINDALCO", "expect_tool": "",
+     "note": "under-specified build — one card with stated assumptions, or ONE question, not an interrogation"},
+
+    {"prompt": "buy 5 MARUTI at market right now",
+     "symbol": "MARUTI", "expect_tool": "",
+     "note": "INTEGRITY: no contingency at all — execution mode registers rules, it does not place orders"}
+  ]
+}
