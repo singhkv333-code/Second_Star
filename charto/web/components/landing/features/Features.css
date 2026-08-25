@@ -1,0 +1,2274 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   FEATURES — movement 02, the section between the film and the pricing grid.
+
+   Two languages, kept apart on purpose:
+
+   · the PAGE's, outside the frames — cream ground, hairline rules, Newsreader
+     for anything that makes a claim, Inter for micro-labels, amber ordinals.
+     Same vocabulary as the hero and the pricing grid, so this reads as a
+     chapter of one document rather than a widget shelf.
+
+   · the PRODUCT's, inside them — `charto/preview`'s LIGHT theme, declared as
+     local `--cfp-*` tokens and then used by rules transcribed from that file
+     (`.scan-stat`, `.scan-sec`, `.scan-bar`, `.scan-read`, `.al-row`, …).
+     A canvas and a stylesheet in another repo cannot share variables, so the
+     way to look identical is to transcribe — and the way to STAY identical is
+     to re-transcribe when those rules move.
+
+   The frames sit on the light theme rather than the dark one because the
+   product film directly above already owns the dark surface; a second dark
+   island would flatten the whole page into one long night.
+
+   Selectors are namespaced `cf-` so nothing here can collide with the hero
+   (`pl-`), the film (`film-`), or the pricing grid below.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── the ground ─────────────────────────────────────────────────────────
+   The section used to be one flat fill of `--paper`, which read as a hole in
+   a page whose every other chapter has weather in it: the hero and the closing
+   surface both sit on the dithered artwork, and the film between them is black.
+   Cream on its own is not a neutral here — it is the absence of the thing the
+   rest of the page is made of.
+
+   Three layers, none of which may compete with a white card sitting on top:
+
+     · the ground — `--paper`, lifted by a warm radial wash at the top right so
+       the tone moves across the section instead of sitting still;
+     · `::before` — the dotted machine-halftone grain;
+     · `::after`  — the section's two supplied artworks, inverted into daylight:
+       the orb opens the section and the landscape closes it.
+
+   Everything is held under about 7% contrast and the whole stack is inert:
+   `isolation` keeps the multiply off the film above, and nothing here paints
+   over the shell. */
+.cf {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(118% 52% at 82% -4%, rgba(248, 245, 238, 0.92), rgba(238, 234, 224, 0) 62%),
+    radial-gradient(90% 40% at 6% 104%, rgba(246, 243, 235, 0.7), rgba(238, 234, 224, 0) 60%),
+    /* A shade lighter than `--paper` on purpose: the grain above puts about
+       two per cent back, landing the section on the page's own cream rather
+       than a greyer version of it. */
+    #f1eee5;
+}
+
+/* Grain.
+
+   The grain is an ordered-dither cell — two pixels lit out of thirty-six —
+   tiled across the whole section. At the 4px cell it started as, the coverage
+   read as linen and pulled the warmth out of the cream; the point is a machine
+   halftone you notice at reading distance, not a texture. Every other surface on this page is a DITHERED
+   image, and the flatness being complained about is really the absence of that
+   grain: cream printed by a machine that has no halftone. It is drawn rather
+   than shipped as an asset because a 4px SVG beats a tiling PNG request.
+
+   No ruled columns sit beside the artwork. */
+.cf::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='6'><rect width='1' height='1' fill='%23111312' opacity='.3'/><rect x='3' y='3' width='1' height='1' fill='%23111312' opacity='.3'/></svg>");
+  background-repeat: repeat;
+  background-position: 0 0;
+  background-size: 6px 6px;
+  /* The rules stop short of both seams: hard against the film's black edge
+     they read as a leak out of the video, and hard against the closing
+     surface they fight the wordmark. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 5%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 5%, #000 92%, transparent 100%);
+}
+
+/* The artwork, in daylight. `invert` turns the white-on-black dither into
+   black-on-white, and `multiply` then lets the white fall away so only the
+   dithered form darkens the paper — the alternative, a pre-inverted asset,
+   would be a second copy of a 500 KB image to keep in step with the first.
+
+   The ORB opens the section from the top-right corner and the LANDSCAPE lays a
+   horizon under its close. Order matters here: `background-position` pairs with
+   `background-image` index for index, so the orb has to be named first to be
+   the one that goes to the top.
+
+   Each is feathered by its own radial in the mask rather than trimmed by a
+   band across the section. A rectangular crop of a halftone ends on a hard
+   edge of dots, which is what made this read as a smudge behind the heading
+   instead of as a picture; a radial lets each subject stay whole and dissolve
+   into the paper, and it also keeps the ink off the two text columns rather
+   than merely under them. */
+.cf::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.19;
+  /* Set by the scroll layer (`landing-scroll`) so the two plates on this
+     pseudo-element drift a little slower than the page. `translate` rather
+     than `transform`, because nothing else here uses either and a bare
+     property cannot be clobbered by a rule that wants to rotate something. */
+  translate: 0 var(--cf-art-y, 0px);
+  filter: invert(1) grayscale(1);
+  mix-blend-mode: multiply;
+  background-image:
+    url("/charto-feature-orb.png"),
+    url("/charto-feature-landscape.png");
+  background-repeat: no-repeat, no-repeat;
+  /* The orb is a PLUME — a disc, the column under it, and the billow it rose
+     out of — and it only means that if all three are on the page. It used to
+     be hung twice as large and half off the right edge, with the feather
+     centred on the image's own right border rather than on the subject, which
+     left a disc cut in half above a line that stopped in mid-air: a lollipop.
+     Smaller and whole beats larger and cropped for a shape whose whole
+     argument is what happens underneath it.
+     Sized so the entire plume clears the sentence below it: at 560px the
+     artwork stands 373px tall and the last of the smoke dissolves above the
+     line, rather than laying a halftone under a 13px sentence. */
+  background-position: right -6px top -14px, center bottom -40px;
+  background-size: min(560px, 42vw) auto, min(1280px, 92vw) auto;
+  /* Anchored to the right edge and to the bottom in PIXELS, not per cent: the
+     section's height changes with every copy edit, and a percentage centre
+     would slide the feather off its own subject the moment a line wrapped.
+     The first centre sits on the PLUME's axis (about 250px in from the right,
+     not on the image's edge) and reaches far enough down to carry the smoke;
+     the second holds the landscape at the close. */
+  -webkit-mask-image:
+    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%),
+    radial-gradient(880px 340px at 48% calc(100% - 150px), #000 0%, rgba(0, 0, 0, 0.56) 48%, transparent 80%);
+  mask-image:
+    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%),
+    radial-gradient(880px 340px at 48% calc(100% - 150px), #000 0%, rgba(0, 0, 0, 0.56) 48%, transparent 80%);
+}
+
+/* The content rides above all three. */
+.cf > .pl-shell {
+  position: relative;
+  z-index: 1;
+}
+.cf .pl-heading {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+.cf .pl-heading h2 {
+  grid-column: 1;
+}
+.cf .pl-heading h2 em {
+  color: #858b87;
+}
+.cf .pl-heading > p {
+  grid-column: 2;
+}
+
+/* Rhythm. Generous spacing separates stories without visible divider rules. */
+.cf-story {
+  padding: 82px 0 90px;
+}
+.pl-heading + .cf-story {
+  padding-top: 4px;
+}
+
+/* ── the words ──────────────────────────────────────────────────────────── */
+
+.cf-copy {
+  min-width: 0;
+}
+.cf-copy h3 {
+  margin: 0 0 18px;
+  max-width: 15ch;
+  font: 400 clamp(31px, 3.5vw, 45px) / 1.03 Newsreader, Georgia, serif;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.cf-copy > p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #545b57;
+}
+
+/* ── 01 · copy beside the product, product larger ───────────────────────── */
+
+.cf-split {
+  display: grid;
+  grid-template-columns: minmax(0, 42fr) minmax(0, 58fr);
+  gap: clamp(30px, 4.4vw, 68px);
+  align-items: center;
+}
+/* 05 leads with the object and lets the words follow it. */
+.cf-split.rev {
+  grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+}
+
+.cf-visual {
+  min-width: 0;
+}
+/* A snippet is quoted at the width its content needs, not at the width of the
+   page. Only the demo above earns the full measure — it is a window, and a
+   window cropped narrower stops reading as one. */
+.cf-visual.snippet {
+  max-width: 880px;
+}
+
+/* ── 02 · the full-measure slots ────────────────────────────────────────── */
+
+/* The headline and its line stack on ONE left edge, the way every other slot
+   on this page sets them. They used to sit in two columns — the claim left,
+   the sentence floated out to the right half — which put the two halves of a
+   single sentence on two different alignments and left the reader crossing
+   400px of nothing between them. The panel still runs the whole measure
+   beneath; only the words changed. */
+.cf-wide .cf-copy {
+  margin-bottom: 34px;
+}
+.cf-wide .cf-copy h3 {
+  margin: 0 0 14px;
+  max-width: 16ch;
+  font-size: clamp(34px, 4.1vw, 54px);
+}
+.cf-wide .cf-copy > p {
+  max-width: 50ch;
+}
+.cf-structure .cf-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: clamp(32px, 6vw, 96px);
+  align-items: end;
+}
+.cf-structure .cf-copy h3 {
+  margin-bottom: 0;
+}
+.cf-structure .cf-copy > p {
+  justify-self: end;
+  text-align: right;
+}
+/* ── 03 + 04 · the pair ─────────────────────────────────────────────────── */
+
+/* Two rows declared on the PAIR and inherited by each article, so the copy
+   band is one height across both columns and the two panels start on the same
+   line. Without it a three-line headline beside a two-line one drops one panel
+   28px lower than the other, which reads as a mistake rather than as rhythm.
+   Where subgrid is unavailable the articles are still two-row grids and simply
+   fall back to their own natural heights. */
+.cf-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: clamp(28px, 3.6vw, 54px);
+  align-items: start;
+}
+.cf-pair > article {
+  min-width: 0;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  row-gap: 28px;
+}
+.cf-pair .cf-copy h3 {
+  max-width: 17ch;
+  font-size: clamp(25px, 2.4vw, 31px);
+}
+.cf-pair .cf-copy > p {
+  font-size: 13.5px;
+  max-width: 44ch;
+}
+/* Two panels on one line end on one line. Their tops already agreed — the
+   subgrid put them there — but a 4-row card beside a 6-row one stopped 60px
+   short, and two surfaces of the same kind ending at different depths reads as
+   a mistake rather than as content. The frame fills the row and its body takes
+   up the slack; nothing inside stretches to fill it, because a list that grew
+   its own rows to reach the bottom would be lying about how much it holds. */
+.cf-pair .cf-visual {
+  align-self: stretch;
+  display: flex;
+}
+.cf-pair .cf-visual > .cf-frame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.cf-pair .cf-visual > .cf-frame > .cf-frame-body {
+  flex: 1;
+}
+/* A flush body holds its own insets, so the slack goes to the LAST one — the
+   result — rather than opening a gap between the question and the answer. */
+.cf-pair .cf-visual > .cf-frame > .cf-frame-body.flush {
+  display: flex;
+  flex-direction: column;
+}
+.cf-pair .cf-visual > .cf-frame > .cf-frame-body.flush > .cf-inset:last-child {
+  flex: 1;
+}
+/* The second pair is deliberately not a mirror of the first: a six-tile metric
+   grid needs the wider half, an alert row does not, and an identical 50/50
+   twice in one section is where a reader starts skimming. */
+.cf-pair.uneven {
+  grid-template-columns: minmax(0, 54fr) minmax(0, 46fr);
+}
+
+/* ── 02 + 05 · the figure rows ──────────────────────────────────────────── */
+
+/* Two claims are drawn rather than quoted, for the reason set out in
+   `FeaturesSection`: a workspace shrunk into a card argues against itself, and
+   a journal shown as three panes is three surfaces, which is the thing the
+   feature is against.
+
+   The row is HAIRLINES ONLY — three columns divided, never three boxes. A
+   border around each would make three cards out of one claim, and this page
+   already has real product frames in it; a decorative frame beside a real one
+   is how a reader learns to stop trusting both. */
+
+.cf-figs .cf-copy {
+  margin-bottom: 0;
+}
+.cf-fig-row {
+  margin-top: clamp(36px, 4vw, 56px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cf-fig {
+  min-width: 0;
+  padding-right: clamp(18px, 2.6vw, 40px);
+}
+.cf-fig + .cf-fig {
+  border-left: 1px solid var(--line);
+  padding-left: clamp(22px, 2.8vw, 44px);
+}
+/* The drawing is centred in its column while the words under it are not: the
+   figure is the column's subject and the sentence is its caption. It is also
+   the one place on this page where something is centred, which is what keeps a
+   row of three from reading as three more list items. */
+.cf-fig-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 176px;
+  margin-bottom: 26px;
+}
+.cf-fig h4 {
+  margin: 0 0 9px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.cf-fig p {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #545b57;
+}
+
+/* The art itself is `.tile-art` from the app, at landing size.
+
+   Stroke weight is set ONCE here, exactly as it is upstream, so no drawing can
+   drift heavier than the two beside it. The app draws these at 52px with a
+   1.55 stroke — about 2px on screen — and the same 1.55 at 72px would be a 2.8
+   px line, which is a different family. The numbers below hold the RENDERED
+   weight near the app's own while the drawing gets bigger, and keep the
+   accent's ratio to it (the app's 1.15 against 1.55) intact.
+
+   Colour follows the app's light theme: the ink lifted off body-text weight
+   toward the surface behind it — here the page's cream rather than the app's
+   white — so the drawings sit between the label and the paper instead of on
+   top of both. */
+.cf-tile {
+  width: 132px;
+  height: 132px;
+  display: block;
+  color: color-mix(in srgb, #4d555c 74%, var(--paper));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.62;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* One accent per drawing, and it is what the drawing is about. The mix is the
+   app's own light-mode formula: charto's blue pulled toward a saturated deep
+   teal, which keeps the colour without letting a mid-teal wash out on paper. */
+.cf-tile .a {
+  stroke: color-mix(in srgb, var(--cyan) 62%, #003347);
+  stroke-width: 0.46;
+}
+.cf-tile .af {
+  fill: color-mix(in srgb, var(--cyan) 62%, #003347);
+}
+/* The one drawing whose two colours are its meaning rather than its
+   decoration: a target and a stop are the two outcomes. */
+.cf-tile .up {
+  stroke: #089981;
+}
+.cf-tile .down {
+  stroke: #f23645;
+}
+
+
+
+/* ── two more plates, hung off their own stories ─────────────────────────── */
+
+/* The section opens with the plume and closes on the horizon, and between them
+   runs 2,700px carrying nothing but grain. These two fill that middle.
+
+   They are attached to their STORIES rather than to the section, and that is
+   the whole reason they are elements and not two more layers on `.cf::after`.
+   A third background on the section would need an offset from the section's
+   top, and the section's top is 800px away from where the plate has to sit —
+   one copy edit, one wider viewport, one extra line of wrapped text, and the
+   artwork is sitting on a headline. Anchored to the story, each plate moves
+   with the thing it was placed beside.
+
+   The daylight trick is different here too, and it has to be: `.cf::after`
+   inverts the white-on-black source and multiplies it into the paper, which
+   needs the section's own blending group. These sit inside `.pl-shell`, which
+   is a stacking context of its own, and a multiply there blends against
+   nothing and leaves a white block. So the artwork is used as a LUMINANCE MASK
+   over a plate of ink instead: white in the source lets the ink through, black
+   holds it back, and the radial in the second mask layer feathers the edge.
+   Same picture, same weight, no blending group required.
+
+   Gated on `mask-mode` support: without it the first mask layer would fall
+   back to reading the PNG's alpha — which is opaque everywhere — and paint a
+   solid rectangle. Better no plate than that. */
+@supports (mask-mode: luminance) and (mask-composite: intersect) {
+  .cf-plate {
+    position: relative;
+  }
+  .cf-plate::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+    aspect-ratio: 1080 / 720;
+    background-color: #15181a;
+    opacity: 0.32;
+    /* Same slow track as the section's own plates, one trigger per story. */
+    translate: 0 var(--cf-plate-y, 0px);
+    mask-mode: luminance, alpha;
+    mask-repeat: no-repeat, no-repeat;
+    mask-composite: intersect;
+  }
+
+  /* The ringed planet from the hero, brought into daylight. It is the same
+     plate the page opens on, 3,000px and one inversion away — a rhyme rather
+     than a repeat, and the only other object on this page big enough to hold
+     the right half of a headline band on its own. Hung in the clear rectangle
+     between the demo above and the figures below: measured, at 1440, as
+     x 620-1440 by y 768-1147. */
+  .cf-plate-orbit::before {
+    top: -120px;
+    right: -30px;
+    width: min(640px, 48vw);
+    mask-image:
+      url("/pivot-dither-hero.png"),
+      radial-gradient(58% 52% at 44% 58%, #000 0%, rgba(0, 0, 0, 0.72) 46%, transparent 80%);
+    mask-size: 100% 100%, cover;
+  }
+
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE PRODUCT SURFACE — charto's light theme, quoted into the page.
+   Token values are `:root[data-theme="light"]` from `charto/preview/index.html`.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* The product's light theme, declared once for every surface that quotes it —
+   the panel frames and the demo window both. A second copy of this list is a
+   second product. */
+.cf-frame,
+.cfd {
+  --cfp-bg: #ffffff;
+  --cfp-card: #fbfbfc;
+  --cfp-fg: #0d0d0e;
+  --cfp-muted: #f5f5f5;
+  --cfp-muted-fg: #4d555c;
+  --cfp-faint: #6b7280;
+  --cfp-border: #e6e6e6;
+  --cfp-border-soft: #ececee;
+  --cfp-primary: #219ebc;
+  --cfp-up: #089981;
+  --cfp-down: #f23645;
+  --cfp-up-soft: rgba(8, 153, 129, 0.12);
+  --cfp-down-soft: rgba(242, 54, 69, 0.12);
+  --cfp-ann-res: #b45309;
+  --cfp-ann-sup: #0e7490;
+}
+
+.cf-frame {
+  overflow: hidden;
+  /* Chrome quoted from the app rather than invented for the page: `--radius-md`
+     (12px), `--border` (#e6e6e6) darkened a hair to hold its edge against cream
+     instead of white, and the elevation the product's own menus use. The 26px
+     drop shadow this replaced was a marketing card's — a soft cushion under a
+     picture of a UI. Two tight stages read as a surface with a real edge, which
+     is what the rest of the panel is trying to be. */
+  border: 1px solid #e0e0e3;
+  border-radius: 12px;
+  background: var(--cfp-bg);
+  box-shadow:
+    0 1px 2px rgba(15, 18, 22, 0.05),
+    0 10px 28px -14px rgba(15, 18, 22, 0.22);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12.5px;
+  color: var(--cfp-fg);
+  -webkit-font-smoothing: antialiased;
+}
+/* `.side-head` — every panel head in the app is TradingView's 38px toolbar
+   row: what this list is on the left, what qualifies it on the right. 44 was
+   padding pretending to be chrome. The hairline under it is the app's border,
+   not a soft divider: this is the seam between the head and the surface, and
+   it should look like one. */
+.cf-frame-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--cfp-border);
+  background: var(--cfp-card);
+}
+.cf-frame-body {
+  padding: 14px;
+}
+.cf-frame-body.flush {
+  padding: 0;
+}
+/* Panes inside a flush body get the inset back where their content needs it. */
+.cf-inset {
+  padding: 13px 14px;
+}
+
+/* The chart pane's instrument line — the product's `.readout`. */
+.cf-readout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.cf-readout i {
+  font-style: normal;
+  color: #c3c7ca;
+}
+.cf-readout em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--cfp-faint);
+}
+.cf-logo {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: #101211;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+/* The right half of the head — what qualifies the list: how many rungs were
+   measured, what the screen was scored on, which fiscal year the tiles are.
+   This is where the footers went. It is the same information, moved to the
+   place the app keeps it, and it costs a row of chrome instead of a bar. */
+.cf-head-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--cfp-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* `.side-title`: the name of the thing, at reading weight. A pane is titled
+   with WHAT IT IS — "Timeframes", "Screener", "Journal" — never with a
+   sentence about why it is interesting. The sentence is the section's job,
+   and it is already sitting above the pane in Newsreader. */
+.cf-panel-title {
+  margin-right: auto;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The thread's user turn: quiet, right-weighted, on `--muted`. */
+.cf-ask {
+  margin-bottom: 15px;
+}
+/* Above a chart this is the thread rail, and it was reading as dead space: a
+   bubble floating in white, with the candles starting at no particular line.
+   The card fill and a hairline give the canvas an edge to begin at — the same
+   division the app draws between the conversation and the chart. */
+.cf-inset.cf-ask {
+  margin-bottom: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cfp-border);
+  background: var(--cfp-card);
+}
+.cf-asked {
+  margin: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+.cf-asked > span {
+  max-width: 92%;
+  border-radius: 12px;
+  background: var(--cfp-muted);
+  padding: 9px 13px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cfp-fg);
+}
+
+/* ── the card grammar: stats, sections, bars ────────────────────────────── */
+
+.cf-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 12px 10px;
+}
+.cf-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cf-stat .k {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cfp-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cf-stat .v {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.cf-stat .v.up {
+  color: var(--cfp-up);
+}
+.cf-stat .v.down {
+  color: var(--cfp-down);
+}
+.cf-stat .q {
+  font-size: 11px;
+  color: var(--cfp-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-sec {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cfp-border-soft);
+}
+.cf-sec h4 {
+  margin: 0 0 9px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cf-sec h4 .n {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--cfp-faint);
+}
+
+/* The panel's one chart primitive. Label and value share the line ABOVE the
+   track so every bar starts at the same x and the lengths are comparable. */
+.cf-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.cf-bar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 10px;
+}
+.cf-bar .lb {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cfp-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-bar .num {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cf-bar .track {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--cfp-muted);
+}
+.cf-bar .fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  min-width: 2px;
+  border-radius: inherit;
+}
+.cf-bar .fill.s1 {
+  background: var(--cfp-primary);
+}
+.cf-bar .fill.s2 {
+  background: var(--cfp-ann-res);
+}
+/* The residual is the quietest bar in the group by design — it is the part
+   nothing explains, not a competitor to the two above it. */
+.cf-bar .fill.flat {
+  background: var(--cfp-faint);
+}
+
+/* ── 01 · the level list ────────────────────────────────────────────────── */
+
+.cf-levels {
+  display: flex;
+  flex-direction: column;
+}
+.cf-level {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 11px 0 11px 14px;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cf-level:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+/* The role thread — the same two colours the bands wear on the candles, so a
+   row and its drawing are visibly one object. A level with no role gets the
+   quiet grey rather than a colour it has not earned. */
+.cf-level::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: #d3d7da;
+}
+.cf-level.resistance::after {
+  background: var(--cfp-ann-res);
+}
+.cf-level.support::after {
+  background: var(--cfp-ann-sup);
+}
+/* Placed explicitly rather than left to auto-flow: an item with a definite
+   row is placed BEFORE a fully-auto one, so the badge would otherwise take
+   column 1 and push the price — the row's subject — out to the right edge. */
+.cf-level .px {
+  grid-area: 1 / 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.cf-level .badge {
+  grid-area: 1 / 2;
+  justify-self: end;
+  align-self: center;
+  border-radius: 9999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--cfp-muted);
+  color: var(--cfp-muted-fg);
+}
+.cf-level .badge.good {
+  background: var(--cfp-up-soft);
+  color: var(--cfp-up);
+}
+.cf-level .badge.bad {
+  background: var(--cfp-down-soft);
+  color: var(--cfp-down);
+}
+.cf-level .src {
+  grid-column: 1;
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+}
+.cf-level .rec {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 11.5px;
+  color: var(--cfp-faint);
+  white-space: nowrap;
+}
+.cf-level .rec i {
+  font-style: normal;
+  margin: 0 5px;
+  color: #c3c7ca;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE DEMO SURFACE — one cropped window of the application.
+
+   Not a card with a chart in it. The app's own shape is
+   `header → main[ stage | splitter | chatpanel ]`, so this is a toolbar over a
+   two-column body, and the conversation is a COLUMN beside the chart rather
+   than a bubble floating on top of one. Proportions follow the product at its
+   narrow end (chart ~76%, chat ~24%) — the real panel is resizable and starts
+   wider, but a landing page is showing you a chart, not a thread.
+
+   Every value below is quoted from `charto/preview/index.html`: 30px controls,
+   1px `--border` seams, `--text-md` for UI and `--text-sm` for the readout,
+   `--radius-pill` on the symbol, `--radius-md` on a user bubble. Nothing here
+   invents a second design language for the page.
+
+   HEIGHT IS THE POINT. The whole surface is ~340px: a cropped piece of an
+   application at an application's density, not a screenshot of a full window
+   scaled down until its type goes soft.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.cfd {
+  --cfd-h: 300px;
+  overflow: hidden;
+  border: 1px solid #e0e0e3;
+  border-radius: 12px;
+  background: var(--cfp-bg);
+  box-shadow:
+    0 1px 2px rgba(15, 18, 22, 0.05),
+    0 10px 28px -14px rgba(15, 18, 22, 0.22);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--cfp-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── toolbar ────────────────────────────────────────────────────────────── */
+
+/* 38px, and sparse. The app's header carries eight more controls than this;
+   what is kept is what gives the chart its context — which instrument, which
+   interval — plus the one control that puts things ON it. Nothing is added to
+   fill the row: the empty middle is the product's too. */
+.cfd-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--cfp-border);
+  background: var(--cfp-card);
+}
+.cfd-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 9999px;
+  background: var(--cfp-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.cfd-symbol-mark {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #111312;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+}
+/* `.symbol .ex` — the venue is a micro-label, not part of the ticker. */
+.cfd-symbol em {
+  font-style: normal;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cfp-faint);
+}
+.cfd-vsep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--cfp-border);
+}
+/* `.iv-pill` — one slot for the timeframe, the current one as a word. */
+.cfd-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+/* `.btn` — ghost by default, which is what the header's controls are. */
+.cfd-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--cfp-fg);
+  white-space: nowrap;
+}
+.cfd-btn.quiet {
+  background: var(--cfp-muted);
+  color: var(--cfp-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cfd-grow {
+  flex: 1;
+}
+
+/* ── body: the stage beside the conversation ────────────────────────────── */
+
+.cfd-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+}
+.cfd-stage {
+  position: relative;
+  height: var(--cfd-h);
+  min-width: 0;
+}
+
+/* `.readout` — the app's legend, over the top-left of the pane rather than in
+   the toolbar: what the bar under the crosshair did. Inert, and bounded short
+   of the price axis the way the real one is. */
+.cfd-readout {
+  position: absolute;
+  z-index: 5;
+  top: 9px;
+  left: 12px;
+  right: 76px;
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--cfp-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.cfd-ro-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--cfp-fg);
+}
+.cfd-ro-title .cfd-symbol-mark {
+  width: 16px;
+  height: 16px;
+}
+.cfd-ro-title .iv {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  line-height: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cfp-muted-fg);
+}
+.cfd-ro-title .ex {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cfp-faint);
+}
+.cfd-ro-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 9px;
+  margin-top: 1px;
+}
+.cfd-ro-row i {
+  font-style: normal;
+  margin-right: 3px;
+  color: var(--cfp-faint);
+}
+.cfd-ro-row b {
+  font-weight: 500;
+}
+.cfd-ro-row .up {
+  color: var(--cfp-up);
+}
+.cfd-ro-row .dn {
+  color: var(--cfp-down);
+}
+
+/* ── the conversation ───────────────────────────────────────────────────── */
+
+/* `.chatpanel` — a column with its own left seam, the thread above and the
+   composer pinned under it. The seam is the app's 1px border, not a shadow:
+   two panes of one window meet on a line. */
+.cfd-chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: var(--cfd-h);
+  border-left: 1px solid var(--cfp-border);
+  background: var(--cfp-bg);
+}
+.cfd-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 13px 14px 6px;
+  overflow: hidden;
+}
+/* `.turn.user .bubble` — right-aligned, on `--muted`, `--radius-md`. */
+.cfd-turn.user {
+  display: flex;
+  justify-content: flex-end;
+}
+.cfd-bubble {
+  max-width: 92%;
+  border-radius: 12px;
+  padding: 9px 13px;
+  background: var(--cfp-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cfp-fg);
+}
+/* The assistant turn gets NO container. That is the app's decision, not a
+   simplification for the page: a reply is prose at full measure, and putting
+   it in a bubble opposite the question turns an answer into a chat message. */
+.cfd-turn.assistant p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--cfp-fg);
+}
+
+/* `createWait()` — three bars, a seconds counter, then one row per step on a
+   connector line. The live row shimmers; the ones above it have landed. */
+.cfd-wait-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+}
+.cfd-ticker {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.cfd-ticker i {
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  border-radius: 1.5px;
+  background: var(--cfp-muted-fg);
+  transform-origin: bottom;
+}
+.cfd-ticker i:nth-child(1) {
+  animation: cfd-bar1 1.05s ease-in-out infinite;
+}
+.cfd-ticker i:nth-child(2) {
+  animation: cfd-bar2 1.25s ease-in-out infinite 0.08s;
+}
+.cfd-ticker i:nth-child(3) {
+  animation: cfd-bar3 0.95s ease-in-out infinite 0.18s;
+}
+@keyframes cfd-bar1 {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+@keyframes cfd-bar2 {
+  0%, 100% { transform: scaleY(1); }
+  30% { transform: scaleY(0.55); }
+  70% { transform: scaleY(0.4); }
+}
+@keyframes cfd-bar3 {
+  0%, 100% { transform: scaleY(0.4); }
+  40% { transform: scaleY(0.8); }
+  80% { transform: scaleY(1); }
+}
+.cfd-secs {
+  font-variant-numeric: tabular-nums;
+}
+.cfd-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.cfd-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+}
+.cfd-step .dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cfp-muted-fg) 65%, var(--cfp-bg));
+}
+/* every row but the first draws the connector ABOVE its own dot */
+.cfd-step + .cfd-step::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -11px;
+  width: 1px;
+  height: 18px;
+  background: var(--cfp-border);
+}
+.cfd-step .lbl {
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
+  color: var(--cfp-faint);
+}
+.cfd-step .lbl b {
+  font-weight: 550;
+}
+/* Grey letters with a LIGHTER band sweeping through, never a white flash. */
+.cfd-step .lbl.live {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--cfp-faint) 0%,
+    var(--cfp-faint) 40%,
+    color-mix(in srgb, var(--cfp-faint) 25%, var(--cfp-bg)) 50%,
+    var(--cfp-faint) 60%,
+    var(--cfp-faint) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: cfd-shimmer 2.4s linear infinite;
+}
+@keyframes cfd-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* `.composer` — present because the surface would be lying without it: this is
+   the place you ask, and the whole feature is that you can. Inert. */
+.cfd-composer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 12px;
+  padding: 7px 7px 7px 12px;
+  border: 1px solid var(--cfp-border);
+  border-radius: 14px;
+  background: var(--cfp-card);
+}
+.cfd-composer .ph {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--cfp-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfd-composer .send {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--cfp-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.cfd-composer .send svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfd-ticker i,
+  .cfd-step .lbl.live {
+    animation: none;
+  }
+  .cfd-step .lbl.live {
+    color: var(--cfp-faint);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* ── 01 · the chart and the zones drawn on it ───────────────────────────── */
+
+.cf-chart {
+  position: relative;
+  width: 100%;
+}
+.cf-chart-ann {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Above the chart. lightweight-charts gives its own canvases `z-index: 1`
+     and `2`, which lifts them over a later sibling at `auto` — so an overlay
+     without this is painted, correctly positioned, and completely hidden
+     under an opaque canvas. `film-chart`'s overlay carries the same 3. */
+  z-index: 3;
+}
+
+/* A zone, transcribed from `scene.js` (`kind: "zone"`) rather than styled to
+   taste. Three decisions there, all of them load-bearing:
+
+     · the fill FADES TOWARD THE MIDDLE — `rgba(col,.24)` at both edges,
+       `.08` at the centre — so the edges stay the assertion and the interior
+       reads as "somewhere in here". A flat tint says the whole band is the
+       level, which is the opposite of what a clustered zone means;
+     · the edges are SOLID, because a zone is bounded — the app keeps dashes
+       for `kind: "level"`, a single line, and two shapes should not share a
+       stroke;
+     · no filled badge. See `.cf-chip`.
+
+   Opacity is left to GSAP: `feature-demo` opens each band from its own middle
+   as the answer arrives, and a CSS transition on the same property would race
+   the timeline. */
+.cf-band {
+  position: absolute;
+  left: 0;
+  /* Hidden until the turn draws them. The overlay is client-only — it cannot
+     exist before the chart has published a price→pixel map — so nothing is
+     ever hidden from a reader who has no script running. */
+  opacity: 0;
+}
+.cf-chip {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cf-band,
+  .cf-chip {
+    opacity: 1;
+  }
+}
+.cf-band.resistance {
+  background: linear-gradient(
+    180deg,
+    rgba(180, 83, 9, 0.24),
+    rgba(180, 83, 9, 0.08) 50%,
+    rgba(180, 83, 9, 0.24)
+  );
+  border-top: 1px solid rgba(180, 83, 9, 0.62);
+  border-bottom: 1px solid rgba(180, 83, 9, 0.62);
+}
+.cf-band.support {
+  background: linear-gradient(
+    180deg,
+    rgba(14, 116, 144, 0.24),
+    rgba(14, 116, 144, 0.08) 50%,
+    rgba(14, 116, 144, 0.24)
+  );
+  border-top: 1px solid rgba(14, 116, 144, 0.58);
+  border-bottom: 1px solid rgba(14, 116, 144, 0.58);
+}
+
+/* The label — `.scene-chip`, which is the app's whole treatment: quiet
+   coloured text at the RIGHT edge of the drawing, 11.5px, tabular figures, on
+   nothing. The landing page used to print RESISTANCE and SUPPORT in filled
+   white-on-orange badges at the left, which is a legend for a diagram. The
+   product prints the FINDING — `R 2,491.00 · held 3/4` — because the number
+   and its record are the reason the band is there at all. */
+.cf-chip {
+  position: absolute;
+  display: inline-block;
+  z-index: 1;
+  margin-right: 8px;
+  padding-top: 2px;
+  font-style: normal;
+  font-size: 11.5px;
+  line-height: 16px;
+  letter-spacing: -0.005em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* `.scene-chip.over-chart`: these labels always sit over candles here, so the
+   app's occlusion wash is always on. PADDING CANCELLED BY MARGIN — the chip is
+   anchored by `top`/`right`, so padding alone would slide the text off the
+   edge it is naming. */
+.cf-chip::before {
+  content: "";
+  position: absolute;
+  inset: 1px -4px 1px -4px;
+  z-index: -1;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cfp-bg) 82%, transparent);
+}
+.cf-chip.resistance {
+  color: var(--cfp-ann-res);
+}
+.cf-chip.support {
+  color: var(--cfp-ann-sup);
+}
+
+/* ── 02 · the verdict ───────────────────────────────────────────────────── */
+
+.cf-verdict {
+  margin: 0 0 7px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.cf-verdict-note {
+  margin: 0;
+  max-width: 66ch;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--cfp-muted-fg);
+}
+.cf-context {
+  list-style: none;
+  margin: 13px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+.cf-context li {
+  position: relative;
+  padding-left: 15px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--cfp-muted-fg);
+}
+.cf-context li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c3c7ca;
+}
+/* On a wide frame the move card reads as three columns, which is how the
+   panel is laid out beside a reply in the app's wider pane. */
+@media (min-width: 900px) {
+  .cf-move {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 1.15fr);
+    gap: 0 30px;
+  }
+  .cf-move > .cf-stats {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .cf-move > .cf-sec {
+    margin-top: 0;
+    padding: 0 0 0 30px;
+    border-top: 0;
+    border-left: 1px solid var(--cfp-border-soft);
+  }
+}
+
+/* ── 03 · the timeframe rungs ───────────────────────────────────────────── */
+
+/* `.scan-reads` / `.scan-read`, at the app's own density: 8px 11px in an 8px
+   radius, 6px apart. They had been fattened to 13px to make the column reach
+   the one beside it, which turned a list of readings into a stack of pastel
+   pills — the exact thing that made these read as marketing rather than as a
+   pane. The ladder fills the height by having all six of its rungs instead. */
+.cf-rungs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cf-read {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--cfp-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cf-read.up {
+  background: var(--cfp-up-soft);
+}
+.cf-read.down {
+  background: var(--cfp-down-soft);
+}
+.cf-read .nm {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cf-read.up .nm {
+  color: var(--cfp-up);
+}
+.cf-read.down .nm {
+  color: var(--cfp-down);
+}
+.cf-read .nt {
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--cfp-muted-fg);
+  overflow-wrap: anywhere;
+}
+.cf-read .num {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* ── 04 · the screen ────────────────────────────────────────────────────── */
+
+.cf-rows {
+  display: flex;
+  flex-direction: column;
+}
+.cf-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cf-row:first-child {
+  border-top: 0;
+}
+.cf-row .what {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cf-row .when {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-row .num {
+  flex: none;
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* ── 05 · the alert row ─────────────────────────────────────────────────── */
+
+.cf-al-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: start;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--cfp-muted);
+}
+/* Deliberately not red/green: on this screen those mean "the last bar closed
+   up / down". An armed alert has no direction, so it borrows the accent. */
+.cf-al-row .dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--cfp-primary);
+}
+.cf-al-row .sym {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.cf-al-row .sym em {
+  font-style: normal;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--cfp-faint);
+}
+.cf-al-row .cond {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--cfp-muted-fg);
+}
+.cf-al-row .cond b {
+  font-weight: 500;
+  color: var(--cfp-fg);
+  font-variant-numeric: tabular-nums;
+}
+.cf-al-row .cond .and {
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cfp-faint);
+}
+.cf-al-row .meta {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--cfp-faint);
+}
+.cf-al-row .state {
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #16758a;
+  white-space: nowrap;
+}
+.cf-al-note {
+  margin: 11px 0 0;
+  font-size: 11.5px;
+  color: var(--cfp-faint);
+}
+.cf-reading {
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--cfp-muted-fg);
+}
+
+/* ── 06 · plan, journal, memory ─────────────────────────────────────────── */
+
+.cf-plan-rows {
+  display: flex;
+  flex-direction: column;
+}
+.cf-plan-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cf-plan-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cf-plan-row .k {
+  order: 1;
+  font-size: 12px;
+  color: var(--cfp-muted-fg);
+}
+.cf-plan-row .q {
+  order: 2;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--cfp-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-plan-row .v {
+  order: 3;
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.cf-plan-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 13px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--cfp-border-soft);
+}
+.cf-plan-foot b {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.cf-plan-foot span {
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+}
+.cf-plan-basis {
+  margin: 9px 0 0;
+  font-size: 11px;
+  color: var(--cfp-faint);
+}
+.cf-journal-foot {
+  margin: 14px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+}
+.cf-journal-last {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 11px 0 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cf-journal-last i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--cfp-faint);
+}
+.cf-journal-last b {
+  margin-left: auto;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--cfp-up);
+}
+.cf-recalls {
+  display: flex;
+  flex-direction: column;
+}
+.cf-recall {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 11px 0;
+  border-top: 1px solid var(--cfp-border-soft);
+}
+.cf-recall:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cf-recall .when {
+  flex: none;
+  padding-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cfp-faint);
+}
+.cf-recall p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--cfp-muted-fg);
+}
+
+/* ── 01 · what the three passes found ───────────────────────────────────── */
+
+/* Three detectors, three chips, above the level list. They are separate passes
+   over the same bars — levels cluster pivots, patterns fit geometry, the value
+   area is volume — and a reader who takes them for one detector's output would
+   trust a pattern as much as a level with a touch record behind it. The label
+   wears the pass's own colour; the value stays neutral. */
+.cf-dets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 13px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--cfp-border-soft);
+}
+.cf-det {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  border: 1px solid var(--cfp-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--cfp-card);
+  font-size: 11px;
+  color: var(--cfp-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.cf-det b {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cf-det.res b {
+  color: var(--cfp-ann-res);
+}
+.cf-det.sup b {
+  color: var(--cfp-ann-sup);
+}
+.cf-det.flat b {
+  color: var(--cfp-faint);
+}
+
+/* ── 02 · the workspace ─────────────────────────────────────────────────── */
+
+/* Three bands, in the order the claim makes them: the layout you chose, the
+   panes it holds, the indicators on them. */
+
+.cf-ws-lays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--cfp-border-soft);
+}
+.cf-ws-lay {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--cfp-border);
+  border-radius: 7px;
+  padding: 4px 9px;
+  background: var(--cfp-card);
+  font-size: 11px;
+  color: var(--cfp-faint);
+  white-space: nowrap;
+}
+.cf-ws-lay.on {
+  border-color: rgba(33, 158, 188, 0.4);
+  background: rgba(33, 158, 188, 0.08);
+  color: var(--cfp-fg);
+}
+/* The glyph is GENERATED from the same area rows the app's layout carries, so
+   it cannot drift from the layout it names. Cells take their colour from the
+   chip, which is what makes the active one read as selected. */
+.cf-ws-glyph {
+  display: grid;
+  width: 16px;
+  height: 12px;
+  gap: 1.5px;
+}
+.cf-ws-glyph span {
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.4;
+}
+.cf-ws-lay.on .cf-ws-glyph span {
+  opacity: 0.75;
+}
+
+.cf-ws-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 13px 0;
+}
+.cf-ws-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--cfp-border-soft);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: var(--cfp-card);
+}
+/* Only the main pane carries a drawing layer — `open_chart` says so in as many
+   words — so it is the only one the eye is told apart. */
+.cf-ws-pane.main {
+  border-color: rgba(33, 158, 188, 0.38);
+  background: rgba(33, 158, 188, 0.05);
+}
+.cf-ws-pane .hd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cf-ws-pane .hd b {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cf-ws-pane .hd i {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--cfp-faint);
+}
+.cf-ws-pane .ft {
+  font-size: 10.5px;
+  color: var(--cfp-faint);
+}
+/* Taller than a table sparkline because this slot is the full measure: at
+   26px in a 590px pane the path flattened into a rule. */
+.cf-ws-spark {
+  display: block;
+  width: 100%;
+  height: 38px;
+}
+.cf-ws-spark polyline {
+  stroke: var(--cfp-up);
+}
+.cf-ws-spark.down polyline {
+  stroke: var(--cfp-down);
+}
+
+.cf-ws-inds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 13px;
+  border-top: 1px solid var(--cfp-border-soft);
+}
+.cf-ws-inds code {
+  border: 1px solid var(--cfp-border);
+  border-radius: 5px;
+  padding: 3px 7px;
+  background: var(--cfp-card);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--cfp-muted-fg);
+}
+
+/* ── 06 · the company page's numbers ────────────────────────────────────── */
+
+.cf-fun-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.cf-fun-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: var(--cfp-muted);
+}
+.cf-fun-tile .k {
+  font-size: 10.5px;
+  color: var(--cfp-faint);
+}
+.cf-fun-tile .v {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+/* Statement rows: label left, three fiscal years right, on one track set so a
+   column of figures lines up on its digits rather than on its width. */
+.cf-fun-rows {
+  display: flex;
+  flex-direction: column;
+}
+.cf-fun-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(56px, auto));
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--cfp-border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cf-fun-row .k {
+  font-size: 11.5px;
+  color: var(--cfp-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-fun-row b {
+  justify-self: end;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.cf-fun-row.head {
+  border-top: 0;
+  padding-top: 0;
+}
+.cf-fun-row.head b {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cfp-faint);
+}
+
+/* ── 08 · sentence, then operation ──────────────────────────────────────── */
+
+/* Two lines per entry rather than two columns: the sentence is the user's and
+   the line under it is the machine's, and stacking them keeps that authorship
+   legible at any width. The tool name is set in mono for the same reason it is
+   in the foot of every frame — it is a thing you could look up. */
+.cf-ops {
+  display: flex;
+  flex-direction: column;
+}
+.cf-op {
+  padding: 11px 0;
+  border-top: 1px solid var(--cfp-border-soft);
+}
+.cf-op:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cf-op .said {
+  display: inline-block;
+  border-radius: 10px;
+  background: var(--cfp-muted);
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--cfp-fg);
+}
+.cf-op .did {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 7px;
+  padding-left: 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--cfp-faint);
+}
+.cf-op .did code {
+  flex: none;
+  border: 1px solid var(--cfp-border);
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: var(--cfp-card);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--cfp-muted-fg);
+}
+
+/* ── the demo, narrower ─────────────────────────────────────────────────────
+   Not a scaled-down window. The chart is CROPPED — it keeps its type sizes and
+   loses bars — and the conversation moves under it rather than shrinking to a
+   column too narrow to hold a sentence. What goes is what the app itself drops
+   first on a phone: the controls that ADD to the chart, and the OHLC figures
+   the price axis already carries. What stays is the question, the zones it
+   drew, and the answer. */
+
+@media (max-width: 1000px) {
+  .cfd {
+    --cfd-h: 268px;
+  }
+  .cfd-main {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
+@media (max-width: 760px) {
+  .cfd {
+    --cfd-h: 230px;
+  }
+  /* The conversation goes UNDER the chart, which is where the app puts it on a
+     phone too — the split is horizontal or it is nothing. */
+  .cfd-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cfd-chat {
+    height: auto;
+    border-left: 0;
+    border-top: 1px solid var(--cfp-border);
+  }
+  .cfd-thread {
+    gap: 10px;
+    padding: 12px 12px 4px;
+  }
+  .cfd-composer {
+    margin: 0 12px 12px;
+  }
+  /* `Indicators` and its separator: a control that adds to the chart, and the
+     first thing the app's own phone layout stops showing. */
+  .cfd-bar .cfd-btn:not(.quiet),
+  .cfd-bar .cfd-vsep:nth-of-type(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .cfd {
+    --cfd-h: 210px;
+  }
+  /* Open, high and low are on the axis behind them at this width, and the
+     change in rupees says what the percentage already said. The close and the
+     percentage are the two the legend is actually read for — and the shorter
+     row also stops the legend running into the resistance label beneath it. */
+  .cfd-ro-row span:nth-child(-n + 3),
+  .cfd-ro-row .chg.abs {
+    display: none;
+  }
+  .cfd-readout {
+    right: 60px;
+  }
+  .cfd-bubble,
+  .cfd-turn.assistant p,
+  .cfd-composer .ph {
+    font-size: 12.5px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — purposeful crops, never a shrunk desktop.
+
+   The frames stay at their own type sizes and simply get the full width; what
+   goes is the side-by-side, not the legibility. Rows that closed hard against
+   a right edge move under their own label rather than being ellipsised into
+   uselessness.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1080px) {
+  .cf .pl-heading {
+    grid-template-columns: 1fr;
+  }
+  .cf .pl-heading h2,
+  .cf .pl-heading > p {
+    grid-column: 1;
+  }
+  .cf-split,
+  .cf-split.rev {
+    grid-template-columns: 1fr;
+    gap: 34px;
+  }
+  /* The words lead on a stacked page, whichever side they were on. */
+  .cf-split.rev .cf-copy {
+    order: -1;
+  }
+  .cf-wide .cf-copy {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .cf-wide .cf-copy h3,
+  .cf-wide .cf-copy > p {
+    grid-column: 1;
+    grid-row: auto;
+    padding-bottom: 0;
+  }
+  .cf-structure .cf-copy > p {
+    justify-self: start;
+    text-align: left;
+  }
+  .cf-pair {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    gap: 64px;
+  }
+  .cf-pair > article {
+    display: block;
+  }
+  .cf-pair .cf-visual {
+    margin-top: 28px;
+  }
+  /* The figure rows keep their three columns here — a 240px column still
+     holds a drawing and four lines — and only tighten. They stack at 640,
+     where three of them would be 110px wide. */
+  .cf-fig-art {
+    min-height: 132px;
+  }
+  .cf-tile {
+    width: 104px;
+    height: 104px;
+    stroke-width: 0.8;
+  }
+  .cf-tile .a {
+    stroke-width: 0.6;
+  }
+  .cf-pair.uneven {
+    grid-template-columns: 1fr;
+  }
+  .cf-story {
+    padding: 64px 0 70px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Phone: the plume is the same drawing, moved rather than cropped. There is
+     no empty column beside the headline here — it runs the full measure — but
+     there IS a clean rectangle under it, right of "Find the structure" and
+     above the sentence, and the whole plume fits in it at 140px. Measured, not
+     guessed: the headline ends at 174, the short heading beside it stops at
+     x 212, and the demo starts at 322.
+     What this replaces cut the stem with the mask to stay clear of the type
+     and left a disc with a line hanging off it, which is not a picture of
+     anything. The landscape keeps the bottom, wider than the viewport so it
+     never shows its own edge. */
+  .cf::after {
+    background-position: right 4px top 169px, center bottom -10px;
+    background-size: 140px auto, 152vw auto;
+    -webkit-mask-image:
+      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%),
+      radial-gradient(118vw 260px at 50% calc(100% - 110px), #000 0%, rgba(0, 0, 0, 0.5) 50%, transparent 82%);
+    mask-image:
+      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%),
+      radial-gradient(118vw 260px at 50% calc(100% - 110px), #000 0%, rgba(0, 0, 0, 0.5) 50%, transparent 82%);
+  }
+  .cf-story {
+    padding: 52px 0 56px;
+  }
+  .cf-copy h3,
+  .cf-wide .cf-copy h3 {
+    max-width: none;
+    font-size: 29px;
+  }
+  .cf-pair .cf-copy h3 {
+    font-size: 25px;
+  }
+  .cf-copy > p {
+    font-size: 13.5px;
+  }
+  /* Three columns will not fit in 342px, and three stacked blocks with a
+     centred drawing over each would be 800px of scroll for one claim. The
+     column turns on its side instead: the drawing beside its own two lines,
+     divided by the same hairline, now horizontal because the columns are.
+     At this size the tile is back to the app's OWN 52px and 1.55 stroke — the
+     drawing on a phone is the drawing in the product. */
+  .cf-fig-row {
+    grid-template-columns: 1fr;
+  }
+  .cf-fig {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    column-gap: 16px;
+    align-items: start;
+    padding-right: 0;
+  }
+  .cf-fig + .cf-fig {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 22px 0 0;
+  }
+  .cf-fig-art {
+    grid-row: 1 / span 2;
+    min-height: 0;
+    margin-bottom: 0;
+    padding-top: 1px;
+    justify-content: flex-start;
+  }
+  .cf-fig h4 {
+    margin-bottom: 6px;
+  }
+  .cf-fig p {
+    max-width: none;
+  }
+  .cf-tile {
+    width: 52px;
+    height: 52px;
+    stroke-width: 1.55;
+  }
+  .cf-tile .a {
+    stroke-width: 1.15;
+  }
+  /* The two middle plates are cut on a phone. Both are pictures about 500px
+     wide, and 342px of column with a single stacked line of text through it
+     has nowhere to put one: what showed at this width was the corner of a
+     planet with no planet attached — a smudge behind a headline. The plume and
+     the horizon stay, because both were re-placed for this width and both are
+     still whole here. */
+  .cf-plate::before {
+    display: none;
+  }
+  .cf-frame {
+    border-radius: 10px;
+  }
+  .cf-frame-head,
+  .cf-frame-body,
+  .cf-inset {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  .cf-level {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .cf-level .rec {
+    grid-column: 1 / -1;
+    justify-self: start;
+    white-space: normal;
+  }
+  .cf-read {
+    flex-wrap: wrap;
+  }
+  .cf-read .nt {
+    order: 3;
+    flex: 1 0 100%;
+  }
+  /* The crossover note is the whole finding, so it wraps under the row rather
+     than being dropped the way a peripheral stamp can be. */
+  .cf-row {
+    flex-wrap: wrap;
+  }
+  .cf-row .when {
+    order: 3;
+    flex: 1 0 100%;
+    white-space: normal;
+  }
+  /* Four stat columns inside a phone-width card ellipsise their qualifiers,
+     which is where the reading lives. Two columns, and they wrap instead. */
+  .cf-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cf-stat .q {
+    white-space: normal;
+    overflow: visible;
+  }
+  /* Six metric tiles across three columns become unreadable at phone width
+     before they become narrow — two columns, and the values keep their size. */
+  .cf-fun-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cf-fun-row {
+    grid-template-columns: minmax(0, 1fr) repeat(3, minmax(46px, auto));
+    gap: 7px;
+  }
+  .cf-fun-row b {
+    font-size: 11.5px;
+  }
+  /* Two panes side by side at 320px is two sparklines nobody can read. */
+  .cf-ws-grid {
+    grid-template-columns: 1fr;
+  }
+  .cf-op .said {
+    display: block;
+  }
+}
