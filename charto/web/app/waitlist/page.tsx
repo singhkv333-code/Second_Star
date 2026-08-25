@@ -1,57 +1,21 @@
 "use client";
 
-/**
- * Waitlist landing page. Public route — bypasses the AppBootstrap auth
- * gate via the PUBLIC_ROUTES list in components/AppBootstrap.tsx.
- *
- * The root layout locks `html, body { overflow: hidden }` so the
- * authenticated app can pin its topbar/sidebar. This page is a long
- * scroll, so we temporarily release that lock on mount and restore it
- * on unmount.
- */
-
 import { useEffect } from "react";
-import { Hero } from "@/components/waitlist/Hero";
-import { WaitlistNav } from "@/components/waitlist/WaitlistNav";
-import { CapabilityCanvas } from "@/components/waitlist/CapabilityCanvas";
-import {
-  BuildSecuritiesSection,
-  EventTriggersSection,
-  FAQSection,
-  HowItWorksSection,
-  WaitlistFormBlock,
-  WordmarkFooter,
-} from "@/components/waitlist/Sections";
+import { PivotLanding } from "@/components/landing/PivotLanding";
 
 export default function WaitlistPage(): React.ReactElement {
+  // The landing page is one long document, but globals.css locks `html, body`
+  // to `height:100%; overflow:hidden` for the app shell (where each pane
+  // scrolls internally). This class hands the scroll back to the document —
+  // see the rule in PivotLanding.css. It has to be a class rather than the
+  // inline `overflow:auto` that used to live here: setting it on BOTH html and
+  // body left <body> scrolling inside a viewport-height <html>, which drew a
+  // second scrollbar inset from the window edge.
   useEffect(() => {
     const html = document.documentElement;
-    const body = document.body;
-    const prevHtml = html.style.overflow;
-    const prevBody = body.style.overflow;
-    html.style.overflow = "auto";
-    body.style.overflow = "auto";
-    return () => {
-      html.style.overflow = prevHtml;
-      body.style.overflow = prevBody;
-    };
+    html.classList.add("pivot-landing-active");
+    return () => html.classList.remove("pivot-landing-active");
   }, []);
 
-  return (
-    <main className="min-h-screen bg-white text-[#0d0d0e]">
-      <WaitlistNav />
-      <Hero />
-      <HowItWorksSection />
-      <section id="capabilities">
-        <CapabilityCanvas />
-      </section>
-      <BuildSecuritiesSection />
-      <EventTriggersSection />
-      <FAQSection />
-      <section id="waitlist">
-        <WaitlistFormBlock />
-      </section>
-      <WordmarkFooter />
-    </main>
-  );
+  return <PivotLanding />;
 }

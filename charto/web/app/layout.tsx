@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@/components/landing/PivotLanding.css";
+import "@/components/landing/film/ProductFilm.css";
+import "@/components/landing/features/Features.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
 
