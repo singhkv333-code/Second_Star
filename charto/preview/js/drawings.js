@@ -267,6 +267,9 @@ const Drawings = (() => {
       const e = envFor(key, w, h);
       const paint = (d, selected, isDraft) => {
         if ((d.pane || "price") !== key) return;
+        // The layers panel's per-item switch, alongside the global fold above.
+        // A draft never carries the flag, so arming a tool still draws.
+        if (d.hidden) return;
         for (const prim of primsOf(d)) {
           const px = G.project(prim, e);
           if (px) G.paint(ctx, prim, px, styleOf(d, prim, selected, isDraft), e);
@@ -345,6 +348,10 @@ const Drawings = (() => {
       for (let i = state.drawings.length - 1; i >= 0; i--) {
         const d = state.drawings[i];
         if ((d.pane || "price") !== key) continue;
+        // Same rule as the global fold three lines up, per shape: a switched
+        // off drawing that still answered the pointer would select, drag and
+        // delete from under a chart showing no reason for any of it.
+        if (d.hidden) continue;
         // An anchor is always grabbable, even when the shape does not pass
         // through it. A regression channel is a FIT — it deliberately misses
         // the points you clicked — and you would still expect to grab the
@@ -977,6 +984,32 @@ const Drawings = (() => {
         save(); _ru(); emitSelect();
       },
       count: () => state.drawings.length,
+      /** What is actually ON the chart, for the layers button's badge. */
+      liveCount: () => state.drawings.filter((d) => !d.hidden).length,
+      /** One row per shape for the layers panel. `ref` is the D-number the
+       *  chat already addresses shapes by, so a row here and a mention in the
+       *  conversation name the same object. */
+      inventory: () => state.drawings.map((d) => ({
+        key: d.id, ref: d.ref || "", kind: d.type, pane: d.pane || "price",
+        hidden: !!d.hidden, locked: !!d.locked,
+        label: d.text || (Tools.SPECS[d.type] && Tools.SPECS[d.type].label) || d.type,
+      })),
+      /** The panel's write path — mirrors scene.setHiddenFor. */
+      setHiddenFor(ids, on) {
+        const want = new Set(ids || []);
+        let n = 0;
+        for (const d of state.drawings) {
+          if (!want.has(d.id) || !!d.hidden === !!on) continue;
+          d.hidden = !!on; n++;
+        }
+        // A switched-off shape must not stay selected: its handles would go on
+        // answering the keyboard over a chart that no longer draws it.
+        if (n && on && state.selId && want.has(state.selId)) {
+          state.selId = null; emitSelect();
+        }
+        if (n) { save(); _ru(); }
+        return n;
+      },
       syncPanes,
       /** Geometry of one drawing, for the backend to score. */
       geometryOf(id) {

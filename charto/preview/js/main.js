@@ -1871,7 +1871,21 @@
    * flag and the two setHidden calls; scene.js asks for all three through
    * `foldState` and hands the click back through `onFold`.
    */
-  let drawCollapsed = !!Store.get("draw_collapsed", false);
+  /* The GLOBAL fold, kept as machinery and retired as a saved state.
+   *
+   * `draw_collapsed: true` is still sitting in the storage of every browser
+   * that pressed the old control before it became the layers button — and the
+   * control that used to reverse it is gone. Restoring it would open the chart
+   * with every annotation hidden, a badge reading 0/9, and the only button in
+   * reach opening a list whose per-item switches all read "on", because
+   * `state.hidden` is a different flag from the per-item one. That is the
+   * stranded state the fold's own code was written to refuse ("a chart must
+   * never sit in a hidden state with no control on screen to reverse it").
+   *
+   * So the flag is dropped at boot rather than migrated: hide-all now lives in
+   * the panel, where it sets the per-item switches the panel can also unset. */
+  let drawCollapsed = false;
+  if (Store.get("draw_collapsed", false)) Store.set("draw_collapsed", false);
   // The restore is not an edit. Boot puts the saved scene back one apply at a
   // time, and every one of those looks exactly like the chat drawing — so the
   // "a new annotation un-folds" rule stays off until the session is standing
@@ -1882,8 +1896,16 @@
   /** What the control should say right now, or null when there is nothing to
    *  fold. Read by scene.js on every chip repaint. */
   function drawFoldState() {
-    const n = draw.count() + scene.count();
-    return n ? { n, collapsed: drawCollapsed } : null;
+    // LIVE over TOTAL, and both from the PANEL — the list this button opens.
+    // Counting the chart layers here instead (draw.count() + scene.count())
+    // omits every pattern the detector has found and not yet drawn, so the
+    // badge and the panel header disagreed by exactly the rows that are only
+    // in the panel. LayersPanel caches this; see the note beside `counts`.
+    const c = typeof LayersPanel !== "undefined" && LayersPanel.counts
+      ? LayersPanel.counts()
+      : { total: draw.count() + scene.count(),
+          live: draw.liveCount() + scene.liveCount() };
+    return c.total ? { n: c.total, live: c.live, open: layersOpen() } : null;
   }
 
   /** Repaint the control after something OTHER than a scene change — a shape
@@ -1925,10 +1947,112 @@
     scene.requestUpdate();
   }
 
+  /* ── the layers popover ──────────────────────────────────────────────
+   *
+   * The button at the top-right of the price pane used to fold every
+   * annotation away; it now opens the inventory that can switch them one at a
+   * time (js/layers-panel.js). It hangs off the chip column rather than
+   * standing in the left rail because it is a control for the chart in front
+   * of you, not a place you navigate to — and because the chips right beside
+   * it are where the annotations already say what they are.
+   *
+   * A popover, not a third column: two sidebars plus the conversation already
+   * leave the price pane around 430px on a laptop (see panels.js), and a list
+   * you consult for a few seconds should not cost the chart a permanent
+   * quarter of its width.
+   */
+  let layersPop = null;
+  const layersOpen = () => !!(layersPop && layersPop.isConnected);
+
+  function closeLayers() {
+    if (!layersPop) return;
+    /* The lens outlives the node unless it is told not to. It carries its own
+     * SVG filter and a ResizeObserver, and this sheet is destroyed and rebuilt
+     * on every open — so without this a session of opening the layers list
+     * leaves one live filter behind per press. js/ctxmenu.js pairs its glaze
+     * with an unglaze for exactly this reason; it does not export the second
+     * half, but the handle it parks on the element is all that is needed. */
+    if (layersPop.__lg) {
+      try { layersPop.__lg.destroy(); } catch { /* already gone */ }
+      layersPop.__lg = null;
+    }
+    layersPop.remove();
+    layersPop = null;
+    document.removeEventListener("pointerdown", onLayersOutside, true);
+    removeEventListener("keydown", onLayersKey, true);
+    // The hover the list was driving points at an annotation nobody is
+    // pointing at any more.
+    scene.setHover(null);
+    scene.requestUpdate();
+  }
+
+  function onLayersOutside(e) {
+    if (!layersPop) return;
+    if (layersPop.contains(e.target)) return;
+    // The button owns its own toggle; letting this handler close first would
+    // make the second press re-open rather than close.
+    if (e.target.closest && e.target.closest(".scene-layers")) return;
+    closeLayers();
+  }
+
+  function onLayersKey(e) {
+    if (e.key !== "Escape" || !layersPop) return;
+    e.stopPropagation();
+    closeLayers();
+  }
+
   function toggleDrawFold() {
-    drawCollapsed = !drawCollapsed;
-    Store.set("draw_collapsed", drawCollapsed);
-    applyDrawCollapsed();
+    if (layersOpen()) { closeLayers(); scene.requestUpdate(); return; }
+    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    const anchor = document.querySelector(".scene-layers");
+    if (!anchor || typeof LayersPanel === "undefined") return;
+
+    const pop = document.createElement("div");
+    pop.className = "dropdown floating layers-pop open";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", "Chart layers");
+    document.body.appendChild(pop);
+    layersPop = pop;
+
+    /* Pinned to the anchor's own rect and flipped up when the lower half of
+     * the window cannot hold it — the same rule js/universe.js uses, and for
+     * the same reason: a menu that opens off-screen is a dead menu. Clamped
+     * on the RIGHT edge, because this anchor lives at the right edge of the
+     * plot and a left-anchored panel would hang over the price axis. */
+    const r = anchor.getBoundingClientRect();
+    const W = 344, H = 420;
+    pop.style.width = `${W}px`;
+    pop.style.left = `${Math.max(8, Math.min(r.right - W, innerWidth - W - 8))}px`;
+    /* BOTH branches cap the height, from the space that branch actually has.
+     * Only the downward one used to, and flipped up the sheet fell back to
+     * `.dropdown`'s `max-height: calc(100vh - 72px)` — a cap measured against
+     * the VIEWPORT while the panel was measured from the anchor. With the
+     * button low on a tall chart and a dozen layers in the list, that let the
+     * sheet grow past the top of the window and take its own header — search,
+     * show-all, the count — off screen, with the list scrolled to a place the
+     * user could not scroll back from. The body is `flex: 1; min-height: 0`,
+     * so a definite cap here IS what creates the scrollport. */
+    if (r.bottom + H > innerHeight && r.top > H) {
+      pop.style.bottom = `${innerHeight - r.top + 6}px`;
+      pop.style.maxHeight = `${Math.max(200, r.top - 20)}px`;
+    } else {
+      pop.style.top = `${r.bottom + 6}px`;
+      pop.style.maxHeight = `${Math.max(200, innerHeight - r.bottom - 20)}px`;
+    }
+
+    LayersPanel.render(pop);
+    /* The same lens every other sheet in this app wears. The auto-glaze
+     * observer at the foot of js/ctxmenu.js watches for `.open` being ADDED to
+     * an existing `.dropdown`; this sheet is created with `open` already on it
+     * and appended, which is an attribute the observer never sees change — so
+     * it would have been the one menu in the app that merely blurred while
+     * every other one refracted. Attached here, after placement and after the
+     * body is rendered, because the displacement map is generated from the
+     * measured box. */
+    if (typeof Ctx !== "undefined" && Ctx.glass) Ctx.glass(pop);
+    document.addEventListener("pointerdown", onLayersOutside, true);
+    addEventListener("keydown", onLayersKey, true);
+    scene.requestUpdate();                     // repaint the button's open state
   }
 
   // ── provenance card: every drawn line is interrogable ──

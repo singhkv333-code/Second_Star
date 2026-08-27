@@ -137,6 +137,14 @@ def _scene_reset() -> None:
     # every annotation this turn drew, by id — the read-back path (see
     # _scene_add); unlike `items` it is never drained mid-turn
     _scene.placed = {}
+    # How many marks each detector has put on the chart THIS TURN, and what it
+    # parked instead (see _SCENE_BUDGET). Per turn rather than per call: two
+    # rounds of get_levels in one answer are still one chart getting busy, and
+    # a per-call budget would let the same question draw six lines by asking
+    # twice. Drained by _parked_take after each tool, so a later call cannot
+    # re-report an earlier one's parked marks.
+    _scene.budget = {}
+    _scene.parked = []
     _scene.cards = []
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
@@ -278,10 +286,116 @@ def _scene_add(annotation: dict) -> None:
     if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
                 "vband", "poly", "point", "candle", "label", "markers",
                 "drawing", "fib", "position"):
+        if _park_beyond_budget(annotation):
+            return
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
         _scene.placed = {}
+        _scene.budget = {}
+        _scene.parked = []
+
+
+# How many marks a single detector may put ON the chart before the rest go to
+# the layers panel instead.
+#
+# WHY THERE IS A CAP AT ALL. These tools are honest and thorough, and that is
+# the problem: "mark the support and resistance" is one sentence and nine
+# levels, and nine horizontal lines across a 5-minute chart is a chart you can
+# no longer read the candles on. The old answer was the global fold, which
+# could only take all nine away again. The layers panel is the new answer, and
+# a cap is what makes it more than a list: the strongest few stay on the
+# candles, the tail is ADDED but switched off, and one press in the panel
+# brings any of it back.
+#
+# The numbers are per DETECTOR, because what counts as busy differs by shape —
+# three levels is a readable chart and three volume profiles is not one at all.
+# Ranking is the tool's OWN order: every detector here already returns its
+# findings strongest-first or nearest-first, and re-sorting them by a rule
+# invented in this function would quietly disagree with the numbers the reply
+# is about to quote.
+#
+# Anything not listed is uncapped. A tool that draws one object per call has
+# nothing to budget, and a cap it can never reach is a cap that can only
+# become wrong later.
+_SCENE_BUDGET = {
+    "get_levels": 3,
+    "get_patterns": 2,
+    "get_trendlines": 2,
+    "get_divergences": 2,
+    "get_gaps": 2,
+    "mark": 6,
+    "draw_shape": 6,
+}
+
+
+def _park_beyond_budget(annotation: dict) -> bool:
+    """Send this mark to the layers panel instead of the chart? Mutates it.
+
+    `hidden` is the FRONT END's own per-item switch (js/scene.js `mine`), so a
+    parked mark needs no new vocabulary on either side: it arrives in the same
+    patch, is listed by the panel with every other layer, and the user's press
+    clears the same flag the panel's own toggle does. Nothing is dropped and
+    nothing is hidden from the reply — see `_parked_note`.
+
+    A `repeat` shape is ONE instruction from the model ("the first hour of
+    every session"), so its copies are exempt: capping them would half-draw a
+    single request and leave a session map with three boxes and a gap.
+    """
+    owner = annotation.get("owner") or "scene"
+    cap = _SCENE_BUDGET.get(owner)
+    if not cap or annotation.get("repeat"):
+        return False
+    if not hasattr(_scene, "budget"):
+        _scene.budget = {}
+    if not hasattr(_scene, "parked"):
+        _scene.parked = []
+    # Legs of one object share a `link` and must not be counted twice — a
+    # divergence is two segments and one idea, and budgeting the legs would
+    # let a cap of two draw one and a half divergences.
+    #
+    # So the ledger remembers the DECISION per key, not merely that the key has
+    # been seen. Remembering only the key drew the second leg of a parked
+    # object: the first leg spent the budget and was hidden, and the second
+    # short-circuited on "already counted" straight into being drawn — half a
+    # divergence on the chart, which is worse than either whole answer.
+    key = annotation.get("link") or annotation.get("id")
+    seen = _scene.budget.setdefault(owner, {})
+    if key in seen:
+        if not seen[key]:
+            return False
+        annotation["hidden"] = True      # follow the leg that went first
+        return True
+    parked = len(seen) >= cap
+    if key:
+        seen[key] = parked
+    if not parked:
+        return False
+    annotation["hidden"] = True
+    _scene.parked.append(annotation.get("label") or annotation.get("id") or owner)
+    return True
+
+
+def _parked_take() -> str:
+    """What was added but not drawn — for the model, so the reply can say so.
+
+    Load-bearing rather than cosmetic. Without it the tool result shows nine
+    levels, the chart shows three, and the reply confidently describes nine
+    lines the user cannot see — the exact "narrate success on a path that did
+    not happen" failure the rest of this file is built to refuse.
+    """
+    parked = [x for x in (getattr(_scene, "parked", None) or []) if x]
+    if not parked:
+        return ""
+    _scene.parked = []
+    n = len(parked)
+    return (f"{n} further mark{'s' if n > 1 else ''} "
+            f"({'; '.join(str(x) for x in parked[:8])}"
+            f"{', …' if n > 8 else ''}) "
+            "were ADDED but left off the chart, to keep it readable — they are "
+            "in the layers panel (the list button at the top-right of the "
+            "chart) and one press shows any of them. Say so in one short "
+            "clause; never describe them as drawn.")
 
 
 def _drawn_ledger() -> str:
@@ -10243,6 +10357,14 @@ def _run_tool(name: str, fn, args: dict) -> dict:
         out["_live_note"] = (
             f"The last bar is still FORMING (as of {_hm_ist(form[0])} {_tzl()}) — "
             f"treat its values as provisional, not a closed candle.")
+    # Marks this call ADDED but deliberately left off the chart. Stamped here,
+    # once, for the same reason the notes above are: every tool passes through
+    # this function, and a tool that forgot to mention its own parked marks
+    # would have the model describe lines the user cannot see.
+    if isinstance(out, dict) and "error" not in out:
+        note = _parked_take()
+        if note:
+            out["_parked_note"] = note
     # Geometry drawn on a timeframe the chart is not showing is invisible to
     # the user until they switch — a "drawn" claim with nothing on screen
     # reads as a failure, so the reply must name the switch.

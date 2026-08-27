@@ -56,6 +56,11 @@ const Scene = (() => {
       const evs = [];
       for (const a of (state.hidden ? [] : state.items)) {
         if (a.kind !== "markers") continue;
+        // Markers are LWC series data, not canvas strokes, so they never pass
+        // through `mine` — the one filter that carries the per-item switch.
+        // Without this they were the single kind that stayed on the chart
+        // after the panel turned it off.
+        if (a.hidden) continue;
         for (const m of a.marks || []) {
           evs.push({
             time: env.toChartTime ? env.toChartTime(m.t) : m.t,
@@ -221,8 +226,21 @@ const Scene = (() => {
       return { cx: (c1 + c2) / 2, cy: yH - MARK_GAP - MARK_DOT };
     }
 
-    const mine = (a, key) =>
-      String(a.pane || "price").split("@")[0] === (key || "price");
+    /* `hidden` is the layers panel's per-item switch, and the guard belongs
+     * HERE rather than at the two call sites. `mine` is the one filter both
+     * the painter and the hit-test already run every annotation through, so a
+     * single test makes a hidden item invisible AND unclickable — and its chip
+     * goes with it, because chips are pushed from inside the painter's loop.
+     * Gating the painter alone would leave a name in the corner pointing at
+     * geometry that is no longer drawn, which is the exact failure the global
+     * fold had to be taught about (see render()).
+     *
+     * OFF IS NOT DELETED. The item keeps its place in state.items with its
+     * full payload, so turning it back on is a flag flip rather than a
+     * re-fetch — which is what lets the panel offer "added, but not on the
+     * chart right now" for annotations the chat produced and cannot re-derive. */
+    const mine = (a, key) => !a.hidden
+      && String(a.pane || "price").split("@")[0] === (key || "price");
 
     /** A segment's anchor pixels, and the two points it is actually STROKED
      *  between — different the moment it extends.
@@ -542,7 +560,7 @@ const Scene = (() => {
       if (!b || !b.isConnected) {
         b = document.createElement("button");
         b.type = "button";
-        b.className = "ind-toggle scene-fold";
+        b.className = "ind-toggle scene-fold scene-layers";
         /* The press must not reach the chart, or mousedown starts LWC's pan
          * gesture under a button you meant to click and the bars scroll while
          * the pointer never moves.
@@ -572,21 +590,35 @@ const Scene = (() => {
        * does nothing. (The indicator legend can compare innerHTML because its
        * content is <span>/<b> text, which round-trips unchanged.) Two values
        * decide everything drawn here, so those two ARE the key. */
-      const key2 = `${s.collapsed ? 1 : 0}:${s.n}`;
+      /* WHAT THIS CONTROL BECAME. It was a fold: one press, every annotation
+       * off, a count while folded. That is the right control for a chart with
+       * two states and the wrong one for a chart with an inventory — "put the
+       * eight levels away and keep the neckline" cannot be said with a switch
+       * that only knows all and nothing. So the press now OPENS THE LAYERS
+       * PANEL, which carries the per-item switches and keeps show-all /
+       * hide-all as a pair of controls on the list they act on.
+       *
+       * The count stays, and stays LIVE-over-TOTAL: a chart showing two of
+       * nine must not badge nine, or the badge is telling the reader the
+       * chart has things on it that they cannot see. */
+      const key2 = `${s.live}:${s.n}`;
       if (b.dataset.fold !== key2) {
         b.dataset.fold = key2;
-        b.title = s.collapsed
-          ? `Show ${s.n} drawing${s.n > 1 ? "s" : ""}`
-          // "Hide", never "clear" — the word has to carry the promise the
-          // behaviour makes, because the only other control that acts on
-          // every drawing at once is the trash.
-          : `Hide ${s.n} drawing${s.n > 1 ? "s" : ""} — nothing is deleted`;
-        b.innerHTML = Icons.svg(s.collapsed ? "chevronDown" : "chevronUp", "xs")
-          // Folded, the control carries the COUNT — the indicator toggle's own
-          // rule: a chart that has quietly stopped showing eight objects reads
-          // as a chart that never had them.
-          + (s.collapsed ? `<span>${s.n}</span>` : "");
+        b.title = s.live === s.n
+          ? `${s.n} drawing${s.n > 1 ? "s" : ""} on the chart — open layers`
+          : `${s.live} of ${s.n} drawings shown — open layers`;
+        b.innerHTML = Icons.svg("list", "xs")
+          + `<span>${s.live === s.n ? s.n : `${s.live}/${s.n}`}</span>`;
       }
+      b.classList.toggle("is-open", !!s.open);
+      b.setAttribute("aria-expanded", String(!!s.open));
+      /* NO LENS on this button. It briefly wore the app's liquid glass, the
+       * same one the menus and the reset disc are made of, and at 17px over
+       * empty chart it read as a solid grey pill rather than as glass — there
+       * is nothing behind a corner of blank plot for a refraction to be OF.
+       * The plate it falls back to (`.ind-toggle.over-chart`, applied by the
+       * occlusion probe) only appears where it is actually needed, over price
+       * action. The POPOVER is still glazed; see js/main.js. */
       // The chips run right-aligned from `axis + 8`; the control closes the
       // column on that same edge, one 17px step below the last of them. Minus
       // its own 5px of padding, so it is the GLYPH that lines up with the chip
@@ -1201,6 +1233,58 @@ const Scene = (() => {
         syncMarkers(); _ru(); env.onChange(count());
       },
       count,
+      /** What the fold control and the layers button count: annotations the
+       *  reader can actually SEE. `count()` counts the inventory, which after
+       *  the per-item switch is a different number — a chart showing two of
+       *  nine must not badge nine. */
+      liveCount() {
+        const seen = new Set();
+        for (const a of state.items) if (!a.hidden) seen.add(a.link || a.id);
+        return seen.size;
+      },
+      /** One row per ANNOTATION for the layers panel — linked legs (a
+       *  divergence's two, a fib's rungs) collapse to the object the user
+       *  drew, because that is the thing they would switch off. The row
+       *  carries no geometry: the panel addresses items by key and this
+       *  module stays the only place that knows what a `zone` is. */
+      inventory() {
+        const out = new Map();
+        for (const a of state.items) {
+          const key = a.link || a.id;
+          if (!key) continue;
+          const seen = out.get(key);
+          if (seen) { seen.legs++; seen.hidden = seen.hidden && !!a.hidden; continue; }
+          out.set(key, {
+            key, kind: a.kind, owner: a.owner || "scene",
+            label: a.label || "", role: a.role || "", pane: a.pane || "price",
+            hidden: !!a.hidden, legs: 1,
+          });
+        }
+        return [...out.values()];
+      },
+      /** The panel's write path. Flips every leg of the named annotations at
+       *  once and repaints exactly when something actually moved. */
+      setHiddenFor(keys, on) {
+        const want = new Set(keys || []);
+        let n = 0;
+        for (const a of state.items) {
+          if (!want.has(a.link || a.id)) continue;
+          if (!!a.hidden === !!on) continue;
+          a.hidden = !!on; n++;
+        }
+        if (n) { syncMarkers(); _ru(); env.onChange(count()); }
+        return n;
+      },
+      /** Delete for real — the panel's trash, as distinct from its switch. */
+      removeFor(keys) {
+        const want = new Set(keys || []);
+        const before = state.items.length;
+        state.items = state.items.filter((a) => !want.has(a.link || a.id));
+        if (state.items.length === before) return 0;
+        if (want.has(state.hover)) state.hover = null;
+        syncMarkers(); _ru(); env.onChange(count());
+        return before - state.items.length;
+      },
       requestUpdate: () => _ru(),
     };
 
