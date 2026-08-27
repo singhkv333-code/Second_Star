@@ -2,8 +2,7 @@
 # Pull charto-deploy onto the VM and restart only if the backend moved.
 #
 # Run by charto-deploy.timer every 30s as azureuser. Idempotent and cheap: the
-# common case is a fetch that finds nothing, which costs one HTTPS round trip
-# and exits before touching the working tree.
+# common case is a fetch plus six idempotent vendor checks; neither writes.
 #
 # Two rules here are load-bearing, and both exist because of what lives in this
 # directory alongside the code:
@@ -28,7 +27,22 @@ git fetch --quiet origin "$BRANCH"
 
 remote="$(git rev-parse "origin/$BRANCH")"
 local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
-[ "$local_" = "$remote" ] && exit 0
+
+patch_vendor() {
+  if ! python3 "$REPO/charto/preview/patch-vendor.py"; then
+    echo "deploy: WARNING — vendor patches did not apply. The price scale will be"
+    echo "deploy: stock (ragged labels, alert mark over the digits). This does not"
+    echo "deploy: block the deploy. See charto/preview/VENDOR_PATCHES.md."
+  fi
+}
+
+# The vendor bundle is ignored by Git. Even with no new commit, retry its
+# idempotent patch so a previously unsupported bundle self-heals as soon as the
+# patcher learns its shape.
+if [ "$local_" = "$remote" ]; then
+  patch_vendor
+  exit 0
+fi
 
 if [ "$local_" = none ]; then
   changed="charto/data/"            # first deploy: assume the backend moved
@@ -58,11 +72,7 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 # A failure must NOT abort the deploy. Under `set -e` it would take the backend
 # restart down with it, and a mis-sized price plate is a cosmetic regression
 # where a blocked deploy is an outage. So it is loud instead of fatal.
-if ! python3 "$REPO/charto/preview/patch-vendor.py"; then
-  echo "deploy: WARNING — vendor patches did not apply. The price scale will be"
-  echo "deploy: stock (ragged labels, alert mark over the digits). This does not"
-  echo "deploy: block the deploy. See charto/preview/VENDOR_PATCHES.md."
-fi
+patch_vendor
 
 if grep -q '^charto/data/' <<<"$changed"; then
   echo "deploy: backend changed, restarting charto.service"

@@ -2444,37 +2444,36 @@ body.two-columns .readout .row { display: none; }
    A round glyph button says "put it back" without naming anything.
 
    INSIDE BOTH AXES. --axis-w and --time-axis-h are measured and published by
-   js/xhair.js, so the button sits in the plot's own bottom-right corner and
+   js/main.js, so the button sits in the plot's own bottom-right corner and
    cannot land on a price or a date however wide the scale grows. The old pill's
    `right: 8px; bottom: 36px` was two guesses at those same two numbers.
 
-   Glass, like the crosshair plates it shares a corner with: the refraction is
-   attached from js/main.js through Ctx.glass (one lens for the whole app), and
-   the backdrop-filter here is the floor under Safari, Firefox and the first
-   frame. */
+   It is a quiet chart control: solid enough to stay legible over candles,
+   without the grey lens and heavy rim that made the old button look disabled. */
 .view-reset {
   position: absolute; z-index: 7; display: none;
   right: calc(var(--axis-w, 84px) + 10px);
   bottom: calc(var(--time-axis-h, 26px) + 10px);
-  width: 30px; height: 30px; padding: 0;
+  width: 28px; height: 28px; padding: 0;
   align-items: center; justify-content: center;
   border-radius: 50%; cursor: pointer;
-  color: var(--foreground);
-  background: color-mix(in srgb, var(--foreground) 18%,
-                        color-mix(in srgb, var(--card) 60%, transparent));
-  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
-    0 6px 18px -10px rgb(0 0 0 / .5);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  backdrop-filter: blur(12px) saturate(1.4);
+  color: var(--muted-foreground); background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .12), 0 3px 8px rgb(0 0 0 / .08);
   transition: color var(--dur) var(--ease-quartr),
-              border-color var(--dur) var(--ease-quartr);
+              border-color var(--dur) var(--ease-quartr),
+              background-color var(--dur) var(--ease-quartr),
+              box-shadow var(--dur) var(--ease-quartr);
 }
 .view-reset.show { display: inline-flex; animation: fade var(--dur) ease-out; }
-.view-reset:hover { color: var(--primary); border-color: var(--primary); }
-/* 13 in a 30px circle. The glyph is a full-bleed lucide arrow — it goes edge
+.view-reset:hover {
+  color: var(--primary); background: var(--card);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  box-shadow: 0 2px 6px rgb(0 0 0 / .16), 0 0 0 1px var(--card);
+}
+.view-reset:active { box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.view-reset:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* 13 in a 28px circle. The glyph is a full-bleed lucide arrow — it goes edge
    to edge in its own 24 box — so it reads a size larger than a glyph with its
    own padding would at the same number. */
 .view-reset svg.icon { width: 13px; height: 13px; }
@@ -2513,74 +2512,7 @@ body.two-columns .readout .row { display: none; }
   padding: 5px 0; letter-spacing: .04em;
 }
 .axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
-
-/* ── the crosshair's two plates ──────────────────────────────────────────
-   The price under the pointer on the price scale, the time under it on the
-   time scale. Built and driven by js/xhair.js, which the primary chart and
-   every secondary pane both attach. lightweight-charts draws both into the
-   axis CANVAS and they are turned off there (`labelVisible: false`) so these
-   can be glass:
-   backdrop-filter is a property of an element with a backdrop, and a canvas
-   has neither. The refraction itself comes from vendor/liquid-glass.js, the
-   same material as the menus and the ask group; everything here is the
-   dressing that turns a blurred backdrop into a surface — a tint, a lit top
-   rim, a dimmer bottom one, and a shadow so the plate sits ON the axis rather
-   than in it. The `backdrop-filter` below is the FLOOR: it is what Safari and
-   Firefox get, and what both plates wear for the frame before the module
-   attaches.
-
-   Opacity, not display, for show/hide. These appear and vanish many times a
-   second, and a display toggle collapses the box to zero — which trips the
-   module's ResizeObserver and has it regenerate a displacement map for a
-   plate that is not on screen, twice per pass across the chart. */
-.xh-plate {
-  position: absolute; z-index: 7; pointer-events: none;
-  opacity: 0; transition: opacity 90ms var(--ease-quartr);
-  font-size: 12px; line-height: 20px; height: 22px;
-  color: var(--foreground); font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  /* A tint that STEPS OFF the surface, not one that matches it. Plain
-     translucent --card is #fbfbfc on light: a white plate on a white axis,
-     invisible but for its hairline (measured — the plate and the axis both
-     came out 255,255,255). Mixing the foreground in gives the glass a body
-     that is a shade darker than the chart on light and a shade lighter on
-     dark, so the readout is always found at a glance and is still glass. */
-  background: color-mix(in srgb, var(--foreground) 18%,
-                        color-mix(in srgb, var(--card) 60%, transparent));
-  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 15%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
-    0 6px 18px -10px rgb(0 0 0 / .5);
-  border-radius: var(--radius-xs, 5px);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-}
-.xh-plate.show { opacity: 1; }
-/* The full width of the scale, so the tick it lands on is covered rather than
-   half-covered — the one thing the library's opaque plate did get right. Its
-   text is centred on the same axis the ticks are, so a plate and the column it
-   sits in read as one column. */
-.xh-plate.price {
-  right: 0; width: var(--axis-w, 84px); text-align: center;
-  /* A NEGATIVE MARGIN centres it on `top`, not `transform: translateY(-50%)`.
-     The transform was the first version and it broke the glass: Chromium
-     samples a transformed element's backdrop from the wrong place, so the
-     plate came out light grey on a dark axis and dark grey on a light one —
-     inverted, measured off the rendered pixels (169,171,172 over an axis at
-     13,14,18). Half the plate's own fixed height does the same job with no
-     transform to confuse the compositor. Keep them in step if the height
-     changes. */
-  margin-top: -11px;
-}
-/* Centred in the time axis rather than pinned to its floor: the axis is only
-   ~26px and a plate resting on the bottom of it sat lower than the tick labels
-   beside it. `left` is written from JS, clamped so the plate never runs off
-   the left edge or under the price scale. */
-.xh-plate.time {
-  bottom: calc((var(--time-axis-h, 26px) - 22px) / 2);
-  padding: 0 8px; text-align: center;
-}
+.axis-note.clock.under-crosshair { visibility: hidden; }
 
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
@@ -2809,7 +2741,7 @@ body.two-columns .readout .row { display: none; }
 .prov {
   background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
   position: absolute; left: 12px; bottom: 12px; z-index: 40; width: 272px;
-  display: none; overflow: hidden;
+  display: none !important; overflow: hidden;
   transition: opacity var(--dur) var(--ease-quartr);
 }
 .prov.open { display: block; animation: pop var(--dur-slow) var(--ease-quartr); }
@@ -5442,23 +5374,22 @@ body.two-columns .readout .row { display: none; }
      65, a 44-level difference where the ink is a 250). No amount of re-colouring
      fixes a thing that is behind the frost. The plate's backdrop-filter only
      touches what is painted BELOW it, so at 8 the mark is drawn crisp on top. */
-  position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 8;
-  width: 16px; height: 16px; margin-top: -8px; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center;
+  position: absolute; right: 5px; z-index: 6;
+  width: calc(var(--axis-w, 84px) - 6px); height: 22px; margin-top: -11px;
+  padding: 0 6px 0 3px;
+  display: inline-flex; align-items: center;
   /* THE APP'S INK, at near-full strength. It was white once, because the plate
      under it was a dark slate in both themes and the library printed white on
      it; the plate is glass now and carries --foreground like every other
      surface here. */
-  border: 1px solid color-mix(in srgb, var(--foreground) 72%, transparent);
-  border-radius: 50%;
+  border: 0; border-radius: 0;
   /* A faint chip of the ink rather than an opaque disc. The mark now appears
      ONLY on the plate — it is hidden the moment the plate is (js/main.js), and
      the plate is frozen rather than dropped for the reach that ends on this
      mark — so there is never bare axis behind it to cover. A solid fill here
      read as a hole punched in the glass; this reads as a control resting on
      it. */
-  background: color-mix(in srgb, var(--foreground) 12%, transparent);
-  color: var(--foreground);
+  background: var(--plate, #434651); color: #fff;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr),
@@ -5471,13 +5402,24 @@ body.two-columns .readout .row { display: none; }
    faint fill: the accent is this app's "you are on this" colour, and a pointer
    resting on a mark is not a state the chart is in — a coloured disc here would
    also be a coloured disc landing on a coloured plate. */
-.alert-plus.hot {
+.alert-plus.hot .alert-plus-mark {
   /* FILLED with the accent, not tinted by it. `hot` is set the moment the
      pointer is on the mark and the next click will arm an alert — the one
      instant in this interaction where the app should be unambiguous. A 14%
      wash was not: on the plate it read as the same grey disc. */
-  color: #fff; border-color: var(--primary);
-  background: var(--primary);
+  color: #fff; border-color: #fff;
+  background: color-mix(in srgb, #fff 18%, var(--plate, #434651));
+}
+.alert-plus-mark {
+  flex: 0 0 16px; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .5); border-radius: 50%;
+  color: rgba(255, 255, 255, .78); background: var(--plate, #434651);
+}
+.alert-plus-value {
+  flex: 1 1 auto; min-width: 0; margin-left: 10px;
+  text-align: right; white-space: nowrap;
+  font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums;
 }
 /* The bare + inside the 16px ring — a little under half the circle, drawn
    heavier than the ring so the mark reads as a button with an action rather
@@ -7911,8 +7853,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/tools.js?v=17"></script>
   <script src="./js/drawings.js?v=27"></script>
   <script src="./js/scene.js?v=41"></script>
-  <script src="./js/xhair.js?v=3"></script>
-  <script src="./js/panes.js?v=17"></script>
+  <script src="./js/panes.js?v=18"></script>
   <script src="./js/main.js?v=116"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->

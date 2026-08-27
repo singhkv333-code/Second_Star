@@ -1548,6 +1548,16 @@ const Cards = (() => {
       ? callout(`Flip band ${money(sym, c.zone.lo)} – ${money(sym, c.zone.hi)}`
                 + (c.zone.note ? ` · ${c.zone.note}` : "")) : "";
 
+    /* Applied studies use the same row grammar as the fixed overlays: name,
+     * reason, directional reading. Their raw values already live on the chart
+     * and would only duplicate the legend here. */
+    const onChart = (c.chart_studies || []).map((s) => {
+      return `<div class="scan-read${s.tone ? " tone-" + s.tone : ""}">`
+        + `<b class="nm">${esc(s.name)}</b>`
+        + `<span class="nt">${esc(s.note || "")}</span>`
+        + `<b class="num">${esc(cap(s.state))}</b></div>`;
+    }).join("");
+
     /* Each momentum reading is three things and needs all three: the state,
      * the figures it was read off, and the comparison that earned the state.
      * "Easing" on its own is an opinion; "−1.35 · less negative than the
@@ -1560,6 +1570,8 @@ const Cards = (() => {
       + (r.why ? ` · ${esc(r.why)}` : "") + `</span></div>`).join("");
 
     return `<div class="scan-stats">${stats}</div>`
+      + section("On this chart", "applied studies",
+                onChart && `<div class="scan-reads">${onChart}</div>`)
       + section("Price against the overlays", "", rows && rows + zone)
       + section("Directional strength", "+DI against −DI", diLegs(sym, c.di))
       + section("Momentum readings", "",
@@ -1802,9 +1814,8 @@ const Cards = (() => {
   // The size question FIRST, because a move inside its own normal range
   // needs no story and a panel that opened with a cause would have conceded
   // there was one. Then where inside the session it happened, then the
-  // ladder price is standing on, and last what was looked for — including
-  // what was looked for and not found, which is the half a reader would
-  // otherwise assume was never checked.
+  // ladder price is standing on. The evidence-search context remains
+  // available to the model without being repeated in this dense card.
   function move(c) {
     const sym = c.symbol;
     const s = c.stats || {};
@@ -1859,7 +1870,6 @@ const Cards = (() => {
                 c.segments_of ? `on ${c.segments_of}` : "", segs)
       + section("The ladder price is standing on", "", ladder)
       + section("How much of it was the index", "", idx)
-      + section("What was looked for", "", chips(c.context))
       + foot(win.from && win.to
              ? (win.from === win.to ? win.from : `${win.from} → ${win.to}`) : "");
   }
