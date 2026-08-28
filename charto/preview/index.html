@@ -2413,6 +2413,11 @@ body.two-columns .readout .row { display: none; }
   padding: 2px 0; letter-spacing: .04em;
 }
 .axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
+/* The library paints its crosshair date plate on a canvas below our DOM
+   clock. When the two meet, the clock therefore used to slice through the
+   dark plate. main.js marks that collision and lets the clock disappear
+   underneath it until the crosshair moves clear. */
+.axis-note.clock.under-crosshair { visibility: hidden; }
 
 .overlay-msg {
   position: absolute; inset: 0; z-index: 8; display: none;
@@ -2641,7 +2646,10 @@ body.two-columns .readout .row { display: none; }
 .prov {
   background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
   position: absolute; left: 12px; bottom: 12px; z-index: 40; width: 272px;
-  display: none; overflow: hidden;
+  /* Annotation and drawing detail belongs on the chart itself; do not raise
+     a second bottom-left card for any scene object. `!important` also keeps
+     the shared `.open` state from reviving the legacy panel. */
+  display: none !important; overflow: hidden;
   transition: opacity var(--dur) var(--ease-quartr);
 }
 .prov.open { display: block; animation: pop var(--dur-slow) var(--ease-quartr); }

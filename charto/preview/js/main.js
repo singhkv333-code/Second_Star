@@ -1296,6 +1296,26 @@
    */
   el("curNote").textContent = Sym.code;
   const tzNote = el("tzNote");
+  /* The clock is an HTML overlay, while lightweight-charts draws the
+   crosshair's date label into its own canvas. HTML would always win that
+   paint order and cut the date plate at the point where they overlap. Treat
+   the plate as the foreground: while its footprint reaches the clock, tuck
+   the clock away; restore it as soon as the crosshair moves clear.
+
+   The plate is roughly 100px wide at the chart's 12px font. The small guard
+   accounts for its horizontal padding and rounded ends. */
+  const CROSSHAIR_TIME_HALF_WIDTH = 58;
+  chart.subscribeCrosshairMove((p) => {
+    const x = p && p.point && Number.isFinite(p.point.x) ? p.point.x : null;
+    if (x == null) return tzNote.classList.remove("under-crosshair");
+    const chartBox = chartEl.getBoundingClientRect();
+    const noteBox = tzNote.getBoundingClientRect();
+    const noteLeft = noteBox.left - chartBox.left;
+    const noteRight = noteBox.right - chartBox.left;
+    const overlaps = x + CROSSHAIR_TIME_HALF_WIDTH >= noteLeft
+      && x - CROSSHAIR_TIME_HALF_WIDTH <= noteRight;
+    tzNote.classList.toggle("under-crosshair", overlaps);
+  });
   function paintClock() {
     const t = new Date(Date.now() + Sym.tz * 1000);
     const hh = String(t.getUTCHours()).padStart(2, "0");
