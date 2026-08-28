@@ -30,10 +30,12 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
   ChevronDown,
+  ChevronRight,
   Maximize2,
   Minimize2,
   Search,
@@ -45,8 +47,11 @@ import {
   getSparkline,
   getOhlc,
   getFinancials,
-  getBalanceSheet,
   getMetricSeries,
+  getStockQuarters,
+  getStatement,
+  type QuartersResponse,
+  type StatementResponse,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
@@ -54,7 +59,6 @@ import {
   type FinancialsResponse,
   type FinancialsHistoryPoint,
   type MetricSeriesResponse,
-  type BalanceSheetResponse,
 } from "@/lib/api";
 import { isError, type ApiResult } from "@/lib/types";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
@@ -67,6 +71,10 @@ import {
   type PriceSeriesDef,
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
+import { DeepSections } from "@/components/stock/DeepSections";
+import { SECTION_GAP } from "@/components/stock/chrome";
+import { RowTrend } from "@/components/stock/RowTrend";
+import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,8 +264,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
-  const [balanceSheet, setBalanceSheet] = useState<BalanceSheetResponse | null>(null);
-  const [bsBasis, setBsBasis] = useState<"consolidated" | "standalone">("consolidated");
   // Phone reflows the page: chart on top, then Performance, then a 2-way
   // Overview/Financials switch (desktop keeps the two-column overview+chart row).
   const [isPhone, setIsPhone] = useState(false);
@@ -321,24 +327,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
       });
     return () => { cancelled = true; };
   }, [symbol]);
-
-  // ── Full balance sheet grid (Moneycontrol DB, every line item) ─────────
-  // Separate fetch from the flat `financials` snapshot above — this powers
-  // the Balance Sheet tab's full statement view. Re-fetches on a basis
-  // toggle (standalone/consolidated) as well as symbol change.
-  useEffect(() => {
-    let cancelled = false;
-    setBalanceSheet(null);
-    getBalanceSheet(symbol, bsBasis)
-      .then((res) => {
-        if (cancelled) return;
-        setBalanceSheet(isError(res) ? null : res.data);
-      })
-      .catch(() => {
-        if (!cancelled) setBalanceSheet(null);
-      });
-    return () => { cancelled = true; };
-  }, [symbol, bsBasis]);
 
   // ── Sparkline series (one per ticker) ──────────────────────────────────
   useEffect(() => {
@@ -436,9 +424,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           <PhoneLayout
             quote={quoteState.quote}
             financials={financials}
-            balanceSheet={balanceSheet}
-            bsBasis={bsBasis}
-            onBsBasisChange={setBsBasis}
             tickers={tickers}
             peerQuotes={peerQuotes}
             series={series}
@@ -502,6 +487,10 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <PerformanceRanges quote={quoteState.quote} />
           )}
 
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <TechnicalPanel quote={quoteState.quote} />
+          )}
+
           {/* Key Metrics — snapshot tiles from the financials DB. Skipped
               entirely when the symbol has no MC entry. */}
           {quoteState.kind === "ok" && financials && financials.available && (
@@ -513,10 +502,17 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <FinancialsPanel
               quote={quoteState.quote}
               financials={financials}
-              balanceSheet={balanceSheet}
-              bsBasis={bsBasis}
-              onBsBasisChange={setBsBasis}
             />
+          )}
+
+          {/* Everything the DB gained after this page was built: quarters,
+              segment mixes and ownership.
+              Purely additive — nothing above this line changed. The component
+              asks the API what this company actually HAS and renders only
+              those tabs, so it contributes nothing at all for a symbol with
+              no deep data (and returns null for an index). */}
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <DeepSections symbol={symbol} price={quoteState.quote.ltp} />
           )}
         </>
       )}
@@ -540,9 +536,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 function PhoneLayout({
   quote,
   financials,
-  balanceSheet,
-  bsBasis,
-  onBsBasisChange,
   tickers,
   peerQuotes,
   series,
@@ -553,9 +546,6 @@ function PhoneLayout({
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
-  balanceSheet: BalanceSheetResponse | null;
-  bsBasis: "consolidated" | "standalone";
-  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
   series: SeriesEntry[];
@@ -585,6 +575,8 @@ function PhoneLayout({
 
       {/* Performance — daily + 52-week range bars. */}
       <PerformanceRanges quote={quote} />
+
+      {!quote.is_index && <TechnicalPanel quote={quote} />}
 
       {/* Overview / Financials switch — underline tab strip matching the
           option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
@@ -635,13 +627,16 @@ function PhoneLayout({
             <FinancialsPanel
               quote={quote}
               financials={financials}
-              balanceSheet={balanceSheet}
-              bsBasis={bsBasis}
-              onBsBasisChange={onBsBasisChange}
             />
           </>
         )
       )}
+
+      {/* Deep sections ride below the phone switch too, rather than inside
+          one of its two tabs — they are neither "overview" nor "financials",
+          and burying them under a tab the reader has to guess at is how a
+          section stops existing. */}
+      {!quote.is_index && <DeepSections symbol={quote.symbol} price={quote.ltp} />}
 
     </div>
   );
@@ -1247,14 +1242,14 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
   return (
     // Full-width section; 20px inset aligns with Key Metrics / Financial
     // Performance below.
-    <div style={{ marginTop: 24, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <h2
         className="m-0"
         style={{
           fontFamily: "var(--font-ui)",
-          fontSize: 14,
+          fontSize: 21,
           fontWeight: 600,
-          letterSpacing: "-0.01em",
+          letterSpacing: "-0.022em",
           color: "var(--text-primary)",
           marginBottom: 16,
         }}
@@ -2315,10 +2310,17 @@ const FY_YEARS: string[] = (() => {
   return [y - 4, y - 3, y - 2, y - 1, y].map((n) => `FY${String(n).slice(2)}`);
 })();
 
-/** Both Financials and P&L pad to this row count so the boxes
- *  always align at the bottom regardless of metric mix. The P&L
- *  walkdown has 7 rows currently (Revenue → COGS → Gross Profit →
- *  Opex → Operating Income → Tax → Net Income), so we anchor on 7. */
+/** The summary panel shows the SAME NUMBER OF ROWS on every tab.
+ *
+ *  Three tabs of one panel that disagree on height are three panels: the chart
+ *  beside them is one size, and a tab that runs past it makes the reader
+ *  scroll to change tabs. So each tab is built to this count and pads with an
+ *  em-dash rather than dropping a line — the opposite of the rule the detail
+ *  page follows, and right for the opposite reason. There, an absent line is
+ *  information; here, a moving row count is noise.
+ *
+ *  Passed in as `minRows` at each call site rather than read from here, so it
+ *  stands as the reference value the call sites agree on. */
 const _SHARED_TABLE_ROWS = 7;
 
 type FinancialRow = { label: string; values: (string | null)[] };
@@ -2387,7 +2389,7 @@ function FinancialsTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildBalanceSheetFromDB(financials);
+    if (financials?.available) return buildBalanceSheetFromDB(financials, null);
     return buildBalanceSheetEstimate();
   }, [financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -2412,7 +2414,7 @@ function ProfitLossTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildProfitLossFromDB(financials);
+    if (financials?.available) return buildProfitLossFromDB(financials, null);
     return buildProfitLoss(quote);
   }, [quote, financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -2454,7 +2456,36 @@ function pickByFY(
   return hit?.value ?? null;
 }
 
-function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
+/** One filed ratio, read out of the ratio sheet and keyed by fiscal year.
+ *
+ *  Read, not computed. Debt/equity and ROE could both be divided out of the
+ *  history series already on this page, and doing so would put a second,
+ *  silently different number next to the one the statements page quotes for
+ *  the same year. MC files these; both surfaces quote the filing.
+ *
+ *  Takes CANDIDATE names because MC files banks under a different vocabulary
+ *  from everyone else — return on equity is "Return on Networth / Equity (%)"
+ *  for TCS and "Return on Equity / Networth (%)" for HDFCBANK, and ROCE is
+ *  "Return on Capital Employed (%)" against a bare "Roce (%)". First hit
+ *  wins. */
+function ratioByFY(
+  ratios: StatementResponse | null,
+  lineItems: string[],
+  fy: string,
+): number | null {
+  if (!ratios) return null;
+  const row = ratios.rows.find((r) => lineItems.includes(r.line_item.trim()));
+  if (!row) return null;
+  // "Mar 26" → FY26. The ratio sheet is labelled by period end, the summary
+  // by fiscal year, and the two only ever meet here.
+  const period = ratios.periods.find((p) => `FY${p.slice(-2)}` === fy);
+  return period ? (row.values[period] ?? null) : null;
+}
+
+function buildBalanceSheetFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const equity = f.history["total_equity"] ?? [];
   const reserves = f.history["reserves"] ?? [];
   const debt = f.history["total_debt"] ?? [];
@@ -2480,8 +2511,92 @@ function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : `₹${v.toFixed(2)}`;
       }),
     },
+    // Three balance-sheet ratios: what it owes against what it owns, whether
+    // it can pay this year's bills, and what the equity earned. Filed values,
+    // so they cannot disagree with the ratio sheet — and swapped for a bank,
+    // which files none of the first two.
+    ...(filesBankRatios(ratios)
+      ? [
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+          ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], (v) => `${v.toFixed(1)}%`),
+          ratioRow("CASA", ratios, ["Casa (%)"], (v) => `${v.toFixed(1)}%`),
+        ]
+      : [
+          ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+        ]),
   ];
 }
+
+/** The ratio summary tab: seven filed ratios spanning what the company earns,
+ *  what it owes and what it is priced at.
+ *
+ *  Every one is read from MC's ratio sheet, so the summary and the statements
+ *  page cannot disagree — and so this tab costs no arithmetic at all. The
+ *  labels are ours; the numbers are the filing's. */
+function buildRatioRows(ratios: StatementResponse | null): FinancialRow[] {
+  const pctFmt = (v: number) => `${v.toFixed(1)}%`;
+  const mult = (v: number) => `${v.toFixed(2)}×`;
+
+  // A bank has no debt/equity, no current ratio and no EV/EBITDA to file, so
+  // asking for them printed five em-dashes out of seven — the dead rows this
+  // page exists to avoid. It gets the three that describe a bank instead.
+  if (filesBankRatios(ratios)) {
+    return [
+      ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+      ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+      ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+      ratioRow("Operating Margin", ratios, ["Operating Profit Margin (%)"], pctFmt),
+      ratioRow("Net Interest Margin", ratios, ["Net Interest Margin (%)"], pctFmt),
+      ratioRow("CASA", ratios, ["Casa (%)"], pctFmt),
+      ratioRow("Cost to Income", ratios, ["Cost to Income (%)"], pctFmt),
+    ];
+  }
+
+  return [
+    ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, pctFmt),
+    ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+    ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], mult),
+    ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], mult),
+    ratioRow("EV / EBITDA", ratios, ["EV/EBITDA (X)"], mult),
+  ];
+}
+
+/** A ratio-sheet line, shaped as a summary row across the fiscal years. */
+function ratioRow(
+  label: string,
+  ratios: StatementResponse | null,
+  lineItems: string | string[],
+  fmt: (v: number) => string,
+): FinancialRow {
+  const names = Array.isArray(lineItems) ? lineItems : [lineItems];
+  return {
+    label,
+    values: FY_YEARS.map((fy) => {
+      const v = ratioByFY(ratios, names, fy);
+      return v === null || !Number.isFinite(v) ? "—" : fmt(v);
+    }),
+  };
+}
+
+/** MC files banks under their own ratio vocabulary — no debt/equity, no
+ *  current ratio, no EV/EBITDA, and instead the three that actually describe a
+ *  bank: what the deposits cost, what the spread is, what the branch network
+ *  costs to run. Detected by the presence of those lines rather than by a
+ *  sector string, because the ratio sheet is the thing being read. */
+function filesBankRatios(ratios: StatementResponse | null): boolean {
+  if (!ratios) return false;
+  return ratios.rows.some((r) => {
+    const li = r.line_item.trim();
+    return li === "Casa (%)" || li === "Net Interest Margin (%)";
+  });
+}
+
+const ROE_NAMES = ["Return on Networth / Equity (%)", "Return on Equity / Networth (%)"];
+const ROCE_NAMES = ["Return on Capital Employed (%)", "Roce (%)"];
 
 // Estimated fallback for the Balance Sheet tab. We don't fabricate balance
 // sheets when the financials DB has no data — the line items show as
@@ -2496,7 +2611,10 @@ function buildBalanceSheetEstimate(): FinancialRow[] {
   ];
 }
 
-function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
+function buildProfitLossFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const revenue = f.history["revenue"] ?? [];
   const op = f.history["operating_profit"] ?? [];
   const net = f.history["net_profit"] ?? [];
@@ -2527,6 +2645,10 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : v.toFixed(2);
       }),
     },
+    // Two filed ratios, to the same seven rows the other tabs carry: what the
+    // revenue kept, and what the capital earned.
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], (v) => `${v.toFixed(1)}%`),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, (v) => `${v.toFixed(1)}%`),
   ];
 }
 
@@ -2584,7 +2706,7 @@ function KeyMetricsStrip({
   return (
     // Horizontal padding matches the Financial Performance panel below so the
     // heading + tiles line up with it (instead of sitting flush-left).
-    <div style={{ marginTop: 36, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <div
         style={{
           display: "flex",
@@ -2597,9 +2719,9 @@ function KeyMetricsStrip({
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
+            fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.022em",
             color: "var(--text-primary)",
           }}
         >
@@ -2681,7 +2803,7 @@ function KeyMetricsStrip({
 // FinancialsPanel — bar chart (left) + data table (right)
 // ---------------------------------------------------------------------------
 
-type FinPanelTab = "financials" | "pl";
+type FinPanelTab = "financials" | "pl" | "quarters" | "ratios";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
@@ -2707,10 +2829,15 @@ function FinBarChart({
   periods,
   metricA,
   metricB,
+  unit = "cr",
 }: {
   periods: string[];
   metricA: { label: string; values: (number | null)[]; color: string };
   metricB: { label: string; values: (number | null)[]; color: string };
+  /** What the bars are counted in. The legend used to say "(Cr)" and the
+   *  readout used to print a ₹ regardless — which on the ratio tab labelled a
+   *  return on equity as crores of rupees. */
+  unit?: "cr" | "pct";
 }): React.ReactElement {
   const [hover, setHover] = useState<number | null>(null);
   const allVals = [...metricA.values, ...metricB.values].filter((n): n is number => n !== null);
@@ -2723,7 +2850,7 @@ function FinBarChart({
         {[metricA, metricB].map((m) => (
           <span key={m.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-ui)", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
-            {m.label} (Cr)
+            {m.label}{unit === "cr" ? " (Cr)" : " (%)"}
           </span>
         ))}
       </div>
@@ -2741,7 +2868,9 @@ function FinBarChart({
                 return (
                   <div key={m.label}>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
-                      ₹{v !== null ? fmtShort(v) : "—"}
+                      {v === null ? "—"
+                        : unit === "cr" ? `₹${fmtShort(v)}`
+                        : `${v.toFixed(1)}%`}
                     </span>
                     <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)", marginLeft: 4 }}>{m.label}</span>
                   </div>
@@ -2763,7 +2892,7 @@ function FinBarChart({
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <div key={f} style={{ position: "absolute", left: 0, right: 32, bottom: `${f * 100}%`, borderTop: "1px dotted var(--glass-border)", pointerEvents: "none" }}>
             <span style={{ position: "absolute", right: -30, top: -8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
-              {fmtShort(maxVal * f)}
+              {unit === "cr" ? fmtShort(maxVal * f) : `${(maxVal * f).toFixed(0)}%`}
             </span>
           </div>
         ))}
@@ -2823,84 +2952,271 @@ function FinBarChart({
 function FinancialsPanel({
   quote,
   financials,
-  balanceSheet,
-  bsBasis,
-  onBsBasisChange,
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
-  balanceSheet: BalanceSheetResponse | null;
-  bsBasis: "consolidated" | "standalone";
-  onBsBasisChange: (basis: "consolidated" | "standalone") => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
-  // Full MC balance sheet lives behind a toggle inside the Balance Sheet tab.
-  const [showFullBS, setShowFullBS] = useState(false);
-  const fullBsReady =
-    balanceSheet !== null && balanceSheet.available && balanceSheet.rows.length > 0;
+  // One row's series open at a time. Keyed by label rather than index so
+  // switching tabs — which swaps the whole row set — closes it rather than
+  // opening whatever now sits in that position.
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  // ── the quarterly tab ───────────────────────────────────────────────────
+  // Quarters used to be a section of its own below, with a different heading
+  // size, its own stat tiles and three sparklines — a second financials panel
+  // that happened to be about three months instead of twelve. It is the same
+  // question at a different period, so it is a third tab here and it is drawn
+  // by the same chart and the same table as the other two.
+  //
+  // Loaded WITH the panel, not on first open of the tab, because the answer
+  // decides whether the tab exists at all. Coverage decides what renders is
+  // the rule the sections below already follow, and a great many companies
+  // file no quarterly metrics — HDFCBANK and INFY among them. Opening the tab
+  // to fetch would have meant advertising a tab that turns out to be empty,
+  // which is the dead panel that rule exists to prevent.
+  const [quarters, setQuarters] = useState<QuartersResponse | null>(null);
+  const [hasQuarters, setHasQuarters] = useState(false);
+  const [qBasis, setQBasis] = useState<"consolidated" | "standalone">("consolidated");
+  // The filed ratio sheet, for the ratio rows on the Balance Sheet and P&L
+  // tabs. Read rather than divided out of the history series already here, so
+  // this panel and the statements page cannot quote different numbers for the
+  // same year. Absent for a company MC files no ratios for, and those rows
+  // then print em-dashes without changing the row count.
+  const [ratios, setRatios] = useState<StatementResponse | null>(null);
+
+  // A new company answers the question again from scratch, and must not
+  // inherit the last one's tab — landing on Quarterly Results for a company
+  // that has none is the same dead panel by another route.
+  useEffect(() => {
+    setHasQuarters(false);
+    setQBasis("consolidated");
+    setTab((t) => (t === "quarters" || t === "ratios" ? "financials" : t));
+  }, [quote.symbol]);
+
+  useEffect(() => {
+    let dead = false;
+    setRatios(null);
+    getStatement(quote.symbol, "ratios", "consolidated", 10)
+      .then((r) => { if (!dead && !isError(r) && r.data.available) setRatios(r.data); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [quote.symbol]);
+
+  useEffect(() => {
+    let dead = false;
+    setQuarters(null);
+    getStockQuarters(quote.symbol, qBasis, 12)
+      .then((r) => {
+        if (dead || isError(r)) return;
+        setQuarters(r.data);
+        // Latched: a company that reports consolidated quarters but no
+        // standalone ones must not have the tab vanish under the reader when
+        // they flip the basis.
+        if (r.data.quarters.length) setHasQuarters(true);
+      })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [quote.symbol, qBasis]);
 
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
-    () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
-    [financials],
+    () => financials?.available ? buildBalanceSheetFromDB(financials, ratios) : buildBalanceSheetEstimate(),
+    [financials, ratios],
   );
   const plRows = useMemo(
-    () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
-    [quote, financials],
+    () => financials?.available ? buildProfitLossFromDB(financials, ratios) : buildProfitLoss(quote),
+    [quote, financials, ratios],
   );
 
-  const rows = tab === "financials" ? bsRows : plRows;
+  // Quarters, shaped into exactly the row/period pair the other two tabs
+  // hand to the chart and the table. Oldest → newest, because that is the
+  // direction FY_YEARS runs and the chart reads left to right; the API
+  // returns newest first. Five columns, matching the five financial years,
+  // so the two tables are the same width.
+  const qPeriods = useMemo(
+    () => (quarters?.quarters ?? []).slice(0, 5).reverse()
+      .map((q) => q.period_label ?? q.period_end ?? ""),
+    [quarters],
+  );
+  const qRows = useMemo(() => {
+    const qs = (quarters?.quarters ?? []).slice(0, 5).reverse();
+    if (!qs.length) return [];
+    // `?? null` is load-bearing: the API omits a metric a company does not
+    // file rather than sending null, so a `v === null` guard inside a
+    // formatter lets `undefined` straight through to v.toFixed(). The declared
+    // type says number | null, so the compiler cannot see it — this is the
+    // boundary where the wire's shape and the type's shape have to be
+    // reconciled, and it is cheaper to do it once here than in six formatters.
+    const line = (label: string, pick: (q: typeof qs[number]) => number | null | undefined, fmt: (v: number | null) => string) =>
+      ({ label, values: qs.map((q) => fmt(pick(q) ?? null)) });
+    const pct = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`;
+    const rupees = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`;
+
+    // Seven rows, fixed, like the other two tabs. The full quarterly P&L —
+    // every expense line, the tax block, the YoY pair — is on the statements
+    // page; this is the summary, and a summary that runs three times the
+    // height of the tab beside it is not one.
+    //
+    // Fixed rather than filtered, so a company that files no margin keeps the
+    // shape and prints an em-dash. On this panel the row count is a promise
+    // the three tabs make to each other.
+    const out = [
+      line("Revenue", (q) => q.revenue, fmtCrFromMC),
+      line("Profit Before Tax", (q) => q.pbt, fmtCrFromMC),
+      line("Tax", (q) => q.tax, fmtCrFromMC),
+      line("Net Profit", (q) => q.net_profit, fmtCrFromMC),
+      line("Net Margin", (q) => q.net_margin_pct, pct),
+      line("EPS", (q) => q.eps_basic, rupees),
+      line("Revenue YoY", (q) => q.revenue_yoy_pct, pct),
+    ];
+    return out;
+  }, [quarters]);
+
+  const rRows = useMemo(() => buildRatioRows(ratios), [ratios]);
+  // A company MC files no ratio sheet for does not get an empty fourth tab.
+  const hasRatios = !!ratios && rRows.some((r) => r.values.some((v) => v !== "—"));
+
+  const periods = tab === "quarters" ? qPeriods : FY_YEARS;
+  const rows = tab === "financials" ? bsRows
+    : tab === "pl" ? plRows
+    : tab === "ratios" ? rRows
+    : qRows;
   const _source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
-    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
+    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
 
   const cfg = tab === "financials"
-    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
-    : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
+    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b", unit: "cr" as const }
+    : tab === "ratios"
+      // The two that say most about quality, and the pair a reader compares:
+      // ROCE above ROE means the equity is not carrying the return alone. A
+      // bank has no ROCE row, so it charts the spread against the return
+      // instead — which is the same question asked of a balance sheet made of
+      // deposits.
+      ? filesBankRatios(ratios)
+        ? { a: "Return on Equity", b: "Net Interest Margin", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+        : { a: "Return on Equity", b: "Return on Capital", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+      : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
 
   return (
-    <div style={{ marginTop: 28, minWidth: 0, maxWidth: "100%" }}>
+    <div style={{ marginTop: SECTION_GAP, minWidth: 0, maxWidth: "100%" }}>
       <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden", minWidth: 0 }}>
 
         {/* Header: title row + tabs row */}
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
-          {/* Title + source badge */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <span style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+          {/* Title. The heading owns this row alone, like every other section
+              heading on the page — the way out to the full statement moved
+              down to the tab strip, next to the tab it opens. */}
+          <div style={{ marginBottom: 10 }}>
+            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
           </div>
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 0 }}>
-            {(["financials", "pl"] as const).map((t) => {
-              const active = tab === t;
-              return (
-                <button key={t} type="button" onClick={() => setTab(t)} style={{
-                  padding: "6px 14px", border: "none", background: "transparent",
-                  fontSize: 12.5, fontFamily: "var(--font-ui)",
-                  fontWeight: active ? 600 : 400,
-                  color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
-                  borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
-                  cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
-                }}>
-                  {t === "financials" ? "Balance Sheet" : "Profit and Loss"}
-                </button>
-              );
-            })}
+          {/* Tabs. The basis switch rides at the far end of this row when the
+              quarterly tab is open — it belongs to that tab and only that tab,
+              and giving it its own line below would push the chart down by a
+              row that is empty two-thirds of the time. */}
+          <div style={{ display: "flex", gap: 0, alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", gap: 0 }}>
+              {([
+                "financials" as const,
+                "pl" as const,
+                ...(hasQuarters ? ["quarters" as const] : []),
+                ...(hasRatios ? ["ratios" as const] : []),
+              ]).map((t) => {
+                const active = tab === t;
+                return (
+                  <button key={t} type="button" onClick={() => { setTab(t); setOpenRow(null); }} style={{
+                    padding: "6px 14px", border: "none", background: "transparent",
+                    fontSize: 12.5, fontFamily: "var(--font-ui)",
+                    fontWeight: active ? 600 : 400,
+                    color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
+                    borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                    cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
+                  }}>
+                    {t === "financials" ? "Balance Sheet"
+                      : t === "pl" ? "Profit and Loss"
+                      : t === "quarters" ? "Quarterly Results"
+                      : "Ratios"}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 18, paddingBottom: 7 }}>
+              {tab === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
+                <div style={{ display: "inline-flex", gap: 14 }}>
+                  {quarters!.bases_available.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setQBasis(b as "consolidated" | "standalone")}
+                      style={{
+                        border: "none", background: "transparent", cursor: "pointer",
+                        padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
+                        fontWeight: qBasis === b ? 600 : 400,
+                        color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
+                        transition: "color 0.15s",
+                      }}
+                    >
+                      {b === "consolidated" ? "Consolidated" : "Standalone"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* The way out to the whole statement. This panel is a summary —
+                  four balance-sheet lines and two P&L lines — over a store that
+                  holds a hundred and twenty line items across twenty-three
+                  periods, and until there was somewhere to send a reader, the
+                  summary read as all we had. It carries the open tab across so
+                  the reader lands on the statement they were already reading,
+                  which is why it belongs on the tab row and not above it: it
+                  changes meaning with the tab, so it should sit beside it.
+                  No pill either — a bordered capsule at the end of a row of
+                  flat tabs reads as the loudest control in the panel, when it
+                  is the quietest thing here. Plain text and a chevron. */}
+              <Link
+                href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
+                  tab === "financials" ? "balance_sheet"
+                    : tab === "ratios" ? "ratios"
+                    // Quarterly has no statement of its own over there; the P&L
+                    // is the same lines over twelve months, which is the nearest
+                    // true thing rather than a tab that does not exist.
+                    : "profit_loss"
+                }`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                  color: "var(--text-secondary)", textDecoration: "none",
+                  whiteSpace: "nowrap", transition: "color 120ms",
+                }}
+              >
+                See detail
+                <ChevronRight size={13} aria-hidden="true" />
+              </Link>
+            </div>
           </div>
         </div>
 
         {/* Body: chart left | table right (table gets a bit more room) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_6fr]">
+        <div className="grid grid-cols-1 lg:grid-cols-[4.3fr_6.7fr]">
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
-            <FinBarChart
-              periods={FY_YEARS}
-              metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
-              metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
-            />
+            {tab === "quarters" && !periods.length ? (
+              <div style={{ height: 260, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                {quarters === null ? "Loading quarterly results…" : "No quarterly results reported."}
+              </div>
+            ) : (
+              <FinBarChart
+                periods={periods}
+                unit={cfg.unit}
+                metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
+                metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
+              />
+            )}
           </div>
 
           {/* Right — data table */}
@@ -2908,15 +3224,15 @@ function FinancialsPanel({
             <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
               <thead>
                 <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  <th style={{ width: "25%", padding: "12px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
-                  {FY_YEARS.map((y, i) => (
+                  {periods.map((y, i) => (
                     <th key={y} style={{
-                      padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
+                      padding: "12px 6px", fontSize: 11, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
-                      color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                      color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
                     }}>
                       {y}
                     </th>
@@ -2924,225 +3240,66 @@ function FinancialsPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => (
-                  <tr key={r.label || idx}
-                    style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none", transition: "background 120ms" }}
+                {rows.map((r, idx) => {
+                  const open = openRow === r.label;
+                  return (
+                  <Fragment key={r.label || idx}>
+                  <tr
+                    onClick={() => setOpenRow(open ? null : r.label)}
+                    aria-expanded={open}
+                    style={{
+                      borderBottom: idx < rows.length - 1 || open ? "1px solid var(--glass-border)" : "none",
+                      transition: "background 120ms",
+                      cursor: "pointer",
+                      background: open ? "var(--bg-base, #f8fafc)" : "transparent",
+                    }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
                   >
-                    <td style={{ padding: "11px 12px" }}>
+                    <td style={{ padding: "12px 10px" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                         <span style={{
                           width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
                           background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
                         }} />
-                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
                           {r.label}
                         </span>
                       </span>
                     </td>
                     {r.values.map((v, i) => (
                       <td key={i} className="tabular-nums" style={{
-                        padding: "11px 8px", textAlign: "right",
-                        fontSize: 11.5, fontFamily: "var(--font-mono)",
-                        fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
-                        color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
+                        padding: "12px 6px", textAlign: "right", whiteSpace: "nowrap",
+                        // The numbers are the row. At 11.5 they were set
+                        // SMALLER than the label beside them and barely above
+                        // the column header, which reads as a table of names
+                        // with footnotes rather than a table of figures.
+                        fontSize: 13, fontFamily: "var(--font-mono)",
+                        fontWeight: i === periods.length - 1 ? 600 : 400,
+                        color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
                       }}>
                         {v ?? "—"}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  {/* The row's own series, at full table width. Opened rather
+                      than always-on: a sparkline per row costs a column on
+                      every table and is too small to read a turn off. */}
+                  {open ? (
+                    <tr style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+                      <td colSpan={periods.length + 1} style={{ padding: 0, background: "var(--bg-base, #f8fafc)" }}>
+                        <RowTrend label={r.label} periods={periods} values={r.values} />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Full balance sheet — opens inline on the Balance Sheet tab only */}
-        {tab === "financials" && fullBsReady && (
-          <div
-            className="px-2 sm:px-5"
-            style={{ borderTop: "1px solid var(--glass-border)", paddingTop: 14, paddingBottom: 14 }}
-          >
-            <button
-              type="button"
-              onClick={() => setShowFullBS((v) => !v)}
-              aria-expanded={showFullBS}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "7px 14px", border: "1px solid var(--glass-border)",
-                borderRadius: 99, background: "transparent", cursor: "pointer",
-                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
-                color: "var(--text-secondary)", transition: "background 120ms, color 120ms",
-              }}
-            >
-              {showFullBS ? "Hide full balance sheet" : "View full balance sheet"}
-              <ChevronDown
-                size={14}
-                aria-hidden="true"
-                style={{ transform: showFullBS ? "rotate(180deg)" : "none", transition: "transform 160ms" }}
-              />
-            </button>
-            {showFullBS && (
-              <div style={{ marginTop: 14 }}>
-                <FullBalanceSheetSection
-                  balanceSheet={balanceSheet}
-                  basis={bsBasis}
-                  onBasisChange={onBsBasisChange}
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Fixed width for the pinned Line-Item column. Bounding it (rather than
- *  letting `nowrap` size it to the longest label) is what keeps the value
- *  columns reachable on a phone — names wrap inside this width instead. */
-const LINE_ITEM_COL_W = 168;
-
-/** Full Moneycontrol balance sheet: every line item, section headers, real
- *  fiscal-year columns (not the synthetic FY_YEARS used by the summary panel
- *  above). A self-contained card (positioned by its caller), horizontally
- *  scrollable with a sticky Line-Item column so the wide multi-year grid reads
- *  well on laptop and phone alike. Sourced only from a real MC scrape
- *  (mc_html/mc_api) — never yfinance, never fabricated, so it renders nothing
- *  rather than guessing when a company has no scraped balance sheet. */
-function FullBalanceSheetSection({
-  balanceSheet,
-  basis,
-  onBasisChange,
-}: {
-  balanceSheet: BalanceSheetResponse | null;
-  basis: "consolidated" | "standalone";
-  onBasisChange: (basis: "consolidated" | "standalone") => void;
-}): React.ReactElement | null {
-  // Nothing to show while loading or when no real scrape exists.
-  if (balanceSheet === null || !balanceSheet.available || balanceSheet.rows.length === 0) {
-    return null;
-  }
-
-  const { periods, rows, unit } = balanceSheet;
-  const cardBg = "var(--bg-primary)";
-
-  return (
-    <div
-      style={{
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg, 16px)",
-        overflow: "hidden",
-        background: cardBg,
-        minWidth: 0,
-        maxWidth: "100%",
-      }}
-    >
-      {/* Header — title + basis toggle; wraps on narrow phones */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 10,
-          padding: "14px 16px",
-          borderBottom: "1px solid var(--glass-border)",
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
-          Full Balance Sheet{unit ? ` (${unit})` : ""}
-        </span>
-        <div style={{ display: "flex", gap: 0, border: "1px solid var(--glass-border)", borderRadius: 8, overflow: "hidden" }}>
-          {(["consolidated", "standalone"] as const).map((b) => {
-            const active = basis === b;
-            return (
-              <button key={b} type="button" onClick={() => onBasisChange(b)} style={{
-                padding: "5px 12px", border: "none", cursor: "pointer",
-                fontSize: 11.5, fontFamily: "var(--font-ui)", fontWeight: active ? 600 : 400,
-                background: active ? "var(--pivot-blue, #1b7cc7)" : "transparent",
-                color: active ? "#fff" : "var(--text-secondary)",
-                textTransform: "capitalize", transition: "background 120ms, color 120ms",
-              }}>
-                {b}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Grid — horizontal scroll inside the card; Line-Item column sticks */}
-      <div style={{ overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
-        <table style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", width: "max-content", minWidth: "100%" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-              <th style={{ padding: "10px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap", position: "sticky", left: 0, zIndex: 2, background: cardBg, borderRight: "1px solid var(--glass-border)", width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W }}>
-                Line Item
-              </th>
-              {periods.map((p, i) => (
-                <th key={p} style={{
-                  padding: "10px 12px", fontSize: 10.5, fontWeight: 600,
-                  textTransform: "uppercase", letterSpacing: "0.06em",
-                  textAlign: "right", whiteSpace: "nowrap",
-                  color: i === 0 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
-                }}>
-                  {p}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => {
-              const prevSection = idx > 0 ? (rows[idx - 1]?.section ?? null) : null;
-              const showSectionHeader = r.section !== null && r.section !== prevSection;
-              return (
-                <Fragment key={r.line_item + idx}>
-                  {showSectionHeader && (
-                    <tr key={`sec-${idx}`} style={{ background: "var(--bg-base, #f8fafc)" }}>
-                      {/* Full-width band; only the label is pinned so the
-                          heading stays readable while scrolling sideways. */}
-                      <td colSpan={periods.length + 1} style={{
-                        padding: "9px 12px", fontSize: 10, fontWeight: 700,
-                        textTransform: "uppercase", letterSpacing: "0.06em",
-                        color: "var(--text-tertiary)", whiteSpace: "nowrap",
-                        background: "var(--bg-base, #f8fafc)",
-                      }}>
-                        <span style={{ position: "sticky", left: 12, display: "inline-block" }}>
-                          {r.section}
-                        </span>
-                      </td>
-                    </tr>
-                  )}
-                  <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-                    <td style={{
-                      padding: "9px 12px", fontSize: 12, color: "var(--text-primary)",
-                      // Bounded + wrapping so long names can't eat the whole
-                      // phone width and squeeze the value columns off-screen.
-                      whiteSpace: "normal", lineHeight: 1.35,
-                      width: LINE_ITEM_COL_W, minWidth: LINE_ITEM_COL_W, maxWidth: LINE_ITEM_COL_W,
-                      position: "sticky", left: 0, zIndex: 1, background: cardBg,
-                      borderRight: "1px solid var(--glass-border)",
-                    }}>
-                      {r.line_item}
-                    </td>
-                    {periods.map((p, i) => (
-                      <td key={p} className="tabular-nums" style={{
-                        padding: "9px 12px", textAlign: "right",
-                        fontSize: 11.5, fontFamily: "var(--font-mono)",
-                        fontWeight: i === 0 ? 600 : 400,
-                        color: i === 0 ? "var(--text-primary)" : "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                      }}>
-                        {r.value_texts[p] ?? "—"}
-                      </td>
-                    ))}
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -3186,7 +3343,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
@@ -3221,7 +3378,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary, #f8fafc)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <td style={{ padding: "10px 14px", fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                <td style={{ padding: "11px 14px", fontSize: 13.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                   {r ? r.label : ""}
                 </td>
                 <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -3230,7 +3387,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 {FY_YEARS.map((_, i) => {
                   const isLatest = i === latestIdx;
                   return (
-                    <td key={i} className="tabular-nums" style={{ padding: "10px 14px", fontSize: 12.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    <td key={i} className="tabular-nums" style={{ padding: "11px 14px", fontSize: 13.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                       {r ? (r.values[i] ?? "—") : ""}
                     </td>
                   );
@@ -3261,4 +3418,3 @@ const _screenerTd: React.CSSProperties = {
   fontSize: 12.5,
   whiteSpace: "nowrap",
 };
-

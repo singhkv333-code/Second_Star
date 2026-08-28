@@ -1,0 +1,14 @@
+[Unit]
+Description=Charto: hourly user-database backup
+
+[Timer]
+# Hourly, and again shortly after boot: the window this protects is "what did
+# a user do since the last copy", and an hour of a 40-person beta is a handful
+# of journal entries and layouts. Persistent=true so a box that was off does
+# not silently skip the catch-up run.
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -282,11 +282,25 @@ async function _performRequest<T>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
+  /* Mutations never come from a cache; READS obey the server's own headers.
+   *
+   * `no-store` was set on every request regardless of method, which threw
+   * away the whole HTTP caching layer: a balance sheet that changes when a
+   * sync runs was re-fetched on every navigation and every peer click, and
+   * the ETag the server sends could never produce a 304 because the client
+   * had nothing stored to revalidate.
+   *
+   * `default` does not mean "cache aggressively" — it means the SERVER
+   * decides, which is the only side that knows how fast each thing moves.
+   * Anything it wants fresh it sends without a max-age, and that still
+   * revalidates on every use.
+   */
+  const method = options.method ?? "GET";
   const res = await fetch(url, {
-    method: options.method ?? "GET",
+    method,
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    cache: "no-store",
+    cache: method === "GET" ? "default" : "no-store",
   });
 
   // 204 No Content
@@ -1016,6 +1030,94 @@ export function getBalanceSheet(
 ): Promise<ApiResult<BalanceSheetResponse>> {
   return request<BalanceSheetResponse>(
     `/financials/${encodeURIComponent(symbol)}/balance_sheet?basis=${basis}`,
+  );
+}
+
+/** The four line-item grids MC publishes. All four share the balance sheet's
+ *  shape, so one table component reads every one of them. */
+export type StatementType = "balance_sheet" | "profit_loss" | "cash_flow" | "ratios";
+
+export type StatementResponse = BalanceSheetResponse & { statement: StatementType };
+
+/** `GET /api/financials/{symbol}/statement` — one full statement grid.
+ *
+ *  `ratios` is in here rather than in a computed-metrics endpoint because MC
+ *  files its ratio sheet as a line-item statement like any other: thirty-odd
+ *  ratios under Per Share / Profitability / Liquidity / Coverage / Valuation,
+ *  already sectioned, already multi-year. Nothing is derived on the client. */
+export function getStatement(
+  symbol: string,
+  type: StatementType,
+  basis: "consolidated" | "standalone" = "consolidated",
+  years = 10,
+): Promise<ApiResult<StatementResponse>> {
+  return request<StatementResponse>(
+    `/financials/${encodeURIComponent(symbol)}/statement`
+      + `?type=${type}&basis=${basis}&years=${years}`,
+  );
+}
+
+/** One cell of the solvency-and-value matrix: a model, its number, and the
+ *  fields that model happens to carry (Altman's five terms, Ohlson's implied
+ *  probability, Graham's EPS and book value, DuPont's three legs). A cell with
+ *  `value: null` carries the reason instead — a bank has no working capital,
+ *  so Altman is not a gap in the data but a model that does not apply. */
+export type ScoreQuadrant = {
+  key: string;
+  label: string;
+  caption: string;
+  format: "plain" | "pct" | "rupees";
+  value: number | null;
+  band?: "good" | "watch" | "risk";
+  verdict?: string;
+  unavailable_reason: string | null;
+  /** The spokes for THIS score — the inputs of its own formula. Falls back to
+   *  the company radar when a score's inputs are too patchy to draw. */
+  radar: ScoreAxis[];
+  terms?: Record<string, number>;
+  probability_pct?: number;
+  eps?: number;
+  book_value_per_share?: number;
+  delta_pp?: number;
+  margin_pct?: number;
+  asset_turnover?: number;
+  equity_multiplier?: number;
+};
+
+/** One spoke of the radar: a filed ratio, its own display string, and where it
+ *  sits against the ceiling that spoke is scaled to. */
+export type ScoreAxis = {
+  key: string;
+  label: string;
+  detail: string;
+  value: number | null;
+  display: string;
+  cap: number;
+  scaled: number | null;
+};
+
+export type CompanyScores = {
+  available: boolean;
+  symbol: string;
+  kind: "corporate" | "bank";
+  basis: "consolidated" | "standalone";
+  period: string;
+  unit: string;
+  quadrants: ScoreQuadrant[];
+  radar: ScoreAxis[];
+  source: string;
+  reason?: string;
+};
+
+/** `GET /api/financials/{symbol}/scores` — Altman Z, Ohlson O, Graham and
+ *  DuPont, plus the five ratios they are built from, every term read out of
+ *  ONE period of ONE basis of the same statements the page already quotes. */
+export function getCompanyScores(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+): Promise<ApiResult<CompanyScores>> {
+  return request<CompanyScores>(
+    `/financials/${encodeURIComponent(symbol)}/scores?basis=${basis}`,
   );
 }
 
@@ -2826,4 +2928,443 @@ export function fetchSecurityMeta(
     method: "POST",
     body: { symbols },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Stock detail — deep sections (/api/stock/{symbol}/*)
+//
+// Everything below the fold on the stock page: quarters, annual-report facts,
+// segment mixes, ownership, documents. Served by backend/routers/stock_detail.py
+// across three databases.
+//
+// `getStockSections` comes first and decides the rest: coverage for these
+// assets runs from 99% of the universe down to 12%, so the page asks what a
+// symbol HAS before it renders a single panel. A section with a zero count is
+// not drawn at all — an empty panel reads as a broken page, not as absent data.
+// ---------------------------------------------------------------------------
+
+export type SectionCoverage = {
+  quarters: { count: number; latest: string | null; bases: number };
+  annual_report: {
+    count: number; tasks: number; documents: number; latest_period: string | null;
+  };
+  revenue_mix: { count: number; market_share?: number };
+  ownership: { count: number };
+  documents: { count: number };
+};
+
+export type StockSections = {
+  symbol: string;
+  isin: string | null;
+  sc_id: string | null;
+  name: string | null;
+  bse_scripcode: string | null;
+  coverage: SectionCoverage;
+};
+
+export function getStockSections(symbol: string): Promise<ApiResult<StockSections>> {
+  return request<StockSections>(`/stock/${encodeURIComponent(symbol)}/sections`);
+}
+
+/** One row of `quarterly_metrics`. Every field is PRECOMPUTED in the database —
+ *  margins, YoY, QoQ and TTM included — so nothing here is derived on the
+ *  client. Deriving it twice is how two parts of a product end up quoting
+ *  different numbers for the same quarter. Nulls are common and real:
+ *  operating_margin_pct is filled for ~59% of recent rows, EBITDA ~64%. */
+export type QuarterRow = {
+  period_end: string;
+  period_label: string | null;
+  basis: string;
+  revenue: number | null;
+  total_income: number | null;
+  other_income: number | null;
+  ebitda: number | null;
+  ebit: number | null;
+  depreciation: number | null;
+  interest: number | null;
+  employee_cost: number | null;
+  raw_material: number | null;
+  other_expenses: number | null;
+  provisions: number | null;
+  exceptional: number | null;
+  pbt: number | null;
+  tax: number | null;
+  net_profit: number | null;
+  eps_basic: number | null;
+  eps_diluted: number | null;
+  operating_margin_pct: number | null;
+  ebitda_margin_pct: number | null;
+  net_margin_pct: number | null;
+  pbt_margin_pct: number | null;
+  tax_rate_pct: number | null;
+  interest_coverage: number | null;
+  revenue_yoy_pct: number | null;
+  net_profit_yoy_pct: number | null;
+  ebitda_yoy_pct: number | null;
+  revenue_qoq_pct: number | null;
+  net_profit_qoq_pct: number | null;
+  operating_margin_yoy_bps: number | null;
+  net_margin_yoy_bps: number | null;
+  rev_ttm: number | null;
+  np_ttm: number | null;
+  eps_ttm: number | null;
+  rev_ttm_yoy_pct: number | null;
+  np_ttm_yoy_pct: number | null;
+  gross_npa_pct: number | null;
+  net_npa_pct: number | null;
+  roa_pct: number | null;
+};
+
+export type QuartersResponse = {
+  symbol: string;
+  basis: string;
+  matched_on: "isin" | "sc_id";
+  bases_available: string[];
+  quarters: QuarterRow[];
+};
+
+export function getStockQuarters(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+  limit = 20,
+): Promise<ApiResult<QuartersResponse>> {
+  return request<QuartersResponse>(
+    `/stock/${encodeURIComponent(symbol)}/quarters?basis=${basis}&limit=${limit}`,
+  );
+}
+
+/** A single extracted fact. `page` + `quote` are the point of the section —
+ *  they are what lets a reader check the number against the filed document.
+ *
+ *  `unit_agrees` is a STRING verdict, not a boolean: "agree", "n/a", or
+ *  "DISAGREE model=crore deterministic=million". A disagreement means two
+ *  independent readings of the unit differ — the same class of error that
+ *  produced a 10,000x mistake elsewhere — so it is surfaced, never hidden. */
+export type FilingFact = {
+  task: string;
+  grp: string | null;
+  label: string | null;
+  value_text: string | null;
+  unit_text: string | null;
+  value_crore: number | null;
+  period: string | null;
+  basis: string | null;
+  page: number | null;
+  quote: string | null;
+  grounding: string | null;
+  unit_agrees: string | null;
+  rollup: string | null;
+  note: string | null;
+  doc_sha: string | null;
+};
+
+export type FilingDocument = {
+  sha256: string;
+  title: string | null;
+  period: string | null;
+  filed_at: string | null;
+  url: string | null;
+  pages: number | null;
+};
+
+export type AnnualReportResponse = {
+  symbol: string;
+  documents: FilingDocument[];
+  tasks: {
+    task: string;
+    label: string;
+    count: number;
+    groups: { grp: string; facts: FilingFact[] }[];
+  }[];
+  truncated: boolean;
+};
+
+export function getStockAnnualReport(
+  symbol: string,
+): Promise<ApiResult<AnnualReportResponse>> {
+  return request<AnnualReportResponse>(
+    `/stock/${encodeURIComponent(symbol)}/annual-report`,
+  );
+}
+
+/** Segment splits. `charts` is a LIST because a company has several — Reliance
+ *  carries seven (product, location, operating profit, capex, assets). Each
+ *  carries a current snapshot AND a series per segment, which is what makes it
+ *  worth a chart rather than a donut. */
+export type MixChart = {
+  id: number | null;
+  title: string;
+  current: { name: string; pct: number }[];
+  series: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export type MixResponse = {
+  symbol: string;
+  available: boolean;
+  source_name?: string | null;
+  charts: MixChart[];
+  market_share?: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export function getStockMix(symbol: string): Promise<ApiResult<MixResponse>> {
+  return request<MixResponse>(`/stock/${encodeURIComponent(symbol)}/mix`);
+}
+
+export type PeerMetric = {
+  id: string;
+  label: string;
+  unit: "inr" | "crore" | "percent" | "multiple" | "rupee";
+};
+
+/** Price facts for one peer, computed server-side from a year of daily closes.
+ *  Every field is nullable: a window the listing is too young to cover, or a
+ *  price feed that failed, prints an em-dash rather than a fabricated zero. */
+export type PeerPrice = {
+  price: number | null;
+  change_pct: number | null;
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_6m: number | null;
+  ret_1y: number | null;
+  rsi14: number | null;
+  vs_50dma: number | null;
+  vs_200dma: number | null;
+  from_52w_high: number | null;
+};
+
+export type PeerComparisonResponse = {
+  symbol: string;
+  available: boolean;
+  sector: string | null;
+  fields: PeerMetric[];
+  catalog: PeerMetric[];
+  peers: {
+    sc_id: string;
+    symbol: string;
+    name: string;
+    is_current: boolean;
+    values: Record<string, number | null>;
+    periods: Record<string, string | null>;
+    price?: PeerPrice;
+  }[];
+  source?: string;
+};
+
+export function getStockPeers(symbol: string, fields: string[]): Promise<ApiResult<PeerComparisonResponse>> {
+  return request<PeerComparisonResponse>(
+    `/stock/${encodeURIComponent(symbol)}/peers?fields=${encodeURIComponent(fields.join(","))}`,
+  );
+}
+
+export type OwnershipResponse = {
+  symbol: string;
+  available: boolean;
+  long_business_summary?: string | null;
+  website?: string | null;
+  full_time_employees?: number | null;
+  held_percent_institutions?: number | null;
+  held_percent_insiders?: number | null;
+  institutions_count?: number | null;
+  institutions_float_percent?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+};
+
+export function getStockOwnership(
+  symbol: string,
+): Promise<ApiResult<OwnershipResponse>> {
+  return request<OwnershipResponse>(`/stock/${encodeURIComponent(symbol)}/ownership`);
+}
+
+export type CompanyDocument = {
+  doc_type: string;
+  category: string | null;
+  subcategory: string | null;
+  title: string | null;
+  doc_date: string | null;
+  fin_year: string | null;
+  quarter: string | null;
+  url: string | null;
+  attach_size: string | null;
+};
+
+export type DocumentsResponse = {
+  symbol: string;
+  available: boolean;
+  types: { doc_type: string; n: number }[];
+  documents: CompanyDocument[];
+};
+
+export function getStockDocuments(
+  symbol: string,
+  docType = "",
+  limit = 60,
+): Promise<ApiResult<DocumentsResponse>> {
+  const t = docType ? `&doc_type=${encodeURIComponent(docType)}` : "";
+  return request<DocumentsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/documents?limit=${limit}${t}`,
+  );
+}
+
+// ── shareholding (shp.* XBRL filings) ───────────────────────────────────────
+
+/** One quarter of the stacked series. The top-level bucket keys are dynamic —
+ *  a company with no promoter never emits a "Promoters" key at all — so the
+ *  row is indexed rather than typed field by field. */
+export type ShareholdingQuarter = {
+  quarter: string;
+  pledge_pct: number | null;
+  [bucket: string]: string | number | null;
+};
+
+export type ShareholdingGroup = {
+  label: string;
+  pct: number;
+  children: { label: string; pct: number }[];
+};
+
+export type ShareholdingHolder = {
+  name: string;
+  bucket: string | null;
+  pct: number | null;
+  shares: number | null;
+};
+
+export type ShareholdingResponse = {
+  symbol: string;
+  available: boolean;
+  quarter?: string;
+  quarters: ShareholdingQuarter[];
+  groups?: ShareholdingGroup[];
+  pledge_pct?: number | null;
+  promoter_pct?: number | null;
+  holders: ShareholdingHolder[];
+};
+
+export function getShareholding(
+  symbol: string,
+): Promise<ApiResult<ShareholdingResponse>> {
+  return request<ShareholdingResponse>(
+    `/stock/${encodeURIComponent(symbol)}/shareholding`,
+  );
+}
+
+// ── flows: delivery % and futures open interest ─────────────────────────────
+
+export type DeliveryRow = {
+  d: string;
+  close: number | null;
+  qty: number | null;
+  deliv_qty: number | null;
+  deliv_per: number | null;
+  trades: number | null;
+};
+
+export type OiRow = { d: string; oi: number | null; oi_chg: number | null };
+
+export type FlowsResponse = {
+  symbol: string;
+  available: boolean;
+  summary: {
+    date: string | null;
+    delivery_pct: number | null;
+    delivery_median_20d: number | null;
+    volume: number | null;
+    delivered: number | null;
+    trades: number | null;
+    oi: number | null;
+    oi_chg: number | null;
+    close: number | null;
+  } | null;
+  delivery: DeliveryRow[];
+  oi: OiRow[];
+};
+
+export function getFlows(
+  symbol: string,
+  days = 180,
+): Promise<ApiResult<FlowsResponse>> {
+  return request<FlowsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/flows?days=${days}`,
+  );
+}
+
+// ── bulk and block deals ────────────────────────────────────────────────────
+
+export type Deal = {
+  d: string;
+  kind: string;
+  client: string;
+  side: string;
+  qty: number | null;
+  price: number | null;
+  value: number | null;
+};
+
+export type DealsResponse = { symbol: string; available: boolean; deals: Deal[] };
+
+export function getDeals(
+  symbol: string,
+  limit = 60,
+): Promise<ApiResult<DealsResponse>> {
+  return request<DealsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/deals?limit=${limit}`,
+  );
+}
+
+// ── pattern statistics (universe base rates, with a control) ────────────────
+
+export type PatternStat = {
+  kind: string;
+  family: string;
+  interval: string;
+  horizon: number;
+  n: number;
+  n_symbols: number;
+  rate: number | null;
+  control: number | null;
+  edge: number | null;
+  se: number | null;
+  move: number | null;
+  /** False when this company has fired the pattern too few times for its own
+   *  rate to carry information. The row is still shown — with its count — so
+   *  a thin sample reads as a thin sample rather than disappearing. */
+  enough?: boolean;
+  /** The same pattern's rate across the whole market, so a reader can see
+   *  whether this company is unusual or merely typical. Null in universe
+   *  scope, where the market rate IS the row. */
+  market_rate?: number | null;
+  market_edge?: number | null;
+  market_n?: number | null;
+};
+
+export type PatternScope = "symbol" | "universe";
+
+export type PatternsResponse = {
+  available: boolean;
+  scope: PatternScope;
+  symbol: string;
+  interval: string;
+  horizon: number;
+  options: { interval: string; horizon: number }[];
+  patterns: PatternStat[];
+  /** Symbol scope only: the case count below which a row is marked thin. */
+  min_cases?: number;
+  /** Universe scope only: how many symbols the pooled rows were mined from. */
+  universe_symbols?: number | null;
+};
+
+export function getPatterns(
+  symbol: string,
+  interval = "1d",
+  horizon = 20,
+  scope: PatternScope = "symbol",
+): Promise<ApiResult<PatternsResponse>> {
+  return request<PatternsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}&scope=${scope}`,
+  );
 }

@@ -47,6 +47,14 @@ beforeEach(() => {
   vi.spyOn(api, "listWorkflows").mockResolvedValue({
     data: { items: [], next_cursor: null },
   });
+  // The deep sections below the fold ask what this company HAS before they
+  // render anything. Unmocked, that call reaches real fetch — which in jsdom
+  // has no origin to resolve "/api/..." against and throws. Stubbed empty
+  // here, so these tests stay about the page they were written for; the
+  // sections have their own coverage in deep-sections.test.tsx.
+  vi.spyOn(api, "getStockSections").mockResolvedValue({
+    error: { code: "unavailable", message: "not mocked in this suite" },
+  } as never);
 });
 
 afterEach(() => {

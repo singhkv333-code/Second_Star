@@ -18,6 +18,9 @@ DETECTOR_VERSION = "chart-v3.0-pilot"
 PIVOT_WINDOW = 5
 DISCOVERY_WINDOW = 600
 MAX_CANDIDATE_BARS = 180
+RAIL_KINDS = {"ascending_triangle", "descending_triangle",
+              "symmetrical_triangle", "rising_wedge", "falling_wedge",
+              "rectangle", "channel_up", "channel_down", "broadening"}
 
 
 @dataclass
@@ -74,13 +77,109 @@ def _break_on_bar(rows: list[tuple], candidate: Candidate, j: int) -> str | None
     return None
 
 
+def _discover_rails(rows: list[tuple], pivots: list[tuple], j: int,
+                    tol: float, kinds: set[str]) -> list[tuple[dict, int]]:
+    """Direct O(recent pivots) rail classification; no general detector pass."""
+    out = []; n = j + 1; flat = tol / max(1, min(DISCOVERY_WINDOW, n)) * 4
+    highs = [(i, p) for i, p, k in pivots if k == "resistance"]
+    lows = [(i, p) for i, p, k in pivots if k == "support"]
+    for span in (60, 90, 120):
+        if n < span + 10: continue
+        i0 = n - span
+        hp = [(i, p) for i, p in highs if i >= i0]
+        lp = [(i, p) for i, p in lows if i >= i0]
+        if len(hp) < 2 or len(lp) < 2: continue
+        fh, fl = pt._fit(hp), pt._fit(lp)
+        if not fh or not fl: continue
+        sh, sl = fh[0], fl[0]
+        top = sh * j + fh[1]; bot = sl * j + fl[1]
+        old_top = sh * i0 + fh[1]; old_bot = sl * i0 + fl[1]
+        if top <= bot: continue
+        ratio = (top - bot) / max(1e-9, old_top - old_bot)
+        converging, widening = ratio < .85, ratio > 1.15
+        parallel = .85 <= ratio <= 1.15
+        kind = direction = None
+        if converging and abs(sh) <= flat and sl > flat:
+            kind, direction = "ascending_triangle", "bullish"
+        elif converging and abs(sl) <= flat and sh < -flat:
+            kind, direction = "descending_triangle", "bearish"
+        elif converging and sh < -flat and sl > flat:
+            kind, direction = "symmetrical_triangle", "neutral"
+        elif converging and sh > flat and sl > flat:
+            kind, direction = "rising_wedge", "bearish"
+        elif converging and sh < -flat and sl < -flat:
+            kind, direction = "falling_wedge", "bullish"
+        elif parallel and abs(sh) <= flat and abs(sl) <= flat:
+            kind, direction = "rectangle", "neutral"
+        elif parallel and sh > flat and sl > flat:
+            kind, direction = "channel_up", "bullish"
+        elif parallel and sh < -flat and sl < -flat:
+            kind, direction = "channel_down", "bearish"
+        elif widening and sh > flat and sl < -flat:
+            kind, direction = "broadening", "neutral"
+        if kind in kinds:
+            out.append(({"pattern": kind, "direction": direction,
+                         "points": {"upper_now": round(top, 2),
+                                    "lower_now": round(bot, 2),
+                                    "upper_slope_per_bar": round(sh, 4),
+                                    "lower_slope_per_bar": round(sl, 4)},
+                         "span_bars": span - 1, "bars_ago": 0}, i0))
+            break
+    return out
+
+
+def _discover_rounding(rows: list[tuple], closes: list[float], j: int, tol: float,
+                       kinds: set[str]) -> list[tuple[dict, int]]:
+    """Bounded direct quadratic fits for the three rounded edge families."""
+    out = []
+    def parabola(end, span):
+        i0 = end - span + 1
+        if i0 < 5: return None
+        q = pt._quadfit(closes[i0:end + 1])
+        if not q: return None
+        a2, a1, a0, r2 = q; m = span
+        if r2 < .75 or a2 == 0: return None
+        vx = -a1 / (2 * a2)
+        if not (.25 * (m - 1) <= vx <= .75 * (m - 1)): return None
+        fit = lambda x: a2*x*x + a1*x + a0
+        return i0, a2, r2, fit(0), fit(m-1), fit(vx)
+    if "cup_and_handle" in kinds:
+        for span in (40, 60, 90, 120):
+            found = False
+            for handle in (8, 12):
+                e = j - handle; q = parabola(e, span)
+                if not q or q[1] <= 0: continue
+                i0, _, r2, left, right, turn = q
+                depth = min(left, right) - turn
+                hs = rows[e+1:j+1]
+                if (depth >= tol*3 and abs(left-right) <= max(tol*2.5, .15*depth)
+                        and all(r[4] < right+tol for r in hs[:-1])
+                        and min(r[3] for r in hs) >= right-.5*depth):
+                    out.append(({"pattern":"cup_and_handle","direction":"bullish",
+                                 "points":{"right_rim":right},"span_bars":j-i0,
+                                 "bars_ago":0,"r2":r2}, i0)); found=True; break
+            if found: break
+    for span in (40, 60, 90, 120):
+        q = parabola(j, span)
+        if not q: continue
+        i0, a2, r2, left, right, turn = q
+        if a2 > 0 and "rounding_bottom" in kinds and min(left,right)-turn >= tol*3:
+            out.append(({"pattern":"rounding_bottom","direction":"bullish",
+                         "points":{"right_rim":right},"span_bars":span-1,
+                         "bars_ago":0,"r2":r2}, i0)); break
+        if a2 < 0 and "rounding_top" in kinds and turn-max(left,right) >= tol*3:
+            out.append(({"pattern":"rounding_top","direction":"bearish",
+                         "points":{"right_rim":right},"span_bars":span-1,
+                         "bars_ago":0,"r2":r2}, i0)); break
+    return out
+
+
 def event_driven_edge_patterns(rows: list[tuple], symbol: str,
                                kinds: set[str]) -> list[dict]:
     """Discover on pivot events and grade candidates on every native bar."""
     if len(rows) < 20: return []
-    offset = ds.session_for(symbol)[1]
-    ist = lambda ts: datetime.fromtimestamp(ts + offset, timezone.utc).isoformat()
     pivots: list[tuple] = []; active: dict[str, Candidate] = {}; emitted = []
+    closes = [r[4] for r in rows]
     for j in range(len(rows)):
         # Native-bar confirmation is cheap: only active candidates are checked.
         for sig, candidate in list(active.items()):
@@ -97,19 +196,14 @@ def event_driven_edge_patterns(rows: list[tuple], symbol: str,
                 del active[sig]
             elif j > candidate.expires_i:
                 del active[sig]
-        fresh = _new_pivots(rows, j)
-        if not fresh: continue
-        pivots.extend(fresh)
-        start = max(0, j + 1 - DISCOVERY_WINDOW)
-        window = rows[start:j + 1]
-        local_pivots = [(i - start, p, k) for i, p, k in pivots if i >= start]
-        found = pt.chart_patterns(window, local_pivots, ds._tolerance(window),
-                                  ist, kinds, limit=10_000)
-        for pattern in found:
-            if pattern.get("status") == "confirmed":
-                continue
-            end = j - int(pattern.get("bars_ago", 0)); begin = max(
-                start, end - int(pattern.get("span_bars", 0)))
+        fresh = _new_pivots(rows, j); pivots.extend(fresh)
+        if pivots and pivots[0][0] < j - DISCOVERY_WINDOW:
+            pivots = [p for p in pivots if p[0] >= j - DISCOVERY_WINDOW]
+        tol = ds._tolerance(rows[max(0, j - 20):j + 1])
+        found = _discover_rails(rows, pivots, j, tol, kinds)
+        found += _discover_rounding(rows, closes, j, tol, kinds)
+        for pattern, begin in found:
+            end = j
             sig = _signature(pattern, rows, begin, end)
             if sig not in active:
                 active[sig] = Candidate(pattern, j, begin, end,

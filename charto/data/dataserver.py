@@ -22,17 +22,20 @@ Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 import hmac
 import json
 import logging
 import queue
 import re
 import secrets
+import socket
 import sqlite3
 import sys
 from os import environ
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,12 +55,19 @@ from urllib.parse import parse_qs, unquote, urlparse
 # dataserver` (tests, tooling) is left exactly as it was.
 sys.modules.setdefault("dataserver", sys.modules[__name__])
 
+import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
+import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
 
-DB_PATH = Path(__file__).parent / "charto_bars.db"
+# The store is selectable so a laptop need not carry the full 29 GB of minute
+# history: `company_tables.py slim` builds a ~0.9 GB store with every company
+# table, the whole daily series and minute bars for a handful of symbols, and
+# CHARTO_DB points here at it. Unset, the full store is used exactly as before.
+DB_PATH = Path(environ.get("CHARTO_DB")
+               or Path(__file__).parent / "charto_bars.db")
 PORT = int(environ.get("CHARTO_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
@@ -127,6 +137,14 @@ def _scene_reset() -> None:
     # every annotation this turn drew, by id — the read-back path (see
     # _scene_add); unlike `items` it is never drained mid-turn
     _scene.placed = {}
+    # How many marks each detector has put on the chart THIS TURN, and what it
+    # parked instead (see _SCENE_BUDGET). Per turn rather than per call: two
+    # rounds of get_levels in one answer are still one chart getting busy, and
+    # a per-call budget would let the same question draw six lines by asking
+    # twice. Drained by _parked_take after each tool, so a later call cannot
+    # re-report an earlier one's parked marks.
+    _scene.budget = {}
+    _scene.parked = []
     _scene.cards = []
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
@@ -268,10 +286,116 @@ def _scene_add(annotation: dict) -> None:
     if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
                 "vband", "poly", "point", "candle", "label", "markers",
                 "drawing", "fib", "position"):
+        if _park_beyond_budget(annotation):
+            return
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))
     elif kind in ("clear", "clear_levels"):
         _scene.drawn = []
         _scene.placed = {}
+        _scene.budget = {}
+        _scene.parked = []
+
+
+# How many marks a single detector may put ON the chart before the rest go to
+# the layers panel instead.
+#
+# WHY THERE IS A CAP AT ALL. These tools are honest and thorough, and that is
+# the problem: "mark the support and resistance" is one sentence and nine
+# levels, and nine horizontal lines across a 5-minute chart is a chart you can
+# no longer read the candles on. The old answer was the global fold, which
+# could only take all nine away again. The layers panel is the new answer, and
+# a cap is what makes it more than a list: the strongest few stay on the
+# candles, the tail is ADDED but switched off, and one press in the panel
+# brings any of it back.
+#
+# The numbers are per DETECTOR, because what counts as busy differs by shape —
+# three levels is a readable chart and three volume profiles is not one at all.
+# Ranking is the tool's OWN order: every detector here already returns its
+# findings strongest-first or nearest-first, and re-sorting them by a rule
+# invented in this function would quietly disagree with the numbers the reply
+# is about to quote.
+#
+# Anything not listed is uncapped. A tool that draws one object per call has
+# nothing to budget, and a cap it can never reach is a cap that can only
+# become wrong later.
+_SCENE_BUDGET = {
+    "get_levels": 3,
+    "get_patterns": 2,
+    "get_trendlines": 2,
+    "get_divergences": 2,
+    "get_gaps": 2,
+    "mark": 6,
+    "draw_shape": 6,
+}
+
+
+def _park_beyond_budget(annotation: dict) -> bool:
+    """Send this mark to the layers panel instead of the chart? Mutates it.
+
+    `hidden` is the FRONT END's own per-item switch (js/scene.js `mine`), so a
+    parked mark needs no new vocabulary on either side: it arrives in the same
+    patch, is listed by the panel with every other layer, and the user's press
+    clears the same flag the panel's own toggle does. Nothing is dropped and
+    nothing is hidden from the reply — see `_parked_note`.
+
+    A `repeat` shape is ONE instruction from the model ("the first hour of
+    every session"), so its copies are exempt: capping them would half-draw a
+    single request and leave a session map with three boxes and a gap.
+    """
+    owner = annotation.get("owner") or "scene"
+    cap = _SCENE_BUDGET.get(owner)
+    if not cap or annotation.get("repeat"):
+        return False
+    if not hasattr(_scene, "budget"):
+        _scene.budget = {}
+    if not hasattr(_scene, "parked"):
+        _scene.parked = []
+    # Legs of one object share a `link` and must not be counted twice — a
+    # divergence is two segments and one idea, and budgeting the legs would
+    # let a cap of two draw one and a half divergences.
+    #
+    # So the ledger remembers the DECISION per key, not merely that the key has
+    # been seen. Remembering only the key drew the second leg of a parked
+    # object: the first leg spent the budget and was hidden, and the second
+    # short-circuited on "already counted" straight into being drawn — half a
+    # divergence on the chart, which is worse than either whole answer.
+    key = annotation.get("link") or annotation.get("id")
+    seen = _scene.budget.setdefault(owner, {})
+    if key in seen:
+        if not seen[key]:
+            return False
+        annotation["hidden"] = True      # follow the leg that went first
+        return True
+    parked = len(seen) >= cap
+    if key:
+        seen[key] = parked
+    if not parked:
+        return False
+    annotation["hidden"] = True
+    _scene.parked.append(annotation.get("label") or annotation.get("id") or owner)
+    return True
+
+
+def _parked_take() -> str:
+    """What was added but not drawn — for the model, so the reply can say so.
+
+    Load-bearing rather than cosmetic. Without it the tool result shows nine
+    levels, the chart shows three, and the reply confidently describes nine
+    lines the user cannot see — the exact "narrate success on a path that did
+    not happen" failure the rest of this file is built to refuse.
+    """
+    parked = [x for x in (getattr(_scene, "parked", None) or []) if x]
+    if not parked:
+        return ""
+    _scene.parked = []
+    n = len(parked)
+    return (f"{n} further mark{'s' if n > 1 else ''} "
+            f"({'; '.join(str(x) for x in parked[:8])}"
+            f"{', …' if n > 8 else ''}) "
+            "were ADDED but left off the chart, to keep it readable — they are "
+            "in the layers panel (the list button at the top-right of the "
+            "chart) and one press shows any of them. Say so in one short "
+            "clause; never describe them as drawn.")
 
 
 def _drawn_ledger() -> str:
@@ -968,6 +1092,16 @@ def _divergences(rows: list[tuple], osc: list, window: int = 5,
 
 def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
     d = get_bars(_sym(), interval, to, limit)
+    return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
+
+
+def _rows_for(symbol: str, interval: str, limit: int) -> list[tuple]:
+    """`_rows` for an EXPLICIT symbol rather than the request's own.
+
+    The company page asks about the symbol in its URL, which is not always the
+    symbol the chart is on — `_sym()` is the chart's, stamped per request.
+    """
+    d = get_bars(symbol, interval, None, limit)
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
 
 
@@ -3212,6 +3346,521 @@ def _api_balance_sheet(sym: str, basis: str) -> tuple[int, dict]:
     return 200, json.loads(row[0])
 
 
+# ── the deep sections ───────────────────────────────────────────────────────
+#
+# The company page's lower half — flows, deals, shareholding, revenue mix,
+# quarters — asks Pivot's routes for each. Charto has the store behind three
+# of them and genuinely nothing behind the others, and the difference is
+# reported rather than papered over: every one of these responses carries
+# `available`, and the page already knows how to draw a section that says it
+# has no data. A filler number would be indistinguishable from a real one.
+
+
+def _api_flows(sym: str, days: int) -> tuple[int, dict]:
+    """Delivery quality and futures open interest, from charto's own tables.
+
+    Both are the same daily series the screener reads, so a delivery figure
+    here and a delivery figure there cannot disagree.
+    """
+    days = max(5, min(days or 120, 400))
+    try:
+        deliv = [
+            {"d": d, "close": c, "qty": q, "deliv_qty": dq,
+             "deliv_per": dp, "trades": tr}
+            for d, c, q, dq, dp, tr in _con.execute(
+                "SELECT d, close, qty, deliv_qty, deliv_per, trades "
+                "FROM delivery WHERE symbol=? ORDER BY d DESC LIMIT ?",
+                (sym, days))]
+        oi = [
+            {"d": d, "oi": o, "oi_chg": ch}
+            for d, o, ch in _con.execute(
+                "SELECT d, oi, oi_chg FROM fut_oi WHERE symbol=? "
+                "ORDER BY d DESC LIMIT ?", (sym, days))]
+    except sqlite3.Error:
+        deliv, oi = [], []
+    deliv.reverse(); oi.reverse()
+    summary = None
+    if deliv:
+        last = deliv[-1]
+        # The median of the last 20 sessions, not the mean: one block deal
+        # doubles a day's delivery and would drag an average into saying the
+        # stock is habitually better held than it is.
+        window = sorted(r["deliv_per"] for r in deliv[-20:]
+                        if r["deliv_per"] is not None)
+        med = window[len(window) // 2] if window else None
+        summary = {
+            "date": last["d"], "delivery_pct": last["deliv_per"],
+            "delivery_median_20d": med, "volume": last["qty"],
+            "delivered": last["deliv_qty"], "trades": last["trades"],
+            "oi": oi[-1]["oi"] if oi else None,
+            "oi_chg": oi[-1]["oi_chg"] if oi else None,
+            "close": last["close"],
+        }
+    return 200, {"symbol": sym, "available": bool(deliv or oi),
+                 "summary": summary, "delivery": deliv, "oi": oi}
+
+
+def _api_deals(sym: str, limit: int) -> tuple[int, dict]:
+    """Bulk and block deals. `value` is qty x price — the only figure here
+    this function computes, and it is arithmetic on two stored columns
+    rather than a number from anywhere else."""
+    limit = max(1, min(limit or 60, 300))
+    try:
+        rows = list(_con.execute(
+            "SELECT d, kind, client, side, qty, price FROM deals "
+            "WHERE symbol=? ORDER BY d DESC LIMIT ?", (sym, limit)))
+    except sqlite3.Error:
+        rows = []
+    deals = [{"d": d, "kind": k or "", "client": cl or "", "side": sd or "",
+              "qty": q, "price": pr,
+              "value": (q * pr) if (q is not None and pr is not None) else None}
+             for d, k, cl, sd, q, pr in rows]
+    return 200, {"symbol": sym, "available": bool(deals), "deals": deals}
+
+
+def _api_sections(sym: str) -> tuple[int, dict]:
+    """What this store actually holds for the symbol.
+
+    The page asks this first and hides the sections that come back empty, so
+    an honest count here is what stops it rendering five headings over
+    nothing. Counted live rather than declared, because a table that stopped
+    syncing should shrink this, not keep claiming coverage.
+    """
+    def count(sql: str) -> int:
+        try:
+            return int(_con.execute(sql, (sym,)).fetchone()[0] or 0)
+        except sqlite3.Error:
+            return 0
+    try:
+        ident = _con.execute(
+            "SELECT name, sc_id FROM company_profile WHERE symbol=?",
+            (sym,)).fetchone()
+    except sqlite3.Error:
+        ident = None
+    bases = count("SELECT COUNT(DISTINCT basis) FROM balance_sheet WHERE symbol=?")
+    return 200, {
+        "symbol": sym,
+        "isin": None,
+        "sc_id": (ident[1] if ident else None),
+        "name": (ident[0] if ident else None),
+        "bse_scripcode": None,
+        "coverage": {
+            # charto stores an earnings CALENDAR (`results`), not quarterly
+            # statements, so the quarters section has nothing to draw and
+            # says so instead of drawing a calendar as though it were one.
+            "quarters": {"count": 0, "latest": None, "bases": bases},
+            "annual_report": {"count": 0, "tasks": 0, "documents": 0,
+                              "latest_period": None},
+            "revenue_mix": {"count": count(
+                "SELECT COUNT(*) FROM revenue_mix WHERE symbol=?")},
+            "ownership": {"count": 0},
+            "documents": {"count": 0},
+        },
+    }
+
+
+# How many measured instances a symbol needs before its own rate is worth
+# printing. At 20 the standard error is still ~11pp, which is wide — but the
+# panel prints the error beside every rate, so a wide one reads as wide. Below
+# 20 the number stops carrying information at all and the row says so instead.
+_OWN_FLOOR = 20
+
+# Bars to mine for a symbol's own record. Daily reaches the whole listed
+# history in ~2,800 bars; the intraday intervals are capped because the store
+# holds a million minute bars per symbol and a page load must not walk them.
+_OWN_BARS = {"1d": 4000, "1h": 6000, "15m": 8000}
+
+
+def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]:
+    """This symbol's OWN record for every pattern, on its own bars.
+
+    The rules are `tool_evaluate_pattern`'s, exactly, because a rate quoted
+    here and a rate quoted there must come from one definition: candles are
+    measured from the pattern bar, chart shapes only count once CONFIRMED and
+    are measured from the confirming break, instances closer together than the
+    horizon share a forward window and so are ONE piece of evidence, and the
+    edge-fitted shapes are skipped outright — they are fitted at the live edge
+    of a series, so mining them backwards would fabricate a history the
+    detector cannot claim.
+
+    Each pattern carries its own control: the unconditional rate of the same
+    directional move over the same horizon on the same bars. A hit rate
+    without the base rate it must beat is decoration, and the control has to
+    come from THIS symbol — a market-wide base rate against a single stock's
+    hit rate compares two different things.
+    """
+    rows = _rows_for(sym, interval, _OWN_BARS.get(interval, 4000))
+    n = len(rows)
+    if n < 120:
+        return {}
+    closes = [r[4] for r in rows]
+    h = horizon
+    ist = lambda ts: ts                                            # noqa: E731
+
+    inst: dict[str, list[dict]] = {}
+    for f in patterns.candlesticks(rows, _atr(rows, 14), ist,
+                                   set(patterns.CANDLE_KINDS), limit=100000):
+        inst.setdefault(f["pattern"], []).append(
+            {"i": n - 1 - f["bars_ago"], "d": f["direction"]})
+    try:
+        chart = patterns.chart_patterns(rows, _pivots(rows, 5), _tolerance(rows),
+                                        ist, set(patterns.CHART_KINDS), limit=4000)
+    except Exception:                       # a detector must not fail the page
+        chart = []
+    for f in chart:
+        if f["pattern"] in _EDGE_ONLY or f.get("status") != "confirmed":
+            continue
+        end_i = n - 1 - f["bars_ago"]
+        inst.setdefault(f["pattern"], []).append(
+            {"i": min(n - 1, end_i + int(f.get("bars_to_break", 0))),
+             "d": f["direction"]})
+
+    # The control, once: every bar's forward move, reused by every pattern.
+    fwd = [(closes[j + h] - closes[j]) / closes[j] * 100 for j in range(n - h)]
+    up = sum(1 for x in fwd if x > 0)
+    base_up = up / len(fwd) * 100 if fwd else None
+
+    out: dict[str, dict] = {}
+    for kind, items in inst.items():
+        items.sort(key=lambda x: x["i"])
+        kept, last = [], -10 ** 9
+        for x in items:
+            if x["i"] - last >= h:
+                kept.append(x)
+                last = x["i"]
+        evals = [x for x in kept if x["i"] + h < n]
+        if not evals:
+            continue
+        direction = evals[0]["d"]
+        if direction not in ("bullish", "bearish"):
+            continue
+        good = sum(1 for e in evals
+                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0) == (direction == "bullish"))
+        m = len(evals)
+        rate = good / m * 100
+        control = base_up if direction == "bullish" else (
+            100 - base_up if base_up is not None else None)
+        moves = [(closes[e["i"] + h] - closes[e["i"]]) / closes[e["i"]] * 100
+                 for e in evals]
+        # Binomial standard error on the difference. The pattern rate carries
+        # the sampling error of m trials; the control is measured on every bar
+        # of the same series and is precise enough beside it to be taken as
+        # fixed, so the error printed is the pattern's own.
+        se = (rate * (100 - rate) / m) ** 0.5
+        out[kind] = {
+            "n": m, "rate": round(rate, 1),
+            "control": round(control, 1) if control is not None else None,
+            "edge": round(rate - control, 1) if control is not None else None,
+            "se": round(se, 1),
+            "move": round(sum(moves) / len(moves), 2),
+            "enough": m >= _OWN_FLOOR,
+        }
+    return out
+
+
+def _api_patterns(sym: str, interval: str, horizon: int,
+                  scope: str = "symbol") -> tuple[int, dict]:
+    """Candlestick and shape base rates — for THIS company, or for its market.
+
+    The panel used to serve only the pooled ledger, which is keyed by asset
+    CLASS: every Indian equity got byte-identical rows, under a heading that
+    read as though they were the company's own. The pooled numbers are good
+    numbers — 600k daily instances across 500 names — but they answer "does
+    this shape mean anything on Indian equities", not "has it meant anything
+    here", and the page was asking the second question.
+
+    So the company's own record leads and the market stays available beside
+    it. Both come from one definition of an instance (see
+    `_own_pattern_stats`), and both carry a control, so the two scopes are
+    comparable rather than merely adjacent.
+
+    A pattern this symbol has fired fewer than `_OWN_FLOOR` times keeps its
+    row — with the count, and `enough: false` — rather than being dropped or
+    quietly backfilled from the pooled table. A thin sample is a finding about
+    the company; a market number wearing the company's name is not.
+    """
+    interval = interval if interval in ("15m", "1h", "1d") else "1d"
+    horizon = horizon if horizon in (5, 10, 20) else 20
+    pooled_scope = scope_for(sym)
+    try:
+        rows = list(_con.execute(
+            "SELECT kind, family, interval, horizon, n, n_symbols, "
+            "       with_direction_rate_pct, control_base_rate_pct, "
+            "       edge_pp, edge_se_pp, avg_move_pct "
+            "FROM pattern_stats WHERE scope=? AND interval=? AND horizon=? "
+            "ORDER BY ABS(COALESCE(edge_pp, 0)) DESC",
+            (pooled_scope, interval, horizon)))
+        opts = [{"interval": i, "horizon": h} for i, h in _con.execute(
+            "SELECT DISTINCT interval, horizon FROM pattern_stats "
+            "WHERE scope=? ORDER BY interval, horizon", (pooled_scope,))]
+    except sqlite3.Error:
+        rows, opts = [], []
+
+    market = {k: {"kind": k, "family": f, "n": n, "n_symbols": ns,
+                  "rate": rate, "control": ctrl, "edge": edge, "se": se,
+                  "move": mv}
+              for k, f, iv, hz, n, ns, rate, ctrl, edge, se, mv in rows}
+
+    if scope == "universe":
+        out = [{**v, "interval": interval, "horizon": horizon, "enough": True}
+               for v in market.values()]
+        out.sort(key=lambda r: abs(r.get("edge") or 0), reverse=True)
+        return 200, {"available": bool(out), "scope": "universe",
+                     "symbol": sym, "interval": interval, "horizon": horizon,
+                     "options": opts, "patterns": out,
+                     # The widest row, not the first: a rare pattern fired on
+                     # five names would otherwise report the universe as five.
+                     "universe_symbols": max(
+                         (v["n_symbols"] for v in market.values()
+                          if v["n_symbols"]), default=None)}
+
+    own = _own_pattern_stats(sym, interval, horizon)
+    out = []
+    for kind, o in own.items():
+        m = market.get(kind) or {}
+        out.append({
+            "kind": kind, "family": m.get("family") or (
+                "candlestick" if kind in patterns.CANDLE_KINDS else "chart"),
+            "interval": interval, "horizon": horizon,
+            "n": o["n"], "rate": o["rate"], "control": o["control"],
+            "edge": o["edge"], "se": o["se"], "move": o["move"],
+            "enough": o["enough"],
+            # The market's own rate travels with the row so the reader can see
+            # whether this company is unusual or merely typical.
+            "market_rate": m.get("rate"), "market_edge": m.get("edge"),
+            "market_n": m.get("n"),
+        })
+    # Thin rows sink rather than vanish: the strongest measured edges first,
+    # then everything the company has not fired often enough to judge.
+    out.sort(key=lambda r: (r["enough"], abs(r.get("edge") or 0)), reverse=True)
+    return 200, {
+        "available": bool(out), "scope": "symbol", "symbol": sym,
+        "interval": interval, "horizon": horizon, "options": opts,
+        "patterns": out, "min_cases": _OWN_FLOOR,
+    }
+
+
+# What the peer table asks for -> the column charto actually stores. Anything
+# absent stays absent: the response type is nullable everywhere precisely so a
+# missing metric can print an em-dash instead of a fabricated zero.
+# id -> (stored column, label, unit). The unit is not decoration: the table
+# formats by it, so a multiple labelled as a percentage renders 6.35 as
+# "6.35%" — a wrong number rather than an ugly one.
+_PEER_FIELDS = {
+    "market_cap":           ("market_cap",     "Market cap",     "crore"),
+    "roe":                  ("roe",            "ROE",            "percent"),
+    "roa":                  ("roa",            "ROA",            "percent"),
+    "net_profit_margin":    ("net_margin",     "Net margin",     "percent"),
+    "debt_to_equity":       ("debt_to_equity", "Debt / equity",  "multiple"),
+    "price_to_book":        ("pb",             "P / B",          "multiple"),
+    "ev_to_ebitda":         ("ev_ebitda",      "EV / EBITDA",    "multiple"),
+    "current_ratio":        ("current_ratio",  "Current ratio",  "multiple"),
+    "eps_basic":            ("eps",            "EPS",            "rupee"),
+    "book_value_per_share": ("book_value_ps",  "Book value / sh", "rupee"),
+}
+
+
+def _peer_group(sym: str, want: int = 6) -> list[tuple[str, str]]:
+    """The companies this one is worth being read beside.
+
+    Industry first, then SECTOR to fill. Industry alone was the whole peer
+    rule, and on this universe that is too fine a key to be useful: 559
+    instruments fall into 137 industries, the MEDIAN industry holds two
+    members, and 54 companies are the only member of theirs — so one company
+    in ten got "no comparable sector peers are available", and the median one
+    got a single peer to compare against.
+
+    The sector fill is ranked by how CLOSE in size a company is, not by how
+    large it is. A ₹2,800 crore maker read against the four biggest names in
+    Consumer Durables is a comparison whose every row is explained by scale;
+    ordering by |log(mcap) − log(own mcap)| picks the companies whose ratios
+    can differ for a reason other than size. Log, because size is
+    multiplicative — a ₹1,000 cr company is as far from ₹100 cr as ₹10,000 cr
+    is from it, and a linear distance would call the big one the near one.
+    """
+    import math
+    row = _con.execute(
+        "SELECT industry, sector FROM classification WHERE symbol=?",
+        (sym,)).fetchone()
+    if not row:
+        return []
+    ind, sector = row
+    q = ("SELECT c.symbol, c.name, p.market_cap FROM classification c "
+         "LEFT JOIN company_profile p ON p.symbol = c.symbol "
+         "WHERE c.{}=? AND c.symbol!=?")
+    seen, out = {sym}, []
+    for s_, n_, _m in _con.execute(
+            q.format("industry") + " ORDER BY COALESCE(p.market_cap,0) DESC",
+            (ind, sym)):
+        if s_ not in seen:
+            seen.add(s_); out.append((s_, n_))
+    if len(out) >= want or not sector:
+        return out[:want]
+    mine = _con.execute(
+        "SELECT market_cap FROM company_profile WHERE symbol=?", (sym,)).fetchone()
+    base = math.log((mine[0] if mine and mine[0] else 0) or 1)
+    rest = [(s_, n_, m_) for s_, n_, m_ in
+            _con.execute(q.format("sector"), (sector, sym)) if s_ not in seen]
+    rest.sort(key=lambda r: abs(math.log(r[2] or 1) - base))
+    for s_, n_, _m in rest:
+        out.append((s_, n_))
+        if len(out) >= want:
+            break
+    return out[:want]
+
+
+def _peer_metric(fid: str) -> dict:
+    _, label, unit = _PEER_FIELDS[fid]
+    return {"id": fid, "label": label, "unit": unit}
+
+
+def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
+    """The symbol beside the peers charto already keeps for it."""
+    # Only fields charto can actually fill. The panel is handed a catalog of
+    # seventeen; asking for the other seven would render seven columns of
+    # em-dashes, which says "this company reports nothing" rather than "this
+    # store does not carry it".
+    want = [f for f in fields if f in _PEER_FIELDS] or list(_PEER_FIELDS)
+    base = company_page(sym, "1D")
+    peers = [{"symbol": sym, "name": base.get("long_name") or base.get("name") or sym,
+              "is_current": True}]
+    for ps, pn in _peer_group(sym):
+        peers.append({"symbol": ps, "name": pn or ps, "is_current": False})
+    out = []
+    for row in peers:
+        prof = company_page(row["symbol"], "1D") if not row["is_current"] else base
+        m = prof.get("metrics") or {}
+        quote = prof.get("price") if isinstance(prof.get("price"), dict) else None
+        out.append({
+            "sc_id": prof.get("sc_id") or "", "symbol": row["symbol"],
+            "name": row["name"], "is_current": row["is_current"],
+            "values": {f: prof.get(_PEER_FIELDS[f][0]) for f in want},
+            "periods": {f: None for f in want},
+            # `company_page` returns the whole quote under "price" — last,
+            # open, high, low, volume, change. The panel's column is a single
+            # number, so handing it the dict rendered "[object Object]" in
+            # every row. The day's move is read off that same quote when the
+            # metric block has no ret_1d, which is most of the time: one
+            # object holds both, and taking price from it and change from
+            # elsewhere is how they come to disagree.
+            "price": {
+                "price": (quote or {}).get("last"),
+                "change_pct": (m.get("ret_1d") if m.get("ret_1d") is not None
+                               else (quote or {}).get("change_pct")),
+                "ret_1m": m.get("ret_1m"), "ret_3m": m.get("ret_3m"),
+                "ret_6m": m.get("ret_6m"), "ret_1y": m.get("ret_1y"),
+                "rsi14": m.get("rsi14"), "vs_50dma": m.get("sma50_rel"),
+                "vs_200dma": m.get("sma200_rel"),
+                "from_52w_high": m.get("dist_52w_high"),
+            },
+        })
+    return 200, {
+        "symbol": sym, "available": len(out) > 1,
+        "sector": base.get("sector"),
+        "fields": [_peer_metric(f) for f in want],
+        "catalog": [_peer_metric(f) for f in _PEER_FIELDS],
+        "peers": out,
+    }
+
+
+def _api_mix(sym: str) -> tuple[int, dict]:
+    """Segment splits — a current snapshot AND a series per segment.
+
+    Stored whole by `sync_tijori_mix.py` and served verbatim, the same way the
+    statements are: the shares are Tijori's, and recomputing them here would
+    put a second set of numbers against the same company.
+
+    A company with no breakdown answers `available: false` in the real
+    response shape rather than 404 — the panel then takes its empty path
+    instead of holding a skeleton up forever.
+    """
+    try:
+        row = _con.execute(
+            "SELECT payload FROM revenue_mix WHERE symbol=?", (sym,)).fetchone()
+    except sqlite3.Error:
+        row = None
+    if not row:
+        return _api_unavailable(sym, "mix")
+    try:
+        payload = json.loads(row[0])
+    except (ValueError, TypeError):
+        return _api_unavailable(sym, "mix")
+    return 200, {"symbol": sym, **payload}
+
+
+def _score_grid(sym: str, statement: str, basis: str) -> dict | None:
+    """One statement grid for the scorer, out of charto's own store.
+
+    The balance sheet lives in its own table because the Financial Performance
+    panel drew it first; the other three were synced later into `statement`.
+    Both are the same shape — periods plus line-item rows — which is what lets
+    one reader serve all four.
+
+    Falls back to the other basis when the asked-for one has no rows, the way
+    Pivot's own accessor does: a company that files only standalone should get
+    a score off the sheet it actually filed, not a blank.
+    """
+    for want in (basis, "standalone" if basis == "consolidated" else "consolidated"):
+        try:
+            if statement == "balance_sheet":
+                row = _con.execute(
+                    "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
+                    (sym, want)).fetchone()
+            else:
+                row = _con.execute(
+                    "SELECT payload FROM statement "
+                    "WHERE symbol=? AND statement=? AND basis=?",
+                    (sym, statement, want)).fetchone()
+        except sqlite3.Error:
+            return None
+        if not row:
+            continue
+        try:
+            payload = json.loads(row[0])
+        except (ValueError, TypeError):
+            continue
+        if payload.get("rows"):
+            return payload
+    return None
+
+
+def _api_scores(sym: str, basis: str) -> tuple[int, dict]:
+    """Altman Z, Ohlson O, Graham and DuPont for one company.
+
+    The computation is Pivot's `company_scores`, bound to charto's store —
+    the same arithmetic over the same Moneycontrol grids, so a score here and
+    a score there cannot disagree. Every input is pinned to ONE period column
+    of ONE basis, and a score whose inputs are missing comes back unavailable
+    with the reason rather than assembled out of two different years.
+    """
+    basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    try:
+        return 200, company_scores.compute_scores(sym, basis=basis)
+    except Exception:                       # never take the page down
+        logging.exception("charto scores failed for %s", sym)
+        return 200, {"available": False, "symbol": sym,
+                     "reason": "scores could not be computed"}
+
+
+def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
+    """The honest empty state for a section charto has no source for.
+
+    Shaped exactly like the real response so the page takes its normal
+    `available: false` path — a 404 here would render as a failure, which is
+    a different and wrong claim: nothing is broken, the data was never
+    collected.
+    """
+    base = {"symbol": sym, "available": False,
+            "source": "not stored in charto"}
+    if kind == "shareholding":
+        return 200, {**base, "quarters": [], "holders": [], "groups": [],
+                     "pledge_pct": None, "promoter_pct": None}
+    if kind == "mix":
+        return 200, {**base, "charts": [], "market_share": [],
+                     "source_name": None}
+    return 200, {**base, "quarters": [], "rows": [], "periods": []}
+
+
 def _api_search(q: str, limit: int) -> dict:
     q = (q or "").strip().upper()
     if not q:
@@ -3226,6 +3875,67 @@ def _api_search(q: str, limit: int) -> dict:
     return {"results": [{"symbol": s, "name": n or s, "sector": sec,
                          "has_fundamentals": True, "logo_url": lo}
                         for s, n, sec, lo in rows]}
+
+
+# How long each family of company data may be reused, in seconds.
+#
+# Set by how fast the underlying thing actually MOVES, not by a single tidy
+# number: a quote is stale in seconds and a balance sheet is stale when the
+# next sync runs. Getting this wrong in either direction is visible — too
+# long and the page argues with the chart, too short and every peer click
+# pays for a statement that has not changed since the last quarter.
+_API_MAX_AGE = (
+    ("markets/quote",     15),    # a live-ish price; revalidate almost at once
+    ("markets/sparkline", 60),    # bars, and the forming one only moves once a minute
+    ("markets/ohlc",      60),
+    ("stock/",            900),   # delivery, deals: published once, after close
+    ("financials",        1800),  # synced periodically; static between syncs
+    ("companies/",        3600),  # identity and logos barely move at all
+)
+
+
+def _api_max_age(path: str) -> int:
+    tail = path[len("/api/"):]
+    for prefix, age in _API_MAX_AGE:
+        if tail.startswith(prefix):
+            return age
+    return 0
+
+
+# One in-process answer cache, shared by every request thread.
+#
+# The browser headers above stop a client re-asking; this stops the SERVER
+# re-answering. That matters more than the millisecond it saves per call:
+# every read here goes through the single shared sqlite3 connection, so two
+# users on the same company serialise against each other for no reason. A hit
+# costs a dict lookup and touches no database at all.
+_api_cache: "OrderedDict[str, tuple[float, int, dict]]" = OrderedDict()
+_api_cache_lock = threading.Lock()
+_API_CACHE_MAX = 512
+
+
+def _api_cached(key: str, ttl: int):
+    if ttl <= 0:
+        return None
+    now = time.time()
+    with _api_cache_lock:
+        hit = _api_cache.get(key)
+        if not hit or now - hit[0] > ttl:
+            return None
+        _api_cache.move_to_end(key)      # keep the live set, evict the idle
+        return hit[1], hit[2]
+
+
+def _api_store(key: str, ttl: int, code: int, payload: dict) -> None:
+    # Only successes. A 404 cached for fifteen minutes is a symbol that stays
+    # missing for fifteen minutes after it arrives.
+    if ttl <= 0 or code != 200:
+        return
+    with _api_cache_lock:
+        _api_cache[key] = (time.time(), code, payload)
+        _api_cache.move_to_end(key)
+        while len(_api_cache) > _API_CACHE_MAX:
+            _api_cache.popitem(last=False)
 
 
 def api_route(path: str, q: dict) -> tuple[int, dict]:
@@ -3258,14 +3968,59 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                                "l": b["l"], "c": b["c"], "v": int(b["v"] or 0)}
                               for b in bars]}
     if tail[:1] == ["financials"]:
-        s = sym_of(1)
-        if len(tail) > 2:      # /financials/{sym}/balance_sheet
-            return _api_balance_sheet(s, q.get("basis", "consolidated"))
-        return _api_financials(s)
+        s_ = sym_of(1)
+        if len(tail) > 2:
+            what = tail[2]
+            # `statement` is the balance sheet the page reads for its full
+            # statement view — same stored payload, second name.
+            if what in ("balance_sheet", "statement"):
+                # `type` matters: the page asks this same route for ratios and
+                # for the profit-and-loss, and answering every one of them
+                # with the balance sheet is a wrong answer rather than a
+                # missing one. Only the sheet is stored.
+                kind = (q.get("type") or "balance_sheet").lower()
+                if kind in ("balance_sheet", "balancesheet", ""):
+                    return _api_balance_sheet(s_, q.get("basis", "consolidated"))
+                return 200, {"available": False, "company": None,
+                             "type": kind, "basis": q.get("basis", "consolidated"),
+                             "unit": None, "periods": [], "rows": [],
+                             "source": "not stored in charto"}
+            if what == "scores":
+                return _api_scores(s_, q.get("basis") or "consolidated")
+            return 404, {"detail": f"/financials/…/{what} is not served by charto"}
+        return _api_financials(s_)
     if tail[:2] == ["markets", "metric-series"]:
         return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
                      "range": q.get("range", "1Y"), "available": False,
                      "points": [], "source": "none"}
+    if tail[:1] == ["stock"] and len(tail) > 2:
+        s_ = sym_of(1)
+        what = tail[2]
+        if s_ not in _known_symbols():
+            return 404, {"detail": f"unknown symbol {s_}"}
+        if what == "flows":
+            return _api_flows(s_, int(q.get("days") or 120))
+        if what == "deals":
+            return _api_deals(s_, int(q.get("limit") or 60))
+        if what == "sections":
+            return _api_sections(s_)
+        if what == "patterns":
+            return _api_patterns(s_, q.get("interval") or "1d",
+                                 int(q.get("horizon") or 20),
+                                 q.get("scope") or "symbol")
+        if what == "peers":
+            return _api_peers(
+                s_, [f for f in (q.get("fields") or "").split(",") if f])
+        if what == "mix":
+            return _api_mix(s_)
+        if what == "scores":
+            return _api_scores(s_, q.get("basis") or "consolidated")
+        # Anything else under /stock/ answers with the honest empty state
+        # rather than a 404. A panel handed a 404 has no data AND no answer,
+        # and several of them simply keep their skeleton up forever — which
+        # reads as a page still loading rather than a section with nothing in
+        # it. `available: false` is a fact; a 404 here is a dead end.
+        return _api_unavailable(s_, what)
     if tail[:2] == ["companies", "search"]:
         return 200, _api_search(q.get("q", ""), int(q.get("limit", 10) or 10))
     if tail[:2] == ["companies", "logos"]:
@@ -4621,7 +5376,8 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
                       draw_ids: list | None = None, draw_mode: str = "add",
-                      mark_limit: int = 5, max_draw: int = 3) -> dict:
+                      mark_limit: int = 5, max_draw: int = 3,
+                      draw_candle_at: str | None = None) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -4697,7 +5453,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     # The cap is `mark_limit`, an argument with a default — not a slice buried
     # in this loop. It has to be nameable, changeable and REPORTED, or the
     # reply invents a rule to explain why the chart shows fewer than the list.
-    cpicked = cands if (draw and not draw_ids) else []
+    # The pattern drawer addresses a candlestick signal by its qualifying bar;
+    # chart formations use their stable detector id instead.
+    if draw_candle_at:
+        cpicked = [c for c in cands if str(c.get("t")) == str(draw_candle_at)]
+    else:
+        cpicked = cands if (draw and not draw_ids) else []
     n_marks = max(0, int(mark_limit if mark_limit is not None else 5))
     if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
@@ -8063,6 +8824,10 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
 # stays here — the same split geometry.js and tools.js already use.
 _INDICATOR_LINES = {
     "sma": ["sma"], "ema": ["ema"], "wma": ["wma"], "hma": ["hma"], "dema": ["dema"],
+    "tema": ["tema"], "vwma": ["vwma"], "rma": ["rma"], "kama": ["kama"],
+    "alma": ["alma"], "lsma": ["lsma"],
+    "ichimoku": ["conversion", "base", "senkou_a", "senkou_b", "chikou"],
+    "pivots": ["pivot", "r1", "s1", "r2", "s2", "r3", "s3", "r4", "s4", "cpr_top", "cpr_bottom"],
     "bbands": ["middle", "upper", "lower"], "keltner": ["middle", "upper", "lower"],
     "donchian": ["middle", "upper", "lower"],
     "vwap": ["vwap"], "anchored_vwap": ["anchored_vwap"],
@@ -8073,14 +8838,19 @@ _INDICATOR_LINES = {
     "williams_r": ["williams_r"], "roc": ["roc"], "atr": ["atr"],
     "obv": ["obv"], "ad": ["ad"], "cmf": ["cmf"], "mfi": ["mfi"],
     "aroon": ["aroon_up", "aroon_down"],
+    "percent_b": ["percent_b"], "bandwidth": ["bandwidth"],
+    "awesome": ["awesome"], "chaikin_osc": ["chaikin_osc"],
+    "vortex": ["vi_plus", "vi_minus"], "ultimate": ["ultimate"],
+    "trix": ["trix", "signal"], "kst": ["kst", "signal"], "dpo": ["dpo"],
+    "force": ["force"], "eom": ["eom"], "choppiness": ["choppiness"],
+    "fisher": ["fisher", "trigger"], "rvi": ["rvi", "signal"],
+    "connors_rsi": ["connors_rsi"],
 }
 
 # Must mirror preview/js/indicators.js CATALOG exactly. If it drifts, the
 # model either refuses to draw something the chart can show, or claims to have
 # drawn something invisible.
-_FE_RENDERABLE = {"sma", "ema", "bbands", "keltner", "donchian", "supertrend",
-                  "psar", "vwap", "rsi", "macd", "stoch", "stochrsi", "adx",
-                  "atr", "cci", "williams_r", "mfi", "obv", "cmf", "aroon"}
+_FE_RENDERABLE = frozenset(_INDICATOR_LINES)
 
 
 def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
@@ -8093,7 +8863,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                        connect: bool = False,
                        mark_levels: list | None = None,
                        remove: bool = False,
-                       clear_marks: bool = False) -> dict:
+                       clear_marks: bool = False,
+                       settings: dict | None = None) -> dict:
     """One tool over the whole indicator registry.
 
     The model chooses the indicator, the period, the price column and the
@@ -8162,6 +8933,29 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                 rows = deeper
 
     extra: dict = {}
+    # One extensible settings envelope means every input declared by the
+    # registry is immediately available to chat without duplicating two dozen
+    # optional arguments in this function. Reject unknown keys and enum values
+    # rather than silently drawing defaults the user did not ask for.
+    fields = {f["key"]: f for f in indicators.inputs(name)
+              if f["key"] not in ("period", "source")}
+    for key, raw in (settings or {}).items():
+        field = fields.get(key)
+        if not field:
+            return {"error": f"'{key}' is not a setting for {name}",
+                    "available_settings": sorted(fields)}
+        try:
+            if field["type"] == "bool": value = bool(raw)
+            elif field["type"] == "enum":
+                allowed = [o["value"] for o in field["options"]]
+                if raw not in allowed:
+                    return {"error": f"bad {key} '{raw}'", "allowed": allowed}
+                value = raw
+            elif field["type"] == "float": value = float(raw)
+            else: value = int(raw)
+        except (TypeError, ValueError):
+            return {"error": f"bad {key} '{raw}'"}
+        extra[key] = value
     mult_ignored = False
     if mult:
         # only bbands/keltner/supertrend take a width multiplier; forwarding
@@ -8355,6 +9149,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
                                        or marked.get("connected") or lvls):
             _scene_add({"kind": "indicator", "name": name,
                         "period": res["spec"]["period"],
+                        "params": {k: v for k, v in res["spec"].items()
+                                   if k not in ("name", "period", "pane", "group", "formula", "bounds")},
                         "source": {"tool": "get_indicator",
                                    "interval": interval}})
         out["marked"] = marked
@@ -8365,6 +9161,8 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
         # something it cannot show is worse than saying it is unavailable.
         if name in _FE_RENDERABLE:
             _scene_add({"kind": "indicator", "name": name, "period": res["spec"]["period"],
+                        "params": {k: v for k, v in res["spec"].items()
+                                   if k not in ("name", "period", "pane", "group", "formula", "bounds")},
                         "source": {"tool": "get_indicator", "interval": interval}})
             out["drawn"] = True
         else:
@@ -8392,6 +9190,17 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
         "descriptive measurements — never present a level crossing as a signal "
         "to act on.")
     return out
+
+
+def _execution_system() -> str:
+    """The execution-mode system contract, from Pivot's own prompt modules.
+
+    Guarded on purpose. `execution_bridge.system_prompt()` degrades to its
+    adapter text when Pivot cannot be imported, so a misconfigured server
+    answers in a mode that explains itself instead of raising inside the
+    chat turn and 500-ing every message.
+    """
+    return execution_bridge.system_prompt()
 
 
 TOOLS = [
@@ -9087,10 +9896,12 @@ TOOLS = [
          "Use it when the user NAMES a study or a period ('what's RSI', 'add a 200 EMA', 'MACD on the hourly'); "
          "a question about 'the indicators' with none named is read_indicators, which returns a fixed panel of six "
          "and prints it beside the reply. "
-         "Trend: sma, ema, wma, hma, dema, supertrend, psar, adx (with +DI/-DI), aroon. "
-         "Momentum: rsi, macd, stoch, stochrsi, cci, williams_r, roc. "
-         "Volatility: bbands (with percent_b and bandwidth), keltner, donchian, atr. "
-         "Volume: vwap, anchored_vwap, obv, ad, cmf, mfi. "
+         "Trend/overlay: sma, ema, wma, hma, dema, tema, vwma, rma, kama, alma, lsma, "
+         "ichimoku, pivots, supertrend, psar, adx, aroon, vortex. Momentum: rsi, macd, "
+         "stoch, stochrsi, cci, williams_r, roc, awesome, ultimate, trix, kst, dpo, "
+         "fisher, rvi, connors_rsi. Volatility: bbands, percent_b, bandwidth, keltner, "
+         "donchian, atr, choppiness. Volume: vwap, anchored_vwap, obv, ad, cmf, mfi, "
+         "chaikin_osc, force, eom. "
          "Use this rather than pulling bars and doing the arithmetic yourself — the result carries the exact "
          "formula and smoothing used, which differ between platforms. Reach for adx when the question is whether "
          "price is TRENDING or just ranging, bbands bandwidth for volatility compression, and the volume family "
@@ -9099,15 +9910,18 @@ TOOLS = [
          "round is how 'replace my RSI with…' is done."),
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string",
-                  "enum": ["sma", "ema", "wma", "hma", "dema", "bbands", "keltner", "donchian",
+                  "enum": ["sma", "ema", "wma", "hma", "dema", "tema", "vwma", "rma", "kama", "alma", "lsma", "ichimoku", "pivots", "bbands", "keltner", "donchian",
                            "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
                            "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
-                           "obv", "ad", "cmf", "mfi", "aroon"]},
+                           "obv", "ad", "cmf", "mfi", "aroon", "percent_b", "bandwidth",
+                           "awesome", "chaikin_osc", "vortex", "ultimate", "trix", "kst", "dpo",
+                           "force", "eom", "choppiness", "fisher", "rvi", "connors_rsi"]},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "period": {"type": "integer", "description": "omit for the indicator's conventional default"},
          "source": {"type": "string", "enum": ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"],
                     "description": "price column, default close"},
          "mult": {"type": "number", "description": "band width multiplier for bbands / keltner / supertrend"},
+         "settings": {"type": "object", "description": "Indicator-specific settings using the exact input keys returned by the indicator catalogue, e.g. Ichimoku {base_length:26, span_b_length:52, displacement:26}, pivots {pivot_type:'fibonacci', timeframe:'week'}, KAMA {fast:2, slow:30}. Omit for conventional defaults.", "additionalProperties": True},
          "anchor_time": {"type": "string", "description": "for anchored_vwap: the bar to anchor at, in the chart's format e.g. '11 Jun 2026'"},
          "series_points": {"type": "integer", "description": "return the last N points of the series too (max 240) — use it to see a cross or a turn, or to LOCATE when a cross happened (then mark it via get_anchors at_times)"},
          "at": {"type": "array", "items": {"type": "string"},
@@ -9264,6 +10078,51 @@ def _alert_tool(name: str):
 for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
            "cancel_alert"):
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
+
+
+# Pivot's builder, dispatched through the same seam as everything else. The
+# tool keeps ITS name — the model was calibrated on `propose_dsl_workflow`,
+# and renaming it here would fork the contract from the descriptions and
+# worked examples that teach it.
+#
+# The card is added HERE rather than inside the bridge because a card is a
+# Charto concept: `_card_take()` is per-request thread-local state the bridge
+# has no business reaching into. The bridge returns data; the seam decides
+# what the chart shows.
+# Pivot's render hint → Charto's card kind. A hint with no entry here renders
+# nothing and the model answers in prose, which is the right failure: a card
+# the FE cannot draw is worse than no card, and an unmapped hint is a missing
+# renderer rather than a broken one. The four quant results share one kind
+# because they are one shape — a stat block with a verdict over it.
+_PIVOT_CARD_KINDS = {
+    "workflow_draft_card": "workflow_draft",
+    "indicator_backtest_chart": "strategy_backtest",
+    "strategy_builder_card": "strategy_basket",
+    "option_chain_card": "option_chain",
+    "option_strategy_card": "option_strategy",
+    "pairs_backtest": "quant_result",
+    "portfolio_backtest": "quant_result",
+    "cointegration_test": "quant_result",
+    "pairs_scan": "quant_result",
+}
+
+
+def _pivot_tool(name: str):
+    def call(**args):
+        # No identity crosses into Pivot's engine — see execution_bridge
+        # .dispatch. Charto's user ids and Pivot's are unrelated numbering
+        # schemes over different databases.
+        result = execution_bridge.dispatch(name, args)
+        hint = result.get("_render_hint") if isinstance(result, dict) else None
+        kind = _PIVOT_CARD_KINDS.get(hint)
+        if kind:
+            _card_add({"kind": kind, **result})
+        return result
+    return call
+
+
+for _n in execution_bridge.PIVOT_TOOLS:
+    _DISPATCH[_n] = _pivot_tool(_n)
 
 
 def _teach_alert_grammar() -> None:
@@ -9514,11 +10373,28 @@ def run_tool(name: str, args: dict) -> dict:
 
 
 def _fn_params(fn) -> set:
+    """The parameter names a tool declares, or EMPTY for "accepts anything".
+
+    Empty is the caller's signal to skip the drop-unknown-kwargs filter, and a
+    function whose signature is `(**args)` belongs in that class: it accepts
+    every name, and reporting its one VAR_KEYWORD parameter as the allowlist
+    means every real argument is "unknown" and gets dropped.
+
+    That is not hypothetical. The alert tools are `def call(**args)` closures,
+    so `set_alert(symbol=…, price=…)` was arriving with NOTHING — the engine
+    ran its no-argument path and the reply described a result that had ignored
+    the user's actual request. The filter's own premise is "the function does
+    not have this parameter"; for a **kwargs function that premise is false,
+    so the filter must not run at all.
+    """
     import inspect
     try:
-        return set(inspect.signature(fn).parameters)
+        params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return set()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return set()
+    return set(params)
 
 
 def _run_tool(name: str, fn, args: dict) -> dict:
@@ -9571,6 +10447,14 @@ def _run_tool(name: str, fn, args: dict) -> dict:
         out["_live_note"] = (
             f"The last bar is still FORMING (as of {_hm_ist(form[0])} {_tzl()}) — "
             f"treat its values as provisional, not a closed candle.")
+    # Marks this call ADDED but deliberately left off the chart. Stamped here,
+    # once, for the same reason the notes above are: every tool passes through
+    # this function, and a tool that forgot to mention its own parked marks
+    # would have the model describe lines the user cannot see.
+    if isinstance(out, dict) and "error" not in out:
+        note = _parked_take()
+        if note:
+            out["_parked_note"] = note
     # Geometry drawn on a timeframe the chart is not showing is invisible to
     # the user until they switch — a "drawn" claim with nothing on screen
     # reads as a failure, so the reply must name the switch.
@@ -9957,6 +10841,57 @@ SUGGEST_PROMPT = (
 )
 
 
+# Execution mode's follow-ups are a different job, and the research prompt is
+# actively wrong for it: that one tells the model the app "cannot place
+# orders" and to "never suggest a buy/sell", which is a description of the
+# OTHER mode. Pointed at a strategy the user just built, it steered every
+# follow-up away from the mode's own subject.
+#
+# What a builder wants next is not a deeper reading. It is: does this survive
+# contact with history, what is it missing, and where would it actually have
+# traded. The third of those is why `mark` is on the execution tool surface —
+# a backtest already returns its fills with dates, so "show me the entries on
+# the chart" is a real request against real data, not a picture.
+SUGGEST_PROMPT_EXECUTION = (
+    "You write the three things a user is most likely to want NEXT, given a "
+    "strategy-building conversation.\n\n"
+    "This is a strategy builder for Indian markets (NSE/BSE equities, "
+    "indices, MCX commodities). It translates rules into validated, "
+    "approval-gated automations, backtests them on historical bars with a "
+    "trust verdict, and can draw on the chart. It cannot predict, and it "
+    "does not know the user's portfolio.\n\n"
+    "Rules:\n"
+    "- Each must be an instruction this app can act on: amend the rule, add "
+    "or tighten an exit, size it, change the interval, backtest it over a "
+    "named window, or MARK the backtest's entries and exits on the chart.\n"
+    "- Follow the thread. If a draft was just built, the obvious next moves "
+    "are testing it, giving it the exit it lacks, and seeing it on the "
+    "chart. If a backtest just ran, they are changing one parameter and "
+    "re-running, or looking at where the losing trades happened.\n"
+    "- Three DIFFERENT directions, not three rewordings. Tightening the "
+    "rule, proving it, and visualising it are good axes.\n"
+    "- Name the actual symbol and the actual numbers under discussion, not "
+    "'this strategy'. Write them as the user would type them: first person, "
+    "plain, imperative, no pleasantries.\n"
+    "- Under 60 characters each.\n\n"
+    "Never suggest a prediction, a price target, or advice on whether to "
+    "take the trade. The measurable version is always the right one:\n"
+    "  'Will this strategy work?' -> 'Backtest it over the last three "
+    "years'\n"
+    "  'Is this a good entry?' -> 'Show me where it entered on the chart'\n"
+    "  'Should I add a stop?' -> 'Add a 3% stop from entry'\n\n"
+    "Return exactly three lines. One per line. No numbering, no bullets, no "
+    "quotes, no commentary."
+)
+
+
+def _suggest_prompt() -> str:
+    """The follow-up contract for the mode the turn was asked in."""
+    return (SUGGEST_PROMPT_EXECUTION
+            if getattr(_req, "chat_mode", "chat") == "execution"
+            else SUGGEST_PROMPT)
+
+
 def suggest_clean(raw: str) -> str:
     """One suggestion line, as it should be shown.
 
@@ -9998,7 +10933,7 @@ def _suggest_stream(messages: list[dict]):
         return
     payload = {
         "model": LLM_DEPLOYMENT,
-        "input": [{"role": "system", "content": SUGGEST_PROMPT}, *tail],
+        "input": [{"role": "system", "content": _suggest_prompt()}, *tail],
         "max_output_tokens": 700,
         "reasoning": {"effort": "low"},
         "service_tier": LLM_SERVICE_TIER,
@@ -10082,11 +11017,49 @@ def _suggest_events(messages: list[dict], answer: str):
         yield {"type": "suggest_done", "suggestions": []}
 
 
+# Charto's own tools that execution mode keeps. Two groups, for two reasons.
+#
+# The chart READS are here because a strategy is usually described against
+# something visible — "buy when it breaks the level it keeps failing at" needs
+# the level before it can become a rule.
+#
+# The ALERT tools are here because Pivot refuses them. Its proposal tools
+# reject a notify-only draft outright (alerts left that chat surface in
+# 0ae2ded), while Charto's alert engine actually persists a rule, catches up
+# on boot and fires on the live tick. So "tell me when" resolves to the
+# system that can do it, not to the one that would have to apologise.
+_EXECUTION_CHARTO_TOOLS = {
+    "get_bars", "get_indicator", "read_indicators", "multi_timeframe",
+    "get_patterns", "get_levels", "evaluate_pattern", "get_trend",
+    "get_anchors", "get_gaps", "get_trendlines", "plan_position",
+    "screen_universe",
+    "set_alert", "list_alerts", "update_alert", "cancel_alert", "check_alert",
+    # The ink. A backtest returns its fills with real dates and prices, so
+    # "show me where it entered" is a request against data we already have
+    # rather than a drawing of a strategy's vibe. Without these on the
+    # surface the follow-up suggests itself and then cannot be answered.
+    "mark", "draw_shape",
+}
+
+
+def _tools_for_request() -> list[dict]:
+    """Chat mode gets Charto's surface; execution mode gets Pivot's builder.
+
+    Execution mode is deliberately NOT a subset of chat — it ADDS Pivot's
+    proposal and backtest tools, which Charto has no local equivalent of, and
+    subtracts the reads that only serve market commentary.
+    """
+    if getattr(_req, "chat_mode", "chat") != "execution":
+        return TOOLS
+    kept = [t for t in TOOLS if t.get("name") in _EXECUTION_CHARTO_TOOLS]
+    return kept + execution_bridge.tools()
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": wire,
-        "tools": TOOLS,
+        "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
@@ -10100,8 +11073,13 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     )
     # macOS system python ships no CA bundle — use certifi's when available
     # (present in the pivot venv; run the server with .venv/bin/python).
-    with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:4000]
+        logging.error("model request rejected (%s): %s", exc.code, detail)
+        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
 
 
 def _ssl_ctx():
@@ -10125,7 +11103,7 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
     payload = {
         "model": LLM_DEPLOYMENT,
         "input": wire,
-        "tools": TOOLS,
+        "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         "reasoning": {"effort": LLM_EFFORT},
@@ -10138,7 +11116,13 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=180, context=_ssl_ctx()) as resp:
+    try:
+        response = urllib.request.urlopen(req, timeout=180, context=_ssl_ctx())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:4000]
+        logging.error("model stream rejected (%s): %s", exc.code, detail)
+        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
+    with response as resp:
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -10260,8 +11244,11 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
-                                    READING_RULES, CAUSAL_RULES) if x)
+    mode_rules = (_execution_system()
+                  if getattr(_req, "chat_mode", "chat") == "execution" else "")
+    common = (build_context_block(context), FORMAT_RULES)
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -10351,8 +11338,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": _creds_error()}
         return
-    block = "\n\n".join(x for x in (build_context_block(context), FORMAT_RULES,
-                                    READING_RULES, CAUSAL_RULES) if x)
+    mode_rules = (_execution_system()
+                  if getattr(_req, "chat_mode", "chat") == "execution" else "")
+    common = (build_context_block(context), FORMAT_RULES)
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -10593,6 +11583,11 @@ _CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
 _MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
 _con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
 _con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
+
+# The scorer reads its four statement grids through this one call, so it never
+# opens a database of its own — charto's store is the only source, and the
+# scores stop when the sync does rather than drifting onto Pivot's copy.
+company_scores.bind(_score_grid)
 
 # The served store carries deals only for symbols that have hydrated (41 of
 # them, 1.7k rows). The market-wide sweep is 153k rows over 3,446 symbols,
@@ -11864,11 +12859,41 @@ def quotes_for(names: list[str]) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, payload: dict) -> None:
+    def _send(self, code: int, payload: dict, *, max_age: int = 0) -> None:
         body = json.dumps(payload).encode()
+        # An ETag turns a revalidation into a 304 with no body. Worth having
+        # even at max_age=0: the company page's largest response is a 16 KB
+        # financials blob that changes when the sync runs and not otherwise,
+        # so a reload should cost a round trip, not the payload.
+        etag = None
+        if code == 200 and len(body) > 512:
+            etag = '"%s"' % hashlib.blake2b(body, digest_size=12).hexdigest()
+            if (self.headers.get("If-None-Match") or "").strip() == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                if max_age:  # a 304 only ever follows a 200, so this is safe
+                    self.send_header("Cache-Control", f"public, max-age={max_age}")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                return
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        if etag:
+            self.send_header("ETag", etag)
+        # No header at all is NOT "no caching" — it is heuristic freshness,
+        # which for a JSON body with no Last-Modified means the browser
+        # re-fetches every time. Every company-page navigation was therefore
+        # paying full price for data that had not moved since the last sync.
+        #
+        # SUCCESSES ONLY, and this is not a detail: the freshness is chosen by
+        # path, so a 404 was going out with `max-age=900` and sticking in the
+        # browser for fifteen minutes. Wiring a new endpoint then looked like
+        # it had not worked — curl said 200 while the page kept replaying the
+        # 404 it had cached before the route existed. The server-side cache
+        # already refused to store non-200s; the header has to agree.
+        if max_age and code == 200:
+            self.send_header("Cache-Control", f"public, max-age={max_age}")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -12081,10 +13106,16 @@ class Handler(BaseHTTPRequestHandler):
         _req.symbol = symbol
         try:
             if u.path.startswith("/api/"):
-                # Pivot's stock page, copied verbatim into charto/web, calls
-                # its own backend's routes — served here from charto's store.
+                # The company page's own routes, served from charto's store.
+                age = _api_max_age(u.path)
+                key = u.path + "?" + "&".join(
+                    f"{k}={v}" for k, v in sorted(q.items()))
+                hit = _api_cached(key, age)
+                if hit is not None:
+                    return self._send(hit[0], hit[1], max_age=age)
                 code, payload = api_route(u.path, q)
-                return self._send(code, payload)
+                _api_store(key, age, code, payload)
+                return self._send(code, payload, max_age=age)
             if u.path == "/symbols":
                 have = _symbols_with_bars()
                 # names ride along so a reply that writes "Caplin Labs" can be
@@ -12216,17 +13247,29 @@ class Handler(BaseHTTPRequestHandler):
                 # hole — so every trend flip drew a long diagonal straight
                 # through the candles, which is what made the indicator look
                 # wrong. TradingView breaks the line there; so does this now.
-                def _pts(series: list) -> list[dict]:
+                def _pts(series: list, line: str) -> list[dict]:
                     first = next((i for i, v in enumerate(series) if v is not None), None)
                     if first is None:
                         return []
-                    return [{"time": rows[i][0]} if v is None
-                            else {"time": rows[i][0], "value": round(v, 6)}
-                            for i, v in enumerate(series[first:], start=first)]
+                    displacement = int(res["spec"].get("displacement", 26))
+                    shift = (displacement if line in ("senkou_a", "senkou_b")
+                             else -displacement if line == "chikou" else 0)
+                    # Median bar spacing preserves exact alignment on existing
+                    # bars. Beyond the loaded edge it creates LWC whitespace
+                    # times so the leading cloud remains visibly leading.
+                    gaps = sorted(rows[i][0] - rows[i-1][0] for i in range(1, len(rows)))
+                    step = gaps[len(gaps)//2] if gaps else 86400
+                    out = []
+                    for i, v in enumerate(series[first:], start=first):
+                        j = i + shift
+                        if j < 0: continue
+                        ts = rows[j][0] if j < len(rows) else rows[-1][0] + (j-len(rows)+1)*step
+                        out.append({"time": ts} if v is None else {"time": ts, "value": round(v, 6)})
+                    return out
 
                 return self._send(200, {
                     "name": name, "spec": res["spec"],
-                    "lines": {ln: _pts(series) for ln, series in res["lines"].items()},
+                    "lines": {ln: _pts(series, ln) for ln, series in res["lines"].items()},
                 })
             if u.path == "/volume_profile":
                 # The manual path into the same tool chat calls. It returns
@@ -12250,6 +13293,41 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, res)
                 res["scene"] = patch
                 return self._send(200, res)
+            if u.path == "/patterns/draw":
+                # This is the button-level path into the same detector chat
+                # uses. It avoids an LLM turn and returns only chart geometry.
+                err = _ensure_symbol(symbol)
+                if err:
+                    return self._send(404, err)
+                interval = q.get("interval", "1d")
+                lookback = max(60, min(int(q.get("lookback_bars", 300) or 300), 1500))
+                family = q.get("family", "chart")
+                _scene.items = []
+                _scene.cards = []
+                if family == "candlestick":
+                    kinds = [x.strip().lower().replace(" ", "_")
+                             for x in (q.get("kinds") or "").split(",") if x.strip()]
+                    res = tool_get_patterns(
+                        interval=interval, lookback_bars=lookback,
+                        families=["candlestick"], kinds=kinds or None,
+                        draw_candle_at=q.get("at"), mark_limit=1)
+                else:
+                    pid = q.get("id", "").strip()
+                    if not pid:
+                        return self._send(400, {"error": "pattern id is required"})
+                    res = tool_get_patterns(
+                        interval=interval, lookback_bars=lookback,
+                        families=["chart"], draw_ids=[pid])
+                patch = _scene_take()
+                cards = _card_take()
+                if "error" in res:
+                    return self._send(400, res)
+                if not patch:
+                    return self._send(404, {
+                        "error": "That formation is no longer present in the selected scan window."
+                    })
+                return self._send(200, {"scene": patch, "cards": cards,
+                                        "drawn": res.get("drawn", [])})
             if u.path == "/live":
                 # start/stop a venue driver inside this process — see the
                 # _DRIVERS comment for why a CLI process cannot move a chart
@@ -12463,6 +13541,34 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(msgs, list):
                 return self._send(400, {"error": "messages[] required"})
             return self._send_events(_suggest_stream(msgs))
+        if u.path == "/execution/backtest":
+            # The draft card's Backtest button. It runs the SAME tool the
+            # model would call, with the draft's own steps — but a button is
+            # not a question, and routing it through a chat turn would spend
+            # an inference hop restating a request the card already holds
+            # exactly. Pivot's own card calls its API directly for this
+            # reason; this is that call.
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            steps = body.get("steps")
+            if not isinstance(steps, list) or not steps:
+                return self._send(400, {"error": "steps[] required"})
+            args = {"steps": steps, "name": str(body.get("name") or "Draft")}
+            # `period` is the FETCH window (default 5y); start/end clip it
+            # afterwards. A one-click backtest names none of them and gets the
+            # tool's own defaults, which is the right answer for a button.
+            for key in ("period", "start_date", "end_date", "interval",
+                        "benchmark_symbol"):
+                if body.get(key):
+                    args[key] = str(body[key])
+            for key in ("starting_capital", "quantity"):
+                if body.get(key) is not None:
+                    args[key] = body[key]
+            res = execution_bridge.dispatch("backtest_workflow", args)
+            return self._send(400 if res.get("error") else 200, res)
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         try:
@@ -12481,6 +13587,8 @@ class Handler(BaseHTTPRequestHandler):
             # out request sets user None and the tool says so honestly.
             _req.user = _auth_user(self.headers)
             _req.chat_id = str(body.get("chat_id") or "")[:64]
+            _req.chat_mode = ("execution"
+                              if body.get("mode") == "execution" else "chat")
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
@@ -12515,6 +13623,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_stream(messages, ctx)
             return self._send(200, llm_chat(messages, ctx))
         except Exception as exc:  # noqa: BLE001
+            # LOG the traceback, don't just relay the string. A chat turn that
+            # 500s writes nothing to the log otherwise, so the only record of
+            # the failure is a message in a browser the developer isn't
+            # holding — an intermittent one is then undiagnosable by
+            # construction. Two turns in the first suite run died this way and
+            # left no trace at all.
+            logging.exception("charto: chat turn failed")
+            # An upstream read timeout is not an internal error, and relaying
+            # it as `TimeoutError: The read operation timed out` tells the
+            # user nothing they can act on. It is a boundary — the model did
+            # not answer in time — and it gets said in one line, with the one
+            # thing worth doing about it. Everything else still surfaces as
+            # itself; guessing at causes would be worse than the raw string.
+            if isinstance(exc, (TimeoutError, socket.timeout)):
+                return self._send(504, {
+                    "error": "The model did not respond in time. "
+                             "Send that again.",
+                })
             return self._send(500, {"error": str(exc)})
 
     def log_message(self, fmt: str, *args) -> None:  # quiet
@@ -12579,4 +13705,26 @@ if __name__ == "__main__":
         print(f"charto alerts UNAVAILABLE: {_exc}")
 
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+    class _Server(ThreadingHTTPServer):
+        """ThreadingHTTPServer with a listen queue worth having.
+
+        The base class sets `request_queue_size = 5`, which is the second
+        argument to listen(2) — the number of connections the KERNEL will
+        hold while every accept thread is busy. Measured on the box:
+        `ss -ltn` reported `Send-Q 5` on :5174. Past five queued connections
+        the kernel refuses, and the browser gets a connection error rather
+        than a slow page — a cliff, not a slope, and one that arrives at a
+        handful of simultaneous users rather than at any interesting number.
+
+        nginx sits in front, so this queue only has to absorb the burst
+        nginx forwards; 128 is the usual ceiling and costs nothing when idle.
+
+        `daemon_threads` so a stuck request thread cannot keep the process
+        alive through a restart — deploy.sh restarts on every backend change
+        and a hung SSE handler would otherwise hold the port.
+        """
+        request_queue_size = 128
+        daemon_threads = True
+
+    _Server(("127.0.0.1", PORT), Handler).serve_forever()

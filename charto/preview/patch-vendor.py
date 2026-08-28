@@ -1,12 +1,8 @@
 """Re-apply Charto's patches to the vendored lightweight-charts bundle.
 
-`vendor/` is gitignored, so the patched file cannot travel with the repo — the
-edits live HERE instead, and this script puts them back onto a freshly
-installed copy of the library. Idempotent: running it twice is a no-op, and it
-says so.
-
-Run:  python charto/preview/patch-vendor.py
-Why:  see VENDOR_PATCHES.md, which explains each one and how it was measured.
+The vendor directory is gitignored, so this script is the deployable source of
+the small rendering changes. It accepts both known v5.2.0 minifications and the
+older centred-label patch, making upgrades from the bad deploy idempotent.
 """
 
 from __future__ import annotations
@@ -19,46 +15,84 @@ BUNDLE = os.path.join(
     "vendor", "lightweight-charts.standalone.production.js",
 )
 
-# (name, befores, after). Every one of them serves a single end: each family of
-# price-scale label ends at the same x, `width - tickLength - padding`, in a
-# plate that is always the same size — the same width, and the same height.
-#
-# `befores` is a tuple because a patch may be re-derived: an earlier release of
-# this script left its own shape in the bundle, and a re-run has to recognise
-# that shape as "stock" too rather than stopping on a file it wrote itself.
+# (name, [(before, after), ...]). Each patch makes the native price labels end
+# at one right-hand edge, use the full scale width, and share one plate height.
 PATCHES = [
     (
         "tick labels right-aligned",
-        ('t.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
-         'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',),
-        't.textAlign="right",t.textBaseline="middle";'
-        'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)',
+        [
+            ('t.textAlign=this.om?"right":"left",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(e+s.C+s.V)',
+             't.textAlign="right",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(this.Qv.width-s.C-s.V)'),
+            ('t.textAlign="center",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(this.Qv.width/2)',
+             't.textAlign="right",t.textBaseline="middle";'
+             'const r=this.om?Math.round(e-s.V):Math.round(this.Qv.width-s.C-s.V)'),
+            ('t.textAlign=this.Yp?"right":"left",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(e+n.C+n.B)',
+             't.textAlign="right",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)'),
+            ('t.textAlign="center",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width/2)',
+             't.textAlign="right",t.textBaseline="middle";'
+             'const r=this.Yp?Math.round(e-n.B):Math.round(this.Lp.width-n.C-n.B)'),
+        ],
     ),
     (
         "pill text onto that same edge",
-        ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',),
-        'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)',
+        [
+            ('let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=I+o+d)',
+             'let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=h.width-i.C-d)'),
+            ('let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=h.width/2)',
+             'let V,B,A;return D?(V=E-C,B=E-y,A=I-o-d-_):(V=E+C,B=E+y,A=h.width-i.C-d)'),
+            ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=E+o+d)',
+             'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)'),
+            ('let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width/2)',
+             'let B,I,A;return D?(B=V-C,I=V-y,A=E-o-d-_):(B=V+C,I=V+y,A=h.width-i.C-d)'),
+        ],
     ),
     (
         "pill text alignment",
-        ('t.font=i.k,t.textAlign=h.li?"right":"left"',),
-        't.font=i.k,t.textAlign="right"',
+        [
+            ('t.font=i.P,t.textAlign=h.li?"right":"left"', 't.font=i.P,t.textAlign="right"'),
+            ('t.font=i.P,t.textAlign="center"', 't.font=i.P,t.textAlign="right"'),
+            ('t.font=i.k,t.textAlign=h.li?"right":"left"', 't.font=i.k,t.textAlign="right"'),
+            ('t.font=i.k,t.textAlign="center"', 't.font=i.k,t.textAlign="right"'),
+        ],
     ),
     (
         "one pill width, and it is the scale's",
-        ('M=i.S+d+f+w+o,',          # stock
-         'M=i.S+d+f+w+i.C,'),       # this script's own earlier shape
-        'M=h.width-_-5,',
+        [
+            ('M=i.S+d+f+w+o,', 'M=h.width-_-5,'),
+            ('M=i.S+d+f+w+i.C,', 'M=h.width-_-5,'),
+        ],
     ),
     (
         "room at the scale's left edge for the alert mark",
-        ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',),
-        'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
+        [
+            ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l))',
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
+            ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+12))',
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
+            ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
+            ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
+        ],
     ),
     (
         "one pill height, and it is the crosshair's",
-        ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',),
-        'u=i.A+i.P*2/12,c=i.V+i.P*2/12,',
+        [
+            ('u=i.A+this.ei.Ti,c=i.V+this.ei.Ri,',
+             'u=i.A+i.P*2/12,c=i.V+i.P*2/12,'),
+            # Build A stores the numeric font height in i.k; i.P is its CSS
+            # font string and arithmetic on it yields NaN (hiding the labels).
+            ('u=i.A+this.ei.Ti,c=i.I+this.ei.Ri,',
+             'u=i.A+i.k*2/12,c=i.I+i.k*2/12,'),
+            ('u=i.A+i.P*2/12,c=i.I+i.P*2/12,',
+             'u=i.A+i.k*2/12,c=i.I+i.k*2/12,'),
+        ],
     ),
 ]
 
@@ -68,37 +102,36 @@ def main() -> int:
         print(f"not found: {BUNDLE}\ninstall lightweight-charts v5 first.")
         return 2
 
-    src = open(BUNDLE, encoding="utf8").read()
+    with open(BUNDLE, encoding="utf8") as bundle:
+        src = bundle.read()
     applied, already, missing = [], [], []
 
-    for name, befores, after in PATCHES:
-        if after in src:
+    for name, variants in PATCHES:
+        if any(after in src for _, after in variants):
             already.append(name)
             continue
-        hit = next((b for b in befores if src.count(b) == 1), None)
-        if hit is not None:
-            src = src.replace(hit, after)
-            applied.append(name)
-        else:
-            # No shape this patch knows how to rewrite: a different version of
-            # the library, and guessing at it would be worse than stopping.
-            counts = ", ".join(str(src.count(b)) for b in befores)
+        hit = next(((before, after) for before, after in variants
+                    if src.count(before) == 1), None)
+        if hit is None:
+            counts = ", ".join(str(src.count(before)) for before, _ in variants)
             missing.append(f"{name} (matches: {counts})")
+            continue
+        src = src.replace(hit[0], hit[1])
+        applied.append(name)
 
     if missing:
-        print("FAILED — the bundle does not look like the version these were "
-              "written against (5.2.0). Do not force it; re-derive the patches "
-              "against the new source. See VENDOR_PATCHES.md.")
-        for m in missing:
-            print("  -", m)
+        print("FAILED - the bundle is not a known lightweight-charts v5.2.0 build.")
+        for item in missing:
+            print("  -", item)
         return 1
 
     if applied:
-        open(BUNDLE, "w", encoding="utf8").write(src)
-    for n in applied:
-        print("patched  -", n)
-    for n in already:
-        print("already  -", n)
+        with open(BUNDLE, "w", encoding="utf8") as bundle:
+            bundle.write(src)
+    for name in applied:
+        print("patched  -", name)
+    for name in already:
+        print("already  -", name)
     print("nothing to do." if not applied else "done.")
     return 0
 

@@ -44,11 +44,32 @@ while read -r p; do
   case "$p" in stream|chat|alerts/stream) t=4 ;; *) t=20 ;; esac
   ct="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' \
         --max-time "$t" "$SCHEME://$HOST/$p" 2>/dev/null)"
-  case "$ct" in
-    *text/html*)
+  # A PAGE route is html when it is working, and the fall-through is html too
+  # — so neither content-type nor status can tell them apart there (both are
+  # 200). The body can: only the company app's output carries Next's build
+  # marker, and the chart's index.html never will.
+  case "$p" in
+    stock/*|_next/*|__nextjs*)
+      code="${ct%% *}"
+      body="$(curl -s --max-time "$t" "$SCHEME://$HOST/$p" 2>/dev/null | head -c 4000)"
+      case "$code:$body" in
+        # A redirect is PROOF the app was reached: the bare prefix has no
+        # symbol, so Next 308s it, and nginx's index.html fall-through never
+        # redirects — it always answers 200 with the chart page.
+        30*:*|*:*_next/static*|*:*__NEXT_DATA__*)
+          printf '  ok      /%-16s %s\n' "$p" "$ct" ;;
+        *)
+          printf '  BROKEN  /%-16s %s  <- company app not answering\n' "$p" "$ct"
+          fail=1 ;;
+      esac
+      continue ;;
+  esac
+
+  case "$p:$ct" in
+    *:*text/html*)
       printf '  BROKEN  /%-16s %s  <- falls through to index.html\n' "$p" "$ct"
       fail=1 ;;
-    "")
+    *:)
       printf '  ?       /%-16s no response within %ss\n' "$p" "$t" ;;
     *)
       # Any status is fine — 401/404 from the backend still proves the request

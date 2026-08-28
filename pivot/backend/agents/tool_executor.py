@@ -920,6 +920,13 @@ async def _backtest_workflow(a, kt, db, uid):
             "equity_curve": result.equity_curve,
             "indicator_curve": result.indicator_curve,
             "signals": result.signals,
+            # Closed round-trips and still-held lots. `signals` are FILLS —
+            # every buy and every sell as an event — which is a different
+            # question from "what were the trades", and a reader given only
+            # the fills has to pair them itself and can only disagree with
+            # the engine that already did.
+            "trades": getattr(result, "trades", []),
+            "open_lots": getattr(result, "open_lots", []),
             "metrics": result.metrics,
             "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
             "benchmark_label": getattr(result, "benchmark_label", None),

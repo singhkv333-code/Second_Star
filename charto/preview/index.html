@@ -308,8 +308,8 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 @keyframes fade { from { opacity: 0; } }
 
 /* The uppercase micro-label — Pivot's spec, used by the dropdown header,
-   the exchange suffix, the auto-pill and the table head. It was written out
-   five times; it is one rule now.
+   the exchange suffix and the table head. It was written out five times; it
+   is one rule now.
    The provenance card's role LEFT this group: it is the title of a panel,
    not a label over a group of rows, and TradingView titles a panel in
    sentence-case ink. See .prov header. */
@@ -317,7 +317,6 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 .symbol .ex,
 .readout .ex,
 .dropdown .head,
-.auto-pill,
 .prose thead th,
 .dlg-formula span {
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
@@ -464,9 +463,15 @@ select.is-dressed { display: none; }
 /* The option list is the app's menu, not the OS's. Two classes deep so it
    outranks .dropdown's own `position: absolute; top: calc(100% + 6px)` —
    this one is placed in viewport coordinates by js/dlgkit.js. */
+/* The one menu that is NOT glass. This list opens inside a settings dialog —
+   an opaque card, over which a frosted sheet has nothing to refract and only
+   reads as a smudge — and it is a field's own values rather than something
+   floated over the chart. Opaque paper, and js/ctxmenu.js's observer skips it. */
 .dropdown.select-menu {
   position: fixed; top: auto; left: auto; z-index: 220; padding: var(--menu-pad);
   border-radius: 6px; box-shadow: none; max-height: 280px; min-width: 132px;
+  background: var(--menu-bg); border-color: var(--border);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 /* only the TYPE differs from a header menu's row — this list sits inside the
    indicator dialog, where every control is 14px. The box is the app's. */
@@ -565,12 +570,31 @@ select.is-dressed { display: none; }
 }
 
 /* dropdown-menu
-   The one surface that is NOT the card paper: a menu is the crisp white
-   sheet Groww/TradingView float over a chart, on the 6px radius .dlg already
-   measured off TradingView's own dialog. See --menu-bg. */
+   The one surface that is NOT the card paper: a menu is a sheet floated over a
+   chart, on the 6px radius .dlg already measured off TradingView's own dialog.
+
+   GLASS, on the same paper the right-click menus use (--ctx-*), because they
+   ARE the same object: a list of rows covering candles. The header's lists and
+   the rail's tool flyouts were the last opaque white cards left in the app, and
+   an opaque card over a chart hides how much of the chart it is standing on.
+   The rim and the two inset sheen lines are what read as thickness; the
+   refraction comes from vendor/liquid-glass.js, attached the first time a menu
+   opens (see the observer at the foot of js/ctxmenu.js — one lens for every
+   sheet in this app, rather than a second copy of its settings here).
+
+   The backdrop-filter below is the FLOOR: it is what Safari and Firefox get,
+   and what a menu wears for the frame before the module attaches. Where a
+   backdrop cannot be filtered at all it falls back to the opaque paper — a
+   translucent sheet with nothing behind it is unreadable, which is worse than
+   an honest solid one. */
 .menu-wrap { position: relative; }
 .dropdown {
-  background: var(--menu-bg); border-radius: 6px; box-shadow: var(--menu-shadow);
+  background: var(--ctx-paper); border-radius: 6px;
+  border: 1px solid var(--ctx-rim);
+  box-shadow: inset 0 1px 0 var(--ctx-sheen), inset 0 -1px 0 var(--ctx-sheen-low),
+              var(--ctx-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
   min-width: 224px; padding: var(--menu-pad); display: none;
   /* a long menu (Indicators is 20 items) must scroll inside itself rather
@@ -856,7 +880,7 @@ select.is-dressed { display: none; }
   --ctx-shadow: 0 1px 2px rgba(15, 18, 22, .12), 0 12px 34px -10px rgba(15, 18, 22, .28);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .ctx { background: var(--menu-bg); }
+  .ctx, .dropdown { background: var(--menu-bg); }
 }
 
 /* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
@@ -1858,18 +1882,16 @@ header > .btn, header > .badge { flex: none; }
   left: calc(100% + 14px); top: -6px; right: auto;
   min-width: 263px; padding: var(--menu-pad);
   border-radius: 6px;
-  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, .2);
+  /* No box-shadow of its own any more: the base .dropdown is glass, and a flat
+     drop shadow written over its two inset sheen lines erased the rim that
+     reads as thickness — the flyout came out a plain white card standing
+     beside three glass ones. */
   /* Lines carries seventeen tools across three sections now. On a short
      laptop that card is taller than the window, and a flyout whose last
      rows are off the bottom of the screen offers tools you cannot reach.
      It scrolls instead — the rail button stays where it is, which is what
      keeps the pointer's path to the menu short. */
   max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain;
-}
-:root[data-theme="dark"] .tool-wrap > .dropdown.side {
-  /* on a true-black page the same 20% wash is invisible; the edge does the
-     work there, and the shadow only has to seat the card off the chart */
-  box-shadow: 0 2px 8px 0 rgba(0, 0, 0, .6);
 }
 /* A section label, not a bordered header: a heading here names the band of
    rows UNDER it, so the rule the base .head draws would sit between a label
@@ -2065,8 +2087,41 @@ header > .btn, header > .badge { flex: none; }
 #chart table tr td:last-of-type, #chart table tr td:last-of-type * { cursor: ns-resize; }
 #chart table tr:last-child td, #chart table tr:last-child td * { cursor: ew-resize; }
 #chart.drawing, #chart.drawing * { cursor: crosshair; }
+/* …and the one CONTROL that lives inside the plot.
+
+   The indicator legend gets its hand for free: it sits in `.readout`, outside
+   #chart, so the blanket rule above never reaches it and `.ind-toggle`'s own
+   `cursor: pointer` stands. The layers button is the same element with the
+   same class and it does NOT, because the chip overlay it hangs off is a child
+   of the pane — inside #chart, where `#chart *` (1,0,0) outranks a class
+   (0,1,0). So the button read as crosshair: a thing you press, telling you it
+   is a thing you measure with. (The fold control it replaces had this too;
+   it is the position that is wrong, not the button.)
+
+   An ID plus a class, rather than `!important` — that beats `#chart *` on its
+   own terms and leaves the two `!important` rules below still able to win,
+   which is what should happen: mid-pan the whole plot is `grabbing`, this
+   button included, because the gesture in progress outranks what is under the
+   pointer.
+
+   The DESCENDANTS need saying too. `#chart *` matches the glyph and the count
+   inside the button as readily as the button itself, so naming only the button
+   left the hand appearing everywhere except the 12px of icon the eye actually
+   aims at — the cursor flickering to crosshair exactly when you arrive. */
+#chart .scene-fold, #chart .scene-fold * { cursor: pointer; }
+/* Over a DRAWING: the same pointing hand a candle gets, and for the same
+   reason — this is a thing you can pick up, and the chart has exactly one
+   gesture-with-a-hand vocabulary. It was `cursor: move` (the four-way arrow),
+   which is a different promise: that the shape is already being dragged. It
+   also lost to `#chart.on-bar` on specificity, so a trendline lying across a
+   candle showed the hand and the same trendline in empty space showed the
+   arrows — the cursor changed along one line. `!important`, like the panning
+   rule below it, so the ID selectors it has to beat cannot win.
+
+   ORDER MATTERS: panning comes after, so a pan that happens to travel over a
+   shape keeps the closed hand. */
+.stage.overdraw #chart, .stage.overdraw #chart * { cursor: pointer !important; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
-.stage.overdraw #chart, .stage.overdraw #chart * { cursor: move; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -2378,16 +2433,54 @@ body.two-columns .readout .row { display: none; }
   padding: 2px 7px; font-variant-numeric: tabular-nums;
 }
 
-/* TradingView's "auto" affordance — appears once you've moved the price
-   scale by hand, clicking it re-fits to the visible bars. */
-.auto-pill {
-  position: absolute; right: 8px; bottom: 36px; z-index: 6; display: none;
-  background: var(--popover); border: 1px solid var(--border); color: var(--muted-foreground);
-  padding: 3px 9px; border-radius: var(--radius-pill); cursor: pointer; box-shadow: var(--shadow);
-  transition: color var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr);
+/* The way back to the view the chart opened on — TradingView's corner and
+   TradingView's affordance, appearing only once the view has actually been
+   moved (see viewMoved() in js/main.js: the price scale pinned by hand, the
+   time scale panned off the live edge, or zoomed).
+
+   It replaces an "AUTO" pill that sat half over the price scale, in the app's
+   uppercase micro-label, naming a PROPERTY of the price scale — while the two
+   other things a reset has to undo, the zoom and the scroll, went unmentioned.
+   A round glyph button says "put it back" without naming anything.
+
+   INSIDE BOTH AXES. --axis-w and --time-axis-h are measured and published by
+   js/main.js, so the button sits in the plot's own bottom-right corner and
+   cannot land on a price or a date however wide the scale grows. The old pill's
+   `right: 8px; bottom: 36px` was two guesses at those same two numbers.
+
+   It is a quiet chart control: solid enough to stay legible over candles,
+   without the grey lens and heavy rim that made the old button look disabled. */
+.view-reset {
+  position: absolute; z-index: 7; display: none;
+  right: calc(var(--axis-w, 84px) + 10px);
+  bottom: calc(var(--time-axis-h, 26px) + 10px);
+  width: 28px; height: 28px; padding: 0;
+  align-items: center; justify-content: center;
+  border-radius: 50%; cursor: pointer;
+  color: var(--muted-foreground); background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .12), 0 3px 8px rgb(0 0 0 / .08);
+  transition: color var(--dur) var(--ease-quartr),
+              border-color var(--dur) var(--ease-quartr),
+              background-color var(--dur) var(--ease-quartr),
+              box-shadow var(--dur) var(--ease-quartr);
 }
-.auto-pill.show { display: block; }
-.auto-pill:hover { color: var(--primary); border-color: var(--primary); }
+.view-reset.show { display: inline-flex; animation: fade var(--dur) ease-out; }
+.view-reset:hover {
+  color: var(--primary); background: var(--card);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  box-shadow: 0 2px 6px rgb(0 0 0 / .16), 0 0 0 1px var(--card);
+}
+.view-reset:active { box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.view-reset:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* 13 in a 28px circle. The glyph is a full-bleed lucide arrow — it goes edge
+   to edge in its own 24 box — so it reads a size larger than a glyph with its
+   own padding would at the same number. */
+.view-reset svg.icon { width: 13px; height: 13px; }
+/* The chart sets `cursor: crosshair` on itself and everything in it, and this
+   button is a sibling of that — but the rail's rules taught the same lesson
+   twice, so it is stated rather than assumed. */
+.view-reset, .view-reset * { cursor: pointer; }
 
 /* The currency badge (top of the price scale) and the clock badge (the corner
    where the two scales meet) — TradingView's two corners, as statements.
@@ -2406,11 +2499,17 @@ body.two-columns .readout .row { display: none; }
   font-variant-numeric: tabular-nums; white-space: nowrap;
   background: var(--chart-bg);
 }
+/* The currency badge is not a pill floating NEAR the scale — it is the head of
+   the scale's own column. It spans the full measured width of the price axis
+   (--axis-w, published by js/main.js), sits flush against the right edge, and
+   is square: a rounded 56px capsule inset 4px read as a chip someone had
+   dropped on the axis, with a strip of ticks visible either side of it. One
+   rectangle, one column, one edge — the ticks below it now line up with its
+   own centre, because both are centred on the same width (VENDOR_PATCHES §1). */
 .axis-note.cur {
-  /* spans the price-scale column, so the tick it covers is covered fully */
-  right: 4px; top: 6px; width: 56px; text-align: center;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 2px 0; letter-spacing: .04em;
+  right: 0; top: 0; width: var(--axis-w, 84px); text-align: center;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+  padding: 5px 0; letter-spacing: .04em;
 }
 .axis-note.clock { right: 6px; bottom: 4px; padding: 2px 4px; }
 /* The library paints its crosshair date plate on a canvas below our DOM
@@ -2903,10 +3002,46 @@ body.two-columns .readout .row { display: none; }
 .chatpanel.hidden { display: none; }
 
 .chat-actions {
-  height: 42px; padding: 6px 12px 6px 0; flex: none;
-  display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  height: 42px; padding: 6px 12px; flex: none;
+  display: flex; align-items: center; gap: 2px;
   background: var(--background);
 }
+/* The mode switch. `.seg-tabs`' geometry — 3px track padding, 3px gap, equal
+   1fr columns, the active segment lifted off the rail — at the action row's
+   own 30px instead of the panel's 34px, so the switch and the two icon
+   buttons beside it share one height and one baseline.
+
+   It FLEXES rather than filling: a two-word control stretched across a 900px
+   panel is a banner, not a switch. The cap keeps the halves generous at every
+   width the splitter allows, and `margin-right: auto` keeps the icons on the
+   right edge where they already were. */
+.chat-mode {
+  flex: 1; min-width: 0; max-width: 340px; margin-right: auto;
+  height: 30px; padding: 3px; gap: 3px;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--rail); border-radius: var(--radius-sm);
+}
+.chat-mode-seg {
+  min-width: 0; border: 0; border-radius: 5px; cursor: pointer;
+  background: transparent; color: var(--muted-foreground);
+  font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium);
+  display: inline-flex; align-items: center; justify-content: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.chat-mode-seg:focus { outline: none; }
+:root[data-nav="kbd"] .chat-mode-seg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.chat-mode-seg:hover { color: var(--foreground); }
+.chat-mode-seg[aria-checked="true"] {
+  background: var(--background); color: var(--foreground);
+  font-weight: var(--weight-semi);
+  box-shadow: 0 0 6px 0 var(--border);
+}
+/* A guaranteed gap where the auto margin has none left to give — at the
+   narrowest splitter position the switch would otherwise sit 2px from the
+   plus, reading as one control with a button stuck to it. */
+.chat-actions .chat-mode + .chat-action { margin-left: 8px; }
 .chat-action {
   width: 30px; height: 30px; padding: 0; border: 0;
   border-radius: 6px; background: transparent;
@@ -3025,9 +3160,330 @@ body.two-columns .readout .row { display: none; }
  * the formation tiles, where it is doing work.
  */
 .scan {
-  margin: 0 0 16px; background: transparent;
+  margin: 0 0 22px; background: transparent;
   font-size: var(--text-base);
 }
+.exec-head { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 14px; }
+.exec-head-main { min-width: 0; flex: 1; }
+.exec-title { margin: 0; font-size: var(--text-h3); line-height: 1.25; letter-spacing: -.02em; }
+.exec-instrument { margin-top: 4px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.exec-rev { flex: none; font-size: var(--text-2xs); color: var(--muted-foreground); }
+.exec-rule { margin: 0; font-size: var(--text-sm); line-height: 1.55; color: var(--foreground); }
+.exec-assumptions { margin: 0; padding-left: 18px; font-size: var(--text-sm); line-height: 1.55; }
+.exec-boundary { padding-top: 12px; border-top: 1px solid var(--border-soft); font-size: var(--text-2xs); color: var(--muted-foreground); }
+/* Pivot's draft card, in Charto's tokens. The chip/dot header, the hidden
+   reasoning, the step tiles and the one-primary CTA rail are all its shape;
+   only the colours and the radii are this app's. */
+/* With the rules gone, SPACE is the only separator left, so it has to be
+   generous enough to do the job a line was doing. One rhythm for every
+   section — the gap is the card's whole grammar now. */
+.wf-card { display: flex; flex-direction: column; gap: 9px; }
+/* Two rhythms, not one. The chip/title/description are ONE header block and
+   want to read tight; the sections below are separate arguments and want the
+   air a rule used to give them. A single uniform gap cannot do both — at 20px
+   the title floated away from its own card. */
+.wf-card > .scan-sec, .wf-card > .wf-chart, .wf-card > .scan-stats,
+.wf-card > .wf-cta, .wf-card > .wf-warn { margin-top: 11px; }
+/* No rules between sections. `.scan-stats` closes with a border and
+   `.scan-sec` opens with one, so every heading arrived under a DOUBLE line,
+   and six sections turned one card into a stack of boxes. A bold heading
+   with air above it separates perfectly well. Scoped to the builder cards —
+   the research panels are unchanged and still ruled. */
+.wf-card .scan-stats { border-bottom: 0; padding-bottom: 0; gap: 14px 10px; }
+.wf-card .scan-sec { border-top: 0; padding: 0; }
+.wf-card .scan-sec h4 { margin-bottom: 7px; }
+.wf-card .wf-kv-row { border-bottom: 0; padding: 3px 0; }
+.wf-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wf-chip { display: inline-flex; align-items: center; border-radius: 6px;
+           padding: 2px 7px; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+           background: var(--accent); color: var(--muted-foreground); }
+.wf-chip-sim { background: var(--muted); }
+.wf-state { display: inline-flex; align-items: center; gap: 6px;
+            font-size: var(--text-2xs); color: var(--muted-foreground); }
+.wf-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor;
+          opacity: .5; }
+.wf-chip-ttl { opacity: .8; }
+.wf-title { margin: 0; font-size: var(--text-h3); line-height: 1.25;
+            letter-spacing: -.02em; }
+.wf-desc { margin: 0; font-size: var(--text-xs); line-height: 1.5;
+           color: var(--muted-foreground); }
+/* The reasoning is real and rarely the thing being read, so it folds. */
+.wf-why { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px;
+          padding: 0; border: 0; background: transparent; cursor: pointer;
+          font: inherit; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+          color: var(--muted-foreground); transition: color var(--dur) var(--ease-quartr); }
+.wf-why:hover { color: var(--foreground); }
+.wf-why svg.icon { width: 12px; height: 12px; }
+.wf-why-body { margin: 0; padding: 9px 11px; border-radius: 10px;
+               background: var(--muted); font-size: var(--text-2xs); line-height: 1.55;
+               color: var(--muted-foreground); }
+.wf-why-body[hidden] { display: none; }
+/* A draft's steps are ORDERED and the order is load-bearing — a Mustache ref
+   like {{ context.3.… }} names a step by its position — but the ICON carries
+   the category, which is what a reader scans for first. */
+.wf-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wf-step { display: flex; gap: 10px; align-items: flex-start;
+           padding: 8px 10px; border-radius: 10px; background: var(--muted);
+           animation: stepIn-quartr 320ms var(--ease-quartr) both; }
+@media (prefers-reduced-motion: reduce) { .wf-step { animation: none; } }
+@keyframes stepIn-quartr {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.wf-ico { flex: none; display: grid; place-items: center; width: 20px; height: 20px;
+          color: var(--muted-foreground); margin-top: 1px; }
+.wf-ico svg.icon { width: 15px; height: 15px; }
+.wf-more { list-style: none; padding-left: 2px; font-size: var(--text-2xs);
+           color: var(--muted-foreground); margin: 0; }
+/* One primary, ghosts beneath — never a grid of equal buttons. */
+.wf-cta { display: flex; flex-direction: column; gap: 8px; }
+.wf-primary { height: 32px; width: 100%; border: 0; border-radius: 999px;
+              background: var(--foreground); color: var(--background); cursor: pointer;
+              font: inherit; font-size: var(--text-xs); font-weight: var(--weight-medium);
+              transition: opacity var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
+.wf-primary:hover:not(:disabled) { opacity: .9; }
+.wf-primary:active:not(:disabled) { transform: scale(.985); }
+.wf-primary:disabled { cursor: not-allowed; opacity: .45; }
+.wf-ghosts { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.wf-ghost { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+            border: 0; border-radius: 7px; background: transparent; cursor: pointer;
+            font: inherit; font-size: var(--text-2xs); font-weight: var(--weight-medium);
+            color: var(--muted-foreground);
+            transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
+.wf-ghost:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
+.wf-ghost:disabled { opacity: .55; cursor: default; }
+.wf-ghost svg.icon { width: 12px; height: 12px; }
+/* The read-out's single control. Centred and on its own row: it is not one
+   choice among several, so a left-aligned button would read as the first of a
+   set that never arrives. */
+.wf-cta-solo { align-items: center; gap: 5px; }
+.wf-cta-solo .wf-ghost { padding: 5px 12px; }
+/* Pressed stays GREY. The chart is already spending green and red on the
+   trades themselves, and a coloured button here would read as a third
+   outcome rather than as a control that is currently on. */
+.wf-ghost[aria-pressed="true"] { background: var(--accent); color: var(--foreground); }
+.wf-cta-note { font-size: var(--text-2xs); color: var(--muted-foreground); text-align: center; }
+.wf-slot[hidden] { display: none; }
+.wf-slot { border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.wf-note { margin: 0; padding: 8px 11px; border-radius: 10px; background: var(--muted);
+           font-size: var(--text-2xs); line-height: 1.5; color: var(--muted-foreground); }
+/* The rigor rows: the half of a backtest that says whether the other half
+   means anything. Two columns so a label and its figure stay paired. */
+.wf-rigor { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.wf-rigor > div { display: flex; align-items: baseline; justify-content: space-between;
+                  gap: 8px; min-width: 0; }
+.wf-rigor dt { font-size: var(--text-2xs); color: var(--muted-foreground); }
+.wf-rigor dd { margin: 0; font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
+/* The equity curve. An AREA, not a line: a filled shape reads as a level you
+   are above or below, which is what equity is; a bare stroke reads as a rate.
+   The fill is deliberately faint — it is there to give the line a floor, not
+   to be looked at. Stroke width is non-scaling because the viewBox is
+   stretched horizontally and a scaled stroke would taper. */
+.wf-chart { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
+.wf-curve { width: 100%; height: 62px; display: block; color: var(--muted-foreground); }
+.wf-curve.up { color: var(--up); }
+.wf-curve.down { color: var(--down); }
+.wf-curve .fill { fill: currentColor; opacity: .10; stroke: none; }
+.wf-curve .line { fill: none; stroke: currentColor; stroke-width: 1.5;
+                  stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+/* The window's opening level — above it the strategy is up, below it it is
+   not. Dashed so it reads as a reference and not as a second series. */
+.wf-curve .base { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3;
+                  vector-effect: non-scaling-stroke; }
+/* Fills, marked where they happened — DOM, not SVG, so they stay round in a
+   plot that is stretched horizontally. Small on purpose: forty of them on one
+   curve is a texture, and anything bigger buries the line they belong to. */
+.wf-plot { position: relative; }
+.wf-plot > svg { pointer-events: none; }
+.wf-mark { position: absolute; width: 4px; height: 4px; border-radius: 50%;
+           transform: translate(-50%, -50%); pointer-events: auto;
+           box-shadow: 0 0 0 1px var(--background); }
+.wf-mark.b { background: var(--up); }
+.wf-mark.s { background: var(--down); }
+/* The bootstrap, drawn. Percentile bands are the textbook fan, but bands
+   drawn OVER a visible cloud are the same spread twice — 32 paths at 9%
+   already stack into a density gradient, which is the honest version of a
+   band and the one that shows individual runs. */
+.wf-fan { width: 100%; height: 96px; display: block; color: var(--muted-foreground); }
+.wf-fan.up { color: var(--up); }
+.wf-fan.down { color: var(--down); }
+.wf-fan path { fill: none; vector-effect: non-scaling-stroke;
+               stroke-linejoin: round; stroke-linecap: round; }
+.wf-fan .sim { stroke: var(--muted-foreground); stroke-width: 1; opacity: .13; }
+/* Where the middle of the cloud ran. Dashed, because a pointwise median is
+   not a path any single run took and should not read as one. */
+.wf-fan .med { stroke: var(--muted-foreground); stroke-width: 1.25;
+               stroke-dasharray: 4 3; opacity: .8; }
+.wf-fan .act { stroke: currentColor; stroke-width: 2; }
+.wf-fan .zero { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3;
+                vector-effect: non-scaling-stroke; }
+/* Where YOUR run finished inside the spread — the one place the eye should
+   land. DOM, so it stays round in a horizontally stretched plot. */
+.wf-tip { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+          transform: translate(-50%, -50%); pointer-events: auto;
+          box-shadow: 0 0 0 2px var(--background); }
+.wf-tip.up { background: var(--up); }
+.wf-tip.down { background: var(--down); }
+.wf-tip::before { content: ""; position: absolute; inset: -6px; }
+.wf-key { display: flex; align-items: center; gap: 12px; margin-top: 8px;
+          font-size: var(--text-2xs); color: var(--muted-foreground); }
+/* The fan and the drawdown bars are two readings of the same resampling and
+   sit in one section, so the gap between them has to come from here — with
+   none, the legend row landed on the first bar's label. */
+.wf-card .wf-chart + .scan-bars { margin-top: 16px; }
+.wf-key span { display: inline-flex; align-items: center; gap: 5px; }
+/* Each key carries its own series' mark, so the legend is read off the same
+   shapes as the plot rather than off a colour the reader has to remember. */
+.wf-key span::before { content: ""; width: 12px; height: 0; flex: none;
+                       border-top-width: 2px; border-top-style: solid; }
+.wf-key .k-act::before { border-color: var(--foreground); }
+.wf-key .k-med::before { border-top-style: dashed; border-color: currentColor; }
+.wf-key .k-sim::before { border-top-width: 1px; border-color: currentColor;
+                         opacity: .45; }
+/* The dot is 4px because that is how big it should LOOK; the thing you have
+   to hit with a pointer is 14px. Separating the two is the only way to have
+   a mark that is both unobtrusive and reachable. */
+.wf-mark::before { content: ""; position: absolute; inset: -5px; }
+.wf-mark:hover { z-index: 4; }
+.wf-axis { display: flex; justify-content: space-between;
+           font-size: var(--text-2xs); color: var(--faint);
+           font-variant-numeric: tabular-nums; }
+/* Per-period returns off a zero line. The question this answers is whether
+   the total came from the whole window or one stretch of it, which no single
+   figure can say. */
+/* The padding is the hover label's own room, INSIDE the chart's box. Floated
+   above the columns the readout landed on the section heading; floated below
+   it landed on the next one. A tooltip that has to be placed outside its
+   chart will always collide with something — so the chart makes room for it.
+   Bars and the zero line are both positioned against the padding box, so they
+   shift together and stay aligned. */
+.wf-cols { position: relative; display: flex; align-items: stretch; gap: 3px;
+           height: 75px; padding-top: 19px; justify-content: space-between; }
+/* Capped: six periods across a 440px card gave 73px slabs, which read
+   as a bar chart of something else entirely. A column is a tick on a
+   timeline, so it stays column-shaped however few there are.
+   The cap needs space-between above it, though: left-aligned, six capped
+   columns bunched into the first third and left the rest of the plot
+   empty, which reads as periods the strategy did not have. These columns
+   are a TIME axis and have to span the window they cover. Once there are
+   enough of them to fill the row on their own it is a no-op. */
+.wf-col { position: relative; flex: 1 1 0; min-width: 0; max-width: 34px; }
+.wf-col i { position: absolute; left: 0; right: 0; border-radius: 2px;
+            background: var(--muted-foreground); opacity: .55; }
+.wf-col i.up { background: var(--up); opacity: .8; }
+.wf-col i.down { background: var(--down); opacity: .8; }
+/* The zero line spans the whole plot, so without this it sits ON TOP of every
+   column and eats the hover — the readout could never fire. It is a
+   reference, and a reference should not be able to intercept a pointer. */
+.wf-zero { position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+           background: var(--border); pointer-events: none; }
+/* One hover readout, shared by the curve's marks and the period columns.
+   A native `title` waits a second, appears at the pointer and is styled by
+   the OS; a figure the card is responsible for should look like the card. */
+.wf-mark[data-v]:hover::after, .wf-col[data-v]:hover::after {
+  content: attr(data-v); position: absolute; left: 50%; bottom: 100%;
+  transform: translate(-50%, -6px); z-index: 5; pointer-events: none;
+  padding: 3px 7px; border-radius: 6px; white-space: nowrap;
+  background: var(--foreground); color: var(--background);
+  font-size: var(--text-2xs); font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+.wf-col[data-v]:hover::after { bottom: auto; top: 0; transform: translate(-50%, -100%); }
+.wf-col[data-v]:hover i { opacity: 1; }
+.wf-col { cursor: default; }
+/* The payoff at expiry. Two fills off one path, each clipped to its own side
+   of zero — profit is green above the line and loss red below it, which is
+   the only colouring an option payoff can carry without editorialising. */
+.wf-payoff { width: 100%; height: 74px; display: block; }
+.wf-payoff .up { fill: var(--up); opacity: .13; stroke: none; }
+.wf-payoff .down { fill: var(--down); opacity: .13; stroke: none; }
+.wf-payoff .line { fill: none; stroke: var(--foreground); stroke-width: 1.5;
+                   stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.wf-payoff .zero { stroke: var(--border); stroke-width: 1;
+                   vector-effect: non-scaling-stroke; }
+/* The breakeven is where the curve crosses zero — drawn, not asserted. */
+.wf-payoff .be { stroke: var(--muted-foreground); stroke-width: 1;
+                 stroke-dasharray: 2 3; opacity: .7;
+                 vector-effect: non-scaling-stroke; }
+.wf-payoff .spot { stroke: var(--foreground); stroke-width: 1; opacity: .35;
+                   vector-effect: non-scaling-stroke; }
+/* A leg reads side-first: what you did to it decides everything after. */
+.wf-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.wf-leg { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
+.wf-leg b { font-weight: var(--weight-medium); }
+.wf-leg .wf-num { margin-left: auto; color: var(--muted-foreground);
+                  font-variant-numeric: tabular-nums; }
+.wf-side { flex: none; min-width: 38px; text-align: center; padding: 1px 6px;
+           border-radius: 5px; font-size: var(--text-2xs);
+           font-weight: var(--weight-medium); }
+.wf-side.buy { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
+.wf-side.sell { background: color-mix(in srgb, var(--down) 15%, transparent); color: var(--down); }
+/* Provenance, not decoration. Amber rather than red: mock data is not an
+   error, it is a caveat — the card is correct about a market that is not the
+   real one. Sits above the figures so it is read before them. */
+.wf-stale { margin: 0; padding: 8px 11px; border-radius: 10px;
+            font-size: var(--text-2xs); line-height: 1.5;
+            background: color-mix(in srgb, var(--ann-res) 12%, transparent);
+            color: var(--ann-res); }
+.wf-flags { margin: 0; padding-left: 18px; font-size: var(--text-2xs);
+            line-height: 1.55; color: var(--muted-foreground); }
+.wf-flags li.sev-warn, .wf-flags li.sev-warning { color: var(--down); }
+.wf-kv-row { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px;
+             font-size: var(--text-2xs); line-height: 1.5;
+             padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.wf-kv-row:last-child { border-bottom: 0; }
+.wf-kv-row b { font-weight: var(--weight-medium); }
+.wf-kv-row span { color: var(--muted-foreground); }
+/* The chain. Open interest is the bar BEHIND the price, because where the
+   writers are is the read — a column of six-digit numbers hides it. */
+.wf-chain { width: 100%; border-collapse: collapse; font-size: var(--text-2xs);
+            font-variant-numeric: tabular-nums; }
+.wf-chain th { font-weight: var(--weight-medium); color: var(--muted-foreground);
+               padding-bottom: 4px; }
+.wf-chain th:first-child { text-align: left; }
+.wf-chain th:last-child { text-align: right; }
+.wf-chain td { padding: 2px 0; }
+.wf-chain tr.atm { background: var(--muted); }
+.wf-strike { text-align: center; width: 34%; color: var(--foreground);
+             font-weight: var(--weight-medium); }
+.wf-oi { position: relative; width: 33%; padding: 3px 6px; }
+.wf-oi i { position: absolute; top: 2px; bottom: 2px; display: block;
+           border-radius: 2px; opacity: .16; }
+.wf-oi.ce i { right: 0; background: var(--up); }
+.wf-oi.pe i { left: 0; background: var(--down); }
+.wf-oi span { position: relative; display: block; color: var(--muted-foreground); }
+.wf-oi.ce span { text-align: left; }
+.wf-oi.pe span { text-align: right; }
+.wf-trades { width: 100%; border-collapse: collapse; font-size: var(--text-2xs); }
+.wf-trades th { text-align: left; font-weight: var(--weight-medium);
+                color: var(--muted-foreground); padding: 0 6px 4px 0; }
+.wf-trades td { padding: 3px 6px 3px 0; color: var(--muted-foreground);
+                font-variant-numeric: tabular-nums; }
+.wf-trades .wf-num { text-align: right; }
+.wf-trades td.up { color: var(--up); }
+.wf-trades td.down { color: var(--down); }
+.wf-reason { color: var(--faint); }
+.wf-body { min-width: 0; flex: 1; }
+.wf-label { display: block; font-size: var(--text-sm); line-height: 1.4; }
+.wf-readback { margin: 3px 0 0; font-size: var(--text-xs); line-height: 1.5;
+               color: var(--muted-foreground); }
+.wf-cfg { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.wf-kv { font-size: var(--text-2xs); color: var(--muted-foreground); min-width: 0;
+         overflow-wrap: anywhere; }
+.wf-kv i { font-style: normal; opacity: .7; margin-right: 4px; }
+.wf-warn { margin: 0; padding-left: 18px; font-size: var(--text-xs); line-height: 1.55;
+           color: var(--muted-foreground); }
+.wf-ttl { margin-right: 8px; }
+/* The verdict is the reading of every figure under it, so it is placed
+   ABOVE them and given the weight of a statement rather than a footnote. */
+.wf-verdict { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
+              margin-bottom: 12px; border-radius: 10px; background: var(--muted); }
+/* No text-transform: the engine hands over a written label ("No
+   demonstrable edge"), and capitalising it word-by-word turned a
+   sentence into a headline nobody wrote. The raw enum fallback is
+   capitalised in JS instead, where only that case is affected. */
+.wf-verdict b { font-size: var(--text-sm); }
+.wf-verdict span { font-size: var(--text-xs); line-height: 1.5; color: var(--muted-foreground); }
 /* The four figures the sweep is ABOUT, before any of the detail. They wrap
    rather than scroll: the pane is user-resizable and a stat strip that
    clipped its last column would hide the candle count on a narrow chat. */
@@ -4382,6 +4838,218 @@ body.two-columns .readout .row { display: none; }
 }
 .sidepanel.hidden { display: none; }
 
+/* ── layers popover ─────────────────────────────────────────────────────
+   The inventory of everything on the chart: detector formations, whatever
+   the chat drew, and the shapes you placed yourself — one row each, one
+   switch each. It replaces the patterns drawer, which was the same idea
+   applied to a third of the objects.
+
+   It opens off the chip column at the top-right of the price pane rather
+   than off the left rail, and it is a POPOVER: a list you consult for a few
+   seconds should not cost the chart a permanent 344px column, and the thing
+   it is a list OF is six inches to the left of it.
+
+   Green is reserved, here as in the drawer before it, for one meaning: this
+   row is on the candles right now. Everything else in the panel is greyscale
+   so that the one colour keeps saying only that. */
+/* `.dropdown.layers-pop.open`, not `.layers-pop` — and the extra classes are
+   load-bearing. `.dropdown.open` sets `display: block` at (0,2,0), so a plain
+   `.layers-pop { display: flex }` at (0,1,0) lost: the sheet was never a flex
+   column, `flex: 1` on the body did nothing, and the body took its full
+   natural height inside a max-height'd parent with `overflow: hidden`. Twenty
+   rows RENDERED and the last twelve were simply clipped away, with no
+   scrollbar — the body's scrollHeight equalled its clientHeight, so nothing
+   could scroll to them. The definite height on the parent plus `flex: 1;
+   min-height: 0` on the body is what creates the scrollport. */
+.dropdown.layers-pop.open {
+  position: fixed; z-index: 260; display: flex; flex-direction: column;
+  padding: 6px; border-radius: 14px; overflow: hidden;
+  /* The sym-picker's glass, at the sym-picker's weight — this hangs over the
+     candles, and the two floating surfaces in this app should not be two
+     different materials. */
+  background: color-mix(in srgb, var(--ctx-paper) 86%, transparent);
+  border-color: color-mix(in srgb, white 40%, var(--ctx-rim));
+}
+.layers-pop .lyr-head {
+  display: flex; align-items: center; gap: 4px;
+  height: 34px; padding: 0 2px 0 8px; flex: none;
+}
+.lyr-title {
+  margin-right: auto; display: flex; align-items: baseline; gap: 6px;
+  font: var(--weight-semi) var(--text-sm)/1 var(--font); letter-spacing: -.012em;
+  color: var(--foreground);
+}
+/* live/total, tabular so the panel does not twitch as items are switched. */
+.lyr-count { font-size: 11px; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; color: var(--faint); }
+.lyr-head-tools { display: flex; align-items: center; gap: 2px; }
+.lyr-tool {
+  position: relative; width: 26px; height: 26px; padding: 0; border: 0;
+  border-radius: 6px; background: transparent; color: var(--foreground);
+  cursor: pointer; display: inline-grid; place-items: center;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.lyr-tool:hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); }
+.lyr-tool.active { color: var(--up); background: color-mix(in srgb, var(--up) 12%, transparent); }
+.lyr-tool svg { width: 14px; height: 14px; }
+/* The search collapses to its own glyph until it is wanted — the header has
+   room for three controls or one control and a field, never both. */
+.lyr-search {
+  position: relative; height: 26px; width: 26px; display: flex; align-items: center;
+  border-radius: 6px; overflow: hidden; color: var(--foreground);
+  transition: width 180ms var(--ease-quartr), background var(--dur-fast);
+}
+.lyr-search:focus-within, .lyr-search:has(input:not(:placeholder-shown)) {
+  width: 128px; background: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+.lyr-search > span { position: absolute; left: 6px; top: 6px; width: 14px; height: 14px; pointer-events: none; }
+.lyr-search svg { width: 14px; height: 14px; }
+.lyr-search input {
+  width: 100%; height: 100%; padding: 0 6px 0 26px; border: 0; outline: 0;
+  background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-xs);
+}
+.lyr-search input::placeholder { color: transparent; }
+
+.lyr-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 2px 0 4px; scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.lyr-body::-webkit-scrollbar { width: 5px; }
+.lyr-body::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+.lyr-body::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
+
+/* A section heading, not a nesting level: rows carry their own group and the
+   heading is printed when it changes, so there is no second tree to keep in
+   step with the list. */
+.lyr-group {
+  padding: 10px 10px 4px; font-size: 10px; font-weight: var(--weight-medium);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint);
+}
+.lyr-group:first-child { padding-top: 4px; }
+
+/* ONE grid, so nothing can overlap: the eye and the glyph are fixed columns,
+   the name takes the slack and truncates, and the meta column is the only
+   flexible text. The actions live in the meta cell's own row and swap places
+   with it on hover — the row never grows, and the two never occupy the same
+   pixels at the same time. */
+/* Five columns, and the last one is FIXED for a reason.
+   Every row is its own grid, so an `auto` track sizes against that row's own
+   content and lands at a different x on every line — fine for the kind label,
+   which is one short word nobody reads down the page, and useless for dates,
+   which are only scannable when they form an actual edge. 56px holds "08 Jul"
+   at 10px tabular with room to spare, so the column is a straight rule down
+   the right of the list and the eye can run it. */
+.lyr-row {
+  display: grid; grid-template-columns: 26px 18px minmax(0, 1fr) auto 56px;
+  align-items: center; column-gap: 6px;
+  margin: 1px 4px; padding: 0 4px 0 0; min-height: 32px;
+  border-radius: 7px; color: var(--foreground);
+  transition: background var(--dur-fast);
+}
+.lyr-row:hover, .lyr-row.expanded { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+/* The one use of colour in the panel. A tint rather than a dot: the row IS
+   the state, and a chart with six of nine showing should be legible as a
+   block of six at a glance rather than six marks to be counted. */
+.lyr-row.is-live { background: color-mix(in srgb, var(--up) 11%, transparent); }
+.lyr-row.is-live:hover, .lyr-row.is-live.expanded { background: color-mix(in srgb, var(--up) 16%, transparent); }
+
+.lyr-eye {
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--faint); cursor: pointer;
+  display: inline-grid; place-items: center;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.lyr-eye:hover { background: color-mix(in srgb, var(--foreground) 9%, transparent); color: var(--foreground); }
+.lyr-row.is-live .lyr-eye { color: var(--up); }
+.lyr-eye svg { width: 14px; height: 14px; }
+.lyr-eye:disabled { cursor: wait; }
+.lyr-eye.is-loading svg { animation: lyr-spin 700ms linear infinite; }
+@keyframes lyr-spin { to { transform: rotate(360deg); } }
+
+.lyr-glyph { display: inline-grid; place-items: center; color: var(--faint); }
+.lyr-glyph svg { width: 13px; height: 13px; }
+.lyr-row.is-live .lyr-glyph { color: color-mix(in srgb, var(--up) 82%, var(--foreground)); }
+
+.lyr-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-xs); letter-spacing: -.005em;
+}
+.lyr-meta {
+  grid-column: 4; grid-row: 1; justify-self: end;
+  font-size: 10px; color: var(--faint);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: opacity var(--dur-fast);
+}
+/* When it formed. Patterns and candle signals carry a window; a level the chat
+   drew and a shape you placed yourself do not, and the cell stays EMPTY rather
+   than printing an em-dash on two rows in three — a column of placeholders is
+   noise pretending to be data. The full window (from → to) is the cell's title
+   and is spelled out in the row's detail. */
+.lyr-date {
+  grid-column: 5; grid-row: 1; justify-self: end;
+  font-size: 10px; color: var(--faint);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: opacity var(--dur-fast);
+}
+.lyr-row.is-live .lyr-date { color: color-mix(in srgb, var(--foreground) 62%, transparent); }
+/* Actions sit in the same cells as the meta and the date and take them over on
+   hover — which is why the row cannot reflow and why no text can ever collide
+   with the icons. Spanning both tracks, so the icons have the full right edge
+   to sit on rather than being squeezed into the 56px the date needs. */
+.lyr-actions {
+  grid-column: 4 / 6; grid-row: 1; justify-self: end;
+  display: flex; align-items: center; gap: 1px;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur-fast);
+}
+.lyr-row:hover .lyr-meta, .lyr-row:focus-within .lyr-meta,
+.lyr-row:hover .lyr-date, .lyr-row:focus-within .lyr-date { opacity: 0; }
+.lyr-row:hover .lyr-actions, .lyr-row:focus-within .lyr-actions { opacity: 1; pointer-events: auto; }
+.lyr-act {
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--faint); cursor: pointer;
+  display: inline-grid; place-items: center;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.lyr-act:hover { background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); }
+.lyr-act.active { color: var(--foreground); }
+.lyr-act.active svg { fill: currentColor; }
+.lyr-act.danger:hover { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
+.lyr-act svg { width: 13px; height: 13px; transition: transform 160ms var(--ease-quartr); }
+.lyr-row.expanded .lyr-act[data-lyr-detail] svg { transform: rotate(180deg); }
+
+.lyr-detail { display: none; grid-column: 1 / -1; padding: 2px 10px 10px 32px; }
+.lyr-row.expanded .lyr-detail { display: block; animation: lyr-reveal 170ms var(--ease-quartr) both; }
+@keyframes lyr-reveal { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.lyr-detail-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; align-items: baseline;
+  font-size: 10px;
+}
+.lyr-detail-grid span { color: var(--faint); }
+.lyr-detail-grid strong { font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.lyr-note { margin: 7px 0 0; font-size: 10px; line-height: 1.45; color: var(--faint); }
+.lyr-empty { padding: 40px 24px; text-align: center; color: var(--faint); font-size: var(--text-xs); }
+
+/* The button this panel opens from, at the foot of the chip column. It is
+   `.ind-toggle` like the fold it replaces — same gesture, same corner — and
+   holds its lit state open so the chart says which control put the sheet
+   over it. */
+/* NO GLASS. It wore `.view-reset`'s tint, rim, sheen and backdrop filter, with
+   the liquid-glass lens on top — the app's material, and wrong at this size.
+   That treatment is built for a 30px disc floating over price action, where
+   the tint is what separates it from the candles. This control is a 17px strip
+   of text that spends most of its life over EMPTY chart, and there a tint with
+   nothing behind it to refract has nothing to be glass about: it just renders
+   as a solid grey pill stuck to the corner, heavier than the numbers it is
+   carrying and heavier than the legend it sits under.
+
+   So it goes back to being `.ind-toggle` — transparent, with the paper wash
+   only when the occlusion probe says it is actually over candles, which is the
+   one condition where a plate earns its keep. The lens is not attached either;
+   see js/scene.js. The popover it opens is still glass, because a sheet the
+   size of a menu is exactly what that material is for. */
+.scene-layers.is-open { color: var(--foreground); background: var(--hover-fill); }
+.scene-layers.over-chart.is-open { background: color-mix(in srgb, var(--background) 93%, transparent); }
+
 /* Every panel head is TradingView's 38px toolbar row: what this list is on
    the left, what you can do to it on the right. No close × — the lit icon in
    the bar is what closes a panel, and a second way to do it is a second
@@ -4705,22 +5373,30 @@ body.two-columns .readout .row { display: none; }
      the first frame, before the scale has been laid out. The plate starts at
      the scale's left edge, so `--axis-w − 19px` insets the 16px ring 3px into
      it — Groww draws its own at the same inset. */
-  position: absolute; right: calc(var(--axis-w, 84px) - 19px); z-index: 6;
-  width: 16px; height: 16px; margin-top: -8px; padding: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  /* WHITE, in both themes, and that is not a missing token: the crosshair plate
-     under it is a dark slate on light and on dark alike (Theme.crosshairLabel),
-     and the library picks white for the price printed on it. The mark is one
-     more thing written on that plate, so it is written in the plate's ink. */
-  border: 1px solid rgba(255, 255, 255, .5);
-  border-radius: 50%;
-  /* A disc of THE PLATE'S OWN COLOUR, published by js/main.js. On the plate it
-     is invisible and the mark reads as printed on it, which is the whole point.
-     It exists for the one frame the plate does not: reaching for the mark puts
-     the pointer on the price scale, the library draws the crosshair only over a
-     pane, and the plate goes — leaving, without this, a white ring standing on
-     a white chart. */
-  background: var(--plate, #434651); color: rgba(255, 255, 255, .78);
+  /* z-index 8, ABOVE the crosshair's price plate (7) — and that is the whole
+     reason the mark used to be a ghost. It sat at 6, the plate went to 7 when
+     it became glass, and `#chart` does not create a stacking context of its own
+     — so the plate was painted OVER the mark and what reached the eye was a ⊕
+     seen through frosted glass (measured: the ring came out 109 on a plate at
+     65, a 44-level difference where the ink is a 250). No amount of re-colouring
+     fixes a thing that is behind the frost. The plate's backdrop-filter only
+     touches what is painted BELOW it, so at 8 the mark is drawn crisp on top. */
+  position: absolute; right: 5px; z-index: 6;
+  width: calc(var(--axis-w, 84px) - 6px); height: 22px; margin-top: -11px;
+  padding: 0 6px 0 3px;
+  display: inline-flex; align-items: center;
+  /* THE APP'S INK, at near-full strength. It was white once, because the plate
+     under it was a dark slate in both themes and the library printed white on
+     it; the plate is glass now and carries --foreground like every other
+     surface here. */
+  border: 0; border-radius: 0;
+  /* A faint chip of the ink rather than an opaque disc. The mark now appears
+     ONLY on the plate — it is hidden the moment the plate is (js/main.js), and
+     the plate is frozen rather than dropped for the reach that ends on this
+     mark — so there is never bare axis behind it to cover. A solid fill here
+     read as a hole punched in the glass; this reads as a control resting on
+     it. */
+  background: var(--plate, #434651); color: #fff;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease-quartr),
               color var(--dur) var(--ease-quartr),
@@ -4733,11 +5409,24 @@ body.two-columns .readout .row { display: none; }
    faint fill: the accent is this app's "you are on this" colour, and a pointer
    resting on a mark is not a state the chart is in — a coloured disc here would
    also be a coloured disc landing on a coloured plate. */
-.alert-plus.hot {
-  /* Lightened plate, not a translucent white: the disc has to stay opaque for
-     the case above, where there is no plate behind it to tint. */
+.alert-plus.hot .alert-plus-mark {
+  /* FILLED with the accent, not tinted by it. `hot` is set the moment the
+     pointer is on the mark and the next click will arm an alert — the one
+     instant in this interaction where the app should be unambiguous. A 14%
+     wash was not: on the plate it read as the same grey disc. */
   color: #fff; border-color: #fff;
   background: color-mix(in srgb, #fff 18%, var(--plate, #434651));
+}
+.alert-plus-mark {
+  flex: 0 0 16px; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .5); border-radius: 50%;
+  color: rgba(255, 255, 255, .78); background: var(--plate, #434651);
+}
+.alert-plus-value {
+  flex: 1 1 auto; min-width: 0; margin-left: 10px;
+  text-align: right; white-space: nowrap;
+  font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums;
 }
 /* The bare + inside the 16px ring — a little under half the circle, drawn
    heavier than the ring so the mark reads as a button with an action rather
@@ -5130,11 +5819,43 @@ svg.icon.op {
      chip instead of the header pill — appended to <body> so a chart pane's
      overflow cannot clip it. */
   .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
-  #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
-  #symList .item .dot-h, .sym-picker .item .dot-h {
-    width: 6px; height: 6px; border-radius: 50%; background: var(--up);
-    display: inline-block; flex: none;
+  .sym-picker {
+    padding: 8px; border-radius: 16px;
+    background: color-mix(in srgb, var(--ctx-paper) 82%, transparent);
+    border-color: color-mix(in srgb, white 42%, var(--ctx-rim));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
+                inset 0 -1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
+                0 18px 48px color-mix(in srgb, var(--foreground) 16%, transparent),
+                0 3px 10px color-mix(in srgb, var(--foreground) 8%, transparent);
+    -webkit-backdrop-filter: blur(30px) saturate(165%);
+    backdrop-filter: blur(30px) saturate(165%);
   }
+  .sym-picker .searchfield { margin: 0 0 7px; }
+  .sym-picker .searchfield input {
+    height: 38px; padding-left: 34px; border-radius: 10px;
+    background: color-mix(in srgb, var(--background) 58%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
+                inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+    font-size: var(--text-sm);
+  }
+  .sym-picker .searchfield > svg.icon { left: 11px; width: 16px; height: 16px; color: var(--foreground); }
+  .sym-picker .pick-list { padding: 1px 0; }
+  .sym-picker .item {
+    min-height: 46px; padding: 6px 8px; gap: 10px; border-radius: 10px;
+    transition: background var(--dur-fast), transform var(--dur-fast);
+  }
+  .sym-picker .item:hover { background: color-mix(in srgb, var(--foreground) 6.5%, transparent); }
+  .sym-picker .item:active { transform: scale(.992); }
+  .sym-picker .item.on { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 5%, transparent); }
+  .sym-picker .item > svg { width: 14px; height: 14px; color: var(--foreground); flex: none; }
+  .sym-picker .pick-list .item .lead { flex: 1; gap: 10px; }
+  .sym-picker .pick-list .item .co-logo, .sym-picker .pick-list .item .co-blank { width: 26px; height: 26px; border-radius: 7px; }
+  .sym-picker .pick-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .sym-picker .pick-copy strong { font-size: var(--text-sm); font-weight: var(--weight-semi); line-height: 1.1; letter-spacing: -.01em; }
+  .sym-picker .item .pick-copy .co-name { max-width: 238px; margin: 0; color: var(--foreground); font-size: 11px; font-weight: var(--weight-normal); line-height: 1.2; }
+  .sym-picker .pick-note { margin: 7px -1px -1px; padding: 9px 10px 5px; border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--foreground); font-size: 10.5px; line-height: 1.4; }
+  #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
+  #symList .item .dot-h, .sym-picker .item .dot-h { display: none; }
   #symList .item .cold, .sym-picker .item .cold { font-size: 10.5px; color: var(--faint); }
   #symList .item .co-name, .sym-picker .item .co-name {
     font-size: 11px; color: var(--muted-foreground); font-weight: 500;
@@ -6973,6 +7694,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
          data. -->
     <aside class="sidepanel hidden" id="watchPanel" aria-label="Watchlist"></aside>
     <aside class="sidepanel hidden" id="alertsPanel" aria-label="Alerts"></aside>
+
     <aside class="sidepanel hidden" id="journalPanel" aria-label="Journal"></aside>
 
     <!-- and the strip that switches them, on the outer edge. Filled by
@@ -6992,6 +7714,21 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 
     <aside class="chatpanel" id="chatPanel">
       <div class="chat-actions" role="toolbar" aria-label="Conversation actions">
+        <!-- Two modes of one conversation, so a SEGMENTED control: both halves
+             the same width and the same weight. A dropdown ranked them and hid
+             one — you could not see that the other mode existed without opening
+             a menu, which is the wrong shape for a switch you flip constantly.
+             The house control (.seg-tabs, the Alerts/Log switch) already says
+             exactly this; this is that control, sized to the 30px action row. -->
+        <div class="chat-mode" id="chatModeSwitch" role="radiogroup"
+             aria-label="Conversation mode">
+          <button type="button" class="chat-mode-seg" data-chat-mode="chat"
+                  role="radio" aria-checked="true"
+                  title="Read, measure and discuss this chart">Research</button>
+          <button type="button" class="chat-mode-seg" data-chat-mode="execution"
+                  role="radio" aria-checked="false"
+                  title="Build a validated, register-only strategy draft">Execution</button>
+        </div>
         <button type="button" class="chat-action" id="chatNew" title="New conversation" aria-label="New conversation"></button>
         <button type="button" class="chat-action" id="chatHistoryBtn" title="Chat history" aria-label="Chat history"></button>
       </div>
@@ -7088,13 +7825,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        browsers that cannot filter a backdrop; the tint, rim and sheen stay
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
-  <script src="./js/store.js?v=13"></script>
+  <script src="./js/store.js?v=14"></script>
   <script src="./js/theme.js?v=8"></script>
-  <script src="./js/universe.js?v=2"></script>
-  <script src="./js/icons.js?v=28"></script>
+  <script src="./js/universe.js?v=3"></script>
+  <script src="./js/icons.js?v=29"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=6"></script>
+  <script src="./js/ctxmenu.js?v=8"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -7103,7 +7840,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=2"></script>
-  <script src="./js/indicators.js?v=26"></script>
+  <script src="./js/indicators.js?v=28"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
@@ -7119,12 +7856,12 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=1"></script>
-  <script src="./js/geometry.js?v=12"></script>
+  <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=26"></script>
-  <script src="./js/scene.js?v=35"></script>
-  <script src="./js/panes.js?v=15"></script>
-  <script src="./js/main.js?v=98"></script>
+  <script src="./js/drawings.js?v=27"></script>
+  <script src="./js/scene.js?v=41"></script>
+  <script src="./js/panes.js?v=18"></script>
+  <script src="./js/main.js?v=116"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=8"></script>
@@ -7133,8 +7870,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=1"></script>
-  <script src="./js/chat.js?v=143"></script>
+  <script src="./js/cards.js?v=30"></script>
+  <script src="./js/layers-panel.js?v=6"></script>
+  <script src="./js/chat.js?v=148"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
@@ -7143,7 +7881,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=14"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=11"></script>
+  <script src="./js/panels.js?v=12"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=11"></script>
 </body>

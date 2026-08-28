@@ -1,0 +1,550 @@
+"""The tool table: Charto's read-only half, plus fundamentals, run in parallel.
+
+Two jobs.
+
+1. TRIM. Charto ships 25 tools written for a chat that sits beside a live
+   chart the user can draw on. Seven of them exist only to put ink on that
+   chart or to score ink already on it, and Pivotted has no chart:
+
+     open_chart        opens a pane                          — no panes here
+     get_anchors       mints ids for draw_shape to compose   — feeds ink only
+     draw_shape        the ink itself
+     evaluate_line     scores a line the USER DREW (drawing_id)
+     evaluate_fib      scores a fib the USER DREW
+     evaluate_drawing  scores a box/band/channel the USER DREW
+     plan_position     entry/stop/target overlay + position sizing
+
+   plan_position is the one that is dropped on principle rather than on
+   plumbing: it is trade construction, and the split this product is built
+   around is that research stops before the trade. The three evaluate_*
+   drawing tools all take a `drawing_id` resolved out of the chart context
+   envelope, so with no chart there is nothing for them to be about.
+
+   The survivors are then stripped of their INK ARGUMENTS — `draw`,
+   `mark_points`, `mark_levels`, `connect`, `remove`, `clear_marks` — which
+   eight of them carry. Leaving those in the schema would invite a call that
+   silently succeeds at nothing.
+
+   Measured: 25 tools / ~10,282 tokens → 18 / ~7,064, a 31% cut of the
+   dominant per-turn input cost. (The system prompt, by comparison, is 208.)
+
+2. PARALLELISE. Charto executes a round's tool calls in a `for` loop, which
+   was free when every call was ~10ms of local SQLite. Half of Pivotted's
+   tools now cross the Pacific to Azure Postgres at ~1.4s each, so a turn
+   that reads two companies' financials pays 2.8s sequentially and 1.4s
+   together. The model already emits several calls per round; this just stops
+   throwing that away.
+
+   The catch is that Charto's request state — `_req.symbol`, and the scene
+   buffers its detectors write through — lives in `threading.local()`. A
+   worker thread inherits none of it, so `run_tool` would read the default
+   symbol and quietly answer for RELIANCE under another company's name. Every
+   worker therefore re-establishes that state before it dispatches; see
+   `_call`.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import logging
+import re
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import bars
+import fundamentals as fnd
+
+HERE = Path(__file__).resolve().parent
+CHARTO = HERE.parent / "charto" / "data"
+if str(CHARTO) not in sys.path:
+    sys.path.insert(0, str(CHARTO))
+
+import dataserver as ds  # noqa: E402  — path must be set first
+
+
+# Ink or trade construction. Neither survives the move off the chart.
+DROPPED = frozenset({
+    "open_chart", "get_anchors", "draw_shape",
+    "evaluate_line", "evaluate_fib", "evaluate_drawing",
+    "plan_position",
+})
+
+# Symbols the technical tools can reach. Every price tool is bounded by this;
+# the fundamentals tools are not.
+#
+# Which list to ask is not obvious and getting it wrong under-serves the user.
+# There are three, and they disagree:
+#
+#   sync_state       99  — only what this box has ALREADY hydrated locally
+#   bars_1d         557  — daily folds, including symbols with no minute bars
+#   symbols.json    500  — the universe the store is entitled to serve
+#
+# The right answer is symbols.json, because a symbol in it but absent locally
+# is not unavailable — `ds._ensure_symbol` pulls it from blob storage on
+# demand (~5.7s, once, then permanent). Gating on sync_state would refuse 400
+# symbols the archive genuinely holds. The union with bars_1d picks up the
+# macro and crypto series that were added to the store without going through
+# symbols.json.
+_universe_lock = threading.Lock()
+_universe: dict = {}
+
+
+def stored_symbols() -> set:
+    with _universe_lock:
+        if "set" not in _universe:
+            try:
+                known = set(ds._known_symbols())
+                daily = {r[0] for r in ds._con.execute(
+                    "SELECT symbol FROM bars_1d GROUP BY symbol")}
+                _universe["set"] = known | daily
+            except Exception:                       # noqa: BLE001
+                _universe["set"] = set()
+    return _universe["set"]
+
+
+# Sentences that describe an argument this build removed, or a chart surface
+# it does not have. Dropped whole rather than reworded — each one exists only
+# to explain ink.
+_INK_SENTENCE_RE = re.compile(
+    r"\b(draw=true|draw_ids|remove=true|mark_levels|mark_points|clear_marks"
+    r"|drawing one marks|to shade them|off the chart|onto the chart"
+    r"|on the chart with|add it to the chart|put them on the chart"
+    r"|put them ON the chart|marked points|context's drawings)\b", re.I)
+
+# What survives is rewritten. Longest first — "the chart's own symbol" must be
+# consumed before "the chart" gets a chance at it.
+_CHART_REWRITES: list[tuple[str, str]] = [
+    # "IST times (chart format, e.g. …)" means the format the chart renders —
+    # a generic chart->symbol pass turns it into "symbol format", which reads
+    # like a real argument contract and is nonsense. Consume it first.
+    (r"\(chart format, ", "("),
+    (r"the chart symbol's OWN industry is already stated in your context, so "
+     r"call this directly", "call this directly"),
+    (r"the chart summary doesn't contain", "you do not already have"),
+    (r"the chart's own symbol", "the subject symbol"),
+    (r"the chart's symbol", "the subject symbol"),
+    (r"\bnot the chart's symbol\b", "not just one company"),
+    (r"\bon this chart\b", "for this symbol"),
+    (r"\bthis chart\b", "this symbol"),
+    (r"\bchart patterns\b", "patterns"),
+    (r"\bthe chart\b", "the stored history"),
+    (r"\ba chart\b", "a symbol"),
+    (r"\bcharts\b", "symbols"),
+    (r"\bchart\b", "symbol"),
+]
+
+
+def _derust(text: str) -> str:
+    """Strip the chart surface out of a description Charto wrote for one.
+
+    Charto's tool descriptions are written for a chat sitting beside a live
+    chart, and they say so 85 times across the 18 tools kept here. That is not
+    cosmetic: the model reads those descriptions as a description of ITS OWN
+    situation, concludes a chart context envelope exists, and — when the
+    envelope is absent, as it always is here — refuses work it could do.
+    Observed live: asked for technicals on a screen's results, it answered
+    "the price-history archive is not available in this chat session because
+    no chart/symbol context was attached" and offered to proceed if the user
+    supplied one. Every tool it needed was in front of it.
+    """
+    kept = [s for s in re.split(r"(?<=[.;]) ", text)
+            if not _INK_SENTENCE_RE.search(s)]
+    out = " ".join(kept)
+    for pat, repl in _CHART_REWRITES:
+        out = re.sub(pat, repl, out, flags=re.I)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
+# Replaces Charto's `symbol` argument, which is the single densest source of
+# the problem: it is injected into all 15 chart-scoped tools and tells each of
+# them there is a chart on screen, a chart context listing tickers, and a
+# chart in focus to fall back on. Here the argument is simply required.
+_SYMBOL_ARG = {
+    "type": "string",
+    "description": ("The company this reads — an NSE symbol. Required: there "
+                    "is no default subject, so name it on every call."),
+}
+
+
+# Charto's `_INK_ARGS` is only the boolean TRIGGERS — it is what `_wants_ink`
+# tests, so it never needed the companions. Stripping just those left
+# draw_ids / draw_mode / draw_as / max_draw on seven tools: arguments for
+# choosing which shapes to draw and how, on a surface that does not exist.
+_INK_ARGS_ALL = frozenset(ds._INK_ARGS) | {
+    "draw_ids", "draw_mode", "draw_as", "max_draw"}
+
+
+def _charto_tools() -> list[dict]:
+    """Charto's table, minus the ink tools, the ink arguments, and the chart."""
+    out = []
+    for spec in ds.TOOLS:
+        if spec.get("name") in DROPPED:
+            continue
+        spec = copy.deepcopy(spec)
+        spec["description"] = _derust(spec.get("description", ""))
+        props = spec["parameters"]["properties"]
+        for arg in _INK_ARGS_ALL:
+            props.pop(arg, None)
+        for key, prop in props.items():
+            if key == "symbol":
+                props[key] = dict(_SYMBOL_ARG)
+            elif isinstance(prop, dict) and prop.get("description"):
+                prop["description"] = _derust(prop["description"])
+        spec["parameters"]["required"] = [
+            r for r in spec["parameters"].get("required", [])
+            if r not in ds._INK_ARGS]
+        out.append(spec)
+    return out
+
+
+# ── the fundamentals half ───────────────────────────────────────────────────
+#
+# Descriptions carry the behaviour, because nothing else does — there is no
+# router and the system prompt is 208 tokens. Two boundaries are stated here
+# rather than left to be discovered: the filings are ANNUAL ONLY (all 18.3M
+# rows are period_kind='annual' — there is no quarterly statement data at all),
+# and the fundamentals universe is a superset of the price universe.
+
+_FUNDAMENTAL_TOOLS = [
+    {"type": "function", "name": "get_fundamentals",
+     "description": (
+         "Financial-statement metrics for ONE company — any listed company, "
+         "not just the ones with stored bars. The ratio set (roe, "
+         "roce, roa, debt_to_equity, current_ratio, quick_ratio, "
+         "interest_coverage, net_profit_margin, ebitda_margin, "
+         "operating_margin, asset_turnover, inventory_turnover, "
+         "price_to_book, ev_to_ebitda, earnings_yield, "
+         "dividend_payout), the raw lines (revenue, net_profit, "
+         "operating_profit, eps_basic, eps_diluted, interest_expense, "
+         "total_debt, total_equity, reserves, cash_from_ops, "
+         "book_value_per_share, enterprise_value_cr, sales_per_share, "
+         "net_profit_per_share) and the bank-only set (gross_npa_pct, "
+         "net_npa_pct, net_interest_margin, casa_pct). Omit `fields` for all "
+         "of them — one call is the same cost as five. Pass `history` with "
+         "the fields whose TREND matters; a level alone rarely answers a "
+         "research question. FILINGS ARE ANNUAL: there is no quarterly "
+         "statement data, so a question about last quarter cannot be answered "
+         "from here. Fields the company does not publish come back named "
+         "under not_published — say they are unavailable, never estimate "
+         "them. ALWAYS quote `as_of`: the reader prefers the consolidated "
+         "basis over recency, so when a company stopped filing consolidated "
+         "the figure returned can be a year or more older than its newest "
+         "standalone filing, and the period is the only thing that reveals "
+         "it."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string",
+                    "description": ("NSE symbol OR company name — this "
+                                    "resolves the name itself, so call it "
+                                    "directly rather than looking the symbol "
+                                    "up first.")},
+         "fields": {"type": "array", "items": {"type": "string"},
+                    "description": "Omit for all 37."},
+         "history": {"type": "array", "items": {"type": "string"},
+                     "description": ("Fields to also return as a multi-year "
+                                     "series, newest first.")},
+         "history_years": {"type": "integer",
+                           "description": "Default 6, max 12."},
+         "basis": {"type": "string", "enum": ["consolidated", "standalone"],
+                   "description": ("Default consolidated, falling back to "
+                                   "standalone where consolidated has no "
+                                   "row — the reply says which was served.")},
+     }, "required": ["symbol"]}},
+
+    {"type": "function", "name": "get_balance_sheet",
+     "description": (
+         "The full balance-sheet grid for one company, every line item as "
+         "filed, with section headers and a multi-year column. Use when the "
+         "question is about balance-sheet STRUCTURE — what the debt is made "
+         "of, where the assets sit, how reserves moved — rather than about a "
+         "ratio get_fundamentals already computes. Balance-sheet coverage is "
+         "thinner than P&L coverage; an empty grid for a real company is a "
+         "real answer."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string"},
+         "basis": {"type": "string", "enum": ["consolidated", "standalone"]},
+         "years": {"type": "integer", "description": "Default 6, max 10."},
+     }, "required": ["symbol"]}},
+
+    {"type": "function", "name": "search_companies",
+     "description": (
+         "FALLBACK company lookup, not a first step. get_fundamentals and "
+         "compare_fundamentals already resolve a plain company name, so going "
+         "through this one first costs a whole extra round-trip and is also "
+         "less reliable — some names are stored truncated, so a search for "
+         "'Avenue Supermarts' returns nothing while asking for DMART works. "
+         "Call it only when a direct lookup returned no match, or returned a "
+         "company whose name does not look like the one asked about, or when "
+         "the user is genuinely browsing for companies rather than naming "
+         "one. `has_fundamentals` says whether filings exist for that row."),
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string"},
+         "limit": {"type": "integer", "description": "Default 10, max 25."},
+     }, "required": ["query"]}},
+
+    {"type": "function", "name": "screen_fundamentals",
+     "description": (
+         "Rank EVERY listed company with recent filings against fundamental "
+         "constraints — the counterpart to screen_universe, which screens the "
+         "~550 stored symbols on price and technicals. Use this one whenever "
+         "the constraint is financial (returns on capital, leverage, margins, "
+         "growth, valuation) and screen_universe when it is about price "
+         "behaviour. Filters are {field, op, value} with op in < <= > >= =; "
+         "fields are the ratio set, the growth set (revenue_growth, "
+         "net_profit_growth, eps_growth), the raw line items, or market_cap "
+         "in rupees crore. A filter this DB cannot serve is DROPPED and "
+         "disclosed in `note` — read it, because a screen that quietly lost a "
+         "constraint answers a different question than the one asked."),
+     "parameters": {"type": "object", "properties": {
+         "filters": {"type": "array", "items": {"type": "object"},
+                     "description": "[{field, op, value}], at least one."},
+         # An enum, not prose, because an unrecognised sector is SILENTLY
+         # IGNORED by the screen rather than rejected — the filter vanishes
+         # and the caller gets a ranked list of the wrong universe. The
+         # earlier free-text description advertised cement, realty, media and
+         # "chemical" (the real slug is plural), none of which resolve; asked
+         # for the strongest cement balance sheets, the screen returned Garnet
+         # International and Guj Toolroom. These twelve are the whole
+         # vocabulary — anything outside it must be handled by naming
+         # companies instead.
+         "sector": {"type": "string",
+                    "enum": ["auto", "autoancillary", "bank", "chemicals",
+                             "energy", "finance", "fmcg", "infra", "it",
+                             "metal", "pharma", "textiles"],
+                    "description": ("The only sectors this screen knows. For "
+                                    "anything else — cement, realty, media, "
+                                    "telecom, capital goods — omit this and "
+                                    "compare named companies instead, rather "
+                                    "than screening a sector that will be "
+                                    "ignored.")},
+         "sort_by": {"type": "object",
+                     "description": "{field, dir: asc|desc}."},
+         "market_cap_tier": {"type": "string",
+                             "enum": ["large", "mid", "small", "micro"]},
+         "growth_years": {"type": "integer",
+                          "description": ("Years over which a *_growth field "
+                                          "is measured; default 3.")},
+         "exclude": {"type": "array", "items": {"type": "string"},
+                     "description": "Names, sector words, or 'PSU'."},
+         "enrich_fields": {"type": "array", "items": {"type": "string"},
+                           "description": (
+                               "Extra metrics to fetch for the rows that come "
+                               "back, in this same call. A screen returns only "
+                               "what it filtered or sorted on, so name here "
+                               "anything you intend to REPORT — margins, "
+                               "returns, leverage, valuation — instead of "
+                               "screening and then looking the rows up, which "
+                               "costs an extra round-trip. The GROWTH fields "
+                               "(revenue_growth, net_profit_growth, "
+                               "eps_growth) do not work here — they are "
+                               "computed by the screen, so put those in "
+                               "`filters` or `sort_by` instead.")},
+         "limit": {"type": "integer", "description": "Default 15, max 50."},
+     }, "required": ["filters"]}},
+
+    {"type": "function", "name": "compare_fundamentals",
+     "description": (
+         "The same financial fields across 2-8 companies at once, fetched "
+         "concurrently — names or symbols, resolved here, so never look them "
+         "up first. Use for any 'X vs Y' or peer-set question instead of "
+         "calling get_fundamentals repeatedly. Pass `history` in the SAME "
+         "call when the question is about trends rather than levels; "
+         "comparing levels first and fetching series afterwards costs an "
+         "extra round-trip. Companies that cannot be resolved are returned "
+         "under not_found rather than dropped."),
+     "parameters": {"type": "object", "properties": {
+         "symbols": {"type": "array", "items": {"type": "string"}},
+         "fields": {"type": "array", "items": {"type": "string"},
+                    "description": ("Omit for a sensible default set "
+                                    "(revenue, net_profit, roe, roce, "
+                                    "debt_to_equity, margin, price_to_book).")},
+         "history": {"type": "array", "items": {"type": "string"},
+                     "description": ("Fields to also return as a multi-year "
+                                     "series for every company.")},
+         "history_years": {"type": "integer",
+                           "description": "Default 6, max 12."},
+         "basis": {"type": "string", "enum": ["consolidated", "standalone"]},
+     }, "required": ["symbols"]}},
+
+    {"type": "function", "name": "search_web",
+     "description": (
+         "One isolated web lookup for things no local tool holds: management "
+         "commentary, regulatory or legal developments, deal news, sector or "
+         "macro context, anything after the last filing. Returns dated lines "
+         "with source domains. Use search_news instead when the question is "
+         "about a specific price move on a specific stored symbol — that one "
+         "is windowed to the move. Never let a headline override a tool's "
+         "number; the web supplies causes and dates, tools supply "
+         "quantities."),
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string",
+                   "description": "What to find out, in a sentence."},
+         "recent_only": {"type": "boolean",
+                         "description": ("True to bias to the last few weeks. "
+                                         "Default false.")},
+     }, "required": ["query"]}},
+]
+
+
+def tool_search_web(query: str = "", recent_only: bool = False) -> dict:
+    """A generic browse on Charto's clerk transport.
+
+    Charto's own web access is `search_news`, whose three prompts are welded
+    to a symbol and a date window because it exists to explain a move. This
+    keeps the isolation that matters — the hosted web-search tool costs ~4.3k
+    tokens merely by being ATTACHED to a request, so it is never a schema on
+    the main loop, only a separate sub-call — and drops the framing.
+    """
+    if not query:
+        return {"error": "query is required"}
+    key = f"web:{'r' if recent_only else 'a'}:{query.strip().lower()[:200]}"
+    hit = ds._news_cache_get(key, 900 if recent_only else 86400)
+    if hit:
+        return {**hit, "cached": True}
+    window = ("Prefer sources from the last few weeks."
+              if recent_only else "Any date, but every line must carry one.")
+    prompt = (
+        "You are a research clerk for an Indian equities analyst. Search the "
+        "web once — twice only if the first search returns nothing — and "
+        f"answer this: {query}\n{window} Reply with 2-6 lines, each "
+        "'date · what happened or what is true · source domain'. Do NOT "
+        "report prices, returns, percentages or price targets — the caller "
+        "holds exact figures and yours would be stale. If you find nothing "
+        "usable, reply exactly: nothing found.")
+    got = ds._news_browse(prompt)
+    if isinstance(got, dict):
+        return {"error": got["error"],
+                "_note": "Say the web lookup failed; do not answer from memory."}
+    body, sources, searched = got
+    out = {"query": query, "findings": body or "nothing found",
+           "sources": sources}
+    if searched and body:
+        ds._news_cache_put(key, recent_only, out)
+    return out
+
+
+_EXTRA_DISPATCH = {
+    "get_fundamentals": fnd.tool_get_fundamentals,
+    "get_balance_sheet": fnd.tool_get_balance_sheet,
+    "search_companies": fnd.tool_search_companies,
+    "screen_fundamentals": fnd.tool_screen_fundamentals,
+    "compare_fundamentals": fnd.tool_compare_fundamentals,
+    "search_web": tool_search_web,
+}
+
+TOOLS = _charto_tools() + _FUNDAMENTAL_TOOLS
+_CHARTO_NAMES = {t["name"] for t in TOOLS} - set(_EXTRA_DISPATCH)
+
+
+def _call(name: str, args: dict, symbol: str) -> dict:
+    """Dispatch one call. Runs in a worker thread — establish state first.
+
+    `ds._req` and the scene buffers are `threading.local()`. In a fresh
+    thread `_req.symbol` is unset, and `run_tool` falls back to a hardcoded
+    RELIANCE — which is the single worst failure this product can have, since
+    every number would be real and would belong to the wrong company. So the
+    working symbol is set explicitly here, per call, from the call's own
+    argument.
+    """
+    if name in _EXTRA_DISPATCH:
+        try:
+            return _EXTRA_DISPATCH[name](**(args or {}))
+        except TypeError as exc:
+            return {"error": f"bad arguments for {name}: {exc}"}
+        except Exception as exc:                    # noqa: BLE001
+            logging.exception("pivotted: %s failed", name)
+            return {"error": f"{name} failed: {exc}"}
+    if name not in _CHARTO_NAMES:
+        return {"error": f"unknown tool {name}"}
+
+    args = dict(args or {})
+    want = str(args.get("symbol") or symbol or "").upper().strip()
+    if not want:
+        return {"error": f"{name} needs a symbol",
+                "_note": ("There is no chart in focus here — every "
+                          "price/technical tool takes the symbol "
+                          "explicitly.")}
+    # Three tiers of price coverage, and the gate has to test what ACTUALLY
+    # exists rather than which list a symbol appears on:
+    #
+    #   minute bars stored     -> everything, including intraday
+    #   in symbols.json        -> minutes hydratable from blob (~5.7s, once)
+    #   anything else listed   -> daily bars fetchable on demand (bars.py)
+    #
+    # Membership in `stored_symbols()` is the wrong test for the third tier,
+    # because a company that has been daily-hydrated JOINS that set — so on
+    # the next boot it took the archive path, failed `_symbol_ready` (which
+    # reads the MINUTE table), missed symbols.json and came back "unknown
+    # symbol", with 1,239 perfectly good daily bars sitting in bars_1d.
+    intraday = str(args.get("interval") or "").lower() in (
+        "1m", "3m", "5m", "10m", "15m", "30m", "1h", "2h", "4h")
+    has_minutes = ds._symbol_ready(want)
+    hydratable = want in set(ds._known_symbols())
+
+    if not has_minutes and hydratable:
+        # Charto does this once per turn before its loop starts, because a
+        # tool aimed mid-round cannot wait ~6s. Here it happens inside the
+        # worker, which is fine: the workers are already concurrent and
+        # `_ensure_symbol` holds a per-symbol lock, so two calls for the same
+        # cold symbol hydrate it once.
+        err = ds._ensure_symbol(want)
+        if err:
+            return {**err,
+                    "_note": ("This symbol is in the archive but its bars "
+                              "could not be loaded. Say the price data is "
+                              "unavailable right now.")}
+        has_minutes = True
+
+    if not has_minutes:
+        if intraday:
+            return {"error": f"no intraday history for {want}",
+                    "_note": ("Minute bars exist only for the ~560-symbol "
+                              "archive. Daily, weekly and monthly work for "
+                              "any listed company — re-ask on the daily "
+                              "rather than substituting another symbol.")}
+        got = bars.ensure_daily(ds._con, want)
+        if not got.get("ok"):
+            return {"error": f"no price history for {want} ({got.get('reason')})",
+                    "_note": ("Fundamentals still work for this company — say "
+                              "the price-based part is unavailable rather "
+                              "than substituting an index or a peer.")}
+        if not got.get("cached"):
+            # bars_1d changed, so neither the daily read cache nor the
+            # universe set may keep serving the pre-fetch view.
+            ds._daily_cache.pop(want, None)
+            with _universe_lock:
+                _universe.pop("set", None)
+        args.setdefault("interval", "1d")
+    ds._req.symbol = want
+    ds._req.drawable = False          # no chart: refuses anything ink-shaped
+    ds._req.charts = [want]
+    ds._scene_reset()                 # initialise the threadlocal buffers
+    ds._drawings_set(None)
+    args["symbol"] = want
+    return ds.run_tool(name, args)
+
+
+def run_round(calls: list[dict], symbol: str = "") -> list[dict]:
+    """Execute one round's calls together. Order of results matches `calls`.
+
+    Bounded at 8 workers: the model rarely emits more, and the Azure
+    financials DB is a shared read pool that a wide fan-out would be rude to.
+    """
+    if not calls:
+        return []
+    if len(calls) == 1:
+        c = calls[0]
+        return [_call(c["name"], c["args"], symbol)]
+    with ThreadPoolExecutor(max_workers=min(len(calls), 8)) as pool:
+        return list(pool.map(
+            lambda c: _call(c["name"], c["args"], symbol), calls))
+
+
+def parse_args(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}

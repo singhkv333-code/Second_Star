@@ -747,7 +747,11 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
     # live forward-test scorecards apply to paper NAV.
     _forward_stats = forward_stats_block(_equity_vals)
     # Circular-block-bootstrap drawdown / terminal-wealth distribution.
-    _monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_equity_vals))
+    # keep_paths so the card can DRAW the resampling rather than only quote it:
+    # "P(end in loss) 31%" is a number you take on trust, and the same fact as
+    # a cloud of runs around your own is one you can see.
+    _monte_carlo = monte_carlo_robustness(
+        daily_returns_from_equity(_equity_vals), keep_paths=32)
     # Time-concentration of the edge across contiguous sub-periods.
     _sub_periods = sub_period_robustness(_equity_vals)
     # One actionable verdict synthesised from the whole battery.

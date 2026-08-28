@@ -41,6 +41,34 @@ const Geo = (() => {
   const position = (entry, stop, targets, o = {}) =>
     ({ kind: "position", entry, stop, targets, ...o });
 
+  // ── strategy layer ──────────────────────────────────────
+  /* One backtested trade, as its own object rather than a box with a label
+   * stacked on it. A composed box can only assert a rectangle; this asserts a
+   * TRADE, and so it can encode three things at once with no text at rest:
+   *
+   *   how long you were in it   → the object's WIDTH
+   *   what the trade returned   → its HEIGHT, and which way it leans
+   *   whether it worked         → its colour
+   *
+   * Duration is the dimension an entry/exit arrow pair destroys, and it is
+   * the one a reader asks about first. entry/exit: {t, v}; o: {win, text}.
+   */
+  const trade = (entry, exit, o = {}) =>
+    ({ kind: "trade", entry, exit, ...o });
+
+  /* Where the strategy actually held a position, as a rail along the foot of
+   * the plot. Pinned to the pane in PIXELS, never to a price — the rail makes
+   * no claim about value, only about participation, and a price-anchored
+   * version would rescale into a lie the moment the axis moved.
+   *
+   * The empty track matters as much as the filled spans: it is the only way
+   * to see at a glance whether a strategy actually traded, or sat in the
+   * market throughout and called it a strategy. spans: [[t1, t2], …].
+   */
+  const exposure = (spans, o = {}) =>
+    ({ kind: "exposure", spans, ...o });
+
+
   // ── plane maths ─────────────────────────────────────────
 
   /** Distance from a point to a finite segment. */
@@ -292,6 +320,35 @@ const Geo = (() => {
         const pts = prim.pts.map(P);
         return pts.some((p) => !p) ? null : { pts };
       }
+      case "trade": {
+        const x0 = X(prim.entry.t), x1 = X(prim.exit.t);
+        const y0 = Y(prim.entry.v), y1 = Y(prim.exit.v);
+        if ([x0, x1, y0, y1].some((q) => q === null)) return null;
+        return { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0, y1 };
+      }
+      case "exposure": {
+        const raw = [];
+        for (const sp of prim.spans || []) {
+          const a = X(sp[0]), b = X(sp[1]);
+          if (a === null || b === null) continue;
+          raw.push([Math.min(a, b), Math.max(a, b)]);
+        }
+        if (!raw.length) return null;
+        /* MERGED, and that is not a tidiness matter — it is the difference
+         * between a reading and a stain. Forty-nine lots each held to the
+         * window's end are forty-nine spans covering the same ground; drawn
+         * as forty-nine translucent fills they compound to opaque, and the
+         * chart would report "deeply invested" where it means "invested".
+         * One pass, one disjoint set, one fill each. */
+        raw.sort((p, q) => p[0] - q[0]);
+        const segs = [raw[0].slice()];
+        for (const sp of raw.slice(1)) {
+          const last = segs[segs.length - 1];
+          if (sp[0] <= last[1] + 1) last[1] = Math.max(last[1], sp[1]);
+          else segs.push(sp.slice());
+        }
+        return { segs, h: env.h };
+      }
       case "position": {
         const x0 = X(prim.entry.t), x1 = X(prim.t1);
         const yE = Y(prim.entry.v), yS = Y(prim.stop.v);
@@ -344,6 +401,24 @@ const Geo = (() => {
         const inside = prim.fill && mx > px.x && mx < px.x + px.w
           && my > px.y && my < px.y + px.h;
         return nearEdge || !!inside;
+      }
+      case "trade": {
+        // A thin trade is still a trade. Below ~6px of height the body is
+        // too slim to point at, so the box it answers on is grown to a
+        // grabbable minimum around its own centre rather than left at the
+        // literal geometry.
+        const top = Math.min(px.y0, px.y1), bot = Math.max(px.y0, px.y1);
+        // the end badges overhang the curve by their own radius, and a mark
+        // you can see but not point at reads as dead
+        const pad = Math.max(7, (6 - (bot - top)) / 2) + tol;
+        return mx > px.x0 - pad && mx < px.x1 + pad
+          && my > top - pad && my < bot + pad;
+      }
+      case "exposure": {
+        // A background wash is not a target. It spans most of the plot, so
+        // answering the pointer would mean every hover anywhere lands on it
+        // instead of on the trade or the candle actually under the cursor.
+        return false;
       }
       case "position": {
         if (mx < px.x0 - tol || mx > px.x1 + tol) return false;
@@ -499,6 +574,181 @@ const Geo = (() => {
        * trying to judge it by. So they come up on `s.detail`, which the
        * owner sets when the pointer is over the shape, when it is selected,
        * and while it is being drawn — see js/drawings.js. */
+      case "trade": {
+        const GREEN = "#089981", RED = "#f23645";
+        const c = prim.open ? Theme.c("accent") : prim.win ? GREEN : RED;
+        const top = Math.min(px.y0, px.y1);
+        const w = Math.max(2, px.x1 - px.x0);
+        const hot = !!s.detail;
+        const bg = Theme.c("chartBg");
+        ctx.setLineDash([]);
+        ctx.lineJoin = "round"; ctx.lineCap = "round";
+
+        /* A still-open lot is ONE end, not a path. It has an entry and no
+         * exit, so there is no curve to draw and no outcome to colour — it
+         * takes the neutral accent rather than borrowing green, which would
+         * claim a profit the position has not realised. The exposure rail
+         * already carries the fact that it is still held. */
+        if (prim.open) {
+          ctx.beginPath(); ctx.arc(px.x0, px.y0, 6.5, 0, Math.PI * 2);
+          ctx.fillStyle = c; ctx.fill();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = bg; ctx.stroke();
+          ctx.lineWidth = 1.7; ctx.strokeStyle = bg;
+          ctx.beginPath();
+          ctx.moveTo(px.x0 - 3, px.y0 + 1.6);
+          ctx.lineTo(px.x0, px.y0 - 2.1);
+          ctx.lineTo(px.x0 + 3, px.y0 + 1.6);
+          ctx.stroke();
+          if (hot) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = rgba("#9598a1", 0.75);
+            ctx.beginPath(); ctx.arc(px.x0, px.y0, 9, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (!hot || !prim.text) break;
+          ctx.font = `600 12px ${FONT}`;
+          const opw = Math.round(ctx.measureText(prim.text).width) + 16;
+          const ox = Math.max(4, Math.min(px.x0 - opw / 2, env.w - opw - 4));
+          const oy = Math.max(2, px.y0 - 21 - 12);
+          ctx.fillStyle = rgba("#131722", 0.93);
+          ctx.beginPath(); ctx.roundRect(ox, oy, opw, 21, 5); ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(prim.text, ox + 8, oy + 15);
+          break;
+        }
+
+        /* The trade is drawn as a RIBBON, not a rectangle.
+         *
+         * A tinted box is the shape this chart already uses for a support
+         * band, and it says only "something happened between these two
+         * prices at these two times" — which is a region, not a trade. A
+         * trade is a PATH: it starts somewhere, it is held, it ends
+         * somewhere else. So the object is a curve from the entry to the
+         * exit, eased at both ends (flat where the position opens and
+         * closes, steepest in the middle), with the area back to the entry
+         * price filled. The eye reads direction and duration off it without
+         * a legend, and it can never be mistaken for a level.
+         */
+        const cp = w * 0.42;
+        const ribbon = () => {
+          ctx.beginPath();
+          ctx.moveTo(px.x0, px.y0);
+          ctx.bezierCurveTo(px.x0 + cp, px.y0, px.x1 - cp, px.y1, px.x1, px.y1);
+        };
+        ribbon();
+        ctx.lineTo(px.x1, px.y0);
+        ctx.closePath();
+        ctx.fillStyle = rgba(c, hot ? 0.2 : 0.13);
+        ctx.fill();
+        // the entry price, carried across the hold — the line the curve is
+        // measured against, so it is drawn as a reference and not an edge
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(c, 0.4);
+        ctx.beginPath();
+        ctx.moveTo(px.x0, px.y0); ctx.lineTo(px.x1, px.y0); ctx.stroke();
+
+        /* Hover is GREY, and it FOLLOWS THE SHAPE. A bounding rectangle
+         * around a curve is a second object the reader has to dismiss, and
+         * it puts back exactly the box this drawing exists to avoid; a wide
+         * soft stroke under the same path is the object's own outline made
+         * thicker. Grey because the colour is already spent on the outcome,
+         * and brightening it would read as a better trade than it was. */
+        if (hot) {
+          ctx.lineWidth = 7;
+          ctx.strokeStyle = rgba("#9598a1", 0.3);
+          ribbon(); ctx.stroke();
+        }
+
+        // and the path itself, which is the object
+        ctx.lineWidth = hot ? 2.4 : 1.9;
+        ctx.strokeStyle = rgba(c, 0.95);
+        ribbon(); ctx.stroke();
+
+        /* The two ends are BADGES, not dots.
+         *
+         * A dot can only be found; a badge can be read. These carry a glyph
+         * apiece — a chevron where the position opens, and the outcome where
+         * it closes — so a reader can tell what happened at either end of a
+         * trade without hovering it, without a legend, and without the chart
+         * carrying forty text labels. Both sit on a ring in the chart's own
+         * background so they stay legible over a candle body.
+         */
+        const badge = (bx, by, filled, glyph) => {
+          ctx.beginPath(); ctx.arc(bx, by, 6.5, 0, Math.PI * 2);
+          ctx.fillStyle = filled ? c : bg; ctx.fill();
+          ctx.lineWidth = filled ? 1.5 : 1.8;
+          ctx.strokeStyle = filled ? bg : c; ctx.stroke();
+          ctx.lineWidth = 1.7;
+          ctx.strokeStyle = filled ? bg : c;
+          ctx.beginPath();
+          if (glyph === "in") {                    // ▲ — the position opens
+            ctx.moveTo(bx - 3, by + 1.6);
+            ctx.lineTo(bx, by - 2.1);
+            ctx.lineTo(bx + 3, by + 1.6);
+          } else if (glyph === "win") {            // ✓ — closed in profit
+            ctx.moveTo(bx - 2.8, by + 0.1);
+            ctx.lineTo(bx - 0.8, by + 2.2);
+            ctx.lineTo(bx + 3, by - 2.3);
+          } else {                                 // ✕ — closed at a loss
+            ctx.moveTo(bx - 2.3, by - 2.3); ctx.lineTo(bx + 2.3, by + 2.3);
+            ctx.moveTo(bx + 2.3, by - 2.3); ctx.lineTo(bx - 2.3, by + 2.3);
+          }
+          ctx.stroke();
+        };
+        /* …but only while there is room for them. Zoomed out to four years, a
+         * two-week trade is eight pixels wide and two 13px badges would sit
+         * on top of each other and on their neighbours — a glyph you cannot
+         * resolve is not an icon, it is noise. Below that width the ends fall
+         * back to plain caps, which still say where and which way. */
+        if (w >= 16) {
+          badge(px.x0, px.y0, true, "in");
+          badge(px.x1, px.y1, false, prim.win ? "win" : "loss");
+        } else {
+          ctx.lineWidth = 1.4; ctx.strokeStyle = bg; ctx.fillStyle = c;
+          ctx.beginPath(); ctx.arc(px.x0, px.y0, 2.8, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+          ctx.beginPath(); ctx.arc(px.x1, px.y1, 2.8, 0, Math.PI * 2);
+          ctx.fillStyle = bg; ctx.fill();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = c; ctx.stroke();
+        }
+        if (!hot || !prim.text) break;
+
+        /* One number, one plate, and only while pointed at. A backtest puts
+         * dozens of these on a chart at once; anything permanent here is not
+         * a label, it is fog. Larger than the chart's own chrome because it
+         * is read at a glance and dismissed, never scanned. */
+        ctx.font = `600 12px ${FONT}`;
+        const pw = Math.round(ctx.measureText(prim.text).width) + 16, ph = 21;
+        const cx = (px.x0 + px.x1) / 2;
+        const x = Math.max(4, Math.min(cx - pw / 2, env.w - pw - 4));
+        const y = Math.max(2, top - ph - 11);
+        ctx.fillStyle = rgba("#131722", 0.93);
+        ctx.beginPath(); ctx.roundRect(x, y, pw, ph, 5); ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(prim.text, x + 8, y + 15);
+        break;
+      }
+      case "exposure": {
+        /* Where the strategy was in the market, as SHADED TIME.
+         *
+         * This was a rail along the foot of the plot, and a 3px line asks to
+         * be read as another series. Participation is not a series — it is a
+         * property of a stretch of the time axis, the same shape a session
+         * or an event window has — so it is drawn as one: the columns of the
+         * chart where a position was open, tinted and nothing more.
+         *
+         * Very low alpha, and never the candle colours. The bars underneath
+         * are still the subject; this says which of them the strategy was
+         * present for, and a wash heavy enough to change how a candle reads
+         * would be answering a different question than the one asked.
+         */
+        ctx.setLineDash([]);
+        ctx.fillStyle = rgba(Theme.c("accent"), s.detail ? 0.13 : 0.075);
+        for (const sp of px.segs) {
+          ctx.fillRect(sp[0], 0, Math.max(1, sp[1] - sp[0]), px.h);
+        }
+        break;
+      }
       case "position": {
         const GREEN = "#089981", RED = "#f23645";
         const detail = !!s.detail;
@@ -612,6 +862,7 @@ const Geo = (() => {
 
   return {
     point, hline, vline, segment, band, vband, box, poly, label, position,
+    trade, exposure,
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward, positionTone,

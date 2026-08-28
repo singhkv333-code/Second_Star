@@ -75,7 +75,14 @@ function extractTable(node: HastNode): { header: string[]; rows: string[][] } {
 // whatever it misses, the CONTENT-based fallback in `plan` still catches.
 const NAME_HEADER_RE =
   /^(names?|company|companies|stocks?|scrips?|holdings?|instruments?|securit(y|ies)|assets?|constituents?|positions?|funds?|etfs?)$/i;
-const TICKER_HEADER_RE = /^(symbol|ticker)s?$/i;
+// "NSE symbol", "BSE code", "Scrip" — the qualified forms a model reaches for
+// when it is being helpful about WHICH symbol it means. Unqualified
+// symbol/ticker was the only form the deterministic screen ever emitted, so
+// the qualified ones fell through, the column was never folded into the name,
+// and every row paid a searchCompanies round-trip on hover to recover a
+// ticker that was sitting in the table already.
+const TICKER_HEADER_RE =
+  /^((nse|bse)\s*)?(symbol|ticker|code|scrip)s?$/i;
 const RANK_HEADER_RE = /^(rank|#|sr\.?(\s*no\.?)?)$/i;
 const TICKER_RE = /^[A-Z0-9&.\-]{2,20}$/;
 // "Bank of Maharashtra (MAHABANK)" — the ticker the deterministic screen
@@ -93,11 +100,22 @@ function isBlank(v: string): boolean {
   return v === "" || v === "—" || v === "-" || v === "–";
 }
 
-/** Parse "₹1,234.56", "12.5%", "(3.2)" → number; NaN when not numeric. */
+/** Parse "₹1,234.56", "12.5%", "(3.2)", "0.42×", "24,945 cr" → number;
+ * NaN when not numeric.
+ *
+ * The trailing-unit forms matter more than they look. A column of "0.42×"
+ * multiples or "₹1,234 cr" figures parsed as NaN, which failed the 60%
+ * threshold in isNumericColumn, which meant the column was treated as TEXT —
+ * left-aligned and unsortable. The reading is silently worse for exactly the
+ * columns a screen exists to rank on (D/E, EV/EBITDA, market cap). Units
+ * belong in the header, and the emitter is told so, but a model that puts
+ * them in the cell should not cost the user sorting.
+ */
 function parseNum(s: string): number {
   const cleaned = s
     .replace(/[₹$,%]/g, "")
     .replace(/,/g, "")
+    .replace(/\s*(?:x|×|bps|cr|crore|crores|lakhs?|mn|bn|days?|yrs?|years?)\s*$/i, "")
     .replace(/^\((.*)\)$/, "-$1")
     .trim();
   if (!cleaned || /[^0-9+\-.eE]/.test(cleaned)) return NaN;

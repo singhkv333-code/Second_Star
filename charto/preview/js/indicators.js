@@ -49,6 +49,14 @@ const Indicators = (() => {
     { id: "sma50", name: "sma", period: 50, base: "SMA" },
     { id: "sma200", name: "sma", period: 200, base: "SMA" },
     { id: "ema21", name: "ema", period: 21, base: "EMA" },
+    { id: "tema", name: "tema", period: 9, base: "TEMA" },
+    { id: "vwma", name: "vwma", period: 20, base: "VWMA" },
+    { id: "rma", name: "rma", period: 14, base: "SMMA" },
+    { id: "kama", name: "kama", period: 10, base: "KAMA" },
+    { id: "alma", name: "alma", period: 9, base: "ALMA" },
+    { id: "lsma", name: "lsma", period: 25, base: "LSMA" },
+    { id: "ichimoku", name: "ichimoku", period: 9, base: "Ichimoku" },
+    { id: "pivots", name: "pivots", period: 0, base: "Pivots + CPR" },
     { id: "bbands", name: "bbands", period: 20, base: "BOLL" },
     { id: "keltner", name: "keltner", period: 20, base: "Keltner" },
     { id: "donchian", name: "donchian", period: 20, base: "Donchian" },
@@ -67,6 +75,21 @@ const Indicators = (() => {
     { id: "obv", name: "obv", period: 0, base: "OBV" },
     { id: "cmf", name: "cmf", period: 20, base: "CMF" },
     { id: "aroon", name: "aroon", period: 14, base: "Aroon" },
+    { id: "percent_b", name: "percent_b", period: 20, base: "Bollinger %B" },
+    { id: "bandwidth", name: "bandwidth", period: 20, base: "Bollinger Width" },
+    { id: "awesome", name: "awesome", period: 5, base: "Awesome Oscillator" },
+    { id: "chaikin_osc", name: "chaikin_osc", period: 3, base: "Chaikin Oscillator" },
+    { id: "vortex", name: "vortex", period: 14, base: "Vortex" },
+    { id: "ultimate", name: "ultimate", period: 7, base: "Ultimate Oscillator" },
+    { id: "trix", name: "trix", period: 18, base: "TRIX" },
+    { id: "kst", name: "kst", period: 10, base: "KST" },
+    { id: "dpo", name: "dpo", period: 21, base: "DPO" },
+    { id: "force", name: "force", period: 13, base: "Elder Force Index" },
+    { id: "eom", name: "eom", period: 14, base: "Ease of Movement" },
+    { id: "choppiness", name: "choppiness", period: 14, base: "Choppiness Index" },
+    { id: "fisher", name: "fisher", period: 9, base: "Fisher Transform" },
+    { id: "rvi", name: "rvi", period: 10, base: "Relative Vigor Index" },
+    { id: "connors_rsi", name: "connors_rsi", period: 3, base: "Connors RSI" },
   ];
 
   let CATALOG = [];          // presets joined with what the backend reports
@@ -232,6 +255,9 @@ const Indicators = (() => {
     plus_di: "up", minus_di: "down", adx: "s3",
     aroon_up: "up", aroon_down: "down",
     supertrend_up: "up", supertrend_down: "down",
+    vi_plus: "up", vi_minus: "down",
+    senkou_a: "up", senkou_b: "down", conversion: "s2", base: "s1", chikou: "s3",
+    pivot: "bandStrong", cpr_top: "s2", cpr_bottom: "s2",
     psar: "s6", vwap: "s6", anchored_vwap: "s6",
   };
   const SERIES = ["s1", "s2", "s3", "s4", "s5", "s6"];
@@ -273,6 +299,15 @@ const Indicators = (() => {
     ad: "A/D", roc: "ROC", williams_r: "%R", psar: "SAR",
     vwap: "VWAP", anchored_vwap: "Anchored VWAP",
     sma: "Plot", ema: "Plot", wma: "Plot", hma: "Plot", dema: "Plot",
+    tema: "Plot", vwma: "Plot", rma: "Plot", kama: "Plot", alma: "Plot", lsma: "Plot",
+    conversion: "Conversion Line", base: "Base Line", senkou_a: "Leading Span A",
+    senkou_b: "Leading Span B", chikou: "Lagging Span", pivot: "Pivot",
+    cpr_top: "CPR Top", cpr_bottom: "CPR Bottom", percent_b: "%B",
+    bandwidth: "Bandwidth", awesome: "AO", chaikin_osc: "Chaikin Oscillator",
+    vi_plus: "VI+", vi_minus: "VI−", ultimate: "Ultimate Oscillator",
+    trix: "TRIX", kst: "KST", dpo: "DPO", force: "Force Index", eom: "Ease of Movement",
+    choppiness: "Choppiness", fisher: "Fisher", trigger: "Trigger", rvi: "RVI",
+    connors_rsi: "Connors RSI",
   };
   const lineLabel = (n) =>
     LINE_LABEL[n] || n.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -342,6 +377,9 @@ const Indicators = (() => {
     mfi: [80, 20],
     williams_r: [-20, -80],
     cci: [100, -100],
+    percent_b: [1, 0], ultimate: [70, 30], choppiness: [61.8, 38.2],
+    connors_rsi: [90, 10], awesome: [0], chaikin_osc: [0], vortex: [1],
+    trix: [0], kst: [0], dpo: [0], force: [0], eom: [0], fisher: [0], rvi: [0],
   };
 
   // ── the settings model ────────────────────────────────
@@ -362,13 +400,15 @@ const Indicators = (() => {
    *
    * Still only a DEFAULT: the Style tab can switch it back to a line, and a
    * saved setting wins over this the same as any other plot type. */
-  const PLOT_DEFAULT = { psar: "circles" };
+  const PLOT_DEFAULT = { psar: "circles", awesome: "columns" };
+
+  const STEP_STUDIES = new Set(["pivots"]);
 
   function plotDefaults(def, slot) {
     const off = Number.isInteger(slot) ? slot : 0;
     const out = {};
     (def.lines || []).forEach((n, i) => {
-      const hist = n === "histogram";
+      const hist = n === "histogram" || PLOT_DEFAULT[n] === "columns";
       out[n] = {
         visible: true,
         color: hist ? Theme.c("histUp") : roleColor(n, i + off),
@@ -378,7 +418,8 @@ const Indicators = (() => {
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
         lineStyle: 0,
-        plotType: hist ? "columns" : (PLOT_DEFAULT[n] || "line"),
+        plotType: hist ? "columns" : (PLOT_DEFAULT[n]
+          || (STEP_STUDIES.has(def.name) ? "stepline" : "line")),
       };
     });
     return out;
@@ -610,6 +651,7 @@ const Indicators = (() => {
      * table rather than an if — the next banded overlay adds a row.
      */
     const FILL_LINES = { supertrend: ["supertrend_up", "supertrend_down"] };
+    const BETWEEN_FILL = { ichimoku: ["senkou_a", "senkou_b"] };
     const FILL_ALPHA = 0.1;
 
     /** The line, paired bar by bar with the candle body's midpoint, split at
@@ -631,13 +673,34 @@ const Indicators = (() => {
       return runs;
     }
 
+    function betweenRuns(a, b) {
+      const other = new Map(b.data.filter((p) => p.value != null)
+        .map((p) => [p.time, p.value]));
+      const runs = [];
+      let run = [], side = null;
+      for (const p of a.data) {
+        const m = other.get(p.time);
+        const nextSide = p.value == null || m == null ? null : p.value >= m;
+        if (nextSide == null || (side != null && nextSide !== side)) {
+          if (run.length > 1) runs.push({ points: run, up: side });
+          run = [];
+        }
+        if (nextSide != null) run.push({ t: p.time, v: p.value, m });
+        side = nextSide;
+      }
+      if (run.length > 1) runs.push({ points: run, up: side });
+      return runs;
+    }
+
     function makeFillPrimitive(a) {
       const paint = (context) => {
         const ts = chart.timeScale();
         const vis = ts.getVisibleRange();
         for (const f of (a.fills || [])) {
           context.fillStyle = f.color;
-          for (const run of f.runs) {
+          for (const item of f.runs) {
+            const run = item.points || item;
+            if (item.points) context.fillStyle = item.up ? f.upColor : f.downColor;
             // years of history sit off-screen on every pan; a run nobody can
             // see costs two coordinate lookups per bar if it is not skipped
             if (vis && (run[run.length - 1].t < vis.from || run[0].t > vis.to)) continue;
@@ -688,14 +751,24 @@ const Indicators = (() => {
       const a = active.get(id);
       if (!a || a.pending) return;
       const want = FILL_LINES[a.def && a.def.name];
+      const between = BETWEEN_FILL[a.def && a.def.name];
       const st = settings(id);
-      if (!want || !st || st.hidden || !BARS.length || !(a.series || []).length) {
+      if ((!want && !between) || !st || st.hidden || !BARS.length || !(a.series || []).length) {
         dropFill(a);
         return;
       }
       const fills = [];
+      if (between) {
+        const ai = (a.specs || []).findIndex((s) => s.line === between[0]);
+        const bi = (a.specs || []).findIndex((s) => s.line === between[1]);
+        if (ai >= 0 && bi >= 0 && shown(st, between[0]) && shown(st, between[1])) {
+          fills.push({ series: a.series[ai], runs: betweenRuns(a.specs[ai], a.specs[bi]),
+            upColor: withAlpha((st.style.plots[between[0]] || {}).color, 0.16),
+            downColor: withAlpha((st.style.plots[between[1]] || {}).color, 0.16) });
+        }
+      }
       (a.specs || []).forEach((s, i) => {
-        if (!want.includes(s.line) || !a.series[i] || !shown(st, s.line)) return;
+        if (!want || !want.includes(s.line) || !a.series[i] || !shown(st, s.line)) return;
         const plot = st.style.plots[s.line] || {};
         fills.push({ color: withAlpha(plot.color, FILL_ALPHA),
                      series: a.series[i], runs: fillRuns(s) });
@@ -733,11 +806,11 @@ const Indicators = (() => {
                 return { ...p, color: colors[ci] };
               })
             : breakGaps(lines[n]),
-          // `opts` marks a plot the legend can quote a single value for.
-          // A histogram is a shape, not a reading, so it stays out of it —
-          // the same rule the first version had, now keyed off the chosen
-          // plot type rather than the line's name.
-          opts: hist ? null : plot,
+          // Histograms still have a measured value at each bar (AO and the
+          // MACD histogram are read by their sign and magnitude). Keeping the
+          // plot metadata lets the status line quote that value just like a
+          // line, while `hist` continues to decide how it is painted.
+          opts: plot,
         };
       });
     }
@@ -852,9 +925,13 @@ const Indicators = (() => {
         // necessarily reach the bar under the crosshair. Supertrend draws
         // only the band on the active side; an exact-time lookup is what
         // keeps the other one's stale number out of the row.
+        // A projected study (Ichimoku) has points beyond the last candle.
+        // The status line is a reading AT the current bar, not at the furthest
+        // future timestamp any plot happens to own.
         const at = time != null ? time
-          : Math.max(-1, ...(a.specs || []).map((s) =>
-              (s.data.length ? s.data[s.data.length - 1].time : -1)));
+          : (BARS.length ? BARS[BARS.length - 1].time
+            : Math.max(-1, ...(a.specs || []).map((s) =>
+                (s.data.length ? s.data[s.data.length - 1].time : -1))));
         const values = [];
         let color = null;
         for (const s of (a.specs || [])) {

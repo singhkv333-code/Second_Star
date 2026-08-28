@@ -19,6 +19,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from backend.config import settings
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.cache import redis_client
+from backend.market import company_scores
 from backend.market import financials_db as fdb
 from backend.market import yfinance_fundamentals as yff
 
@@ -351,4 +352,115 @@ def get_balance_sheet(
         redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
     except Exception:  # noqa: BLE001 — cache write is best-effort
         logger.debug("balance_sheet cache write failed for %s", sym, exc_info=True)
+    return result
+
+
+# ── every statement, not just the balance sheet ─────────────────────────────
+# `mc.statement_lines` carries four grids per company under one schema —
+# balance_sheet, profit_loss, cash_flow and ratios — each with section headers
+# and the same 23 periods. Only the first was ever served, so the page showed
+# four rows of a store holding a hundred and twenty. This is the same payload
+# shape as /balance_sheet above, parameterised by which grid is wanted.
+_ST_CACHE_PREFIX = "financials:st:v1:"
+
+
+@router.get("/{symbol}/statement")
+def get_statement(
+    symbol: str,
+    type: str = Query("balance_sheet", pattern="^(balance_sheet|profit_loss|cash_flow|ratios)$"),
+    basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
+    years: int = Query(10, ge=1, le=25),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """One statement grid for `symbol`.
+
+    Shape is identical to /balance_sheet — `available`, `periods`, and `rows`
+    of {section, line_item, values, value_texts} — so one table component reads
+    all four. `ratios` is the same shape by luck rather than design: MC
+    publishes its ratio sheet as a line-item grid like any other statement,
+    which is why the ratio view costs no new plumbing.
+    """
+    _auth(authorization)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    cache_key = f"{_ST_CACHE_PREFIX}{sym}:{type}:{basis}:{years}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("statement cache read miss/error for %s", sym, exc_info=True)
+
+    company = fdb.get_company(sym)
+    grid = fdb.get_statement(sym, statement=type, basis=basis, years=years)
+
+    result = {
+        "available": bool(grid and grid.get("rows")),
+        "company": company.to_dict() if company is not None else None,
+        "statement": type,
+        # The fetcher falls back to the other basis when the asked-for one is
+        # empty, so this reports what was actually READ, not what was asked.
+        "basis": (grid or {}).get("basis", basis),
+        "unit": (grid or {}).get("unit"),
+        "periods": (grid or {}).get("periods", []),
+        "rows": (grid or {}).get("rows", []),
+        "source": "moneycontrol",
+    }
+    try:
+        redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("statement cache write failed for %s", sym, exc_info=True)
+    return result
+
+
+# ── the four scores the statements imply ────────────────────────────────────
+# Altman Z, Ohlson O, Graham and DuPont are arithmetic over the three grids
+# above, so they are computed here rather than in the browser: the finance
+# lives next to the data it reads, one period and one basis for every term,
+# and a missing input comes back as a stated reason instead of a NaN.
+_SCORES_CACHE_PREFIX = "financials:scores:v1:"
+
+
+@router.get("/{symbol}/scores")
+def get_scores(
+    symbol: str,
+    basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Solvency-and-value scores for `symbol`, all as of one filed period.
+
+    Shape:
+      {
+        "available": bool, "kind": "corporate" | "bank",
+        "period": "Mar 26", "basis": ..., "unit": "Rs. Cr.",
+        "quadrants": [{key, label, caption, value, band, verdict, format,
+                       unavailable_reason, ...model-specific fields}, x4],
+        "radar": [{key, label, detail, value, display, cap, scaled}, x5],
+        "source": "moneycontrol"
+      }
+    """
+    _auth(authorization)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    cache_key = f"{_SCORES_CACHE_PREFIX}{sym}:{basis}"
+    try:
+        cached = redis_client.get(cache_key)
+        if cached:
+            if isinstance(cached, (bytes, bytearray)):
+                cached = cached.decode()
+            return json.loads(cached)
+    except Exception:  # noqa: BLE001 — cache is best-effort, never fatal
+        logger.debug("scores cache read miss/error for %s", sym, exc_info=True)
+
+    result = company_scores.compute_scores(sym, basis=basis)
+    try:
+        redis_client.setex(cache_key, _RESP_HARD_TTL, json.dumps(result))
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        logger.debug("scores cache write failed for %s", sym, exc_info=True)
     return result

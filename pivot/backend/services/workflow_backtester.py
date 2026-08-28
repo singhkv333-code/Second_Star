@@ -1458,12 +1458,13 @@ class _BarStrictAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
     ) -> Optional[float]:
         comp_key = component.lower() if component else None
         key = (
             "ind", symbol.upper(), indicator.lower(), int(period),
-            comp_key, int(offset),
+            comp_key, tuple(sorted((settings or {}).items())), int(offset),
         )
         if key in self._cache:
             return self._cache[key]
@@ -1477,7 +1478,9 @@ class _BarStrictAccessor:
         # The backtester's bars carry capitalised OHLCV columns;
         # compute_series_component normalises internally.
         try:
-            series = compute_series_component(df, indicator, period, component=comp_key)
+            series = compute_series_component(
+                df, indicator, period, component=comp_key, settings=settings,
+            )
         except Exception:
             series = None
         if series is None:
@@ -3112,7 +3115,10 @@ def backtest_workflow(
     forward_stats = forward_stats_block(_eq_vals)
     # Circular-block-bootstrap drawdown / terminal-wealth distribution — how
     # lucky was this single path? (5%-worst drawdown, P(end in loss)).
-    monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_eq_vals))
+    # keep_paths so the card can DRAW the resampling rather than only quote it
+    # — the same block the DSL engine asks for, because one card reads both.
+    monte_carlo = monte_carlo_robustness(
+        daily_returns_from_equity(_eq_vals), keep_paths=32)
     # Time-concentration: is the edge spread across sub-periods or one window?
     sub_periods = sub_period_robustness(_eq_vals)
     # Deflate DSR for how many DISTINCT strategy variants this session has
@@ -3195,6 +3201,12 @@ def backtest_workflow(
     _realized_pnl = 0.0
     _days_deployed = 0
     by_symbol_buys: dict[str, list[dict]] = {}
+    # The pairing below is what hit rate is computed from. It used to be
+    # discarded the moment the counters were updated, which left every
+    # trade-level reading of THIS engine's result — the chart overlay above
+    # all — with nothing to read, while the same reading worked fine off the
+    # DSL engine. Same matching, same numbers; it is now written down.
+    closed_trades: list[dict] = []
     for tr in trades:
         sym = tr["symbol"]
         if tr["side"] == "buy":
@@ -3208,8 +3220,11 @@ def backtest_workflow(
             # lots read as 3 wins / 1 sell → the "157% hit rate" card).
             _m_cost = 0.0
             _m_qty = 0.0
+            _m_first_t = None
             while qty_left > 0 and queue:
                 buy = queue[0]
+                if _m_first_t is None:
+                    _m_first_t = buy["t"]
                 take = min(qty_left, buy["qty"])
                 _m_cost += take * buy["price"]
                 _m_qty += take
@@ -3222,6 +3237,31 @@ def backtest_workflow(
                 buy["qty"] -= take
                 if buy["qty"] <= 0:
                     queue.pop(0)
+            if _m_qty > 0:
+                # One row per SELL against its blended matched cost — the
+                # same unit the win is decided on. A row per matched lot
+                # would report three trades where the book saw one exit.
+                _avg_in = _m_cost / _m_qty
+                _gross = _m_qty * (tr["price"] - _avg_in)
+                closed_trades.append({
+                    "trade_id": len(closed_trades) + 1,
+                    "symbol": sym,
+                    "entry_date": str(pd.Timestamp(_m_first_t).date()),
+                    "entry_price": round(_avg_in, 4),
+                    "exit_date": str(pd.Timestamp(tr["t"]).date()),
+                    "exit_price": round(float(tr["price"]), 4),
+                    "quantity": int(_m_qty),
+                    "gross_pnl": round(_gross, 2),
+                    # This engine nets costs into the equity curve rather than
+                    # per trade, so a per-trade cost figure here would be an
+                    # invention. Reported as zero and net == gross, which is
+                    # what it actually knows.
+                    "costs": 0.0,
+                    "net_pnl": round(_gross, 2),
+                    "return_pct": round(
+                        (tr["price"] - _avg_in) / _avg_in, 6) if _avg_in else 0.0,
+                    "exit_reason": "exit_tree",
+                })
             if _m_qty > 0 and tr["price"] * _m_qty > _m_cost:
                 n_wins += 1
     n_sells = sum(1 for t in trades if t["side"] == "sell")
@@ -3235,6 +3275,7 @@ def backtest_workflow(
     # on a position that was, in fact, fully invested the whole time
     # (reported 2026-07-14).
     _window_end_ts = bars.index[-1] if len(bars.index) else None
+    open_lots: list[dict] = []
     for sym, queue in by_symbol_buys.items():
         sym_bars = symbol_bars.get(sym)
         last_close = (
@@ -3244,6 +3285,12 @@ def backtest_workflow(
         for buy in queue:
             if buy["qty"] <= 0:
                 continue
+            open_lots.append({
+                "symbol": sym,
+                "entry_date": str(pd.Timestamp(buy["t"]).date()),
+                "entry_price": round(float(buy["price"]), 4),
+                "quantity": int(buy["qty"]),
+            })
             _entry_cost += buy["qty"] * buy["price"]
             if last_close is not None:
                 _realized_pnl += buy["qty"] * (last_close - buy["price"])
@@ -3624,4 +3671,6 @@ def backtest_workflow(
         n_bars=_n_bars,
         bar_interval=norm_interval,
         benchmark_label=_bench_label,
+        trades=closed_trades,
+        open_lots=open_lots,
     )

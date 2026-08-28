@@ -851,6 +851,16 @@ const Panels = (() => {
       render: renderWatch },
     { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
       render: renderAlerts },
+    /* Patterns used to stand here, as a fourth rail icon opening a 344px
+     * column. It moved to the chart's own top-right corner (js/layers-panel.js,
+     * opened from the chip column by js/scene.js) and grew to hold every
+     * annotation rather than only detector formations.
+     *
+     * The rail is for places you GO — a watchlist, an alert log, a journal,
+     * each about something other than the chart on screen. The layers list is
+     * about this chart, this second, so it belongs on it. Leaving a duplicate
+     * opener here would also have meant two controls that can disagree about
+     * whether the panel is open. */
     { id: "journal", panel: "journalPanel", icon: "fileText", label: "Journal",
       render: (host) => Journal.renderSidebar(host) },
   ];
@@ -1108,6 +1118,11 @@ const Panels = (() => {
     alertQuery = e.target.value;
     paintAlertBody();
   });
+
+  /* The pattern drawer's refresh hook lived here while it was one of this
+   * shell's columns. It is a popover now and renders itself against its own
+   * host (js/layers-panel.js listens for `charto:layers-refresh`), so this
+   * shell no longer has an open-panel state to keep for it. */
 
   /* Two small menus, hung off the head the way the watchlist's are and
    * appended to <body> for the same reason — a 302px column with its own

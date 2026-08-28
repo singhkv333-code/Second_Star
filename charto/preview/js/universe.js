@@ -72,11 +72,13 @@ const Universe = (() => {
    * can open from a legend sitting inside an overflow-hidden chart pane
    * without being clipped. One instance at a time.
    */
-  let popEl = null, offOutside = null;
+  let popEl = null, popAnchor = null, offOutside = null;
 
   function close() {
     if (!popEl) return;
+    if (popAnchor) popAnchor.setAttribute("aria-expanded", "false");
     popEl.remove(); popEl = null;
+    popAnchor = null;
     document.removeEventListener("mousedown", offOutside, true);
     removeEventListener("resize", close);
     offOutside = null;
@@ -103,11 +105,13 @@ const Universe = (() => {
       (note ? `<div class="pick-note">${note}</div>` : "");
     document.body.appendChild(pop);
     popEl = pop;
+    popAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
 
     // Fixed to the anchor's own rect, flipped up when the bottom half of the
     // window has no room — a legend picker opening off-screen is a dead menu.
     const r = anchor.getBoundingClientRect();
-    const W = 268;
+    const W = 324;
     pop.style.width = W + "px";
     pop.style.left = Math.max(8, Math.min(r.left, innerWidth - W - 8)) + "px";
     if (r.bottom + 380 > innerHeight && r.top > 380) {
@@ -137,9 +141,9 @@ const Universe = (() => {
         const nm = data.names[s];
         return `<div class="item ${s === cur ? "on" : ""}" data-sym="${s}">` +
           `<span class="lead">${logoHTML(s)}` +
-          (data.hydrated.has(s) ? '<span class="dot-h"></span>' : "") +
-          `${s}${nm && nm !== s ? `<span class="co-name">${nm}</span>` : ""}</span>` +
-          (data.hydrated.has(s) ? "" : '<span class="cold">~6s</span>') +
+          `<span class="pick-copy"><strong>${s}</strong>` +
+          `${nm && nm !== s ? `<span class="co-name">${nm}</span>` : ""}</span></span>` +
+          (s === cur ? Icons.svg("check", "xs") : "") +
           "</div>";
       }).join("") || '<div class="item" style="color:var(--faint)">no match</div>';
     }

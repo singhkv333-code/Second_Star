@@ -15,7 +15,15 @@
   const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
   // Pivot's stock page, copied into charto/web and served by `next dev`
   // there (see charto/web/README). Company links open it directly.
-  const COMPANY_PAGE = "http://localhost:5175";
+  /* The company page is same-origin, and the empty string is the point.
+   *
+   * It was an absolute http://localhost:5175 — a second port in the address
+   * bar, a different origin (so no shared cookie and no shared theme), and a
+   * link that is dead on every machine that is not the one it was written on.
+   * The page still runs as its own app; it is REACHED through this origin,
+   * proxied by serve.py in dev and by nginx on the VM, so one relative href
+   * works in both with no build-time switch. */
+  const COMPANY_PAGE = "";
 
   // Per-symbol: +05:30 for Indian instruments, 0 for crypto (whose bars the
   // dataserver folds on UTC midnight). Every `+ IST` / `- IST` below is a
@@ -74,6 +82,7 @@
       rightPriceScale: { borderColor: P.border },
       timeScale: { borderColor: P.border },
       crosshair: {
+        /* Keep the library's native scrolling plates tied to both axes. */
         vertLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
         horzLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
       },
@@ -159,27 +168,24 @@
     let ts = 0, ps = 0;
     try { ts = chart.timeScale().height(); } catch { /* not laid out yet */ }
     try { ps = chart.priceScale("right").width(); } catch { /* ditto */ }
+    // On the STAGE, not on the chart: custom properties inherit, so #chart and
+    // everything the library builds inside it still read them, and the two
+    // crosshair plates — which are siblings of #chart, not children — can read
+    // them too. They have to: both are sized by an axis.
     if (ts && ts !== metrics.ts) {
       metrics.ts = ts;
-      chartEl.style.setProperty("--time-axis-h", ts + "px");
+      stageEl.style.setProperty("--time-axis-h", ts + "px");
     }
     if (ps && ps !== metrics.ps) {
       metrics.ps = ps;
-      chartEl.style.setProperty("--axis-w", ps + "px");
+      stageEl.style.setProperty("--axis-w", ps + "px");
     }
   }
   syncChartMetrics();
   new ResizeObserver(syncChartMetrics).observe(chartEl);
 
-  /* The crosshair plate's own colour, published to the stylesheet beside the
-   * two measurements. The alert ⊕ rides that plate and wears a disc of it, so
-   * that it survives the one moment the plate is not there: the library draws
-   * the crosshair only while the pointer is over a PANE, and reaching for the
-   * mark takes the pointer onto the price scale — which used to leave a white
-   * ring standing on nothing, invisible on a light chart. One source for the
-   * colour, js/theme.js, rather than a second copy of it in the CSS. */
   const publishPlate = () =>
-    chartEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
+    stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
   publishPlate();
 
   const candle = chart.addSeries(LWC.CandlestickSeries, {
@@ -251,10 +257,9 @@
       chart.applyOptions({ timeScale: { timeVisible: !["1d", "1w", "1mo"].includes(interval) } });
       paintTitle();
       paint();
-      // fresh data, fresh view: hand the price scale back to auto-fit
-      eachPriceScale((ps) => ps.applyOptions({ autoScale: true }));
-      paintAutoPill();
-      chart.timeScale().setVisibleLogicalRange({ from: bars.length - 180, to: bars.length + 6 });
+      // fresh data, fresh view — the same one the reset button lands on
+      paintResetBtn();
+      resetView(chart, bars.length);
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
       setText("barsLine", `${bars.length.toLocaleString()} × ${interval}`);
@@ -1018,18 +1023,6 @@
     return pe ? clientY - pe.getBoundingClientRect().top : clientY;
   }
 
-  /** True only when the pointer is over the pane's plotted area. Unlike
-   *  paneAtClient(), this deliberately has no price-pane fallback: chart axes
-   *  and other chrome live inside #chart too, but must not reveal controls
-   *  that are meaningful only over data. */
-  function isInsidePane(clientX, clientY, key) {
-    const p = panesList().find((q) => q.key === key);
-    const pe = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
-    if (!pe) return false;
-    const r = pe.getBoundingClientRect();
-    return clientX >= r.left && clientX <= r.right
-        && clientY >= r.top && clientY <= r.bottom;
-  }
 
   const draw = Drawings.create(chart, candle, {
     getBars: () => state.bars,
@@ -1265,21 +1258,85 @@
     } catch {}
   }
 
-  // "auto" pill: TradingView's way back to an auto-fitted price scale
-  const autoPill = document.createElement("button");
-  autoPill.className = "auto-pill";
-  autoPill.textContent = "auto";
-  autoPill.title = "Re-fit the price scale to the visible bars";
-  stageEl.appendChild(autoPill);
-  autoPill.addEventListener("click", () => {
-    eachPriceScale((ps) => ps.applyOptions({ autoScale: true }));
-    paintAutoPill();
-  });
+  /* ── the view, and the one way back to it ────────────────────────────────
+   * THE DEFAULT VIEW is what a chart opens on: the last VIEW_SPAN bars with a
+   * little room past the newest one, and a price scale free to fit them. One
+   * definition, used by the load, by this button, and by Alt+R — a "reset" that
+   * lands somewhere other than where the chart started is not a reset.
+   *
+   * Written here rather than through timeScale().resetTimeScale(), which does
+   * not do it: measured, that call restores the scroll position but leaves the
+   * bar spacing where the wheel left it, because the library treats the CURRENT
+   * spacing as the default the moment anything writes it. Alt+R promised "back
+   * to the default zoom" and delivered only the live edge.
+   */
+  const VIEW_SPAN = 180, VIEW_PAD = 6;
 
-  function paintAutoPill() {
+  /** Put one chart back at its default view. `n` is that chart's bar count —
+   *  a secondary pane holds its own data, so the caller supplies it. */
+  function resetView(t, n) {
+    if (!n) return;
+    t.timeScale().setVisibleLogicalRange({ from: n - VIEW_SPAN, to: n + VIEW_PAD });
+    for (const pane of t.panes()) {
+      try { pane.priceScale("right").applyOptions({ autoScale: true }); } catch {}
+    }
+  }
+
+  /** Is this chart's view still the default one? Three ways it can have moved,
+   *  and the button is offered if any of them has: the price scale pinned by
+   *  hand, the time scale panned off the live edge, or zoomed. All READ BACK
+   *  off the chart rather than tracked in a flag here — the chart is the one
+   *  that knows, and a flag would be wrong the first time anything else moved
+   *  the view (a symbol change, a shortcut, the chat drawing to a range). */
+  function viewMoved() {
     let manual = false;
     eachPriceScale((ps) => { if (!ps.options().autoScale) manual = true; });
-    autoPill.classList.toggle("show", manual);
+    if (manual) return true;
+    const n = state.bars.length;
+    if (!n) return false;
+    let r = null;
+    try { r = chart.timeScale().getVisibleLogicalRange(); } catch { /* pre-layout */ }
+    if (!r) return false;
+    // Measured against the DEFINITION above, not against the library's own
+    // rightOffset: the default view ends VIEW_PAD bars past the newest bar,
+    // which is a different number (scrollPosition reads 7 where rightOffset is
+    // 5), and comparing to the wrong one left the button on a chart that had
+    // not moved. Both halves survive an older page arriving — those bars are
+    // prepended and the range is shifted with them, so this measures the gap
+    // in BARS either way.
+    if (Math.abs(r.to - (n + VIEW_PAD)) > 1) return true;            // scrolled
+    const span = VIEW_SPAN + VIEW_PAD;
+    return Math.abs((r.to - r.from) - span) / span > 0.02;           // zoomed
+  }
+
+  /* TradingView's corner, and TradingView's affordance: one round glass button
+   * in the bottom-right of the PLOT — inside both axes, so it never covers a
+   * price or a date — that appears only once the view has been moved. It was an
+   * "AUTO" pill floating half over the price scale, which named a property of
+   * the price scale rather than the thing a hand reaches for it to do, and said
+   * nothing about the zoom or the scroll it also has to undo.
+   *
+   * It fires the verb, not the function: `Shortcuts.run("reset-view")` is what
+   * the right-click menu's "Reset view" row and Alt+R already fire, and a
+   * second call site calling resetView() directly would be a second definition
+   * to keep in step. The chart is passed explicitly because this button is
+   * drawn on the PRIMARY's stage — the shortcut's own default is the pane the
+   * toolbar is aimed at, which in a split layout is not this one. */
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "view-reset";
+  resetBtn.type = "button";
+  resetBtn.innerHTML = Icons.svg("rotateCw", "sm");
+  resetBtn.title = "Reset the view (⌥R)";
+  resetBtn.setAttribute("aria-label", "Reset the view");
+  stageEl.appendChild(resetBtn);
+  resetBtn.addEventListener("click", () => {
+    Shortcuts.run("reset-view", chart);
+    paintResetBtn();
+  });
+
+  function paintResetBtn() {
+    const on = viewMoved();
+    resetBtn.classList.toggle("show", on);
   }
 
   /* The two axis badges: what the price scale is quoted in, and which clock
@@ -1338,11 +1395,17 @@
   });
   window.addEventListener("mouseup", () => {
     if (panning) { panning = false; stageEl.classList.remove("panning"); }
-    paintAutoPill();
+    paintResetBtn();
   });
 
-  chartEl.addEventListener("wheel", () => paintAutoPill(), { passive: true });
-  chartEl.addEventListener("dblclick", () => setTimeout(paintAutoPill, 0));
+  /* Every way the VIEW can move, in one subscription: a wheel zoom, a pan, a
+   * double-click auto-fit, and the programmatic jumps too — the chat scrolling
+   * to a date, a shortcut, a symbol change. The three ad-hoc listeners this
+   * replaces (wheel, dblclick, and the pan's own mouseup) each covered one
+   * gesture and missed every other way the same thing happens. The mouseup
+   * below stays, because dragging the price SCALE pins it without moving the
+   * logical range at all. */
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => paintResetBtn());
 
   // ── chart-state envelope (Phase 1: the model can see the chart) ──
   // Pure read of state that already exists — no new math, no server round
@@ -1655,6 +1718,7 @@
       // already on the chart, on the .chips-btn that syncChipsBtn drives.
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
+      document.dispatchEvent(new CustomEvent("charto:scene-changed"));
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
       indexChatRefs();        // new annotations → new mentions to link
       Undo.touch();           // what chat drew is undoable like anything else
@@ -1695,8 +1759,14 @@
       });
       if (activeId) {
         const d = ind.CATALOG.find((c) => c.id === activeId);
-        if (!period || d.period === period) return;
-        try { await ind.setPeriod(activeId, period); changed(); }
+        try {
+          let target = activeId;
+          if (period && d.period !== period) target = await ind.setPeriod(activeId, period);
+          if (a.params && Object.keys(a.params).length) {
+            await ind.applySettings(target, { params: a.params });
+          }
+          changed();
+        }
         catch (err) { status(`could not switch ${name} to ${period}: ${err.message}`); }
         return;
       }
@@ -1704,7 +1774,9 @@
       // computed — mapping onto presets drew RSI 14 for a quoted RSI 26
       const id = ind.ensure(name, period);
       if (id && !ind.isActive(id)) {
-        Promise.resolve(ind.toggle(id, state.bars)).then(changed).catch(() => {});
+        Promise.resolve(a.params && Object.keys(a.params).length
+          ? ind.applySettings(id, { params: a.params }) : null)
+          .then(() => ind.toggle(id, state.bars)).then(changed).catch(() => {});
       }
     },
     onIndicatorRemove: (a) => {              // "remove the rsi"
@@ -1818,7 +1890,21 @@
    * flag and the two setHidden calls; scene.js asks for all three through
    * `foldState` and hands the click back through `onFold`.
    */
-  let drawCollapsed = !!Store.get("draw_collapsed", false);
+  /* The GLOBAL fold, kept as machinery and retired as a saved state.
+   *
+   * `draw_collapsed: true` is still sitting in the storage of every browser
+   * that pressed the old control before it became the layers button — and the
+   * control that used to reverse it is gone. Restoring it would open the chart
+   * with every annotation hidden, a badge reading 0/9, and the only button in
+   * reach opening a list whose per-item switches all read "on", because
+   * `state.hidden` is a different flag from the per-item one. That is the
+   * stranded state the fold's own code was written to refuse ("a chart must
+   * never sit in a hidden state with no control on screen to reverse it").
+   *
+   * So the flag is dropped at boot rather than migrated: hide-all now lives in
+   * the panel, where it sets the per-item switches the panel can also unset. */
+  let drawCollapsed = false;
+  if (Store.get("draw_collapsed", false)) Store.set("draw_collapsed", false);
   // The restore is not an edit. Boot puts the saved scene back one apply at a
   // time, and every one of those looks exactly like the chat drawing — so the
   // "a new annotation un-folds" rule stays off until the session is standing
@@ -1829,8 +1915,16 @@
   /** What the control should say right now, or null when there is nothing to
    *  fold. Read by scene.js on every chip repaint. */
   function drawFoldState() {
-    const n = draw.count() + scene.count();
-    return n ? { n, collapsed: drawCollapsed } : null;
+    // LIVE over TOTAL, and both from the PANEL — the list this button opens.
+    // Counting the chart layers here instead (draw.count() + scene.count())
+    // omits every pattern the detector has found and not yet drawn, so the
+    // badge and the panel header disagreed by exactly the rows that are only
+    // in the panel. LayersPanel caches this; see the note beside `counts`.
+    const c = typeof LayersPanel !== "undefined" && LayersPanel.counts
+      ? LayersPanel.counts()
+      : { total: draw.count() + scene.count(),
+          live: draw.liveCount() + scene.liveCount() };
+    return c.total ? { n: c.total, live: c.live, open: layersOpen() } : null;
   }
 
   /** Repaint the control after something OTHER than a scene change — a shape
@@ -1872,10 +1966,112 @@
     scene.requestUpdate();
   }
 
+  /* ── the layers popover ──────────────────────────────────────────────
+   *
+   * The button at the top-right of the price pane used to fold every
+   * annotation away; it now opens the inventory that can switch them one at a
+   * time (js/layers-panel.js). It hangs off the chip column rather than
+   * standing in the left rail because it is a control for the chart in front
+   * of you, not a place you navigate to — and because the chips right beside
+   * it are where the annotations already say what they are.
+   *
+   * A popover, not a third column: two sidebars plus the conversation already
+   * leave the price pane around 430px on a laptop (see panels.js), and a list
+   * you consult for a few seconds should not cost the chart a permanent
+   * quarter of its width.
+   */
+  let layersPop = null;
+  const layersOpen = () => !!(layersPop && layersPop.isConnected);
+
+  function closeLayers() {
+    if (!layersPop) return;
+    /* The lens outlives the node unless it is told not to. It carries its own
+     * SVG filter and a ResizeObserver, and this sheet is destroyed and rebuilt
+     * on every open — so without this a session of opening the layers list
+     * leaves one live filter behind per press. js/ctxmenu.js pairs its glaze
+     * with an unglaze for exactly this reason; it does not export the second
+     * half, but the handle it parks on the element is all that is needed. */
+    if (layersPop.__lg) {
+      try { layersPop.__lg.destroy(); } catch { /* already gone */ }
+      layersPop.__lg = null;
+    }
+    layersPop.remove();
+    layersPop = null;
+    document.removeEventListener("pointerdown", onLayersOutside, true);
+    removeEventListener("keydown", onLayersKey, true);
+    // The hover the list was driving points at an annotation nobody is
+    // pointing at any more.
+    scene.setHover(null);
+    scene.requestUpdate();
+  }
+
+  function onLayersOutside(e) {
+    if (!layersPop) return;
+    if (layersPop.contains(e.target)) return;
+    // The button owns its own toggle; letting this handler close first would
+    // make the second press re-open rather than close.
+    if (e.target.closest && e.target.closest(".scene-layers")) return;
+    closeLayers();
+  }
+
+  function onLayersKey(e) {
+    if (e.key !== "Escape" || !layersPop) return;
+    e.stopPropagation();
+    closeLayers();
+  }
+
   function toggleDrawFold() {
-    drawCollapsed = !drawCollapsed;
-    Store.set("draw_collapsed", drawCollapsed);
-    applyDrawCollapsed();
+    if (layersOpen()) { closeLayers(); scene.requestUpdate(); return; }
+    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    const anchor = document.querySelector(".scene-layers");
+    if (!anchor || typeof LayersPanel === "undefined") return;
+
+    const pop = document.createElement("div");
+    pop.className = "dropdown floating layers-pop open";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", "Chart layers");
+    document.body.appendChild(pop);
+    layersPop = pop;
+
+    /* Pinned to the anchor's own rect and flipped up when the lower half of
+     * the window cannot hold it — the same rule js/universe.js uses, and for
+     * the same reason: a menu that opens off-screen is a dead menu. Clamped
+     * on the RIGHT edge, because this anchor lives at the right edge of the
+     * plot and a left-anchored panel would hang over the price axis. */
+    const r = anchor.getBoundingClientRect();
+    const W = 344, H = 420;
+    pop.style.width = `${W}px`;
+    pop.style.left = `${Math.max(8, Math.min(r.right - W, innerWidth - W - 8))}px`;
+    /* BOTH branches cap the height, from the space that branch actually has.
+     * Only the downward one used to, and flipped up the sheet fell back to
+     * `.dropdown`'s `max-height: calc(100vh - 72px)` — a cap measured against
+     * the VIEWPORT while the panel was measured from the anchor. With the
+     * button low on a tall chart and a dozen layers in the list, that let the
+     * sheet grow past the top of the window and take its own header — search,
+     * show-all, the count — off screen, with the list scrolled to a place the
+     * user could not scroll back from. The body is `flex: 1; min-height: 0`,
+     * so a definite cap here IS what creates the scrollport. */
+    if (r.bottom + H > innerHeight && r.top > H) {
+      pop.style.bottom = `${innerHeight - r.top + 6}px`;
+      pop.style.maxHeight = `${Math.max(200, r.top - 20)}px`;
+    } else {
+      pop.style.top = `${r.bottom + 6}px`;
+      pop.style.maxHeight = `${Math.max(200, innerHeight - r.bottom - 20)}px`;
+    }
+
+    LayersPanel.render(pop);
+    /* The same lens every other sheet in this app wears. The auto-glaze
+     * observer at the foot of js/ctxmenu.js watches for `.open` being ADDED to
+     * an existing `.dropdown`; this sheet is created with `open` already on it
+     * and appended, which is an attribute the observer never sees change — so
+     * it would have been the one menu in the app that merely blurred while
+     * every other one refracted. Attached here, after placement and after the
+     * body is rendered, because the displacement map is generated from the
+     * measured box. */
+    if (typeof Ctx !== "undefined" && Ctx.glass) Ctx.glass(pop);
+    document.addEventListener("pointerdown", onLayersOutside, true);
+    addEventListener("keydown", onLayersKey, true);
+    scene.requestUpdate();                     // repaint the button's open state
   }
 
   // ── provenance card: every drawn line is interrogable ──
@@ -2408,7 +2604,14 @@
   function showDrawingCard(d, y) {
     provDraw = d;
     provFor = d.id;
-    const T = (t) => fmtIST(t + IST, !DAILY.has(state.interval));
+    /* Chart time, NOT chart time plus IST. Every anchor here came out of
+     * xToTime, which builds it from state.bars — and those were shifted by
+     * IST once already, at the fetch. Adding it a second time printed every
+     * drawing's card 5h30m late: a trendline anchored on the 15:20 bar read
+     * "20:50", which is not a time this exchange has bars at. Every other
+     * fmtIST call in this file passes chart time straight through; this was
+     * the one outlier. */
+    const T = (t) => fmtIST(t, !DAILY.has(state.interval));
     // Two decimals, like every other price in the app. Raw drawing geometry
     // carries a third ("1,268.091"), which reads as a precision the anchor
     // does not have — you dragged it there.
@@ -2584,29 +2787,29 @@
    * there is — no dialog, no typing, and the level is exactly the one being
    * pointed at rather than one transcribed into a field.
    *
-   * Only in the price pane, only with the cursor tool, and only signed in: an
-   * alert lives on the server, so offering the button to a signed-out user could
-   * only end in a refusal. It hides the moment the pointer leaves.
+   * Only in the price pane and only with the cursor tool. Signed-out users can
+   * still see the affordance; Alerts.open explains that sign-in is required.
+   * It hides the moment the pointer leaves.
    *
-   * ON THE PLATE, not beside it — Groww's placement, and the one that ends
+   * ON THE SCALE, not beside it — Groww's placement, and the one that ends
    * three separate complaints at once. Floating on the CHART it was a 20px disc
    * following the pointer down the last column of candles: it covered whatever
    * was drawn there, and because the click is resolved against its rectangle
    * (below) it also ATE that click — so a trendline under it could not be
-   * selected, and therefore could not be deleted. On the plate it is out of the
-   * drawing surface entirely. It is also the only place it is legible without a
-   * disc of its own: the plate is dark in both themes, so a hairline ring in the
-   * plate's own white ink reads on it, where on the candles it needed an opaque
-   * background and read as a sticker.
+   * selected, and therefore could not be deleted. Inside the scale it is out of
+   * the drawing surface entirely.
+   *
+   * It lands at the left end of the crosshair's price plate while the pointer
+   * is over the plot, and stands on the bare axis for the last twenty pixels of
+   * the reach for it, because the plate deliberately does not follow the
+   * pointer onto the scale. So it carries an opaque disc
+   * of the chart's own background and is drawn in the app's ink rather than the
+   * plate's — one appearance that reads in both places and in both themes.
    */
   let alertPlus = null, plusPrice = null;
 
-  /* HOLDING THE CROSSHAIR OVER THE SCALE. The library draws the crosshair only
-   * while the pointer is over a PANE, and the mark now lives on the scale — so
-   * the last twenty pixels of the reach for it took away the very plate the mark
-   * is printed on, and with it the price being aimed at. It is put back by hand
-   * for exactly as long as the pointer is on the scale, at the time coordinate
-   * it last had over the pane, and released the moment it comes back. */
+  /* Keep the native crosshair plate visible during the last part of a reach
+   * from the pane onto the price scale, where the library normally clears it. */
   let heldTime = null, holding = false;
 
   function releaseCrosshair() {
@@ -2615,16 +2818,6 @@
     try { chart.clearCrosshairPosition(); } catch {}
   }
 
-  /** What to hang a held crosshair on: the last time the pointer had over the
-   *  pane — or, when it never had one, the newest bar.
-   *
-   *  That fallback is the whole fix and not a nicety. A pointer arriving on the
-   *  scale from OUTSIDE the chart — in from the chat panel, or straight down the
-   *  scale from the toolbar — has never been over a pane, so there was nothing
-   *  remembered, nothing to hold, and the plate stayed gone: exactly the two
-   *  approaches a hand actually makes when the mark is what it is reaching for.
-   *  The newest bar is also the honest answer, being the bar nearest the scale
-   *  and so the one the pointer is nearest to. */
   const holdTime = () => (heldTime != null ? heldTime
     : (state.bars.length ? state.bars[state.bars.length - 1].time : null));
 
@@ -2671,7 +2864,8 @@
   function makePlus() {
     const b = document.createElement("div");
     b.className = "alert-plus";
-    b.innerHTML = Icons.svg("plus", "xs");
+    b.innerHTML = `<span class="alert-plus-mark">${Icons.svg("plus", "xs")}</span>`
+      + `<span class="alert-plus-value"></span>`;
     chartEl.appendChild(b);
     return b;
   }
@@ -2687,19 +2881,35 @@
    *  mark is drawn wholly inside the scale; its target now is too. */
   function onPlus(x, y) {
     if (!alertPlus || !alertPlus.classList.contains("show")) return false;
-    const r = alertPlus.getBoundingClientRect();
+    const mark = alertPlus.querySelector(".alert-plus-mark");
+    if (!mark) return false;
+    const r = mark.getBoundingClientRect();
     const scaleLeft = chartEl.getBoundingClientRect().right - metrics.ps;
     return x >= Math.max(r.left - PLUS_PAD, scaleLeft) && x <= r.right + PLUS_PAD
         && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
   }
 
   function syncPlus(clientX, clientY) {
-    // coordinateToPrice answers null until the series has data and the price
-    // scale has been laid out, so for the first moment after a load there is
-    // simply no price under the pointer to offer. Nothing to report: the mark
-    // stays away and appears as soon as there is.
-    if (!Auth.user || draw.state.tool !== "cursor"
-        || !isInsidePane(clientX, clientY, "price")) return hidePlus();
+    /* THE PLATE DECIDES, not the pointer. The mark is printed on the crosshair's
+     * price plate, so it appears exactly when that plate does, at exactly its y,
+     * carrying exactly the price written on it — one answer to "what level is
+     * being pointed at" instead of two that can drift apart.
+     *
+     * Which is also the whole of the fix for the mark that used to appear on
+     * the bare price scale with nothing around it: the plate does not follow the
+     * pointer over there, so neither does the mark. It survives
+     * only the straight reach the plate itself survives.
+     *
+     * Only over the PRICE pane: an alert is a level in rupees, and the plate
+     * over an RSI pane is reading a different scale. */
+    const chartBox = chartEl.getBoundingClientRect();
+    const price = panesList().find((p) => p.key === "price");
+    const paneEl = price && price.pane.getHTMLElement && price.pane.getHTMLElement();
+    const paneBox = paneEl && paneEl.getBoundingClientRect();
+    const insidePrice = paneBox
+      && clientX >= chartBox.left && clientX <= chartBox.right
+      && clientY >= paneBox.top && clientY <= paneBox.bottom;
+    if (draw.state.tool !== "cursor" || !insidePrice) return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return hidePlus();
@@ -2713,11 +2923,12 @@
     // no-op writes inside, so this is a measurement, not a style recalc.
     syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
-    const box = chartEl.getBoundingClientRect();
-    // Which side of the scale's left edge the pointer is on. Over the pane the
-    // library owns the crosshair and the time under the pointer is worth
-    // remembering; over the scale it has dropped the crosshair and this puts it
-    // back at that remembered time. See holdCrosshair above.
+    const value = alertPlus.querySelector(".alert-plus-value");
+    if (value) {
+      try { value.textContent = candle.priceFormatter().format(plusPrice); }
+      catch { value.textContent = String(plusPrice); }
+    }
+    const box = chartBox;
     if (clientX < box.right - metrics.ps) {
       releaseCrosshair();
       const t = chart.timeScale().coordinateToTime(clientX - box.left);
@@ -3779,7 +3990,9 @@
    * the camera button is a second code path to keep in step with the first;
    * a shortcut that CLICKS the camera button is the same path, so the menu
    * closes, the toggled state paints and the status line says what it always
-   * said. Where there is no button — reset, invert — the work is here.
+   * said. Where there is no button — invert — the work is here. Reset has one
+   * now, and it goes the other way round: the button fires this verb, so the
+   * key, the right-click row and the button are one path.
    */
   (function bindShortcuts() {
     /** The chart the one toolbar is aimed at: the selected secondary pane,
@@ -3821,16 +4034,22 @@
     /* Alt+R — back to the default zoom, at the live edge, with the price
      * scale free again. Three separate things a chart drifts away from, and
      * a "reset" that fixed only the first would leave the reader hunting the
-     * other two.
+     * other two. resetView() up in this file is the one definition of where
+     * "default" is; this used to call the library's resetTimeScale(), which
+     * (measured) restores the scroll and leaves the zoom alone.
+     *
+     * The argument is the chart to reset, for a caller that knows — the
+     * button on the primary's stage means the primary, whatever pane the
+     * toolbar happens to be aimed at. Without one it falls back to the aimed
+     * pane, which is what a keystroke means.
      *
      * No status line on this one or the next, for the reason undo already
      * gives a few hundred lines up: they SHOW their result. A message saying
      * "view reset" beside a chart that visibly reset is narration. */
-    Shortcuts.on("reset-view", () => {
-      const t = aimed();
-      t.timeScale().resetTimeScale();
-      t.timeScale().scrollToRealTime();
-      try { t.priceScale("right").applyOptions({ autoScale: true }); } catch {}
+    Shortcuts.on("reset-view", (t) => {
+      const sub = Panes.activeSub();
+      if (t === chart || !sub) return resetView(chart, state.bars.length);
+      resetView(t || sub.chart, (sub.bars || []).length);
     });
 
     /* Alt+I — the price scale upside down, which is how a trader looks at a

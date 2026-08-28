@@ -214,6 +214,7 @@ const Panes = (() => {
       timeScale: { borderColor: P.border, timeVisible: true, secondsVisible: false, rightOffset: 4 },
       crosshair: {
         mode: LWC.CrosshairMode.Normal,
+        /* Native axis labels match the primary chart in every split pane. */
         vertLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
         horzLine: { color: P.crosshair, labelBackgroundColor: P.crosshairLabel },
       },
@@ -304,6 +305,10 @@ const Panes = (() => {
         new CustomEvent("charto:indicators-changed")),
     });
 
+    /* The crosshair's plates, the same module the primary uses. `panes()` is
+     * the shape the drawing layer already speaks — the price pane plus one row
+     * per indicator that owns a pane of its own — and it is read on every
+     * pointer move, so a study added or removed here needs no re-wiring. */
     const fmt = (n) => Sym.of(sub.symbol).num(n);
     function paintLegend(b) {
       const d = Sym.of(sub.symbol);
@@ -400,6 +405,8 @@ const Panes = (() => {
       // floating boxes parented to `root`, and a torn-down chart cannot
       // answer the crosshair subscription still pointed at it
       try { sub.legend.destroy(); } catch { /* never created */ }
+      // …and the plates, which hold a live SVG filter each: a session of
+      // layout changes would otherwise leave one behind per pane ever opened
       try { chart.remove(); } catch { /* already gone */ }
       root.remove();
     };
