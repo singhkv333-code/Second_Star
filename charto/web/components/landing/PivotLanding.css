@@ -145,6 +145,13 @@
    center bottom / background-size: auto 74%` the ASCII plate needed on phone,
    so this one covers the frame at every width. */
 .pl-hero-art{background:url('/pivot-dither-hero.png') center/cover no-repeat}
+/* On a phone the frame is portrait and the plate is 3:2, so `cover` scales it
+   to ~1380px wide and drops the planet's mass (y 270-585 of 720, centred at
+   59%) to around y=543 — a clear band BELOW the prompt box at 343-421, which
+   left the composition split in two. Pulling the position to 32% lifts that
+   mass by ~160px so the planet sits behind the prompt and the buttons, which
+   is where the artwork was always meant to sit relative to the copy. */
+@media(max-width:600px){.pl-hero-art{background-position:50% -160px}}
 
 /* globals.css pins `html, body { height:100%; overflow:hidden }` because every
    pane of the app shell scrolls internally. This page is one long document, so
