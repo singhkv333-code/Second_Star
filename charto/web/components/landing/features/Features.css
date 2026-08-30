@@ -35,8 +35,8 @@
      · the ground — `--paper`, lifted by a warm radial wash at the top right so
        the tone moves across the section instead of sitting still;
      · `::before` — the dotted machine-halftone grain;
-     · `::after`  — the section's two supplied artworks, inverted into daylight:
-       the orb opens the section and the landscape closes it.
+     · `::after`  — the orb, inverted into daylight, opening the section from
+       the top-right. Nothing closes it: see the note on that rule.
 
    Everything is held under about 7% contrast and the whole stack is inert:
    `isolation` keeps the multiply off the film above, and nothing here paints
@@ -87,17 +87,21 @@
    dithered form darkens the paper — the alternative, a pre-inverted asset,
    would be a second copy of a 500 KB image to keep in step with the first.
 
-   The ORB opens the section from the top-right corner and the LANDSCAPE lays a
-   horizon under its close. Order matters here: `background-position` pairs with
-   `background-image` index for index, so the orb has to be named first to be
-   the one that goes to the top.
+   ONE plate: the ORB, opening the section from the top-right corner.
 
-   Each is feathered by its own radial in the mask rather than trimmed by a
-   band across the section. A rectangular crop of a halftone ends on a hard
-   edge of dots, which is what made this read as a smudge behind the heading
-   instead of as a picture; a radial lets each subject stay whole and dissolve
-   into the paper, and it also keeps the ink off the two text columns rather
-   than merely under them. */
+   There used to be a second, laying a dithered horizon under the close. It is
+   gone, and the slot is not to be refilled. The section ends on two product
+   cards, and the only paper a closing plate can reach is the 90px strip
+   beneath them, the page margins, and the 51px gutter between the columns — so
+   whatever goes there is not a picture, it is a wash leaking around the edges
+   of a table of figures. The close reads better as clean cream.
+
+   The plate is feathered by a radial in the mask rather than trimmed by a band
+   across the section. A rectangular crop of a halftone ends on a hard edge of
+   dots, which is what made this read as a smudge behind the heading instead of
+   as a picture; a radial lets the subject stay whole and dissolve into the
+   paper, and it also keeps the ink off the two text columns rather than merely
+   under them. */
 .cf::after {
   content: "";
   position: absolute;
@@ -105,17 +109,15 @@
   z-index: 0;
   pointer-events: none;
   opacity: 0.19;
-  /* Set by the scroll layer (`landing-scroll`) so the two plates on this
-     pseudo-element drift a little slower than the page. `translate` rather
+  /* Set by the scroll layer (`landing-scroll`) so the plate on this
+     pseudo-element drifts a little slower than the page. `translate` rather
      than `transform`, because nothing else here uses either and a bare
      property cannot be clobbered by a rule that wants to rotate something. */
   translate: 0 var(--cf-art-y, 0px);
   filter: invert(1) grayscale(1);
   mix-blend-mode: multiply;
-  background-image:
-    url("/charto-feature-orb.png"),
-    url("/charto-feature-landscape.png");
-  background-repeat: no-repeat, no-repeat;
+  background-image: url("/charto-feature-orb.png");
+  background-repeat: no-repeat;
   /* The orb is a PLUME — a disc, the column under it, and the billow it rose
      out of — and it only means that if all three are on the page. It used to
      be hung twice as large and half off the right edge, with the feather
@@ -126,20 +128,17 @@
      Sized so the entire plume clears the sentence below it: at 560px the
      artwork stands 373px tall and the last of the smoke dissolves above the
      line, rather than laying a halftone under a 13px sentence. */
-  background-position: right -6px top -14px, center bottom -40px;
-  background-size: min(560px, 42vw) auto, min(1280px, 92vw) auto;
+  background-position: right -6px top -14px;
+  background-size: min(560px, 42vw) auto;
   /* Anchored to the right edge and to the bottom in PIXELS, not per cent: the
      section's height changes with every copy edit, and a percentage centre
      would slide the feather off its own subject the moment a line wrapped.
-     The first centre sits on the PLUME's axis (about 250px in from the right,
-     not on the image's edge) and reaches far enough down to carry the smoke;
-     the second holds the landscape at the close. */
+     The centre sits on the PLUME's axis (about 250px in from the right, not on
+     the image's edge) and reaches far enough down to carry the smoke. */
   -webkit-mask-image:
-    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%),
-    radial-gradient(880px 340px at 48% calc(100% - 150px), #000 0%, rgba(0, 0, 0, 0.56) 48%, transparent 80%);
+    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%);
   mask-image:
-    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%),
-    radial-gradient(880px 340px at 48% calc(100% - 150px), #000 0%, rgba(0, 0, 0, 0.56) 48%, transparent 80%);
+    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%);
 }
 
 /* The content rides above all three. */
@@ -271,7 +270,7 @@
   font-size: clamp(25px, 2.4vw, 31px);
 }
 .cf-pair .cf-copy > p {
-  font-size: 13.5px;
+  font-size: 14px;
   max-width: 44ch;
 }
 /* Two panels on one line end on one line. Their tops already agreed — the
@@ -349,7 +348,7 @@
 }
 .cf-fig h4 {
   margin: 0 0 9px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -357,7 +356,7 @@
 .cf-fig p {
   margin: 0;
   max-width: 34ch;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.75;
   color: #545b57;
 }
@@ -409,8 +408,8 @@
 
 /* ── two more plates, hung off their own stories ─────────────────────────── */
 
-/* The section opens with the plume and closes on the horizon, and between them
-   runs 2,700px carrying nothing but grain. These two fill that middle.
+/* The section opens with the plume and nothing closes it, so below the plume
+   runs 3,000px carrying nothing but grain. These two fill that middle.
 
    They are attached to their STORIES rather than to the section, and that is
    the whole reason they are elements and not two more layers on `.cf::after`.
@@ -512,7 +511,7 @@
     0 1px 2px rgba(15, 18, 22, 0.05),
     0 10px 28px -14px rgba(15, 18, 22, 0.22);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--cfp-fg);
   -webkit-font-smoothing: antialiased;
 }
@@ -579,7 +578,7 @@
    place the app keeps it, and it costs a row of chrome instead of a bar. */
 .cf-head-note {
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -783,7 +782,7 @@
    column 1 and push the price — the row's subject — out to the right edge. */
 .cf-level .px {
   grid-area: 1 / 1;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -809,13 +808,13 @@
 }
 .cf-level .src {
   grid-column: 1;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
 }
 .cf-level .rec {
   grid-column: 2;
   justify-self: end;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-faint);
   white-space: nowrap;
 }
@@ -927,7 +926,7 @@
   min-width: 40px;
   height: 26px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -939,8 +938,8 @@
   align-items: center;
   height: 26px;
   padding: 0 10px;
-  border-radius: 6px;
-  font-size: 12.5px;
+  border-radius: 4px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--cfp-fg);
   white-space: nowrap;
@@ -985,7 +984,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--cfp-fg);
@@ -1088,7 +1087,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
 }
 .cfd-ticker {
@@ -1162,7 +1161,7 @@
   background: var(--cfp-border);
 }
 .cfd-step .lbl {
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--cfp-faint);
 }
@@ -1200,7 +1199,7 @@
   margin: 0 12px 12px;
   padding: 7px 7px 7px 12px;
   border: 1px solid var(--cfp-border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--cfp-card);
 }
 .cfd-composer .ph {
@@ -1326,7 +1325,7 @@
   margin-right: 8px;
   padding-top: 2px;
   font-style: normal;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 16px;
   letter-spacing: -0.005em;
   font-variant-numeric: tabular-nums;
@@ -1355,14 +1354,14 @@
 
 .cf-verdict {
   margin: 0 0 7px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.015em;
 }
 .cf-verdict-note {
   margin: 0;
   max-width: 66ch;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--cfp-muted-fg);
 }
@@ -1376,7 +1375,7 @@
 .cf-context li {
   position: relative;
   padding-left: 15px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--cfp-muted-fg);
 }
@@ -1451,7 +1450,7 @@
 }
 .cf-read .nt {
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--cfp-muted-fg);
   overflow-wrap: anywhere;
@@ -1483,13 +1482,13 @@
   border-top: 0;
 }
 .cf-row .what {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .cf-row .when {
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1498,7 +1497,7 @@
 .cf-row .num {
   flex: none;
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -1511,7 +1510,7 @@
   align-items: start;
   padding: 11px 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--cfp-muted);
 }
 /* Deliberately not red/green: on this screen those mean "the last bar closed
@@ -1560,14 +1559,14 @@
 }
 .cf-al-row .meta {
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-faint);
 }
 .cf-al-row .state {
   border-radius: 0;
   padding: 0;
   background: transparent;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1576,14 +1575,14 @@
 }
 .cf-al-note {
   margin: 11px 0 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-faint);
 }
 .cf-reading {
   margin: 14px 0 0;
   padding-top: 14px;
   border-top: 1px solid var(--cfp-border-soft);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--cfp-muted-fg);
 }
@@ -1641,7 +1640,7 @@
   letter-spacing: -0.03em;
 }
 .cf-plan-foot span {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
 }
 .cf-plan-basis {
@@ -1653,7 +1652,7 @@
   margin: 14px 0 0;
   padding-top: 13px;
   border-top: 1px solid var(--cfp-border-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
 }
 .cf-journal-last {
@@ -1695,7 +1694,7 @@
 .cf-recall .when {
   flex: none;
   padding-top: 2px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1703,7 +1702,7 @@
 }
 .cf-recall p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--cfp-muted-fg);
 }
@@ -1728,7 +1727,7 @@
   align-items: baseline;
   gap: 7px;
   border: 1px solid var(--cfp-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px 8px;
   background: var(--cfp-card);
   font-size: 11px;
@@ -1736,7 +1735,7 @@
   font-variant-numeric: tabular-nums;
 }
 .cf-det b {
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1768,7 +1767,7 @@
   align-items: center;
   gap: 7px;
   border: 1px solid var(--cfp-border);
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 4px 9px;
   background: var(--cfp-card);
   font-size: 11px;
@@ -1825,17 +1824,17 @@
   gap: 6px;
 }
 .cf-ws-pane .hd b {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .cf-ws-pane .hd i {
   font-style: normal;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cfp-faint);
 }
 .cf-ws-pane .ft {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cfp-faint);
 }
 /* Taller than a table sparkline because this slot is the full measure: at
@@ -1861,11 +1860,11 @@
 }
 .cf-ws-inds code {
   border: 1px solid var(--cfp-border);
-  border-radius: 5px;
+  border-radius: 4px;
   padding: 3px 7px;
   background: var(--cfp-card);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cfp-muted-fg);
 }
 
@@ -1885,7 +1884,7 @@
   background: var(--cfp-muted);
 }
 .cf-fun-tile .k {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cfp-faint);
 }
 .cf-fun-tile .v {
@@ -1909,7 +1908,7 @@
   font-variant-numeric: tabular-nums;
 }
 .cf-fun-row .k {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cfp-muted-fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1953,10 +1952,10 @@
 }
 .cf-op .said {
   display: inline-block;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--cfp-muted);
   padding: 7px 11px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--cfp-fg);
 }
@@ -1966,18 +1965,18 @@
   gap: 8px;
   margin-top: 7px;
   padding-left: 2px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--cfp-faint);
 }
 .cf-op .did code {
   flex: none;
   border: 1px solid var(--cfp-border);
-  border-radius: 5px;
+  border-radius: 4px;
   padding: 2px 6px;
   background: var(--cfp-card);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cfp-muted-fg);
 }
 
@@ -2045,7 +2044,7 @@
   .cfd-bubble,
   .cfd-turn.assistant p,
   .cfd-composer .ph {
-    font-size: 12.5px;
+    font-size: 13px;
   }
 }
 
@@ -2132,17 +2131,15 @@
      x 212, and the demo starts at 322.
      What this replaces cut the stem with the mask to stay clear of the type
      and left a disc with a line hanging off it, which is not a picture of
-     anything. The landscape keeps the bottom, wider than the viewport so it
-     never shows its own edge. */
+     anything. Nothing keeps the bottom here either — the close is clean cream
+     on a phone for the same reason it is on a desktop. */
   .cf::after {
-    background-position: right 4px top 169px, center bottom -10px;
-    background-size: 140px auto, 152vw auto;
+    background-position: right 4px top 169px;
+    background-size: 140px auto;
     -webkit-mask-image:
-      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%),
-      radial-gradient(118vw 260px at 50% calc(100% - 110px), #000 0%, rgba(0, 0, 0, 0.5) 50%, transparent 82%);
+      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%);
     mask-image:
-      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%),
-      radial-gradient(118vw 260px at 50% calc(100% - 110px), #000 0%, rgba(0, 0, 0, 0.5) 50%, transparent 82%);
+      radial-gradient(100px 78px at calc(100% - 72px) 220px, #000 0%, rgba(0, 0, 0, 0.6) 52%, transparent 86%);
   }
   .cf-story {
     padding: 52px 0 56px;
@@ -2156,7 +2153,7 @@
     font-size: 25px;
   }
   .cf-copy > p {
-    font-size: 13.5px;
+    font-size: 14px;
   }
   /* Three columns will not fit in 342px, and three stacked blocks with a
      centred drawing over each would be 800px of scroll for one claim. The
@@ -2203,14 +2200,13 @@
   /* The two middle plates are cut on a phone. Both are pictures about 500px
      wide, and 342px of column with a single stacked line of text through it
      has nowhere to put one: what showed at this width was the corner of a
-     planet with no planet attached — a smudge behind a headline. The plume and
-     the horizon stay, because both were re-placed for this width and both are
-     still whole here. */
+     planet with no planet attached — a smudge behind a headline. The plume
+     stays, because it was re-placed for this width and is still whole here. */
   .cf-plate::before {
     display: none;
   }
   .cf-frame {
-    border-radius: 10px;
+    border-radius: 12px;
   }
   .cf-frame-head,
   .cf-frame-body,
@@ -2262,7 +2258,7 @@
     gap: 7px;
   }
   .cf-fun-row b {
-    font-size: 11.5px;
+    font-size: 12px;
   }
   /* Two panes side by side at 320px is two sparklines nobody can read. */
   .cf-ws-grid {
