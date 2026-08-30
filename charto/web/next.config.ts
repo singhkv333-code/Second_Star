@@ -15,9 +15,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: process.env.SKIP_LINT === "1",
   },
-  experimental: {
-    typedRoutes: false,
-  },
+  typedRoutes: false,
   // Security headers on every response. The headline fix is clickjacking:
   // `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` stop the app being
   // iframed to overlay a "Confirm & place" click. The CSP is deliberately
