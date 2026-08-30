@@ -202,17 +202,16 @@ function Footer() {
   const [error,setError]=useState("");
   const canSubmit = email.trim() !== "" && name.trim() !== "" && experience !== "";
 
-  // POSTs to the dataserver's /auth/waitlist. That prefix is what nginx
-  // already proxies and what the server already exempts from its session
-  // check — a bare /waitlist would collide with THIS page's own route.
+  // Same-origin by design: on Vercel this reaches the server-only route that
+  // writes to Azure PostgreSQL. Database credentials never enter this client
+  // component or the browser bundle.
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit || sending) return;
     setSending(true);
     setError("");
-    const base = (process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/api").replace(/\/api\/?$/, "");
     try {
-      const res = await fetch(`${base}/auth/waitlist`, {
+      const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), experience }),
