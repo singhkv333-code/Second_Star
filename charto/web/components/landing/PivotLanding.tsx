@@ -184,8 +184,24 @@ function FAQ() {
   </div></section>;
 }
 
+/* The experience bands, in the order a person grows through them. `value` is
+   what a backend would store; `label` and `note` are what the card shows. */
+const experienceLevels = [
+  { value: "beginner", label: "Beginner", note: "Less than a year" },
+  { value: "intermediate", label: "Intermediate", note: "1 to 3 years" },
+  { value: "experienced", label: "Experienced", note: "3+ years" },
+  { value: "professional", label: "Professional", note: "I trade for a living" },
+] as const;
+
 function Footer() {
-  const [email,setEmail]=useState(""),[joined,setJoined]=useState(false);
+  const [email,setEmail]=useState("");
+  const [name,setName]=useState("");
+  const [experience,setExperience]=useState("");
+  const [joined,setJoined]=useState(false);
+  // Nothing is persisted yet: there is no API route in this app and no store
+  // behind it, so this confirms locally exactly as the production waitlist
+  // form does. Wiring a real endpoint is a backend decision, not a CSS one.
+  const canSubmit = email.trim() !== "" && name.trim() !== "" && experience !== "";
   return <>
     {/* CTA and footer are one surface: the artwork runs behind BOTH, so they
         share a wrapper and neither paints its own ground. */}
@@ -200,10 +216,40 @@ function Footer() {
         <h2 className="pl-cta-italic">That&apos;s all it takes.</h2>
         {joined
           ? <p className="pl-cta-joined" role="status"><Check/> You&apos;re on the list. We&apos;ll reach out soon.</p>
-          : <form onSubmit={e=>{e.preventDefault();if(email.trim())setJoined(true);}}>
-              <label className="sr-only" htmlFor="pl-email">Email address</label>
-              <input id="pl-email" type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com"/>
-              <button type="submit">Join the Waitlist</button>
+          : <form onSubmit={e=>{e.preventDefault();if(canSubmit)setJoined(true);}}>
+              {/* Three fields do not fit the one-row pill the single email
+                  input wore, so the form becomes a stacked card and keeps the
+                  page's language instead: translucent fills, hairline borders,
+                  the same blur the pill carried, and the accent only on the
+                  chosen answer and the submit. */}
+              <div className="pl-field">
+                <label htmlFor="pl-name">Name</label>
+                <input id="pl-name" name="name" type="text" required autoComplete="name"
+                  value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/>
+              </div>
+              <div className="pl-field">
+                <label htmlFor="pl-email">Email</label>
+                <input id="pl-email" name="email" type="email" required autoComplete="email"
+                  value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com"/>
+              </div>
+              {/* A radiogroup rather than a <select>: four options are worth
+                  showing at once, and the native dropdown is the one control
+                  on this page that cannot be themed to match it. */}
+              <fieldset className="pl-field pl-field-choice">
+                <legend>How would you describe your trading experience?</legend>
+                <div className="pl-choices">
+                  {experienceLevels.map(o => (
+                    <label key={o.value} className={`pl-choice${experience===o.value?" is-on":""}`}>
+                      <input type="radio" name="experience" value={o.value} required
+                        checked={experience===o.value}
+                        onChange={()=>setExperience(o.value)}/>
+                      <span className="pl-choice-label">{o.label}</span>
+                      <span className="pl-choice-note">{o.note}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button type="submit" disabled={!canSubmit}>Join the Waitlist</button>
             </form>}
       </div>
     </section>
