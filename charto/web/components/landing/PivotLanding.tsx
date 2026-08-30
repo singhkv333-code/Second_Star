@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ArrowDown, ArrowRight, ArrowUp, Check, Instagram, Search,
+  ArrowDown, ArrowRight, ArrowUp, Check, Instagram,
 } from "lucide-react";
+import { PivotMark } from "@/components/brand/PivotMark";
 import { ProductFilm } from "@/components/landing/film/film-demo";
 import { FeaturesSection } from "@/components/landing/features/FeaturesSection";
 import { useLandingScroll } from "@/components/landing/landing-scroll";
@@ -24,44 +25,8 @@ const faqs = [
   ["Does it remember my work?", "Yes. Trades keep the entry, stop and target as you planned them, the note you wrote against the bar you were watching, and the chart as it looked when you took them. You can ask what you said about a chart weeks later."],
 ] as const;
 
-/**
- * PivotGlyph — the Pivot mark as inline SVG, traced from the brand source
- * (`Pivot_Colour_Pallette (5).png`) so it renders crisp at any size. The
- * raster it replaces was a 940x788 canvas squeezed into a 27px circle with
- * `object-fit:cover` + `scale(1.28)`, which cropped the disc and blurred the
- * strokes — the "distorted" logo in the topbar.
- *
- * Geometry, measured off the source pixels (viewBox is the disc's tight
- * square box, so the mark fills its frame with no crop):
- *   - disc      centre (469.5, 393.5), r 326
- *   - upright   x 604.5, width 37, running past the frame top and bottom
- *   - diagonal  a 37-wide bar through (711.4,86.1)-(227.6,700.9)
- *
- * Both bars are punched OUT of the disc rather than painted black, so the
- * surface behind the mark shows through them. That makes one asset correct
- * on the black topbar, the near-black footer, and the light chat avatars
- * alike, and the disc follows `currentColor`.
- */
-function PivotGlyph({ className }: { className?: string }): React.ReactElement {
-  // useId can emit ':r0:' / '«r0»'; strip everything that is not selector-safe
-  // before it reaches url(#...).
-  const maskId = `pl-mark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  return (
-    <svg className={className} viewBox="144 68 652 652" aria-hidden="true" focusable="false">
-      <mask id={maskId} maskUnits="userSpaceOnUse" x="144" y="68" width="652" height="652">
-        <circle cx="469.5" cy="393.5" r="326" fill="#fff" />
-        <rect x="604.5" y="68" width="37" height="652" fill="#000" />
-        <path d="M711.4 86.1 739.4 110.4 227.6 700.9 199.6 676.6Z" fill="#000" />
-      </mask>
-      <rect x="144" y="68" width="652" height="652" fill="currentColor" mask={`url(#${maskId})`} />
-    </svg>
-  );
-}
-
 function Brand() {
-  // Wordmark as charto writes it (preview `.brand`): the display serif with
-  // the full stop carried in --primary.
-  return <a className="pl-brand" href="#top" aria-label="Pivot home"><PivotGlyph className="pl-brand-glyph" /><span>Pivot<i className="pl-brand-dot">.</i></span></a>;
+  return <a className="pl-brand" href="#top" aria-label="Pivot home"><PivotMark size={22} barWidth={132} className="pl-brand-glyph" /><span>Pivot<i className="pl-brand-dot">.</i></span></a>;
 }
 
 function Nav() {
@@ -88,7 +53,7 @@ function Nav() {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand /><form className="pl-search" onSubmit={(e) => e.preventDefault()}><Search size={15}/><input aria-label="Search markets" placeholder="Search markets"/></form><a className="pl-nav-cta" href="#waitlist">Join waitlist <ArrowRight size={14}/></a></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand /><a className="pl-nav-cta" href="#waitlist">Join waitlist <ArrowRight size={14}/></a></div></header>;
 }
 
 function Hero() {
