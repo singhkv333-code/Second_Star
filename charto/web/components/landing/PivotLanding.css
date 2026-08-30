@@ -245,15 +245,27 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
 .pl-cta h2{margin:0;font-family:'Newsreader',Georgia,'Times New Roman',serif;font-weight:400;font-size:44px;line-height:1.05;letter-spacing:-.04em}
 .pl-cta .pl-cta-italic{font-style:italic;color:rgba(255,255,255,.85)}
 @media(min-width:640px){.pl-cta h2{font-size:64px}}
-/* backdrop-blur, added on top of the source's white/[0.04]: the artwork now
+/* Stacked first, pill second. The wrapper only earns its stadium radius and
+   fill when it is genuinely ONE row (>=640px) — at phone widths a 9999px
+   radius on a two-row box cut a 55px curve out of the corners and swallowed
+   both the placeholder and the button's ends. Below the breakpoint the
+   wrapper is just a 12px gap and each control carries its own chrome.
+   backdrop-blur is added on top of the source's white/[0.04]: the artwork
    runs behind this pill, and the placeholder was competing with the dither. */
-.pl-cta form{max-width:448px;margin:40px auto 0;display:flex;flex-direction:column;align-items:center;gap:12px;border:1px solid rgba(255,255,255,.1);border-radius:9999px;background:rgba(255,255,255,.04);padding:6px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-@media(min-width:640px){.pl-cta form{flex-direction:row}}
-.pl-cta input{width:100%;flex:1;min-width:0;border:0;outline:0;border-radius:9999px;background:transparent;padding:10px 16px;color:#fff;font-size:14px}
+.pl-cta form{max-width:448px;margin:40px auto 0;display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.pl-cta input{width:100%;min-width:0;border:1px solid rgba(255,255,255,.16);outline:0;border-radius:9999px;background:rgba(255,255,255,.04);padding:12px 20px;color:#fff;font-size:14px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .pl-cta input::placeholder{color:rgba(255,255,255,.45)}
-.pl-cta button{width:100%;white-space:nowrap;border:1px solid rgba(255,255,255,.18);border-radius:9999px;background:rgba(255,255,255,.07);color:#fff;padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .2s ease,border-color .2s ease}
+.pl-cta input:focus{border-color:rgba(255,255,255,.34)}
+.pl-cta button{width:100%;white-space:nowrap;border:1px solid rgba(255,255,255,.18);border-radius:9999px;background:rgba(255,255,255,.07);color:#fff;padding:12px 20px;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .2s ease,border-color .2s ease}
 .pl-cta button:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3)}
-@media(min-width:640px){.pl-cta button{width:auto}}
+/* One row: now the stadium is honest, so the chrome moves onto the wrapper
+   and the two controls give theirs up. */
+@media(min-width:640px){
+  .pl-cta form{flex-direction:row;align-items:center;gap:0;border:1px solid rgba(255,255,255,.1);border-radius:9999px;background:rgba(255,255,255,.04);padding:6px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .pl-cta input{flex:1;border-color:transparent;background:transparent;padding:10px 16px;backdrop-filter:none;-webkit-backdrop-filter:none}
+  .pl-cta input:focus{border-color:transparent}
+  .pl-cta button{width:auto;padding:10px 20px}
+}
 .pl-cta-joined{display:inline-flex;align-items:center;gap:8px;margin:40px auto 0;border:1px solid rgba(255,255,255,.15);border-radius:9999px;background:rgba(255,255,255,.05);padding:12px 20px;font-size:14px;color:rgba(255,255,255,.85)}
 .pl-cta-joined svg{width:14px;height:14px}
 
