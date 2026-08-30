@@ -744,11 +744,7 @@
 }
 .film-frame.is-narrow .film-chart-pane {
   flex: none;
-  /* 250px gave the chat panel the larger half of a chart product's demo, and
-     the thread underneath was mostly empty anyway (224px of box for 105px of
-     turns). The candles are what this section is arguing about, so they get
-     the room the empty thread was holding. */
-  height: 330px;
+  height: 250px;
   border-bottom: var(--film-seam-w) solid var(--film-seam);
 }
 .film-frame.is-narrow .film-chatpanel {
@@ -762,17 +758,6 @@
 }
 .film-frame.is-narrow .film-readout {
   right: 60px;
-}
-/* The header already says RELIANCE / NSE / 1D two rows above, and at 440
-   design-px the legend repeating it was the single biggest source of clutter
-   in the pane: the same three tokens twice, in a band 250px tall. The price
-   row stays — that is the part the header does NOT carry — and it moves up
-   into the space the title occupied. */
-.film-frame.is-narrow .film-readout .title {
-  display: none;
-}
-.film-frame.is-narrow .film-readout {
-  top: 8px;
 }
 .film-frame.is-narrow .film-thread-inner,
 .film-frame.is-narrow .film-composer-wrap {
