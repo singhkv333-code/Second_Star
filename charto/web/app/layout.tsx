@@ -7,8 +7,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
 
 export const metadata: Metadata = {
-  title: "Charto — company",
-  description: "Company page for a charto chart symbol.",
+  title: "Pivot: Talk to the Charts",
+  description: "Pivot is an interactive financial charting terminal you can talk to. Explore markets, setups, and chart structure conversationally.",
   // Favicon + apple-touch-icon are wired via the Next.js App Router
   // file convention: app/icon.svg and app/apple-icon.png. No explicit
   // `icons` field is needed; Next bakes <link rel="icon"> tags into

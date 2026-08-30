@@ -34,7 +34,7 @@ const TOKEN_KEY = "pivot_jwt";
  *  marketing pages, and the auth routes themselves. */
 // charto: the company page is public — it reads charto's own store, not a
 // user's account, so it must open for anybody without a sign-in wall.
-const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup", "/view-pack",
+const UNGATED_PATHS = ["/", "/design", "/waitlist", "/login", "/signup", "/view-pack",
                        "/stock"];
 
 type Phase = "loading" | "needs-auth" | "ready";

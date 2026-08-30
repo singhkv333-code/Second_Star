@@ -1,9 +1,17 @@
 "use client";
 
-import { AppShell } from "@/components/AppShell";
+import { useEffect } from "react";
+import { PivotLanding } from "@/components/landing/PivotLanding";
 
-// AppBootstrap (auth gate + token provider) is wired once in
-// app/layout.tsx, so each page just renders its own shell content.
 export default function HomePage(): React.ReactElement {
-  return <AppShell />;
+  // The application shell locks document scrolling because its panes scroll
+  // independently. The public landing page is one continuous document, so
+  // hand scrolling back to the browser while this route is mounted.
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.add("pivot-landing-active");
+    return () => html.classList.remove("pivot-landing-active");
+  }, []);
+
+  return <PivotLanding />;
 }
