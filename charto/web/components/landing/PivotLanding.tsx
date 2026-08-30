@@ -16,11 +16,11 @@ const examples = [
 ];
 
 const faqs = [
-  ["What is Pivot?", "Pivot is an analyst standing at your chart. You ask in plain English — mark the levels, why did it move, screen for this setup, watch it while I'm away — and the chart becomes the answer: annotated, with the evidence behind every mark."],
+  ["What is Pivot?", "Pivot is an analyst standing at your chart. You ask in plain English: mark the levels, why did it move, screen for this setup, watch it while I'm away. The chart becomes the answer, annotated, with the evidence behind every mark."],
   ["Does Pivot place trades for me?", "No, and that is deliberate. Pivot sizes a position, plans the entry, stop and target, and arms the alert that tells you when your condition is met. You place the order in your own broker. Nothing is ever routed for you."],
-  ["Can I backtest my ideas?", "Yes. Describe a rule in plain English and Pivot runs it on historical bars, then reports win-rate, drawdown and CAGR — and how much of the result survives once the number of variants you tried is accounted for."],
+  ["Can I backtest my ideas?", "Yes. Describe a rule in plain English and Pivot runs it on historical bars, then reports win-rate, drawdown and CAGR, plus how much of the result survives once the number of variants you tried is accounted for."],
   ["What can I ask it to watch?", "Anything the chart can measure: a close through a level, a volume leg that makes a break real, an indicator crossing, or several conditions at once. Alerts are checked server-side on bar close, so they hold while the tab is shut."],
-  ["What does it know besides price?", "Fundamentals and statements for the name on screen, delivery and futures positioning, bulk and block deals, peers to compare it against, and the news around a move — all beside the chart rather than in another tab."],
+  ["What does it know besides price?", "Fundamentals and statements for the name on screen, delivery and futures positioning, bulk and block deals, peers to compare it against, and the news around a move, all beside the chart rather than in another tab."],
   ["Does it remember my work?", "Yes. Trades keep the entry, stop and target as you planned them, the note you wrote against the bar you were watching, and the chart as it looked when you took them. You can ask what you said about a chart weeks later."],
 ] as const;
 

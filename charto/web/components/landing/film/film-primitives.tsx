@@ -385,7 +385,7 @@ export function FilmSidebar({ narrow }: { narrow: boolean }) {
         <div className="film-thread-inner">
           <div className="film-turn film-turn-greet" data-film-greeting>
             <div className="film-prose">
-              <p>Ask about this chart — structure, events, or what just moved.</p>
+              <p>Ask about this chart: structure, events, or what just moved.</p>
             </div>
           </div>
 

@@ -145,7 +145,7 @@ export const SCENES: Scene[] = [
     prompt: "Mark the key support and resistance levels",
     thinkMs: 700,
     answer:
-      "Resistance is ₹2,486–2,496 — price has been turned away there four times since May. Support sits at ₹2,404–2,428, where buyers stepped in on every pullback. A daily close outside either band is the decision point.",
+      "Resistance is ₹2,486–2,496 : price has been turned away there four times since May. Support sits at ₹2,404–2,428, where buyers stepped in on every pullback. A daily close outside either band is the decision point.",
     tags: ["Price structure", "Daily"],
     annotations: [
       {
@@ -175,7 +175,7 @@ export const SCENES: Scene[] = [
     prompt: "Mark the points that coincide with the earnings release",
     thinkMs: 820,
     answer:
-      "Three prints are in view. Q3 gapped up on a margin beat, Q4 was sold into despite an in-line quarter, and Q1 is the marker on the right — price is down 4.1% in the sessions since it landed.",
+      "Three prints are in view. Q3 gapped up on a margin beat, Q4 was sold into despite an in-line quarter, and Q1 is the marker on the right, with price down 4.1% in the sessions since it landed.",
     tags: ["Events", "Fundamentals"],
     annotations: [
       { kind: "marker", id: "e1", i: 11, label: "Q3", detail: "Margin beat · +2.1%" },
@@ -188,7 +188,7 @@ export const SCENES: Scene[] = [
     prompt: "Mark all the recent patterns",
     thinkMs: 760,
     answer:
-      "One clean structure: an ascending triangle from late May — rising lows pressing into a flat ₹2,489 ceiling. The breakout on bar 49 failed to hold, which is why the lower trendline now matters more than the top.",
+      "One clean structure: an ascending triangle from late May, rising lows pressing into a flat ₹2,489 ceiling. The breakout on bar 49 failed to hold, which is why the lower trendline now matters more than the top.",
     tags: ["Pattern", "Ascending triangle"],
     annotations: [
       {
@@ -219,7 +219,7 @@ export const SCENES: Scene[] = [
     prompt: "Why is the price falling",
     thinkMs: 880,
     answer:
-      "Nothing to draw here — this one is context, not structure. Three things line up: the Q1 margin miss, heavy delivery-based selling in the two sessions after it, and the broader energy index down 3.8% over the same stretch. ₹2,404 is the level that decides whether this is a pullback or a trend change.",
+      "Nothing to draw here: this one is context, not structure. Three things line up: the Q1 margin miss, heavy delivery-based selling in the two sessions after it, and the broader energy index down 3.8% over the same stretch. ₹2,404 is the level that decides whether this is a pullback or a trend change.",
     tags: ["Context", "No drawing"],
     annotations: [],
   },

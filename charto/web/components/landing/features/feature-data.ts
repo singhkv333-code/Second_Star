@@ -100,7 +100,7 @@ export const DEMO_MOVE = {
   attribution: [
     { label: "NIFTY ENERGY moved", value: "−3.8%", width: 93, fill: "s2" as const },
     { label: "Beta 1.02 would explain", value: "−3.9%", width: 95, fill: "s1" as const },
-    { label: "Residual — the part it does not", value: "−0.2%", width: 5, fill: "flat" as const },
+    { label: "Residual, the part it does not", value: "−0.2%", width: 5, fill: "flat" as const },
   ],
   verdict: "No clear catalyst.",
   verdictNote:
@@ -153,7 +153,7 @@ export const DEMO_SCREEN = {
 /* ── 05 · say it once, and it watches ────────────────────────────────────── */
 
 export const DEMO_ALERT = {
-  prompt: "Tell me if it actually breaks out — I'm away all afternoon",
+  prompt: "Tell me if it actually breaks out. I'm away all afternoon",
   reading:
     "“Breaks out” is read against the chart, not invented: the level is the ₹2,496 resistance the detector already found, and the volume leg is what makes it a break rather than a wick.",
   conditions: [
@@ -194,11 +194,11 @@ export const DEMO_JOURNAL = {
 export const DEMO_RECALL = [
   {
     when: "14 Aug",
-    line: "“wait for a daily close above 2,496 before adding” — your words, on this chart, ten sessions ago.",
+    line: "“wait for a daily close above 2,496 before adding”, your words, on this chart, ten sessions ago.",
   },
   {
     when: "29 Jul",
-    line: "You asked whether the June gap had filled. It had — in four sessions, which is faster than this stock’s median.",
+    line: "You asked whether the June gap had filled. It had, in four sessions, which is faster than this stock’s median.",
   },
 ] as const;
 
