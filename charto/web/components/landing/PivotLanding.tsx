@@ -198,10 +198,39 @@ function Footer() {
   const [name,setName]=useState("");
   const [experience,setExperience]=useState("");
   const [joined,setJoined]=useState(false);
-  // Nothing is persisted yet: there is no API route in this app and no store
-  // behind it, so this confirms locally exactly as the production waitlist
-  // form does. Wiring a real endpoint is a backend decision, not a CSS one.
+  const [sending,setSending]=useState(false);
+  const [error,setError]=useState("");
   const canSubmit = email.trim() !== "" && name.trim() !== "" && experience !== "";
+
+  // POSTs to the dataserver's /auth/waitlist. That prefix is what nginx
+  // already proxies and what the server already exempts from its session
+  // check — a bare /waitlist would collide with THIS page's own route.
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit || sending) return;
+    setSending(true);
+    setError("");
+    const base = (process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/api").replace(/\/api\/?$/, "");
+    try {
+      const res = await fetch(`${base}/auth/waitlist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), experience }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // The server's own message, which names the field at fault — better
+        // than a generic failure line, and it is already user-facing prose.
+        setError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");
+        return;
+      }
+      setJoined(true);
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
   return <>
     {/* CTA and footer are one surface: the artwork runs behind BOTH, so they
         share a wrapper and neither paints its own ground. */}
@@ -216,7 +245,7 @@ function Footer() {
         <h2 className="pl-cta-italic">That&apos;s all it takes.</h2>
         {joined
           ? <p className="pl-cta-joined" role="status"><Check/> You&apos;re on the list. We&apos;ll reach out soon.</p>
-          : <form onSubmit={e=>{e.preventDefault();if(canSubmit)setJoined(true);}}>
+          : <form onSubmit={submit} noValidate>
               {/* Three fields do not fit the one-row pill the single email
                   input wore, so the form becomes a stacked card and keeps the
                   page's language instead: translucent fills, hairline borders,
@@ -249,7 +278,10 @@ function Footer() {
                   ))}
                 </div>
               </fieldset>
-              <button type="submit" disabled={!canSubmit}>Join the Waitlist</button>
+              {error && <p className="pl-form-error" role="alert">{error}</p>}
+              <button type="submit" disabled={!canSubmit || sending}>
+                {sending ? "Joining…" : "Join the Waitlist"}
+              </button>
             </form>}
       </div>
     </section>

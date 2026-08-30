@@ -257,13 +257,12 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
    two serif lines above it. */
 .pl-cta form{max-width:448px;margin:40px auto 0;display:flex;flex-direction:column;gap:18px;text-align:left;
   border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:22px;
-  /* A near-opaque ground, not the pill's white/[0.04]. The dither plate runs
-     directly behind this section, and a 448x442 card has far more area to
-     defend than the 56px pill did — at 4% the artwork read straight through
-     the labels. The tint keeps the hero's blue-black rather than going grey. */
-  background:rgba(9,13,15,.82);
-  box-shadow:0 24px 60px rgba(0,0,0,.45);
-  backdrop-filter:blur(20px) saturate(1.1);-webkit-backdrop-filter:blur(20px) saturate(1.1)}
+  /* Transparent enough to let the plate through, dark enough to keep the
+     labels legible: the blur does most of the separating, so the fill can
+     stay low. No drop shadow — a glow around a flat card reads as a floating
+     dialog, and this is meant to sit ON the artwork. */
+  background:rgba(9,13,15,.55);
+  backdrop-filter:blur(22px) saturate(1.1);-webkit-backdrop-filter:blur(22px) saturate(1.1)}
 @media(min-width:640px){.pl-cta form{padding:26px}}
 .pl-field{display:flex;flex-direction:column;gap:7px;border:0;padding:0;margin:0;min-width:0}
 .pl-field>label,.pl-field>legend{padding:0;font-size:12px;font-weight:500;letter-spacing:.01em;color:rgba(255,255,255,.78)}
@@ -281,7 +280,7 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
 .pl-choices{display:grid;grid-template-columns:1fr;gap:8px}
 @media(min-width:480px){.pl-choices{grid-template-columns:1fr 1fr}}
 .pl-choice{position:relative;display:flex;flex-direction:column;gap:2px;cursor:pointer;
-  border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(255,255,255,.03);padding:10px 12px;
+  border:1px solid rgba(255,255,255,.14);border-radius:8px;background:rgba(255,255,255,.05);padding:10px 12px;
   transition:border-color .18s ease,background-color .18s ease}
 .pl-choice:hover{border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.06)}
 /* The radio itself is the accessible control and stays in the tree: it is made
@@ -296,13 +295,17 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
    is the invisible one above. */
 .pl-choice:focus-within{border-color:#219ebc;box-shadow:0 0 0 3px rgba(33,158,188,.25)}
 
+.pl-form-error{margin:0;font-size:12px;line-height:1.5;color:#ff9b9b}
 .pl-cta button{width:100%;margin-top:2px;white-space:nowrap;border:1px solid #219ebc;border-radius:9999px;
   background:#219ebc;color:#fff;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;
   transition:background-color .2s ease,border-color .2s ease,opacity .2s ease}
 .pl-cta button:hover:not(:disabled){background:#1b8aa5;border-color:#1b8aa5}
 .pl-cta button:disabled{opacity:.45;cursor:not-allowed}
-.pl-cta-joined{display:inline-flex;align-items:center;gap:8px;margin:40px auto 0;border:1px solid rgba(255,255,255,.15);border-radius:9999px;background:rgba(255,255,255,.05);padding:12px 20px;font-size:14px;color:rgba(255,255,255,.85)}
-.pl-cta-joined svg{width:14px;height:14px}
+/* The confirmation is a sentence, not a chip. A pill around six words framed
+   the least important moment on the page more heavily than the form it
+   replaced; the words carry it on their own. The tick stays as punctuation. */
+.pl-cta-joined{display:inline-flex;align-items:center;gap:9px;margin:40px auto 0;font-size:15px;color:rgba(255,255,255,.86)}
+.pl-cta-joined svg{width:15px;height:15px;color:#219ebc}
 
 /* Search — charto's `.searchfield` (preview/index.html): the fill IS the box,
    no border, --radius-xs, and the glyph sits inside the left padding rather

@@ -11687,6 +11687,18 @@ CREATE TABLE IF NOT EXISTS conversations (
   PRIMARY KEY (user_id, chat_id));
 CREATE INDEX IF NOT EXISTS conversations_recent
   ON conversations(user_id, updated DESC);
+-- Landing-page waitlist. Lives in the USERS database, not the bars store:
+-- it is small, it is not derivable from anything, and losing it costs the
+-- launch list — which is exactly the policy `deploy/backup_users.sh` states
+-- for this file. No FK to users(id): these people do not have accounts yet;
+-- that is the entire point of a waitlist.
+CREATE TABLE IF NOT EXISTS waitlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  experience TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT 'landing');
 """)
 
 # `layouts` predates the save/open/share system and had five columns. Added
@@ -11786,6 +11798,45 @@ def _auth_signup(body: dict) -> tuple[int, dict]:
         return 409, {"error": "an account already exists for that email"}
     return 200, {"token": _issue_session(uid),
                  "user": {"id": uid, "email": email, "name": name}}
+
+
+# The experience bands the landing form offers. Whitelisted rather than
+# stored free-form: this is a closed question with four answers, and an
+# endpoint that accepts any string is an endpoint that stores any string.
+_WAITLIST_EXPERIENCE = ("beginner", "intermediate", "experienced",
+                        "professional")
+
+
+def _waitlist_join(body: dict) -> tuple[int, dict]:
+    """Record one landing-page waitlist signup. No account, no session.
+
+    Re-submitting the same address UPDATES the row rather than failing: a
+    person correcting their name or changing their answer is not an error,
+    and a 409 on the landing page would read as "you are already on the
+    list" — true, but the correction would be silently lost.
+    """
+    email = str(body.get("email") or "").strip().lower()
+    name = str(body.get("name") or "").strip()
+    exp = str(body.get("experience") or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return 400, {"error": "enter a valid email address"}
+    if not name:
+        return 400, {"error": "enter your name"}
+    if exp not in _WAITLIST_EXPERIENCE:
+        return 400, {"error": "choose your trading experience"}
+    # Bounded, because these are the only two free-text fields on a public
+    # unauthenticated endpoint.
+    email, name = email[:254], name[:120]
+    now = int(time.time())
+    with _users_lock:
+        _users.execute(
+            "INSERT INTO waitlist (email, name, experience, created) "
+            "VALUES (?,?,?,?) "
+            "ON CONFLICT(email) DO UPDATE SET name=excluded.name, "
+            "experience=excluded.experience",
+            (email, name, exp, now))
+        _users.commit()
+    return 200, {"ok": True}
 
 
 def _auth_login(body: dict) -> tuple[int, dict]:
@@ -12900,6 +12951,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
         """Accounts and saved work. Everything past /auth/* needs a session."""
+        # Before the session check below: a person joining the waitlist has
+        # no account yet, which is the whole point of a waitlist. Lives under
+        # /auth/ because that prefix is already proxied and already exempt
+        # from the session check — and because a bare /waitlist would collide
+        # with the landing PAGE of the same name.
+        if path == "/auth/waitlist":
+            return _waitlist_join(body)
         if path == "/auth/signup":
             return _auth_signup(body)
         if path == "/auth/login":
