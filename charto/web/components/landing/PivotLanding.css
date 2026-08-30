@@ -83,8 +83,8 @@
 .pl-brand{gap:9px;font-family:'Newsreader',Georgia,'Times New Roman',serif;font-weight:550;font-size:26px;letter-spacing:-.03em}
 .pl-brand-dot{font-style:normal;color:#219ebc}
 .pl-nav-inner{grid-template-columns:1fr auto}
-.pl-brand-glyph{display:block;flex:0 0 auto;width:auto;height:22px}
-@media(max-width:600px){.pl-brand-glyph{width:auto;height:20px}}
+.pl-brand-glyph{display:block;flex:0 0 auto;width:28px;height:28px}
+@media(max-width:600px){.pl-brand-glyph{width:25px;height:25px}}
 
 
 .pl-panel-avatar{display:block;flex:0 0 auto;width:30px;height:30px;overflow:hidden;border-radius:50%;background:transparent;color:#171918}

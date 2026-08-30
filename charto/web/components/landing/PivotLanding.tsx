@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   ArrowDown, ArrowRight, ArrowUp, Check, Instagram,
 } from "lucide-react";
-import { PivotMark } from "@/components/brand/PivotMark";
 import { ProductFilm } from "@/components/landing/film/film-demo";
 import { FeaturesSection } from "@/components/landing/features/FeaturesSection";
 import { useLandingScroll } from "@/components/landing/landing-scroll";
@@ -25,8 +24,22 @@ const faqs = [
   ["Does it remember my work?", "Yes. Trades keep the entry, stop and target as you planned them, the note you wrote against the bar you were watching, and the chart as it looked when you took them. You can ask what you said about a chart weeks later."],
 ] as const;
 
+function PivotGlyph({ className }: { className?: string }): React.ReactElement {
+  const maskId = `pl-mark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  return (
+    <svg className={className} viewBox="144 68 652 652" aria-hidden="true" focusable="false">
+      <mask id={maskId} maskUnits="userSpaceOnUse" x="144" y="68" width="652" height="652">
+        <circle cx="469.5" cy="393.5" r="326" fill="#fff" />
+        <rect x="604.5" y="68" width="37" height="652" fill="#000" />
+        <path d="M711.4 86.1 739.4 110.4 227.6 700.9 199.6 676.6Z" fill="#000" />
+      </mask>
+      <rect x="144" y="68" width="652" height="652" fill="currentColor" mask={`url(#${maskId})`} />
+    </svg>
+  );
+}
+
 function Brand() {
-  return <a className="pl-brand" href="#top" aria-label="Pivot home"><PivotMark size={22} barWidth={132} className="pl-brand-glyph" /><span>Pivot<i className="pl-brand-dot">.</i></span></a>;
+  return <a className="pl-brand" href="#top" aria-label="Pivot home"><PivotGlyph className="pl-brand-glyph" /><span>Pivot<i className="pl-brand-dot">.</i></span></a>;
 }
 
 function Nav() {
