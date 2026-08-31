@@ -11424,6 +11424,41 @@ def _urlopen_with_retry(req: urllib.request.Request, *, timeout: float,
     raise last or RuntimeError("Azure request failed before response")
 
 
+def _stream_error(ev: dict) -> str:
+    """Read an upstream `error` event, and LOG it.
+
+    Two bugs lived here, and together they made every upstream stream fault
+    undiagnosable. The message was read as `ev["message"]`, which the Responses
+    API never sets — it nests the fault as `ev["error"]["message"]` — so the
+    fallback string won every time and a real answer ("no healthy upstream", a
+    content filter, a quota) reached the user as the words "stream error". And
+    nothing on this branch wrote to the log, so the only record of the failure
+    was those two words in a browser the developer is not holding. The `except`
+    clause below already carries a comment about exactly this failure mode;
+    this path was simply never given the same treatment.
+
+    `response.failed` nests it one level deeper again, under the response.
+    """
+    err = ev.get("error")
+    if not isinstance(err, dict):
+        resp = ev.get("response")
+        err = (resp.get("error") if isinstance(resp, dict) else None) or {}
+    msg = str(err.get("message") or ev.get("message") or "").strip()
+    code = err.get("code") or err.get("type") or ""
+    logging.error("charto: model stream error (%s): %s | raw=%s",
+                  code or "no code", msg or "no message",
+                  json.dumps(ev)[:800])
+    if not msg:
+        return f"stream error ({code})" if code else "stream error"
+    # A gateway with no backend behind it is the model service being down, not
+    # anything about the question — and "no healthy upstream" is Envoy's
+    # phrasing, which tells a user nothing they can act on. Everything else is
+    # relayed as itself: guessing at a cause is worse than the raw string.
+    if "no healthy upstream" in msg.lower() or code == "server_error":
+        return f"the model service is unavailable upstream ({msg}). Try again."
+    return msg
+
+
 def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
     """Same call, server-sent events. Yields parsed Responses-API events.
 
@@ -11768,8 +11803,14 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     for item in r.get("output", []):
                         if item.get("type") == "function_call":
                             by_id[item.get("id") or len(by_id)] = item
-                elif t == "error":
-                    yield {"type": "done", "error": str(ev.get("message") or "stream error")}
+                # `error` is the stream-level fault; `response.failed` is the
+                # RUN failing after it started, and it was not handled at all —
+                # the loop simply ran out of events, found no tool calls and
+                # answered "(empty reply)". A failed run reported as an empty
+                # answer is worse than an error: it reads as the model having
+                # nothing to say.
+                elif t in ("error", "response.failed"):
+                    yield {"type": "done", "error": _stream_error(ev)}
                     return
         except Exception as exc:  # noqa: BLE001 — a broken stream must not hang the client
             logging.warning("charto stream failed: %s", exc)
