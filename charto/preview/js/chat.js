@@ -1499,6 +1499,14 @@
    * Ordered the way the work actually goes: state a rule, give it an exit,
    * size it, schedule it, then test it and look at it. */
   const EXEC_TEMPLATES = [
+    // Two openers that name only a NATURE. Every other tile here is a fully
+    // specified rule, which quietly taught the opposite of what the builder
+    // can do: that you have to arrive knowing the indicator, the lookback and
+    // the threshold. Most people arrive with an adjective.
+    { icon: "lock", label: "Defensive",
+      q: "Build me something defensive on {sym} — protect the downside even if the upside is small." },
+    { icon: "opRise", label: "Momentum",
+      q: "Build me a momentum strategy on {sym}." },
     { icon: "indicators", label: "Dip buy",
       q: "Buy 10 {sym} when RSI(14) falls below 30." },
     { icon: "cross", label: "Crossover",

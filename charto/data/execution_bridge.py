@@ -71,11 +71,19 @@ PIVOT_TOOLS: tuple[str, ...] = (
     # A trigger→action automation cannot express "own these eight names at
     # these weights", and that is what most people mean first.
     "build_strategy",
-    # Options. These are the only tools here that need Pivot's DATABASE (the
-    # instrument master and option universe live there); see `_session`.
-    "get_option_chain",
-    "suggest_option_strategy",
-    "build_option_strategy",
+    # NO OPTION TOOLS. They were here, and with them on the wire "strategy"
+    # collapsed to "option strategy": asked for something protected from the
+    # downside, the builder's first move was to offer a conservative options
+    # income structure or a put hedge — for a user who had said nothing about
+    # derivatives and was looking at an equity chart. Charto's subject is the
+    # chart, and the chart is a stock. Downside control here is a regime
+    # filter, an exit, or how the basket is composed.
+    #
+    # Removing them from THIS list does three things at once, which is why
+    # the list is the right place to do it: the tools leave the wire, the
+    # option calibration examples leave with them (`_calibration_block`
+    # filters on this tuple), and `_DB_TOOLS` empties — so execution mode no
+    # longer needs Pivot's Postgres at all.
     # Relationships between instruments, which single-symbol rules cannot say
     # anything about: a pair's spread, a basket's cross-section, whether two
     # series are actually cointegrated or merely correlated last quarter.
@@ -85,12 +93,11 @@ PIVOT_TOOLS: tuple[str, ...] = (
     "backtest_portfolio",
 )
 
-# Tools that read Pivot's Postgres. Everything else runs with `db=None`, so a
-# database that is down or unreachable costs exactly these four and leaves the
-# proposal and backtest surface working.
-_DB_TOOLS: frozenset[str] = frozenset({
-    "get_option_chain", "suggest_option_strategy", "build_option_strategy",
-})
+# Tools that read Pivot's Postgres. Everything else runs with `db=None`.
+# Empty since the option tools left — they were the only three that needed the
+# instrument master and the option universe. Kept as a seam rather than
+# deleted: the next DB-backed tool goes here, and `_session` already reads it.
+_DB_TOOLS: frozenset[str] = frozenset()
 
 # Prompt modules from Pivot that govern the tools above. Deliberately NOT the
 # whole 83KB system_core.md — that carries the market-analysis contract, the
@@ -160,26 +167,31 @@ IT names", "put 3 lakh to work" want HOLDINGS, not a trigger — call
 workflow cannot express "own these eight at these weights"; reaching for
 `propose_workflow` there produces an automation nobody asked for.
 
+A NATURE IS A SPECIFICATION. "Momentum", "mean-reverting", "trend following",
+"defensive", "protected from the downside", "regime-aware", "low risk", "swing"
+— each names a SHAPE, and a shape is enough to build from. Pick the standard
+construction for it, build it, and say in one line what you chose. You know
+what these words mean; do not ask which indicator, which lookback or which
+threshold, and do not offer the user a menu of strategy types. Those are yours
+to choose and theirs to amend on the card. If a REQUIRED argument is genuinely
+missing — size is the usual one — ask for that argument ALONE, in the same
+breath as naming the construction you have already settled on. Which strategy
+to build is never one of the options you put to the user.
+
+WHAT CARRIES RISK HERE, since there are no options on this surface: a REGIME
+filter that keeps the strategy flat in the wrong conditions, an EXIT that caps
+the loss (`propose_dsl_workflow`'s exit tree reads `unrealised_pct`,
+`peak_unrealised_pct`, `drawdown_from_peak_pct`, `bars_held` — that is a stop,
+a trailing stop and a time stop), or COMPOSITION for a basket (`build_strategy`
+with `risk: conservative` picks the low-variance weighting and the ballast
+sleeve itself). "Protect my downside" is one of those three, or several. Name
+which one you used; never answer it with a hedge this surface cannot build.
+
 Do NOT ask for risk appetite or horizon before building a basket.
 `build_strategy` fills them itself and returns what it assumed — the card
 lists every assumption, and the user amends the one they disagree with. An
 objective and a capital figure are enough to build on; asking first turns a
 one-turn answer into an interview about fields the tool already defaults.
-
-OPTIONS ARE REAL HERE. `get_option_chain` returns the live chain with OI, IV,
-greeks, max pain and the expected move. `suggest_option_strategy` turns a view
-("bullish on NIFTY into expiry") into structures; `build_option_strategy`
-builds a NAMED template (`bull_call_spread`, `iron_condor`, `straddle`, …) and
-returns its payoff, greeks, breakevens and a critique. Argument is `template`,
-not `strategy`. Quote what comes back and never estimate a premium, a greek or
-a margin yourself.
-
-CHECK `data_status` BEFORE QUOTING AN OPTION NUMBER. Without a live broker
-session these tools return MOCK strikes and premiums — structurally right,
-financially fictional. When `data_status` is anything but live, say so in your
-first line, before any figure. The card carries the same warning; a reply that
-quotes the premiums as real while the card calls them mock is the two halves
-of one answer contradicting each other.
 
 PAIRS AND PORTFOLIOS. Two instruments in a relationship are their own
 question: `test_cointegration` says whether a spread is statistically real
@@ -546,13 +558,13 @@ class _session:
     connection held open across a chat turn — this surface's calls are short
     reads and do not deserve one.
 
-    Scope is deliberate. The option tools read the instrument master and the
-    option universe, which is what makes a live chain possible at all. NOTHING
-    on this surface writes, and `kite_token` stays empty everywhere, so no
-    broker action is reachable even with a session in hand. `get_portfolio_
-    greeks` is pointedly NOT on the tool list for the same reason activation
-    is disabled: it reads a USER's positions, and a Charto account is not a
-    Pivot account.
+    `_DB_TOOLS` is empty today: the option tools were the only ones here that
+    needed Pivot's Postgres, and they are gone. The seam stays because the
+    reasoning behind it has not changed — NOTHING on this surface writes, and
+    `kite_token` stays empty everywhere, so no broker action is reachable even
+    with a session in hand. Anything that reads a USER's positions is
+    pointedly not on the tool list for the same reason activation is disabled:
+    a Charto account is not a Pivot account.
     """
 
     def __init__(self, tool: str) -> None:
