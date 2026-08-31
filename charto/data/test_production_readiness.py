@@ -208,3 +208,98 @@ def test_no_fallback_configured_fails_loudly(monkeypatch) -> None:
     assert server._stream_models() == ["primary"]
     assert server._demote("down") == ""
     assert server._model() == "primary"
+
+
+# ── the shared connection, and the resample cache ───────────────────────────
+#
+# Both of these exist because of what a 2026-08-31 load run on the production
+# box measured, and both are the kind of fix that a later refactor could undo
+# without any visible symptom until concurrency arrives. So they are pinned.
+
+
+def test_bar_store_hands_each_thread_its_own_connection() -> None:
+    """The fault: one sqlite3 handle shared by every request thread.
+
+    Measured in production at 1-3 failures per 120 requests once 20-40 chart
+    opens overlap, raising `InterfaceError: bad parameter or other API misuse`
+    from `_symbol_ready` — on `do_POST`, so a chat turn died rather than a
+    chart. A control run against the pre-fix design failed 36 of 48 threads,
+    including one `ValueError` from a torn cursor feeding a short row into the
+    resampler, which is worse than a 500 because it is not an error at all.
+    """
+    import threading
+
+    seen: dict[int, int] = {}
+    errors: list[str] = []
+
+    def touch() -> None:
+        try:
+            for _ in range(6):
+                server._con.execute("SELECT 1").fetchone()
+            seen[threading.get_ident()] = id(server._con._c())
+        except Exception as exc:                      # noqa: BLE001
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=touch) for _ in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, errors
+    # Distinct connections, one per thread — the property that makes the race
+    # impossible rather than merely unlikely.
+    assert len(set(seen.values())) == len(seen) == 16
+
+    # And the private cache is bounded absolutely, not just divided: the live
+    # connection count follows traffic, so a share of the budget is not a cap.
+    assert server._CACHE_KIB_EACH <= server._DB_CACHE_MAX_KIB
+
+
+def test_resample_cache_is_invisible_and_bounded() -> None:
+    """A cache that changes an answer is a bug with better latency.
+
+    `_resample_intraday` costs one iteration per MINUTE while the chart asks in
+    BARS, so an hourly open folds 180,400 rows in pure Python and holds the GIL
+    for all of it. Every indicator repeats it on the identical series.
+    """
+    key_a = ("SYNTH", 5, None, 20400, 4000)
+    key_b = ("SYNTH", 60, None, 180400, 3000)
+    bars_a = [[1, 2.0, 3.0, 1.0, 2.5, 10]]
+    bars_b = [[2, 3.0, 4.0, 2.0, 3.5, 20]]
+
+    server._intra_cache.clear()
+    assert server._intra_cached(key_a) is None
+
+    server._intra_store(key_a, bars_a, True)
+    server._intra_store(key_b, bars_b, False)
+    assert server._intra_cached(key_a) == (bars_a, True)
+    # Interval and window are part of the identity: an hourly answer must never
+    # be served to a five-minute request, nor a pan to a fresh open.
+    assert server._intra_cached(key_b) == (bars_b, False)
+    assert server._intra_cached(("SYNTH", 5, 999, 20400, 4000)) is None
+
+    for i in range(server._INTRA_CACHE_MAX + 25):
+        server._intra_store(("FILL", 5, None, i, 4000), [[i]], False)
+    assert len(server._intra_cache) <= server._INTRA_CACHE_MAX
+
+    server._intra_store(key_a, bars_a, True)
+    server._intra_drop("SYNTH")
+    assert server._intra_cached(key_a) is None
+    server._intra_cache.clear()
+
+
+def test_live_bar_never_reads_from_the_cache(monkeypatch) -> None:
+    """A forming bar is merged INTO rows before the resample.
+
+    So the output is not a function of the cache key, and the live path has to
+    take the long way every time. Getting this wrong would freeze the newest
+    candle at whatever it looked like on first paint.
+    """
+    import inspect
+
+    src = inspect.getsource(server.get_bars)
+    assert "live_bar = form is not None" in src
+    assert "key = None if live_bar else" in src
+    # and the merge happens only on that same branch, never on a cached read
+    assert src.index("if live_bar:") > src.index("key = None if live_bar else")

@@ -397,7 +397,7 @@ const Panels = (() => {
     if (!syms.length || quoting) return;
     quoting = true;
     try {
-      const r = await fetch(`${API}/quotes?symbols=` +
+      const r = await Net.get(`${API}/quotes?symbols=` +
                             encodeURIComponent(syms.join(",")));
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();

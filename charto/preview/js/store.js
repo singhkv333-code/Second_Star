@@ -154,3 +154,56 @@ const Store = (() => {
     },
   };
 })();
+
+
+/* Net — one fetch that honours the server's own back-pressure contract.
+ *
+ * The dataserver bounds concurrent work on the expensive routes and, when the
+ * queue is full, answers 503 with a body that says exactly what to do:
+ *
+ *     {"error": "Chart data is busy. Retry shortly.",
+ *      "retryable": true, "retry_after_s": 2}
+ *
+ * plus a Retry-After header. That is a deliberate design — an explicit, bounded
+ * rejection instead of an unbounded tail — and until now NOTHING in this
+ * frontend read any part of it. Every call site was `if (!res.ok) throw`, so a
+ * server politely asking for two seconds looked identical to a server that had
+ * fallen over, and the chart showed a hard error it was told how to avoid.
+ *
+ * Measured 2026-08-31: with a cold cache, 48 simultaneous opens of the hourly
+ * chart drew 206 of these across 576 requests. The same burst a moment later,
+ * warm, drew none — which is precisely the shape a short retry is for.
+ *
+ * Deliberately small: retries ONLY on 503-with-retryable, waits what the server
+ * asked for, and gives up after two extra attempts so a genuinely overloaded
+ * box is never handed three times the traffic as an apology.
+ */
+const Net = (() => {
+  "use strict";
+  const MAX_RETRIES = 2;
+  const CAP_S = 5;                     // never sit longer than this per attempt
+
+  const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+
+  return {
+    async get(url, init) {
+      let last;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const res = await fetch(url, init);
+        if (res.status !== 503) return res;
+        last = res;
+        if (attempt === MAX_RETRIES) break;
+        // The body is the contract; the header is the fallback. A 503 that
+        // does not claim to be retryable is a real fault and is returned.
+        let wait = Number(res.headers.get("Retry-After")) || 0;
+        try {
+          const d = await res.clone().json();
+          if (!d.retryable) return res;
+          wait = Number(d.retry_after_s) || wait;
+        } catch { /* no JSON body — fall back to the header */ }
+        await sleep(Math.min(CAP_S, Math.max(0.25, wait || 1)));
+      }
+      return last;                     // caller sees the 503 and can say so
+    },
+  };
+})();

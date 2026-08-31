@@ -220,7 +220,7 @@
   async function fetchBars(interval, toRaw, limit) {
     const qs = new URLSearchParams({ symbol: SYMBOL, interval, limit: String(limit) });
     if (toRaw) qs.set("to", String(toRaw));
-    const res = await fetch(`${API}/bars?${qs}`);
+    const res = await Net.get(`${API}/bars?${qs}`);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
     return {

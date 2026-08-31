@@ -12586,7 +12586,82 @@ def scope_for(symbol: str) -> str:
     return sc
 
 
-_con = sqlite3.connect(DB_PATH, check_same_thread=False)
+class _ThreadDB:
+    """One SQLite connection per thread, wearing the name of a single one.
+
+    WHAT THIS REPLACES. `_con` and `_users` were each ONE connection opened
+    with `check_same_thread=False` and no lock, shared by every request thread
+    — 91 unguarded `_con.execute` sites here, 38 on `_users`, and four more in
+    alerts.py. Two threads interleaving on one handle corrupt each other's
+    cursor state, and SQLite reports it as:
+
+        sqlite3.InterfaceError: bad parameter or other API misuse
+
+    Measured 2026-08-31 on the production box: clean to 64 threads on a cheap
+    path, then 1-3 failures per 120 requests once real mixed load arrives —
+    about 2% at 20-40 concurrent chart-opens. The traceback that matters is
+    `do_POST -> _ensure_symbol -> _symbol_ready`, which is the CHAT endpoint:
+    not a chart request degrading, a user's question dying with a 500 after
+    they pressed send.
+
+    WHY A PROXY RATHER THAN A LOCK. A lock around 129 call sites is a large
+    diff that also serialises every reader — and SQLite readers do not conflict,
+    so it would trade a rare fault for a permanent throughput cut on a box that
+    is already CPU-bound. A connection per thread removes the race by
+    construction, keeps readers parallel, and changes no call site at all: the
+    three methods below are the entire surface those 129 sites use.
+
+    MEMORY. `cache_size` is per connection, so N threads would otherwise claim
+    N x the budget. `_CACHE_KIB` is therefore read as a TOTAL and divided by
+    `CHARTO_DB_CACHE_SHARES`. The number that matters is `mmap_size`, which is
+    the OS page cache and is shared by every connection for free — which is why
+    dividing the private cache costs little (see the note on _CACHE_KIB below).
+
+    Connections are held for the life of their thread. ThreadingHTTPServer
+    reuses a thread across a keep-alive connection, so this is one open per
+    client connection, not one per request.
+    """
+
+    def __init__(self, path, pragmas, attach=()):
+        self._path = str(path)
+        self._pragmas = tuple(pragmas)
+        self._attach = tuple(attach)
+        self._local = threading.local()
+        self._opened = 0
+        self._count_lock = threading.Lock()
+
+    def _c(self):
+        c = getattr(self._local, "c", None)
+        if c is None:
+            # check_same_thread stays TRUE: this connection belongs to one
+            # thread by construction, and the default guard is then a free
+            # assertion that the invariant still holds.
+            c = sqlite3.connect(self._path, timeout=60.0)
+            for pragma in self._pragmas:
+                c.execute(pragma)
+            for name, path in self._attach:
+                try:
+                    c.execute(f"ATTACH DATABASE ? AS {name}", (path,))
+                except sqlite3.Error as exc:   # noqa: BLE001 — optional store
+                    logging.warning("attach %s failed on a worker: %s", name, exc)
+            self._local.c = c
+            with self._count_lock:
+                self._opened += 1
+        return c
+
+    # The whole API the 129 call sites use. Anything else is a deliberate
+    # omission: a method added here without thinking about which thread owns
+    # the transaction is how the original bug comes back.
+    def execute(self, *a):        return self._c().execute(*a)
+    def executescript(self, s):   return self._c().executescript(s)
+    def commit(self):             return self._c().commit()
+
+    @property
+    def opened(self) -> int:
+        with self._count_lock:
+            return self._opened
+
+
 # The store is 9.7 GB and 89M minute rows; SQLite's default 2 MB page cache
 # means a 180k-row read for an hourly chart re-reads pages it just evicted.
 # Measured on the 1h path: 250ms -> 185ms, and a full-symbol minute scan
@@ -12598,8 +12673,28 @@ _con = sqlite3.connect(DB_PATH, check_same_thread=False)
 # SBIN, 1h/4000 through nginx). Negative = KiB.
 _CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
 _MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
-_con.execute(f"PRAGMA cache_size=-{_CACHE_KIB}")
-_con.execute(f"PRAGMA mmap_size={_MMAP_BYTES}")
+
+# `cache_size` is PER CONNECTION and there is now one per worker thread, so
+# _CACHE_KIB is read as the total budget and divided. This is a smaller change
+# than it looks: mmap_size is the OS page cache, it is shared by every
+# connection at no cost, and the comment above records that mmap — not the
+# private cache — is what made the 1h path fast. The private cache only has to
+# be large enough that a single query does not thrash inside itself.
+# A division alone is not a bound: ThreadingHTTPServer holds a thread per
+# client connection, so the live count follows traffic, not this constant.
+# Measured locally, 48 worker threads opened 81 connections over three rungs —
+# at the VM's 2 GB budget divided by 16 that would be 128 MB apiece and several
+# gigabytes on a 7.9 GB box. So there is an absolute ceiling as well.
+#
+# 32 MB is generous rather than tight, because with mmap_size set the pages are
+# read straight out of the mapping and are NOT copied into this private cache.
+# It only has to keep one query from thrashing inside itself.
+_DB_CACHE_SHARES = max(1, int(environ.get("CHARTO_DB_CACHE_SHARES") or 16))
+_DB_CACHE_MAX_KIB = max(4096, int(environ.get("CHARTO_DB_CACHE_MAX_KIB") or 32768))
+_CACHE_KIB_EACH = max(8192, min(_CACHE_KIB // _DB_CACHE_SHARES,
+                                _DB_CACHE_MAX_KIB))               # 8-32 MB
+_BARS_PRAGMAS = (f"PRAGMA cache_size=-{_CACHE_KIB_EACH}",
+                 f"PRAGMA mmap_size={_MMAP_BYTES}")
 
 # The scorer reads its four statement grids through this one call, so it never
 # opens a database of its own — charto's store is the only source, and the
@@ -12625,13 +12720,78 @@ _MKT_PATH = Path(__file__).parent / "flows_market.db"
 _HAVE_MKT = False
 try:
     if _MKT_PATH.exists():
-        _con.execute("ATTACH DATABASE ? AS mkt", (str(_MKT_PATH),))
-        _HAVE_MKT = bool(_con.execute("SELECT 1 FROM mkt.deals LIMIT 1").fetchone())
-        if not _HAVE_MKT:
-            _con.execute("DETACH DATABASE mkt")
+        # Probed once here on a throwaway connection, then carried as a flag:
+        # every worker connection has to perform the same attach, and asking
+        # each of them to re-run the `deals` probe would put the check on the
+        # request path for no new information.
+        _probe = sqlite3.connect(DB_PATH)
+        _probe.execute("ATTACH DATABASE ? AS mkt", (str(_MKT_PATH),))
+        _HAVE_MKT = bool(_probe.execute("SELECT 1 FROM mkt.deals LIMIT 1").fetchone())
+        _probe.close()
 except sqlite3.Error as exc:  # noqa: BLE001 — absent sweep degrades, never kills
     logging.warning("market flows attach failed: %s", exc)
+
+_con = _ThreadDB(DB_PATH, _BARS_PRAGMAS,
+                 attach=(("mkt", str(_MKT_PATH)),) if _HAVE_MKT else ())
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
+
+# Resampled INTRADAY series, the same idea one interval down.
+#
+# WHY. `_resample_intraday` is a pure-Python loop over one row per MINUTE, and
+# the chart asks for a fixed number of BARS — so its cost is limit x minutes,
+# not limit. Measured on the box, 2026-08-31, for exactly what the frontend
+# requests (js/main.js PAGE):
+#
+#     1m  limit 5000 ->   5,400 rows -> 0.02s
+#     5m  limit 4000 ->  20,400 rows -> 0.05s
+#     1h  limit 3000 -> 180,400 rows -> 0.41s
+#
+# One hourly chart-open is 180,400 iterations calling _bucket_stamp once and
+# min/max six times per row — 20x the CPU of a 1-minute chart for the SAME
+# 3,000 bars back. And it is pure Python, so it holds the GIL for all of it and
+# stalls every other request in the process. That is the throughput collapse in
+# the load ladder: latency rising while throughput FALLS is one thread at a
+# time doing arithmetic, not disk and not lock contention.
+#
+# The multiplier that makes a cache worth it: `/indicator` reaches bars through
+# `_rows` -> `get_bars`, so a chart showing three indicators resamples the
+# identical series FOUR times per open, and every indicator settings change
+# does it again.
+#
+# Correctness: keyed on the exact window fetched, so a different `limit` or a
+# pan (`to`) is a different entry rather than a wrong answer, and dropped for
+# the symbol wherever `_daily_cache` is dropped. Bypassed entirely when a
+# forming bar exists — that merges live data INTO `rows` before the resample,
+# so its output is not a function of the key.
+_INTRA_CACHE_MAX = max(0, int(environ.get("CHARTO_INTRA_CACHE") or 96))
+_intra_cache: dict[tuple, tuple[list[list], bool]] = {}
+_intra_lock = threading.Lock()
+
+
+def _intra_cached(key: tuple):
+    hit = _intra_cache.get(key)          # atomic; a concurrent pop just misses
+    if hit is not None:
+        return hit[0], hit[1]
+    return None
+
+
+def _intra_store(key: tuple, bars: list[list], has_more: bool) -> None:
+    if not _INTRA_CACHE_MAX:
+        return
+    with _intra_lock:
+        # Insertion-ordered dict as a plain LRU-by-age: the oldest entry is the
+        # first key. Trimming under the lock keeps the bound honest when
+        # several threads miss on different symbols at once.
+        _intra_cache[key] = (bars, has_more)
+        while len(_intra_cache) > _INTRA_CACHE_MAX:
+            _intra_cache.pop(next(iter(_intra_cache)), None)
+
+
+def _intra_drop(symbol: str) -> None:
+    """Forget one symbol. Called wherever `_daily_cache` is dropped."""
+    with _intra_lock:
+        for key in [k for k in _intra_cache if k[0] == symbol]:
+            _intra_cache.pop(key, None)
 
 
 # ── accounts, sessions and saved work ──────────────────────────────────────
@@ -12654,6 +12814,13 @@ _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
 # store. Production keeps the adjacent durable DB unless explicitly overridden.
 _USERS_PATH = Path(environ.get("CHARTO_USERS_DB")
                    or Path(__file__).parent / "charto_users.db")
+# Deliberately NOT per-thread, unlike the bar store above. Every account read
+# and write already runs inside `_users_lock` (checked: the only four sites
+# outside it are the import-time migrations below and one helper whose
+# docstring records that its caller holds it), so this connection has never
+# had the race that `_ThreadDB` exists to remove. Converting it would add a
+# second concurrency model to a surface that is already correct, and buy
+# nothing while the lock still serialises the same calls.
 _users = sqlite3.connect(_USERS_PATH, check_same_thread=False)
 _users.execute("PRAGMA journal_mode=WAL")
 _users.execute("PRAGMA foreign_keys=ON")
@@ -13460,6 +13627,7 @@ def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
                         (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
                     _live_writer.commit()
                 _daily_cache.pop(sym, None)
+                _intra_drop(sym)
                 closed_bar = list(f)
             st["form"] = [bts, price, price, price, price, vol]
             if st["horizon"] is not None:
@@ -13533,6 +13701,7 @@ def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
                             (sym, f[0], f[1], f[2], f[3], f[4], _exact_vol(f[5])))
                         _live_writer.commit()
                     _daily_cache.pop(sym, None)
+                    _intra_drop(sym)
                 st["form"] = None
                 # the replayed rows are all back in the store, so plain history
                 # is correct — a lingering horizon would silently clip every
@@ -13747,23 +13916,33 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
         raw_needed = limit * mins + 400  # slack for session boundaries
         upper = to if horizon is None else (
             horizon if to is None else min(to, horizon))
-        if upper:
-            rows = _con.execute(
-                "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
-                "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)
-            ).fetchall()
+        # A forming bar is merged INTO rows below, so its output is not a
+        # function of this key — the live path takes the long way every time.
+        live_bar = form is not None and (to is None or form[0] < to)
+        key = None if live_bar else (symbol, mins, upper, raw_needed, limit)
+        hit = _intra_cached(key) if key else None
+        if hit is not None:
+            bars, has_more = hit
         else:
-            rows = _con.execute(
-                "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
-                "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)
-            ).fetchall()
-        rows.reverse()
-        if form is not None and (to is None or form[0] < to):
-            _merge_form_intraday(rows, form)
-        bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
-        has_more = bool(rows) and _con.execute(
-            "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
-            (symbol, rows[0][0])).fetchone() is not None
+            if upper:
+                rows = _con.execute(
+                    "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
+                    "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)
+                ).fetchall()
+            else:
+                rows = _con.execute(
+                    "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
+                    "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)
+                ).fetchall()
+            rows.reverse()
+            if live_bar:
+                _merge_form_intraday(rows, form)
+            bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
+            has_more = bool(rows) and _con.execute(
+                "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
+                (symbol, rows[0][0])).fetchone() is not None
+            if key:
+                _intra_store(key, bars, has_more)
     else:
         daily = _daily(symbol) if horizon is None else _fold_daily(_con.execute(
             "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? ORDER BY ts",

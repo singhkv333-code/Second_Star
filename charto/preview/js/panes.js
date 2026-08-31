@@ -226,7 +226,7 @@ const Panes = (() => {
     const qs = new URLSearchParams({
       symbol, interval: WIRE[interval] || interval, limit: String(limit),
     });
-    const res = await fetch(`${API}/bars?${qs}`);
+    const res = await Net.get(`${API}/bars?${qs}`);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
     // the axis shift belongs to the SYMBOL — crypto folds on UTC, NSE on IST
