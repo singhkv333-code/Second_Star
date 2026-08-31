@@ -422,6 +422,19 @@ const Icons = (() => {
      * MOMENT the rule is about, not an icon for the word.
      */
 
+    // a fall that is CAUGHT: the price rolls over and the floor under it is
+    // where the strategy gets out. The floor takes the accent because the
+    // protection is the point, not the decline.
+    lock: '<path d="M7 32h26"/>'
+      + '<path d="M8 13c4 1 6 3 9 8s5 8 8 8 5-2 8-5"/>'
+      + '<path class="a" d="M6 24h28"/>'
+      + '<circle class="af" cx="20" cy="24" r="2.6" stroke="none"/>',
+    // acceleration: the same move, steepening. The accent is only the steep
+    // leg — momentum is the CHANGE in slope, so the flat part must stay ink.
+    opRise: '<path d="M7 32h26"/>'
+      + '<path d="M8 27c5-.5 8-1.5 11-3"/>'
+      + '<path class="a" d="M19 24c5-2.5 8-7 11-14"/>'
+      + '<path class="af" d="M30 10l1.8 5.4-5.4-1.8z" stroke="none"/>',
     // two averages meeting — the crossing is the event, so it is the accent
     cross: '<path d="M7 32h26"/>'
       + '<path d="M8 26c6 0 8-9 13-9s7 5 12 5"/>'

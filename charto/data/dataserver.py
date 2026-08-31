@@ -10561,7 +10561,16 @@ def run_tool(name: str, args: dict) -> dict:
         # So the aim is bounded by the conversation's own charts. Cross-symbol
         # work is unaffected: get_peers / compare_symbols / screen_universe
         # name their own symbols and were never in _CHART_SCOPED.
-        on_screen = [s.upper() for s in (getattr(_req, "charts", []) or [])]
+        # ...in RESEARCH mode. The hazard above is specific to answers that
+        # are about a chart: there, a stale ticker produces every number right
+        # and every number about the wrong company. A builder's answer is
+        # about a RULE, and the rule names its own symbols — a relative-
+        # strength entry against NIFTY has to read NIFTY whether or not the
+        # user chose to display it. Bounding the builder to the open panes
+        # turned "mark the entries this rule generated" into "open the NIFTY
+        # chart first", which is a workspace errand, not an answer.
+        on_screen = ([] if getattr(_req, "chat_mode", "chat") == "execution"
+                     else [s.upper() for s in (getattr(_req, "charts", []) or [])])
         if on_screen and want not in on_screen:
             return {"error": f"{want} is not a chart in this conversation",
                     "_note": (f"The charts here are: {', '.join(on_screen)}. "
@@ -10879,11 +10888,57 @@ def build_context_block(ctx: dict | None) -> str:
         return "\n\n".join(x for x in (stub, journal_block) if x)
     if not ctx.get("symbol"):
         return journal_block
+    # The builder does not get the workspace. Which charts are open, what is
+    # visible on them, where ink may land, the trajectory, the pinned bars —
+    # every line of that is furniture for a mode whose answers are ABOUT a
+    # chart, and in a mode whose answers are about a STRATEGY it actively
+    # misled: asked to mark the entries its own rule generated, the builder
+    # refused because "NIFTY isn't currently open as a chart", when NIFTY was
+    # a benchmark in the rule and not something the user had to display.
+    #
+    # What survives is what a rule genuinely needs from the screen: which
+    # instrument the composer is pointed at, on what interval, at what price.
+    if getattr(_req, "chat_mode", "chat") == "execution":
+        return "\n\n".join(x for x in (_execution_context(ctx), journal_block) if x)
     try:
         return "\n\n".join(x for x in (_render_context(ctx), journal_block) if x)
     except Exception as exc:  # noqa: BLE001 — never break the reply on a bad envelope
         logging.warning("charto: malformed chart context (%s)", exc)
         return stub
+
+
+def _execution_context(ctx: dict) -> str:
+    """Four lines: the instrument, and what that does and does not imply.
+
+    Deliberately not `_render_chart`. A builder needs a default subject and a
+    price to size against; it does not need the visible window, the loaded-bar
+    count, the drawing layer or a list of panes, and every one of those lines
+    invited the model to reason about the workspace instead of the rule.
+    """
+    who = str(ctx.get("symbol") or "").upper()
+    iv = str(ctx.get("interval") or "1d")
+    lb = ctx.get("last_bar") if isinstance(ctx.get("last_bar"), dict) else None
+    price = f" · last {_n(lb['c'])} at {lb['t']}" if lb and lb.get("c") is not None else ""
+    ex = str(ctx.get("exchange") or "NSE")
+    cls = _classification_full(who)
+    what = f"\n{cls[0]} · industry: {cls[2] or cls[1]}" if cls else ""
+    return (
+        f"## The instrument in the composer\n"
+        f"{who} · {ex} · {iv}{price}{what}\n"
+        f"This is the DEFAULT subject: build for {who} when the user names no "
+        f"instrument. An instrument they do name wins, always.\n"
+        f"{iv} is what they are looking at, so it is the sensible default bar "
+        f"interval for a rule — not a constraint, and never a question to ask.\n"
+        f"NOTHING ELSE ABOUT THE SCREEN MATTERS HERE. You are not limited to "
+        f"instruments the user has open: any symbol charto holds bars for can "
+        f"be read, benchmarked against or backtested. A rule that references "
+        f"NIFTY does not require NIFTY to be on screen, and asking the user to "
+        f"open a chart before you can compute something is never the answer.\n"
+        f"Every number you state comes from a tool result or from the line "
+        f"above — never guess one, never estimate one. If you drew something "
+        f"and the user cannot see it, say so plainly and re-draw; a fabricated "
+        f"reason is worse than 'I don't know why'."
+    )
 
 
 def _render_context(ctx: dict) -> str:
