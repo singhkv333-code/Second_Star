@@ -254,6 +254,12 @@
     try {
       const { bars, hasMore } = await fetchBars(interval, null, PAGE[interval]);
       state.bars = bars; state.hasMore = hasMore;
+      // Anything that needs to know a chart is READABLE — not merely present.
+      // A restored thread repaints before this resolves, so a panel deciding
+      // at render time whether it can draw its trades was answering "no bars
+      // loaded" about a chart that was seconds from having them.
+      document.dispatchEvent(new CustomEvent("charto:bars-loaded",
+        { detail: { interval, symbol: Sym.name, bars: bars.length } }));
       chart.applyOptions({ timeScale: { timeVisible: !["1d", "1w", "1mo"].includes(interval) } });
       paintTitle();
       paint();
@@ -3803,7 +3809,48 @@
     // the same signal a live indicator change sends
     document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
 
-    const levels = Store.get("scene", []);
+    /* Labels were baked into the annotation at draw time, so a shape drawn
+     * before the format changed keeps the old words for as long as it stays
+     * on the chart — "rounding bottom · neckline 1,292.74 · forming" sitting
+     * beside a freshly drawn "Double Top · Moderate", with no way for the
+     * reader to make the first one look like the second short of erasing it.
+     *
+     * So the stored scene is normalised on the way in: the measurement goes
+     * (it is the line the label is attached to), and the name is set the way
+     * the page sets it now.
+     *
+     * What does NOT happen is inventing a strength for them. The graded word
+     * is computed from the pooled ledger, the formation's symmetry and its
+     * span — none of which survives on a stored annotation — and mapping the
+     * old "confirmed" onto "Strong" is exactly the equivalence the grading
+     * exists to break. A legacy shape carries its name alone until it is
+     * drawn again, which is honest and takes one call.
+     */
+    const OLD_LABEL = /^(.+?)\s+·\s+(?:neckline|width|pole)\s+[\d,.]+(?:\s+·\s+\w+)?$/i;
+    const OLD_STATE = /^(.+?)\s+·\s+(?:confirmed|unconfirmed|forming|unresolved|not_assessed)$/i;
+    const titleCase = (t) => t.split(/\s+/).filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    function normaliseLabels(items) {
+      for (const a of items || []) {
+        if (!a || typeof a.label !== "string") continue;
+        const m = OLD_LABEL.exec(a.label) || OLD_STATE.exec(a.label);
+        const base = m ? m[1] : a.label;
+        // Only when every part is a bare NAME. One bar often carries two
+        // ("bullish engulfing · tweezer bottom") and both should be set the
+        // same way; a part with a digit in it is a measurement or a count
+        // ("Strategy · 58 still held") and belongs to another tool entirely.
+        // Anything already in the new shape title-cases to itself.
+        const parts = base.split(" · ");
+        if (parts.every((x) => !/\d/.test(x))) {
+          a.label = parts.map(titleCase).join(" · ");
+        } else if (m) {
+          a.label = titleCase(base);
+        }
+      }
+      return items;
+    }
+
+    const levels = normaliseLabels(Store.get("scene", []));
     if (levels.length) {
       scene.apply(levels);
       // boot-time loadInterval ran before the scene was restored, so its

@@ -906,8 +906,15 @@
           // A tool's result panel, in as soon as it exists. Guarded because a
           // card that fails to render must cost nothing: the answer behind it
           // is still on its way.
-          try { addCard(turn, ev.card); }
-          catch (e) { console.warn("[charto] card failed", e); }
+          try {
+            addCard(turn, ev.card);
+            // Keep the OBJECT, not just the element. `done` carries the same
+            // cards again as freshly parsed JSON, and filing those would put a
+            // different object in the transcript from the one on screen — so
+            // anything a panel writes onto itself later (a backtest run from a
+            // draft card) would mutate a record nobody saves.
+            (turn.__cardRecs || (turn.__cardRecs = [])).push(ev.card);
+          } catch (e) { console.warn("[charto] card failed", e); }
         } else if (ev.type === "done") {
           // Show whatever the smoothing buffer was still holding, then stop.
           // Without the cancel, a queued frame lands AFTER finishTurn has
@@ -1397,6 +1404,13 @@
     };
   }
 
+  /* A card that changed itself. `cards.js` owns the panels and this file owns
+   * the transcript, so a backtest run from a draft card mutates the record it
+   * was rendered from and says so here — the alternative is cards.js reaching
+   * into `turns`, which would give two files an opinion about what a thread
+   * is. The record is already the same object; this only makes it durable. */
+  document.addEventListener("charto:card-updated", () => saveTurns());
+
   function failTurn(turn, msg) {
     endWait(turn);
     turn.classList.add("error");
@@ -1849,7 +1863,11 @@
       // The panels are filed with the reply, not re-fetched: reopening a
       // conversation has to bring back the scan the answer was written about,
       // and the tool that produced it is not going to be run again.
-      const cards = d.cards || [];
+      // The ones the stream rendered win, because they are the objects the
+      // user is looking at. `d.cards` is the fallback for the non-streaming
+      // path, which never emits a card event and so has nothing rendered yet.
+      const cards = (turn.__cardRecs && turn.__cardRecs.length)
+        ? turn.__cardRecs : (d.cards || []);
       turns.push({ role: "assistant", content: d.text, meta, acts,
                    ...(cards.length ? { cards } : {}) });
       saveTurns();

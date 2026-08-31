@@ -262,9 +262,19 @@ const Cards = (() => {
       + `<div class="wf-ghosts">`
       + (blockers.length ? ""
           : `<button type="button" class="wf-ghost" data-wf-backtest>`
-            + `${Icons.svg("clock", "sm")}<span>Backtest</span></button>`)
+            + `${Icons.svg("clock", "sm")}`
+            // A run that already happened is named as one, so a reader
+            // returning to the thread is not invited to pay for it twice.
+            + `<span>${c.backtest ? "Re-run backtest" : "Backtest"}</span>`
+            + `</button>`)
       + `</div></div>`
-      + `<div class="wf-slot" data-wf-slot hidden></div></div>`;
+      // The result is filed ON the card, so it comes back with the card. A
+      // backtest costs seconds and returns a paragraph of evidence the reply
+      // above was written against; losing it to a page reload left the
+      // strategy claiming a verdict with nothing behind it.
+      + `<div class="wf-slot" data-wf-slot${c.backtest ? "" : " hidden"}>`
+      + (c.backtest ? strategyBacktest(c.backtest) : "")
+      + `</div></div>`;
   }
 
   /* ── the strategy layer on the chart ──────────────────────────────
@@ -1104,8 +1114,36 @@ const Cards = (() => {
    */
   function wireOnChart(box, payload) {
     const btn = box.querySelector("[data-bt-chart]");
-    if (!btn || btn.disabled) return;
+    if (!btn) return;
     const label = btn.querySelector("span");
+    // A blocker computed at render time can be WRONG by the time anyone
+    // reads it. "No bars loaded" is the case that matters: a restored thread
+    // repaints before the chart has fetched anything, so every backtest that
+    // survived a reload came back with its one control dead — permanently,
+    // because nothing ever asked the question again. The transient blockers
+    // are re-asked when the bars arrive; the permanent ones (no trades, wrong
+    // symbol) are left exactly as they were.
+    if (btn.disabled) {
+      const recheck = () => {
+        if (strategyBlocker(payload)) return;
+        btn.disabled = false;
+        btn.removeAttribute("title");
+        label.textContent = "Show on chart";
+        // The note beside it said why the button was dead. It is not, now.
+        const note = btn.parentElement
+          && btn.parentElement.querySelector(".wf-cta-note");
+        if (note) note.remove();
+        document.removeEventListener("charto:bars-loaded", recheck);
+      };
+      if (!/nothing was bought|open .* to see/i.test(btn.title || "")) {
+        document.addEventListener("charto:bars-loaded", recheck);
+        recheck();
+      }
+      // No early return. The listener is attached either way — a disabled
+      // button cannot be clicked, so the attribute is the whole of the
+      // guard, and returning here left `recheck` un-disabling a control that
+      // had nothing behind it.
+    }
     btn.addEventListener("click", () => {
       const scene = window.__charto && window.__charto.scene;
       if (!scene) return;
@@ -1136,7 +1174,7 @@ const Cards = (() => {
     });
   }
 
-  function wireDraft(box) {
+  function wireDraft(box, card) {
     const why = box.querySelector("[data-wf-why]");
     if (why) {
       const body = box.querySelector(".wf-why-body");
@@ -1177,6 +1215,15 @@ const Cards = (() => {
         // the nested read-out carries its own on-chart control
         wireOnChart(slot, data);
         label.textContent = "Re-run backtest";
+        // Onto the card RECORD, which is the same object the thread holds —
+        // then one event, because the thread owns saving and this file does
+        // not know it exists. A result kept only in the DOM is a result the
+        // next reload throws away.
+        if (card) {
+          card.backtest = data;
+          document.dispatchEvent(new CustomEvent("charto:card-updated",
+                                                 { detail: { card } }));
+        }
       } catch (e) {
         // The failure goes where the result would have gone. A backtest that
         // silently does nothing reads as a dead button.
@@ -1933,8 +1980,16 @@ const Cards = (() => {
           more.remove();
         });
       }
-      if (box.querySelector("[data-wf]")) wireDraft(box);
-      if (box.querySelector("[data-bt-chart]")) wireOnChart(box, card);
+      if (box.querySelector("[data-wf]")) wireDraft(box, card);
+      // The on-chart control belongs to whichever payload owns the TRADES. A
+      // standalone backtest card is its own payload; a draft repainted with a
+      // stored result has that read-out nested in its slot, and the payload
+      // there is `card.backtest`. Scoped, because a box-level query reaches
+      // INTO the slot — which wired the restored control twice, once with the
+      // draft as its payload, and the two listeners cancelled each other out.
+      const slot = card.backtest ? box.querySelector("[data-wf-slot]") : null;
+      if (slot) wireOnChart(slot, card.backtest);
+      else if (box.querySelector("[data-bt-chart]")) wireOnChart(box, card);
       return box;
     },
   };
