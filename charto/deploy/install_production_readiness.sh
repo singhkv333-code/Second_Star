@@ -32,7 +32,11 @@ systemctl reload nginx
 
 curl -fsS --max-time 15 http://127.0.0.1:5174/health
 echo
-curl -fsS --max-time 30 'http://127.0.0.1:5174/health?deep=1'
+if ! curl -fsS --max-time 30 'http://127.0.0.1:5174/health?deep=1'; then
+  echo "deep readiness failed; provision/fix the Execution backend, then rerun this installer" >&2
+  echo "expected provisioner: $DEPLOY/provision_execution.sh" >&2
+  exit 1
+fi
 echo
 "$DEPLOY/verify_backup_restore.sh"
 "$DEPLOY/check_routes.sh"

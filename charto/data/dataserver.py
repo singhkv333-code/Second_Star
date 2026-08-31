@@ -351,26 +351,68 @@ def _symbol_ready(sym: str) -> bool:
 
 
 def _ensure_symbol(sym: str) -> dict | None:
-    """None when the symbol is servable; an error dict otherwise."""
+    """None when the symbol is servable; an error dict otherwise.
+
+    Three failures, deliberately told apart. A symbol in the equity universe
+    downloads on demand. One the store ADVERTISES but holds no bars for is a
+    coverage gap — real instrument, no history here — and calling that
+    "unknown" is what sends a model to substitute NIFTY BANK for NIFTY 50.
+    Anything else is genuinely unknown, and gets the near misses by name:
+    the pipeline never retries a tool call, so a bare refusal spends the whole
+    turn on a spelling the store could have supplied.
+    """
     if _symbol_ready(sym):
         return None
-    if sym not in _known_symbols():
-        return {"error": f"unknown symbol {sym}",
-                "hint": "GET /symbols lists the universe"}
-    with _HYDRATE_GUARD:
-        lock = _HYDRATE_LOCKS.setdefault(sym, threading.Lock())
-    with lock:
-        if _symbol_ready(sym):
-            return None
-        import subprocess
-        r = subprocess.run(
-            [str(_VENV_PY), str(Path(__file__).parent / "hydrate_symbol.py"),
-             sym], capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            return {"error": f"hydration failed for {sym}",
-                    "detail": (r.stderr or r.stdout)[-400:]}
-        logging.info("hydrated %s: %s", sym, r.stdout.strip())
-    return None
+    if sym in _known_symbols():
+        with _HYDRATE_GUARD:
+            lock = _HYDRATE_LOCKS.setdefault(sym, threading.Lock())
+        with lock:
+            if _symbol_ready(sym):
+                return None
+            import subprocess
+            r = subprocess.run(
+                [str(_VENV_PY), str(Path(__file__).parent / "hydrate_symbol.py"),
+                 sym], capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                return {"error": f"hydration failed for {sym}",
+                        "detail": (r.stderr or r.stdout)[-400:]}
+            logging.info("hydrated %s: %s", sym, r.stdout.strip())
+        return None
+
+    served = set(_known_symbols()) | _symbols_with_bars()
+    if sym in served:
+        # `hydrate_symbol.py` works off the NSE equity universe, so an index
+        # or a commodity this box has no bars for cannot be fetched on demand.
+        return {"error": f"no bars stored for {sym} on this server",
+                "_note": ("The instrument is real and part of the universe; "
+                          "this server simply holds no history for it and "
+                          "cannot fetch it on demand. Say that plainly — do "
+                          "NOT substitute a different index or symbol.")}
+
+    # An index is "NIFTY 50" or "NIFTY BANK" here, never "NIFTY" or
+    # "BANKNIFTY", and a model reaching for a benchmark will try every one.
+    def _squash(t: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", t.upper())
+
+    q = _squash(sym)
+    qs = sorted(q)
+    words = [w for w in re.split(r"[^A-Z0-9]+", sym.upper()) if len(w) > 1]
+    near = [c for c in sorted(served)
+            # Substring either way catches NIFTY -> NIFTY 50 and GOLD ->
+            # GOLDM; the sorted compare catches a word SWAP, which is the
+            # whole of BANKNIFTY vs NIFTY BANK.
+            if any(w in _squash(c) for w in words)
+            or (q and (q in _squash(c) or _squash(c) in q))
+            or sorted(_squash(c)) == qs]
+    out: dict = {"error": f"unknown symbol {sym}"}
+    if near:
+        out["did_you_mean"] = near[:12]
+        out["_note"] = ("Nothing was read. Call again with one of these exact "
+                        "names — they are how this store spells them — rather "
+                        "than guessing a second variant.")
+    else:
+        out["hint"] = "GET /symbols lists the universe"
+    return out
 
 
 def _scene_add(annotation: dict) -> None:
@@ -9050,6 +9092,125 @@ def tool_get_bars(interval: str = "5m", frm: str | None = None,
     }
 
 
+def tool_read_symbol(symbol: str = "", interval: str = "1d", bars: int = 60,
+                    frm: str = "", to: str = "",
+                    indicators: list | None = None,
+                    levels: bool = False) -> dict:
+    """Read ANOTHER instrument, without the conversation moving to it.
+
+    The chart-reading tools take an optional `symbol`, and in research mode
+    that argument is deliberately bounded to the panes on screen: a stale
+    ticker picked out of the transcript would otherwise return every number
+    correct and every number about the wrong company, with nothing downstream
+    able to tell. That bound is right, and it is also why there was no honest
+    way to ask "where is NIFTY trading" while looking at RELIANCE — the
+    question is not about the chart, so the guard for chart questions had no
+    business answering it.
+
+    This tool is the other half. `symbol` is REQUIRED and explicit, so the
+    hazard the bound exists for cannot arise: nothing is inferred, and a
+    symbol can only get here because the model deliberately named one. It is
+    therefore not chart-scoped, exactly like `get_peers`, `compare_symbols`
+    and `screen_universe`, none of which ever were.
+
+    It reads and never draws. Ink belongs to the chart in focus, and a tool
+    whose whole purpose is to look elsewhere must not be able to put a line on
+    the screen from there — so `tool_get_levels` runs here at its no-draw
+    default and no ink argument is reachable at all.
+
+    THE SUBJECT DOES NOT MOVE. The payload names the conversation's own chart
+    beside the symbol read, because the failure this tool could introduce is
+    the one it must not: a lookup on NIFTY, then a bare "buy 10 when RSI is
+    under 30" three turns later, built for NIFTY.
+    """
+    import indicators as _ind
+
+    want = str(symbol or "").upper().strip()
+    subject = _sym()
+    if not want:
+        return {"error": "read_symbol needs a symbol",
+                "_note": (f"To read the chart the conversation is already "
+                          f"about ({subject}), use the ordinary chart tools — "
+                          f"this one is for a DIFFERENT instrument.")}
+    if want == subject:
+        return {"error": f"{want} is the chart in focus",
+                "_note": ("Use get_bars / get_indicator / get_levels for it. "
+                          "This tool exists for instruments the conversation "
+                          "is not already on, and routing the focused chart "
+                          "through it would lose the drawing layer.")}
+    err = _ensure_symbol(want)
+    if err:
+        return err
+
+    iv = str(interval or "1d").lower().strip()
+    if iv not in _IV_LABEL:
+        return {"error": f"unknown interval '{iv}'",
+                "available": sorted(_IV_LABEL)}
+    n = max(1, min(int(bars or 60), 300))
+
+    prev = getattr(_req, "symbol", subject)
+    try:
+        _req.symbol = want
+        # Reuse, not reimplementation: the window parsing, the point-query
+        # widening and the empty-window refusal all live in tool_get_bars and
+        # are worth exactly as much on a second instrument as on the first.
+        got = tool_get_bars(interval=iv, frm=frm or None, to=to or None,
+                            limit=n)
+        if got.get("error"):
+            return got
+        lv = tool_get_levels(interval=iv) if levels else None
+    finally:
+        _req.symbol = prev
+
+    rows = _rows_for(want, iv, max(n, 400))
+    out: dict = {
+        "symbol": want,
+        "interval": iv,
+        "bars": got.get("bars") or [],
+        "provenance": got.get("provenance"),
+    }
+    cls = _classification_full(want)
+    if cls:
+        out["name"] = cls[0]
+        out["industry"] = cls[2] or cls[1]
+    b = out["bars"]
+    if b:
+        first, last = b[0], b[-1]
+        chg = ((last["c"] - first["o"]) / first["o"] * 100) if first["o"] else None
+        out["window"] = {
+            "from": first["t"], "to": last["t"], "bars": len(b),
+            "open": first["o"], "last": last["c"],
+            "change_pct": round(chg, 2) if chg is not None else None,
+            "high": max(x["h"] for x in b), "low": min(x["l"] for x in b),
+        }
+    for spec in (indicators or [])[:6]:
+        # "sma(200)" / "rsi" / "macd" — the same shorthand the user types.
+        m = re.match(r"\s*([a-z_]+)\s*(?:\(\s*(\d+)\s*\))?\s*$",
+                     str(spec).lower())
+        if not m:
+            out.setdefault("indicators", {})[str(spec)] = {
+                "error": "could not read that as an indicator"}
+            continue
+        nm, per = m.group(1), int(m.group(2) or 0)
+        try:
+            res = _ind.compute(nm, rows, period=per)
+            out.setdefault("indicators", {})[str(spec)] = {
+                "last": res.get("last"), "formula": (res.get("spec") or {}).get("formula")}
+        except (ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
+            out.setdefault("indicators", {})[str(spec)] = {"error": str(exc)}
+    if lv is not None:
+        out["levels"] = lv
+    # The one line that keeps the conversation where it was. Cheap, and it
+    # answers the exact question a later bare instruction raises.
+    out["subject"] = subject
+    out["_note"] = (
+        f"These are {want}'s numbers, read for comparison. The conversation's "
+        f"instrument is still {subject}: attribute every figure to the symbol "
+        f"it came from, and an instruction that names no instrument after this "
+        f"still means {subject}. Nothing was drawn — ink belongs to {subject}.")
+    return out
+
+
 # What the FE chart can actually draw. Kept honest deliberately: the model
 # used to be told the chart "does not support Bollinger Bands" while the FE
 # had them one click away, and the opposite failure — claiming to have drawn
@@ -9969,6 +10130,37 @@ TOOLS = [
          "symbol": {"type": "string",
                     "description": "defaults to the chart's symbol"}},
          "required": []}},
+    {"type": "function", "name": "read_symbol",
+     "description": (
+         "Price and chart data for a DIFFERENT instrument — one the "
+         "conversation is not already on. Use it whenever an answer needs a "
+         "second security's numbers: a benchmark ('is NIFTY above its 200 "
+         "DMA', 'how has BANKNIFTY done this month'), the other leg of a "
+         "relative or pair idea, a peer's level, a rule that references "
+         "another symbol, or simply 'what is GOLD trading at'. Returns the "
+         "OHLCV bars themselves, the window's open/last/high/low and change, "
+         "optional indicator values and optional support/resistance. "
+         "Any instrument charto holds bars for is readable, whether or not "
+         "the user has it open — a symbol does NOT need to be on screen for "
+         "you to read it, and telling the user to open a chart first is never "
+         "the answer. Anything not yet stored downloads on first use (~6 s). "
+         "THIS DOES NOT CHANGE THE SUBJECT: the conversation stays on the "
+         "chart in the composer, and a later instruction that names no "
+         "instrument still means that chart, never the one you looked up "
+         "here. It reads only — nothing is drawn, because ink belongs to the "
+         "chart in focus. For the focused chart itself use get_bars / "
+         "get_indicator / get_levels; for ranking many names at once use "
+         "compare_symbols or screen_universe."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "the OTHER instrument to read, e.g. 'NIFTY 50', 'BANKNIFTY', 'TCS', 'GOLD'"},
+         "interval": {"type": "string", "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
+         "bars": {"type": "integer", "description": "how many bars back, default 60, max 300"},
+         "frm": {"type": "string", "description": "window start in chart format, e.g. '01 Jul 2026'; omit for the most recent bars"},
+         "to": {"type": "string", "description": "window end; omit for the latest"},
+         "indicators": {"type": "array", "items": {"type": "string"},
+                        "description": "up to 6, written the way a user says them — 'sma(200)', 'rsi(14)', 'atr(14)', 'macd'. Values only; nothing is drawn."},
+         "levels": {"type": "boolean", "description": "true to also return that symbol's support/resistance"}},
+      "required": ["symbol"]}},
     {"type": "function", "name": "compare_symbols",
      "description": (
          "Compare 2-8 symbols over a common window: return %, max drawdown, "
@@ -10280,6 +10472,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "read_drawing": tool_read_drawing,
              "plan_position": tool_plan_position,
              "volume_profile": tool_volume_profile,
+             "read_symbol": tool_read_symbol,
              "get_peers": tool_get_peers,
              "compare_symbols": tool_compare_symbols,
              "screen_universe": tool_screen_universe,
@@ -10578,9 +10771,14 @@ def run_tool(name: str, args: dict) -> dict:
                               f"to read an instrument the user is not looking "
                               f"at. An earlier turn may have been asked on a "
                               f"chart that has since been changed; the envelope "
-                              f"above is the current one. Answer for a chart on "
-                              f"screen, and if {want} is genuinely the subject, "
-                              f"say it is not open and offer open_chart.")}
+                              f"above is the current one.\n"
+                              f"If you genuinely need {want}'s numbers — a "
+                              f"benchmark, a peer, the other leg of a pair — "
+                              f"call `read_symbol(symbol=\"{want}\")`. It reads "
+                              f"any stored instrument without moving the "
+                              f"conversation off {prev}, and it needs nothing "
+                              f"opened. Offer `open_chart` only when the user "
+                              f"wants to LOOK at it.")}
         # An unloaded chart must say so. Answering from the focused chart
         # under another chart's name is the one failure that cannot be caught
         # downstream — every number would look right and belong to the wrong
@@ -11398,7 +11596,11 @@ _EXECUTION_CHARTO_TOOLS = {
     "get_bars", "get_indicator", "read_indicators", "multi_timeframe",
     "get_patterns", "get_levels", "evaluate_pattern", "get_trend",
     "get_anchors", "get_gaps", "get_trendlines", "plan_position",
-    "screen_universe",
+    # Cross-symbol reads. A relative-strength entry, a pair, a rule gated on
+    # an index — each needs a second instrument's numbers before it can be
+    # sized, benchmarked or sanity-checked, and `screen_universe` answers
+    # "which names", not "what is THIS one doing".
+    "screen_universe", "read_symbol",
     "set_alert", "list_alerts", "update_alert", "cancel_alert", "check_alert",
     # The ink. A backtest returns its fills with real dates and prices, so
     # "show me where it entered" is a request against data we already have
@@ -13431,7 +13633,7 @@ _HEAVY_HTTP_PATHS = frozenset({
     "/bars", "/quotes", "/symbols", "/indicator", "/volume_profile",
     "/patterns/draw", "/company", "/screen", "/peers", "/news",
     "/profile", "/financials", "/results", "/deals", "/delivery",
-    "/fut_oi", "/classification", "/benchmark",
+    "/fut_oi", "/classification", "/benchmark", "/live", "/replay",
 })
 _BACKUP_MARKER = Path(environ.get("CHARTO_BACKUP_MARKER")
                       or "/data/backup/charto_users.last_success.json")
@@ -14237,17 +14439,27 @@ class Handler(BaseHTTPRequestHandler):
             me = _auth_user(self.headers)
             if not me:
                 return self._send(401, {"error": "sign in to use voice input"})
+            if not _data_slot_acquire():
+                return self._send(
+                    503,
+                    {"error": "Voice processing is busy. Retry shortly.",
+                     "retryable": True,
+                     "retry_after_s": _DATA_RETRY_AFTER_S},
+                    headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
             try:
-                ln = int(self.headers.get("Content-Length", 0))
-            except (TypeError, ValueError):
-                ln = 0
-            if ln <= 0:
-                return self._send(400, {"error": "empty recording"})
-            if ln > _AUDIO_MAX_BYTES:
-                return self._send(413, {"error": "recording too large"})
-            out = transcribe(self.rfile.read(ln),
-                             self.headers.get("Content-Type", ""))
-            return self._send(400 if "error" in out else 200, out)
+                try:
+                    ln = int(self.headers.get("Content-Length", 0))
+                except (TypeError, ValueError):
+                    ln = 0
+                if ln <= 0:
+                    return self._send(400, {"error": "empty recording"})
+                if ln > _AUDIO_MAX_BYTES:
+                    return self._send(413, {"error": "recording too large"})
+                out = transcribe(self.rfile.read(ln),
+                                 self.headers.get("Content-Type", ""))
+                return self._send(400 if "error" in out else 200, out)
+            finally:
+                _data_slot_release()
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
                 return self._send(501, {"error": "journal is unavailable"})
@@ -14315,7 +14527,17 @@ class Handler(BaseHTTPRequestHandler):
             msgs = body.get("messages")
             if not isinstance(msgs, list):
                 return self._send(400, {"error": "messages[] required"})
-            return self._send_events(_suggest_stream(msgs))
+            if not _chat_slot_acquire():
+                return self._send(
+                    503,
+                    {"error": "Suggestions are at capacity. Retry shortly.",
+                     "retryable": True,
+                     "retry_after_s": _DATA_RETRY_AFTER_S},
+                    headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
+            try:
+                return self._send_events(_suggest_stream(msgs))
+            finally:
+                _chat_slot_release()
         if u.path == "/execution/backtest":
             # The draft card's Backtest button. It runs the SAME tool the
             # model would call, with the draft's own steps — but a button is
@@ -14342,8 +14564,18 @@ class Handler(BaseHTTPRequestHandler):
             for key in ("starting_capital", "quantity"):
                 if body.get(key) is not None:
                     args[key] = body[key]
-            res = execution_bridge.dispatch("backtest_workflow", args)
-            return self._send(400 if res.get("error") else 200, res)
+            if not _data_slot_acquire():
+                return self._send(
+                    503,
+                    {"error": "Backtest capacity is busy. Retry shortly.",
+                     "retryable": True,
+                     "retry_after_s": _DATA_RETRY_AFTER_S},
+                    headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
+            try:
+                res = execution_bridge.dispatch("backtest_workflow", args)
+                return self._send(400 if res.get("error") else 200, res)
+            finally:
+                _data_slot_release()
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
         if not _chat_slot_acquire():

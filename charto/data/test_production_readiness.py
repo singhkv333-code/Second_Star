@@ -125,6 +125,8 @@ def test_health_route_is_not_classified_as_heavy_data() -> None:
     assert not server._is_heavy_http_path("/health")
     assert server._is_heavy_http_path("/indicator")
     assert server._is_heavy_http_path("/api/markets/ohlc")
+    assert server._is_heavy_http_path("/replay")
+    assert server._is_heavy_http_path("/live")
 
 
 def test_deep_health_makes_execution_part_of_readiness(monkeypatch) -> None:
