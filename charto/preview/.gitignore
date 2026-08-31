@@ -1,2 +1,18 @@
 config.js
-vendor/
+
+# The vendored chart bundle is 196 KB of third-party minified code that we
+# PATCH (see VENDOR_PATCHES.md), and patch-vendor.py is its deployable source —
+# so it does not belong in the repo and deploy.sh reconstructs it on the box.
+#
+# liquid-glass.js is neither. It is 8.7 KB, unpatched, and nothing in this repo
+# can produce it — so ignoring it meant it simply never reached production. The
+# page loads it at index.html:7918, the box 404s, and every glass menu and panel
+# has been falling back to a flat backdrop since the site went up. It was
+# invisible because the old nginx fall-through answered that 404 with 200 and
+# 427 KB of index.html, which the browser dutifully tried to parse as
+# JavaScript: one syntax error in a console nobody was reading.
+#
+# `vendor/*` and not `vendor/`: git does not descend into an excluded
+# DIRECTORY, so a negation inside one never matches.
+vendor/*
+!vendor/liquid-glass.js

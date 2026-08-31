@@ -28,6 +28,23 @@ git fetch --quiet origin "$BRANCH"
 remote="$(git rev-parse "origin/$BRANCH")"
 local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
+# nginx's config is IN this repo and used to be applied by hand, which meant it
+# was applied roughly never — the box drifted from the record for weeks, and a
+# route added here read exactly like a route nobody added. apply_nginx.sh does
+# the reload with a syntax check, a backup, a probe and an automatic rollback,
+# so the thing that made it a human step is gone.
+#
+# Idempotent and cheap: two `cmp`s and exit 0 when nothing changed, which is
+# every tick but the one after a config edit. Never fatal — nginx serving the
+# previous config is a stale route table; a deploy that aborts here would leave
+# the BACKEND unrestarted too, which is worse.
+apply_nginx() {
+  if ! sudo -n /usr/bin/bash "$REPO/charto/deploy/apply_nginx.sh"; then
+    echo "deploy: WARNING — nginx config was NOT applied; the box is serving"
+    echo "deploy: the previous route table. Run charto/deploy/check_routes.sh."
+  fi
+}
+
 patch_vendor() {
   if ! python3 "$REPO/charto/preview/patch-vendor.py"; then
     echo "deploy: WARNING — vendor patches did not apply. The price scale will be"
@@ -41,6 +58,7 @@ patch_vendor() {
 # patcher learns its shape.
 if [ "$local_" = "$remote" ]; then
   patch_vendor
+  apply_nginx
   exit 0
 fi
 
@@ -73,6 +91,7 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 # restart down with it, and a mis-sized price plate is a cosmetic regression
 # where a blocked deploy is an outage. So it is loud instead of fatal.
 patch_vendor
+apply_nginx
 
 # `pivot/` counts as backend too, now that it is IN the checkout.
 #
