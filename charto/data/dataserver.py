@@ -5513,6 +5513,157 @@ _PATTERN_MEASURE = (("neckline", "Neckline"), ("width_now", "Width"),
                     ("pole", "Pole"), ("measured_move", "Measured move"))
 
 
+# ── how much a drawn formation is actually worth ───────────────────────────
+#
+# The chart used to print the detector's STATE next to each shape —
+# "confirmed", "forming", "unresolved". State is not worth: a confirmed
+# double top on a symbol where double tops have never beaten their control is
+# a confirmed nothing, and "forming" says only that the detector has not
+# finished looking. Worse, four words with no ordering between them left the
+# reader to invent one.
+#
+# So the label carries a graded judgement instead, on a fixed three-step
+# scale, computed from the evidence the detector already produces. Three axes,
+# each 0-2, because each answers a different question and none of them alone
+# is enough:
+#
+#   RESOLUTION — did the formation do the thing that defines it? A shape whose
+#   level has broken is a fact; one still forming is a forecast about a
+#   forecast.
+#
+#   SHAPE — how closely this instance matches its template. The detectors
+#   already emit the defining asymmetry (shoulders, peaks, troughs) as a price
+#   gap, and a fitted shape reports how many pivots its edges were fitted
+#   through. A head and shoulders whose shoulders differ by 0.1% is the
+#   textbook picture; one at 6% is a shape you have to squint at.
+#
+#   STRUCTURE — how much chart it took to build. A formation spanning forty
+#   bars is a structure; the same outline over six is noise that happens to
+#   fit.
+#
+# And then a CAP, which is the part that keeps this honest. However clean and
+# however resolved, a formation cannot be called strong when its own kind has
+# no measured edge over its control — `pattern_stats` holds the pooled record,
+# and a shape that has never worked is not strong evidence of anything. Two
+# standard errors is the bar, the same one the Pattern Edge panel uses; below
+# it the ledger is saying "we cannot tell", and "we cannot tell" is not
+# strong. This is why the scale is not simply the old status wearing new
+# words.
+#
+# A candlestick has neither resolution nor span — it IS one bar — so the
+# measured edge is the whole of its evidence and it is graded on that alone.
+
+_STRENGTH_WORDS = ("Weak", "Moderate", "Strong")
+
+# The defining asymmetry, per family. Each is an absolute price gap between
+# the two swings that are supposed to match, so it is normalised against the
+# formation's own level before it is judged.
+_SYMMETRY_KEYS = ("shoulder_gap", "peak_gap", "trough_gap")
+
+
+def _pattern_edge_map(symbol: str, interval: str,
+                      horizon: int = 20) -> dict[str, tuple]:
+    """kind -> (edge_pp, se_pp) from the pooled ledger. One query per draw."""
+    try:
+        return {k: (e, se) for k, e, se in _con.execute(
+            "SELECT kind, edge_pp, edge_se_pp FROM pattern_stats "
+            "WHERE scope=? AND interval=? AND horizon=?",
+            (scope_for(symbol), interval, horizon))}
+    except sqlite3.Error:
+        return {}
+
+
+def _edge_grade(kind: str, edges: dict) -> int:
+    """How the KIND has actually done against its control: 0, 1 or 2.
+
+    Two standard errors is the bar, the same one the Pattern Edge panel draws
+    solid. Above it in the right direction the shape has a measured edge;
+    below it the ledger is saying "we cannot tell", which is not evidence and
+    is not the same as a shape that has measurably FAILED. A kind the ledger
+    has never counted sits in the middle for the same reason: absent is not
+    negative.
+    """
+    got = edges.get(kind)
+    if not got or got[0] is None:
+        return 1
+    edge, se = got
+    bar = 2 * se if se else 0
+    if edge >= bar and edge > 0:
+        return 2
+    if edge <= -bar and edge < 0:
+        return 0
+    return 1
+
+
+def _instance_quality(p: dict) -> int:
+    """How good an example of its own template this one is: 0, 1 or 2.
+
+    Deliberately coarse, because the detector has already filtered on
+    geometry — measured across a year of RELIANCE dailies the symmetry of
+    every formation it emits falls between 0.03% and 1.31%, so a finer scale
+    here would be reading noise as judgement. Two things genuinely vary:
+    whether the shape RESOLVED, and whether it is a substantial structure
+    rather than an outline that happens to fit six bars.
+    """
+    q = 0
+    if p.get("status") == "confirmed":
+        q += 1
+    # The level the asymmetry is measured against — a 2-rupee gap means one
+    # thing at ₹80 and another at ₹1,400.
+    ref = None
+    for v in (p.get("neckline"), p.get("width_now"), p.get("pole")):
+        if isinstance(v, (int, float)) and v:
+            ref = abs(float(v))
+            break
+    if ref is None:
+        pts = [v for v in (p.get("points") or {}).values()
+               if isinstance(v, (int, float))]
+        ref = max((abs(v) for v in pts), default=0) or None
+    gap = next((p[k] for k in _SYMMETRY_KEYS
+                if isinstance(p.get(k), (int, float))), None)
+    tight = gap is not None and ref and abs(float(gap)) / ref * 100 <= 0.5
+    # A fitted shape has no matching pair; its evidence is how many pivots the
+    # edges were anchored through. A flag or a pennant has neither, and is
+    # carried by its span alone — which is why the three are an OR and not a
+    # sum: they are three ways of asking one question of three different
+    # families, not three independent measurements of one shape.
+    pivots = int(p.get("highs_used") or 0) + int(p.get("lows_used") or 0)
+    if tight or pivots >= 9 or int(p.get("span_bars") or 0) >= 25:
+        q += 1
+    return q
+
+
+def _pattern_strength(p: dict, edges: dict) -> str:
+    """One of Weak / Moderate / Strong for a drawn chart formation.
+
+    The MEASURED axis leads and the instance modifies it, rather than the
+    other way round. That ordering is the finding, not a preference: the
+    detector only emits shapes that already passed its geometry thresholds,
+    so instance quality barely varies — while the pooled edge runs from −38pp
+    to +29pp across kinds. Grading mostly on the geometry would have produced
+    one word for everything, which is what a first cut of this did.
+    """
+    ev, q = _edge_grade(str(p.get("pattern") or ""), edges), _instance_quality(p)
+    if ev == 0 or q == 0:
+        return _STRENGTH_WORDS[0]
+    if ev == 2 and q == 2:
+        return _STRENGTH_WORDS[2]
+    return _STRENGTH_WORDS[1]
+
+
+def _candle_strength(kind: str, edges: dict) -> str:
+    """A single bar has neither resolution nor span — it IS one bar — so its
+    measured edge is the whole of its evidence."""
+    return _STRENGTH_WORDS[_edge_grade(kind, edges)]
+
+
+def _pattern_title(kind: str) -> str:
+    """`head_and_shoulders` -> `Head And Shoulders`. The chart labels a
+    formation the way it would be named in writing, not the way it is keyed
+    in the detector."""
+    return " ".join(w.capitalize() for w in str(kind or "").split("_") if w)
+
+
 def _struct_events(struct: dict | None) -> list[dict]:
     """The structure read as rows: the named breaks, then what came after.
 
@@ -5560,6 +5711,11 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
     events = _struct_events(struct)
     trend = str((struct or {}).get("trend") or "")
 
+    # The panel grades what it lists on the same scale the chart labels use.
+    # Two vocabularies for one set of objects — "confirmed" in the list beside
+    # "Strong" on the shape — is the reader doing a translation the product
+    # should have done.
+    edges = _pattern_edge_map(_sym(), interval)
     tiles = []
     for p in charts:
         measure = None
@@ -5569,9 +5725,10 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
                 measure = {"label": label, "value": round(float(v), 2)}
                 break
         tiles.append({
-            "id": p.get("id"), "name": str(p.get("pattern", "")).replace("_", " "),
+            "id": p.get("id"), "name": _pattern_title(p.get("pattern", "")),
             "from": p.get("from"), "to": p.get("to"),
             "bias": p.get("direction"), "measure": measure,
+            "strength": _pattern_strength(p, edges),
             "status": _STATUS_WORD.get(str(p.get("status") or ""), "unresolved"),
             "broke_at": p.get("broke_at"),
             "drawn": p.get("id") in drawn,
@@ -5736,6 +5893,8 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     n_marks = max(0, int(mark_limit if mark_limit is not None else 5))
     if (picked or cpicked) and mode == "replace":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
+    # One read of the pooled ledger for every shape and bar this pass grades.
+    edges = _pattern_edge_map(_sym(), interval) if (picked or cpicked) else {}
     for p in picked:
         # Draw the pattern's ACTUAL geometry — the polyline through its
         # defining swings, its neckline as a bounded segment ending at the
@@ -5743,8 +5902,15 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
         # never a full-width level or zone standing in for a shape. Every
         # anchor is an exact (bar-epoch, pivot-price) pair from the detector.
         g = p.get("_geometry") or {}
-        name = p["pattern"].replace("_", " ")
-        status = p.get("status", "")
+        name = _pattern_title(p["pattern"])
+        # The label is NAME · STRENGTH and nothing else. It used to carry a
+        # measurement too — the neckline, the width, the pole — which read as
+        # the formation's headline number while being the one figure a reader
+        # can already see on the chart: the neckline IS the dashed line the
+        # label is attached to. Every shape now reads the same way, which is
+        # what makes the strength word comparable between them.
+        strength = _pattern_strength(p, edges)
+        label = f"{name} · {strength}"
         role = {"bullish": "support", "bearish": "resistance"}.get(
             p["direction"], "neutral")
         link = p["id"]
@@ -5752,7 +5918,12 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                "method": "swing-sequence template on shared ±5-bar pivots"
                          if g.get("outline") else "fitted swing boundaries",
                "interval": interval, "bars_scanned": len(rows),
-               "strength": status or "unconfirmed",
+               "strength": strength,
+               # The detector's own state is still worth having on the hover
+               # card — it is what the strength was partly computed FROM, and
+               # a reader asking "why moderate" deserves the input rather than
+               # a re-derivation.
+               "status": p.get("status") or "",
                "first_touch": p["from"], "last_touch": p["to"]}
         pt = lambda t, v: {"t": t, "v": v}  # noqa: E731
         if g.get("outline"):
@@ -5781,20 +5952,16 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                             "pane": "price", "role": role, "dashed": True,
                             "p1": pt(base["t1"], base["v"]),
                             "p2": pt(base["t2"], base["v"]),
-                            "label": f"{name} · neckline {base['v']:,.2f}"
-                                     + (f" · {status}" if status else ""),
+                            "label": label,
                             "source": src})
         # the remaining pieces COMPOSE — a pennant is pole + edges, a cup is
         # arc outline + rim — so these are independent ifs, not a chain
         if g.get("edges"):
             e = g["edges"]
-            lab = {"not_assessed": "unresolved"}.get(status, status)
             _scene_add({"kind": "segment", "id": link + "-u", "link": link,
                         "pane": "price", "role": role,
                         "p1": pt(*e["upper"][0]), "p2": pt(*e["upper"][1]),
-                        **({} if g.get("pole") else {"label":
-                            f"{name} · width {p.get('width_now', 0):,.2f}"
-                            + (f" · {lab}" if lab else "")}),
+                        **({} if g.get("pole") else {"label": label}),
                         "source": src})
             _scene_add({"kind": "segment", "id": link + "-l", "link": link,
                         "pane": "price", "role": role,
@@ -5810,8 +5977,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
             _scene_add({"kind": "segment", "id": link + "-p", "link": link,
                         "pane": "price", "role": role,
                         "p1": pt(*g["pole"][0]), "p2": pt(*g["pole"][1]),
-                        "label": f"{name} · pole {p.get('pole', 0):,.2f}"
-                                 + (f" · {status}" if status else ""),
+                        "label": label,
                         "source": src})
         if g.get("box"):
             _scene_add({"kind": "box", "id": link + "-b", "link": link,
@@ -5836,13 +6002,20 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
             continue                       # bars_ago out of range: mark nothing
         seg = rows[max(0, i - max(1, c["bars"]) + 1):i + 1]
         span = (seg[0][0], seg[-1][0])
-        name = c["pattern"].replace("_", " ")
+        name = _pattern_title(c["pattern"])
         if span in marks:
             # One bar often carries several names — a doji is usually also a
             # long-legged doji. Two dots land on the same pixels and say
             # nothing the first didn't; the label carries both names. This
             # costs no slot: it is the same mark.
             marks[span]["label"] += " · " + name
+            # Two names on one bar are two independent readings of it, so the
+            # mark carries the STRONGER — the weaker one does not dilute
+            # evidence the other bar-anatomy actually provides.
+            was = marks[span]["source"]["strength"]
+            now = _candle_strength(c["pattern"], edges)
+            if _STRENGTH_WORDS.index(now) > _STRENGTH_WORDS.index(was):
+                marks[span]["source"]["strength"] = now
             c["drawn_as"] = marks[span]["id"]
             continue
         if len(marks) >= n_marks:
@@ -5859,7 +6032,11 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
             "source": {"tool": "get_patterns",
                        "method": "bar anatomy against the disclosed thresholds",
                        "interval": interval, "bars_scanned": len(rows),
-                       "strength": "detected",
+                       # A bar has no resolution and no span to grade, so its
+                       # measured edge over the control is the whole of its
+                       # evidence. "detected" was not a strength at all — it
+                       # said the detector had run.
+                       "strength": _candle_strength(c["pattern"], edges),
                        "first_touch": c["t"], "last_touch": c["t"]}}
         c["drawn_as"] = cid
     for m in marks.values():

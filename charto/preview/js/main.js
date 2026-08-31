@@ -2285,25 +2285,28 @@
       // and lower edge, neckline — and only some carry the label. Hovering
       // the fill must still say "double top", so the name is resolved across
       // the whole `link` group rather than off the piece under the pointer.
-      // The label carries the detector's OWN facts — "falling wedge · width
-      // 2.78 · unresolved", "double top · neckline 1,271.00 · confirmed".
-      // Only the first segment was being read, as the name, and the rest was
-      // dropped, which is why a pattern card had less to say than the chat
-      // message that drew the pattern. Each remaining segment is either a
-      // measurement ("<name> <number>") or the formation's state.
+      // The label is "Name · Strength" now — the whole of it, for every
+      // family, so the shape's identity and how much it is worth read the
+      // same way on a wedge and on a double top. It used to carry a
+      // measurement too ("double top · neckline 1,271.00 · confirmed"), which
+      // put the formation's least surprising number where its headline
+      // should be: the neckline IS the dashed line the label is attached to.
+      //
+      // Strength is a graded judgement from the backend, not the detector's
+      // state — see `_pattern_strength`. The state is still worth a row here,
+      // because it is one of the inputs and a reader asking "why moderate"
+      // deserves the input rather than a re-derivation.
       const parts = patternParts(a);
       kindName = parts.shift() || "Pattern";
       const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-      let stated = false;
       const facts = parts.map((p) => {
         const m = /^(.+?)\s+(-?[\d,]+(?:\.\d+)?%?)$/.exec(p);
-        if (m) return row(cap(m[1]), val(null, m[2]));
-        stated = true;
-        return row("Status", p);
+        return m ? row(cap(m[1]), val(null, m[2])) : "";
       }).join("");
       title = null;
       body = facts
-        + (stated ? "" : row("Status", words(s.strength)))
+        + row("Strength", words(s.strength))
+        + (s.status ? row("State", words(s.status)) : "")
         + row("Bias", a.role === "support" ? "bullish"
           : a.role === "resistance" ? "bearish" : "neutral")
         + row("Spans", span(s.first_touch, s.last_touch));

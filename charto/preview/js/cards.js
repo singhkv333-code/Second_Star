@@ -89,7 +89,15 @@ const Cards = (() => {
    * unresolved wedge is not a bearish wedge), while a trendline that is
    * simply intact takes the plain grey, because still holding is the
    * unremarkable state of a line rather than a caveat about it. */
-  const BADGE = { confirmed: "ok", broken: "bad" };
+  // The badge grades the formation, it does not report the detector's state.
+  // "Confirmed" answered "has the level broken"; the reader's question is
+  // "is this worth anything", and those are different — a confirmed shape of
+  // a kind that has never beaten its control is a confirmed nothing. The
+  // backend answers the second (`_pattern_strength`); these are its three
+  // words. `confirmed`/`broken` stay because the same map dresses the
+  // journal tiles below, which really are reporting a state.
+  const BADGE = { Strong: "ok", Moderate: "open", Weak: "bad",
+                  confirmed: "ok", broken: "bad" };
 
   /** One row of a list: when it happened, what it was, and — where there is
    *  one — the price it happened at, closed against the card's right edge so
@@ -1380,8 +1388,8 @@ const Cards = (() => {
      * single number that decides it. Stacked as rows those four would need
      * four columns and the panel would become a spreadsheet. */
     const tiles = (c.chart_patterns || []).map((p) => {
-      const badge = p.status
-        ? `<span class="scan-badge ${BADGE[p.status] || "open"}">${esc(cap(p.status))}</span>`
+      const badge = p.strength
+        ? `<span class="scan-badge ${BADGE[p.strength] || "open"}">${esc(p.strength)}</span>`
         : "";
       const sub = [span(p.from, p.to), p.bias && p.bias !== "neutral"
         ? `${p.bias} bias` : ""].filter(Boolean).join(" · ");
