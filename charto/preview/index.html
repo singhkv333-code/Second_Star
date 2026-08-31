@@ -6497,18 +6497,19 @@ svg.icon.op {
   font-size: 26px; letter-spacing: -.03em; color: #fbfcfc;
 }
 .auth-brandpanel .mark .dot { color: var(--primary); }
-/* The production Pivot lockup: the same four-bar mark geometry and wordmark
-   rhythm as web/components/brand/PivotLogo.tsx, expressed inline because the
-   chart preview is framework-free. currentColor keeps one asset correct on
-   both the dark brand panel and the light compact header. */
+/* Charto already carries the canonical Pivot mark in assets/pivot-mark.png.
+   Mask it so the same file follows the lockup's currentColor on the dark
+   brand panel and the light compact header without a second raster variant. */
 .pivot-lockup {
-  display: inline-flex; align-items: center; gap: .056em;
-  font-family: var(--font); font-weight: var(--weight-semi);
-  line-height: 1; letter-spacing: -.035em;
+  display: inline-flex; align-items: center; gap: .28em;
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  line-height: 1; letter-spacing: -.03em;
 }
-.pivot-lockup svg {
-  display: block; width: auto; height: .73em; flex: none;
-  fill: currentColor; transform: translateY(-.005em);
+.pivot-lockup-mark {
+  display: block; width: .86em; height: .86em; flex: none;
+  background: currentColor;
+  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
+          mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
 .auth-brandpanel .pitch {
   position: relative; z-index: 1; max-width: 30ch; margin-top: auto;
@@ -7470,12 +7471,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
       <!-- the wave field and the grain are drawn by js/auth.js: thirty
            deterministic ridge paths are geometry, not markup -->
       <div class="mark pivot-lockup" aria-label="Pivot">
-        <svg viewBox="-12 0 672 576" aria-hidden="true" focusable="false">
-          <rect x="-12" y="360" width="132" height="216" rx="8" />
-          <rect x="168" y="180" width="132" height="180" rx="8" />
-          <rect x="348" y="0" width="132" height="180" rx="8" />
-          <rect x="528" y="0" width="132" height="576" rx="8" />
-        </svg><span>Pivot</span>
+        <span class="pivot-lockup-mark" aria-hidden="true"></span>
+        <span>Pivot<span class="dot">.</span></span>
       </div>
       <div class="pitch">Markets, in conversation</div>
       <div class="fine">Data &amp; analysis only. Not financial advice.</div>
@@ -7483,12 +7480,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 
     <div class="auth-col">
       <div class="mark pivot-lockup" aria-label="Pivot">
-        <svg viewBox="-12 0 672 576" aria-hidden="true" focusable="false">
-          <rect x="-12" y="360" width="132" height="216" rx="8" />
-          <rect x="168" y="180" width="132" height="180" rx="8" />
-          <rect x="348" y="0" width="132" height="180" rx="8" />
-          <rect x="528" y="0" width="132" height="576" rx="8" />
-        </svg><span>Pivot</span>
+        <span class="pivot-lockup-mark" aria-hidden="true"></span>
+        <span>Pivot<span class="dot">.</span></span>
       </div>
       <div class="auth-mid">
         <div class="auth-wrap">
