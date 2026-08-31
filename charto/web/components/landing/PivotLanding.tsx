@@ -175,6 +175,7 @@ function Footer() {
   const [email,setEmail]=useState("");
   const [name,setName]=useState("");
   const [experience,setExperience]=useState("");
+  const [style,setStyle]=useState("");
   const [joined,setJoined]=useState(false);
   const [sending,setSending]=useState(false);
   const [error,setError]=useState("");
@@ -192,7 +193,8 @@ function Footer() {
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), experience }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), experience,
+                               style: style.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -255,6 +257,21 @@ function Footer() {
                   ))}
                 </div>
               </fieldset>
+              {/* The only optional question on the form, and the only one whose
+                  answer cannot be enumerated — which is why it is here at all.
+                  The four bands above say how LONG someone has traded; this
+                  says how they trade, and those are different facts. Marked
+                  optional in the label rather than left to be inferred from
+                  the absence of an asterisk nothing else on this form uses. */}
+              <div className="pl-field">
+                <label htmlFor="pl-style">
+                  Share your trading experience or style
+                  <span className="pl-optional">Optional</span>
+                </label>
+                <textarea id="pl-style" name="style" rows={3} maxLength={2000}
+                  value={style} onChange={e=>setStyle(e.target.value)}
+                  placeholder="What you trade, how you decide, what you wish were easier."/>
+              </div>
               {error && <p className="pl-form-error" role="alert">{error}</p>}
               <button type="submit" disabled={!canSubmit || sending}>
                 {sending ? "Joining…" : "Join the Waitlist"}

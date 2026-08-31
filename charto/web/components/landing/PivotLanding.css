@@ -270,8 +270,23 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
 .pl-cta input[type=text],.pl-cta input[type=email]{width:100%;min-width:0;border:1px solid rgba(255,255,255,.16);outline:0;
   border-radius:8px;background:rgba(255,255,255,.05);padding:11px 14px;color:#fff;font-size:14px;
   transition:border-color .18s ease,background-color .18s ease}
-.pl-cta input::placeholder{color:rgba(255,255,255,.4)}
-.pl-cta input[type=text]:focus,.pl-cta input[type=email]:focus{border-color:#219ebc;background:rgba(255,255,255,.07)}
+.pl-cta input::placeholder,.pl-cta textarea::placeholder{color:rgba(255,255,255,.4)}
+.pl-cta input[type=text]:focus,.pl-cta input[type=email]:focus,
+.pl-cta textarea:focus{border-color:#219ebc;background:rgba(255,255,255,.07)}
+/* The free-text answer wears the inputs' own skin — same fill, same hairline,
+   same focus — because it is the same KIND of thing and a second treatment
+   would read as a second form. Only two departures, and both are about it
+   being prose: it may be dragged taller but never wider (a horizontal resize
+   would break the card it sits in), and the line height opens up because three
+   lines set at an input's leading read as a wall. */
+.pl-cta textarea{width:100%;min-width:0;border:1px solid rgba(255,255,255,.16);outline:0;
+  border-radius:8px;background:rgba(255,255,255,.05);padding:11px 14px;color:#fff;font-size:14px;
+  font-family:inherit;line-height:1.55;resize:vertical;min-height:76px;
+  transition:border-color .18s ease,background-color .18s ease}
+/* "Optional" belongs ON the label, quietly. A required-field asterisk is the
+   usual way to say this and it is the wrong way round here: three of the four
+   questions are required, so marking those three is more ink to say less. */
+.pl-optional{margin-left:7px;font-size:11px;font-weight:400;color:rgba(255,255,255,.45)}
 
 /* The experience question. Four real options, shown at once rather than
    folded into a native <select> — that is the one control here that cannot be
