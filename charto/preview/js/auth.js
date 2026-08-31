@@ -187,8 +187,8 @@ const Auth = (() => {
 
   const COPY = {
     login: {
-      title: "Sign in to Charto", submit: "Sign in", busy: "Signing in…",
-      alt: "New to Charto?", toggle: "Create an account", ac: "current-password",
+      title: "Sign in to Pivot", submit: "Sign in", busy: "Signing in…",
+      alt: "New to Pivot?", toggle: "Create an account", ac: "current-password",
       desc: "Enter your email and password to access your account.",
     },
     signup: {
