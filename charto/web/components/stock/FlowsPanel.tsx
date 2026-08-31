@@ -27,6 +27,7 @@ const EChart = dynamic(() => import("./EChart"), {
 
 const DELIV = "#4F8A5B";
 const DELIV_HI = "#C0A03C";
+const MEDIAN_LINE = "#8A7B4F";
 const OI_LINE = "#C4643F";
 
 function shortDate(iso: string): string {
@@ -124,11 +125,16 @@ export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElemen
       </div>
 
       {option ? (
-        <EChart
-          option={option}
-          height={240}
-          ariaLabel={view === "delivery" ? "Delivery percentage by day" : "Futures open interest by day"}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {view === "delivery" && s.delivery_median_20d !== null ? (
+            <MedianNote median={s.delivery_median_20d} />
+          ) : null}
+          <EChart
+            option={option}
+            height={240}
+            ariaLabel={view === "delivery" ? "Delivery percentage by day" : "Futures open interest by day"}
+          />
+        </div>
       ) : null}
 
       <style>{`
@@ -136,6 +142,30 @@ export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElemen
           .flows-stats { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
         }
       `}</style>
+    </div>
+  );
+}
+
+/** What the dashed rule is, said once, above the frame.
+ *
+ *  A key rather than an annotation: the swatch is the line itself, so the
+ *  reader binds the two without the text having to point at anything. Right-
+ *  aligned because it belongs to the chart below it, not to the stats rail
+ *  above — and because a left-aligned caption would sit under the "Delivered"
+ *  figure it is a different reading of. */
+function MedianNote({ median }: { median: number }): React.ReactElement {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6,
+      fontFamily: "var(--font-ui)", fontSize: 10.5,
+      color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums",
+    }}>
+      <span aria-hidden style={{
+        width: 14, height: 0,
+        borderTop: `1px dashed ${MEDIAN_LINE}`,
+        opacity: 0.9,
+      }} />
+      20-day median {median.toFixed(1)}%
     </div>
   );
 }
@@ -212,18 +242,20 @@ function deliveryOption(
         })),
         // The reference line inherits nothing usable: every bar carries its own
         // itemStyle, so ECharts has no series colour to lend the mark line and
-        // it was drawn invisible. Both the colour and the label colour are set
-        // outright here.
+        // it was drawn invisible. The colour is therefore set outright.
+        //
+        // The line carries NO label. `insideEndTop` put "20-day median 59.3%"
+        // inside the plot at the right edge, which is exactly where the most
+        // recent bars are — so on any stock whose delivery is currently high
+        // the caption sat on top of the bars it was there to explain. There is
+        // no position inside a bar chart that is reliably empty; the caption
+        // moved outside the frame instead (see `MedianNote`), where it cannot
+        // collide with data by construction.
         markLine: median !== null ? {
           silent: true,
           symbol: "none",
-          label: {
-            formatter: `20-day median ${median.toFixed(1)}%`,
-            fontSize: 10.5,
-            position: "insideEndTop",
-            color: "var(--text-secondary)",
-          },
-          lineStyle: { type: "dashed", width: 1, color: "#8A7B4F", opacity: 0.9 },
+          label: { show: false },
+          lineStyle: { type: "dashed", width: 1, color: MEDIAN_LINE, opacity: 0.9 },
           data: [{ yAxis: median }],
         } : undefined,
       },

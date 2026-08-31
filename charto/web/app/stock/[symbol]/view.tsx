@@ -24,7 +24,17 @@ import { StockDetailPage } from "@/components/StockDetailPage";
 const CHART = "/index.html";
 const KEY = "charto_theme";
 
-export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElement {
+/** The whole company surface under charto's chrome. `StockSymbolView` is the
+ *  overview; the statements page is the same chrome around a different body,
+ *  so the theme handshake below is written once rather than twice — two copies
+ *  would drift, and a reader crossing between them would watch the page change
+ *  palette mid-navigation. */
+export function CompanyChrome({
+  symbol, children,
+}: {
+  symbol: string;
+  children: React.ReactNode;
+}): React.ReactElement {
   const [dark, setDark] = useState(true);
 
   useEffect(() => {
@@ -87,9 +97,17 @@ export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElem
             page ran edge to edge on a 2000px display and read oversized, so
             the content keeps a comparable measure instead. */}
         <div className="mx-auto w-full max-w-[1600px]">
-          <StockDetailPage symbol={symbol} />
+          {children}
         </div>
       </div>
     </div>
+  );
+}
+
+export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElement {
+  return (
+    <CompanyChrome symbol={symbol}>
+      <StockDetailPage symbol={symbol} />
+    </CompanyChrome>
   );
 }

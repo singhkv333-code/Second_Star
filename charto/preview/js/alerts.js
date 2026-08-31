@@ -156,7 +156,7 @@ const Alerts = (() => {
       // The axis hover affordance belongs to creating a new alert. Once an
       // existing line is grabbed it would otherwise stay frozen at the old y
       // until the next ordinary chart move and look like a duplicate marker.
-      document.querySelector(".alert-plus")?.classList.remove("show", "hot");
+      document.querySelector(".alert-plus")?.classList.remove("show");
       selectLine(a.id);
       lineDrag = { id: a.id, pointer: e.pointerId, oldPrice: alertPrice(a),
                    price: alertPrice(a), moved: false };

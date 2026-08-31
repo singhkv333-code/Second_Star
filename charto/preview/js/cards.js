@@ -1350,6 +1350,16 @@ const Cards = (() => {
      * heading that argues with the list under it leaves the reader no way to
      * tell which half is wrong. */
     const stats = [
+      /* THE TIMEFRAME COMES FIRST, and it is the whole reason this row was
+       * reordered. A sweep is per-interval, so "what's forming on all
+       * timeframes" is several of these panels stacked — and the interval was
+       * named in ONE place: the foot, under thirteen formation tiles and
+       * seventeen candle rows. Four panels deep, the only label saying which
+       * chart you were reading sat about a screen and a half below the
+       * patterns it belonged to, so the stack read as one enormous
+       * undifferentiated list. A panel that can appear beside its own
+       * siblings has to say which one it is before it says anything else. */
+      stat("Timeframe", esc(c.interval || "—")),
       c.trend ? stat("Structure", cap(c.trend), TONE[c.trend] || "") : "",
       stat("Bars scanned", Sym.of(sym).num(c.bars_scanned)),
       stat("Chart patterns", counts.chart_found ?? (c.chart_patterns || []).length),

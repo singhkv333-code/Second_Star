@@ -26,6 +26,7 @@
 # Install:  sudo cp charto-backup.{service,timer} /etc/systemd/system/
 #           sudo systemctl enable --now charto-backup.timer
 set -euo pipefail
+umask 077
 
 DB="${CHARTO_USERS_DB:-/data/app/charto/data/charto_users.db}"
 ACCOUNT="${CHARTO_BACKUP_ACCOUNT:-pivotmarketdata}"
@@ -33,6 +34,7 @@ CONTAINER="${CHARTO_BACKUP_CONTAINER:-kite-1min}"
 PREFIX="${CHARTO_BACKUP_PREFIX:-backup/users}"
 KEEP_LOCAL="${CHARTO_BACKUP_KEEP:-48}"
 LOCAL_DIR="${CHARTO_BACKUP_DIR:-/data/backup}"
+MARKER="${CHARTO_BACKUP_MARKER:-$LOCAL_DIR/charto_users.last_success.json}"
 
 [ -f "$DB" ] || { echo "backup: no database at $DB" >&2; exit 1; }
 mkdir -p "$LOCAL_DIR"
@@ -75,6 +77,15 @@ if [ "$code" != "201" ]; then
   echo "backup: upload failed (HTTP $code) — local copy kept at $snap" >&2
   exit 1
 fi
+
+# Readiness is tied to a completed, verified, REMOTE copy — not merely to the
+# timer having fired. Atomic replace means /health sees either the preceding
+# success or the new complete record, never a half-written timestamp.
+completed="$(date +%s)"
+marker_tmp="$MARKER.tmp.$$"
+printf '{"completed_at_epoch":%s,"blob":"%s","bytes":%s}\n' \
+  "$completed" "$PREFIX/$(basename "$snap")" "$size" > "$marker_tmp"
+mv -f "$marker_tmp" "$MARKER"
 
 # Local copies are the fast restore path; the blob is the one that survives
 # the disk. Keep a rolling window here and everything there — at this size a

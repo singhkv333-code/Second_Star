@@ -6,8 +6,15 @@
  * Two halves of one argument. On the left, four models sit in the four
  * quadrants of a single crosshair: solvency above value on one side, the
  * distress odds beside the return on the other. On the right, the inputs of
- * ONE of them at a time — point at a quadrant to see what that score is built
- * from, click to keep it there.
+ * ONE of them at a time — the one that is SELECTED.
+ *
+ * Hover used to drive the radar too, on the theory that previewing is cheaper
+ * than clicking. It is not: the shape and its caption changed under a pointer
+ * merely crossing the matrix on its way somewhere else, so the panel flickered
+ * through three models a reader never asked for and the one they had chosen
+ * was gone whenever the pointer was anywhere near the numbers. A chart that
+ * redraws on a pointer passing over it is not a preview, it is noise. The
+ * radar answers the selection and nothing else.
  *
  * The radar belongs to a score, not to the panel. A single shared radar could
  * only ever be one model's inputs wearing a neutral label: Altman's five
@@ -22,8 +29,11 @@
  * related set into four unrelated ones, and the borders end up carrying more
  * ink than the numbers. The quadrant under the pointer takes a wash instead —
  * the shape it fills IS the quadrant, so the affordance costs no new geometry.
- * Held and hovered wear the same wash: the radar's caption already names the
- * score it is drawing, so the matrix does not need a second state to say it.
+ * Hover and selection no longer wear the SAME wash, because they no longer
+ * mean the same thing: hover says "this is clickable" and selection says "this
+ * is what the radar is drawing", and with the radar off hover, one wash for
+ * both left the held score indistinguishable from whatever the pointer last
+ * grazed.
  *
  * Colour is carried by the verdict, never by the number. A green 10.92 and a
  * red 2.31 read as a scoreboard; the number is the fact and the verdict is the
@@ -105,11 +115,8 @@ export function SolvencyValuePanel({
   if (!data.available || quadrants.length < 4) return null;
   const [tl, tr, bl, br] = quadrants as [ScoreQuadrant, ScoreQuadrant, ScoreQuadrant, ScoreQuadrant];
 
-  // Hover PREVIEWS, selection HOLDS. Pointing at a score should answer the
-  // question immediately — a reader who has to click to find out what a number
-  // is made of mostly does not — and clicking keeps that answer up while they
-  // read the spokes.
-  const activeKey = hovered ?? selected;
+  // Selection alone. Hover is an affordance, not a state the chart reads.
+  const activeKey = selected;
   const active = quadrants.find((q) => q.key === activeKey) ?? quadrants[0];
 
   const cell = (q: ScoreQuadrant, side: "left" | "right") => (
@@ -117,6 +124,8 @@ export function SolvencyValuePanel({
       q={q}
       price={price}
       side={side}
+      // Selection wins over hover: hovering the held quadrant must not demote
+      // it to the quieter wash.
       state={q.key === selected ? "selected" : q.key === hovered ? "hovered" : "idle"}
       onSelect={() => setSelected(q.key)}
       onHover={(on) => setHovered(on ? q.key : null)}
@@ -185,8 +194,8 @@ export function SolvencyValuePanel({
           </div>
           {/* Keyed on the active score so the shape re-enters rather than
               jumping: a polygon cannot tween between two different sets of
-              spokes — Graham has six and Altman five — and a hard swap on
-              hover reads as a glitch rather than as an answer. */}
+              spokes — Graham has six and Altman five — and a hard swap reads
+              as a glitch rather than as an answer. */}
           <div key={activeKey} style={{ width: "100%", animation: "sv-radar-in 180ms ease-out" }}>
             <Radar axes={active?.radar?.length ? active.radar : data.radar} />
           </div>
@@ -235,7 +244,7 @@ function Cell({
     color = price > q.value ? "var(--color-warn)" : "var(--color-profit)";
   }
 
-  const selected = state === "selected";   // ARIA only — see the wash below
+  const selected = state === "selected";
   return (
     <div
       role="button"
@@ -273,8 +282,14 @@ function Cell({
           left: side === "left" ? -10 : 8,
           right: side === "left" ? 8 : -10,
           borderRadius: 12,
-          background: state === "idle" ? "transparent" : "var(--surface-hover)",
-          transition: "background 140ms ease",
+          // Selection is the louder of the two, and it has to be: it is the
+          // only thing on the matrix that says which score the radar belongs
+          // to. Hover stays a hint that the quadrant can be clicked.
+          background: state === "selected" ? "var(--surface-active, var(--surface-hover))"
+            : state === "hovered" ? "var(--surface-hover)"
+            : "transparent",
+          opacity: state === "hovered" ? 0.6 : 1,
+          transition: "background 140ms ease, opacity 140ms ease",
           pointerEvents: "none",
         }}
       />

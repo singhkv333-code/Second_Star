@@ -8,12 +8,19 @@
  * rate against a 57% control is noise wearing a pattern's name, and the only
  * column worth reading is the difference.
  *
- * The rows are THIS COMPANY's by default. They used to be the pooled market
- * ledger, which is keyed by asset class — so every Indian equity rendered a
- * byte-identical table under a heading that read as the company's own. The
- * market view is still one click away, because "is this shape unusual here or
- * merely typical" is a real question; it is just not the one the page asks
- * first.
+ * The rows are THIS COMPANY's. They used to be the pooled market ledger, which
+ * is keyed by asset CLASS — so every Indian equity rendered a byte-identical
+ * table under a heading that read as the company's own. That view then spent a
+ * while behind an "All NSE" toggle, which is the same wrong table one click
+ * further away: a control on a company page whose entire effect is to replace
+ * the company with the market, under a heading that still says the company's
+ * name.
+ *
+ * The question the toggle was really for — "is this shape unusual HERE, or
+ * merely typical" — is a comparison, not a second table, so it is drawn as one:
+ * the market's own edge rides on every row as a faint tick on the same bar. A
+ * reader sees both readings at once, on one scale, which is the only way that
+ * question has ever been answerable.
  *
  * Negative edges are shown, not filtered. A pattern that reliably fails is as
  * useful as one that works, and hiding those rows would turn a measurement
@@ -27,17 +34,13 @@
 import * as React from "react";
 
 import {
-  getPatterns, type PatternScope, type PatternStat, type PatternsResponse,
+  getPatterns, type PatternStat, type PatternsResponse,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { PatternGlyph } from "./PatternGlyph";
 import { Segmented, SECTION_GAP } from "./chrome";
 
 const HORIZONS = [5, 10, 20];
-const SCOPES = [
-  { value: "symbol", label: "This stock" },
-  { value: "universe", label: "All NSE" },
-];
 const INTERVALS = [
   { value: "15m", label: "15m" },
   { value: "1h", label: "1h" },
@@ -61,7 +64,6 @@ function compactN(n: number): string {
 export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement | null {
   const [interval, setInterval] = React.useState("1d");
   const [horizon, setHorizon] = React.useState(20);
-  const [scope, setScope] = React.useState<PatternScope>("symbol");
   const [data, setData] = React.useState<PatternsResponse | null>(null);
   const [dead, setDead] = React.useState(false);
   const [all, setAll] = React.useState(false);
@@ -69,7 +71,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
   React.useEffect(() => {
     let cancelled = false;
     setData(null);
-    getPatterns(symbol, interval, horizon, scope)
+    getPatterns(symbol, interval, horizon)
       .then((r) => {
         if (cancelled) return;
         if (isError(r)) { setDead(true); return; }
@@ -77,7 +79,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
       })
       .catch(() => { if (!cancelled) setDead(true); });
     return () => { cancelled = true; };
-  }, [symbol, interval, horizon, scope]);
+  }, [symbol, interval, horizon]);
 
   if (dead) return null;
   const rows = data?.patterns ?? [];
@@ -119,11 +121,6 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           Pattern Edge
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <Segmented
-            value={scope}
-            options={SCOPES}
-            onChange={(v) => setScope(v as PatternScope)}
-          />
           <Segmented value={interval} options={INTERVALS} onChange={setInterval} />
           <Segmented
             value={String(horizon)}
@@ -160,7 +157,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
           <span style={{ textAlign: "right" }}>Cases</span>
           <span style={{ textAlign: "right" }}>Hit</span>
           <span style={{ textAlign: "right" }}>Control</span>
-          <span style={{ textAlign: "center" }}>Edge</span>
+          <span style={{ textAlign: "center" }}>Edge · market</span>
           <span style={{ textAlign: "right" }}>vs control</span>
         </div>
 
@@ -215,6 +212,16 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
   const tone = edge > 0 ? "var(--color-profit)" : edge < 0 ? "var(--color-loss)" : "var(--text-tertiary)";
   const half = Math.min(50, (Math.abs(edge) / SCALE_PP) * 50);
 
+  // The same pattern's edge across the whole market, on the same scale. This
+  // is what the "All NSE" scope was for, and it belongs here rather than in a
+  // table of its own: the finding is the DISTANCE between the two, and two
+  // tables cannot show a distance.
+  const mkt = p.market_edge ?? null;
+  const mktHalf = mkt === null ? null
+    : Math.min(50, (Math.abs(mkt) / SCALE_PP) * 50);
+  const mktLeft = mkt === null || mktHalf === null ? null
+    : mkt >= 0 ? 50 + mktHalf : 50 - mktHalf;
+
   return (
     <div
       className="pat-row"
@@ -268,9 +275,34 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
             width: `${half}%`,
           }}
         />
+        {/* Where the market sits on the same scale. A hairline, not a second
+            bar: it is the reference the company's bar is read against, and
+            drawing it with equal weight would make the row an argument
+            between two measurements rather than one measurement in context. */}
+        {mktLeft !== null ? (
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: `${mktLeft}%`,
+              top: 2,
+              width: 1,
+              height: 14,
+              background: "var(--text-tertiary)",
+              opacity: 0.75,
+            }}
+          />
+        ) : null}
       </span>
 
-      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone, opacity: solid ? 1 : 0.6 }}>
+      <span
+        title={mkt !== null
+          ? `${pretty(p.kind)}: ${edge >= 0 ? "+" : "−"}${Math.abs(edge).toFixed(1)}pp here `
+            + `vs ${mkt >= 0 ? "+" : "−"}${Math.abs(mkt).toFixed(1)}pp across the market`
+            + (p.market_n ? ` (${compactN(p.market_n)} instances)` : "")
+          : undefined}
+        style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone, opacity: solid ? 1 : 0.6 }}
+      >
         {edge >= 0 ? "+" : "−"}{Math.abs(edge).toFixed(1)}
         <span style={{ fontWeight: 400, color: "var(--text-secondary)" }}> ±{se.toFixed(1)}</span>
       </span>

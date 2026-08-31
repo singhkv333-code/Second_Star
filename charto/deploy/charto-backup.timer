@@ -7,7 +7,9 @@ Description=Charto: hourly user-database backup
 # of journal entries and layouts. Persistent=true so a box that was off does
 # not silently skip the catch-up run.
 OnBootSec=5min
-OnUnitActiveSec=1h
+OnCalendar=hourly
+AccuracySec=2min
+RandomizedDelaySec=2min
 Persistent=true
 
 [Install]

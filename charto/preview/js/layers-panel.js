@@ -99,6 +99,15 @@ window.LayersPanel = (() => {
 
   const refresh = () => document.dispatchEvent(new Event("charto:layers-refresh"));
 
+  /** Repaint the chip on the chart as well as the list.
+   *
+   *  The chip is painted by scene.js off `foldState()`, so it only notices a
+   *  change the SCENE made. Deleting a pattern that was never drawn touches no
+   *  scene object at all — the row went, the list re-rendered, and the "3/136"
+   *  chip six inches away still said 136. Two counts of one thing, disagreeing
+   *  by exactly the row the user just removed. */
+  const repaintChip = () => { try { scene() && scene().requestUpdate(); } catch { /* chart not up */ } };
+
   function persist() {
     Store.set("pattern_ledger", ledger);
     clearTimeout(saveTimer);
@@ -370,7 +379,11 @@ window.LayersPanel = (() => {
       }
       const response = await fetch(`${API}/patterns/draw?${params}`);
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Could not draw that pattern");
+      if (!response.ok) {
+        const err = new Error(payload.error || "Could not draw that pattern");
+        err.unavailable = !!payload.unavailable;
+        throw err;
+      }
       const patch = Array.isArray(payload.scene) ? payload.scene : [];
       if (!patch.length) throw new Error("No pattern geometry was returned");
       scene().apply(patch);
@@ -385,6 +398,22 @@ window.LayersPanel = (() => {
       refresh();
       notify(`${title(p.name)} shown on ${p.interval}`);
     } catch (error) {
+      // A formation the server cannot reach is GONE, not broken — the bar it
+      // was found on has aged out of the furthest window this interval can
+      // scan, and no later click will change that. So the row goes with it
+      // rather than sitting in the list advertising a button that can only
+      // fail. Only on `unavailable`: a timeout or a dropped connection is a
+      // transient failure and must never delete anything.
+      if (error && error.unavailable) {
+        ledger.deleted[p.id] = Date.now();
+        ledger.items = ledger.items.filter((x) => x.id !== p.id);
+        expanded.delete(row.rowId);
+        persist();
+        notify(`${title(p.name)} has aged out of this chart's history — removed`);
+        repaintChip();
+        refresh();
+        return;
+      }
       notify(error.message || "Could not draw that pattern");
     } finally {
       if (button && button.isConnected) {
@@ -408,6 +437,47 @@ window.LayersPanel = (() => {
       scene().removeFor([row.key]);
     }
     expanded.delete(row.rowId);
+    repaintChip();
+    refresh();
+  }
+
+  /** Delete every row the list is CURRENTLY showing.
+   *
+   *  Scoped to the visible list on purpose, which is what makes one button
+   *  enough: the search box and the on-chart filter already narrow this panel,
+   *  so "spinning top" then sweep is a targeted bulk delete, and an empty
+   *  search is "clear the lot". A separate multi-select mode would be a second
+   *  way to express a selection this panel can already express.
+   *
+   *  Armed rather than confirmed in a dialog — one click asks, the next does
+   *  it, and anything else disarms. A modal over a popover that closes on
+   *  outside-click is a fight, and 226 rows is exactly when a user wants this
+   *  to take two clicks rather than five. */
+  function removeListed() {
+    const list = rows();
+    if (!list.length) return;
+    const sceneKeys = [];
+    for (const r of list) {
+      if (r.species === "drawing") {
+        draw().remove(r.key);
+      } else if (r.species === "pattern") {
+        ledger.deleted[r.key] = Date.now();
+        if (r.sceneKey) sceneKeys.push(r.sceneKey);
+      } else if (r.key) {
+        sceneKeys.push(r.key);
+      }
+      expanded.delete(r.rowId);
+    }
+    const gone = new Set(list.filter((r) => r.species === "pattern").map((r) => r.key));
+    if (gone.size) ledger.items = ledger.items.filter((p) => !gone.has(p.id));
+    if (sceneKeys.length && scene()) scene().removeFor(sceneKeys);
+    if (list.some((r) => r.species === "drawing")) {
+      document.dispatchEvent(new Event("charto:drawings-changed"));
+    }
+    persist();
+    armedSweep = false;
+    notify(`Deleted ${list.length} layer${list.length === 1 ? "" : "s"}`);
+    repaintChip();
     refresh();
   }
 
@@ -437,15 +507,15 @@ window.LayersPanel = (() => {
     return `<article class="lyr-row${r.live ? " is-live" : ""}${open ? " expanded" : ""}" data-row="${esc(r.rowId)}">
       <button class="lyr-eye" type="button" data-lyr-toggle="${esc(r.rowId)}"
         aria-pressed="${r.live}" aria-label="${r.live ? "Hide" : "Show"} ${esc(r.name)}"
-        data-tip="${r.live ? "Hide" : "Show"}">${icon(r.live ? "eye" : "eyeOff")}</button>
+        title="${r.live ? "Hide" : "Show"}">${icon(r.live ? "eye" : "eyeOff")}</button>
       <span class="lyr-glyph" aria-hidden="true">${icon(r.icon)}</span>
       <span class="lyr-name" title="${esc(r.name)}">${esc(r.name)}</span>
       <span class="lyr-meta">${esc(r.meta)}</span>
       <span class="lyr-date"${date ? ` title="${esc(date)}"` : ""}>${esc(dayOf(r.to || r.from))}</span>
       <span class="lyr-actions">
-        ${r.species === "pattern" ? `<button class="lyr-act${r.pinned ? " active" : ""}" type="button" data-lyr-pin="${esc(r.rowId)}" aria-label="${r.pinned ? "Unpin" : "Pin"}" data-tip="${r.pinned ? "Unpin" : "Pin"}">${icon("pin")}</button>` : ""}
-        <button class="lyr-act" type="button" data-lyr-detail="${esc(r.rowId)}" aria-expanded="${open}" aria-label="${open ? "Close details" : "Details"}" data-tip="${open ? "Close" : "Details"}">${icon("chevronDown")}</button>
-        <button class="lyr-act danger" type="button" data-lyr-del="${esc(r.rowId)}" aria-label="Delete ${esc(r.name)}" data-tip="Delete">${icon("trash")}</button>
+        ${r.species === "pattern" ? `<button class="lyr-act${r.pinned ? " active" : ""}" type="button" data-lyr-pin="${esc(r.rowId)}" aria-label="${r.pinned ? "Unpin" : "Pin"}" title="${r.pinned ? "Unpin" : "Pin"}">${icon("pin")}</button>` : ""}
+        <button class="lyr-act" type="button" data-lyr-detail="${esc(r.rowId)}" aria-expanded="${open}" aria-label="${open ? "Close details" : "Details"}" title="${open ? "Close" : "Details"}">${icon("chevronDown")}</button>
+        <button class="lyr-act danger" type="button" data-lyr-del="${esc(r.rowId)}" aria-label="Delete ${esc(r.name)}" title="Delete">${icon("trash")}</button>
       </span>
       <div class="lyr-detail">
         <div class="lyr-detail-grid">
@@ -478,6 +548,22 @@ window.LayersPanel = (() => {
   function render(target) {
     host = target || host;
     if (!host || !host.isConnected) return;
+    /* KEEP THE READER WHERE THEY WERE.
+     *
+     * Every action in this panel ends in render(), and render() replaces the
+     * whole host — so showing a pattern, opening its details or deleting a row
+     * rebuilt `.lyr-body` and reset its scrollTop to zero. With 226 rows that
+     * is not a small jump: click anything below the fold and the list throws
+     * you back to the top, having lost the row you were working on.
+     *
+     * The search box had the same wound in a worse form: its `input` handler
+     * calls render(), which destroys the input mid-keystroke, so focus and
+     * caret were gone after every character. Both are saved across the swap. */
+    const oldBody = host.querySelector(".lyr-body");
+    const keepTop = oldBody ? oldBody.scrollTop : 0;
+    const focused = document.activeElement;
+    const typing = focused && focused.id === "layerSearch";
+    const caret = typing ? focused.selectionStart : null;
     const list = rows();
     const c = counts();
     const allOn = c.total > 0 && c.live === c.total;
@@ -485,15 +571,22 @@ window.LayersPanel = (() => {
       <div class="lyr-head">
         <div class="lyr-title">Layers<span class="lyr-count">${c.live}/${c.total}</span></div>
         <div class="lyr-head-tools">
-          <label class="lyr-search" data-tip="Search"><span>${icon("search")}</span><input id="layerSearch" type="search" aria-label="Search layers" placeholder="Search" value="${esc(query)}"></label>
-          <button class="lyr-tool${onlyLive ? " active" : ""}" type="button" data-lyr-filter aria-pressed="${onlyLive}" aria-label="${onlyLive ? "Show everything" : "Show only what is on the chart"}" data-tip="${onlyLive ? "Show all" : "On chart only"}">${icon("layers")}</button>
-          <button class="lyr-tool" type="button" data-lyr-all="${allOn ? "off" : "on"}" aria-label="${allOn ? "Hide every layer" : "Show every layer"}" data-tip="${allOn ? "Hide all" : "Show all"}">${icon(allOn ? "eyeOff" : "eye")}</button>
+          <label class="lyr-search" title="Search"><span>${icon("search")}</span><input id="layerSearch" type="search" aria-label="Search layers" placeholder="Search" value="${esc(query)}"></label>
+          <button class="lyr-tool${onlyLive ? " active" : ""}" type="button" data-lyr-filter aria-pressed="${onlyLive}" aria-label="${onlyLive ? "Show everything" : "Show only what is on the chart"}" title="${onlyLive ? "Show all" : "On chart only"}">${icon("layers")}</button>
+          <button class="lyr-tool" type="button" data-lyr-all="${allOn ? "off" : "on"}" aria-label="${allOn ? "Hide every layer" : "Show every layer"}" title="${allOn ? "Hide all" : "Show all"}">${icon(allOn ? "eyeOff" : "eye")}</button>
+          <button class="lyr-tool danger${armedSweep ? " armed" : ""}" type="button" data-lyr-sweep aria-label="Delete the ${list.length} layers listed" title="${armedSweep ? `Delete ${list.length}?` : `Delete all ${list.length} listed`}">${icon(armedSweep ? "check" : "trash")}</button>
         </div>
       </div>
       <div class="lyr-body">${listHtml(list)}</div>`;
+    const body = host.querySelector(".lyr-body");
+    if (body && keepTop) body.scrollTop = keepTop;
     const search = host.querySelector("#layerSearch");
     if (search) {
       search.addEventListener("input", (e) => { query = e.target.value; render(); });
+      if (typing) {
+        search.focus();
+        try { search.setSelectionRange(caret, caret); } catch { /* not text */ }
+      }
     }
     if (!host.dataset.lyrBound) {
       host.addEventListener("click", onClick);
@@ -506,6 +599,8 @@ window.LayersPanel = (() => {
     }
   }
 
+  let armedSweep = false;
+
   function find(rowId) { return rows().find((r) => r.rowId === rowId); }
 
   function onHover(e) {
@@ -517,9 +612,19 @@ window.LayersPanel = (() => {
 
   function onClick(e) {
     const t = e.target.closest("[data-lyr-toggle],[data-lyr-pin],[data-lyr-detail],"
-      + "[data-lyr-del],[data-lyr-filter],[data-lyr-all]");
+      + "[data-lyr-del],[data-lyr-filter],[data-lyr-all],[data-lyr-sweep]");
     if (!t) return;
     e.stopPropagation();
+    // Anything that is not the sweep itself disarms it. An armed destructive
+    // button that survives a change of mind is the whole reason to arm one.
+    if (armedSweep && !t.hasAttribute("data-lyr-sweep")) {
+      armedSweep = false;
+      render();
+    }
+    if (t.hasAttribute("data-lyr-sweep")) {
+      if (!armedSweep) { armedSweep = true; return render(); }
+      return removeListed();
+    }
     if (t.hasAttribute("data-lyr-filter")) {
       onlyLive = !onlyLive; return render();
     }

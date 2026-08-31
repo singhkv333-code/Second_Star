@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = 5173
+PORT = int(os.environ.get("CHARTO_PREVIEW_PORT", "5173"))
 
 # The company page runs as its own Next app (charto/web on :5175) and is
 # reached THROUGH this server rather than beside it.

@@ -32,7 +32,7 @@ import secrets
 import socket
 import sqlite3
 import sys
-from os import environ
+from os import environ, statvfs
 import threading
 import time
 import urllib.error
@@ -78,9 +78,10 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 # (gpt-5.4-mini) and Charto should not drag it onto a different model.
 LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
 LLM_EFFORT_DEFAULT = "medium"
-# Azure priority processing — premium-billed, lower/steadier latency. The
-# response echoes the tier actually served; verify there, not here.
-LLM_SERVICE_TIER = "priority"
+# gpt-5.6-luna is currently served on Charto's Global Standard deployment.
+# Keep the tier explicit and overridable, but default to what Azure actually
+# reports rather than requesting a priority tier this model does not receive.
+LLM_SERVICE_TIER_DEFAULT = "default"
 
 
 def _env_values(*keys: str) -> dict[str, str]:
@@ -112,6 +113,97 @@ LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPL
 LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
               or _env_values("CHARTO_LLM_EFFORT")["CHARTO_LLM_EFFORT"]
               or LLM_EFFORT_DEFAULT)
+LLM_SERVICE_TIER = (environ.get("CHARTO_LLM_SERVICE_TIER")
+                    or _env_values("CHARTO_LLM_SERVICE_TIER")["CHARTO_LLM_SERVICE_TIER"]
+                    or LLM_SERVICE_TIER_DEFAULT)
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(environ.get(name) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        return max(minimum, float(environ.get(name) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# One SQLite reader serves the process. Letting forty request threads enter it
+# together produced a 17.4s median and a 500 on the production box, while ten
+# completed cleanly in ~2.2s. Bound the work at the measured knee and queue for
+# a short, finite window; overload is then an explicit retryable response
+# instead of an unbounded tail or an incidental SQLite error.
+_DATA_MAX_CONCURRENCY = _env_int("CHARTO_DATA_CONCURRENCY", 10)
+_DATA_QUEUE_TIMEOUT_S = _env_float("CHARTO_DATA_QUEUE_TIMEOUT_S", 8.0)
+_DATA_RETRY_AFTER_S = _env_int("CHARTO_DATA_RETRY_AFTER_S", 2)
+_DATA_SLOTS = threading.BoundedSemaphore(_DATA_MAX_CONCURRENCY)
+_DATA_STATE_LOCK = threading.Lock()
+_DATA_STATE = {"active": 0, "peak": 0, "rejected": 0, "completed": 0}
+_CHAT_MAX_CONCURRENCY = _env_int("CHARTO_CHAT_CONCURRENCY", 20)
+# Forty beta users can arrive together (often behind one shared NAT). Twenty
+# active LLM turns stay inside the VM's measured comfort zone; the second wave
+# waits for one turn-length instead of being failed immediately.
+_CHAT_QUEUE_TIMEOUT_S = _env_float("CHARTO_CHAT_QUEUE_TIMEOUT_S", 15.0)
+_CHAT_SLOTS = threading.BoundedSemaphore(_CHAT_MAX_CONCURRENCY)
+_CHAT_STATE_LOCK = threading.Lock()
+_CHAT_STATE = {"active": 0, "peak": 0, "rejected": 0, "completed": 0}
+_LLM_MAX_ATTEMPTS = _env_int("CHARTO_LLM_MAX_ATTEMPTS", 3)
+_LLM_RETRY_BASE_S = _env_float("CHARTO_LLM_RETRY_BASE_S", 0.4)
+_LLM_RETRY_MAX_S = _env_float("CHARTO_LLM_RETRY_MAX_S", 5.0)
+_LLM_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _data_slot_acquire(timeout: float | None = None) -> bool:
+    wait = _DATA_QUEUE_TIMEOUT_S if timeout is None else max(0.0, timeout)
+    ok = _DATA_SLOTS.acquire(timeout=wait)
+    with _DATA_STATE_LOCK:
+        if not ok:
+            _DATA_STATE["rejected"] += 1
+            return False
+        _DATA_STATE["active"] += 1
+        _DATA_STATE["peak"] = max(_DATA_STATE["peak"], _DATA_STATE["active"])
+    return True
+
+
+def _data_slot_release() -> None:
+    with _DATA_STATE_LOCK:
+        _DATA_STATE["active"] = max(0, _DATA_STATE["active"] - 1)
+        _DATA_STATE["completed"] += 1
+    _DATA_SLOTS.release()
+
+
+def _data_state() -> dict:
+    with _DATA_STATE_LOCK:
+        return {**_DATA_STATE, "limit": _DATA_MAX_CONCURRENCY,
+                "queue_timeout_s": _DATA_QUEUE_TIMEOUT_S}
+
+
+def _chat_slot_acquire() -> bool:
+    ok = _CHAT_SLOTS.acquire(timeout=_CHAT_QUEUE_TIMEOUT_S)
+    with _CHAT_STATE_LOCK:
+        if not ok:
+            _CHAT_STATE["rejected"] += 1
+            return False
+        _CHAT_STATE["active"] += 1
+        _CHAT_STATE["peak"] = max(_CHAT_STATE["peak"], _CHAT_STATE["active"])
+    return True
+
+
+def _chat_slot_release() -> None:
+    with _CHAT_STATE_LOCK:
+        _CHAT_STATE["active"] = max(0, _CHAT_STATE["active"] - 1)
+        _CHAT_STATE["completed"] += 1
+    _CHAT_SLOTS.release()
+
+
+def _chat_state() -> dict:
+    with _CHAT_STATE_LOCK:
+        return {**_CHAT_STATE, "limit": _CHAT_MAX_CONCURRENCY,
+                "queue_timeout_s": _CHAT_QUEUE_TIMEOUT_S}
 
 
 def _creds_error() -> str:
@@ -1093,6 +1185,24 @@ def _divergences(rows: list[tuple], osc: list, window: int = 5,
 def _rows(interval: str, limit: int, to: int | None = None) -> list[tuple]:
     d = get_bars(_sym(), interval, to, limit)
     return [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d["bars"]]
+
+
+def _lookback_covering(interval: str, ts: int, start: int = 300,
+                       cap: int = 6000) -> int:
+    """Smallest window (in bars) whose oldest bar is at or before `ts`.
+
+    Doubling rather than stepping: the caller has a timestamp and no idea how
+    many bars away it is, and the answer spans three orders of magnitude
+    across intervals — 300 bars is six weeks of daily and four days of
+    5-minute. Five fetches at most, each a bounded SQLite read.
+    """
+    n = max(60, int(start or 300))
+    while n <= cap:
+        rows = _rows(interval, n)
+        if not rows or rows[0][0] <= ts:
+            return n
+        n *= 2
+    return cap
 
 
 def _rows_for(symbol: str, interval: str, limit: int) -> list[tuple]:
@@ -3331,19 +3441,74 @@ def _api_financials(sym: str) -> tuple[int, dict]:
     return 200, out
 
 
-def _api_balance_sheet(sym: str, basis: str) -> tuple[int, dict]:
+def _api_statement(sym: str, kind: str, basis: str) -> tuple[int, dict]:
+    """One filed statement grid, whole.
+
+    Four statements live in two tables: the balance sheet in its own (written
+    by `sync_financials.py`, because the Financial Performance panel drew it
+    first) and the other three in `statement` (written by
+    `sync_statements.py`, for the solvency scorer). Both hold the same shape —
+    periods, rows, unit — so this reads whichever one holds the asked-for
+    grid and returns it untouched.
+
+    Only the balance sheet used to be served. The route answered every other
+    `type` with `available: false`, which took the page's Ratios tab and the
+    whole statements page down with it: the data was synced and sitting there,
+    and the dispatch in front of it said there was none.
+    """
     basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    kind = kind if kind in _STATEMENTS else "balance_sheet"
     try:
-        row = _con.execute(
-            "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
-            (sym, basis)).fetchone()
+        if kind == "balance_sheet":
+            row = _con.execute(
+                "SELECT payload FROM balance_sheet WHERE symbol=? AND basis=?",
+                (sym, basis)).fetchone()
+        else:
+            row = _con.execute(
+                "SELECT payload FROM statement "
+                "WHERE symbol=? AND statement=? AND basis=?",
+                (sym, kind, basis)).fetchone()
     except sqlite3.Error:
         row = None
     if not row:
-        return 200, {"available": False, "company": None, "basis": basis,
+        return 200, {"available": False, "company": None, "statement": kind,
+                     "type": kind, "basis": basis,
                      "unit": None, "periods": [], "rows": [],
                      "source": "not stored in charto"}
-    return 200, json.loads(row[0])
+    out = json.loads(row[0])
+    # The balance-sheet payload predates the second name and carries neither
+    # key; the page reads `statement` to decide whether to print a unit note.
+    out.setdefault("statement", kind)
+    out.setdefault("type", kind)
+    return 200, out
+
+
+# What the page may ask for by `type`. Anything else is a wrong answer waiting
+# to happen — the route used to hand back the balance sheet for all four.
+_STATEMENTS = ("balance_sheet", "profit_loss", "cash_flow", "ratios")
+
+
+def _api_quarters(sym: str, basis: str, limit: int) -> tuple[int, dict]:
+    """Recent quarters, newest first — `quarterly_metrics`, as stored.
+
+    Nothing is computed. The margins, the YoY pair and the TTM block are
+    columns Pivot already derived once; deriving them again here would give
+    the page a second set of numbers that disagrees with every other surface.
+    """
+    basis = basis if basis in ("consolidated", "standalone") else "consolidated"
+    limit = max(1, min(limit or 20, 40))
+    try:
+        rows = _con.execute(
+            "SELECT payload FROM quarters WHERE symbol=? AND basis=? "
+            "ORDER BY period_end DESC LIMIT ?", (sym, basis, limit)).fetchall()
+        avail = [b for (b,) in _con.execute(
+            "SELECT DISTINCT basis FROM quarters WHERE symbol=?", (sym,))]
+    except sqlite3.Error:
+        rows, avail = [], []
+    return 200, {"symbol": sym, "basis": basis, "matched_on": "isin",
+                 "available": bool(rows),
+                 "bases_available": sorted(b for b in avail if b),
+                 "quarters": [json.loads(r[0]) for r in rows]}
 
 
 # ── the deep sections ───────────────────────────────────────────────────────
@@ -3431,6 +3596,15 @@ def _api_sections(sym: str) -> tuple[int, dict]:
             return int(_con.execute(sql, (sym,)).fetchone()[0] or 0)
         except sqlite3.Error:
             return 0
+
+    def scalar(sql: str):
+        """Same guard as `count`, for a value that is not a number. A store
+        that has not run a sync yet is missing the TABLE, not the row."""
+        try:
+            row = _con.execute(sql, (sym,)).fetchone()
+            return row[0] if row else None
+        except sqlite3.Error:
+            return None
     try:
         ident = _con.execute(
             "SELECT name, sc_id FROM company_profile WHERE symbol=?",
@@ -3445,10 +3619,15 @@ def _api_sections(sym: str) -> tuple[int, dict]:
         "name": (ident[0] if ident else None),
         "bse_scripcode": None,
         "coverage": {
-            # charto stores an earnings CALENDAR (`results`), not quarterly
-            # statements, so the quarters section has nothing to draw and
-            # says so instead of drawing a calendar as though it were one.
-            "quarters": {"count": 0, "latest": None, "bases": bases},
+            # Counted, not declared. This said 0 for every symbol back when
+            # charto held only an earnings CALENDAR (`results`); it holds the
+            # quarterly grids now (`sync_quarters.py`), and a hardcoded zero
+            # over a full table is the same dead section by the other route.
+            "quarters": {
+                "count": count("SELECT COUNT(*) FROM quarters WHERE symbol=?"),
+                "latest": scalar("SELECT MAX(period_end) FROM quarters "
+                                 "WHERE symbol=?"),
+                "bases": bases},
             "annual_report": {"count": 0, "tasks": 0, "documents": 0,
                               "latest_period": None},
             "revenue_mix": {"count": count(
@@ -3979,12 +4158,16 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                 # with the balance sheet is a wrong answer rather than a
                 # missing one. Only the sheet is stored.
                 kind = (q.get("type") or "balance_sheet").lower()
-                if kind in ("balance_sheet", "balancesheet", ""):
-                    return _api_balance_sheet(s_, q.get("basis", "consolidated"))
-                return 200, {"available": False, "company": None,
-                             "type": kind, "basis": q.get("basis", "consolidated"),
-                             "unit": None, "periods": [], "rows": [],
-                             "source": "not stored in charto"}
+                if kind in ("balancesheet", ""):
+                    kind = "balance_sheet"
+                if kind not in _STATEMENTS:
+                    return 200, {"available": False, "company": None,
+                                 "type": kind,
+                                 "basis": q.get("basis", "consolidated"),
+                                 "unit": None, "periods": [], "rows": [],
+                                 "source": f"{kind} is not a filed statement"}
+                return _api_statement(s_, kind,
+                                      q.get("basis", "consolidated"))
             if what == "scores":
                 return _api_scores(s_, q.get("basis") or "consolidated")
             return 404, {"detail": f"/financials/…/{what} is not served by charto"}
@@ -4015,6 +4198,9 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
             return _api_mix(s_)
         if what == "scores":
             return _api_scores(s_, q.get("basis") or "consolidated")
+        if what == "quarters":
+            return _api_quarters(s_, q.get("basis") or "consolidated",
+                                 int(q.get("limit") or 20))
         # Anything else under /stock/ answers with the honest empty state
         # rather than a 404. A panel handed a 404 has no data AND no answer,
         # and several of them simply keep their skeleton up forever — which
@@ -5390,7 +5576,16 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     if mode == "clear":
         _scene_add({"kind": "clear", "scope": "all", "owner": "get_patterns"})
         return {"cleared": True, "_note": "Pattern marks removed from the chart."}
-    rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
+    # A SWEEP is capped at 1500 bars; a targeted redraw of one already-known
+    # candle is not. The Layers panel keeps every pattern a sweep ever found,
+    # and re-showing one re-runs the detector — so a signal from three weeks
+    # ago on a 5-minute chart sat outside the 1500-bar window and could NEVER
+    # be drawn again, however many times it was clicked. The match key there is
+    # the bar's own timestamp, which does not move when the window grows, so
+    # widening is safe in a way it is not for `draw_ids`: a chart pattern's id
+    # encodes bars_ago and IS window-dependent, so those keep the cap.
+    _cap = 6000 if draw_candle_at else 1500
+    rows = _rows(interval, max(60, min(int(lookback_bars or 300), _cap)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
     wt = interval not in ("1d", "1w", "1mo")
@@ -5416,9 +5611,16 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     piv = _pivots(rows, 5)
     atr_series = _atr(rows, 14)
 
+    # `limit` caps instances per family and is applied by the DETECTOR, so it
+    # truncates before anything downstream can look. A targeted redraw filters
+    # `cands` by timestamp further down — and the bar it wants is by
+    # definition an old one, which the cap had already thrown away. Widening
+    # the scan window fixed half of that bug and this is the other half: the
+    # window reached the bar, then a 20-instance cap dropped it again.
+    _clim = 4000 if draw_candle_at else max(10, limit)
     cands = patterns.candlesticks(
         rows, atr_series, ist, asked & set(patterns.CANDLE_KINDS) or None,
-        limit=max(10, limit)) if want_c else []
+        limit=_clim) if want_c else []
     charts = patterns.chart_patterns(
         rows, piv, tol, ist, asked & set(patterns.CHART_KINDS) or None,
         limit=max(6, limit)) if want_p else []
@@ -8401,7 +8603,8 @@ def transcribe(data: bytes, content_type: str = "") -> dict:
         headers={"Ocp-Apim-Subscription-Key": AZURE_KEY, "Content-Type": ctype},
         method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+        with _urlopen_with_retry(req, timeout=60, context=_ssl_ctx(),
+                                 attempts=2) as r:
             out = json.loads(r.read().decode())
     except Exception as exc:                                # noqa: BLE001
         # Never relay the upstream body — it can echo resource ids.
@@ -8439,7 +8642,8 @@ def _translate_to_english(text: str) -> str:
             f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
             headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
             method="POST")
-        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+        with _urlopen_with_retry(req, timeout=30, context=_ssl_ctx(),
+                                 attempts=2) as r:
             data = json.loads(r.read().decode())
         for item in data.get("output", []):
             for part in item.get("content", []) or []:
@@ -8630,7 +8834,8 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+        with _urlopen_with_retry(req, timeout=60, context=_ssl_ctx(),
+                                 attempts=2) as r:
             data = json.loads(r.read())
     except Exception as exc:  # noqa: BLE001 — a dead browse must not kill the turn
         return {"error": f"web lookup failed: {exc}"}
@@ -9698,7 +9903,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply listing everything it found, so the reply's job is what the sweep MEANS, not a transcript of the lists.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply listing everything it found, so the reply's job is what the sweep MEANS, not a transcript of the lists. ONE INTERVAL PER CALL, ONE PANEL PER CALL. For a question that spans timeframes, call this on at most THREE rungs that span the ladder (a fast, a middle, a slow) rather than on every interval you can name: each sweep returns roughly thirty formations and bars, so a fourth panel is where the answer stops being a reading and becomes an inventory. Then head each interval in the reply and spend it on where the rungs agree and where they contradict — a shape two timeframes show is evidence, the same shape on the fastest rung alone is noise.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -10412,11 +10617,21 @@ def _run_tool(name: str, fn, args: dict) -> dict:
     dropped = sorted(k for k in args if k not in known) if known else []
     for k in dropped:
         args.pop(k)
+    if not _data_slot_acquire():
+        return {
+            "error": ("Chart data is busy handling other requests. "
+                      "Retry this tool call shortly."),
+            "retryable": True,
+            "retry_after_s": _DATA_RETRY_AFTER_S,
+        }
     try:
-        out = fn(**args)
-    except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
-        logging.warning("charto tool %s failed: %s", name, exc)
-        return {"error": f"{name} failed: {exc}"}
+        try:
+            out = fn(**args)
+        except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
+            logging.warning("charto tool %s failed: %s", name, exc)
+            return {"error": f"{name} failed: {exc}"}
+    finally:
+        _data_slot_release()
     if dropped and isinstance(out, dict):
         out["_ignored_arguments"] = dropped
         out["_ignored_note"] = (
@@ -10489,7 +10704,24 @@ whatever length the question deserves. Headings, bullets, emphasis and pipe
 tables all render; pick whatever shape fits. The one thing a narrow column
 punishes is repeated figures buried in prose — the same fields across several
 dates, bars or symbols read far better as a compact table (numbers
-right-aligned with `|---:|`)."""
+right-aligned with `|---:|`).
+
+PLACING A PANEL. Whenever a tool result says a panel was rendered, PLACE IT:
+write `[[panel]]` on its own line, with a blank line either side, at the point
+in your reply where the reader should meet it. Do this every time, as part of
+writing the answer. Unplaced, a panel is stacked above your first sentence —
+so the reader meets thirty rows of measurements before the sentence that says
+what they are, and two panels arrive as sixty rows with nothing between them.
+Placed, it lands where you introduce it.
+
+The natural spot is after the line that says what the panel shows and before
+the reading of it. Lead with a sentence of context, place the panel, then say
+what it means. One marker per panel, in the order the tools ran: two sweeps
+means the first `[[panel]]` is the first sweep's, so with several panels head
+each one and place it under its own heading. The only panel worth leaving
+unplaced is one that IS the entire answer, with no prose before it. Never
+write the word "panel" in brackets for any other reason, and never mention
+the marker or explain that you are placing anything."""
 
 # The reading contract (~150 tokens). Five tools now read the chart itself and
 # their SUBJECTS overlap almost completely — all five compute some of the same
@@ -10517,7 +10749,30 @@ A question that names a single interval ("the trend on the hourly") is NOT a
 multi-timeframe question — it is get_trend or read_indicators at that
 interval. Call ONE of these per turn: each prints its own panel, and two
 panels beside one paragraph reads as not having understood the question. If a
-second is genuinely needed, say in the reply why the first was not enough."""
+second is genuinely needed, say in the reply why the first was not enough.
+
+## A sweep across timeframes
+get_patterns scans ONE interval and prints its own panel, so "what's forming
+on all timeframes" is the one question that legitimately calls it more than
+once — and the way it goes wrong is always the same. Three rules:
+- THREE RUNGS, NOT SEVEN. Pick a fast, a middle and a slow one that actually
+  span the ladder (5m/1h/1d, or 15m/1d/1w) and say in one clause why those.
+  Seven sweeps is seven panels and roughly four hundred rows for a reader who
+  asked a single question; the ladder is the answer, not the inventory.
+- HEAD EACH ONE. Write a heading per interval, coarsest first, so every shape
+  you name is under the timeframe it was found on. Without that the reply is
+  a list of formations from four different charts with nothing saying which
+  is which — and the panels stack in call order, not in ladder order, so the
+  prose is the only thing that can put them in sequence.
+- THE ANSWER IS ACROSS THE RUNGS, NOT ON THEM. Three inventories side by side
+  is not a multi-timeframe read. What the user is asking is where the
+  timeframes AGREE and where they contradict: a shape the daily and the
+  hourly both show is evidence; the same shape on the 5-minute alone is
+  noise, and a slow rung outranks a fast one when they disagree. A fast rung
+  disagreeing with a slow one is the ordinary state of a pullback, and saying
+  which is which — with the user's own horizon deciding which matters — is
+  the whole reply. Name the few formations that carry that argument and leave
+  the rest to the panels."""
 
 # The causal contract (~120 tokens). A rail, not a procedure: it says where
 # quantities and causes each come from and what an honest "why" answer owes,
@@ -10641,7 +10896,10 @@ def _render_context(ctx: dict) -> str:
             f"{ctx.get('symbol')} is the one in focus; a bare 'this chart' means it. "
             f"{owns} "
             f"Attribute every number to the chart it came from.")
-    return block + "\n" + _CONTEXT_CONTRACT
+    contract = _CONTEXT_CONTRACT
+    if getattr(_req, "chat_mode", "chat") != "execution":
+        contract += _RESEARCH_CONTRACT
+    return block + "\n" + contract
 
 
 def _render_chart(ctx: dict, focused: bool = True) -> str:
@@ -10773,6 +11031,28 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
 
 # The contract that closes the envelope — one copy, after the last chart,
 # because it governs every number in it rather than any one chart.
+# The half of the contract that belongs to RESEARCH mode alone.
+#
+# It rode along in both modes, and in execution mode it is not a boundary but a
+# contradiction: the builder's entire job is to turn "buy 10 RELIANCE when RSI
+# falls below 30" into a validated, approval-gated draft, and this block told
+# the same model, in the same system message, to make no buy/sell call, to
+# assume no direction the user had not stated, and to close by saying it was
+# analysis and not advice. A register-not-execute draft is none of those things
+# — the card carries the approval, nothing is placed, and the user asked for it
+# in as many words.
+#
+# Two contracts pointing opposite ways do not average out; one of them wins per
+# turn, and which one is a coin toss the user experiences as the app refusing
+# at random. So the research half is named, and added only in research mode.
+_RESEARCH_CONTRACT = (
+        " Describe structure rather than prescribing trades: no buy/sell calls, "
+        "and never assume a position or direction the user hasn't stated. If "
+        "asked for a target or stop, give the levels and what would invalidate "
+        "them, and say plainly that this is analysis, not advice."
+)
+
+
 _CONTEXT_CONTRACT = (
         "\nThese facts describe the chart(s) above. For anything they don't contain "
         "— a specific bar or date, a level, an indicator not listed — call a tool; "
@@ -10781,11 +11061,7 @@ _CONTEXT_CONTRACT = (
         "only from get_levels: quote its prices with their touch counts, and if it "
         "returns nothing say so rather than naming a price yourself. Every number "
         "you state must come from these facts or a tool result (arithmetic on them "
-        "is fine — say when you're doing it). Describe structure rather than "
-        "prescribing trades: no buy/sell calls, and never assume a position or "
-        "direction the user hasn't stated. If asked for a target or stop, give "
-        "the levels and what would invalidate them, and say plainly that this is "
-        "analysis, not advice. Be concise and concrete."
+        "is fine — say when you're doing it). Be concise and concrete."
         # A user saying "I don't see it" was being answered with an invented
         # reason — "the drawings are on 1w, the chart displays 1d" — while the
         # chart was on 1w and this very block said so. Guessing at a chart
@@ -10946,7 +11222,12 @@ def _suggest_stream(messages: list[dict]):
         method="POST")
     text = []
     try:
-        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+        # Suggestions happen after the answer is complete but keep its request
+        # thread and SSE connection occupied. They are optional, so never
+        # retry them and never let a slow suggestion consume the answer path's
+        # full model timeout.
+        with _urlopen_with_retry(req, timeout=10, context=_ssl_ctx(),
+                                 attempts=1) as r:
             for raw in r:
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
@@ -11074,7 +11355,7 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     # macOS system python ships no CA bundle — use certifi's when available
     # (present in the pivot venv; run the server with .venv/bin/python).
     try:
-        with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as resp:
+        with _urlopen_with_retry(req, timeout=120, context=_ssl_ctx()) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:4000]
@@ -11089,6 +11370,58 @@ def _ssl_ctx():
         return ssl.create_default_context(cafile=certifi.where())
     except ImportError:
         return ssl.create_default_context()
+
+
+def _retry_after_seconds(exc: urllib.error.HTTPError, attempt: int) -> float:
+    headers = exc.headers or {}
+    raw_ms = (headers.get("retry-after-ms")
+              or headers.get("x-ms-retry-after-ms") or "")
+    if raw_ms:
+        try:
+            asked = float(raw_ms) / 1000.0
+            return min(_LLM_RETRY_MAX_S, max(0.0, asked))
+        except (TypeError, ValueError):
+            pass
+    raw = headers.get("Retry-After") or ""
+    try:
+        asked = float(raw)
+    except (TypeError, ValueError):
+        asked = _LLM_RETRY_BASE_S * (2 ** max(0, attempt - 1))
+    return min(_LLM_RETRY_MAX_S, max(0.0, asked))
+
+
+def _urlopen_with_retry(req: urllib.request.Request, *, timeout: float,
+                        context, attempts: int | None = None):
+    """Open one Azure request with bounded pre-response retries.
+
+    A streaming response is safe to retry only until its headers arrive. Once
+    this returns, the caller owns the body and never replays a partial stream.
+    Client errors other than throttling are deterministic and are raised on
+    the first attempt.
+    """
+    tries = attempts or _LLM_MAX_ATTEMPTS
+    last = None
+    for attempt in range(1, tries + 1):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout, context=context)
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in _LLM_RETRYABLE_STATUS or attempt >= tries:
+                raise
+            delay = _retry_after_seconds(exc, attempt)
+            logging.warning("Azure request returned %s; retry %s/%s in %.2fs",
+                            exc.code, attempt + 1, tries, delay)
+            exc.close()
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            last = exc
+            if attempt >= tries:
+                raise
+            delay = min(_LLM_RETRY_MAX_S,
+                        _LLM_RETRY_BASE_S * (2 ** max(0, attempt - 1)))
+            logging.warning("Azure request failed before response; retry %s/%s "
+                            "in %.2fs: %s", attempt + 1, tries, delay, exc)
+        time.sleep(delay)
+    raise last or RuntimeError("Azure request failed before response")
 
 
 def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
@@ -11117,7 +11450,7 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
         method="POST",
     )
     try:
-        response = urllib.request.urlopen(req, timeout=180, context=_ssl_ctx())
+        response = _urlopen_with_retry(req, timeout=180, context=_ssl_ctx())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:4000]
         logging.error("model stream rejected (%s): %s", exc.code, detail)
@@ -11231,6 +11564,42 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
     return out
 
 
+# ── execution mode with no engine behind it ─────────────────────────────────
+#
+# `execution_bridge` imports Pivot's automation engine out of the sibling
+# checkout. On this laptop that is the whole repo under Pivot's own venv and
+# the mode works. On the VM it is not there at all: the deploy is a SPARSE
+# checkout of `/charto/` (deploy/deploy.sh), and `/data/app/pivot/` exists only
+# to hold the .env the dataserver reads — no `backend` package, and no fastapi
+# or sqlalchemy in /data/venv to import it with even if there were.
+#
+# The bridge already handles that correctly and says so: `available()` returns
+# a user-showable reason, and `tools()` returns []. What nothing did was ASK.
+# The mode stayed on the wire with zero proposal tools and an adapter prompt
+# describing a builder that was not there, so a model told to build a rule it
+# had no tool to build did the only thing left and IMPROVISED A BOUNDARY —
+# "I can't place or automate that order here" — for a capability that exists,
+# is tested, and is merely not deployed. That is a fabricated disconnect, which
+# is the one failure this app treats as never acceptable, and it is worse than
+# an error: it teaches the user the product cannot do something it can.
+#
+# So the seam answers for itself. One plain line, the real reason, no model
+# call, and nothing invented.
+def _execution_unavailable_reply() -> str | None:
+    """The honest line when execution mode has no engine, else None."""
+    if getattr(_req, "chat_mode", "chat") != "execution":
+        return None
+    ready, reason = execution_bridge.available()
+    if ready:
+        return None
+    return (
+        "Strategy building is not available on this server. " + reason
+        + "\n\nResearch mode is unaffected — the chart reads, indicators, "
+        "patterns, levels and alerts all work. Switch to Research and ask "
+        "there, or run Charto locally, where the engine is on the same disk."
+    )
+
+
 def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     """Responses-API call with the tool loop.
 
@@ -11241,6 +11610,11 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     """
     if not AZURE_ENDPOINT or not AZURE_KEY:
         return {"error": _creds_error()}
+    _off = _execution_unavailable_reply()
+    if _off:
+        return {"text": _off, "usage": {"input_tokens": 0, "output_tokens": 0},
+                "context_preview": "", "tools_used": [], "scene_patch": [],
+                "view_ops": [], "cards": []}
     # Format rules ride along even with chart context switched off — the pane
     # is just as narrow either way. They go in the preview too, so "inspect
     # context sent" stays an honest record of everything the model was told.
@@ -11337,6 +11711,17 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     """
     if not AZURE_ENDPOINT or not AZURE_KEY:
         yield {"type": "done", "error": _creds_error()}
+        return
+    _off = _execution_unavailable_reply()
+    if _off:
+        # Streamed as an ordinary reply, not as an error: the mode being
+        # undeployed is a fact about this server, not a fault in the turn, and
+        # a red banner would send the user to reload rather than to switch.
+        yield {"type": "delta", "text": _off}
+        yield {"type": "done", "text": _off,
+               "usage": {"input_tokens": 0, "output_tokens": 0},
+               "context_preview": "", "tools_used": [], "scene_patch": [],
+               "view_ops": [], "cards": []}
         return
     mode_rules = (_execution_system()
                   if getattr(_req, "chat_mode", "chat") == "execution" else "")
@@ -12789,6 +13174,103 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
 _QUOTES_MAX = 120        # a panel that scrolls, not a screener
 _QUOTE_MIN_TAIL = 3000   # ≥2 sessions of minutes on every venue we carry
 
+_HEAVY_HTTP_PATHS = frozenset({
+    "/bars", "/quotes", "/symbols", "/indicator", "/volume_profile",
+    "/patterns/draw", "/company", "/screen", "/peers", "/news",
+    "/profile", "/financials", "/results", "/deals", "/delivery",
+    "/fut_oi", "/classification", "/benchmark",
+})
+_BACKUP_MARKER = Path(environ.get("CHARTO_BACKUP_MARKER")
+                      or "/data/backup/charto_users.last_success.json")
+_BACKUP_MAX_AGE_S = _env_int("CHARTO_BACKUP_MAX_AGE_S", 9000)
+_REQUIRE_FRESH_BACKUP = (environ.get("CHARTO_REQUIRE_FRESH_BACKUP", "1")
+                         .strip().lower() not in ("0", "false", "no", "off"))
+_REQUIRE_EXECUTION = (environ.get("CHARTO_REQUIRE_EXECUTION", "0")
+                      .strip().lower() in ("1", "true", "yes", "on"))
+_DISK_MIN_FREE_PCT = _env_float("CHARTO_DISK_MIN_FREE_PCT", 10.0)
+
+
+def _is_heavy_http_path(path: str) -> bool:
+    return path.startswith("/api/") or path in _HEAVY_HTTP_PATHS
+
+
+def _backup_health(now: float | None = None) -> dict:
+    checked = time.time() if now is None else now
+    try:
+        raw = _BACKUP_MARKER.read_text(encoding="utf-8").strip()
+        try:
+            record = json.loads(raw)
+            stamp = float(record.get("completed_at_epoch") or 0)
+            blob = str(record.get("blob") or "")
+        except (json.JSONDecodeError, AttributeError):
+            stamp, blob = float(raw), ""
+        age = max(0.0, checked - stamp)
+        fresh = stamp > 0 and age <= _BACKUP_MAX_AGE_S
+        return {"ok": fresh or not _REQUIRE_FRESH_BACKUP,
+                "required": _REQUIRE_FRESH_BACKUP,
+                "fresh": fresh, "age_s": round(age, 1),
+                "max_age_s": _BACKUP_MAX_AGE_S,
+                **({"blob": blob} if blob else {})}
+    except (OSError, TypeError, ValueError) as exc:
+        return {"ok": not _REQUIRE_FRESH_BACKUP,
+                "required": _REQUIRE_FRESH_BACKUP, "fresh": False,
+                "max_age_s": _BACKUP_MAX_AGE_S,
+                "error": f"backup marker unavailable: {type(exc).__name__}"}
+
+
+def _health_report(*, deep: bool = False) -> tuple[int, dict]:
+    checks: dict[str, dict] = {}
+    try:
+        _con.execute("SELECT 1").fetchone()
+        checks["market_db"] = {"ok": True}
+    except sqlite3.Error as exc:
+        checks["market_db"] = {"ok": False, "error": type(exc).__name__}
+    try:
+        with _users_lock:
+            _users.execute("SELECT 1").fetchone()
+        checks["users_db"] = {"ok": True, "journal_mode": "wal"}
+    except sqlite3.Error as exc:
+        checks["users_db"] = {"ok": False, "error": type(exc).__name__}
+
+    checks["backup"] = _backup_health()
+    checks["llm"] = {"ok": bool(AZURE_ENDPOINT and AZURE_KEY),
+                     "model": LLM_DEPLOYMENT, "effort": LLM_EFFORT,
+                     "service_tier": LLM_SERVICE_TIER}
+    try:
+        disk = statvfs(str(DB_PATH.resolve().parent))
+        total = disk.f_blocks * disk.f_frsize
+        free = disk.f_bavail * disk.f_frsize
+        free_pct = (free / total * 100) if total else 0.0
+        checks["disk"] = {"ok": free_pct >= _DISK_MIN_FREE_PCT,
+                          "free_pct": round(free_pct, 1),
+                          "free_bytes": free,
+                          "min_free_pct": _DISK_MIN_FREE_PCT}
+    except OSError as exc:
+        checks["disk"] = {"ok": False, "error": type(exc).__name__}
+
+    execution = {"required": _REQUIRE_EXECUTION, "checked": False,
+                 "source_present": execution_bridge.PIVOT_ROOT.is_dir()}
+    if deep or _REQUIRE_EXECUTION:
+        ready, reason = execution_bridge.available()
+        execution.update({"checked": True, "ok": ready})
+        if reason:
+            execution["error"] = reason
+    else:
+        execution["ok"] = True
+    checks["execution"] = execution
+    checks["alerts"] = {"ok": _alerts is not None}
+
+    critical = ("market_db", "users_db", "backup", "llm", "disk")
+    ready = all(checks[name].get("ok") is True for name in critical)
+    if deep or _REQUIRE_EXECUTION:
+        ready = ready and checks["execution"].get("ok") is True
+    payload = {"status": "ready" if ready else "not_ready",
+               "ready": ready, "checks": checks,
+               "concurrency": {"data": _data_state(),
+                               "chat": _chat_state()},
+               "time": datetime.now(timezone.utc).isoformat()}
+    return (200 if ready else 503), payload
+
 
 def _q(v: float) -> float:
     """Round for display without flattening a sub-rupee instrument to 0.0."""
@@ -12859,7 +13341,8 @@ def quotes_for(names: list[str]) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, payload: dict, *, max_age: int = 0) -> None:
+    def _send(self, code: int, payload: dict, *, max_age: int = 0,
+              headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
         # An ETag turns a revalidation into a 304 with no body. Worth having
         # even at max_age=0: the company page's largest response is a 16 KB
@@ -12894,6 +13377,8 @@ class Handler(BaseHTTPRequestHandler):
         # already refused to store non-200s; the header has to agree.
         if max_age and code == 200:
             self.send_header("Cache-Control", f"public, max-age={max_age}")
+        for key, value in (headers or {}).items():
+            self.send_header(str(key), str(value))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -13104,7 +13589,21 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         symbol = q.get("symbol", "RELIANCE").upper()
         _req.symbol = symbol
+        data_slot = False
+        if _is_heavy_http_path(u.path):
+            data_slot = _data_slot_acquire()
+            if not data_slot:
+                return self._send(
+                    503,
+                    {"error": "Chart data is busy. Retry shortly.",
+                     "retryable": True,
+                     "retry_after_s": _DATA_RETRY_AFTER_S},
+                    headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
         try:
+            if u.path == "/health":
+                deep = q.get("deep", "").lower() in ("1", "true", "yes")
+                return self._send(*_health_report(deep=deep),
+                                  headers={"Cache-Control": "no-store"})
             if u.path.startswith("/api/"):
                 # The company page's own routes, served from charto's store.
                 age = _api_max_age(u.path)
@@ -13307,6 +13806,15 @@ class Handler(BaseHTTPRequestHandler):
                 if family == "candlestick":
                     kinds = [x.strip().lower().replace(" ", "_")
                              for x in (q.get("kinds") or "").split(",") if x.strip()]
+                    # Reach BACK to the bar being asked for. The panel's
+                    # rows outlive the sweep that made them, so `lookback`
+                    # here is whatever that sweep happened to use — and
+                    # re-scanning that window to redraw an OLDER signal looks
+                    # for a bar it cannot see. Grow until the bar is inside.
+                    want = _parse_ist(q.get("at"))
+                    if want:
+                        lookback = max(lookback,
+                                       _lookback_covering(interval, want, lookback))
                     res = tool_get_patterns(
                         interval=interval, lookback_bars=lookback,
                         families=["candlestick"], kinds=kinds or None,
@@ -13324,7 +13832,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, res)
                 if not patch:
                     return self._send(404, {
-                        "error": "That formation is no longer present in the selected scan window."
+                        "error": ("That formation is not reachable in this chart's "
+                                  "history any more — it falls outside the furthest "
+                                  "window this interval can scan."),
+                        "unavailable": True,
                     })
                 return self._send(200, {"scene": patch, "cards": cards,
                                         "drawn": res.get("drawn", [])})
@@ -13441,6 +13952,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
+        finally:
+            if data_slot:
+                _data_slot_release()
 
     def do_OPTIONS(self) -> None:  # noqa: N802 — CORS preflight for POST /chat
         self.send_response(204)
@@ -13571,6 +14085,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400 if res.get("error") else 200, res)
         if u.path != "/chat":
             return self._send(404, {"error": "not found"})
+        if not _chat_slot_acquire():
+            return self._send(
+                503,
+                {"error": "Chat is at capacity. Retry shortly.",
+                 "retryable": True, "retry_after_s": _DATA_RETRY_AFTER_S},
+                headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -13642,6 +14162,8 @@ class Handler(BaseHTTPRequestHandler):
                              "Send that again.",
                 })
             return self._send(500, {"error": str(exc)})
+        finally:
+            _chat_slot_release()
 
     def log_message(self, fmt: str, *args) -> None:  # quiet
         pass

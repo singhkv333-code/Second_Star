@@ -104,3 +104,63 @@ def test_draft_steps_are_humanized_for_the_card() -> None:
     assert "RSI(14)" in entry["readback"] and "30" in entry["readback"]
     # A leaked id in the label is overwritten, not kept because it was set.
     assert order["label"] != "action.place_order"
+
+
+def _chart_ctx() -> dict:
+    """The envelope shape the FE actually sends. A context thin enough to make
+    `_render_context` raise falls back to the loading STUB, which carries no
+    contract at all — which is how a probe can pass on a prompt the real chart
+    fails, and why this fixture is complete."""
+    return {
+        "symbol": "RELIANCE", "exchange": "NSE", "source": "kite",
+        "interval": "15m",
+        "view": {"from": "a", "to": "b", "bars_visible": 10,
+                 "bars_loaded": 100, "history_from": "c"},
+        "last_bar": {"t": "b", "o": 1, "h": 2, "l": 1, "c": 1, "v": 1},
+        "window": {"open": 1, "close": 1, "change_pct": 0.0,
+                   "high": {"p": 2, "t": "b"}, "low": {"p": 1, "t": "b"},
+                   "avg_volume": 1, "trajectory": [1, 2]},
+        "indicators": [], "drawings": [], "pins": [],
+    }
+
+
+def test_the_research_trade_contract_never_reaches_the_builder() -> None:
+    """The half of the chart contract that forbids a buy call is RESEARCH's.
+
+    It rode into execution mode inside `build_context_block` — which the test
+    above never built, so the contradiction was invisible to this suite: one
+    system message told the model to draft the order the user asked for and,
+    further down, to make no buy/sell call and to close by saying this was
+    analysis and not advice.
+    """
+    _execution_mode()
+    built = server.build_context_block(_chart_ctx())
+    assert "no buy/sell calls" not in built
+    assert "analysis, not advice" not in built
+    # …and research still gets every word of it.
+    server._req.chat_mode = "chat"
+    read = server.build_context_block(_chart_ctx())
+    assert "no buy/sell calls" in read
+    assert "analysis, not advice" in read
+
+
+def test_an_undeployed_engine_says_so_instead_of_improvising(monkeypatch) -> None:
+    """A mode that cannot work must not be offered as though it could.
+
+    The VM runs a sparse checkout of `charto/` only, so `backend` is not
+    importable there and the bridge correctly reports zero tools. Nothing
+    asked it, so the turn went to the model anyway and the model invented a
+    boundary — "I can't place or automate that order here" — for a capability
+    that exists and is merely not deployed.
+    """
+    monkeypatch.setattr(execution_bridge, "_state",
+                        {"tried": True, "ok": False, "mods": None,
+                         "error": "ModuleNotFoundError: No module named 'backend'"})
+    _execution_mode()
+    said = server._execution_unavailable_reply()
+    assert said and "not available on this server" in said
+    assert "No module named 'backend'" in said      # the REAL reason, quoted
+    assert "Research mode is unaffected" in said     # and where to go instead
+    # research is never gated, and a working engine never trips it
+    server._req.chat_mode = "chat"
+    assert server._execution_unavailable_reply() is None

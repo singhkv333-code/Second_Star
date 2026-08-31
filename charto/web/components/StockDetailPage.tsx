@@ -2467,14 +2467,29 @@ function pickByFY(
  *  from everyone else — return on equity is "Return on Networth / Equity (%)"
  *  for TCS and "Return on Equity / Networth (%)" for HDFCBANK, and ROCE is
  *  "Return on Capital Employed (%)" against a bare "Roce (%)". First hit
- *  wins. */
+ *  wins.
+ *
+ *  The match NORMALISES both sides, because MC's spellings differ in
+ *  whitespace and case as often as in wording. Measured across the ratio
+ *  sheets in the store, return on equity arrives four ways — 373 companies as
+ *  "Return on Networth / Equity (%)", 91 as "Return on Networth/Equity (%)",
+ *  19 and 6 with the two halves swapped — and an exact compare against a list
+ *  of literals printed an em-dash for the 116 companies whose only difference
+ *  from the listed spelling was a pair of spaces. Return on assets and ROCE
+ *  each split the same way on capitalisation alone. Normalising is the fix
+ *  that also covers the fifth spelling nobody has seen yet; adding literals
+ *  is a race against a source that keeps inventing them. */
+const normRatio = (s: string): string =>
+  s.toLowerCase().replace(/\s+/g, "").trim();
+
 function ratioByFY(
   ratios: StatementResponse | null,
   lineItems: string[],
   fy: string,
 ): number | null {
   if (!ratios) return null;
-  const row = ratios.rows.find((r) => lineItems.includes(r.line_item.trim()));
+  const want = lineItems.map(normRatio);
+  const row = ratios.rows.find((r) => want.includes(normRatio(r.line_item)));
   if (!row) return null;
   // "Mar 26" → FY26. The ratio sheet is labelled by period end, the summary
   // by fiscal year, and the two only ever meet here.
@@ -2589,14 +2604,15 @@ function ratioRow(
  *  sector string, because the ratio sheet is the thing being read. */
 function filesBankRatios(ratios: StatementResponse | null): boolean {
   if (!ratios) return false;
-  return ratios.rows.some((r) => {
-    const li = r.line_item.trim();
-    return li === "Casa (%)" || li === "Net Interest Margin (%)";
-  });
+  // Normalised for the same reason `ratioByFY` is: "CASA (%)" and "Casa (%)"
+  // are the same filing, and getting this wrong sends a bank down the
+  // non-bank branch, where it charts a ROCE it does not report.
+  const marks = ["Casa (%)", "Net Interest Margin (%)"].map(normRatio);
+  return ratios.rows.some((r) => marks.includes(normRatio(r.line_item)));
 }
 
 const ROE_NAMES = ["Return on Networth / Equity (%)", "Return on Equity / Networth (%)"];
-const ROCE_NAMES = ["Return on Capital Employed (%)", "Roce (%)"];
+const ROCE_NAMES = ["Return on Capital Employed (%)", "Roce (%)", "ROCE (%)"];
 
 // Estimated fallback for the Balance Sheet tab. We don't fabricate balance
 // sheets when the financials DB has no data — the line items show as
@@ -3008,6 +3024,16 @@ function FinancialsPanel({
     getStockQuarters(quote.symbol, qBasis, 12)
       .then((r) => {
         if (dead || isError(r)) return;
+        // A company that files ONLY standalone quarters — 40 of the 428 in
+        // the store — had no tab at all, because the panel opens on
+        // consolidated and hid itself on the empty answer. The response names
+        // the bases it holds, so an empty consolidated answer that names a
+        // basis with data reopens on that basis rather than concluding the
+        // company files nothing.
+        if (!r.data.quarters.length) {
+          const other = (r.data.bases_available ?? []).find((b) => b !== qBasis);
+          if (other) { setQBasis(other as "consolidated" | "standalone"); return; }
+        }
         setQuarters(r.data);
         // Latched: a company that reports consolidated quarters but no
         // standalone ones must not have the tab vanish under the reader when

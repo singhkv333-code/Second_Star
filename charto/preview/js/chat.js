@@ -343,7 +343,7 @@
   function md(src) {
     const lines = esc(String(src || "")).replace(/\r/g, "").split("\n");
     const out = [];
-    let rows = [], para = [], code = null, tbl = [];
+    let rows = [], para = [], code = null, tbl = [], quote = [];
 
     const flushPara = () => {
       if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; }
@@ -355,6 +355,18 @@
     };
     const flushTable = () => {
       if (tbl.length) { out.push(renderTable(tbl)); tbl = []; }
+    };
+    // Blockquotes were the one block syntax with no case here, so `> line`
+    // fell through to a paragraph and printed its own marker — and a TWO-line
+    // quote printed a second `>` in the middle of the sentence, because
+    // flushPara joins its lines with a space. The model reaches for one
+    // whenever it wants to set a conclusion apart, so this was raw markdown
+    // in the middle of finished prose.
+    const flushQuote = () => {
+      if (quote.length) {
+        out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+        quote = [];
+      }
     };
     const pushRow = (tag, indent, text) => { flushPara(); rows.push({ tag, indent, text }); };
 
@@ -368,11 +380,18 @@
         continue;
       }
       if (t.startsWith("```")) { flushPara(); flushList(); flushTable(); code = []; continue; }
-      if (!t) { flushPara(); flushList(); flushTable(); continue; }
+      if (!t) { flushPara(); flushList(); flushTable(); flushQuote(); continue; }
 
       // pipe table — buffered whole, because the alignment row decides the shape
       if (TABLE_ROW(t)) { flushPara(); flushList(); tbl.push(t); continue; }
       flushTable();   // any other line closes an open table
+
+      // `&gt;`, not `>`: md() escapes the whole source on line one, so by the
+      // time the block loop sees a quote its marker is already entity-encoded.
+      // Matching the bare character here silently never fired.
+      const bq = t.match(/^&gt;\s?(.*)$/);
+      if (bq) { flushPara(); flushList(); quote.push(bq[1]); continue; }
+      flushQuote();   // and any other line closes an open quote
 
       const h = t.match(/^(#{1,3})\s+(.*)$/);
       if (h) { flushPara(); flushList(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
@@ -391,7 +410,7 @@
       para.push(t);
     }
     if (code !== null) out.push(`<pre><code>${code.join("\n")}</code></pre>`);
-    flushPara(); flushList(); flushTable();
+    flushPara(); flushList(); flushTable(); flushQuote();
     return out.join("");
   }
 
@@ -665,6 +684,13 @@
       tool(name) {
         if (seen.has(name)) return;
         seen.add(name);
+        // Cancel a close in flight as well as reopening a finished one, or a
+        // wait that came back would be hidden 200ms later by the old timer.
+        if (host.dataset.closing) {
+          delete host.dataset.closing;
+          host.classList.remove("wait-out");
+          host.style.maxHeight = "";
+        }
         if (host.hidden) { host.hidden = false; run(); }
         push(toolStep(name));
       },
@@ -673,9 +699,27 @@
        *  is text — the caret in the prose is the only thing still moving.
        *  Idempotent: every delta calls it, only the first one does work. */
       writing() {
-        if (host.hidden) return;
+        if (host.hidden || host.dataset.closing) return;
         halt();
-        host.hidden = true;
+        // WRAP UP, don't vanish. `hidden` alone took the block out of flow in
+        // one frame, so the answer's first line jumped up by the height of
+        // however many step rows had accumulated — a jolt landing at the exact
+        // moment the reader's eye goes looking for the first word. The steps
+        // fade and the box collapses into the space the text is about to take,
+        // which reads as a handover instead of a disappearance.
+        host.dataset.closing = "1";
+        host.style.maxHeight = host.scrollHeight + "px";
+        requestAnimationFrame(() => host.classList.add("wait-out"));
+        setTimeout(() => {
+          // `tool()` can bring the wait BACK — a turn that narrated and then
+          // went to work again. If that happened while this was closing, the
+          // close must not fire on the newly reopened box.
+          if (host.dataset.closing !== "1") return;
+          host.hidden = true;
+          host.classList.remove("wait-out");
+          host.style.maxHeight = "";
+          delete host.dataset.closing;
+        }, 200);
       },
       stop() { halt(); host.remove(); },
     };
@@ -739,16 +783,100 @@
       return s.replace(/(^|\s)\*(\S*)$/, "$1$2");
     };
 
-    const flush = () => {
-      raf = 0;
-      if (!text) return;
+    /* ── how this paints, and why it changed ──────────────────────────────
+     *
+     * It used to be one line: `prose.innerHTML = md(text)` on every rAF. Two
+     * costs compound there, and both grow with the reply.
+     *
+     * The parse is O(text), so frame 400 of a long answer re-parses four
+     * hundred lines to add one word — the render gets slower exactly as the
+     * reply gets longer, which is why the jank always arrived at the END.
+     * Worse, replacing innerHTML DESTROYS and rebuilds every node under it:
+     * full relayout of the whole reply, a fresh paint, any text selection
+     * inside it dropped, and a panel mounted in the prose torn out sixty
+     * times a second.
+     *
+     * Two changes, which are what production streaming UIs do:
+     *
+     * 1 · INCREMENTAL RENDER. Markdown is a block language, so everything
+     *     before the last blank line can never change again. That prefix is
+     *     parsed ONCE into `.md-stable` and then left alone; only the trailing
+     *     block re-renders. Per-frame work stops growing with the answer.
+     *     The one thing this cannot do is carry block context across the
+     *     split — a list broken at a blank line becomes two lists — which
+     *     costs nothing, because `done` re-renders the whole text exactly
+     *     (finishTurn). Stream approximately, finish precisely.
+     *
+     * 2 · A SMOOTHING BUFFER. Azure does not deliver evenly: it arrives in
+     *     bursts of a few hundred characters separated by dead air, so the
+     *     text used to LURCH — a paragraph at once, a pause, another lurch.
+     *     `text` is now what has ARRIVED and `shown` is what has been
+     *     revealed, and the gap drains at a rate set by its own size (about
+     *     six frames' worth, ~100ms) rather than all at once. Bursts become a
+     *     steady crawl; the buffer can never fall behind, because a bigger
+     *     backlog drains proportionally faster. This is the same
+     *     decouple-the-network-from-the-eye trick as the AI SDK's
+     *     `smoothStream`.
+     */
+    let shown = "";          // revealed to the reader
+    let stableLen = 0;       // how much of it is already IN .md-stable
+    let stableMarks = 0;     // panel markers consumed by that prefix
+    prose.innerHTML = '<div class="md-stable"></div><div class="md-tail"></div>';
+    const stableEl = prose.querySelector(".md-stable");
+    const tailEl = prose.querySelector(".md-tail");
+
+    /** Where the finished prefix ends: the last blank line, unless a code
+     *  fence is open — inside one, nothing is settled yet. */
+    const splitAt = (s) => {
+      if ((s.match(/^```/gm) || []).length % 2) return -1;
+      return s.lastIndexOf("\n\n");
+    };
+
+    const render = () => {
       const wasAtBottom = atBottom();
-      prose.innerHTML = md(tidy(text)) + '<span class="caret"></span>';
+      const cut = splitAt(shown);
+      if (cut > stableLen) {
+        // APPEND the newly-settled blocks; never rebuild what is already
+        // there. Re-rendering the whole stable prefix each time it grew was
+        // measurably wrong, not just wasteful: every settled block's DOM was
+        // destroyed and recreated, and a panel mounted inside one went with
+        // it. Instrumented on a single turn, one panel was torn out and
+        // re-inserted THIRTEEN times — thirteen fades, and thirteen chances
+        // to lose whatever state the panel was holding.
+        const chunk = shown.slice(stableLen, cut);
+        stableEl.insertAdjacentHTML("beforeend", proseHtml(chunk, stableMarks));
+        stableMarks += countPanelMarks(chunk);
+        stableLen = cut;
+        fillCardSlots(turn);          // only the frame a slot can appear in
+      }
+      tailEl.innerHTML = proseHtml(tidy(shown.slice(stableLen)), stableMarks)
+        + '<span class="caret"></span>';
       if (wasAtBottom) toBottom();
     };
-    const paint = () => {
-      if (!raf) raf = requestAnimationFrame(flush);
+
+    // The pump runs only while there is a backlog, and stops itself when the
+    // reader has caught up — an idle turn costs no frames at all.
+    const tick = () => {
+      raf = 0;
+      const backlog = text.length - shown.length;
+      if (backlog <= 0) return;
+      // Reveal proportionally: ~1/6th of whatever is waiting, so a burst
+      // drains in about a tenth of a second and a trickle stays a trickle.
+      // The floor of 2 keeps the slowest case moving; the ceiling stops a
+      // paste-sized chunk from landing as one frame of lurch.
+      const step = Math.max(2, Math.min(Math.ceil(backlog / 6), 90));
+      shown = text.slice(0, shown.length + step);
+      render();
+      pump();
     };
+    const pump = () => { if (!raf) raf = requestAnimationFrame(tick); };
+    /** Everything, now — for `done`, where waiting would only add lag. */
+    const paintAll = () => {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      shown = text;
+      render();
+    };
+    const paint = pump;
 
     for (;;) {
       const { value, done: fin } = await reader.read();
@@ -781,9 +909,11 @@
           try { addCard(turn, ev.card); }
           catch (e) { console.warn("[charto] card failed", e); }
         } else if (ev.type === "done") {
-          // Cancel any queued repaint. Without this the last frame lands AFTER
-          // finishTurn has written the final markdown and puts the caret back
-          // on a reply that is already complete.
+          // Show whatever the smoothing buffer was still holding, then stop.
+          // Without the cancel, a queued frame lands AFTER finishTurn has
+          // written the final markdown and puts the caret back on a reply
+          // that is already complete.
+          paintAll();
           if (raf) { cancelAnimationFrame(raf); raf = 0; }
           // the streamed text is the source of truth; `done.text` is the same string
           done = ev;
@@ -972,13 +1102,111 @@
    * this build cannot render returns null and nothing is inserted — the reply
    * is unaffected, which is the whole point of keeping them separable.
    */
+  /* A panel is BUILT here and mounted later — nothing appears on mounting it
+   * twice, and where it goes is not known yet.
+   *
+   * It used to mount immediately, above the prose, on the theory that a tool
+   * which took nine seconds should show its answer the moment it lands.
+   * Measured end to end, that theory cost more than it bought. A real turn:
+   *
+   *     0.0s  thinking animation starts
+   *     6.9s  PANEL lands above the prose — while the animation still runs
+   *    12.2s  first text, under the panel; the animation finally goes
+   *    12.6s  panel JUMPS down into the middle of the text
+   *
+   * Two bad things and one worse one. The panel sat beside a live "thinking"
+   * indicator for five seconds, which says two contradictory things at once.
+   * Then text arrived UNDER a panel it was supposed to introduce. Then the
+   * whole block reflowed as the panel relocated — the "sudden pop".
+   *
+   * Held instead, the panel is mounted once, in its final place. The wait for
+   * it is not five seconds: the model writes its marker right after the
+   * opening sentence, and measured on the same turn the slot appeared 0.4s
+   * after the first character. */
   function addCard(turn, card) {
     if (typeof Cards === "undefined") return;
     const box = Cards.render(card);
     if (!box) return;
+    (turn.__cardEls || (turn.__cardEls = [])).push(box);
+  }
+
+  /** Put a panel on screen, once, wherever it belongs. `fade` is the only
+   *  animation: a panel is 300px of measurements arriving in one frame, and
+   *  without it the reply visibly lurches. */
+  function mountCard(box, parent, beforeNode, animate = true) {
     const wasAtBottom = atBottom();
-    turn.insertBefore(box, turn.querySelector(".prose"));
+    // `animate` is false for the final exact re-render, which wipes the prose
+    // and re-mounts every panel into fresh slots. The panel is not ARRIVING
+    // there — it is already on screen and has been for seconds — so fading it
+    // in again is a flicker on a finished reply.
+    if (animate) box.classList.add("card-in");
+    if (beforeNode) parent.insertBefore(box, beforeNode);
+    else parent.appendChild(box);
+    if (animate) requestAnimationFrame(() => box.classList.remove("card-in"));
     if (wasAtBottom) toBottom();
+  }
+
+  /** Panels the reply never claimed with a marker go where they always went:
+   *  above the prose. Called at the END of the turn, not during it, so an
+   *  unplaced panel never appears next to a running thinking animation. */
+  function mountUnplacedCards(turn) {
+    const prose = turn.querySelector(".prose");
+    for (const box of turn.__cardEls || []) {
+      if (!box.isConnected) mountCard(box, turn, prose);
+    }
+  }
+
+  /* ── panels inside the prose ──────────────────────────────────────────────
+   *
+   * The model writes `[[panel]]` on its own line where a panel belongs. That
+   * marker survives md() untouched (it escapes < > & and nothing else), so it
+   * is swapped for an empty slot AFTER the markdown is built rather than
+   * before — a regex over the source would have to know what is inside a code
+   * fence, and a regex over finished HTML that rewrote text would eventually
+   * match inside a tag it had just written.
+   *
+   * Nth marker = Nth panel, in the order the tools produced them. A marker
+   * with no panel behind it renders as nothing at all rather than as a gap:
+   * the model is writing this from a note in a tool result, and a stray one
+   * must never leave a hole in the reply.
+   */
+  const PANEL_RE = /\[\[panel(?::(\d+))?\]\]/gi;
+  const stripPanelMarks = (s) => String(s || "").replace(PANEL_RE, "").trim();
+
+  /** md(), then the markers turned into slots. One place, so the streaming
+   *  render and the final render cannot disagree about where a panel goes. */
+  const countPanelMarks = (s) => (String(s || "").match(PANEL_RE) || []).length;
+
+  function proseHtml(src, base) {
+    // `base` is how many markers came BEFORE this fragment. The streaming
+    // render parses each newly-settled chunk on its own (see render()), so
+    // without a running offset the second chunk's first marker would claim
+    // panel 0 all over again.
+    let n = (base | 0) - 1;
+    const withIds = String(src || "").replace(PANEL_RE, (_m, explicit) => {
+      n += 1;
+      const i = explicit != null ? Number(explicit) - 1 : n;
+      return `⟦PANELSLOT${i}⟧`;
+    });
+    return md(withIds).replace(
+      /<p>\s*⟦PANELSLOT(\d+)⟧\s*<\/p>|⟦PANELSLOT(\d+)⟧/g,
+      (_m, a, b) => `<div class="card-slot" data-slot="${a ?? b}"></div>`);
+  }
+
+  /** Move each landed panel into its slot. Called after every render that can
+   *  have produced one; moving a node that is already in the right slot is
+   *  skipped, so this is a no-op on every frame but the one that matters. */
+  function fillCardSlots(turn, animate = true) {
+    const els = turn.__cardEls || [];
+    for (const slot of turn.querySelectorAll(".card-slot")) {
+      // A slot still inside the tail is re-rendered every frame, and mounting
+      // there would tear the panel out and put it back sixty times a second.
+      // It waits the few frames until the line it sits on is finished.
+      if (slot.closest(".md-tail")) continue;
+      const el = els[Number(slot.dataset.slot)];
+      if (!el || slot.contains(el)) continue;
+      mountCard(el, slot, null, animate);
+    }
   }
 
   /** Fill an assistant turn with the final answer + its provenance footer. */
@@ -986,15 +1214,30 @@
     endWait(turn);
     // Only on a repaint: a live turn already has its panels, put there by the
     // stream. Painting them again here would double every card in the thread.
-    if (cards && !turn.querySelector(".scan")) {
+    // Registration, not mounting — and guarded on the REGISTER, not on the
+    // DOM: a live turn has held its panels without putting any of them on
+    // screen, so `querySelector('.scan')` is null there and this would build
+    // every panel a second time.
+    if (cards && !(turn.__cardEls && turn.__cardEls.length)) {
       for (const c of cards) addCard(turn, c);
     }
     const prose = turn.querySelector(".prose");
-    prose.innerHTML = md(text);
+    // The exact render, over the whole text: the streaming pass splits blocks
+    // at blank lines to stay cheap, and this is where that approximation is
+    // paid off. Same builder as the stream, so a panel cannot land in one
+    // place while writing and another once finished.
+    prose.innerHTML = proseHtml(text, 0);
+    // A panel already on screen is re-seated silently; only one arriving for
+    // the first time here (a repainted thread, or a reply with no marker)
+    // gets the fade.
+    fillCardSlots(turn, !turn.__streamText);
+    mountUnplacedCards(turn);
     linkCompanies(prose);
     const meta = document.createElement("div");
     meta.className = "turn-meta";
-    const copy = copyBtn(text, "Copy reply");
+    // The marker is placement, not prose — nobody wants `[[panel]]` in a
+    // paste. It is stripped from the copy and from nothing else.
+    const copy = copyBtn(stripPanelMarks(text), "Copy reply");
     const label = document.createElement("span");
     label.textContent = bits
       .filter((b) => b && !TOKENS_RE.test(String(b).trim()))
@@ -1319,13 +1562,20 @@
    * scan a list. Same job as the twelve tiles, in the one place the eye is
    * already resting.
    *
-   * It is an INTRODUCTION, so it runs once and retires. The first time
-   * anything is typed into the bar the cycle stops for the rest of the
-   * session and the plain prompt comes back for good — someone who has
-   * already used the box knows what it is for, and a placeholder still
-   * writing suggestions underneath them is a placeholder arguing with a
-   * person who has moved on. Focus alone only pauses it; clicking in and
-   * out is not the same as using it.
+   * It is an INTRODUCTION, so it belongs to an EMPTY thread and nothing else.
+   * Two things end it for the rest of the session: a keystroke in the bar, or
+   * the conversation having any turns at all.
+   *
+   * The turn check is the one that was missing, and it left the effect
+   * running in the two places it reads worst. A RESTORED thread starts the
+   * cycle from scratch on load — twenty turns of answers above a bar quietly
+   * suggesting "Mark the levels that actually held", as though nothing had
+   * been asked. And a follow-up chip fills the composer and sends WITHOUT a
+   * keystroke, so `input` never fires and the typing survived a whole
+   * conversation. A placeholder writing openers underneath someone who has
+   * been talking for ten minutes is the bar arguing with a person who has
+   * moved on. Focus alone only pauses it; clicking in and out is not the
+   * same as using it.
    *
    * It never runs at all under prefers-reduced-motion.
    */
@@ -1343,6 +1593,7 @@
     const slow = window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (slow) return;
+    if (turns.length) return;      // a thread was restored: never start
     let i = 0, ch = 0, dir = 1, timer = null, done = false;
     function retire() {           // used once; the bar is static from here on
       if (done) return;
@@ -1354,6 +1605,9 @@
     function step() {
       if (done) return;
       if (chatMode === "execution") { retire(); return; }
+      // The conversation started, however it started — typed, clicked off a
+      // template tile, or sent from a follow-up chip.
+      if (turns.length) { retire(); return; }
       // A value in the box is the end of it, whoever put it there — the
       // template tiles fill the composer without firing `input`, so the
       // check has to be on the value and not only on the event.

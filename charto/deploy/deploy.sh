@@ -74,7 +74,17 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 # where a blocked deploy is an outage. So it is loud instead of fatal.
 patch_vendor
 
-if grep -q '^charto/data/' <<<"$changed"; then
+# `pivot/` counts as backend too, now that it is IN the checkout.
+#
+# It used to be filtered out of the sparse rules entirely, so the only thing
+# under this repo that could change and matter to the running server was
+# charto/data/. Execution mode imports Pivot's automation engine straight off
+# this disk (see charto/deploy/provision_execution.sh), and that engine is
+# loaded ONCE at process start — a new step registry, a fixed validator or an
+# edited prompt module lands on disk and then does nothing at all until a
+# restart. A stale builder that reports itself as current is the same class of
+# bug as the missing one it replaced.
+if grep -qE '^(charto/data/|pivot/)' <<<"$changed"; then
   echo "deploy: backend changed, restarting charto.service"
   sudo -n /usr/bin/systemctl restart charto.service
   sleep 2

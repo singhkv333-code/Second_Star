@@ -2808,25 +2808,15 @@
    */
   let alertPlus = null, plusPrice = null;
 
-  /* Keep the native crosshair plate visible during the last part of a reach
-   * from the pane onto the price scale, where the library normally clears it. */
-  let heldTime = null, holding = false;
-
-  function releaseCrosshair() {
-    if (!holding) return;
-    holding = false;
-    try { chart.clearCrosshairPosition(); } catch {}
-  }
-
-  const holdTime = () => (heldTime != null ? heldTime
-    : (state.bars.length ? state.bars[state.bars.length - 1].time : null));
-
-  function holdCrosshair(price) {
-    const t = holdTime();
-    if (t == null) return;
-    try { chart.setCrosshairPosition(price, t, candle); holding = true; }
-    catch { holding = false; }
-  }
+  /* There is no crosshair HOLD any more, and its absence is the feature.
+   *
+   * The plate used to be kept alive by hand for the last part of a reach from
+   * the pane onto the price scale, so the mark drawn in the scale stayed put
+   * long enough to be clicked. The cost was that pointing at the scale AT ALL
+   * — to drag it and rescale, which is what the scale is for — printed a price
+   * plate and a mark over the axis you were trying to grab. The scale is the
+   * scale: the pointer entering it now ends the readout instead of freezing
+   * one, exactly as the library does on its own. */
 
   function hidePlus() {
     // `hot` goes with `show`, or it outlives the mark: the cursor rule keys off
@@ -2834,7 +2824,6 @@
     // leaves a pointer cursor standing over a scale with no mark on it.
     if (alertPlus) alertPlus.classList.remove("show", "hot");
     plusPrice = null;
-    releaseCrosshair();
   }
 
   /** The ⊕ is a DRAWING, not a control. `pointer-events: none`, no listener of
@@ -2853,39 +2842,50 @@
    *  intercepted. The mark is then free to be what it should have been — a
    *  picture of where the alert would go.
    */
-  const PLUS_PAD = 6;          // a 16px target is small; forgive a few pixels
+  const PLUS_PAD = 4;          // a 16px target is small; forgive a few pixels
 
-  /* A PLAIN plus in the circle — TradingView's own axis mark, which is what a
-   * reader arrives here expecting. `alertPlus` (the open clock face with the +
-   * standing in its gap) is a 74px illustration for the empty panel: at 13px
-   * on the axis its hands and its arc gap collapse into a smudge, and the one
-   * stroke that has to read — the + — is the smallest thing in it. That glyph
-   * keeps its job in js/panels.js. */
+  /* The ⊕ lives on the PANE side of the scale, which is the whole trick.
+   *
+   * It used to be drawn wholly INSIDE the price scale, so the only way to
+   * reach it was to put the pointer on the scale — and the scale is what you
+   * grab to rescale, so the readout had to be kept alive over it by hand and
+   * lit up every time you went to drag the axis. Moving the ring to the left
+   * of the scale's edge dissolves that conflict rather than trading one side
+   * of it away: the mark is reachable from the chart, where the pointer
+   * already is, and the axis is left alone to be an axis. TradingView puts it
+   * in the same place, for what is presumably the same reason.
+   *
+   * The plate keeps the price and stays in the scale; the ring is a separate
+   * disc with its own paint and a gap between them. `.alert-plus` itself is
+   * now only the row that positions the two — it carries no background, or it
+   * would drag the plate's grey out over the candles with it. */
   function makePlus() {
     const b = document.createElement("div");
     b.className = "alert-plus";
-    b.innerHTML = `<span class="alert-plus-mark">${Icons.svg("plus", "xs")}</span>`
+    // Three nodes, not two: the joined square HALF, the circled ring inside
+    // it, and the price. TradingView's mark is a ⊕ — a ring with a plus in it
+    // — sitting on a square button that abuts the label, and the ring is the
+    // part that says "add". A bare plus on a square reads as a UI chevron.
+    b.innerHTML = `<span class="alert-plus-mark">`
+      + `<span class="alert-plus-ring">${Icons.svg("plus", "xs")}</span></span>`
       + `<span class="alert-plus-value"></span>`;
     chartEl.appendChild(b);
     return b;
   }
 
-  /** Is this pointer position on the mark?
+  /** Is this pointer position on the ring?
    *
-   *  The forgiving pad is allowed to grow the rectangle in every direction but
-   *  ONE: it stops dead at the price scale's left edge. This rectangle does not
-   *  merely receive the click, it SWALLOWS it — and a rectangle that reaches
-   *  even a few pixels back onto the chart is a few pixels of chart where a
-   *  drawing cannot be picked up, which is how the mark used to make a trendline
-   *  near the right edge impossible to select and so impossible to delete. The
-   *  mark is drawn wholly inside the scale; its target now is too. */
+   *  Measured off the ring's own box, so the two cannot drift. The pad is kept
+   *  tight on purpose: this rectangle does not merely receive the click, it
+   *  SWALLOWS it, and every pixel of it is a pixel of chart where a drawing
+   *  cannot be picked up. 4px forgives a shaky hand and is small enough that a
+   *  trendline running under the mark is still selectable either side of it. */
   function onPlus(x, y) {
     if (!alertPlus || !alertPlus.classList.contains("show")) return false;
     const mark = alertPlus.querySelector(".alert-plus-mark");
     if (!mark) return false;
     const r = mark.getBoundingClientRect();
-    const scaleLeft = chartEl.getBoundingClientRect().right - metrics.ps;
-    return x >= Math.max(r.left - PLUS_PAD, scaleLeft) && x <= r.right + PLUS_PAD
+    return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
         && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
   }
 
@@ -2906,9 +2906,34 @@
     const price = panesList().find((p) => p.key === "price");
     const paneEl = price && price.pane.getHTMLElement && price.pane.getHTMLElement();
     const paneBox = paneEl && paneEl.getBoundingClientRect();
+    // The right edge is the SCALE's left edge, not the chart's. `chartBox.right`
+    // put the whole price scale inside this test, so hovering the axis — the
+    // one place the pointer goes to rescale rather than to read — lit the plate
+    // and the mark on top of the axis it was aiming at. Measured off the same
+    // published metric the mark's own geometry uses, so the two cannot drift.
+    syncChartMetrics();
+    const scaleLeft = chartBox.right - metrics.ps;
+    /* The top of the scale is OCCUPIED. The currency badge sits at the head of
+     * the price scale and the layers chip beside it, both anchored to the top
+     * right — and the pill is 22px tall centred on the pointer, so anywhere in
+     * the first ~36px it lands ON them: a price plate printed across "INR" and
+     * a ⊕ overlapping the chip, which is what the screenshot showed.
+     *
+     * Measured off the elements rather than a magic number, because both are
+     * conditional — the chip only exists once something is drawn, and the
+     * badge's height follows the type scale. Half the pill's height is added
+     * so the guard is about where the pill would REACH, not where it is
+     * centred. */
+    const topGuard = [document.getElementById("curNote"),
+                      document.querySelector(".scene-layers")]
+      .reduce((y, el) => {
+        if (!el || !el.isConnected || !el.offsetParent) return y;
+        const r = el.getBoundingClientRect();
+        return r.width ? Math.max(y, r.bottom) : y;
+      }, chartBox.top) + 11;
     const insidePrice = paneBox
-      && clientX >= chartBox.left && clientX <= chartBox.right
-      && clientY >= paneBox.top && clientY <= paneBox.bottom;
+      && clientX >= chartBox.left && clientX < scaleLeft
+      && clientY >= Math.max(paneBox.top, topGuard) && clientY <= paneBox.bottom;
     if (draw.state.tool !== "cursor" || !insidePrice) return hidePlus();
     const y = yInPane(clientY, "price");
     const px = y === null ? null : candle.coordinateToPrice(y);
@@ -2917,11 +2942,6 @@
     // rebuilds its contents, so the node we made can be gone while the variable
     // still holds it.
     if (!alertPlus || !alertPlus.isConnected) alertPlus = makePlus();
-    // The scale widens and narrows with the price it is printing, and the mark
-    // is pinned to its edge — so re-read it here rather than only on a resize
-    // of the container, which a symbol change does not cause. Guarded against
-    // no-op writes inside, so this is a measurement, not a style recalc.
-    syncChartMetrics();
     plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
     const value = alertPlus.querySelector(".alert-plus-value");
     if (value) {
@@ -2929,13 +2949,6 @@
       catch { value.textContent = String(plusPrice); }
     }
     const box = chartBox;
-    if (clientX < box.right - metrics.ps) {
-      releaseCrosshair();
-      const t = chart.timeScale().coordinateToTime(clientX - box.left);
-      if (t != null) heldTime = t;
-    } else {
-      holdCrosshair(px);
-    }
     alertPlus.style.top = (clientY - box.top) + "px";
     alertPlus.title = `Alert at ${Sym.of(SYMBOL).price(plusPrice,
       { maximumFractionDigits: 2 })}`;
@@ -2959,7 +2972,7 @@
     e.stopImmediatePropagation();
     hidePlus();
     if (at == null) return;
-    // The axis mark chooses the exact price; the compact widget confirms the
+    // The mark chooses the exact price; the compact widget confirms the
     // direction, frequency and expiry before anything is registered.
     const last = state.bars.length ? state.bars[state.bars.length - 1] : null;
     Alerts.open({ symbol: SYMBOL, level: at,
@@ -2974,6 +2987,7 @@
       e.stopImmediatePropagation();
     }
   }, true);
+
 
   /* ── right-click: three menus, routed by what is under the pointer ────────
    *
@@ -3929,9 +3943,15 @@
         (hyd.has(s) ? "" : '<span class="cold">~6s</span>') +
         // the row opens the chart; this opens the company page, so a search
         // can end in either surface without a second search
-        `<a class="open-co" target="_blank" rel="noopener" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
-            title="${s} — open company page in a new tab"
-            aria-label="${s} — open company page in a new tab">${Icons.svg("externalLink", "sm")}</a>` +
+        // SAME TAB. The href has been same-origin for a while — `/stock/X` is
+        // proxied to the company app by serve.py in dev and nginx on the VM —
+        // but `target="_blank"` was still treating it as somewhere else,
+        // spawning a second tab of the same site for what is a route on it.
+        // A subpage you can come back from with the back button is the whole
+        // point of having put it on this origin.
+        `<a class="open-co" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
+            title="${s} — open company page"
+            aria-label="${s} — open company page">${Icons.svg("externalLink", "sm")}</a>` +
         "</div>").join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';
     };
