@@ -1832,7 +1832,11 @@
       // the save below took the answer with it — the reload came back to a
       // thread missing the turn that had just asked for the chart.
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      const meta = [`${secs}s`];
+      // The footer names the model ONLY when the answer did not come from the
+      // usual one — the server sends `model` on a fallback and omits it
+      // otherwise. An outage upstream otherwise reads as the product quietly
+      // getting worse, which is the one explanation that is not true.
+      const meta = [`${secs}s`, ...(d.model ? [`${d.model} · fallback`] : [])];
       const acts = chartActions(d.scene_patch);
       // The panels are filed with the reply, not re-fetched: reopening a
       // conversation has to bring back the scan the answer was written about,

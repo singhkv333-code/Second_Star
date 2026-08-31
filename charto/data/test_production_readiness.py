@@ -141,3 +141,68 @@ def test_deep_health_makes_execution_part_of_readiness(monkeypatch) -> None:
     assert payload["ready"] is False
     assert payload["checks"]["execution"]["checked"] is True
     assert payload["checks"]["execution"]["ok"] is False
+
+
+# ── model fallback ─────────────────────────────────────────────────────────
+#
+# A deployment outage does not arrive as an HTTP error on the streaming path.
+# Measured 2026-08-31: Azure accepted the connection, returned 200, and sent
+# the fault in band as an SSE `error` event — so the pre-response retry never
+# engaged and the turn died with a healthy sibling deployment available on the
+# same endpoint. These pin the seam that now catches it.
+
+
+def test_stream_error_is_read_from_where_the_api_actually_puts_it() -> None:
+    # `ev["message"]` is what the code used to read, and the API has never set
+    # it: the whole point of this parse is the nesting.
+    assert server._stream_error_parts(
+        {"type": "error",
+         "error": {"type": "server_error", "message": "no healthy upstream"}},
+    ) == ("server_error", "no healthy upstream")
+    # `response.failed` nests it one level deeper again.
+    assert server._stream_error_parts(
+        {"type": "response.failed",
+         "response": {"error": {"code": "rate_limit", "message": "slow down"}}},
+    ) == ("rate_limit", "slow down")
+    assert server._stream_error_parts({"type": "error"}) == ("", "")
+
+
+def test_only_a_dead_deployment_demotes() -> None:
+    """A bad request is not an outage. Retrying a 400 on a second model only
+    asks it the same wrong question, and a 429 is capacity on a deployment
+    that IS serving — `_urlopen_with_retry` backs off for that already."""
+    assert server._llm_unhealthy(503, "")
+    assert server._llm_unhealthy(502, "")
+    assert server._llm_unhealthy(504, "")
+    assert server._llm_unhealthy(None, "no healthy upstream")
+    assert not server._llm_unhealthy(400, "invalid tool schema")
+    assert not server._llm_unhealthy(429, "rate limit exceeded")
+    assert not server._llm_unhealthy(401, "access denied")
+
+
+def test_demotion_expires_and_stops_retrying_the_dead_arm(monkeypatch) -> None:
+    monkeypatch.setattr(server, "LLM_DEPLOYMENT", "primary")
+    monkeypatch.setattr(server, "LLM_FALLBACK", "backup")
+    monkeypatch.setattr(server, "_llm_demoted_until", 0.0)
+
+    assert server._model() == "primary"
+    assert server._stream_models() == ["primary", "backup"]
+
+    assert server._demote("no healthy upstream") == "backup"
+    assert server._model() == "backup"
+    # One attempt while demoted: a second call to the arm that just failed is
+    # not a fallback, it is a 503 charged to every turn of the outage.
+    assert server._stream_models() == ["backup"]
+
+    monkeypatch.setattr(server, "_llm_demoted_until",
+                        server.time.monotonic() - 1)
+    assert server._model() == "primary"
+
+
+def test_no_fallback_configured_fails_loudly(monkeypatch) -> None:
+    monkeypatch.setattr(server, "LLM_DEPLOYMENT", "primary")
+    monkeypatch.setattr(server, "LLM_FALLBACK", "")
+    monkeypatch.setattr(server, "_llm_demoted_until", 0.0)
+    assert server._stream_models() == ["primary"]
+    assert server._demote("down") == ""
+    assert server._model() == "primary"

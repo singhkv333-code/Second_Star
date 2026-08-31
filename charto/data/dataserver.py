@@ -77,6 +77,22 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 # deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
 # (gpt-5.4-mini) and Charto should not drag it onto a different model.
 LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
+# The deployment to fall back to when the primary is not serving. A SECOND
+# deployment on the same resource, not a second resource: measured 2026-08-31,
+# `gpt-5.6-luna` returned 503 "no healthy upstream" while `gpt-5.4-mini`,
+# `gpt-5.4` and `gpt-5.4-nano` on the same endpoint answered normally — so an
+# outage here is per-deployment and a sibling is the whole remedy.
+#
+# It is a DEGRADED arm, deliberately named as such: the A/B that chose luna had
+# mini ~1.5x slower and returning about half the facts. This exists so chat
+# survives an outage, never as a silent second default — hence the cooldown
+# below, which sends traffic back to the primary as soon as it is serving.
+# Set CHARTO_LLM_FALLBACK="" to disable and fail loudly instead.
+LLM_FALLBACK_DEFAULT = "gpt-5.4-mini"
+# How long to stay on the fallback before probing the primary again. Long
+# enough that a sustained outage is not re-probed on every turn, short enough
+# that a recovered primary is picked up within one coffee.
+_LLM_DEMOTE_S = 300.0
 LLM_EFFORT_DEFAULT = "medium"
 # gpt-5.6-luna is currently served on Charto's Global Standard deployment.
 # Keep the tier explicit and overridable, but default to what Azure actually
@@ -116,6 +132,20 @@ LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
 LLM_SERVICE_TIER = (environ.get("CHARTO_LLM_SERVICE_TIER")
                     or _env_values("CHARTO_LLM_SERVICE_TIER")["CHARTO_LLM_SERVICE_TIER"]
                     or LLM_SERVICE_TIER_DEFAULT)
+# Explicit empty means "no fallback, fail loudly"; unset means the default.
+_fb_env = environ.get("CHARTO_LLM_FALLBACK")
+if _fb_env is None:
+    _fb_env = _env_values("CHARTO_LLM_FALLBACK")["CHARTO_LLM_FALLBACK"] or None
+LLM_FALLBACK = (LLM_FALLBACK_DEFAULT if _fb_env is None else _fb_env).strip()
+if LLM_FALLBACK == LLM_DEPLOYMENT:
+    LLM_FALLBACK = ""          # a fallback to itself is not one
+
+# When the primary was last found not to be serving. Read by `_model()` on
+# every request, so a demotion applies to the whole process — the answer call,
+# the follow-up suggestions, the news clerk and the translator alike. One
+# outage should not be rediscovered four times per turn.
+_llm_demoted_until = 0.0
+_llm_lock = threading.Lock()
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -8634,7 +8664,7 @@ def _translate_to_english(text: str) -> str:
     """Degrade, never fail: the chat agent reads Hindi, so a translation that
     does not come back must not sink the voice turn."""
     try:
-        payload = {"model": LLM_DEPLOYMENT, "input": [
+        payload = {"model": _model(), "input": [
             {"role": "system", "content": _TRANSLATE_SYSTEM},
             {"role": "user", "content": text}],
             "max_output_tokens": 300, "reasoning": {"effort": "minimal"}}
@@ -8820,7 +8850,7 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
     """One isolated clerk browse. Returns (body, sources, searched) or an
     error dict — the caller decides how a dead leg degrades."""
     payload = {
-        "model": LLM_DEPLOYMENT,
+        "model": _model(),
         "input": [{"role": "user", "content": prompt}],
         "tools": [{"type": "web_search_preview",
                    "search_context_size": "low"}],
@@ -11208,7 +11238,7 @@ def _suggest_stream(messages: list[dict]):
         yield {"type": "done", "suggestions": []}
         return
     payload = {
-        "model": LLM_DEPLOYMENT,
+        "model": _model(),
         "input": [{"role": "system", "content": _suggest_prompt()}, *tail],
         "max_output_tokens": 700,
         "reasoning": {"effort": "low"},
@@ -11337,30 +11367,40 @@ def _tools_for_request() -> list[dict]:
 
 
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
-    payload = {
-        "model": LLM_DEPLOYMENT,
-        "input": wire,
-        "tools": _tools_for_request(),
-        "tool_choice": "auto" if allow_tools else "none",
-        "max_output_tokens": 2000,
-        "reasoning": {"effort": LLM_EFFORT},
-        "service_tier": LLM_SERVICE_TIER,
-    }
-    req = urllib.request.Request(
-        f"{AZURE_ENDPOINT}/responses",
-        data=json.dumps(payload).encode(),
-        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
-        method="POST",
-    )
-    # macOS system python ships no CA bundle — use certifi's when available
-    # (present in the pivot venv; run the server with .venv/bin/python).
-    try:
-        with _urlopen_with_retry(req, timeout=120, context=_ssl_ctx()) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:4000]
-        logging.error("model request rejected (%s): %s", exc.code, detail)
-        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
+    """The non-streaming answer path. Falls back on the same rule as the
+    streaming one — nothing has been shown to the reader here, so the retry is
+    unconditionally safe."""
+    models = _stream_models()
+    for attempt, model in enumerate(models):
+        payload = {
+            "model": model,
+            "input": wire,
+            "tools": _tools_for_request(),
+            "tool_choice": "auto" if allow_tools else "none",
+            "max_output_tokens": 2000,
+            "reasoning": {"effort": LLM_EFFORT},
+            "service_tier": LLM_SERVICE_TIER,
+        }
+        req = urllib.request.Request(
+            f"{AZURE_ENDPOINT}/responses",
+            data=json.dumps(payload).encode(),
+            headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+            method="POST",
+        )
+        # macOS system python ships no CA bundle — use certifi's when available
+        # (present in the pivot venv; run the server with .venv/bin/python).
+        try:
+            with _urlopen_with_retry(req, timeout=120, context=_ssl_ctx()) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:4000]
+            if attempt < len(models) - 1 and _llm_unhealthy(exc.code, detail):
+                _demote(f"HTTP {exc.code}")
+                continue
+            logging.error("model request rejected (%s): %s", exc.code, detail)
+            raise RuntimeError(
+                f"model request rejected ({exc.code}): {detail}") from exc
+    raise RuntimeError("model request rejected: no deployment answered")
 
 
 def _ssl_ctx():
@@ -11424,6 +11464,64 @@ def _urlopen_with_retry(req: urllib.request.Request, *, timeout: float,
     raise last or RuntimeError("Azure request failed before response")
 
 
+def _model() -> str:
+    """The deployment this request should go to.
+
+    The primary, unless it has recently been found not to be serving — in
+    which case the fallback, until the cooldown expires and the next request
+    probes the primary again. Read at CALL time rather than bound once at
+    import, so every model call in the process follows one decision.
+    """
+    if not LLM_FALLBACK:
+        return LLM_DEPLOYMENT
+    with _llm_lock:
+        demoted = time.monotonic() < _llm_demoted_until
+    return LLM_FALLBACK if demoted else LLM_DEPLOYMENT
+
+
+def _demote(reason: str) -> str:
+    """Record that the primary is not serving, and name what to use instead.
+
+    Returns the fallback deployment, or "" when there is none — which is the
+    caller's signal to surface the failure rather than retry it.
+    """
+    global _llm_demoted_until
+    if not LLM_FALLBACK:
+        return ""
+    with _llm_lock:
+        first = time.monotonic() >= _llm_demoted_until
+        _llm_demoted_until = time.monotonic() + _LLM_DEMOTE_S
+    if first:
+        # Once per outage, at ERROR, because running on the degraded arm is a
+        # fact about every answer served until it lifts — not a detail.
+        logging.error("charto: %s is not serving (%s); falling back to %s for "
+                      "%.0fs. Answers will be shorter and slower.",
+                      LLM_DEPLOYMENT, reason, LLM_FALLBACK, _LLM_DEMOTE_S)
+    return LLM_FALLBACK
+
+
+def _llm_unhealthy(code: int | None, msg: str) -> bool:
+    """Is this the deployment being down, as opposed to this request being
+    wrong? 503/502/504 and the gateway's own "no healthy upstream" are the
+    deployment; a 400 is the payload and retrying it elsewhere would only ask
+    a second model the same bad question. A 429 is capacity on a deployment
+    that IS serving — `_urlopen_with_retry` already backs off for that, and
+    demoting on it would move a throttled workload onto a slower arm."""
+    if code in (502, 503, 504):
+        return True
+    return "no healthy upstream" in (msg or "").lower()
+
+
+def _stream_error_parts(ev: dict) -> tuple[str, str]:
+    """(code, message) out of an upstream error event, wherever it is nested."""
+    err = ev.get("error")
+    if not isinstance(err, dict):
+        resp = ev.get("response")
+        err = (resp.get("error") if isinstance(resp, dict) else None) or {}
+    return (str(err.get("code") or err.get("type") or ""),
+            str(err.get("message") or ev.get("message") or "").strip())
+
+
 def _stream_error(ev: dict) -> str:
     """Read an upstream `error` event, and LOG it.
 
@@ -11439,12 +11537,7 @@ def _stream_error(ev: dict) -> str:
 
     `response.failed` nests it one level deeper again, under the response.
     """
-    err = ev.get("error")
-    if not isinstance(err, dict):
-        resp = ev.get("response")
-        err = (resp.get("error") if isinstance(resp, dict) else None) or {}
-    msg = str(err.get("message") or ev.get("message") or "").strip()
-    code = err.get("code") or err.get("type") or ""
+    code, msg = _stream_error_parts(ev)
     logging.error("charto: model stream error (%s): %s | raw=%s",
                   code or "no code", msg or "no message",
                   json.dumps(ev)[:800])
@@ -11460,16 +11553,79 @@ def _stream_error(ev: dict) -> str:
 
 
 def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
-    """Same call, server-sent events. Yields parsed Responses-API events.
+    """Same call, server-sent events, with one fallback attempt.
 
     Only the TEXT is worth streaming: tool calls arrive as complete items and
     mean nothing half-built. So the loop below streams every round, but only
     a round that produces prose shows anything — which is exactly the last
     one. The user sees the answer as it is written instead of after the whole
     tool chain has finished.
+
+    THE FALLBACK. A deployment outage does not arrive here as an HTTP error:
+    measured against `gpt-5.6-luna` on 2026-08-31, Azure accepted the
+    connection, returned 200, and sent the fault IN BAND as an SSE `error`
+    event at sequence 2. So `_urlopen_with_retry` never engaged — it only
+    retries before headers arrive, and by then the request had succeeded. The
+    turn died with the user's question unanswered and a sibling deployment on
+    the same endpoint sitting there healthy.
+
+    A retry is only honest while nothing has been COMMITTED — no text delta,
+    no completed output item. Past that the reader has already seen part of an
+    answer this model was writing, and restarting on a different one would
+    either duplicate it or contradict it mid-sentence. So `committed` gates
+    the retry, and a fault after first output is relayed as itself.
     """
+    models = _stream_models()
+    for attempt, model in enumerate(models):
+        # Derived from the list, never from a constant: when the fallback is
+        # disabled or already active there is exactly ONE attempt, and a `last`
+        # that disagreed with that would fall out of this loop having yielded
+        # nothing — which the caller reads as an empty answer rather than as a
+        # failure.
+        last = attempt == len(models) - 1
+        committed = False
+        retry = False
+        try:
+            for ev in _stream_once(wire, allow_tools, model):
+                t = ev.get("type", "")
+                if t in ("error", "response.failed"):
+                    code, msg = _stream_error_parts(ev)
+                    if not committed and not last and _llm_unhealthy(None, msg):
+                        _demote(msg or code or "stream error")
+                        retry = True
+                        break
+                elif t == "response.output_text.delta":
+                    committed = committed or bool(ev.get("delta"))
+                elif t == "response.output_item.done":
+                    committed = True
+                yield ev
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:4000]
+            if not last and _llm_unhealthy(exc.code, detail):
+                _demote(f"HTTP {exc.code}")
+                continue
+            logging.error("model stream rejected (%s): %s", exc.code, detail)
+            raise RuntimeError(
+                f"model request rejected ({exc.code}): {detail}") from exc
+        if not retry:
+            return
+
+
+def _stream_models() -> list[str]:
+    """The deployments to try, in order. One when the fallback is disabled or
+    already active — a second attempt on the arm that just failed is not a
+    fallback, it is the same call twice."""
+    first = _model()
+    if not LLM_FALLBACK or first == LLM_FALLBACK:
+        return [first]
+    return [first, LLM_FALLBACK]
+
+
+def _stream_once(wire: list[dict], allow_tools: bool, model: str):
+    """One streaming request to one deployment. Raises HTTPError; the caller
+    owns what a failure means."""
     payload = {
-        "model": LLM_DEPLOYMENT,
+        "model": model,
         "input": wire,
         "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
@@ -11484,13 +11640,7 @@ def _post_responses_stream(wire: list[dict], allow_tools: bool = True):
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST",
     )
-    try:
-        response = _urlopen_with_retry(req, timeout=180, context=_ssl_ctx())
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:4000]
-        logging.error("model stream rejected (%s): %s", exc.code, detail)
-        raise RuntimeError(f"model request rejected ({exc.code}): {detail}") from exc
-    with response as resp:
+    with _urlopen_with_retry(req, timeout=180, context=_ssl_ctx()) as resp:
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -11820,8 +11970,15 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         calls = list(by_id.values())
         if not calls:
             answer = "".join(text_parts) or "(empty reply)"
+            # Which arm wrote this. A reader on the fallback is getting
+            # measurably shorter answers than the same question would get an
+            # hour earlier, and saying nothing would make the model's outage
+            # look like the product getting worse. Only sent when it is not
+            # the configured model — the normal case adds no noise.
+            _served = _model()
             yield {"type": "done",
                    "text": answer,
+                   **({"model": _served} if _served != LLM_DEPLOYMENT else {}),
                    "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                    "context_preview": block,
                    "tools_used": tool_trace,
@@ -13274,8 +13431,16 @@ def _health_report(*, deep: bool = False) -> tuple[int, dict]:
         checks["users_db"] = {"ok": False, "error": type(exc).__name__}
 
     checks["backup"] = _backup_health()
+    # `model` is what the next turn will ACTUALLY use, not what is configured.
+    # A health check that reports the configured deployment while the process
+    # is serving from the fallback is reporting the config file, not the
+    # server — and the whole point of this row is to say what is running.
+    _live = _model()
     checks["llm"] = {"ok": bool(AZURE_ENDPOINT and AZURE_KEY),
-                     "model": LLM_DEPLOYMENT, "effort": LLM_EFFORT,
+                     "model": _live, "configured": LLM_DEPLOYMENT,
+                     "fallback": LLM_FALLBACK or None,
+                     "degraded": _live != LLM_DEPLOYMENT,
+                     "effort": LLM_EFFORT,
                      "service_tier": LLM_SERVICE_TIER}
     try:
         disk = statvfs(str(DB_PATH.resolve().parent))
@@ -13989,7 +14154,7 @@ class Handler(BaseHTTPRequestHandler):
                 # outside is an A/A nobody notices
                 return self._send(200, {
                     "symbol": symbol, "count": n, "earliest": lo, "latest": hi,
-                    "model": LLM_DEPLOYMENT, "effort": LLM_EFFORT})
+                    "model": _model(), "effort": LLM_EFFORT})
             return self._send(404, {"error": "not found"})
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": str(exc)})
