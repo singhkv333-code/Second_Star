@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Charto — preview</title>
+<title>Pivot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
@@ -6015,9 +6015,13 @@ svg.icon.op {
   .pin .t { color: var(--muted-foreground); }
   .pin .x {
     cursor: pointer; color: var(--faint); display: inline-flex;
-    width: 16px; height: 16px; align-items: center; justify-content: center;
-    border-radius: 50%;
+    width: 18px; height: 18px; align-items: center; justify-content: center;
+    border-radius: 50%; line-height: 0;
   }
+  /* The 14px X previously sat in a 16px wash: one CSS pixel of clearance
+     makes antialiasing read as off-centre at phone/display scaling. Give the
+     hover plate an even two-pixel inset and optically centre Lucide's stroke. */
+  .pin .x svg.icon { display: block; transform: translateX(-.5px); }
   .pin .x:hover { color: var(--foreground); background: var(--accent); }
 /* ── narrow screens ───────────────────────────────────────────────────────
    The shell is a row: rail | charts | chat. Below ~820px that gives the
@@ -6591,8 +6595,20 @@ svg.icon.op {
   font-size: 26px; letter-spacing: -.03em; color: #fbfcfc;
 }
 .auth-brandpanel .mark .dot { color: var(--primary); }
-/* Pivot's headline slot. Charto's claim is charto's, not Pivot's — the
-   layout is what is being reused, never the copy. */
+/* Charto already carries the canonical Pivot mark in assets/pivot-mark.png.
+   Mask it so the same file follows the lockup's currentColor on the dark
+   brand panel and the light compact header without a second raster variant. */
+.pivot-lockup {
+  display: inline-flex; align-items: center; gap: .28em;
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  line-height: 1; letter-spacing: -.03em;
+}
+.pivot-lockup-mark {
+  display: block; width: .86em; height: .86em; flex: none;
+  background: currentColor;
+  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
+          mask: url("assets/pivot-mark.png") center / contain no-repeat;
+}
 .auth-brandpanel .pitch {
   position: relative; z-index: 1; max-width: 30ch; margin-top: auto;
   padding-bottom: 26px;
@@ -7552,17 +7568,23 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <div class="auth-brandpanel">
       <!-- the wave field and the grain are drawn by js/auth.js: thirty
            deterministic ridge paths are geometry, not markup -->
-      <div class="mark">Charto<span class="dot">.</span></div>
-      <div class="pitch">A chart you can hold a conversation with.</div>
+      <div class="mark pivot-lockup" aria-label="Pivot">
+        <span class="pivot-lockup-mark" aria-hidden="true"></span>
+        <span>Pivot<span class="dot">.</span></span>
+      </div>
+      <div class="pitch">Markets, in conversation</div>
       <div class="fine">Data &amp; analysis only. Not financial advice.</div>
     </div>
 
     <div class="auth-col">
-      <div class="mark">Charto<span class="dot">.</span></div>
+      <div class="mark pivot-lockup" aria-label="Pivot">
+        <span class="pivot-lockup-mark" aria-hidden="true"></span>
+        <span>Pivot<span class="dot">.</span></span>
+      </div>
       <div class="auth-mid">
         <div class="auth-wrap">
           <div class="auth-head">
-            <h1 class="auth-title" id="authTitle">Sign in to Charto</h1>
+            <h1 class="auth-title" id="authTitle">Sign in to Pivot</h1>
             <p class="auth-desc" id="authDesc">
               Enter your email and password to access your account.
             </p>
@@ -7618,7 +7640,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
             <div class="auth-foot">
               <button class="btn cta" id="authSubmit" type="submit">Sign in</button>
               <div class="auth-alt">
-                <span id="authAltText">New to Charto?</span>
+                <span id="authAltText">New to Pivot?</span>
                 <button type="button" id="authToggle">Create an account</button>
               </div>
             </div>
