@@ -1889,12 +1889,35 @@ const Cards = (() => {
     const gone = (c.unavailable || []).length
       ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "";
 
-    return `<div class="scan-stats">${stats}</div>`
-      + section("Each timeframe", "RSI · MACD · ADX · EMA 50", rows)
+    const momentum = section("Each timeframe", "RSI · MACD · ADX · EMA 50", rows)
       + section("ADX by timeframe", "25 marks a trending phase", adxBars)
-      + section("RSI by timeframe", "50 is the midline", rsiBars)
-      + section("Levels several timeframes share", "", ladder)
-      + gone;
+      + section("RSI by timeframe", "50 is the midline", rsiBars);
+    const shared = section("Levels several timeframes share", "", ladder);
+
+    /* WHICH HALF IS THE ANSWER.
+     *
+     * This panel carries two unrelated readings — momentum on every rung, and
+     * the level detector pooled across them — and it used to print them in
+     * one fixed order with the levels last, three sections down. Asked "where
+     * are the key support levels across timeframes" the tool was right, the
+     * prose was right, and the panel showed RSI, MACD and ADX; the zones the
+     * question was about were below the fold and went unseen.
+     *
+     * `focus` comes from the tool (see _mtf_focus): the model declares what
+     * the question is about and this only obeys it. So the panel leads with
+     * the levels and folds the momentum away — folds, not drops, because the
+     * other half is still true and one click is a cheaper way to be wrong
+     * about the ask than a missing section is. */
+    if (c.focus === "levels" && ladder) {
+      return `<div class="scan-stats">${stats}</div>`
+        + shared
+        + `<button type="button" class="scan-more" data-more="[data-more-mtf]">`
+        + `momentum on ${rungs.length} timeframe${rungs.length === 1 ? "" : "s"}`
+        + `</button><div data-more-mtf hidden>${momentum}</div>`
+        + gone;
+    }
+    return `<div class="scan-stats">${stats}</div>`
+      + momentum + shared + gone;
   }
 
   // ── the pair comparison ─────────────────────────────────────────────

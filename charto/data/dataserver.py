@@ -5938,9 +5938,39 @@ def _panel_density(counts: dict, detail: str | None) -> str:
     return "full" if marked else "brief"
 
 
+def _patterns_on_chart() -> set:
+    """Pattern ids the user is looking at RIGHT NOW, from any turn.
+
+    `drawn` is what THIS call drew, and that is the wrong question for the
+    panel's ordering. Asked "which patterns are confirmed?" the tool draws
+    nothing, so `drawn` is empty, the tiles fall back to confirmed-first — and
+    the chart is still wearing five formations an earlier turn marked. The
+    panel then led with three the chart did not show while the legend in the
+    corner named five it did not list. Measured on RELIANCE 5m: the chart read
+    Ascending Triangle / Rounding Bottom / Double Bottom / Double Top / Double
+    Top, and the panel led with two Double Tops and a Double Bottom.
+
+    The frontend already sends its live annotations — `chat_drawings`, kept as
+    the CURRENT truth because the user can drag them — so what is on screen is
+    knowable without the tool having drawn it. A pattern is emitted as several
+    legs whose scene ids are the pattern id plus a suffix (`-o`, `-f`, `-n`,
+    `-u`, `-l`, `-p`), which is why this matches on the prefix rather than on
+    equality.
+    """
+    ids = getattr(_drawings, "chat_by_id", None) or {}
+    out = set()
+    for key in ids:
+        k = str(key).upper()
+        # `-o` and friends; a leg-less annotation keys on the id itself.
+        out.add(k.rsplit("-", 1)[0] if "-" in k else k)
+        out.add(k)
+    return out
+
+
 def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
                    charts: list[dict], cands: list[dict],
-                   drawn: set, detail: str | None = None) -> dict | None:
+                   drawn: set, detail: str | None = None,
+                   on_chart: set | None = None) -> dict | None:
     """Everything the sweep found, in the shape a panel renders.
 
     Reads only from what `tool_get_patterns` already computed and is about to
@@ -5970,7 +6000,11 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
             "strength": _pattern_strength(p, edges),
             "status": _STATUS_WORD.get(str(p.get("status") or ""), "unresolved"),
             "broke_at": p.get("broke_at"),
-            "drawn": p.get("id") in drawn,
+            # On the chart by ANY turn, not just this one — see
+            # _patterns_on_chart. `_pattern_rank` sorts on this, so the panel
+            # leads with what the reader can actually see.
+            "drawn": (p.get("id") in drawn
+                      or str(p.get("id") or "").upper() in (on_chart or set())),
         })
 
     # One bar often qualifies under several names — a doji is usually also a
@@ -6008,6 +6042,12 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
     # three. Python's sort is stable, so shapes that tie on drawn/status/
     # strength keep the detector's own ordering rather than an arbitrary one.
     tiles.sort(key=_pattern_rank)
+    # `chart_drawn` stays THIS CALL's count on purpose: it is what
+    # `_panel_density` reads, and the rule there is "did this call change the
+    # chart". Folding the older marks in would make every pattern question
+    # after the first one render a full panel forever, which is the furniture
+    # problem the density rule exists to solve. Ordering and the per-tile flag
+    # use the wider set; the density does not.
     counts = {"chart_found": len(charts), "chart_drawn": len(drawn),
               "candles_found": len(cands), "candle_bars": len(rows),
               "candles_marked": sum(1 for r in rows if r["drawn"])}
@@ -6338,7 +6378,8 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     window = f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}"
     card = _patterns_card(interval, len(rows), window, struct if want_s else None,
                           charts if want_p else [], cands if want_c else [],
-                          {p["id"] for p in picked}, detail)
+                          {p["id"] for p in picked}, detail,
+                          _patterns_on_chart())
     if card:
         _card_add(card)
         cc = card["counts"]
@@ -7421,11 +7462,37 @@ def _mtf_tally(rungs: list[dict]) -> dict:
             "majority": max(up, down)}
 
 
+def _mtf_focus(focus: str | None) -> str:
+    """Which half of the ladder panel is the ANSWER: 'levels' or 'momentum'.
+
+    THE PROBLEM. This tool measures two unrelated things on every rung — the
+    four momentum readings, and the level detector's output pooled across the
+    intervals — and the panel rendered them in one fixed order, momentum
+    first, three sections deep, levels last. So "where are the key support
+    levels across timeframes" got the right tool, a correct answer in prose,
+    and a panel showing RSI, MACD and ADX. The pooled levels the question was
+    actually about were section five, below the fold, and the user never saw
+    them. The tool was not mis-routed; the panel just always leads with the
+    same thing.
+
+    THE RULE, and why it is not a keyword table. Nothing here reads the
+    user's words — matching "support" or "levels" would be a hardcoded
+    resolution that dies on the first paraphrase ("what price does it keep
+    bouncing off on the bigger charts"). `focus` is an argument the MODEL
+    sets, having understood the question in context; this function only
+    honours it, and defaults to the reading the tool leads with when nothing
+    was declared. Same division as `_panel_density`: the judgement is the
+    model's, the mechanism is ours.
+    """
+    return focus if focus in ("levels", "momentum") else "momentum"
+
+
 def _mtf_card(rungs: list[dict], levels: list[dict], price: float,
-              unavailable: list[str]) -> dict | None:
+              unavailable: list[str], focus: str | None = None) -> dict | None:
     if not rungs:
         return None
     return {"kind": "timeframes", "symbol": _sym(), "price": round(price, 2),
+            "focus": _mtf_focus(focus),
             "tally": _mtf_tally(rungs),
             "rungs": [{"interval": r["interval"], "label": r["label"],
                        "stance": r["stance"], "rsi": r.get("rsi"),
@@ -7439,7 +7506,8 @@ def _mtf_card(rungs: list[dict], levels: list[dict], price: float,
 
 
 def tool_multi_timeframe(intervals: list | None = None,
-                         lookback_bars: int = 300) -> dict:
+                         lookback_bars: int = 300,
+                         focus: str | None = None) -> dict:
     """The same four readings on every rung of the ladder, in one call."""
     want = [str(s).lower().strip() for s in (intervals or _MTF_LADDER)]
     want = [s for s in dict.fromkeys(want) if s in _IV_LABEL][:8]
@@ -7541,16 +7609,30 @@ def tool_multi_timeframe(intervals: list | None = None,
             "These rungs are NOT in the answer. Name them — an answer that "
             "silently covers four of six timeframes has told the user it "
             "covered six.")
-    card = _mtf_card(rungs, levels, price, unavailable)
+    card = _mtf_card(rungs, levels, price, unavailable, focus)
     if card:
         _card_add(card)
-        res["_card_note"] = (
-            "A ladder panel is already rendered beside your reply: every rung "
-            "with its stance and its four readings, ADX and RSI drawn against "
-            "each other across the rungs, and the pooled levels with the "
-            "intervals that found each one. Do not read the rows back out. "
-            "Say where the ladder AGREES and where it splits, and which rung "
-            "the user's question is actually on.")
+        # The note has to describe the panel the reader will actually meet.
+        # It used to promise the momentum rows unconditionally, which is a lie
+        # on a levels-focused call — the model then wrote its prose against
+        # sections the panel had folded away.
+        if card["focus"] == "levels":
+            res["_card_note"] = (
+                f"A ladder panel is already rendered beside your reply, LED BY "
+                f"THE POOLED LEVELS: {len(levels)} zone(s), each with the "
+                f"intervals that found it. The four momentum readings are "
+                f"folded behind a control. Do not read the level rows back "
+                f"out — say which zones more than one timeframe found, since "
+                f"that is what pooling them was for, and which rung the "
+                f"user's own horizon sits on.")
+        else:
+            res["_card_note"] = (
+                "A ladder panel is already rendered beside your reply: every "
+                "rung with its stance and its four readings, ADX and RSI drawn "
+                "against each other across the rungs, and the pooled levels "
+                "with the intervals that found each one. Do not read the rows "
+                "back out. Say where the ladder AGREES and where it splits, "
+                "and which rung the user's question is actually on.")
     res["provenance"] = {
         "intervals_measured": [r["interval"] for r in rungs],
         "lookback_bars": lookback_bars,
@@ -10375,7 +10457,9 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "intervals": {"type": "array", "items": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
                        "description": "the rungs to measure, coarsest last — at least TWO, or the call is refused. Name the ones the question is about; for a general 'across timeframes' ask pass the full ['5m','15m','30m','1h','1d','1w']"},
-         "lookback_bars": {"type": "integer", "description": "bars per rung, default 300"}},
+         "lookback_bars": {"type": "integer", "description": "bars per rung, default 300"},
+         "focus": {"type": "string", "enum": ["momentum", "levels"],
+                   "description": "which half of this tool's output the question is about, and therefore what the panel leads with. 'momentum' (default) for a read on direction or strength — 'what does this look like across timeframes', 'is the daily confirming the hourly', 'how strong is the move'. 'levels' when the ask is about PRICE — where it finds support or resistance, what zones the bigger charts respect, what price it keeps reacting to. Set it by what was asked, not by what came back: this tool measures both every time, and the panel showing the wrong half first is how a correct answer still misses the question."}},
          "required": ["intervals"]}},
     {"type": "function", "name": "get_divergences",
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
