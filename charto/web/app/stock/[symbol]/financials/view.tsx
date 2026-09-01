@@ -25,7 +25,9 @@ const TABS: StatementType[] = [
 ];
 
 function Body({ symbol }: { symbol: string }): React.ReactElement {
-  const asked = useSearchParams().get("tab") as StatementType | null;
+  // Same nullability as above: null while prerendering, so read it defensively
+  // rather than asserting a value the type no longer guarantees.
+  const asked = (useSearchParams()?.get("tab") ?? null) as StatementType | null;
   const tab = asked && TABS.includes(asked) ? asked : "profit_loss";
   // Keyed on the tab so a reader who lands here from a different summary tab
   // opens on the statement they asked for rather than on whichever one the

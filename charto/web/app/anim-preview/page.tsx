@@ -84,8 +84,11 @@ function MockApp(): React.ReactElement {
 }
 
 function Preview(): React.ReactElement {
+  // `?.` because Next 15.5 types useSearchParams() as possibly null — it is,
+  // during prerender outside a Suspense boundary. 15.1 typed it as always
+  // present, so the upgrade turned a latent crash into a build error.
   const params = useSearchParams();
-  const tParam = params.get("t");
+  const tParam = params?.get("t") ?? null;
   const freezeAt = tParam != null ? Number(tParam) : undefined;
   // Remounting LoginIntro restarts its internal timeline.
   const [runId, setRunId] = useState(0);
