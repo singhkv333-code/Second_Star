@@ -1683,10 +1683,23 @@
     paneAt: paneAtClient,
     yIn: yInPane,
     getIntervalSec: () => IV_SEC[state.interval],
-    // The same status line the drawing tools write to. A shape removed with
-    // the Delete key vanishes with no other acknowledgement, and a chart that
-    // silently loses something is indistinguishable from one that glitched.
-    setStatus: (m) => setText("drawStatus", m),
+    // `notify`, which is the only one of these that a user can actually see.
+    //
+    // A shape removed with the Delete key vanishes with no other
+    // acknowledgement, and a chart that silently loses something is
+    // indistinguishable from one that glitched. The obvious-looking channel
+    // was setText("drawStatus"), and checking the live DOM says there is NO
+    // SUCH ELEMENT — nor #statusLine. The status strip both were written
+    // against is gone from the markup, and `setText` no-ops on a missing id,
+    // so those messages have been going nowhere for the drawing tools too
+    // (see the three remaining call sites above, and layouts.js's comment
+    // still describing "#statusLine, #drawStatus" as if they existed).
+    // `notify` falls back to that dead strip but reaches Layouts.toast first,
+    // which builds its own element and therefore always shows.
+    //
+    // Called lazily, so `notify` being declared further down this file is
+    // fine — the arrow closes over it and nothing runs at wiring time.
+    setStatus: (m) => notify(m),
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     // …and back. A sampled curve (a fib circle, a Gann arc) is built where
