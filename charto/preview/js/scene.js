@@ -575,7 +575,9 @@ const Scene = (() => {
         if (el.textContent !== c.text) el.textContent = c.text;
         el.style.color = c.col;
         el.classList.toggle("hot", !!c.hot);
-        el.style.top = `${8 + i * 17}px`;   // the indicator legend's own step
+        // One step BELOW the layers control — see paintFold for why that
+        // control now leads the column instead of trailing it.
+        el.style.top = `${CHIP_TOP + CHIP_STEP + i * CHIP_STEP}px`;
         el.dataset.ann = c.id || "";
         el.onmouseenter = () => {
           const a = state.items.find((q) => q.id === c.id);
@@ -591,7 +593,7 @@ const Scene = (() => {
           env.onHover(null, 0);
         };
       });
-      paintFold(key, host, chips.length, axis);
+      paintFold(key, host, axis);
       // render() is the chart's own repaint, so this is every pan, zoom,
       // rescale and tick — exactly when what is behind a chip changes.
       schedulePlates();
@@ -614,9 +616,11 @@ const Scene = (() => {
      * chat's, and asking them to find two toggles would be asking them to
      * hold a distinction the question does not contain.
      */
+    const CHIP_TOP = 8;               // the legend's first row, from the top
+    const CHIP_STEP = 17;             // the indicator legend's own step
     const folds = new Map();          // paneKey -> button element
 
-    function paintFold(key, host, nChips, axis) {
+    function paintFold(key, host, axis) {
       let b = folds.get(key);
       // Price pane only. The oscillator panes carry their own marks, but a
       // second fold in each of them would be three controls for one decision.
@@ -688,14 +692,25 @@ const Scene = (() => {
        * occlusion probe) only appears where it is actually needed, over price
        * action. The POPOVER is still glazed; see js/main.js. */
       // The chips run right-aligned from `axis + 8`; the control closes the
-      // column on that same edge, one 17px step below the last of them. Minus
-      // its own 5px of padding, so it is the GLYPH that lines up with the chip
-      // text and the hover plate that hangs outside — exactly what the
-      // indicator toggle does at the other end, mirrored. `right` rather than
-      // `left`, so a two-digit count grows inward instead of walking the
-      // control out over the price scale.
+      // column on that same edge. Minus its own 5px of padding, so it is the
+      // GLYPH that lines up with the chip text and the hover plate that hangs
+      // outside — exactly what the indicator toggle does at the other end,
+      // mirrored. `right` rather than `left`, so a two-digit count grows
+      // inward instead of walking the control out over the price scale.
+      //
+      // AT THE TOP, not the foot of the list. It used to sit one step below
+      // the last chip, which is where a control that folds the thing above it
+      // belongs — and that was fine while the list was two or three names.
+      // Drawing every pattern puts thirty in the column, and a control whose
+      // y is a function of how many there are moves every time the answer
+      // changes: the user reaches for the same button in a different place on
+      // each turn, and on a long enough list it walks off the plot entirely.
+      // A control is a fixed target or it is a hunt. The list grows downward
+      // underneath it now, which costs the chips one 17px step and nothing
+      // else — and the chip count, which this used to need to find the foot
+      // of the list, is no longer an input at all.
       b.style.right = `${axis + 3}px`;
-      b.style.top = `${8 + nChips * 17 + (nChips ? 2 : 0)}px`;
+      b.style.top = `${CHIP_TOP}px`;
     }
 
     /* ── the plate ───────────────────────────────────────

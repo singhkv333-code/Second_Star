@@ -1102,6 +1102,29 @@ def _tolerance(rows: list[tuple]) -> float:
     return (atr_series[-1] * 0.5) if atr_series else rows[-1][4] * 0.002
 
 
+def _scan_window(lookback_bars: int | None, fallback: int = 300) -> int:
+    """How many bars a chart scan covers when the model did not say.
+
+    THE DEFAULT IS THE SCREEN. A detector that quietly reaches past the
+    visible window answers a question about a chart the user cannot see, and
+    reports it in the same voice as one about the chart they can — "20 chart
+    patterns" over a screen holding four of them reads as a broken renderer,
+    not as a wider scan.
+
+    An explicit value always wins: "check the last six months" is a request
+    for history the screen does not show, and this must not override it.
+
+    Floored at 60 because every detector here needs a minimum to say anything
+    (pivots are +/-5 bars, so a 20-bar screen has three of them). Falls back
+    to the old fixed default when there is no envelope at all — a tool called
+    from a test or a script has no viewport to inherit.
+    """
+    if lookback_bars:
+        return int(lookback_bars)
+    vis = getattr(_req, "bars_visible", None)
+    return max(60, int(vis)) if vis else fallback
+
+
 def _levels(rows: list[tuple], window: int = 5, per_side: int = 4,
             with_time: bool = True) -> list[dict]:
     if len(rows) < window * 2 + 5:
@@ -1398,7 +1421,7 @@ def _rows_safe(interval: str, limit: int) -> list[tuple]:
         return []
 
 
-def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
+def tool_get_levels(interval: str = "1d", lookback_bars: int | None = None,
                     draw: bool = False, draw_ids: list | None = None,
                     # TWO, because this argument changed MEANING. It used to
                     # cap the levels drawn overall and now caps them per side,
@@ -1420,7 +1443,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
         return {"cleared": True,
                 "_note": "Every drawn level has been removed from the user's "
                          "chart. Confirm in one line; do not list levels."}
-    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    lookback_bars = max(60, min(_scan_window(lookback_bars), 1500))
     rows = _rows(interval, lookback_bars)
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -1628,7 +1651,7 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
     }
 
 
-def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
+def tool_get_trendlines(interval: str = "1d", lookback_bars: int | None = None,
                         draw: bool = False, draw_ids: list | None = None,
                         max_draw: int = 2, draw_mode: str = "add",
                         side: str = "both") -> dict:
@@ -1636,7 +1659,7 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int = 300,
     if mode == "clear":
         _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trendlines"})
         return {"cleared": True, "_note": "Trendlines removed from the chart."}
-    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    lookback_bars = max(60, min(_scan_window(lookback_bars), 1500))
     rows = _rows(interval, lookback_bars)
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -6079,7 +6102,7 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
     }
 
 
-def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
+def tool_get_patterns(interval: str = "1d", lookback_bars: int | None = None,
                       kinds: list | None = None, families: list | None = None,
                       limit: int = 20, draw: bool = False,
                       draw_ids: list | None = None, draw_mode: str = "add",
@@ -6107,7 +6130,7 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     # widening is safe in a way it is not for `draw_ids`: a chart pattern's id
     # encodes bars_ago and IS window-dependent, so those keep the cap.
     _cap = 6000 if draw_candle_at else 1500
-    rows = _rows(interval, max(60, min(int(lookback_bars or 300), _cap)))
+    rows = _rows(interval, max(60, min(_scan_window(lookback_bars), _cap)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
     wt = interval not in ("1d", "1w", "1mo")
@@ -6538,7 +6561,7 @@ def _trend_card(interval: str, bars: int, window: str, struct: dict,
             **stats, "range": rng, "events": events, "trendlines": tiles}
 
 
-def tool_get_trend(interval: str = "1d", lookback_bars: int = 300,
+def tool_get_trend(interval: str = "1d", lookback_bars: int | None = None,
                    adx_period: int = 14, draw: bool = False,
                    max_draw: int = 2, draw_mode: str = "add") -> dict:
     """What the trend is, measured four ways at once.
@@ -6553,7 +6576,7 @@ def tool_get_trend(interval: str = "1d", lookback_bars: int = 300,
         _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trend"})
         return {"cleared": True,
                 "_note": "The trend lines this tool drew are off the chart."}
-    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    lookback_bars = max(60, min(_scan_window(lookback_bars), 1500))
     rows = _rows(interval, lookback_bars)
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -7204,13 +7227,13 @@ def _confirm_card(direction: str, interval: str, bars: int, window: str,
 
 
 def tool_confirm_reversal(direction: str = "bullish", interval: str = "1d",
-                          lookback_bars: int = 300) -> dict:
+                          lookback_bars: int | None = None) -> dict:
     """What price and the studies would have to DO, with where they are now."""
     want = str(direction or "bullish").lower().strip()
     if want not in ("bullish", "bearish"):
         return {"error": "direction must be 'bullish' or 'bearish'"}
     up = want == "bullish"
-    lookback_bars = max(60, min(int(lookback_bars or 300), 1500))
+    lookback_bars = max(60, min(_scan_window(lookback_bars), 1500))
     rows = _rows(interval, lookback_bars)
     if not rows:
         return {"error": f"no bars for interval {interval}"}
@@ -10402,7 +10425,7 @@ TOOLS = [
      "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Every level is graded Strong / Moderate / Weak in code, from hold rate, sample size and how recently it last mattered — quote THAT word, and never re-grade a level yourself. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price. Drawing marks the best two per side and parks the rest in the Layers panel; say so at the end of the reply.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
-         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
+         "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can."},
          "draw": {"type": "boolean", "description": "draw the best-evidenced levels — max_draw PER SIDE, the rest parked in the Layers panel"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the candidate list, e.g. ['L1365','L1337'], to draw exactly those"},
@@ -10418,7 +10441,7 @@ TOOLS = [
      "description": "Detect SLOPED trend lines fitted through real swing highs/lows, each requiring 3+ touches, with status intact/broken. Use for any diagonal structure — trendline, rising support, falling resistance, wedge/channel edges. Set draw=true to put them on the chart. A resistance line is fitted through swing HIGHS, a support line through swing LOWS — pass `side` when the question names one.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
-         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
+         "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can."},
          "draw": {"type": "boolean"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the candidate list, e.g. ['TL1312-1287']"},
@@ -10431,7 +10454,7 @@ TOOLS = [
      "description": "THE tool for 'what is the trend' / 'is this trending or ranging' / 'which way is this going' / 'how strong is the move' — a question about DIRECTION, at one interval. NOT this tool when the question asks what the indicators say (read_indicators), names a study (get_indicator), spans more than one timeframe (multi_timeframe), or asks what would confirm a turn (confirm_reversal). One call measures it four separate ways and returns the disagreement intact: market structure (the HH/HL vs LH/LL swing sequence), ADX (how much directional movement there is, with no side to it), +DI against -DI (which side owns that movement), and the best-supported fitted trendline per side with intact/broken status — plus the scanned window's high-low range and where the last close sits inside it. Use this instead of assembling a trend answer yourself out of get_indicator('adx') and get_patterns: those return the same numbers with nothing comparing them, and the comparison is the answer. The four readings are NOT required to agree and you must not average them into one word — structure going sideways while DI stays bearish is the finding, not a contradiction to resolve. Set draw=true to put the fitted lines on the chart. A panel carrying all four readings is rendered beside your reply, so spend the reply on what they mean together rather than transcribing them.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
-         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300 — this is also the window the range and the structure read are measured over, so widen it for 'the longer-term trend' rather than reinterpreting a short one"},
+         "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can. It is also the window the range and the structure read are measured over, so widening it IS how you answer 'the longer-term trend' rather than reinterpreting a short one."},
          "adx_period": {"type": "integer", "description": "ADX smoothing, default 14"},
          "draw": {"type": "boolean", "description": "draw the fitted trend lines"},
          "max_draw": {"type": "integer", "description": "default 2 — one line per side"},
@@ -10450,7 +10473,7 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "direction": {"type": "string", "enum": ["bullish", "bearish"], "description": "which reversal is being asked about — 'bearish' answers 'what would confirm this is topping / what invalidates the uptrend'"},
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"]},
-         "lookback_bars": {"type": "integer", "description": "bars the structure and levels are read over, default 300"}},
+         "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can."}},
          "required": ["direction", "interval"]}},
     {"type": "function", "name": "multi_timeframe",
      "description": "ONLY for a question that spans MORE THAN ONE interval: 'analyse this across timeframes', 'what does it look like on the higher timeframes', 'is the daily confirming the hourly', 'multi-timeframe read'. A question that names a SINGLE interval — 'what's the trend on the hourly', 'read the indicators on the daily' — is get_trend or read_indicators at that interval and calling this instead answers a question the user did not ask, with six rows where they wanted one. It refuses a single-interval call for that reason. It walks the ladder and measures every rung the IDENTICAL four ways — RSI 14 against 50, the MACD histogram's sign, +DI against -DI, and the close against EMA 50 — plus ADX on each rung as the qualifier that has no side. It also pools the level detector's output across the rungs, merging levels the intervals agree on and keeping every contributing interval by name, so a level three timeframes found is visibly better evidenced than one only the 5-minute saw. Rungs are NOT votes in one election: do not tally them into a single word. A fast rung disagreeing with a slow one is the normal state of a pullback and saying which is which is the answer — weight by the user's own horizon. Intervals with too little stored history are reported unavailable and must be named, not silently dropped. A ladder panel is rendered beside your reply.",
@@ -10630,10 +10653,10 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply, and `detail` decides how big that panel is — set it by what was ASKED, not by how much came back. ONE INTERVAL PER CALL, ONE PANEL PER CALL. For a question that spans timeframes, call this on at most THREE rungs that span the ladder (a fast, a middle, a slow) rather than on every interval you can name: each sweep returns roughly thirty formations and bars, so a fourth panel is where the answer stops being a reading and becomes an inventory. Then head each interval in the reply and spend it on where the rungs agree and where they contradict — a shape two timeframes show is evidence, the same shape on the fastest rung alone is noise.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH OF THOSE TWO CAPS — max_draw and mark_limit — in the same call rather than drawing three and explaining the rest. 'All' means all of the ones ON THEIR SCREEN: it is a request to stop truncating the drawing, never a request to widen the scan, so leave lookback_bars alone. Raising it as well reports twenty formations over a window showing four, and the user cannot tell which of the twenty they are supposed to be able to see. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply, and `detail` decides how big that panel is — set it by what was ASKED, not by how much came back. ONE INTERVAL PER CALL, ONE PANEL PER CALL. For a question that spans timeframes, call this on at most THREE rungs that span the ladder (a fast, a middle, a slow) rather than on every interval you can name: each sweep returns roughly thirty formations and bars, so a fourth panel is where the answer stops being a reading and becomes an inventory. Then head each interval in the reply and spend it on where the rungs agree and where they contradict — a shape two timeframes show is evidence, the same shape on the fastest rung alone is noise.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
-         "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
+         "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can."},
          "kinds": {"type": "array", "items": {"type": "string"},
                    "description": "specific pattern names to look for, e.g. ['head_and_shoulders'] or ['bullish_engulfing','hammer']. Omit for a full sweep. An unknown name comes back with the full list rather than scanning."},
          "families": {"type": "array", "items": {"type": "string", "enum": ["candlestick", "chart", "structure"]},
@@ -15325,6 +15348,22 @@ class Handler(BaseHTTPRequestHandler):
             ctx = body.get("context") or {}
             sym = str(ctx.get("symbol") or "RELIANCE").upper()
             _req.symbol = sym
+            # HOW MANY BARS THE USER CAN ACTUALLY SEE.
+            #
+            # The scan detectors defaulted to a fixed 300 and the model was
+            # free to ask for more — asked to "draw all patterns" it passed
+            # 1,500, and the panel then reported "Bars scanned 1,500" over a
+            # screen showing perhaps a hundred. Every formation it found
+            # outside the visible window is a true statement about a chart the
+            # user is not looking at, and they have no way to tell which is
+            # which. The window they are pointing at is the window they mean.
+            # Stamped here because it is per-REQUEST state, the same way the
+            # symbol is, and read by _scan_window.
+            _view = ctx.get("view") if isinstance(ctx.get("view"), dict) else {}
+            try:
+                _req.bars_visible = int(_view.get("bars_visible") or 0) or None
+            except (TypeError, ValueError):
+                _req.bars_visible = None
             # Who is asking, and which conversation this is. Both exist for
             # recall_conversations and nothing else: the user scopes the
             # archive, and the chat_id is what EXCLUDES the conversation
