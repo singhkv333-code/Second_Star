@@ -468,6 +468,21 @@ def _scene_add(annotation: dict) -> None:
     if kind in ("level", "zone", "segment", "vprofile", "box", "vline",
                 "vband", "poly", "point", "candle", "label", "markers",
                 "drawing", "fib", "position"):
+        # ALREADY hidden means its own tool parked it, and a parked mark is
+        # not on the chart. `_park_beyond_budget` only catches marks IT parks;
+        # one that arrives with the flag already set is inside any budget, so
+        # it sailed past and landed in the drawn ledger. `_drawn_ledger` then
+        # told the model "everything now on the user's chart" and listed all
+        # four levels, of which two were hidden — so the reply named three
+        # resistances while the chart showed two. Measured on RELIANCE 5m,
+        # 2026-09-01. That chart/text divergence is the exact failure the
+        # ledger exists to prevent, and it was the ledger causing it.
+        if annotation.get("hidden"):
+            if not hasattr(_scene, "parked"):
+                _scene.parked = []
+            _scene.parked.append(annotation.get("label")
+                                 or annotation.get("id") or "a level")
+            return
         if _park_beyond_budget(annotation):
             return
         _scene.drawn.append(annotation.get("label") or annotation.get("id"))

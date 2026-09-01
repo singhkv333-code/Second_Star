@@ -1076,6 +1076,13 @@
         out.push(`${nm}${a.period ? " " + a.period : ""}`.trim() || "Indicator");
         continue;
       }
+      // PARKED IS NOT ON THE CHART. A mark that arrives hidden went to the
+      // Layers panel, not to the price scale — get_levels draws two a side
+      // and parks the rest. Counting them here made the footer read "4 on
+      // chart" beside two visible bands, which is the same chart/text
+      // divergence the reply itself was just taught to avoid. The Layers
+      // panel is where the parked ones are counted, and it counts them right.
+      if (a.hidden) continue;
       // A catalogued tool names itself off the rail's own label, so the
       // footer says "Gann fan" rather than the generic word — and a tool
       // added to the catalogue tomorrow is named here without a second entry.
