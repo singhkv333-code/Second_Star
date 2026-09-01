@@ -96,8 +96,28 @@ const Cards = (() => {
   // backend answers the second (`_pattern_strength`); these are its three
   // words. `confirmed`/`broken` stay because the same map dresses the
   // journal tiles below, which really are reporting a state.
-  const BADGE = { Strong: "ok", Moderate: "open", Weak: "bad",
-                  confirmed: "ok", broken: "bad" };
+  /* TWO AXES, and they were sharing one map.
+   *
+   * STRENGTH is confidence — how well evidenced a formation or a level is.
+   * It went through this same map, so `Strong` rendered in the candle GREEN
+   * and `Weak` in the candle RED. That is not a shade of wrong, it is a
+   * different statement: it painted a strong RESISTANCE — overhead supply,
+   * the thing that stops a rally — in the colour the chart uses for a bar
+   * that closed up, and a weakly-evidenced level in the colour for a bar
+   * that closed down. Confidence has no direction, so it cannot borrow the
+   * vocabulary of direction.
+   *
+   * So strength is one ink at three intensities: filled and dark, filled and
+   * mid, outlined and faint. That is deliberately the same ladder the chart
+   * itself now paints levels with (scene.js SHADE: 1 / .66 / .4) — the panel
+   * and the chart are describing the same property and a reader moving
+   * between them should not have to learn it twice.
+   *
+   * STATUS is a binary fact with a date behind it — a trendline is intact or
+   * it broke — and keeps the semantic pair, because there "broken" really is
+   * the negative outcome rather than a direction. */
+  const STRENGTH = { Strong: "s-strong", Moderate: "s-mid", Weak: "s-weak" };
+  const BADGE = { confirmed: "ok", broken: "bad" };
 
   /** One row of a list: when it happened, what it was, and — where there is
    *  one — the price it happened at, closed against the card's right edge so
@@ -551,7 +571,7 @@ const Cards = (() => {
       text: depth(mc.dd_worst_pct), tone: "down" });
     const fan = mcFan(mc, c.equity_curve || []);
     const mcBlock = (mcRows.length || fan)
-      ? section("The same edge, reshuffled",
+      ? section("Monte Carlo",
                 mc.n_sims ? `${mc.n_sims} runs` : "",
                 fan + (mcRows.length ? bars(mcRows) : ""))
       : "";
@@ -573,7 +593,7 @@ const Cards = (() => {
       fin(sp.concentration) ? ["Return concentration", num(sp.concentration)] : null,
     ].filter(Boolean);
     const rigorBlock = rigor.length
-      ? section("How much to trust it", "",
+      ? section("Robustness checks", "",
           `<dl class="wf-rigor">${rigor.map(([k, val]) =>
             `<div><dt>${esc(k)}</dt><dd>${esc(val)}</dd></div>`).join("")}</dl>`)
       : "";
@@ -857,8 +877,8 @@ const Cards = (() => {
           + `${names.length} name${names.length === 1 ? "" : "s"}</p>` : "")
       + section("Weights", "", bars(rows))
       + section("Sleeves", "", sleeves)
-      + section("Why these", "", why)
-      + section("Instead you could", "", alts)
+      + section("Selection", "", why)
+      + section("Alternatives", "", alts)
       + section("Assumptions", "", assume)
       + (c.rationale ? `<p class="wf-note">${esc(c.rationale)}</p>` : "");
   }
@@ -929,7 +949,7 @@ const Cards = (() => {
       + section("Legs", `${(s.legs || []).length}`,
                 legs ? `<ul class="wf-legs">${legs}</ul>` : "")
       + section("Net greeks", "", greeks ? `<div class="scan-stats">${greeks}</div>` : "")
-      + section("Worth knowing", "", flags ? `<ul class="wf-flags">${flags}</ul>` : "")
+      + section("Risks", "", flags ? `<ul class="wf-flags">${flags}</ul>` : "")
       + (k.margin_note ? `<p class="wf-note">${esc(k.margin_note)}</p>` : "");
   }
 
@@ -1436,7 +1456,8 @@ const Cards = (() => {
      * four columns and the panel would become a spreadsheet. */
     const allTiles = (c.chart_patterns || []).map((p) => {
       const badge = p.strength
-        ? `<span class="scan-badge ${BADGE[p.strength] || "open"}">${esc(p.strength)}</span>`
+        ? `<span class="scan-badge ${STRENGTH[cap(p.strength)] || "s-mid"}">`
+          + `${esc(cap(p.strength))}</span>`
         : "";
       const sub = [span(p.from, p.to), p.bias && p.bias !== "neutral"
         ? `${p.bias} bias` : ""].filter(Boolean).join(" · ");
@@ -1462,14 +1483,20 @@ const Cards = (() => {
      * them (drawn, then confirmed, then strongest) and says how many are
      * worth showing; the rest fold.
      *
-     * Except when the user has ALREADY expanded: in brief mode this body sits
-     * behind a control they just opened, and making them open a second one to
-     * reach the same list is the fold arguing with itself. */
-    const nShow = c.density === "brief"
-      ? allTiles.length
+     * In BRIEF the head of that list is already above the fold as hero cards,
+     * so the body inside the fold starts after them. Printing the same
+     * formation twice — once above and once inside — is the panel repeating
+     * itself, and it was doing exactly that while also arguing with its own
+     * "N more" count. */
+    const briefMode = c.density === "brief";
+    const heroN = briefMode
+      ? Math.min(allTiles.length, counts.chart_shown || 3) : 0;
+    const bodyTiles = allTiles.slice(heroN);
+    const nShow = briefMode
+      ? bodyTiles.length
       : Math.min(allTiles.length, counts.chart_shown || allTiles.length);
-    const tiles = allTiles.slice(0, nShow).join("");
-    const tilesRest = allTiles.slice(nShow);
+    const tiles = (briefMode ? bodyTiles : allTiles.slice(0, nShow)).join("");
+    const tilesRest = briefMode ? [] : allTiles.slice(nShow);
     const tilesMore = tilesRest.length
       ? `<button type="button" class="scan-more" data-more="[data-more-tiles]">`
         + `${tilesRest.length} more</button>`
@@ -1518,9 +1545,9 @@ const Cards = (() => {
                 drew(counts.candle_bars, counts.candles_marked, "bars", "marked"),
                 candles && `<div class="scan-rows${more ? " capped" : ""}">${candles}</div>${more}`);
 
-    if (c.density !== "brief") return full + foot;
+    if (!briefMode) return full + foot;
 
-    /* ── the brief strip ──────────────────────────────────────────────
+    /* ── the brief head ───────────────────────────────────────────────
      *
      * A sweep that marked nothing is EVIDENCE for the prose, not the answer
      * to the question, and it used to render at the same weight either way:
@@ -1528,41 +1555,36 @@ const Cards = (() => {
      * followed by a stat grid, a six-row events table and thirteen hero
      * tiles. The reader met an inventory where they had asked a question.
      *
-     * So the compact form is pills, not tiles — `scan-chips` is a wrapping
-     * flex row, so it is one or two lines tall at any pane width and sits
-     * between two paragraphs the way a sentence does. Deliberately built
-     * from the classes this panel already owns: the styling lives in
-     * index.html, and a strip that invented its own would be the one element
-     * here that does not follow the theme.
+     * The first fix for that was to shrink the tiles into pills, and it was
+     * the wrong half of the problem to solve. Thirteen tiles is bad because
+     * of THIRTEEN, not because of tile: a formation is four facts — what it
+     * is, when it ran, which way it reads, and the number that decides it —
+     * and a pill can carry one and a half of them. Shrinking the card threw
+     * away the measurement, which is the fact a reader actually acts on, and
+     * left a row of chips that looked like filter controls rather than
+     * findings.
      *
-     * Only the formations — no stat grid, no events table, no candle rows.
-     * Those are measurements of the window, and the window is not what a
-     * question about the chart is asking after. They are one click away. */
-    const pills = (c.chart_patterns || []).slice(0, counts.chart_shown || 3)
-      .map((p) => {
-        const badge = p.strength
-          ? `<span class="scan-badge ${BADGE[p.strength] || "open"}">${esc(p.strength)}</span>`
-          : "";
-        /* Status, not the measurement. A pill has room for one qualifier and
-         * "confirmed" is the one that changes what the reader does with it —
-         * the neckline price is on the tile behind the control, next to the
-         * verdict that gives it meaning. */
-        const tail = p.status && p.status !== "unresolved" ? ` ${esc(p.status)}` : "";
-        return `<span class="scan-chip found"`
-          + (p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : "")
-          + `>${badge}<b>${esc(cap(p.name))}</b>${tail}</span>`;
-      }).join("");
+     * So the compact form keeps the CARD and cuts the COUNT. Two or three,
+     * ranked, at full presence, with the neckline price and its verdict
+     * still on them. `.hero` stacks them one per row rather than tiling into
+     * a grid: at the chat column's width a two-up grid gives each card about
+     * 150px, which is where the name starts truncating and the measurement
+     * wraps to three lines. One per row is not decoration — it is the width
+     * the content needs.
+     *
+     * Everything else the sweep found is one click away, never dropped. */
+    const hero = allTiles.slice(0, heroN).join("");
 
     /* The control says what is behind it, with the real number. "Show more"
      * gives the reader no way to judge whether opening it is worth the
-     * scroll; "10 more formations, 17 candle bars" does. */
-    const restN = Math.max(0, (counts.chart_found || 0) - (counts.chart_shown || 0));
+     * scroll; "10 more formations · 17 candle bars" does. */
+    const restN = Math.max(0, (counts.chart_found || 0) - heroN);
     const restBars = counts.candle_bars || 0;
     const rest = [restN ? `${restN} more formation${restN === 1 ? "" : "s"}` : "",
                   restBars ? `${restBars} candle bar${restBars === 1 ? "" : "s"}` : "",
                   "structure events"].filter(Boolean).join(" · ");
 
-    return (pills ? `<div class="scan-chips">${pills}</div>` : "")
+    return (hero ? `<div class="scan-tiles hero">${hero}</div>` : "")
       + `<button type="button" class="scan-more" data-more="[data-more-full]">`
       + `${esc(rest)}</button>`
       /* `hidden` rather than a class: nothing styles this wrapper, so the UA
@@ -1778,12 +1800,22 @@ const Cards = (() => {
 
   // ── the timeframe ladder ────────────────────────────────────────────
   //
-  // Every rung measured the same four ways, so the rows compare. The stance
-  // word takes the row's tint and the four readings stay printed beside it,
-  // because a ladder of six coloured words with no numbers is a mood board.
-  // ADX and RSI then get their own bar rows ACROSS the rungs, which is the
-  // one comparison the per-rung line cannot make: 29 on the 15-minute and 14
+  // Every timeframe measured the same four ways, so the rows compare. The
+  // stance word takes the row's tint and the four readings stay printed
+  // beside it, because six coloured words with no numbers is a mood board.
+  // ADX and RSI then get their own bar rows ACROSS the timeframes, which is
+  // the one comparison a single row cannot make: 29 on the 15-minute and 14
   // on the daily is the finding, and it is invisible in six separate rows.
+  //
+  // THE WORD "RUNG" DOES NOT APPEAR IN THIS PANEL, and that is a rule rather
+  // than a preference. `rung` is the internal name for a row of the ladder —
+  // fine in code, and it had leaked into the interface as "Rungs measured",
+  // "3 of 3 rungs" and a heading reading "Every rung, measured the same four
+  // ways". A reader has never seen that word and cannot look it up: the
+  // thing being counted is a TIMEFRAME, which they already know, and naming
+  // it anything else buys nothing and costs comprehension. Internal labels
+  // in the UI are the single most reliable sign that nobody read the screen
+  // back as a stranger would. Keep the variable names; never print them.
   function timeframes(c) {
     const sym = c.symbol;
     const rungs = c.rungs || [];
@@ -1791,12 +1823,15 @@ const Cards = (() => {
     const tally = c.tally || {};
     const stats = [
       c.price != null ? stat("Price", money(sym, c.price)) : "",
-      stat("Rungs measured", rungs.length,
+      stat("Timeframes", rungs.length,
            "", (c.unavailable || []).length
              ? `${(c.unavailable || []).length} unavailable` : ""),
+      // "Leaning" was a hedge word doing a noun's job. The figure under it
+      // is already the hedge — "3 of 4 agree" says the disagreement out
+      // loud — so the label can simply name the axis being read.
       tally.leaning
-        ? stat("Leaning", cap(tally.leaning), TONE[tally.leaning] || "",
-               `${tally.majority} of ${tally.of} rungs`) : "",
+        ? stat("Direction", cap(tally.leaning), TONE[tally.leaning] || "",
+               `${tally.majority} of ${tally.of} agree`) : "",
     ].filter(Boolean).join("");
 
     /* The row's own numbers, in one line, in the order the votes were taken.
@@ -1855,10 +1890,10 @@ const Cards = (() => {
       ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "";
 
     return `<div class="scan-stats">${stats}</div>`
-      + section("Every rung, measured the same four ways", "", rows)
-      + section("ADX across timeframes", "25 marks a trending phase", adxBars)
-      + section("RSI across timeframes", "50 is the midline", rsiBars)
-      + section("Levels the timeframes agree on", "", ladder)
+      + section("Each timeframe", "RSI · MACD · ADX · EMA 50", rows)
+      + section("ADX by timeframe", "25 marks a trending phase", adxBars)
+      + section("RSI by timeframe", "50 is the midline", rsiBars)
+      + section("Levels several timeframes share", "", ladder)
       + gone;
   }
 
@@ -2013,8 +2048,8 @@ const Cards = (() => {
     return `<div class="scan-stats">${stats}</div>`
       + section("Return by session segment",
                 c.segments_of ? `on ${c.segments_of}` : "", segs)
-      + section("The ladder price is standing on", "", ladder)
-      + section("How much of it was the index", "", idx)
+      + section("Levels around price", "", ladder)
+      + section("Index attribution", "", idx)
       + foot(win.from && win.to
              ? (win.from === win.to ? win.from : `${win.from} → ${win.to}`) : "");
   }

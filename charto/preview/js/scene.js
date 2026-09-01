@@ -57,7 +57,14 @@ const Scene = (() => {
     // envelope; it is simply not on screen. See Drawings' own flag: one
     // control in the readout drives both, because "the chart is too busy" is
     // never a question about which layer drew what.
-    const state = { items: [], hover: null, hidden: false };
+    // `sel` is the KEY of the selected annotation (its `link` when it has one,
+    // so a multi-leg pattern selects as the one object it looks like), not its
+    // id. Until now a chat-drawn shape could only be hovered — main.js's
+    // onSelect is an empty function — so there was nothing for a Delete key to
+    // act on and the only way to remove a pattern was the Layers panel's
+    // trash. The user's own drawings have had select-then-Delete since they
+    // existed; this gives the chart's shapes the same reflex.
+    const state = { items: [], hover: null, sel: null, hidden: false };
     // Event icons (results, and anything else that happens ON a bar) use the
     // library's own marker layer rather than our canvas: markers belong to
     // the series, so they track the bar through zoom, pan and interval
@@ -144,32 +151,73 @@ const Scene = (() => {
       const x1 = ts.logicalToCoordinate(i + 1);
       return x1 === null ? x0 : x0 + (x1 - x0) * f;
     }
-    function tToX(t) {
-      const ts = chart.timeScale();
-      const ct = env.toChartTime ? env.toChartTime(t) : t;
-      const direct = ts.timeToCoordinate(ct);
-      if (direct !== null) return direct;
+    /** Time -> LOGICAL, a fractional bar index.
+     *
+     *  Lifted out of `tToX` so the drag can share it. A shape has to move in
+     *  BARS, and the bar index is the only space where that arithmetic is
+     *  honest — see the note on the drag's delta.
+     *
+     *  Off either end it extrapolates by the edge bar's own spacing rather
+     *  than clamping: clamping collapsed every out-of-range anchor onto the
+     *  same edge, which drew a smear instead of a shape. */
+    function tToLogical(t) {
       const bars = env.getBars();
       if (!bars.length) return null;
+      const ct = env.toChartTime ? env.toChartTime(t) : t;
       let lo = 0, hi = bars.length - 1;
       if (ct <= bars[0].time) {
         const span = bars.length > 1
           ? Math.max(1, bars[1].time - bars[0].time)
           : (env.getIntervalSec ? env.getIntervalSec() : 60);
-        return logicalToX(Math.max(-1e5, (ct - bars[0].time) / span));
+        return Math.max(-1e5, (ct - bars[0].time) / span);
       }
       if (ct >= bars[hi].time) {
         const span = hi > 0
           ? Math.max(1, bars[hi].time - bars[hi - 1].time)
           : (env.getIntervalSec ? env.getIntervalSec() : 60);
-        return logicalToX(Math.min(hi + 1e5, hi + (ct - bars[hi].time) / span));
+        return Math.min(hi + 1e5, hi + (ct - bars[hi].time) / span);
       }
       while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
         if (bars[mid].time <= ct) lo = mid; else hi = mid;
       }
       const span = bars[hi].time - bars[lo].time || 1;
-      return logicalToX(lo + (ct - bars[lo].time) / span);
+      return lo + (ct - bars[lo].time) / span;
+    }
+
+    /** LOGICAL -> time. The EXACT inverse of tToLogical, and it has to stay
+     *  exact: these two are used as a round trip by the drag, so any drift
+     *  between them shows up as a shape that creeps every time it is picked
+     *  up. Note the `fromChartTime` on the way out — an annotation stores raw
+     *  unix and the chart runs on IST-shifted time, and forgetting that
+     *  direction is a 5h30m displacement that has bitten this file before. */
+    function logicalToT(l) {
+      const bars = env.getBars();
+      if (!bars.length || l === null || !Number.isFinite(l)) return null;
+      const hi = bars.length - 1;
+      const edge = (i, j) => Math.max(1, Math.abs(bars[i].time - bars[j].time))
+        || (env.getIntervalSec ? env.getIntervalSec() : 60);
+      let ct;
+      if (l <= 0) {
+        ct = bars[0].time + l * (bars.length > 1 ? edge(1, 0)
+          : (env.getIntervalSec ? env.getIntervalSec() : 60));
+      } else if (l >= hi) {
+        ct = bars[hi].time + (l - hi) * (hi > 0 ? edge(hi, hi - 1)
+          : (env.getIntervalSec ? env.getIntervalSec() : 60));
+      } else {
+        const i = Math.floor(l), f = l - i;
+        ct = bars[i].time + f * ((bars[i + 1].time - bars[i].time) || 1);
+      }
+      return Math.round(env.fromChartTime ? env.fromChartTime(ct) : ct);
+    }
+
+    function tToX(t) {
+      const ts = chart.timeScale();
+      const ct = env.toChartTime ? env.toChartTime(t) : t;
+      const direct = ts.timeToCoordinate(ct);
+      if (direct !== null) return direct;
+      const l = tToLogical(t);
+      return l === null ? null : logicalToX(l);
     }
 
     /* ── marking a bar ────────────────────────────────────────────────────
@@ -710,7 +758,9 @@ const Scene = (() => {
         if (!mine(a, key)) continue;
         const col = COL(a.role);
         // a linked pair (a divergence's two legs) highlights as one object
-        const hot = state.hover && (state.hover === a.id
+        const selKey = a.link || a.id;
+        const picked = state.sel && state.sel === selKey;
+        const hot = picked || state.hover && (state.hover === a.id
           || (a.link && state.hover === a.link)
           || (a.link && state.items.some((q) => q.id === state.hover && q.link === a.link)));
         curHot = hot; curId = a.id;
@@ -1045,15 +1095,39 @@ const Scene = (() => {
       return null;
     }
 
-    function applyDelta(a, o, dv, dt, h) {
-      const mv = (p, q) => { p.v = r2(q.v + dv); p.t = q.t + dt; };
+    /* THE DELTA IS BARS, NOT SECONDS — and that is the whole of this fix.
+     *
+     * It used to be `Math.round((l1 - l0) * intervalSec)`: take the bar-index
+     * distance the pointer travelled, turn it into a number of seconds, and
+     * add that to every anchor's timestamp. That is only correct on a chart
+     * with no gaps. A session close is a hole in the clock but NOT in the bar
+     * index, so a fixed number of seconds is a different number of bars on
+     * either side of it — and a pattern with anchors spanning a gap had its
+     * legs land at different offsets. The outline sheared away from its own
+     * shading and the result described a formation that never happened, which
+     * is what the user saw when they picked one up and moved it.
+     *
+     * So the round trip is index -> index: each anchor is converted to its own
+     * fractional bar position, shifted by the SAME integer number of bars, and
+     * converted back. Integer, so the group lands on bar boundaries and every
+     * member moves by exactly the same amount — the shape is rigid by
+     * construction rather than by luck. `dl` is that bar delta. */
+    function applyDelta(a, o, dv, dl, h) {
+      const shift = (t) => {
+        if (!dl) return t;
+        const l = tToLogical(t);
+        if (l === null) return t;
+        const nt = logicalToT(l + dl);
+        return nt === null ? t : nt;
+      };
+      const mv = (p, q) => { p.v = r2(q.v + dv); p.t = shift(q.t); };
       switch (a.kind) {
         case "level": a.price = r2(o.price + dv); break;
         case "zone": a.lo = r2(o.lo + dv); a.hi = r2(o.hi + dv); break;
         case "segment": case "fib": mv(a.p1, o.p1); mv(a.p2, o.p2); break;
         case "box": mv(a.a, o.a); mv(a.b, o.b); break;
-        case "vline": a.t = o.t + dt; break;
-        case "vband": a.t1 = o.t1 + dt; a.t2 = o.t2 + dt; break;
+        case "vline": a.t = shift(o.t); break;
+        case "vband": a.t1 = shift(o.t1); a.t2 = shift(o.t2); break;
         case "point": case "label": mv(a.a, o.a); break;
         case "poly": (a.pts || []).forEach((p, i) => mv(p, o.pts[i])); break;
         // a catalogued tool moves as its ANCHORS move — the construction is
@@ -1068,7 +1142,7 @@ const Scene = (() => {
           } else {
             a.entry = r2(o.entry + dv); a.stop = r2(o.stop + dv);
             a.targets = o.targets.map((t) => r2(t + dv));
-            a.t0 = o.t0 + dt; a.t1 = o.t1 + dt;
+            a.t0 = shift(o.t0); a.t1 = shift(o.t1);
           }
           break;
       }
@@ -1130,11 +1204,11 @@ const Scene = (() => {
       const v1 = priceAt(env.yIn(e.clientY, drag.key), drag.key);
       const l1 = chart.timeScale().coordinateToLogical(p.x);
       if (v1 === null || drag.v0 === null) return;
-      const sec = env.getIntervalSec ? env.getIntervalSec() : 60;
-      const dt = (l1 !== null && drag.l0 !== null)
-        ? Math.round((l1 - drag.l0) * sec) : 0;
+      // Whole bars. See applyDelta for why this is an index and not a clock.
+      const dl = (l1 !== null && drag.l0 !== null)
+        ? Math.round(l1 - drag.l0) : 0;
       drag.group.forEach((x, i) => applyDelta(
-        x, drag.orig[i], v1 - drag.v0, dt, x === drag.a ? drag.handle : null));
+        x, drag.orig[i], v1 - drag.v0, dl, x === drag.a ? drag.handle : null));
       drag.moved = true;
       _ru();
     });
@@ -1148,12 +1222,45 @@ const Scene = (() => {
       drag = null; setScroll(true);
     });
 
+    /* Delete removes the SELECTED shape — the whole linked group, because a
+     * pattern's outline, fill and neckline are one object to everyone except
+     * the array they live in, and leaving two thirds of a formation behind is
+     * worse than leaving all of it.
+     *
+     * Backspace as well as Delete: on a Mac laptop keyboard there is no
+     * Delete key, so binding only that put this reflex out of reach of most
+     * of the people using it. The typing guard is what keeps Backspace from
+     * eating a shape while the user is writing in the chat box.
+     *
+     * drawings.js owns the identical shortcut for the user's OWN shapes and
+     * acts only on ITS selection; a click can land on one thing, so the two
+     * cannot both fire — and selecting in either surface clears the other,
+     * which is what stops one keypress from deleting two objects. */
+    window.addEventListener("keydown", (e) => {
+      if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+      if (e.key === "Escape" && state.sel) { state.sel = null; _ru(); return; }
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!state.sel) return;
+      const key = state.sel;
+      const before = state.items.length;
+      state.items = state.items.filter((x) => (x.link || x.id) !== key);
+      if (state.items.length === before) { state.sel = null; return; }
+      // Backspace is the browser's "go back" on some setups; a press that
+      // actually removed something must not also navigate away from the app.
+      e.preventDefault();
+      state.sel = null; state.hover = null;
+      syncMarkers(); _ru(); env.onChange(count());
+      if (env.setStatus) env.setStatus("removed from the chart");
+    });
+
     env.container.addEventListener("click", (e) => {
       if (!env.isCursorMode()) return;
       if (swallowClick) { swallowClick = false; return; }
       if (!inPlot(e)) return;      // nor does an axis click select a shape
       const p = pointIn(e);
       const hit = hitAt(p.y, p.key, p.x);
+      const next = hit ? (hit.link || hit.id) : null;
+      if (next !== state.sel) { state.sel = next; _ru(); }
       if (hit) {
         e.stopPropagation();
         env.onSelect(hit, cardY(hit) ?? p.y);
@@ -1250,7 +1357,13 @@ const Scene = (() => {
         if (drew) { syncMarkers(); fitProjection(); _ru(); env.onChange(count()); }
         return drew;
       },
-      clear() { state.items = []; syncMarkers(); _ru(); env.onChange(0); },
+      clear() {
+        // The selection goes with them. A `sel` pointing at a key that is no
+        // longer in `items` is a Delete key aimed at nothing, and a highlight
+        // with no shape under it.
+        state.items = []; state.sel = null; state.hover = null;
+        syncMarkers(); _ru(); env.onChange(0);
+      },
       /** Replace every annotation at once — the undo stack's write path.
        *  Exactly the bookkeeping clear() does, with a list instead of
        *  nothing; the hover is dropped because the annotation it pointed at
@@ -1258,6 +1371,7 @@ const Scene = (() => {
       setItems(list) {
         state.items = (list || []).slice();
         state.hover = null;
+        state.sel = null;
         syncMarkers(); _ru(); env.onChange(count());
       },
       count,
@@ -1281,7 +1395,21 @@ const Scene = (() => {
           const key = a.link || a.id;
           if (!key) continue;
           const seen = out.get(key);
-          if (seen) { seen.legs++; seen.hidden = seen.hidden && !!a.hidden; continue; }
+          if (seen) {
+            seen.legs++; seen.hidden = seen.hidden && !!a.hidden;
+            // ONE LEG CARRIES THE NAME. A chart pattern is emitted as several
+            // annotations sharing a `link` — an outline, a fill, a neckline —
+            // and only one of them is labelled. This map keeps the FIRST leg
+            // it meets, so whenever that was an unlabelled one the row fell
+            // back to the owner's generic word and the panel read "Pattern"
+            // over and over with nothing to tell them apart. Adopt a name
+            // from whichever leg has one; `annName` in main.js already
+            // resolves a pattern this way, and the two must agree.
+            if (!seen.label && a.label) seen.label = a.label;
+            if (!seen.detail && a.detail) seen.detail = a.detail;
+            if (!seen.strength && a.strength) seen.strength = a.strength;
+            continue;
+          }
           out.set(key, {
             key, kind: a.kind, owner: a.owner || "scene",
             label: a.label || "", role: a.role || "", pane: a.pane || "price",

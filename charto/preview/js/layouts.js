@@ -407,7 +407,14 @@ const Layouts = (() => {
     if (!b) return;
     const label = (cur && cur.name) || UNTITLED;
     b.querySelector(".ly-name").textContent = label;
-    b.querySelector(".ly-dot").hidden = !dirty;
+    // NO DOT. It marked unsaved changes, and it sat in the top bar beside the
+    // layout name as a live blue pip — a persistent alert for a state that is
+    // both normal and not urgent, since every layout is dirty the moment you
+    // move anything. Removed on request: the same fact still reaches anyone
+    // who wants it through the button's title, which costs nothing until it
+    // is asked for. The markup and its rule stay put so the element can come
+    // back without hunting for it.
+    b.querySelector(".ly-dot").hidden = true;
     b.title = dirty ? `${label} — unsaved changes` : label;
     const m = menu();
     if (!m || !m.classList.contains("open")) return;

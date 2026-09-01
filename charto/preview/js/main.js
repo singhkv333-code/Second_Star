@@ -1683,6 +1683,10 @@
     paneAt: paneAtClient,
     yIn: yInPane,
     getIntervalSec: () => IV_SEC[state.interval],
+    // The same status line the drawing tools write to. A shape removed with
+    // the Delete key vanishes with no other acknowledgement, and a chart that
+    // silently loses something is indistinguishable from one that glitched.
+    setStatus: (m) => setText("drawStatus", m),
     // detectors speak raw exchange time; the chart runs IST-shifted
     toChartTime: (t) => t + IST,
     // …and back. A sampled curve (a fib circle, a Gann arc) is built where

@@ -3503,8 +3503,19 @@ body.two-columns .readout .row { display: none; }
   border-bottom: 1px solid var(--border-soft);
 }
 .scan-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* TRACKING OPENS UP AS THE TYPE GETS SMALLER, which is the opposite of the
+   reflex. Apple's own scale is explicit about it — Body at 17pt sits at
+   -0.43px and Caption 2 at 11pt at +0.15px — because at label sizes the
+   letterforms crowd and the eye loses the word shape. These labels are 11px,
+   so +0.15/11 ≈ +0.014em. It is a small number and it is the difference
+   between a label that reads and one that has to be spelled out.
+
+   The FIGURE below it keeps its negative tracking: it is 15px, where the
+   same principle pulls the other way, and it is set in the numeric face
+   where tight columns are the point. */
 .scan-stat .k {
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  letter-spacing: .014em;
   color: var(--faint); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
@@ -3634,6 +3645,49 @@ body.two-columns .readout .row { display: none; }
   background: color-mix(in srgb, var(--ann-res) 15%, transparent);
   color: var(--ann-res);
 }
+
+/* ── strength: one ink, three intensities ────────────────────────────────
+   Strong / Moderate / Weak is a CONFIDENCE axis and it used to be painted
+   with `.ok` and `.bad` — the candle green and the candle red. So a strong
+   resistance, which is overhead supply, wore the colour of a bar that closed
+   up. Confidence has no direction and must not borrow the palette of one.
+
+   The ladder is filled-and-dark, filled-and-mid, outlined-and-faint. It is
+   the same ordering the chart paints levels with (scene.js SHADE, 1 / .66 /
+   .4), so the panel and the chart teach the reader one property once.
+
+   Weight carries it as much as colour: at 11px a colour step alone is nearly
+   invisible against a card background, and Apple's own hierarchy guidance is
+   to move weight, size and colour together rather than lean on any one. */
+.scan-badge.s-strong {
+  background: var(--muted); color: var(--foreground);
+  font-weight: var(--weight-semi);
+}
+.scan-badge.s-mid { background: var(--muted); color: var(--muted-foreground); }
+.scan-badge.s-weak {
+  background: transparent; box-shadow: inset 0 0 0 1px var(--border-soft);
+  color: var(--faint);
+}
+
+/* ── the hero card ───────────────────────────────────────────────────────
+   The compact answer to "what is this": two or three formations at full
+   presence rather than thirteen, and NOT a row of pills — a pill can carry
+   the name and half a qualifier, and the fact a reader acts on is the
+   measurement, which does not fit on one.
+
+   One per row, which is content-led rather than decorative. In the chat
+   column the tile grid resolves to two-up at about 150px each, and that is
+   below the width where a formation name ("Ascending Triangle") stops
+   truncating and its measurement stops wrapping to three lines.
+
+   Slightly more padding and a fractionally larger name than the folded
+   tiles, because these ARE the answer and the ones behind the control are
+   the inventory. Uniform padding everywhere is the flat-hierarchy tell —
+   the difference between the two states has to be visible or the fold is
+   just a place things went. */
+.scan-tiles.hero { grid-template-columns: 1fr; gap: 7px; }
+.scan-tiles.hero .scan-tile { padding: 11px 13px 12px; }
+.scan-tiles.hero .scan-tile .nm { font-size: var(--text-h3); }
 
 /* ── bars: the panel's one chart primitive ───────────────────────────────
    Two numbers whose entire content is the comparison: 8.59 says nothing at
@@ -7972,18 +8026,18 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
   <script src="./js/drawings.js?v=27"></script>
-  <script src="./js/scene.js?v=42"></script>
+  <script src="./js/scene.js?v=43"></script>
   <script src="./js/panes.js?v=19"></script>
-  <script src="./js/main.js?v=127"></script>
+  <script src="./js/main.js?v=128"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=8"></script>
+  <script src="./js/layouts.js?v=9"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=37"></script>
+  <script src="./js/cards.js?v=38"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=160"></script>
   <script src="./js/journal.js?v=6"></script>
