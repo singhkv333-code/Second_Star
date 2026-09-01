@@ -3791,8 +3791,15 @@ body.two-columns .readout .row { display: none; }
 .scan-read + .scan-read { margin-top: 6px; }
 .scan-read.tone-up { background: var(--up-soft); }
 .scan-read.tone-down { background: var(--down-soft); }
+/* A COLUMN, not a word. `flex: none` sized this to its own text, so "5m" and
+   "Weekly" left the readings starting at a different x on every row and the
+   wrapped second line inherited that raggedness — four rows that should read
+   as a table read as four paragraphs. A floor wide enough for the longest
+   label there is ("Monthly") puts every rung's readings on one left edge.
+   Still `flex: none` so it never shrinks; the floor only stops it collapsing. */
 .scan-read .nm {
-  flex: none; font-size: var(--text-sm); font-weight: var(--weight-semi);
+  flex: none; min-width: 3.9rem;
+  font-size: var(--text-sm); font-weight: var(--weight-semi);
   letter-spacing: -.01em; color: var(--foreground);
 }
 .scan-read.tone-up .nm { color: var(--up); }
@@ -3803,12 +3810,30 @@ body.two-columns .readout .row { display: none; }
    costs nothing; a truncated measurement costs the reading. */
 .scan-read .nt {
   min-width: 0; font-size: var(--text-xs); color: var(--muted-foreground);
-  overflow-wrap: anywhere;
+  /* A wrapping row of atomic readings. `overflow-wrap: anywhere` used to sit
+     here and it is what let a break land inside a measurement — the reason a
+     rung ended "below EMA 5" with the "0" on the next line. The readings are
+     separate elements now, so the flow can only break between them. */
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5px;
+  row-gap: 1px;
 }
+.scan-read .nt i { font-style: normal; white-space: nowrap; }
+/* The separator belongs to the reading BEFORE it, so a wrapped line starts on
+   a measurement rather than on a dangling dot. */
+.scan-read .nt i:not(:last-child)::after { content: "·"; margin-left: 5px; opacity: .5; }
+/* The stance CAPPED, and allowed to wrap.
+   `white-space: nowrap` let "Leaning bearish" claim half again the width of
+   "Bearish", so the readings column was a different width on that row alone
+   and the daily rung wrapped to three lines beside neighbours on two — the
+   one row that disagreed looking like the one row that was broken. Capped, a
+   two-word stance takes two short right-aligned lines inside the height the
+   readings already need, and every rung wraps the same way. */
 .scan-read .num {
-  flex: none; margin-left: auto; font-family: var(--font-numeric);
+  flex: none; margin-left: auto; max-width: 3.4rem; text-align: right;
+  font-family: var(--font-numeric);
   font-size: var(--text-sm); font-weight: var(--weight-medium);
-  letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
+  letter-spacing: -.02em; color: var(--foreground);
+  text-wrap: balance;
 }
 
 /* ── the staged checklist ────────────────────────────────────────────────
@@ -8037,7 +8062,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=39"></script>
+  <script src="./js/cards.js?v=40"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=160"></script>
   <script src="./js/journal.js?v=6"></script>

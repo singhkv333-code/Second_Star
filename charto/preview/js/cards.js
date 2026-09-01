@@ -1847,10 +1847,19 @@ const Cards = (() => {
         r.adx != null ? `ADX ${n2(sym, r.adx)}` : "",
         r.di ? (Number(r.di.plus) > Number(r.di.minus) ? "+DI>−DI" : "−DI>+DI") : "",
         r.ema50 != null ? `${r.ema50_side === "above" ? "above" : "below"} EMA 50` : "",
-      ].filter(Boolean).join(" · ");
+      ].filter(Boolean);
+      /* Each reading is its own element, not one joined string.
+       *
+       * Joined, the line broke wherever it ran out of room — mid-measurement,
+       * so a rung read "… · below EMA 5" and the "0" started the next line.
+       * A number split across two lines is not a number. Wrapped separately
+       * each reading is atomic (white-space: nowrap on the child) and the
+       * break can only happen BETWEEN readings, which is the only place a
+       * break means anything. The separator hangs off the preceding item so a
+       * wrapped line never opens with a stray dot. */
       return `<div class="scan-read${t ? " tone-" + t : ""}">`
         + `<b class="nm">${esc(r.label)}</b>`
-        + `<span class="nt">${esc(bits)}</span>`
+        + `<span class="nt">${bits.map((b) => `<i>${esc(b)}</i>`).join("")}</span>`
         + `<b class="num">${esc(cap(r.stance || ""))}</b></div>`;
     }).join("");
 
