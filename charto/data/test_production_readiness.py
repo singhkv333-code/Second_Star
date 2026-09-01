@@ -229,27 +229,46 @@ def test_bar_store_hands_each_thread_its_own_connection() -> None:
     """
     import threading
 
-    seen: dict[int, int] = {}
+    N = 16
+    # Every thread is held here until all N have a connection, and that barrier
+    # is load-bearing rather than tidy. CPython RECYCLES both of the identities
+    # this test compares: `get_ident()` is reused once a thread exits, and a
+    # connection's `id()` is its address, reusable as soon as the thread-local
+    # holding it is collected. Let the early threads finish and the later ones
+    # inherit their identities — measured, this asserted 14 distinct threads out
+    # of 16 while the code under test was perfectly correct. Keeping all N alive
+    # simultaneously is what makes "distinct" mean distinct.
+    ready = threading.Barrier(N + 1, timeout=30)
+    seen: list[int | None] = [None] * N
     errors: list[str] = []
 
-    def touch() -> None:
+    def touch(slot: int) -> None:
         try:
             for _ in range(6):
                 server._con.execute("SELECT 1").fetchone()
-            seen[threading.get_ident()] = id(server._con._c())
+            seen[slot] = id(server._con._c())
         except Exception as exc:                      # noqa: BLE001
             errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            # Reached on the error path too: a thread that dies before the
+            # barrier would hang the other fifteen on a timeout, turning one
+            # clear assertion failure into a 30-second stall with no reason.
+            try:
+                ready.wait()
+            except threading.BrokenBarrierError:
+                pass
 
-    threads = [threading.Thread(target=touch) for _ in range(16)]
+    threads = [threading.Thread(target=touch, args=(i,)) for i in range(N)]
     for t in threads:
         t.start()
+    ready.wait()          # all N alive, all N connections still referenced
     for t in threads:
         t.join()
 
     assert not errors, errors
     # Distinct connections, one per thread — the property that makes the race
     # impossible rather than merely unlikely.
-    assert len(set(seen.values())) == len(seen) == 16
+    assert len(set(seen)) == N and None not in seen
 
     # And the private cache is bounded absolutely, not just divided: the live
     # connection count follows traffic, so a share of the budget is not a cap.

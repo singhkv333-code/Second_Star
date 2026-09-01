@@ -68,6 +68,24 @@ import patterns   # sibling module: candlestick / chart-pattern / structure dete
 # CHARTO_DB points here at it. Unset, the full store is used exactly as before.
 DB_PATH = Path(environ.get("CHARTO_DB")
                or Path(__file__).parent / "charto_bars.db")
+# Say so NOW, while the answer is still "absent" rather than "empty".
+#
+# sqlite3.connect() creates whatever it cannot find, and the first connect
+# happens a few thousand lines below, so by the time anything queries this
+# store the difference between "the file is missing" and "the file is here and
+# has nothing in it" has already been erased. Checked here, before any
+# connection exists, it is still recoverable information.
+#
+# A warning and not a hard exit: `import dataserver` is how the tests and the
+# sync/backfill tooling reach these helpers, and several of those exist
+# precisely to BUILD the store. /health carries the same finding as a
+# not_ready, which is the check that gates a deploy.
+if not DB_PATH.exists():
+    logging.warning(
+        "market store %s does not exist — sqlite will create an empty one and "
+        "every symbol will read as having no data. Rebuild it with "
+        "company_tables.py slim (dev) or hydrate_symbol.py, or point CHARTO_DB "
+        "at a real store.", DB_PATH)
 PORT = int(environ.get("CHARTO_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
@@ -14031,11 +14049,26 @@ def _backup_health(now: float | None = None) -> dict:
 
 def _health_report(*, deep: bool = False) -> tuple[int, dict]:
     checks: dict[str, dict] = {}
+    # `SELECT 1` is not a check on a store — it is a check on a CONNECTION, and
+    # sqlite3.connect() CREATES the file it cannot find. So a deleted or
+    # mispointed CHARTO_DB does not raise here: it answers 1, reports ready,
+    # and serves an empty chart to every symbol. Measured 2026-09-01, after the
+    # local charto_bars.db was removed — opening the path left a 0-byte
+    # database with no tables and no error anywhere.
+    #
+    # So ask the store for the one thing it exists to hold. `bars` present and
+    # non-empty is the difference between the real file and the empty one
+    # sqlite just invented; the row is reported so /health says which.
     try:
-        _con.execute("SELECT 1").fetchone()
-        checks["market_db"] = {"ok": True}
+        symbols = _con.execute(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM bars LIMIT 1)").fetchone()[0]
+        checks["market_db"] = {"ok": bool(symbols), "path": str(DB_PATH),
+                               **({} if symbols else
+                                  {"error": "store has no bars — empty or "
+                                            "newly created by sqlite"})}
     except sqlite3.Error as exc:
-        checks["market_db"] = {"ok": False, "error": type(exc).__name__}
+        checks["market_db"] = {"ok": False, "path": str(DB_PATH),
+                               "error": type(exc).__name__}
     try:
         with _users_lock:
             _users.execute("SELECT 1").fetchone()
