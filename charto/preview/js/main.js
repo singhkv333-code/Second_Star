@@ -3475,11 +3475,31 @@
   // ── theme toggle ──────────────────────────────────────
   // ── screenshot: the chart (all panes), never the chat or the shell ──
   // LWC renders everything — candles, panes, axes, our primitives — into
-  // its own canvases, so takeScreenshot() is exactly "the chart and
-  // nothing else". `rect` (container px) crops it; either way the result
+  // its own canvases. `rect` (container px) crops it; either way the result
   // is downscaled so image tokens stay sane.
+  //
+  // takeScreenshot(TRUE), and the argument is the whole feature.
+  //
+  // Every pane in LWC has two canvases, and the compositor draws the second
+  // one only when asked:
+  //
+  //     fv(t,i,n,s){ … t.drawImage(this.fm.canvasElement,i,n), s) {
+  //         const s=this.pm.canvasElement; t.drawImage(s,i,n) } }
+  //
+  // `fm` is the bars; `pm` is the OVERLAY, and `s` is this argument carried
+  // down from takeScreenshot. Every shape charto draws — the user's
+  // drawings, get_levels' zones, get_patterns' necklines — is a SERIES
+  // primitive at zOrder "top", which is precisely what lands on `pm` (see
+  // the note in drawings.js syncPanes: a series primitive gets the overlay,
+  // a pane primitive shares the candles' canvas). So the default call
+  // returned the candles with every mark stripped off, and it did it
+  // silently — a real screenshot of the wrong thing, which is why this read
+  // as vision failing to see the drawings rather than as a capture bug.
+  //
+  // The SECOND argument stays false: that one keeps the live crosshair, and
+  // a screenshot should not carry the mouse.
   function captureChart(rect) {
-    const full = chart.takeScreenshot();
+    const full = chart.takeScreenshot(true);
     const sx = full.width / chartEl.clientWidth;
     const sy = full.height / chartEl.clientHeight;
     let c = full;

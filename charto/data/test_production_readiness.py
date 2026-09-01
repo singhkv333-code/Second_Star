@@ -322,3 +322,97 @@ def test_live_bar_never_reads_from_the_cache(monkeypatch) -> None:
     assert "key = None if live_bar else" in src
     # and the merge happens only on that same branch, never on a cached read
     assert src.index("if live_bar:") > src.index("key = None if live_bar else")
+
+
+# ── the grading and composition rules, 2026-09-01 ────────────────────────────
+#
+# Three behaviours that a later refactor could undo with nothing visible going
+# wrong: a level graded from the wrong evidence still prints a confident word,
+# a cap whose default drifts still draws SOMETHING, and a panel that renders
+# the full sweep every time still renders. All three failed exactly that way
+# once already, which is why they are pinned rather than trusted.
+
+
+def test_level_strength_is_graded_on_evidence_not_touch_count() -> None:
+    """The rule that used to be `touches >= 4 -> strong`.
+
+    On one real chart that called a level STRONG which had broken four of its
+    five re-tests, while calling one that turned price away four times out of
+    five weak — for having been found once too few. The grade has to move with
+    what happened when price came back, so these cases pin the ladder itself.
+    """
+    grade = lambda h, b, since=10: server._grade_level(  # noqa: E731
+        {"held": h, "broke": b}, h + b + 1, since, 300)[0]
+
+    assert grade(4, 1) == "strong"        # the case that reported weak before
+    assert grade(3, 0) == "strong"
+    # Two data points are not a track record, whatever the ratio says. This is
+    # the sample gate, and it is the reason "1 of 1" cannot read as perfect.
+    assert grade(2, 0) == "moderate"
+    assert grade(1, 0) == "moderate"
+    # A coin flip is not support. The old rule graded this one STRONG.
+    assert grade(2, 2) == "weak"
+    assert grade(0, 3) == "weak"
+    # No graded re-test is no evidence, and no evidence is weak — not unrated,
+    # because a fourth word on the chart would be a second vocabulary.
+    assert grade(0, 0) == "weak"
+    # Recency decays a good record without erasing it.
+    assert grade(4, 1, since=250) == "moderate"
+
+
+def test_levels_draw_two_a_side_and_park_the_rest(monkeypatch) -> None:
+    """The cap, and the words on the chart.
+
+    Both regressed together once: `max_draw` changed meaning from "levels
+    overall" to "levels per side" and its default stayed 3, so every side drew
+    three against a documented cap of two — and nothing failed, because
+    drawing too much still draws.
+    """
+    # Pin the symbol. `_sym()` reads a THREAD-LOCAL that do_GET/do_POST stamp
+    # per request, and another test module in the same run leaves its own
+    # symbol on this thread — under which the scan finds no bars, no levels,
+    # and every assertion below passes vacuously. Passing alone and failing in
+    # the suite is the tell, and a vacuous pass is worse than either.
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    emitted: list = []
+    monkeypatch.setattr(server, "_scene_add", emitted.append)
+    server.tool_get_levels(interval="15m", lookback_bars=300, draw=True)
+    assert emitted, "no levels detected — the assertions below would be vacuous"
+
+    drawn = [a for a in emitted if not a.get("hidden")]
+    per_side: dict = {}
+    for a in drawn:
+        per_side[a["role"]] = per_side.get(a["role"], 0) + 1
+    assert per_side and all(n <= 2 for n in per_side.values()), per_side
+
+    # Nothing above the cut is discarded — it is parked with its eye off, so
+    # "show me the others" costs a click and not a second scan.
+    assert all(a.get("hidden") for a in emitted if a not in drawn)
+
+    for a in emitted:
+        # The chart carries the CONCLUSION. The arithmetic behind it belongs on
+        # the Layers row, where a number you have to think about can be read.
+        assert "held" not in a["label"], a["label"]
+        assert a["label"].split(" · ")[-1] in ("Strong", "Moderate", "Weak")
+        assert a["detail"], "the Layers row would have nothing to explain"
+
+
+def test_panel_density_follows_the_chart_not_the_wording() -> None:
+    """A three-word question used to be answered with thirteen hero tiles.
+
+    The fix must not become a keyword table: nothing here may consult the
+    user's phrasing, or the first paraphrase puts the gallery back. So the
+    default comes from whether the sweep MARKED anything, and the model's own
+    declared `detail` overrides it in both directions.
+    """
+    marked = {"chart_drawn": 3, "candles_marked": 0}
+    bare = {"chart_drawn": 0, "candles_marked": 0}
+
+    assert server._panel_density(bare, None) == "brief"
+    assert server._panel_density(marked, None) == "full"
+    # The model asked for an inventory because the user did; chart state does
+    # not get to overrule that, in either direction.
+    assert server._panel_density(bare, "full") == "full"
+    assert server._panel_density(marked, "brief") == "brief"
+    # An unknown value is not a third mode — it falls back to the chart.
+    assert server._panel_density(marked, "enormous") == "full"

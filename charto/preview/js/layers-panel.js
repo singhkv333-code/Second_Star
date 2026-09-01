@@ -249,9 +249,21 @@ window.LayersPanel = (() => {
           group: o.group,
           icon: o.icon,
           meta: KINDS[i.kind] || title(i.kind),
-          status: i.legs > 1 ? `${i.legs} parts` : "",
           interval: "",
-          detail: `Drawn by ${i.owner === "scene" ? "the chart" : i.owner}.`,
+          // The annotation's own detail when it has one — for a level that
+          // is its held/broke record, which used to be crammed into the chart
+          // label where six of them stacked down the price scale and asked
+          // the reader to do the grading themselves. The provenance line
+          // stays, because "who drew this" is the question every other row
+          // here answers.
+          detail: [i.detail, `Drawn by ${i.owner === "scene" ? "the chart" : i.owner}.`]
+            .filter(Boolean).join(" "),
+          // Strength where the annotation is graded (a level), leg count
+          // where it is assembled from parts (a fib, a divergence). One slot,
+          // because a row has one "Reading" and no annotation is both.
+          status: i.strength
+            ? i.strength[0].toUpperCase() + i.strength.slice(1)
+            : (i.legs > 1 ? `${i.legs} parts` : ""),
           live: !i.hidden,
           removable: true,
         };

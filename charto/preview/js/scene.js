@@ -30,6 +30,17 @@ const Scene = (() => {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   };
+  // Strength reads as WEIGHT, inside the role's own colour.
+  //
+  // The role already owns the hue — amber overhead, cyan below — so grading
+  // cannot spend a second colour on it without saying "different kind of
+  // thing" when it means "same thing, better evidenced". Opacity is the axis
+  // that is still free: the best-evidenced level is painted solid and the
+  // rest recede, so a chart wearing four bands is ranked before it is read.
+  // Multiplied into whatever alpha the shape already uses, so a zone keeps
+  // its fade-to-the-middle and a line keeps its dash.
+  const SHADE = { strong: 1, moderate: 0.66, weak: 0.4 };
+  const shade = (a) => SHADE[a && a.strength] || SHADE.moderate;
   const FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif';
   const HIT = 6;
   // How much of the pane the volume histogram may claim. Wide enough to read
@@ -98,7 +109,16 @@ const Scene = (() => {
     }
     function vToY(v, key) {
       const p = paneFor(key);
-      return p ? p.series.priceToCoordinate(v) : null;
+      if (!p) return null;
+      // NaN in, null out. Every caller below guards with `=== null`, which
+      // NaN sails straight through — and a NaN y reaches createLinearGradient
+      // as a non-finite double, which THROWS. The throw escapes the whole
+      // render loop, so one annotation carrying an unmappable price does not
+      // fail to draw itself: it blanks every other annotation on the chart
+      // and leaves nothing in the UI to say why. Normalising here fixes all
+      // the call sites at once, because this is the only way a y is made.
+      const y = p.series.priceToCoordinate(v);
+      return Number.isFinite(y) ? y : null;
     }
     /** Detector times are raw unix; the chart runs on IST-shifted times, and
      *  a level found on the daily won't land on a 5m bar boundary — so fall
@@ -756,9 +776,14 @@ const Scene = (() => {
         } else if (a.kind === "level") {
           const y = vToY(a.price, a.pane);
           if (y === null) continue;
+          // The LINE carries the grade, the chip does not: the chip already
+          // says the word, and fading text to encode what it spells out only
+          // costs legibility.
+          ctx.globalAlpha = shade(a);
           ctx.setLineDash(a.strength === "weak" ? [2, 4] : [7, 4]);
           ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
           ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
           chip(a.label || fmt(a.price), 8, y, col);
         } else if (a.kind === "zone") {
           const y1 = vToY(a.hi, a.pane), y2 = vToY(a.lo, a.pane);
@@ -767,17 +792,20 @@ const Scene = (() => {
           // A band, not two lines with a tint between them: the fill fades
           // toward the middle so the edges stay the assertion and the
           // interior reads as "somewhere in here".
+          const k = shade(a);
           const g = ctx.createLinearGradient(0, y1, 0, y1 + hgt);
-          g.addColorStop(0, rgba(col, hot ? 0.34 : 0.24));
-          g.addColorStop(0.5, rgba(col, hot ? 0.14 : 0.08));
-          g.addColorStop(1, rgba(col, hot ? 0.34 : 0.24));
+          g.addColorStop(0, rgba(col, (hot ? 0.34 : 0.24) * k));
+          g.addColorStop(0.5, rgba(col, (hot ? 0.14 : 0.08) * k));
+          g.addColorStop(1, rgba(col, (hot ? 0.34 : 0.24) * k));
           ctx.fillStyle = g;
           ctx.fillRect(0, y1, w, hgt);
           // solid edges — a zone is bounded; a level is a single dashed line.
           // Different shapes should not share a stroke style.
           ctx.lineWidth = hot ? 1.6 : 1.1;
+          ctx.globalAlpha = k;
           ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(w, y1);
           ctx.moveTo(0, y1 + hgt); ctx.lineTo(w, y1 + hgt); ctx.stroke();
+          ctx.globalAlpha = 1;
           ctx.fillStyle = col;
           chip(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, 8, y1, col);
         } else if (a.kind === "candle") {
@@ -1257,6 +1285,12 @@ const Scene = (() => {
           out.set(key, {
             key, kind: a.kind, owner: a.owner || "scene",
             label: a.label || "", role: a.role || "", pane: a.pane || "price",
+            // The chart label carries the CONCLUSION ("R 503.51 · Strong");
+            // `detail` is the arithmetic behind it, and the panel is where a
+            // number you have to think about belongs. Carried through here
+            // because the panel addresses items by key and never sees the
+            // annotation itself.
+            detail: a.detail || "", strength: a.strength || "",
             hidden: !!a.hidden, legs: 1,
           });
         }

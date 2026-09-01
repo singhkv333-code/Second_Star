@@ -1009,6 +1009,64 @@ def _evidence(rows: list[tuple], hits: list[tuple], price: float,
     return ev
 
 
+def _strength_half_life(total_bars: int) -> float:
+    """Bars after which a level's recency is worth half, from the WINDOW.
+
+    Relative to the scan, not a constant. The user picks the lookback, so
+    "a while ago" has to mean a while relative to what was actually looked
+    at — a fixed 80 bars is most of a 120-bar scan and a corner of a 1500-bar
+    one. A third of the window, floored so a tiny scan cannot make every
+    level stale at once.
+    """
+    return max(_EVIDENCE_HORIZON * 2, total_bars / 3)
+
+
+def _grade_level(ev: dict, touches: int, bars_since: int,
+                 total_bars: int) -> tuple[str, float]:
+    """Strong / Moderate / Weak, from evidence rather than from touch count.
+
+    The old rule was `touches >= 4 -> strong`, and it was wrong in the one
+    way that matters: it never looked at what happened when price came back.
+    A level touched five times that broke four of them graded STRONG, and a
+    level that turned price away four times out of five graded weak for
+    having been found once too few. Both were on the same chart.
+
+    Three factors, and they are the three the literature actually names —
+    how often it held, how much evidence that rests on, and how long ago:
+
+      hold      Laplace-smoothed hold rate, (held+1)/(graded+2). Smoothing is
+                what stops "1 of 1" reading as a perfect record: it lands at
+                0.67, where a raw rate would say 1.00 off a single bar.
+      sample    a level needs THREE graded re-tests to be called strong at
+                all. No amount of smoothing makes two data points strong,
+                and this is the gate that keeps "2 of 2" honest.
+      recency   half-life decay on bars since the last touch, applied as a
+                0.75-1.0 MULTIPLIER rather than a raw factor. A level does not
+                stop existing because it is old; it stops being urgent. Tried
+                at 0.6-1.0 first and it dominated the grade — a level that
+                turned price twice out of three went Weak purely for being
+                mid-window, which is the same "score the sample, not the
+                outcome" error the touch-count rule made.
+
+    An ungraded level — every touch still inside its judging horizon, or the
+    only touch being the one that created it — is WEAK, not unrated. We have
+    no evidence it holds, and "weak" is what no evidence means here. Folding
+    it into the same three words keeps one vocabulary on the chart.
+    """
+    held, broke = ev.get("held", 0), ev.get("broke", 0)
+    graded = held + broke
+    if graded <= 0:
+        return "weak", 0.0
+    hold = (held + 1) / (graded + 2)
+    recency = 0.5 ** (max(0, bars_since) / _strength_half_life(total_bars))
+    score = hold * (0.75 + 0.25 * recency)
+    if graded >= 3 and score >= 0.65:
+        return "strong", round(score, 3)
+    if score >= 0.50:
+        return "moderate", round(score, 3)
+    return "weak", round(score, 3)
+
+
 def _pivots(rows: list[tuple], window: int = 5) -> list[tuple]:
     """Swing highs/lows — the one definition every detector shares, so a
     trendline, a level and a divergence all agree on what a swing is."""
@@ -1073,10 +1131,6 @@ def _levels(rows: list[tuple], window: int = 5, per_side: int = 4,
             "zone_lo": lo, "zone_hi": hi,
             "role": "resistance" if price > last else "support",
             "touches": n,
-            # graded here, not by the model: a 1-touch pivot is not a level
-            # anyone should lean on, and the model shouldn't get to decide
-            # what "strong" means. Evidence-hierarchy rule, applied in code.
-            "strength": "strong" if n >= 4 else "moderate" if n >= 2 else "weak",
             "first_touch": _ist(rows[c["first_idx"]][0], with_time),
             "last_touch": _ist(rows[c["last_idx"]][0], with_time),
             "bars_since_last_touch": len(rows) - 1 - c["last_idx"],
@@ -1084,6 +1138,11 @@ def _levels(rows: list[tuple], window: int = 5, per_side: int = 4,
             # what happened the last N times price actually reached it
             "evidence": _evidence(rows, c["hits"], price, tol, window),
         })
+        # graded here, not by the model: the model shouldn't get to decide
+        # what "strong" means. Evidence-hierarchy rule, applied in code — and
+        # from the EVIDENCE, which is why it has to run after it.
+        out[-1]["strength"], out[-1]["strength_score"] = _grade_level(
+            out[-1]["evidence"], n, out[-1]["bars_since_last_touch"], len(rows))
     # Balance the sides: a pure strength sort can return all-resistance and
     # force a second call. Take the strongest few of each, nearest first.
     # Ranked by NET evidence (held − broke), not by touch count and not by
@@ -1326,7 +1385,16 @@ def _rows_safe(interval: str, limit: int) -> list[tuple]:
 
 def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
                     draw: bool = False, draw_ids: list | None = None,
-                    max_draw: int = 3, draw_mode: str = "add",
+                    # TWO, because this argument changed MEANING. It used to
+                    # cap the levels drawn overall and now caps them per side,
+                    # and the default did not follow it — leaving 3 here meant
+                    # `max_draw or 2` resolved to 3 and every side quietly drew
+                    # three, so the cap the picking code documents was never
+                    # the cap that ran. Measured on RELIANCE 15m: 3 resistance
+                    # and 2 support, against a stated limit of 2 a side. A
+                    # stale default that still reads as correct is worth this
+                    # comment; nothing about the call site looked wrong.
+                    max_draw: int = 2, draw_mode: str = "add",
                     draw_as: str = "line", side: str = "both") -> dict:
     mode = str(draw_mode or "add").lower()
     # "clear the chart" needs a channel of its own. Without one the model has
@@ -1356,48 +1424,101 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
     # ── drawing: the model chose WHICH (by id) or asked for the top N;
     #    every coordinate below comes from the detector, never the model.
     picked: list[dict] = []
+    parked: list[dict] = []
     missing: list[str] = []
     if draw_ids:
         wanted = {str(i).upper() for i in draw_ids}
         picked = [x for x in lv if x["id"].upper() in wanted]
         missing = sorted(wanted - {x["id"].upper() for x in picked})
     elif draw and lv:
-        rank = lambda x: (-(x["evidence"]["held"] - x["evidence"]["broke"]),  # noqa: E731
-                          -x["touches"], abs(x["distance_pct"]))
-        picked = sorted(lv, key=rank)[:max(1, min(int(max_draw or 3), 8))]
+        # TWO PER SIDE, and the cap is the feature.
+        #
+        # An unbounded top-N drew six or seven bands over the same window,
+        # and a chart wearing seven zones has not marked support — it has
+        # shaded itself. The eye cannot rank them, so the strongest level and
+        # the weakest carry equal weight, which is the opposite of what
+        # grading them was for.
+        #
+        # Per SIDE, not overall: "mark support and resistance" asks for both,
+        # and a global top-N on a trending chart returns four of one and none
+        # of the other. Ranked by the graded score, so what survives the cut
+        # is the best-evidenced level rather than the nearest one.
+        rank = lambda x: (-x.get("strength_score", 0.0),  # noqa: E731
+                          -(x["evidence"]["held"] - x["evidence"]["broke"]),
+                          abs(x["distance_pct"]))
+        per_side = max(1, min(int(max_draw or 2), 4))
+        for role in ("resistance", "support"):
+            picked += sorted([x for x in lv if x["role"] == role],
+                             key=rank)[:per_side]
+        # Everything else still reaches the chart — parked, not discarded.
+        # `hidden` puts a level in the Layers panel with its eye off, so the
+        # user can bring back a level we judged less well-evidenced without
+        # paying for another scan. Dropping them made "show me the others" a
+        # second round-trip for data already in hand.
+        drawn = {x["id"] for x in picked}
+        parked = [x for x in lv if x["id"] not in drawn]
     # "replace" lets the conversation REDUCE the scene ("just keep the strong
     # one", "drop the far level") — without it the chart could only ever grow.
     if picked and mode == "replace":
         _scene_add({"kind": "clear_levels", "owner": "get_levels"})
-    for x in picked:
+    def _emit_level(x: dict, hidden: bool = False) -> None:
+        """One level onto the chart. `hidden` parks it in the Layers panel."""
         ev = x["evidence"]
         graded = ev["held"] + ev["broke"]
-        # The label is the at-a-glance signal, so spend it on the outcome
-        # rather than the sample: "held 11/17" says everything "17 touches"
-        # says, and the one thing it doesn't.
-        tail = (f"held {ev['held']}/{graded}" if graded
-                else f"{x['touches']} touch{'es' if x['touches'] != 1 else ''}")
+        # THE LABEL SAYS WHAT IT IS, NOT HOW IT WAS SCORED.
+        #
+        # It used to read "R 503.51 · held 4/5", and six of those stacked
+        # down a price scale asked the reader to do the grading themselves —
+        # is 4/5 better than 2/2? than 1/1? (Yes and yes, but only after you
+        # know the sample-size rule.) The chart is the at-a-glance surface, so
+        # it carries the CONCLUSION, in the same three words the pattern
+        # labels already use. The arithmetic behind it is one click away in
+        # the Layers panel, which is where a number you have to think about
+        # belongs.
+        side = "R" if x["role"] == "resistance" else "S"
+        label = f"{side} {x['price']:,.2f} · {x['strength'].capitalize()}"
+        if graded:
+            detail = (f"Held {ev['held']} of {graded} graded re-test"
+                      f"{'s' if graded != 1 else ''}"
+                      f" over {_EVIDENCE_HORIZON} bars each. "
+                      f"{x['touches']} touch{'es' if x['touches'] != 1 else ''}, "
+                      f"last {x['bars_since_last_touch']} bars ago.")
+        else:
+            # One touch cannot be "none of THEM": the singular needs its own
+            # clause, not a pluralised noun with a plural pronoun left behind.
+            one = x["touches"] == 1
+            detail = (f"{x['touches']} touch{'' if one else 'es'}, "
+                      f"{'not' if one else 'none of them'} yet re-tested for "
+                      f"a full {_EVIDENCE_HORIZON} bars — so there is no "
+                      f"evidence it holds, which is what Weak means here.")
         _scene_add({
             # a band when asked for one — same detection, honest width
             "kind": "zone" if str(draw_as).lower() == "zone" else "level",
             "id": x["id"], "price": x["price"],
             "lo": x["zone_lo"], "hi": x["zone_hi"], "pane": "price",
             "role": x["role"], "strength": x["strength"],
-            "label": f"{'R' if x['role'] == 'resistance' else 'S'} "
-                     f"{x['price']:,.2f} · {tail}",
+            "strength_score": x.get("strength_score", 0.0),
+            "hidden": hidden,
+            "label": label,
+            "detail": detail,
             "source": {
                 "tool": "get_levels",
                 "method": "pivot-extremum (±5 bars), ATR-clustered",
                 "interval": interval, "bars_scanned": len(rows),
                 "touches": x["touches"], "strength": x["strength"],
+                "strength_score": x.get("strength_score", 0.0),
                 "first_touch": x["first_touch"], "last_touch": x["last_touch"],
                 "evidence": ev, "horizon_bars": _EVIDENCE_HORIZON,
             },
         })
+
+    for x in picked:
+        _emit_level(x)
+    for x in parked:
+        _emit_level(x, hidden=True)
     # When something was drawn, lead with EXACTLY what landed on the chart.
     # Handing back the full candidate list first invited the model to narrate
     # a different trio than the one it drew (chart/text divergence).
-    drawn_ids = [x["id"] for x in picked]
     result: dict = {}
     if missing:
         # never let a bad reference fail silently — the model would go on to
@@ -1411,12 +1532,36 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int = 300,
         )
     if picked:
         result["drawn_levels"] = picked
-        result["_drawn_note"] = (
-            _drawn_ledger()
-            + " Other candidates below were NOT drawn — mention them only as "
-              "context, never as marked."
+        # PRESCRIPTIVE, not permissive. A softer "you may mention the Layers
+        # panel" was ignored on every turn it was tried — the model has a
+        # complete answer without it, so a suggestion reads as optional. The
+        # sentence is spelled out here and the count is computed here, because
+        # the one thing worse than not mentioning the parked levels is
+        # mentioning the wrong number of them.
+        note = [_drawn_ledger()]
+        note.append(
+            "Describe each drawn level as its ROLE, PRICE and STRENGTH — "
+            "'resistance at 503.51, strong'. Do NOT quote held/broke counts "
+            "or re-test ratios in the reply: that arithmetic is on the level's "
+            "row in the Layers panel, and repeating it here is what made these "
+            "answers unreadable."
         )
-        result["other_candidates"] = [x for x in lv if x["id"] not in set(drawn_ids)]
+        if parked:
+            note.append(
+                f"{len(parked)} further level{'s' if len(parked) != 1 else ''} "
+                f"scored lower and {'are' if len(parked) != 1 else 'is'} parked, "
+                f"not discarded. END your reply with exactly one sentence "
+                f"telling the user the other {len(parked)} "
+                f"level{'s are' if len(parked) != 1 else ' is'} in the Layers "
+                f"panel and can be switched on there."
+            )
+        result["_drawn_note"] = " ".join(note)
+        result["parked_levels"] = parked
+        result["_parked_note"] = (
+            "These are ON the chart but hidden — their eye is off in the "
+            "Layers panel. Never call them undrawn, and never list them "
+            "individually in the reply."
+        )
     else:
         result["levels"] = lv
     # An empty side is a fact about THIS scan window, not about the stock —
@@ -5717,9 +5862,70 @@ def _struct_events(struct: dict | None) -> list[dict]:
     return events
 
 
+# Which formations are load-bearing, most first.
+#
+# The sweep hands back whatever the detector found, in detector order, and on
+# a busy 5-minute chart that is thirteen shapes of equal visual weight. The
+# panel then rendered all thirteen at one size, so the confirmed double top
+# that actually answered the question sat in a grid beside twelve moderates
+# nobody asked about. Ordering is what lets the panel show FEWER without
+# showing the wrong ones — and it has to be computed here rather than in the
+# renderer, because the reply's prose reads this same card and the two must
+# agree on which patterns mattered.
+_STATUS_RANK = {"confirmed": 0, "forming": 1, "unconfirmed": 2, "unresolved": 3}
+
+
+def _pattern_rank(t: dict) -> tuple:
+    """Sort key for one tile. Lower sorts first. Stable — ties keep detector
+    order, which is the detector's own recency ordering and not ours to
+    second-guess."""
+    strength = t.get("strength") or ""
+    return (
+        # On the chart beats off it: if a shape was marked, the panel is that
+        # mark's legend and the reader is looking for it.
+        0 if t.get("drawn") else 1,
+        _STATUS_RANK.get(t.get("status") or "", 3),
+        # Strong first. Negated because _STRENGTH_WORDS ascends.
+        -(_STRENGTH_WORDS.index(strength) if strength in _STRENGTH_WORDS else 0),
+    )
+
+
+def _panel_density(counts: dict, detail: str | None) -> str:
+    """'brief' or 'full' — how much furniture this panel is worth.
+
+    THE PROBLEM. Panel composition was fixed: every sweep rendered a stat
+    grid, a structure-events table and a tile per formation, at one size,
+    whatever was asked. So "whats this" over a screenshot — answered
+    completely in four lines of prose — was followed by thirteen hero tiles
+    and seventeen candle rows. The panel was not wrong, it was the wrong
+    SIZE, and nothing in the pipeline could tell the difference.
+
+    THE RULE, and why it is not a keyword table. We never look at the user's
+    words; string-matching "whats this" would be a hardcoded resolution that
+    fails on the first paraphrase. Two signals decide it instead:
+
+      1. DID THIS CALL CHANGE THE CHART. If the sweep marked something, the
+         panel is the legend for marks the user is now looking at, and it
+         owes them the full inventory. If it marked nothing, the sweep was
+         evidence FOR the prose, the prose already stated the finding, and
+         the panel is context — so it renders as a strip.
+      2. WHAT THE MODEL SAYS IT NEEDS. `detail` is an argument on the tool,
+         so the model declares the shape by reasoning about the ask. That is
+         the nondeterministic half: the judgement is the model's, made in
+         context, and this function only honours it.
+
+    An explicit `detail` always wins — the model asked for an inventory
+    because the user did, and no amount of chart state should overrule that.
+    """
+    if detail in ("brief", "full"):
+        return detail
+    marked = (counts.get("chart_drawn") or 0) + (counts.get("candles_marked") or 0)
+    return "full" if marked else "brief"
+
+
 def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
                    charts: list[dict], cands: list[dict],
-                   drawn: set) -> dict | None:
+                   drawn: set, detail: str | None = None) -> dict | None:
     """Everything the sweep found, in the shape a panel renders.
 
     Reads only from what `tool_get_patterns` already computed and is about to
@@ -5783,9 +5989,24 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
 
     if not (events or tiles or rows):
         return None
+    # Most load-bearing first, so a panel that shows three shows the RIGHT
+    # three. Python's sort is stable, so shapes that tie on drawn/status/
+    # strength keep the detector's own ordering rather than an arbitrary one.
+    tiles.sort(key=_pattern_rank)
+    counts = {"chart_found": len(charts), "chart_drawn": len(drawn),
+              "candles_found": len(cands), "candle_bars": len(rows),
+              "candles_marked": sum(1 for r in rows if r["drawn"])}
+    density = _panel_density(counts, detail)
+    # HOW MANY TILES, decided here and not in the renderer, because the reply
+    # reads this same card: a panel showing three formations under prose that
+    # discusses six is the chart/text divergence this card exists to prevent.
+    # Three is a strip the eye takes in at once; six is a grid that still fits
+    # beside a paragraph. The rest are one click away, never discarded.
+    counts["chart_shown"] = min(len(tiles), 3 if density == "brief" else 6)
     return {
         "kind": "patterns", "symbol": _sym(), "interval": interval,
         "bars_scanned": bars, "window": window,
+        "density": density,
         "trend": trend, "events": events,
         "chart_patterns": tiles, "candles": rows,
         # Found versus drawn, stated by the card itself. The caps are real
@@ -5799,9 +6020,7 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
         # displays — a heading reading "20" over eighteen rows is a card
         # arguing with itself, and the reader has no way to tell which half
         # is wrong.
-        "counts": {"chart_found": len(charts), "chart_drawn": len(drawn),
-                   "candles_found": len(cands), "candle_bars": len(rows),
-                   "candles_marked": sum(1 for r in rows if r["drawn"])},
+        "counts": counts,
     }
 
 
@@ -5810,7 +6029,8 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
                       limit: int = 20, draw: bool = False,
                       draw_ids: list | None = None, draw_mode: str = "add",
                       mark_limit: int = 5, max_draw: int = 3,
-                      draw_candle_at: str | None = None) -> dict:
+                      draw_candle_at: str | None = None,
+                      detail: str | None = None) -> dict:
     """Named formations: candlesticks, chart patterns, market structure.
 
     Two questions share one tool because they are the same scan: "what's on
@@ -6103,19 +6323,41 @@ def tool_get_patterns(interval: str = "1d", lookback_bars: int = 300,
     window = f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}"
     card = _patterns_card(interval, len(rows), window, struct if want_s else None,
                           charts if want_p else [], cands if want_c else [],
-                          {p["id"] for p in picked})
+                          {p["id"] for p in picked}, detail)
     if card:
         _card_add(card)
+        cc = card["counts"]
+        # WHAT THE PANEL ACTUALLY SHOWS, not what the sweep found. The note
+        # used to promise "every chart pattern" — true when the panel rendered
+        # all thirteen, and a lie the moment it renders three. The model
+        # writes its prose against this sentence, so it has to describe the
+        # panel the reader will actually meet, or the reply names formations
+        # that are one click out of sight.
+        shown = cc["chart_shown"]
+        if card["density"] == "brief":
+            shape = (f"A COMPACT strip is rendered beside your reply: the "
+                     f"{shown} most load-bearing formation(s) as pills, with "
+                     f"the rest of the sweep folded behind a control the user "
+                     f"can open. It is context for your answer, not the "
+                     f"answer — so write the answer in prose and let the strip "
+                     f"sit under it.")
+        else:
+            shape = (f"A panel is rendered beside your reply carrying the "
+                     f"structure read and its events, the {shown} most "
+                     f"load-bearing of the {cc['chart_found']} chart "
+                     f"formation(s), and the candlestick bars — the remainder "
+                     f"folded behind a control the user can open.")
         res["_card_note"] = (
-            "A panel listing this whole sweep — the structure read and its "
-            "events, every chart pattern with its status and measurement, and "
-            "every candlestick BAR — is already rendered beside your reply. "
-            "The user can see all of it. So do not transcribe the lists back: "
-            "say what the sweep MEANS, name only the few worth naming, and "
-            "spend the reply on the reading rather than on the inventory. "
+            shape + " Do not transcribe the lists back: say what the sweep "
+            "MEANS, name only the few worth naming, and spend the reply on "
+            "the reading rather than on the inventory. Name formations from "
+            "the TOP of `chart_patterns` — it is ordered by what is drawn, "
+            "confirmed and strongest, and that order is what the panel shows, "
+            "so naming one from the bottom sends the reader hunting for a "
+            "tile that is folded away. "
             f"Note the panel counts bars, not names: the "
-            f"{card['counts']['candles_found']} candlestick pattern(s) in "
-            f"`candlesticks` fall on {card['counts']['candle_bars']} bar(s), "
+            f"{cc['candles_found']} candlestick pattern(s) in "
+            f"`candlesticks` fall on {cc['candle_bars']} bar(s), "
             "because one bar can qualify under several names. If you quote a "
             "count, say which of the two you mean.")
 
@@ -10060,14 +10302,14 @@ TOOLS = [
          "changes": {"type": "object", "description": "fields to update; flexible plan/review/custom objects are accepted"}},
       "required": ["trade_id", "changes"]}},
     {"type": "function", "name": "get_levels",
-     "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true (top few) or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price.",
+     "description": "Detect real support/resistance from pivot clustering, with touch counts, strength and dates. Each level carries its own track record: how many past touches held vs broke, and the median reaction that followed — use it to say whether a level has actually worked, not just how often price reached it. Every level is graded Strong / Moderate / Weak in code, from hold rate, sample size and how recently it last mattered — quote THAT word, and never re-grade a level yourself. Use whenever asked about levels, support, resistance, or where price reacts. To put them ON the chart set draw=true or pass draw_ids after reviewing the candidates — you choose WHICH, the detector supplies every price. Drawing marks the best two per side and parks the rest in the Layers panel; say so at the end of the reply.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
-         "draw": {"type": "boolean", "description": "draw the strongest max_draw levels"},
+         "draw": {"type": "boolean", "description": "draw the best-evidenced levels — max_draw PER SIDE, the rest parked in the Layers panel"},
          "draw_ids": {"type": "array", "items": {"type": "string"},
                       "description": "ids from the candidate list, e.g. ['L1365','L1337'], to draw exactly those"},
-         "max_draw": {"type": "integer", "description": "default 3"},
+         "max_draw": {"type": "integer", "description": "levels drawn PER SIDE, default 2. Leave it alone: two a side is what keeps the chart readable, and everything above the cut is still reachable in the Layers panel. Raise it only if the user explicitly asks for more lines on the chart."},
          "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"],
                        "description": "'replace' clears previously drawn levels first — use it to narrow or correct the chart. 'clear' erases every drawn level and draws nothing — the only way to wipe the chart."},
          "draw_as": {"type": "string", "enum": ["line", "zone"],
@@ -10289,7 +10531,7 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan for the base rate, default 600"}},
          "required": ["interval"]}},
     {"type": "function", "name": "get_patterns",
-     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply listing everything it found, so the reply's job is what the sweep MEANS, not a transcript of the lists. ONE INTERVAL PER CALL, ONE PANEL PER CALL. For a question that spans timeframes, call this on at most THREE rungs that span the ladder (a fast, a middle, a slow) rather than on every interval you can name: each sweep returns roughly thirty formations and bars, so a fourth panel is where the answer stops being a reading and becomes an inventory. Then head each interval in the reply and spend it on where the rungs agree and where they contradict — a shape two timeframes show is evidence, the same shape on the fastest rung alone is noise.",
+     "description": "Detect named formations on the chart: 34 candlestick patterns (engulfing, hammer, doji varieties incl dragonfly/gravestone/long-legged, morning/evening star, three soldiers/crows, harami, three inside/outside up/down, piercing, dark cloud, tweezers, kickers, belt holds, rising/falling three methods, abandoned baby…), 22 chart patterns (head and shoulders and its inverse, double and triple tops/bottoms, ascending/descending/symmetrical triangles, rising/falling wedges, rectangle, channel up/down, broadening, bull/bear flags and pennants, cup and handle, rounding bottom/top) and market structure (HH/HL/LH/LL with BOS and CHoCH). Call it BOTH ways: omit `kinds` to sweep everything for 'what patterns are on this chart', or set `kinds` to answer 'is there a head and shoulders / any bullish engulfing'. `kinds` takes exact snake_case ids — e.g. bullish_belt_hold, bearish_kicker, three_inside_up, rising_three_methods, triple_top, bull_pennant, cup_and_handle. Always use this rather than reading candles out of get_bars and judging them yourself — the thresholds here are explicit and come back with the result. Set draw=true to draw chart patterns as their actual geometry — a solid outline through the defining swing points with a tinted interior, a dashed neckline segment ending at the break bar, fitted wedge/triangle edges, flag pole and box — so describe them as drawn shapes, not as horizontal levels. draw=true draws the 3 most recent chart patterns by default, or however many `max_draw` says. draw=true ALSO marks candlestick patterns, with a dot above the high of the bar that qualified — the 5 most recent bars by default, or however many `mark_limit` says. When the user asks for ALL of them ('draw all the patterns', 'mark every candle pattern'), raise BOTH caps in the same call rather than drawing three and explaining the rest. The result reports how many were found versus how many were drawn: quote that, never guess at why the chart shows fewer than the list. Name the bar and its pattern; the dot is a pointer, not a finding. A sweep also prints a panel beside your reply, and `detail` decides how big that panel is — set it by what was ASKED, not by how much came back. ONE INTERVAL PER CALL, ONE PANEL PER CALL. For a question that spans timeframes, call this on at most THREE rungs that span the ladder (a fast, a middle, a slow) rather than on every interval you can name: each sweep returns roughly thirty formations and bars, so a fourth panel is where the answer stops being a reading and becomes an inventory. Then head each interval in the reply and spend it on where the rungs agree and where they contradict — a shape two timeframes show is evidence, the same shape on the fastest rung alone is noise.",
      "parameters": {"type": "object", "properties": {
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
          "lookback_bars": {"type": "integer", "description": "bars to scan, default 300"},
@@ -10303,7 +10545,9 @@ TOOLS = [
                       "description": "ids from the chart_patterns list, to mark exactly those"},
          "mark_limit": {"type": "integer", "description": "how many candlestick BARS to mark, most recent first — default 5. Raise it when the user asks for all of them ('mark every candle pattern'); the result says how many were found versus drawn."},
          "max_draw": {"type": "integer", "description": "how many CHART PATTERNS to draw, most recent first — default 3, which is the calm chart a loose ask should get. Raise it when the user asks for all of them ('draw all the patterns'); the result says how many were found versus drawn."},
-         "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]}},
+         "draw_mode": {"type": "string", "enum": ["add", "replace", "clear"]},
+         "detail": {"type": "string", "enum": ["brief", "full"],
+                    "description": "How much panel this answer is worth — YOUR judgement about the question, and the one input to it that is not measurable from the chart. 'brief' renders a compact strip of the few formations that matter: use it when the user asked a QUESTION the prose answers, so the panel is supporting evidence and a full inventory would bury the answer under furniture ('what is this', 'is it turning', a chart screenshot with three words attached). 'full' renders the whole sweep — structure events, formation grid, candlestick bars: use it when the INVENTORY is the deliverable ('sweep this chart', 'list every pattern', 'what have you got on the 15m'). Omit it and the panel decides from whether this call marked the chart: marks mean the panel is their legend and renders full, no marks means it renders brief. Set it whenever the ask is clearer than that default."}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_pattern",
      "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate as control — the edge is pattern rate minus base rate. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",

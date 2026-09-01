@@ -1434,7 +1434,7 @@ const Cards = (() => {
      * one: what it is, when it ran, which way the textbook reads it, and the
      * single number that decides it. Stacked as rows those four would need
      * four columns and the panel would become a spreadsheet. */
-    const tiles = (c.chart_patterns || []).map((p) => {
+    const allTiles = (c.chart_patterns || []).map((p) => {
       const badge = p.strength
         ? `<span class="scan-badge ${BADGE[p.strength] || "open"}">${esc(p.strength)}</span>`
         : "";
@@ -1454,7 +1454,28 @@ const Cards = (() => {
         + (p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : "")
         + `>${badge}<b class="nm">${esc(cap(p.name))}</b>`
         + `<span class="sub">${esc(sub)}</span>${fact}</div>`;
-    }).join("");
+    });
+
+    /* Thirteen tiles is a gallery, not a panel — the eye cannot rank a grid,
+     * so the confirmed formation that answers the question carries the same
+     * weight as the ninth moderate nobody asked about. The backend orders
+     * them (drawn, then confirmed, then strongest) and says how many are
+     * worth showing; the rest fold.
+     *
+     * Except when the user has ALREADY expanded: in brief mode this body sits
+     * behind a control they just opened, and making them open a second one to
+     * reach the same list is the fold arguing with itself. */
+    const nShow = c.density === "brief"
+      ? allTiles.length
+      : Math.min(allTiles.length, counts.chart_shown || allTiles.length);
+    const tiles = allTiles.slice(0, nShow).join("");
+    const tilesRest = allTiles.slice(nShow);
+    const tilesMore = tilesRest.length
+      ? `<button type="button" class="scan-more" data-more="[data-more-tiles]">`
+        + `${tilesRest.length} more</button>`
+        + `<div data-more-tiles hidden><div class="scan-tiles">`
+        + `${tilesRest.join("")}</div></div>`
+      : "";
 
     /* A candle row closes on its BIAS where a structure row closes on its
      * price — that word is the whole reason to read this list right to left,
@@ -1481,16 +1502,75 @@ const Cards = (() => {
       ? `<button type="button" class="scan-more" data-more>`
         + `${(c.candles.length - 8)} more</button>` : "";
 
-    return `<div class="scan-stats">${stats}</div>`
+    const foot = `<div class="scan-foot">${esc(c.bars_scanned)} ${esc(c.interval)} bars`
+      + (c.window ? ` · ${esc(c.window)}` : "") + `</div>`;
+
+    /* The whole sweep, which is now a BODY rather than the return value. In
+     * brief mode it is still built and still shipped — folded behind a
+     * control, never dropped. A panel that discards what the sweep found
+     * would make "show me the rest" a second scan of the same bars. */
+    const full = `<div class="scan-stats">${stats}</div>`
       + section("Structure events", "", events)
       + section("Chart patterns",
                 drew(counts.chart_found, counts.chart_drawn, "found", "drawn"),
-                tiles && `<div class="scan-tiles">${tiles}</div>`)
+                tiles && `<div class="scan-tiles">${tiles}</div>${tilesMore}`)
       + section("Candlestick patterns",
                 drew(counts.candle_bars, counts.candles_marked, "bars", "marked"),
-                candles && `<div class="scan-rows${more ? " capped" : ""}">${candles}</div>${more}`)
-      + `<div class="scan-foot">${esc(c.bars_scanned)} ${esc(c.interval)} bars`
-      + (c.window ? ` · ${esc(c.window)}` : "") + `</div>`;
+                candles && `<div class="scan-rows${more ? " capped" : ""}">${candles}</div>${more}`);
+
+    if (c.density !== "brief") return full + foot;
+
+    /* ── the brief strip ──────────────────────────────────────────────
+     *
+     * A sweep that marked nothing is EVIDENCE for the prose, not the answer
+     * to the question, and it used to render at the same weight either way:
+     * "whats this" over a screenshot came back as four lines of prose
+     * followed by a stat grid, a six-row events table and thirteen hero
+     * tiles. The reader met an inventory where they had asked a question.
+     *
+     * So the compact form is pills, not tiles — `scan-chips` is a wrapping
+     * flex row, so it is one or two lines tall at any pane width and sits
+     * between two paragraphs the way a sentence does. Deliberately built
+     * from the classes this panel already owns: the styling lives in
+     * index.html, and a strip that invented its own would be the one element
+     * here that does not follow the theme.
+     *
+     * Only the formations — no stat grid, no events table, no candle rows.
+     * Those are measurements of the window, and the window is not what a
+     * question about the chart is asking after. They are one click away. */
+    const pills = (c.chart_patterns || []).slice(0, counts.chart_shown || 3)
+      .map((p) => {
+        const badge = p.strength
+          ? `<span class="scan-badge ${BADGE[p.strength] || "open"}">${esc(p.strength)}</span>`
+          : "";
+        /* Status, not the measurement. A pill has room for one qualifier and
+         * "confirmed" is the one that changes what the reader does with it —
+         * the neckline price is on the tile behind the control, next to the
+         * verdict that gives it meaning. */
+        const tail = p.status && p.status !== "unresolved" ? ` ${esc(p.status)}` : "";
+        return `<span class="scan-chip found"`
+          + (p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : "")
+          + `>${badge}<b>${esc(cap(p.name))}</b>${tail}</span>`;
+      }).join("");
+
+    /* The control says what is behind it, with the real number. "Show more"
+     * gives the reader no way to judge whether opening it is worth the
+     * scroll; "10 more formations, 17 candle bars" does. */
+    const restN = Math.max(0, (counts.chart_found || 0) - (counts.chart_shown || 0));
+    const restBars = counts.candle_bars || 0;
+    const rest = [restN ? `${restN} more formation${restN === 1 ? "" : "s"}` : "",
+                  restBars ? `${restBars} candle bar${restBars === 1 ? "" : "s"}` : "",
+                  "structure events"].filter(Boolean).join(" · ");
+
+    return (pills ? `<div class="scan-chips">${pills}</div>` : "")
+      + `<button type="button" class="scan-more" data-more="[data-more-full]">`
+      + `${esc(rest)}</button>`
+      /* `hidden` rather than a class: nothing styles this wrapper, so the UA
+       * rule applies cleanly and the reveal needs no CSS of its own — which
+       * matters because this panel's stylesheet lives in index.html and a
+       * renderer should not need an edit there to ship a fold. */
+      + `<div data-more-full hidden>${full}</div>`
+      + foot;
   }
 
   // ── the trend read ──────────────────────────────────────────────────
@@ -1973,13 +2053,27 @@ const Cards = (() => {
       box.className = "scan";
       box.dataset.card = card.kind;
       box.innerHTML = html;
-      const more = box.querySelector("[data-more]");
-      if (more) {
-        more.addEventListener("click", () => {
-          box.querySelector(".scan-rows.capped").classList.remove("capped");
-          more.remove();
+      /* Every fold in the panel, not the first one. This used to reach for a
+       * single `[data-more]` and unconditionally uncap `.scan-rows.capped`,
+       * which was exactly right while the only fold in existence was the
+       * candle list. A panel now carries up to three — the brief body, the
+       * tile overflow, the candle rows — and the old handler would have wired
+       * the first and thrown on the others, taking the whole panel down with
+       * it (the render is inside a try, this wiring is not).
+       *
+       * The button names its own target in `data-more`; a bare `data-more`
+       * keeps the original meaning, so the candle list needed no change. */
+      box.querySelectorAll("[data-more]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const sel = btn.getAttribute("data-more");
+          const target = sel ? box.querySelector(sel)
+                             : box.querySelector(".scan-rows.capped");
+          if (!target) return;
+          target.classList.remove("capped");
+          target.hidden = false;
+          btn.remove();
         });
-      }
+      });
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A
       // standalone backtest card is its own payload; a draft repainted with a
