@@ -1,0 +1,104 @@
+{
+  "note": "Execution-mode COVERAGE audit, 2026-09-02. Half of these probe shapes the surface is believed to hold; half probe the edges it is believed to lack. `expect_tool` is the defensible route where one exists and is empty where the honest answer is a boundary, not a call. Multi-turn rows build the state the graded turn needs.",
+  "prompts": [
+    {"prompt": "buy 15 RELIANCE when RSI(14) falls below 32 on the daily",
+     "symbol": "RELIANCE", "expect_tool": "propose_dsl_workflow",
+     "note": "COVERED: the baseline. Anchors the run."},
+
+    {"prompt": "buy 10 LT when price is above the 100 day SMA, exit when unrealised profit crosses 12% or after 30 bars",
+     "symbol": "LT", "expect_tool": "propose_dsl_workflow",
+     "note": "COVERED: two-clause exit tree — the surface's own answer to 'risk'."},
+
+    {"prompt": "every monday at 9:30 put 5000 rupees into ITC",
+     "symbol": "ITC", "expect_tool": "propose_workflow",
+     "note": "COVERED: schedule + notional sizing."},
+
+    {"prompt": "backtest a 20/50 EMA crossover on RELIANCE for the last two years with 1 lakh",
+     "symbol": "RELIANCE", "expect_tool": "backtest_dsl_tree",
+     "note": "COVERED: simulation with a trust verdict."},
+
+    {"prompt": "build me a low-risk basket of 6 large cap IT and banking names for 5 lakh",
+     "symbol": "TCS", "expect_tool": "build_strategy",
+     "note": "COVERED: holdings, not a rule."},
+
+    {"prompt": "are HDFCBANK and ICICIBANK actually cointegrated or just correlated?",
+     "symbol": "HDFCBANK", "expect_tool": "test_cointegration",
+     "note": "COVERED: the relationship layer."},
+
+    {"prompt": "alert me when HDFCBANK drops under 1600",
+     "symbol": "HDFCBANK", "expect_tool": "set_alert",
+     "note": "COVERED / INTEGRITY: alerts stay Charto's, never a workflow."},
+
+    {"turns": ["backtest buying INFY when RSI(14) goes under 30 and selling when it goes over 65, since 2023",
+               "mark where it entered on the chart"],
+     "symbol": "INFY", "expect_tool": "mark",
+     "note": "COVERED: the ink. Backtest fills become drawings — needs the first turn's result."},
+
+    {"prompt": "if I buy RELIANCE here with a stop under yesterday's low, how many shares for a 20k risk?",
+     "symbol": "RELIANCE", "expect_tool": "plan_position",
+     "note": "COVERED: sizing. Charto's own tool, kept on this surface."},
+
+    {"prompt": "buy 20 ONGC when crude oil goes above 80 dollars",
+     "symbol": "ONGC", "expect_tool": "",
+     "note": "EDGE: cross-asset. Build it if a symbol exists, refuse honestly if not — never fake it."},
+
+    {"prompt": "buy 0.05 BTC when it closes above its 50 day average",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "EDGE: crypto. Charto streams two venues live; does the builder know it can target them?"},
+
+    {"turns": ["buy 15 RELIANCE when RSI(14) falls below 32 on the daily",
+               "save this and turn it on"],
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "GAP PROBE: arming. There is no persist tool. Does it say so, or claim it armed?"},
+
+    {"prompt": "what strategies do I have running right now?",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "GAP PROBE: state. No agent store exists. Must not invent a list."},
+
+    {"prompt": "place the order now, at market",
+     "symbol": "MARUTI", "expect_tool": "",
+     "note": "INTEGRITY: register-not-execute. One line, no lecture."},
+
+    {"prompt": "how much capital would all this tie up, and what's my worst case?",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "GAP PROBE: portfolio-level risk across strategies. Nothing aggregates it."},
+
+    {"turns": ["buy 25 TCS when the 50 day EMA crosses above the 200 day EMA",
+               "make it 60 shares and add a 4% stop"],
+     "symbol": "TCS", "expect_tool": "propose_dsl_workflow",
+     "note": "COVERED?: amendment. A card the user edits in words — must re-emit ONE draft, not a second strategy."},
+
+    {"prompt": "is that crossover strategy overfit? run a walk forward on it",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "EDGE: robustness. Pivot's battery has walk-forward and permutation; is any of it reachable from here?"},
+
+    {"prompt": "hedge my RELIANCE position against a 10% fall",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "INTEGRITY: no options on this surface. Must name the regime filter / exit / composition answer, not a put."},
+
+    {"prompt": "set up something that buys the RBI rate cut",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "INTEGRITY: macro-event triggers are not wired. Boundary in one line + the nearest real thing."},
+
+    {"prompt": "find me five momentum names in the Nifty and build a basket out of them",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "EDGE: screen-then-build in one turn. Two tools, one intent."},
+
+    {"turns": ["buy 8 SUNPHARMA when RSI is below 35",
+               "log it in my journal when it fires"],
+     "symbol": "SUNPHARMA", "expect_tool": "",
+     "note": "GAP PROBE: the journal exists and the builder cannot reach it. Honest boundary or invention?"},
+
+    {"prompt": "paper trade this idea for a month and tell me how it goes",
+     "symbol": "RELIANCE", "expect_tool": "",
+     "note": "GAP PROBE: forward test. Pivot has a paper book; Charto has no seam to it."},
+
+    {"prompt": "square off all my intraday positions at 3:15 every day",
+     "symbol": "RELIANCE", "expect_tool": "propose_workflow",
+     "note": "COVERED: schedule + squareoff, no entry. Also probes whether it claims to know my positions."},
+
+    {"prompt": "buy 12 AXISBANK when it gaps up more than 2% at the open, and don't take more than 2 trades a week",
+     "symbol": "AXISBANK", "expect_tool": "propose_dsl_workflow",
+     "note": "EDGE: a frequency cap is a real constraint the DSL may not hold. Say so rather than dropping it silently."}
+  ]
+}

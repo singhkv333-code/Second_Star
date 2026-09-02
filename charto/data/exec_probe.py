@@ -79,6 +79,8 @@ def render(row: dict) -> None:
         mark = "OK "
     elif row["matched"] is False:
         mark = "ROUTE"
+    for t in row.get("setup") or []:
+        print(f"\n  (setup) {t}")
     print(f"\n[{mark}] {row['prompt']}")
     print(f"      tools: {row['tools'] or '—'}"
           + (f"  expected: {row['expect_tool']}" if row["expect_tool"] else ""))
@@ -107,14 +109,30 @@ def main() -> int:
         raw = json.loads(open(args.suite).read())
         rows = [{"prompt": r} if isinstance(r, str) else r
                 for r in (raw.get("prompts") if isinstance(raw, dict) else raw)]
+        for r in rows:
+            r.setdefault("prompt", (r.get("turns") or [""])[-1])
     else:
         ap.error("give a suite file or -m")
 
     out = []
     for row in rows:
-        res = ask(row["prompt"], row.get("symbol", args.symbol), mode=args.mode)
-        summary = summarize(row["prompt"], res, row.get("expect_tool", ""))
+        # A row is either one prompt or a conversation. `turns` runs every
+        # message in order against the SAME history, and only the last one is
+        # graded — the earlier turns exist to build the state the last one
+        # needs (a draft to amend, a backtest to mark, a basket to size).
+        turns = row.get("turns") or [row["prompt"]]
+        sym = row.get("symbol", args.symbol)
+        history: list = []
+        res = {}
+        for turn in turns:
+            res = ask(turn, sym, mode=args.mode, history=history)
+            history = history + [
+                {"role": "user", "content": turn},
+                {"role": "assistant", "content": res.get("text") or ""},
+            ]
+        summary = summarize(turns[-1], res, row.get("expect_tool", ""))
         summary["note"] = row.get("note", "")
+        summary["setup"] = turns[:-1]
         out.append(summary)
         render(summary)
 

@@ -1,0 +1,234 @@
+
+[OK ] buy 15 RELIANCE when RSI(14) falls below 32 on the daily
+      tools: ['propose_dsl_workflow']  expected: propose_dsl_workflow
+      cards: ['workflow_draft'] steps=[2]
+      30.2s  in=67330 out=178
+      reply: Buys 15 RELIANCE shares at market when daily RSI(14) falls below 32.
+
+[OK ] buy 10 LT when price is above the 100 day SMA, exit when unrealised profit crosses 12% or after 30 bars
+      tools: ['propose_dsl_workflow', 'propose_dsl_workflow', 'propose_dsl_workflow']  expected: propose_dsl_workflow
+      cards: ['workflow_draft', 'workflow_draft', 'workflow_draft'] steps=[5, 5, 5]
+      119.1s  in=138311 out=849
+      reply: Buys 10 LT shares when price is above the 100-day SMA, then exits when either:
+
+- Unrealised profit reaches 12%; or
+- The position has been held for 30 daily bars.
+
+[OK ] every monday at 9:30 put 5000 rupees into ITC
+      tools: ['propose_workflow', 'propose_workflow']  expected: propose_workflow
+      cards: ['workflow_draft', 'workflow_draft'] steps=[2, 2]
+      28.8s  in=101530 out=467
+      reply: Every Monday at 09:30 IST, the strategy buys ₹5,000 of ITC at market.
+
+[OK ] backtest a 20/50 EMA crossover on RELIANCE for the last two years with 1 lakh
+      tools: ['backtest_dsl_tree', 'backtest_dsl_tree']  expected: backtest_dsl_tree
+      cards: ['strategy_backtest', 'strategy_backtest']
+      34.1s  in=221960 out=1078
+      reply: ## RELIANCE 20/50 EMA crossover
+
+Backtested on **daily bars** from **24 Mar 2024 to 24 Mar 2026**, investing ₹1,00,000 per signal.
+
+- **4 trades**
+- **Strategy return:** **−1.4%**
+- **Ending value:** **₹98,640.62**
+- **Win rate:** **25%**
+- **Maximum drawdown:** **13.1%**
+- **Sharpe:** **−0.06**
+- *
+
+[OK ] build me a low-risk basket of 6 large cap IT and banking names for 5 lakh
+      tools: ['build_strategy']  expected: build_strategy
+      cards: ['strategy_basket']
+      29.6s  in=68387 out=795
+      reply: Built a ₹5 lakh low-risk, large-cap equity basket across IT and banking:
+
+| Stock | Sector | Weight | Allocation |
+|---|---|---:|---:|
+| TCS | IT | 23.91% | ₹1,19,550 |
+| INFY | IT | 20.34% | ₹1,01,700 |
+| HCLTECH | IT | 17.80% | ₹89,000 |
+| HDFCBANK | Banking | 12.33% | ₹61,650 |
+| ICICIBANK | Bank
+
+[ROUTE] are HDFCBANK and ICICIBANK actually cointegrated or just correlated?
+      tools: ['backtest_pairs']  expected: test_cointegration
+      cards: ['quant_result']
+      19.0s  in=67401 out=247
+      reply: HDFCBANK and ICICIBANK were **not cointegrated** over the tested 2-year window—so the relationship appears more like correlation than a stable mean-reverting spread.
+
+- **Engle–Granger ADF statistic:** 0.9072  
+- **5% critical value:** −3.34  
+- **Cointegration:** No  
+- **Estimated hedge ratio:** 0
+
+[OK ] alert me when HDFCBANK drops under 1600
+      tools: ['set_alert']  expected: set_alert
+      FAILED: ['set_alert']
+      cards: —
+      20.2s  in=66962 out=150
+      reply: Please sign in to create this alert. Once signed in, it will notify you when **HDFCBANK’s daily close drops below ₹1,600**, even if your browser is closed.
+
+  (setup) backtest buying INFY when RSI(14) goes under 30 and selling when it goes over 65, since 2023
+
+[OK ] mark where it entered on the chart
+      tools: ['backtest_dsl_tree', 'mark']  expected: mark
+      cards: ['strategy_backtest']
+      41.4s  in=222390 out=851
+      reply: Marked the **7 RSI entry points** on the INFY daily chart:
+
+- 15 Mar 2023
+- 27 Oct 2023
+- 26 Mar 2024
+- 3 Mar 2025
+- 4 Aug 2025
+- 12 Feb 2026
+- 2 Jul 2026
+
+These are the bars where RSI(14) went below 30 in the backtest.
+
+[ROUTE] if I buy RELIANCE here with a stop under yesterday's low, how many shares for a 20k risk?
+      tools: ['get_bars']  expected: plan_position
+      cards: —
+      16.5s  in=67125 out=485
+      reply: For a **long RELIANCE entry here**, that stop placement is invalid:
+
+- Current price: **₹1,283.60**
+- Yesterday’s low: **₹1,302.70**
+- A stop below yesterday’s low would still be **above your entry**, so it would not define a downside risk.
+
+Did you mean a stop **below today’s low of ₹1,280.70**? Th
+
+[ERR] buy 20 ONGC when crude oil goes above 80 dollars
+      tools: —
+      cards: —
+      37.9s  in=None out=None
+      error: HTTPError: HTTP Error 500: Internal Server Error
+      reply: 
+
+[·] buy 0.05 BTC when it closes above its 50 day average
+      tools: —
+      cards: —
+      8.9s  in=33419 out=264
+      reply: What rupee amount would you like to deploy instead? This order builder accepts whole-unit quantities, so it can’t directly place **0.05 BTC**; the trigger will be **BTC closing above its 50-day SMA**.
+
+  (setup) buy 15 RELIANCE when RSI(14) falls below 32 on the daily
+
+[·] save this and turn it on
+      tools: ['propose_dsl_workflow']
+      cards: ['workflow_draft'] steps=[2]
+      28.2s  in=67411 out=349
+      reply: Saved the strategy: it buys 15 RELIANCE at market when daily RSI(14) falls below 32. It’s ready to turn on from the strategy card.
+
+[·] what strategies do I have running right now?
+      tools: ['list_alerts']
+      FAILED: ['list_alerts']
+      cards: —
+      23.9s  in=66877 out=175
+      reply: I can’t retrieve your running strategies because alerts require an account, and none is connected here. I therefore can’t confirm whether anything is currently active.
+
+[·] place the order now, at market
+      tools: —
+      cards: —
+      15.8s  in=33407 out=78
+      reply: Should I place a **market buy or sell** for MARUTI, and how many shares?
+
+[·] how much capital would all this tie up, and what's my worst case?
+      tools: —
+      cards: —
+      9.0s  in=33419 out=124
+      reply: Which strategy or order should I calculate this for? Please share the draft/card or its **symbol, quantity, entry price, and stop-loss**—then I’ll give you the total capital tied up and maximum loss.
+
+  (setup) buy 25 TCS when the 50 day EMA crosses above the 200 day EMA
+
+[OK ] make it 60 shares and add a 4% stop
+      tools: ['propose_dsl_workflow']  expected: propose_dsl_workflow
+      cards: ['workflow_draft'] steps=[5]
+      22.3s  in=67745 out=237
+      reply: Updated: buys 60 TCS when the 50-day EMA crosses above the 200-day EMA
+on daily bars, then exits the full position if it falls 4% below entry.
+
+[·] is that crossover strategy overfit? run a walk forward on it
+      tools: —
+      cards: —
+      6.4s  in=33417 out=158
+      reply: Which crossover should I walk-forward test on **RELIANCE**—for example:
+
+- **50/200 SMA**
+- **50/200 EMA**
+- **20/50 SMA**
+- another pair you specify
+
+I’ll use the selected crossover’s entry/exit rules and test it on rolling in-sample and out-of-sample windows.
+
+[·] hedge my RELIANCE position against a 10% fall
+      tools: —
+      cards: —
+      10.3s  in=33417 out=259
+      reply: I can’t build an options hedge on this surface. Would you like a protective exit for your RELIANCE holding:
+
+- **10% below your entry price**, or
+- **a trailing stop 10% below the running high**?
+
+[·] set up something that buys the RBI rate cut
+      tools: —
+      cards: —
+      10.5s  in=33413 out=147
+      reply: RBI rate-cut announcements aren’t available as direct triggers here. I can instead set up a trade triggered by a market proxy—such as **RELIANCE price action, NIFTY, or BANKNIFTY**—after a specified move.
+
+**Which instrument, what trigger level/move, and how many shares should it buy?**
+
+[·] find me five momentum names in the Nifty and build a basket out of them
+      tools: ['screen_universe', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'read_symbol', 'build_strategy']
+      FAILED: ['read_symbol']
+      cards: ['strategy_basket']
+      190.8s  in=226187 out=1772
+      reply: ## Nifty momentum basket built
+
+The basket uses five Nifty names with an aggressive, conviction-weighted allocation:
+
+| Stock | Weight |
+|---|---:|
+| EICHERMOT | 22.01% |
+| HINDALCO | 20.33% |
+| BHARTIARTL | 20.10% |
+| LT | 19.21% |
+| ADANIPORTS | 18.35% |
+| **Total** | **100%** |
+
+The basket is equ
+
+  (setup) buy 8 SUNPHARMA when RSI is below 35
+
+[·] log it in my journal when it fires
+      tools: ['propose_workflow']
+      cards: ['workflow_draft'] steps=[3]
+      15.1s  in=67361 out=351
+      reply: Updated: when daily RSI(14) falls below 35, it buys 8 SUNPHARMA shares and logs the trigger in your journal.
+
+[·] paper trade this idea for a month and tell me how it goes
+      tools: —
+      cards: —
+      11.2s  in=33417 out=153
+      reply: What idea should I paper-trade for the month? Please give the **symbol and entry/exit rule**—for example, “RELIANCE: buy when RSI(14) < 30, sell when RSI > 60.”
+
+[OK ] square off all my intraday positions at 3:15 every day
+      tools: ['propose_workflow']  expected: propose_workflow
+      cards: ['workflow_draft'] steps=[2]
+      14.9s  in=67244 out=183
+      reply: Square off all intraday positions at 3:15 PM IST every trading day.
+
+[OK ] buy 12 AXISBANK when it gaps up more than 2% at the open, and don't take more than 2 trades a week
+      tools: ['propose_dsl_workflow', 'propose_dsl_workflow', 'propose_dsl_workflow']  expected: propose_dsl_workflow
+      FAILED: ['propose_dsl_workflow', 'propose_dsl_workflow']
+      cards: ['workflow_draft'] steps=[2]
+      41.2s  in=135807 out=1152
+      reply: I can’t complete this automation right now because the **“maximum 2 trades per week”** guard isn’t resolving correctly. The intended rule is:
+
+- Buy **12 AXISBANK** shares at market when it gaps up **more than 2% at the open**
+- Allow no more than **2 trades per week**
+
+No order has been created.
+
+======================================================================
+24 prompts · 10 expected-tool · 2 other route · 1 errored · 13 produced a card · median 22.3s
+wrote exec_coverage_24_results.json
