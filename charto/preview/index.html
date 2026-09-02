@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Pivot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -273,6 +273,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+html { overflow: hidden; overscroll-behavior: none; }
 body {
   background: var(--background); color: var(--foreground); font-family: var(--font);
   font-size: var(--text-md); display: flex; flex-direction: column;
@@ -6122,7 +6123,9 @@ svg.icon.op {
    the reply ran. */
 @media (max-width: 820px) and (orientation: portrait) {
   .main { flex-direction: column; }
-  .charts { flex: 1 1 auto; min-height: 44vh; min-height: 44dvh; }
+  /* Consume only the height left after the fixed chat and toolbar rows.
+     The old 44dvh minimum made the phone layout taller than the viewport. */
+  .charts { flex: 1 1 0; min-height: 0; }
   .chatpanel {
     width: 100%; min-width: 0; flex: none;
     height: 46vh; height: 46dvh; min-height: 210px;
@@ -6204,12 +6207,24 @@ svg.icon.op {
    screen the chart itself is the surface you draw on, and 38px of chrome
    costs more than the tools are worth at this width. */
 @media (max-width: 560px) and (orientation: portrait) {
+  /* Keep the document itself immovable. Intentional scrolling belongs to
+     the chat thread, menus and sheets inside this fixed app viewport. */
+  body {
+    position: fixed; inset: 0; width: 100%;
+    height: 100dvh;
+    /* Keep the composer's rounded edge inside the visible canvas even when
+       the browser reports a zero safe-area inset (common in Android Chrome
+       and embedded webviews). box-sizing:border-box makes this shrink the
+       app rather than grow the document, so page scrolling stays disabled. */
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    overscroll-behavior: none;
+  }
   .rail { display: none; }
   /* and the widget bar with it — the chart toolbar's More sheet opens both
      panels here, by clicking these very buttons */
   .wbar { display: none; }
 
-  /* ── the top line loses its CONTROLS, not its name ─────────────────────
+  /* ── the desktop top line leaves the phone entirely ───────────────────
      The header is nine controls on one 48px row. At this width it had
      already been reduced to a sideways-scrolling strip — a row you have to
      drag before you can read it, sitting above the one thing on the screen
@@ -6217,19 +6232,14 @@ svg.icon.op {
      the chart toolbar under the chart instead (.mbar): one line, thumb-high,
      a sheet per group rather than nine controls shrunk to fit.
 
-     What stays is the WORDMARK. An app with no name at the top reads as a
-     web page someone embedded a chart in; the name is the one thing on that
-     row that was never a control, so it is the one thing that survives — on
-     a 34px strip rather than 48.
+     The full row goes away, including the wordmark, so the first visible row
+     is the instrument context inside the chart itself.
 
      Every control keeps its element and its listeners, merely hidden: the
      bar clicks the real buttons and borrows the real menus, so there is
      still exactly one interval strip, one instrument list, one indicator
      menu in the app. */
-  body > header {
-    height: 34px; padding: 0 14px; gap: 0; overflow: visible;
-  }
-  body > header > *:not(.brand) { display: none; }
+  body > header { display: none; }
   /* .mbar is turned ON at the end of its own section below — a `display`
      here would be overridden by the base rule that comes later in the
      sheet, which is exactly the bug this note exists to prevent. */
@@ -6571,7 +6581,12 @@ svg.icon.op {
    reads, so a narrower `max-width` further up loses to a wider one further
    down. This block has to stay at the bottom. */
 @media (max-width: 560px) and (orientation: portrait) {
-  .mbar { display: flex; }
+  .mbar {
+    display: flex;
+    /* Stay fully visible above the body's home-indicator safe area. */
+    min-height: 46px;
+    overflow-y: hidden;
+  }
 
   /* ── the chart / chat divider, for a thumb ────────────────────────────
      Stacked, this is a 1px line with 7px of invisible margin either side —
