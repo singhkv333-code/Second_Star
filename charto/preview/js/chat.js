@@ -2475,6 +2475,15 @@
   const rowChrome = () =>
     Math.max(0, main.clientWidth - panel.offsetWidth - chartsEl.clientWidth);
 
+  /* The stacked phone layout also spends height on the mobile toolbar and
+   * horizontal splitter. Subtract those rows before clamping a saved chat
+   * height, otherwise chart + chat + chrome can exceed the viewport. */
+  const columnChrome = () => [...main.children].reduce((sum, node) => {
+    if (node === panel || node === chartsEl) return sum;
+    const style = getComputedStyle(node);
+    return style.display === "none" ? sum : sum + node.getBoundingClientRect().height;
+  }, 0);
+
   /** What the divider currently says about itself — the share of the row the
    *  conversation holds, which is the number that survives a window resize,
    *  and the pixels the layout actually stores. Written into the readout the
@@ -2507,7 +2516,8 @@
    *  time the window crosses the breakpoint. */
   function setChatHeight(px, persist = true) {
     const total = main.clientHeight;
-    const h = Math.round(Math.max(MIN_CHAT_H, Math.min(px, total - MIN_CHART_H)));
+    const ceiling = Math.max(MIN_CHAT_H, total - MIN_CHART_H - columnChrome());
+    const h = Math.round(Math.max(MIN_CHAT_H, Math.min(px, ceiling)));
     panel.style.height = h + "px";
     if (persist) localStorage.setItem(HKEY, String(h));
     paintSplit();
