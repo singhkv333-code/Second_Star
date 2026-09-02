@@ -405,7 +405,16 @@ const Drawings = (() => {
      * really using, and reverts the moment they touch the mouse again. */
     let lastInputCoarse = false;
     const coarsePointer = () => lastInputCoarse;
-    el.addEventListener("mousemove", () => { lastInputCoarse = false; }, true);
+    // isTrusted, and it is the whole of this line. The touch bridge below
+    // REPLAYS each finger move as a MouseEvent on this same element, so a
+    // bare mousemove listener cleared the flag on the first relayed move of
+    // every gesture — the radius collapsed from 22 back to 9 mid-drag and the
+    // anchor the finger was already holding stopped being found, which read
+    // as "grabbing an end drags the whole shape". Only a real mouse, which
+    // the browser marks trusted, means the user has switched inputs.
+    el.addEventListener("mousemove", (e2) => {
+      if (e2.isTrusted) lastInputCoarse = false;
+    }, true);
 
     /** Grab radius for an anchor: generous enough for a fingertip, unchanged
      *  for a cursor. */
@@ -413,17 +422,50 @@ const Drawings = (() => {
 
     function handleAt(d, mx, my, key) {
       const e = envFor(key, el.clientWidth, paneHeight(key));
-      const r = handleR();
+      const base = handleR();
+      const P = d.pts.map((q) => ({ x: tToX(q.t), y: e.vToY(q.v) }));
+      /* CANDIDATES FIRST, and this ordering is a performance requirement.
+       *
+       * The neighbour-spacing cap below is O(n) per anchor, and a hit test
+       * runs on every pointer move; over a freehand stroke's few hundred
+       * samples the naive nested loop is tens of thousands of distance
+       * computations per frame, which locked the page hard enough that the
+       * whole tab stopped answering. Almost every press is nowhere near any
+       * anchor, so the cheap O(n) filter answers first and the expensive part
+       * only runs for the one or two anchors actually in reach. */
+      const near = [];
+      for (let i = 0; i < P.length; i++) {
+        if (P[i].x === null || P[i].y === null) continue;
+        if (Math.hypot(mx - P[i].x, my - P[i].y) < base) near.push(i);
+      }
+      if (!near.length) return -1;
+
       let best = -1, bestD = Infinity;
-      for (let i = 0; i < d.pts.length; i++) {
-        const x = tToX(d.pts[i].t), y = e.vToY(d.pts[i].v);
-        if (x === null || y === null) continue;
-        const dd = Math.hypot(mx - x, my - y);
-        // NEAREST, not first. At a fingertip's radius two anchors of a
-        // channel overlap constantly, and taking whichever came first in the
-        // array meant the end you were plainly aiming at was not the one that
-        // moved. Ties are impossible in practice and harmless if they happen.
-        if (dd < r && dd < bestD) { best = i; bestD = dd; }
+      for (const i of near) {
+        /* A HANDLE MAY NEVER SWALLOW ITS NEIGHBOUR — or the shape's body.
+         *
+         * A fingertip radius is the right size for a lone endpoint and much
+         * too big for anchors sitting close together: at 22px a small
+         * channel, a tight pitchfork or a freehand stroke is ENTIRELY inside
+         * its own handles, so every press became an anchor drag and the shape
+         * could only ever be deformed, never moved. That is what "the
+         * parallel channel doesn't shift properly" actually was.
+         *
+         * Half the distance to the nearest other anchor: handles then touch
+         * at most at a point, and whatever lies between them is body. Dense
+         * strokes shrink their handles to nothing, which is correct — you
+         * move a freehand line, you do not re-place its two-hundredth
+         * sample. */
+        let cap = base;
+        for (let j = 0; j < P.length; j++) {
+          if (j === i || P[j].x === null || P[j].y === null) continue;
+          cap = Math.min(cap, Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y) / 2);
+          if (cap <= 1) break;     // already too tight to grab; stop measuring
+        }
+        const dd = Math.hypot(mx - P[i].x, my - P[i].y);
+        // NEAREST, not first: with two anchors both in range, the one the
+        // finger is actually closer to is the one it was aiming at.
+        if (dd < cap && dd < bestD) { best = i; bestD = dd; }
       }
       return best;
     }
@@ -793,11 +835,27 @@ const Drawings = (() => {
           }
           return;
         }
+        const start = downAt;
         downAt = null;
         e2.preventDefault(); e2.stopPropagation();
         // the drag-draw test in mouseup reads the draft's own anchors, which
         // the last move already placed — so this is just the release
         relay("mouseup", e2.changedTouches[0]);
+        /* …and a CLICK, when the finger did not travel.
+         *
+         * The two layers select on different events: drawings.js on
+         * mousedown, scene.js on click. Relaying only down/move/up therefore
+         * selected a user's own shape and never one the chat drew — a level
+         * or a pattern could not be picked up on a phone at all. The browser
+         * emits this click itself for an untouched tap; this gesture was
+         * preventDefaulted, so it does not, and relaying it here restores
+         * exactly what taking the gesture suppressed. A drag never qualifies,
+         * which is also scene.js's own rule (it ignores a click after one). */
+        const t = e2.changedTouches[0];
+        if (start && t
+            && Math.hypot(t.clientX - start.x, t.clientY - start.y) <= TAP_SLOP) {
+          relay("click", t);
+        }
         live = false;
       };
       el.addEventListener("touchend", end, opts);

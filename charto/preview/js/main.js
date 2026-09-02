@@ -181,8 +181,47 @@
       stageEl.style.setProperty("--axis-w", ps + "px");
     }
   }
+  /* THE CHART CAN COME UP TWO PIXELS TALL, and then stay that way.
+   *
+   * `autoSize: true` hands sizing to the library's own ResizeObserver, which
+   * measures the container when the chart is created. On the phone layout
+   * that measurement can land while `.charts` is still zero-height — it is
+   * `flex: 1 1 0; min-height: 0` inside a `position: fixed` body, so the
+   * first pass legitimately has no height to give it. The library builds
+   * 2px panes from that, and because the container's size never changes
+   * again afterwards, no further observation ever arrives to correct it.
+   *
+   * The symptom is a chart element of the right size containing canvases of
+   * the wrong one: 375x286 holding 374x2. Nothing renders, priceToCoordinate
+   * answers in fractions of a pixel, and no drawing can be placed because
+   * there is nowhere to place it.
+   *
+   * So the observer also checks the result and re-applies the size when the
+   * panes have plainly not taken it. Cheap — a rect read and a comparison —
+   * and a no-op on every healthy layout, which is every desktop one. */
+  function ensureChartSized() {
+    const w = chartEl.clientWidth, h = chartEl.clientHeight;
+    if (w < 40 || h < 80) return;          // genuinely small: nothing to correct
+    const cv = chartEl.querySelector("canvas");
+    if (!cv) return;
+    if (cv.getBoundingClientRect().height >= h * 0.4) return;   // laid out fine
+    // resize() alone does nothing here: with autoSize on, the library owns
+    // the dimensions and discards a manual one. Turning it off, stating the
+    // size, and turning it back on is what makes it re-measure — and leaves
+    // it in the same mode it was in, so nothing downstream has to know this
+    // happened.
+    try {
+      chart.applyOptions({ autoSize: false, width: w, height: h });
+      chart.applyOptions({ autoSize: true });
+    } catch { /* pre-init */ }
+  }
   syncChartMetrics();
-  new ResizeObserver(syncChartMetrics).observe(chartEl);
+  new ResizeObserver(() => { syncChartMetrics(); ensureChartSized(); }).observe(chartEl);
+  // …and once after the first frames, for the case the observer's own first
+  // callback WAS the zero-height one and nothing resizes the container again.
+  requestAnimationFrame(() => requestAnimationFrame(ensureChartSized));
+  setTimeout(ensureChartSized, 400);
+  setTimeout(ensureChartSized, 1500);
 
   const publishPlate = () =>
     stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));

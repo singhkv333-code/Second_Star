@@ -6359,6 +6359,13 @@ svg.icon.op {
    the chart and no way to read it as anything but breakage. Empty means
    gone, and the chart takes the space back. */
 .mbar:empty { display: none !important; }
+/* The phone's delete slot. Tinted rather than shouted: it appears only when
+   something is selected, so its presence is already the signal, and a red
+   block sitting in a row of neutral glyphs would pull the eye away from the
+   chart every time a shape was touched. */
+.mbtn.mb-del { color: var(--danger, #e5484d); }
+.mbtn.mb-del[hidden] { display: none !important; }
+.mbtn.mb-del:active { background: color-mix(in srgb, var(--danger, #e5484d) 16%, transparent); }
 .mbtn {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
   height: 34px; min-width: 36px; padding: 0 10px; justify-content: center;
@@ -8074,10 +8081,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=1"></script>
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=30"></script>
+  <script src="./js/drawings.js?v=34"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=19"></script>
-  <script src="./js/main.js?v=133"></script>
+  <script src="./js/main.js?v=135"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>
@@ -8099,6 +8106,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=13"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=11"></script>
+  <script src="./js/mobile.js?v=12"></script>
 </body>
 </html>

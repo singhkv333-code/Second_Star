@@ -371,6 +371,21 @@
       Icons.svg("indicators") + "</button>" +
     '<button type="button" class="mbtn" data-slot="drawings" id="mbDraw" aria-label="Drawings">' +
       Icons.svg("pen") + "</button>" +
+    /* DELETE THE SELECTED SHAPE, which on a phone had nowhere to live.
+     *
+     * The rail carries this button on a desktop and the rail is display:none
+     * at this width, so adding it there put it on the one platform that
+     * already had a keyboard Delete and left it off the one that has no
+     * keyboard at all. It sits next to the pen because that is the drawing
+     * context, and it is hidden until something is selected — an always-on
+     * delete beside the tools is a mistap waiting on a surface where every
+     * tap is a thumb.
+     *
+     * It CLICKS #tool-del rather than deleting anything itself: same rule as
+     * every other slot in this file. One button, one behaviour, two places
+     * to reach it. */
+    '<button type="button" class="mbtn mb-del" data-act="del" ' +
+      'aria-label="Delete selected" hidden>' + Icons.svg("trash") + "</button>" +
     '<span class="mspace"></span>' +
     widgetBtns.map((b) => {
       const label = b.querySelector(".tip").textContent;
@@ -390,9 +405,26 @@
     // js/panels.js apply its own one-panel rule.
     const w = e.target.closest("[data-widget]");
     if (w) { closeSheet(); el(`wb-${w.dataset.widget}`).click(); return syncBar(); }
+    const act = e.target.closest("[data-act]");
+    if (act && act.dataset.act === "del") {
+      closeSheet();
+      const real = el("tool-del");
+      if (real) real.click();
+      return;
+    }
     const b = e.target.closest("[data-slot]");
     if (b) openSheet(b.dataset.slot);
   });
+
+  /* The delete slot mirrors the rail button's own visibility, so there is one
+   * answer to "is something selected" and this row is reading it rather than
+   * deciding it. Both selection events fire on the document already. */
+  function syncDel() {
+    const real = el("tool-del"), mine = bar.querySelector('[data-act="del"]');
+    if (real && mine) mine.hidden = real.hidden;
+  }
+  document.addEventListener("charto:draw-select", () => setTimeout(syncDel, 0));
+  document.addEventListener("charto:scene-select", () => setTimeout(syncDel, 0));
 
   /** The bar says what the chart is showing — read off the controls it
    *  proxies, never off a copy of their state. Written only when a value
