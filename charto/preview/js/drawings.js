@@ -265,21 +265,42 @@ const Drawings = (() => {
       // so the only way to reach this is a draft that was already open.
       if (state.hidden && !state.draft) return;
       const e = envFor(key, w, h);
-      const paint = (d, selected, isDraft) => {
+      /* TEXT LAST, over every shape.
+       *
+       * One pass in array order meant a label belonged to its own drawing's
+       * z-position, so any shape created afterwards painted over it — a
+       * channel's fill, a box, a fib's bands. The words are the one part of
+       * an annotation that is useless when it is 40% covered: a half-hidden
+       * line still reads as a line, a half-hidden price does not read at all.
+       *
+       * So the loop runs twice over the same primitives — bodies for every
+       * drawing, then labels for every drawing — and the relative order
+       * WITHIN each pass is still the array's, so moveLayer keeps meaning
+       * what it meant. Handles come last of all, because they are the thing
+       * the pointer is reaching for. */
+      const paint = (d, selected, isDraft, wantLabels) => {
         if ((d.pane || "price") !== key) return;
         // The layers panel's per-item switch, alongside the global fold above.
         // A draft never carries the flag, so arming a tool still draws.
         if (d.hidden) return;
         for (const prim of primsOf(d)) {
+          if ((prim.kind === "label") !== wantLabels) continue;
           const px = G.project(prim, e);
           if (px) G.paint(ctx, prim, px, styleOf(d, prim, selected, isDraft), e);
         }
-        if (selected) handles(ctx, d, e);
       };
-      if (!state.hidden) {
-        for (const d of state.drawings) paint(d, d.id === state.selId, false);
+      for (const labels of [false, true]) {
+        if (!state.hidden) {
+          for (const d of state.drawings) paint(d, d.id === state.selId, false, labels);
+        }
+        if (state.draft) paint(state.draft, false, true, labels);
       }
-      if (state.draft) paint(state.draft, false, true);
+      if (!state.hidden) {
+        for (const d of state.drawings) {
+          if (d.id === state.selId && !d.hidden
+              && (d.pane || "price") === key) handles(ctx, d, e);
+        }
+      }
     }
 
     function handles(ctx, d, e) {
@@ -287,10 +308,14 @@ const Drawings = (() => {
       ctx.fillStyle = Theme.c("handleFill");
       ctx.strokeStyle = Theme.c("accent");
       ctx.lineWidth = 1.5;
+      // Drawn to match what can be GRABBED. A 4.5px dot over a 22px catch
+      // radius tells a finger to aim somewhere smaller than it needs to, and
+      // aiming small is what makes a miss feel like a broken control.
+      const rad = coarsePointer() ? 7.5 : 4.5;
       for (const a of d.pts) {
         const x = tToX(a.t), y = e.vToY(a.v);
         if (x === null || y === null) continue;
-        ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       }
       ctx.restore();
     }
@@ -359,18 +384,48 @@ const Drawings = (() => {
         if (handleAt(d, mx, my, key) >= 0) return d.id;
         for (const prim of primsOf(d)) {
           const px = G.project(prim, e);
-          if (px && G.hit(prim, px, mx, my, HIT, e)) return d.id;
+          // Same reason as handleR: 7px of tolerance around a line is a
+          // mouse's answer. A finger aiming at the BODY of a shape — which is
+          // how you move one — misses it by more than that most times.
+          if (px && G.hit(prim, px, mx, my, coarsePointer() ? 18 : HIT, e)) return d.id;
         }
       }
       return null;
     }
+    /* FINGERS ARE NOT MICE, and every hit radius in this file was written for
+     * a mouse. A cursor is one pixel and lands where you looked; a fingertip
+     * covers roughly 40 and hides the thing it is reaching for. A 9px handle
+     * is not "hard" to grab on a phone, it is unreachable — which is most of
+     * why moving and re-angling a shape read as broken there.
+     *
+     * The signal is the last INPUT, not a media query: `pointer: coarse`
+     * answers for the device, and a tablet with a mouse or a desktop in
+     * device-mode both answer wrongly. The touch bridge below sets this when
+     * it actually relays a finger, so the radius follows what the person is
+     * really using, and reverts the moment they touch the mouse again. */
+    let lastInputCoarse = false;
+    const coarsePointer = () => lastInputCoarse;
+    el.addEventListener("mousemove", () => { lastInputCoarse = false; }, true);
+
+    /** Grab radius for an anchor: generous enough for a fingertip, unchanged
+     *  for a cursor. */
+    const handleR = () => (coarsePointer() ? 22 : 9);
+
     function handleAt(d, mx, my, key) {
       const e = envFor(key, el.clientWidth, paneHeight(key));
+      const r = handleR();
+      let best = -1, bestD = Infinity;
       for (let i = 0; i < d.pts.length; i++) {
         const x = tToX(d.pts[i].t), y = e.vToY(d.pts[i].v);
-        if (x !== null && y !== null && Math.hypot(mx - x, my - y) < 9) return i;
+        if (x === null || y === null) continue;
+        const dd = Math.hypot(mx - x, my - y);
+        // NEAREST, not first. At a fingertip's radius two anchors of a
+        // channel overlap constantly, and taking whichever came first in the
+        // array meant the end you were plainly aiming at was not the one that
+        // moved. Ties are impossible in practice and harmless if they happen.
+        if (dd < r && dd < bestD) { best = i; bestD = dd; }
       }
-      return -1;
+      return best;
     }
 
     // ── snapping ────────────────────────────────────────
@@ -602,15 +657,39 @@ const Drawings = (() => {
       if (!state.draft) return;
       const spec = Tools.SPECS[state.draft.type];
       if (spec.anchors === "free") { state.draft.pts.length > 2 ? commit() : cancel(); return; }
-      // drag-draw: if the pointer travelled, the gesture already placed the
-      // last anchor, so finish. Otherwise stay in click-click mode.
-      if (spec.anchors === 2 && state.draft.pts.length === 2) {
-        const p0 = state.draft.pts[0], p1 = state.draft.pts[1];
-        const moved = Math.hypot((tToX(p1.t) ?? 0) - (tToX(p0.t) ?? 0),
-                                 (vToY(p1.v, state.draft.pane) ?? 0)
-                                 - (vToY(p0.v, state.draft.pane) ?? 0));
-        if (moved > 6) commit();
-      }
+
+      /* TWO WAYS TO PLACE EVERY ANCHOR, and it used to be two ways to place
+       * exactly two of them.
+       *
+       * Click-click is the desktop gesture: tap to drop an anchor, move to
+       * aim the floating one, tap again. Press-drag-release is the phone's,
+       * and it was gated on `spec.anchors === 2` — so a parallel channel,
+       * a pitchfork, a fib extension, anything with three or more, had only
+       * the desktop gesture on a device that cannot perform it. A finger off
+       * the glass sends no mousemove, so the floating anchor never followed
+       * anything, and the NEXT tap overwrote the leg just dragged (mousedown
+       * assigns pts[last] before it pushes). That is the channel arriving
+       * mangled, not slow.
+       *
+       * So the rule is per-ANCHOR, not per-tool: if the pointer travelled
+       * while this anchor was floating, the gesture placed it — advance, and
+       * commit if that filled the shape. A click that did not travel leaves
+       * the draft exactly as it was, which is click-click, untouched.
+       */
+      const pts = state.draft.pts;
+      if (pts.length < 2) return;
+      const from = pts[pts.length - 2], to = pts[pts.length - 1];
+      const pane = state.draft.pane;
+      const x0 = tToX(from.t), y0 = vToY(from.v, pane);
+      const x1 = tToX(to.t), y1 = vToY(to.v, pane);
+      if (x0 === null || y0 === null || x1 === null || y1 === null) return;
+      // 6px on a mouse; a finger never lands as still as a click, so the
+      // threshold has to clear its own tremor or every tap reads as a drag
+      const slop = coarsePointer() ? 14 : 6;
+      if (Math.hypot(x1 - x0, y1 - y0) <= slop) return;   // a tap: stay in click-click
+      if (pts.length >= spec.anchors) return commit();
+      pts.push({ ...to });        // the next anchor, floating from here
+      _ru();
     });
 
     /* ── touch, for the phone ────────────────────────────────────────────
@@ -667,8 +746,30 @@ const Drawings = (() => {
         }));
       };
       const opts = { capture: true, passive: false };
+      /* THE TAP THAT LANDS ON NOTHING still has a job: it deselects.
+       *
+       * A gesture in cursor mode over empty chart is deliberately NOT taken —
+       * that is what keeps panning working. But not taking it also meant no
+       * mousedown was relayed, so the branch in the handler above that clears
+       * the selection never ran, and a shape stayed selected with its handles
+       * up no matter where you tapped.
+       *
+       * The browser's own compatibility mouse events would normally cover
+       * this — a real tap emits mousedown/mouseup/click after touchend — but
+       * lightweight-charts preventDefaults the gesture on the canvas beneath
+       * to drive its pan, and a preventDefaulted touch emits none of them.
+       * So the tap is recognised here instead: not live, barely moved, in
+       * cursor mode. A pan moves far more than this and never qualifies. */
+      let downAt = null;
+      const TAP_SLOP = 10;
       el.addEventListener("touchstart", (e2) => {
-        live = e2.touches.length === 1 && armed(e2.touches[0]);  // a pinch is never a draw
+        // Before `armed`, because the probes it runs are the ones that need
+        // the fingertip radius — asking with a mouse's 9px is what made a
+        // handle unreachable in the very gesture reaching for it.
+        lastInputCoarse = true;
+        const t0 = e2.touches[0];
+        downAt = e2.touches.length === 1 && t0 ? { x: t0.clientX, y: t0.clientY } : null;
+        live = e2.touches.length === 1 && armed(t0);  // a pinch is never a draw
         if (!live) return;
         e2.preventDefault(); e2.stopPropagation();
         relay("mousedown", e2.touches[0]);
@@ -679,7 +780,20 @@ const Drawings = (() => {
         relay("mousemove", e2.touches[0]);
       }, opts);
       const end = (e2) => {
-        if (!live) return;
+        if (!live) {
+          // the untaken gesture: a stationary tap on empty chart clears the
+          // selection on BOTH layers, and anything that moved was a pan
+          const t = e2.changedTouches && e2.changedTouches[0];
+          const still = downAt && t
+            && Math.hypot(t.clientX - downAt.x, t.clientY - downAt.y) <= TAP_SLOP;
+          downAt = null;
+          if (still && state.tool === "cursor" && !state.draft) {
+            if (state.selId) { state.selId = null; emitSelect(); _ru(); }
+            if (env.sceneDeselect) env.sceneDeselect();
+          }
+          return;
+        }
+        downAt = null;
         e2.preventDefault(); e2.stopPropagation();
         // the drag-draw test in mouseup reads the draft's own anchors, which
         // the last move already placed — so this is just the release

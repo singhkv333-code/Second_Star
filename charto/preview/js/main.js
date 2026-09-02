@@ -898,7 +898,49 @@
     // put the session back: a chart with nothing on it yet must not offer to
     // remove things from it, and "yet" includes the first frame.
     `<button class="tool" id="tool-trash" data-tool="trash" data-kind="action" disabled>` +
-    `${Icons.svg("trash")}<span class="tip">Remove objects…</span></button>`);
+    `${Icons.svg("trash")}<span class="tip">Remove objects…</span></button>` +
+    // DELETE THE SELECTED ONE, which the trash above has never done — that
+    // opens a menu of whole layers. Select-then-Delete was keyboard-only, so
+    // on a phone a shape could be drawn and selected and never removed.
+    // Hidden until something IS selected: a button that deletes "the
+    // selection" is a lie on a chart that has none, and the rail is short
+    // enough that a permanent disabled slot costs more than it explains.
+    `<button class="tool" id="tool-del" data-tool="del" data-kind="action" hidden>` +
+    `${Icons.svg("trash")}<span class="tip">Delete selected (Del)</span></button>`);
+
+  /* The delete button follows BOTH selections — the user's own shapes and the
+   * chat's annotations — because from the chart's side they are one idea:
+   * something is selected, and this removes it. Which module owns it is an
+   * implementation detail the rail should not make the user think about.
+   *
+   * Two events, one piece of state. `charto:draw-select` has always fired;
+   * `charto:scene-select` is new for exactly this. Each carries null on
+   * deselect, so the button leaves the same way it arrived. */
+  const selNow = { draw: null, scene: null };
+  function paintDelBtn() {
+    const b = el("tool-del");
+    if (!b) return;
+    const on = !!(selNow.draw || selNow.scene);
+    b.hidden = !on;
+    b.querySelector(".tip").textContent = selNow.draw
+      ? `Delete ${selNow.draw.ref || "drawing"} (Del)`
+      : selNow.scene ? "Delete selected annotation (Del)" : "Delete selected (Del)";
+  }
+  document.addEventListener("charto:draw-select", (e) => {
+    selNow.draw = e.detail || null; paintDelBtn();
+  });
+  document.addEventListener("charto:scene-select", (e) => {
+    selNow.scene = e.detail || null; paintDelBtn();
+  });
+  el("tool-del").addEventListener("click", (e) => {
+    e.stopPropagation();
+    // The drawing wins a tie: it is the layer the user was last drawing on,
+    // and only one of the two can be selected by any single click anyway.
+    if (selNow.draw) draw.remove(selNow.draw.id);
+    else if (selNow.scene) scene.remove(selNow.scene.id);
+    selNow.draw = selNow.scene = null;
+    paintDelBtn();
+  });
 
   /** Open or close one group's flyout. The wrap gets the state too, because
    *  the button's tooltip has to know: both land in the same slot beside the
@@ -1052,6 +1094,9 @@
     sceneGrabbable: (x, y) => {
       try { return scene.grabbableAt(x, y); } catch { return false; }
     },
+    // Same lazy-and-guarded reason as above: the tap that clears the
+    // selection has to clear it on both layers, and the bridge lives here.
+    sceneDeselect: () => { try { scene.deselect(); } catch { /* pre-init */ } },
   });
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());

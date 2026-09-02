@@ -1189,6 +1189,28 @@ const Scene = (() => {
     const draggableKind = (a) => !!a && a.kind !== "markers"
       && a.kind !== "vprofile" && a.kind !== "candle";
 
+    /* THE SELECTION IS ANNOUNCED, from wherever it changes.
+     *
+     * drawings.js has fired `charto:draw-select` for its own shapes since the
+     * provenance card needed it; the chat's annotations had no equivalent, so
+     * nothing outside this module could know one was selected — which is why
+     * a toolbar button that offers to delete "the selected thing" needs this
+     * to exist at all. Every assignment goes through here, including the ones
+     * that clear it, because a control that appears on select and never
+     * leaves on deselect is worse than no control. */
+    function setSel(next) {
+      if (next === state.sel) return;
+      state.sel = next;
+      const a = next && state.items.find((x) => (x.link || x.id) === next);
+      // `key` is what selection is addressed by (a linked pattern selects as
+      // one object); `id` is a real member, which is what remove() matches on
+      // — it expands to the whole link itself. Sending the key as an id
+      // silently removed nothing for every multi-part annotation.
+      document.dispatchEvent(new CustomEvent("charto:scene-select", {
+        detail: a ? { id: a.id, key: next, kind: a.kind, label: a.label } : null,
+      }));
+    }
+
     /** Is there something here a drag would move? Client coordinates, because
      *  the caller is a touch handler that has a Touch and not an event. */
     function grabbableAt(clientX, clientY) {
@@ -1270,17 +1292,17 @@ const Scene = (() => {
      * which is what stops one keypress from deleting two objects. */
     window.addEventListener("keydown", (e) => {
       if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable) return;
-      if (e.key === "Escape" && state.sel) { state.sel = null; _ru(); return; }
+      if (e.key === "Escape" && state.sel) { setSel(null); _ru(); return; }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (!state.sel) return;
       const key = state.sel;
       const before = state.items.length;
       state.items = state.items.filter((x) => (x.link || x.id) !== key);
-      if (state.items.length === before) { state.sel = null; return; }
+      if (state.items.length === before) { setSel(null); return; }
       // Backspace is the browser's "go back" on some setups; a press that
       // actually removed something must not also navigate away from the app.
       e.preventDefault();
-      state.sel = null; state.hover = null;
+      setSel(null); state.hover = null;
       syncMarkers(); _ru(); env.onChange(count());
       if (env.setStatus) env.setStatus("removed from the chart");
     });
@@ -1292,7 +1314,7 @@ const Scene = (() => {
       const p = pointIn(e);
       const hit = hitAt(p.y, p.key, p.x);
       const next = hit ? (hit.link || hit.id) : null;
-      if (next !== state.sel) { state.sel = next; _ru(); }
+      if (next !== state.sel) { setSel(next); _ru(); }
       if (hit) {
         e.stopPropagation();
         env.onSelect(hit, cardY(hit) ?? p.y);
@@ -1309,6 +1331,9 @@ const Scene = (() => {
        *  the chat's annotations? Asked before the gesture is swallowed, so a
        *  finger that lands on empty chart still pans. */
       grabbableAt,
+      /** Clear the selection from outside — the empty-chart tap, which this
+       *  module never sees because the bridge does not take that gesture. */
+      deselect() { if (state.sel) { setSel(null); _ru(); } },
       /** Drive the hover highlight from outside the canvas — the chat pane
        *  hovers a mention, the annotation lights up. Presentation only: it
        *  moves no meaning, it just points at what is already drawn. */
@@ -1337,6 +1362,10 @@ const Scene = (() => {
         const link = a && a.link;
         state.items = state.items.filter(
           (x) => x.id !== id && !(link && x.link === link));
+        // …and the selection cannot outlive what it pointed at. Left set, it
+        // named a row that is gone: the next Delete matched nothing, and the
+        // toolbar button would have offered to remove it again.
+        if (state.sel === (link || id)) setSel(null);
         _ru(); env.onChange(count());
       },
       /** Apply a scene patch. Cumulative; same id replaces in place. */
@@ -1397,7 +1426,7 @@ const Scene = (() => {
         // The selection goes with them. A `sel` pointing at a key that is no
         // longer in `items` is a Delete key aimed at nothing, and a highlight
         // with no shape under it.
-        state.items = []; state.sel = null; state.hover = null;
+        state.items = []; setSel(null); state.hover = null;
         syncMarkers(); _ru(); env.onChange(0);
       },
       /** Replace every annotation at once — the undo stack's write path.
@@ -1407,7 +1436,7 @@ const Scene = (() => {
       setItems(list) {
         state.items = (list || []).slice();
         state.hover = null;
-        state.sel = null;
+        setSel(null);   // an undo that swaps the whole scene drops the selection
         syncMarkers(); _ru(); env.onChange(count());
       },
       count,
