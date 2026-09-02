@@ -3939,6 +3939,13 @@
         + `<div class="acct-note">Layouts, drawings and conversations are `
         + `saved to this account.</div>`
         + `<div class="sep"></div>`
+        // The paper book, signed in only — it belongs to an account and there
+        // is nothing to link a signed-out visitor to. A plain link rather
+        // than a panel: it is a full page on the app's other surface, the way
+        // a company page is, and pretending otherwise would mean rebuilding
+        // six charts that already exist.
+        + `<div class="item" data-acct="paper"><span class="lead">`
+        + Icons.svg("planTrade", "xs") + `Paper book</span></div>`
         + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
@@ -3969,6 +3976,14 @@
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
+    // Same origin behind nginx in production; in local dev the Next app is a
+    // separate port, so the link has to name it or it 404s against :5173.
+    if (it.dataset.acct === "paper") {
+      const base = ["localhost", "127.0.0.1"].includes(location.hostname)
+        ? "http://127.0.0.1:5175" : "";
+      window.open(base + "/paper", "_blank", "noopener");
+      return;
+    }
     if (it.dataset.acct === "logout") {
       await Auth.logout();
       // Signing out changes WHOSE work this is, and the modules holding that

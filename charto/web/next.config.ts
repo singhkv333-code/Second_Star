@@ -1,6 +1,20 @@
 import type { NextConfig } from "next";
 
-const BACKEND = process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") || "http://127.0.0.1:8000";
+// Where the rewrites below send API traffic in LOCAL DEV. In production none
+// of them fire: nginx routes /paper and /paper/ here and everything else to the
+// dataserver, so a rewrite is only ever the local answer to "the Next app and
+// the backend are on different ports".
+//
+// The default was Pivot's :8000. This is Charto's app talking to Charto's
+// dataserver, so :5174 is the only value that can be right — with :8000 a
+// locally-run paper page asked a different product for the book and got a 404
+// it could not explain. `NEXT_PUBLIC_PIVOT_API_BASE` is relative in .env.local
+// (deliberately — it is inlined into the browser bundle), which strips to an
+// empty string, so the fallback is what is actually in force.
+const BACKEND =
+  process.env.CHARTO_BACKEND ||
+  process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") ||
+  "http://127.0.0.1:5174";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -84,8 +98,21 @@ const nextConfig: NextConfig = {
         destination: `${BACKEND}/markets/:path*`,
       },
       {
-        source: "/paper/:path*",
-        destination: `${BACKEND}/paper/:path*`,
+        // `:path+`, not `:path*`. A `*` matches zero segments, so it would
+        // capture `/paper` itself and rewrite the PAGE to the backend — the
+        // dashboard would never render, and the 404 would come from a route
+        // that looks like it exists. `+` requires at least one segment, so the
+        // page stays with Next and only its data crosses over.
+        source: "/paper/:path+",
+        destination: `${BACKEND}/paper/:path+`,
+      },
+      {
+        source: "/strategies/:path*",
+        destination: `${BACKEND}/strategies/:path*`,
+      },
+      {
+        source: "/strategies",
+        destination: `${BACKEND}/strategies`,
       },
       {
         // Voice input — bare-mounted like /paper; without this the relative

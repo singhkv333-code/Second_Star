@@ -28,14 +28,36 @@ import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
 
-const TOKEN_KEY = "pivot_jwt";
+// Charto's chart app signs the user in and keeps the bearer under its own
+// key; this Next app is served from the same origin and talks to the same
+// backend, so that is the token to send. `pivot_jwt` stays as the fallback
+// because the shared api layer, the login page and the refresh flow were all
+// written against it — reading Charto's key FIRST is what makes a session
+// started on the chart carry into these pages without a second sign-in.
+const TOKEN_KEYS = ["charto:auth:token", "pivot_jwt"] as const;
+
+function readToken(): string | null {
+  for (const key of TOKEN_KEYS) {
+    try {
+      const v = window.localStorage.getItem(key);
+      if (v) return v;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing pages, and the auth routes themselves. */
 // charto: the company page is public — it reads charto's own store, not a
 // user's account, so it must open for anybody without a sign-in wall.
+// `/paper` is ungated for the same reason `/stock` is: Charto's sign-in lives
+// on the chart, and bouncing a signed-out visitor to this app's own /login
+// would hand them the wrong form for the wrong account system. The page says
+// where to sign in instead.
 const UNGATED_PATHS = ["/", "/design", "/waitlist", "/login", "/signup", "/view-pack",
-                       "/stock"];
+                       "/stock", "/paper"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 
@@ -55,20 +77,9 @@ export function AppBootstrap({
     // Flip to real backend + wire token provider FIRST so any code path
     // that fires before the gate decision still sees the right state.
     setBackendSource("real");
-    setAuthTokenProvider(() => {
-      try {
-        return localStorage.getItem(TOKEN_KEY);
-      } catch {
-        return null;
-      }
-    });
+    setAuthTokenProvider(() => readToken());
 
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(TOKEN_KEY);
-    } catch {
-      stored = null;
-    }
+    const stored = readToken();
     if (stored) {
       setPhase("ready");
       // Keep the access token warm for the whole session (timer + on focus),
@@ -132,7 +143,7 @@ function BootstrapSplash(): React.ReactElement {
  */
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return readToken();
 }
 
 /**
@@ -140,5 +151,5 @@ export function getStoredToken(): string | null {
  * legacy chat when it receives a token.
  */
 export function storeToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEYS[1], token);
 }

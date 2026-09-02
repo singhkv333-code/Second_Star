@@ -11058,6 +11058,80 @@ TOOLS = [
          "draw_mode": {"type": "string", "enum": ["replace", "add", "clear"],
                        "description": "'replace' (default) swaps any existing profile, 'clear' removes it"}},
       "required": []}},
+    # ── the paper book ───────────────────────────────────────────────
+    #
+    # These four are what turn a draft into something that exists tomorrow.
+    # They are Charto's own — a Charto account is not a Pivot account, and
+    # nothing here crosses into Pivot's database (execution_bridge.dispatch
+    # documents why that boundary is drawn where it is).
+    {"type": "function", "name": "save_strategy",
+     "description": (
+         "Save the strategy draft THIS turn produced and arm it against the "
+         "live tick. Call it whenever the user says to keep, save, activate, "
+         "arm, deploy, run or turn on the strategy you just built. Once armed, "
+         "Charto evaluates the draft's own condition tree on every bar and "
+         "places a SIMULATED order in the user's paper book when it is met — "
+         "the shares, the cash and the P&L are all real records of a "
+         "simulation, and no real order is ever placed anywhere.\n"
+         "CALL IT DIRECTLY. The draft you built earlier in this conversation "
+         "is remembered, so do NOT rebuild it first — re-running the builder "
+         "costs the user half a minute and arms a fresh translation of your "
+         "own summary rather than the strategy the card actually showed. Only "
+         "build first if there is no draft in this conversation at all.\n"
+         "Never say a strategy is saved without calling this and getting an id "
+         "back — nothing is stored until this returns one.\n"
+         "It refuses, with the reason, what it cannot run: a schedule (a SIP "
+         "is a clock, not a condition), a short entry (the book is long-only), "
+         "or a draft with no fixed quantity. Read the refusal to the user as "
+         "it is written and offer the nearest thing that would arm."),
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string",
+                  "description": "optional: a name the user gave it"},
+         "note": {"type": "string",
+                  "description": "optional: why they are running it, in their words"},
+         "arm": {"type": "boolean",
+                 "description": "default true. false saves it without running it — "
+                                "only when the user explicitly wants it on the shelf"}},
+      "required": []}},
+    {"type": "function", "name": "list_strategies",
+     "description": (
+         "The user's saved strategies, their state (armed / paused / retired), "
+         "whether each is currently holding a position, and how many times it "
+         "has fired. Use it for 'what am I running', 'what have I got armed', "
+         "'did anything trigger', and before pausing or deleting one so the id "
+         "is real. If it comes back empty, say nothing is running — do not "
+         "imply something might be."),
+     "parameters": {"type": "object", "properties": {
+         "state": {"type": "string", "enum": ["armed", "paused", "draft", "retired"],
+                   "description": "narrow to one state; omit for everything live"}}}},
+    {"type": "function", "name": "pause_strategy",
+     "description": (
+         "Stop a saved strategy firing, or start it again with resume=true. A "
+         "paused strategy keeps its position and its history; it simply stops "
+         "being evaluated. Prefer this to deleting whenever the user might want "
+         "it back."),
+     "parameters": {"type": "object", "properties": {
+         "strategy_id": {"type": "integer"},
+         "resume": {"type": "boolean", "description": "true to re-arm it"}},
+      "required": ["strategy_id"]}},
+    {"type": "function", "name": "delete_strategy",
+     "description": (
+         "Retire a strategy so it never fires again. Its past fills stay in the "
+         "paper book — they are what actually happened and the strategy is "
+         "their provenance."),
+     "parameters": {"type": "object", "properties": {
+         "strategy_id": {"type": "integer"}}, "required": ["strategy_id"]}},
+    {"type": "function", "name": "paper_portfolio",
+     "description": (
+         "The user's simulated portfolio: cash, NAV, every open position with "
+         "its live mark and P&L, realised and unrealised totals. Use it for "
+         "'how is my paper book doing', 'what do I hold', 'how much have I "
+         "made', 'how much capital is tied up'. Every figure is SIMULATED — "
+         "quote them as the paper book's and never as a real account's. If it "
+         "returns exists=false the user has no book yet; say that rather than "
+         "describing an empty portfolio as though it were a flat one."),
+     "parameters": {"type": "object", "properties": {}}},
+
 ]
 
 def tool_recall_conversations(query: str = "", symbol: str = "",
@@ -11191,6 +11265,28 @@ for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
     _DISPATCH[_n] = _alert_tool("tool_" + _n)
 
 
+def _paper_tool(name: str):
+    """The paper book's tools, on the same identity contract as the alerts.
+
+    `_req.user` is the signed-in Charto account or None; signed out resolves to
+    0 and every one of these answers honestly that a book belongs to an account
+    rather than to a browser tab. That is the whole auth story here — there is
+    no anonymous paper book, because a portfolio that vanishes when localStorage
+    is cleared is worse than no portfolio.
+    """
+    def call(**args):
+        if _strategies is None:
+            return {"error": "the paper book is not loaded on this server"}
+        who = getattr(_req, "user", None)
+        return getattr(_strategies, name)(user_id=(who[0] if who else 0), **args)
+    return call
+
+
+for _n in ("save_strategy", "list_strategies", "pause_strategy",
+           "delete_strategy", "paper_portfolio"):
+    _DISPATCH[_n] = _paper_tool("tool_" + _n)
+
+
 # Pivot's builder, dispatched through the same seam as everything else. The
 # tool keeps ITS name — the model was calibrated on `propose_dsl_workflow`,
 # and renaming it here would fork the contract from the descriptions and
@@ -11227,7 +11323,18 @@ def _pivot_tool(name: str):
         hint = result.get("_render_hint") if isinstance(result, dict) else None
         kind = _PIVOT_CARD_KINDS.get(hint)
         if kind:
-            _card_add({"kind": kind, **result})
+            card = {"kind": kind, **result}
+            _card_add(card)
+            # A draft outlives its turn. "Save it" is the turn AFTER the one
+            # that built it, and without this the save had nothing to save —
+            # so the model rebuilt the draft from its own summary, which is a
+            # second translation of a paraphrase and not the strategy the card
+            # showed.
+            if kind == "workflow_draft" and _strategies is not None:
+                who = getattr(_req, "user", None)
+                _strategies.remember_draft(
+                    who[0] if who else 0,
+                    getattr(_req, "chat_id", "") or "", card)
         return result
     return call
 
@@ -12285,6 +12392,10 @@ _EXECUTION_CHARTO_TOOLS = {
     # "which names", not "what is THIS one doing".
     "screen_universe", "read_symbol",
     "set_alert", "list_alerts", "update_alert", "cancel_alert", "check_alert",
+    # The other half of building one: a draft that cannot be saved in the turn
+    # it was built in is a draft the user has to rebuild to keep.
+    "save_strategy", "list_strategies", "pause_strategy", "delete_strategy",
+    "paper_portfolio",
     # The ink. A backtest returns its fills with real dates and prices, so
     # "show me where it entered" is a request against data we already have
     # rather than a drawing of a strategy's vibe. Without these on the
@@ -13409,6 +13520,23 @@ except Exception as _journal_exc:  # noqa: BLE001
     logging.warning("charto journal unavailable: %s", _journal_exc)
     _journal = None
 
+# The paper book and the strategy runtime, loaded on the same terms and for the
+# same reason: they add foreign-keyed records to this account database, and a
+# broken optional feature must not stop charts, chat or auth from starting.
+#
+# `paper` first — `strategies` imports it, and a strategy with nowhere to put
+# the shares is not a strategy.
+try:
+    import paper as _paper
+except Exception as _paper_exc:  # noqa: BLE001
+    logging.warning("charto paper book unavailable: %s", _paper_exc)
+    _paper = None
+try:
+    import strategies as _strategies
+except Exception as _strat_exc:  # noqa: BLE001
+    logging.warning("charto strategies unavailable: %s", _strat_exc)
+    _strategies = None
+
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
 _SESSION_TTL = 30 * 86400
 
@@ -14075,27 +14203,32 @@ _alerts = None
 
 
 # ── the watcher's seam ────────────────────────────────────────────
-# alerts.py registers here at boot. It stays None on a build without that
-# module, and it is called through _bar_hook rather than directly for one
-# reason: an exception raised into _live_on_tick would abort the tick, and the
-# forming bar it was in the middle of maintaining is how minutes get stored.
-# A watcher bug must cost an alert, never a candle.
-_ON_BAR = None
+# alerts.py registers here at boot, and so do strategies.py and the paper
+# book. A LIST rather than a slot: it was a single global, and the second
+# subscriber silently replaced the first — the watcher and the strategy runtime
+# would each have worked perfectly in isolation and exactly one of them would
+# have run.
+#
+# Each hook is called inside its own try/except for the original reason: an
+# exception raised into _live_on_tick would abort the tick, and the forming bar
+# it was in the middle of maintaining is how minutes get stored. A watcher bug
+# must cost an alert, never a candle — and now, one failing subscriber must not
+# cost the others their tick either.
+_ON_BAR: list = []
 
 
 def register_bar_hook(fn) -> None:
-    global _ON_BAR
-    _ON_BAR = fn
+    if fn not in _ON_BAR:
+        _ON_BAR.append(fn)
 
 
 def _bar_hook(sym: str, form: list, closed: bool) -> None:
-    fn = _ON_BAR
-    if fn is None:
-        return
-    try:
-        fn(sym, form, closed)
-    except Exception:                                 # noqa: BLE001
-        logging.warning("charto bar hook failed on %s", sym, exc_info=True)
+    for fn in tuple(_ON_BAR):
+        try:
+            fn(sym, form, closed)
+        except Exception:                             # noqa: BLE001
+            logging.warning("charto bar hook %s failed on %s",
+                            getattr(fn, "__qualname__", fn), sym, exc_info=True)
 
 
 def _live_on_tick(sym: str, ts: int, price: float, vol: int) -> None:
@@ -14598,6 +14731,15 @@ def _health_report(*, deep: bool = False) -> tuple[int, dict]:
     else:
         execution["ok"] = True
     checks["execution"] = execution
+
+    paper_chk = {"ok": _paper is not None and _strategies is not None}
+    if paper_chk["ok"]:
+        try:
+            paper_chk.update(_strategies.load_index())
+            paper_chk["watching"] = len(_paper._index)
+        except Exception as exc:                               # noqa: BLE001
+            paper_chk = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    checks["paper"] = paper_chk
     checks["alerts"] = {"ok": _alerts is not None}
 
     critical = ("market_db", "users_db", "backup", "llm", "disk")
@@ -15233,6 +15375,60 @@ class Handler(BaseHTTPRequestHandler):
                 if u.path == "/alerts/stream":
                     return self._send_alerts(me[0])
                 return self._send(*_alerts.api_list(me[0]))
+            # The paper book. Read-only here — the only way a share enters
+            # this account is a strategy firing or an order the user placed,
+            # and neither is a GET. Paths and payload shapes are Pivot's, so
+            # the dashboard components render them unchanged.
+            if u.path.startswith("/paper/"):
+                if _paper is None:
+                    return self._send(501, {"error": "the paper book is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to open a paper "
+                                                     "book"})
+                tail = u.path[len("/paper/"):].strip("/")
+                q = parse_qs(u.query)
+                if tail == "summary":
+                    return self._send(*_paper.api_summary(me[0]))
+                if tail == "holdings":
+                    return self._send(*_paper.api_holdings(me[0]))
+                if tail == "orders":
+                    return self._send(*_paper.api_orders(me[0]))
+                if tail == "fills":
+                    return self._send(*_paper.api_fills(
+                        me[0], int((q.get("limit") or ["50"])[0] or 50),
+                        int((q.get("offset") or ["0"])[0] or 0)))
+                if tail == "nav":
+                    return self._send(*_paper.api_nav(
+                        me[0], (q.get("start") or [""])[0],
+                        (q.get("end") or [""])[0]))
+                if tail == "account/mode":
+                    # There is one mode and there is not going to be a second
+                    # one. The field exists because the shared client asks for
+                    # it; the answer is a statement of the boundary.
+                    return self._send(200, {"mode": "paper",
+                                            "live_available": False})
+                return self._send(404, {"error": f"no paper route '{tail}'"})
+
+            # Saved strategies — the rules that put the shares there.
+            if u.path == "/strategies" or u.path.startswith("/strategies/"):
+                if _strategies is None:
+                    return self._send(501, {"error": "the strategy runtime is "
+                                                     "not loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to see your "
+                                                     "strategies"})
+                tail = u.path[len("/strategies"):].strip("/")
+                if not tail:
+                    q = parse_qs(u.query)
+                    return self._send(*_strategies.api_list(
+                        me[0], (q.get("state") or [""])[0]))
+                if tail.isdigit():
+                    return self._send(*_strategies.api_get(me[0], int(tail)))
+                return self._send(404, {"error": f"no strategy route '{tail}'"})
+
             if u.path == "/journal" or u.path.startswith("/journal/"):
                 if _journal is None:
                     return self._send(501, {"error": "journal is unavailable"})
@@ -15337,6 +15533,52 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400 if "error" in out else 200, out)
             finally:
                 _data_slot_release()
+        # Cancelling a resting order, and arming/pausing/retiring a strategy.
+        # POST for all of it because this server speaks GET and POST — the
+        # journal router made the same call for the same reason.
+        if u.path.startswith("/paper/") or u.path == "/strategies" \
+                or u.path.startswith("/strategies/"):
+            if _paper is None or _strategies is None:
+                return self._send(501, {"error": "the paper book is not "
+                                                 "loaded on this server"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use the paper "
+                                                 "book"})
+            if u.path.startswith("/paper/"):
+                tail = u.path[len("/paper/"):].strip("/")
+                parts = tail.split("/")
+                if len(parts) == 3 and parts[0] == "orders" and parts[2] == "cancel":
+                    out = _paper.cancel_order(me[0], parts[1])
+                    return self._send(400 if "error" in out else 200, out)
+                if tail == "snapshot":
+                    return self._send(200, _paper.snapshot_nav(me[0]))
+                return self._send(404, {"error": f"no paper route '{tail}'"})
+            tail = u.path[len("/strategies"):].strip("/")
+            if not tail:
+                # Saving from the CARD: the draft travels in the body exactly
+                # as the card holds it, so what is armed is what was shown.
+                try:
+                    out = _strategies.save(
+                        me[0], body.get("draft") or body,
+                        note=str(body.get("note") or ""),
+                        chat_id=str(body.get("chat_id") or ""),
+                        arm=body.get("arm") is not False)
+                except _strategies.Unbuildable as exc:
+                    return self._send(400, {"error": str(exc)})
+                return self._send(200, out)
+            sid = tail.split("/")[0]
+            if not sid.isdigit():
+                return self._send(404, {"error": f"no strategy route '{tail}'"})
+            if tail.endswith("/delete"):
+                return self._send(*_strategies.api_delete(me[0], int(sid)))
+            return self._send(*_strategies.api_patch(me[0], int(sid), body))
+
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
                 return self._send(501, {"error": "journal is unavailable"})
@@ -15611,6 +15853,26 @@ if __name__ == "__main__":
               f"catch-up {_boot.get('catch_up')}")
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto alerts UNAVAILABLE: {_exc}")
+
+    # The paper book and the strategy runtime, after the alerts for the same
+    # reason the alerts come after the venues: `start()` sweeps every armed
+    # rule once, and a feed that is already connecting means the sweep reads
+    # current bars rather than the ones this process went down on.
+    #
+    # `strategies.register_hook` subscribes BOTH the strategy watcher and the
+    # book's own mark/resting-fill pass — they ride one tick, in that order, so
+    # a strategy that fires this second is marked at this second's price.
+    try:
+        if _strategies is None or _paper is None:
+            raise RuntimeError("module did not import")
+        _paper.start()
+        _strategies.register_hook()
+        _sboot = _strategies.start()
+        print(f"charto strategies: {_sboot.get('armed', 0)} armed on "
+              f"{_sboot.get('symbols', 0)} symbol(s), "
+              f"catch-up {_sboot.get('catch_up')}")
+    except Exception as _exc:                                  # noqa: BLE001
+        print(f"charto strategies UNAVAILABLE: {_exc}")
 
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
 
