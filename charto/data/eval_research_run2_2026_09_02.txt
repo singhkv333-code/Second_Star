@@ -1,0 +1,894 @@
+==============================================================================
+[0] 29.9s  cards=['move']  chip=None
+PROMPT: Why has RELIANCE moved the way it has over the last two weeks?
+DRAWN: []
+PARKED: []
+------------------------------------------------------------------------------
+The two-week move did not require an unusual catalyst. From 9–22 July, RELIANCE gained only 0.68%, versus a typical 10-session absolute move of 2.83%; it ranks at just the 11th percentile of its own historical moves.
+
+Window move
++0.68%
+10 sessions
+Typical move
+2.83%
+this stock's own median
+Size percentile
+11
+of its own past moves
+Volume vs 20d avg
+0.84×
+Levels around price
+₹1,340.17
+Next resistance above
+3 touches
+₹1,283.60
+Last close
+₹1,253.20
+Next support below
+1 touches
+Index attribution
+NIFTY 50
+moved
++0.48%
+Beta 0.90
+would explain
++0.43%
+Residual
+the part it does not explain
++0.25%
+09 Jul 2026 → 22 Jul 2026
+What drove the path
+Market movement explains most of the net change: NIFTY 50 rose 0.48%. Given RELIANCE’s beta, the expected contribution was +0.43%, leaving only +0.25% as stock-specific residual.
+The net result hides two sharp rallies followed by a pullback:
+10 July: +2.28%, mainly from the overnight gap and early session.
+17 July: +2.23%, with strength spread through the session.
+20–22 July: the close fell from 1,329.0 to 1,283.6, approximately −3.42%. The weakness was concentrated in the opening/morning periods and the last hour, especially on 22 July.
+Results were the most plausible stock-specific catalyst. Q1 FY27 results became first-reactable on 20 July. Press coverage highlighted lower consolidated profit and mixed energy/refining performance. The timing fits: RELIANCE opened with a −0.89% gap on 20 July, failed to hold its early rebound, and then declined over the following two sessions.
+Technically, the move remained inside its existing range: no major level was crossed. The nearest detected support was 1,253.2 with 1 prior touch; resistance was 1,340.17 with 3 touches.
+The previously confirmed double top and the 21 July evening-star candle add bearish structure to the late pullback. However, the historical analogue is weak: similar 10-session moves continued higher the next session 53% of the time versus a 52% unconditional up-session rate.
+
+Bottom line: this was mostly a normal, market-assisted range move. The late three-session weakness is consistent with a post-results re-pricing, amplified by bearish prior structure, but the evidence does not indicate an exceptional company-specific shock. Delivery, futures open interest and deal data were unavailable, so the selling cannot be described as delivery-backed or as confirmed short-building.
+
+29.9s
+==============================================================================
+[1] 31.4s  cards=['move']  chip=None
+PROMPT: What actually drove the last big down day here — was it volume, delivery, or news?
+DRAWN: []
+PARKED: []
+------------------------------------------------------------------------------
+For the 22 July down day, the evidence points to intraday selling pressure—not unusually high volume or a fresh same-day headline.
+
+Session move
+-1.59%
+1 session
+Typical move
+0.76%
+this stock's own median
+Size percentile
+81
+of its own past moves
+Volume vs 20d avg
+0.84×
+Return by session segment
+on 22 Jul 2026
+Overnight gap
+-0.18%
+Opening 15m
+-0.17%
+Morning
+-0.81%
+Midday
++0.09%
+Last hour
+-0.53%
+Levels around price
+₹1,337.12
+Next resistance above
+4 touches
+₹1,290.00
+Prior support, crossed in this window
+2 touches
+₹1,283.60
+Last close
+₹1,271.60
+Next support below
+1 touches
+Index attribution
+NIFTY 50
+moved
+-0.79%
+Beta 0.91
+would explain
+-0.72%
+Residual
+the part it does not explain
+-0.87%
+22 Jul 2026
+Volume: 10.78m shares, only 0.84× the 20-day average. So this was not a volume capitulation.
+Where it happened: the fall was concentrated in the morning (−0.81%) and last hour (−0.53%). The final 30 minutes carried 27% of the day’s volume, versus 13% in the first 30 minutes.
+Market versus stock: NIFTY fell −0.79%, accounting for about −0.72% of RELIANCE’s move on beta. RELIANCE fell −1.59%, leaving roughly −0.87% stock-specific residual.
+Technical trigger: price broke the prior 1,290 support, which had two touches. The next detected support below is 1,271.6, with one touch.
+Delivery: unavailable because the flows table was not synced. Therefore, I cannot establish that the selling was delivery-backed.
+News: there was no new RELIANCE NSE filing located on 22 July. The relevant event was the Q1 FY27 results, first actionable on 20 July—two sessions earlier. That supports a post-results overhang, not a new same-day news shock.
+
+Verdict: mainly a market decline plus stock-specific post-results selling, reinforced by the break of 1,290. Volume did not confirm panic, and delivery data is unavailable, so there is no evidence here to call it delivery-led accumulation of short positions or investor liquidation.
+
+31.4s
+==============================================================================
+[2] 37.6s  cards=[]  chip=None
+PROMPT: How has RELIANCE done against its sector peers over the last six months?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Over the six months ending 22 July 2026, RELIANCE was the weakest of the nine stocks in the stored Oil & Gas Refining & Marketing peer group.
+
+RANK	STOCK	6-MONTH RETURN
+1	Aegis Logistics	+87.26%
+2	Chennai Petro	+49.60%
+3	MRPL	+14.79%
+4	Castrol India	+1.94%
+5	Petronet LNG	−2.41%
+6	Hindustan Petroleum	−10.37%
+7	BPCL	−10.81%
+8	IOC	−11.10%
+9	RELIANCE	−12.01%
+
+RELIANCE underperformed:
+
+The equal-weighted peer average by approximately 26.9 percentage points.
+The peer median by approximately 11.8 percentage points.
+The other large public-sector refiners were also weak, but RELIANCE still lagged IOC, BPCL and Hindustan Petroleum slightly.
+
+This comparison covers 9 matching companies from the 500-instrument stored universe, as of 22 July 2026. It is a price-return comparison, not a total-return or fundamental comparison. Analysis only, not advice.
+
+37.6s
+==============================================================================
+[3] 10.2s  cards=[]  chip=3 on chart
+PROMPT: Draw the support and resistance levels that actually matter on this chart.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Drawn levels that matter most on the daily chart:
+
+Support at 1,277.26 — Strong
+Support at 1,122.36 — Strong
+Resistance at 1,290.47 — Moderate
+Resistance at 1,328.30 — Strong
+
+The nearer levels are currently the most relevant: price is just above 1,277.26 support and below 1,290.47 resistance. The other four levels are in the Layers panel and can be switched on there.
+
+10.2s
+3 on chart
+How often has 1,277 support held for RELIANCE?
+What would confirm a break above 1,290 on RELIANCE?
+Where are RELIANCE’s levels on the weekly chart?
+==============================================================================
+[4] 17.7s  cards=['trend']  chip=2 on chart
+PROMPT: Draw the trendline that has been guiding this move, and tell me if it is still valid.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+The fitted lines are drawn on the daily RELIANCE chart.
+
+Trend
+Down
+Bias
+Bearish
+ADX 14
+12.73
+absent
+Range
+₹851.45–1,611.8
+56.8% of range
+DI comparison
++DI
+20.16
+−DI
+24.77
+Structure events
+01 Feb
+Bearish change of character
+₹1,335.00
+04 Mar
+Bearish break of structure
+₹1,307.00
+06 Apr
+Bearish break of structure
+₹1,290.00
+05 May
+Bullish change of character
+₹1,473.40
+11 Jun
+Bearish change of character
+₹1,253.20
+08 Jul
+Bearish break of structure
+₹1,271.60
+Trendlines
+Intact
+Rising resistance
+9 touches
+Projects near ₹1,640.79
+Broken
+Rising support
+13 touches
+Was near ₹1,320.79
+1500 1d bars · 08 Jul 2020 → 22 Jul 2026 IST
+Is the trendline still valid?
+Rising support trendline: broken. It had 13 touches, but price closed through it; it is no longer valid as active support.
+Rising resistance trendline: intact, with 9 touches, but it is far above the current price and is not the line closely guiding the present pullback.
+
+The broader swing structure is down—lower highs and lower lows—and the latest bearish break occurred on 8 July. However, the move is not strongly trending by ADX: 12.73, below the 20 threshold. Directional pressure still leans bearish because −DI is above +DI.
+
+Conclusion: the previously rising support line has failed. The current chart is better described as a weak bearish structure inside a broad range, not a clean, intact trendline-led decline.
+
+17.7s
+2 on chart
+==============================================================================
+[5] 26.8s  cards=[]  chip=None
+PROMPT: How did the last four quarters land, and what did the stock do in the days after each?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+The last four results reactions were mixed, but the three with a full five-session follow-through showed large moves—roughly twice the ordinary daily move.
+
+QUARTER	FIRST REACTION SESSION	GAP	REACTION DAY	NEXT 5 SESSIONS
+Q1 FY27	20 Jul 2026	—	Too recent to evaluate	Not enough bars
+Q4 FY26	27 Apr 2026	−1.35%	+2.97%	+6.71%
+Q3 FY26	19 Jan 2026	−0.73%	−3.28%	−2.07%
+Q2 FY26	20 Oct 2025	+1.42%	+3.39%	+1.50%
+
+All four announcements were after-market releases, so the listed reaction session is the first session the market could react.
+
+What stands out
+Q4 FY26: initially gapped down, but reversed strongly and continued higher.
+Q3 FY26: negative gap, negative session, and further weakness afterward.
+Q2 FY26: positive gap and strong positive reaction, followed by additional gains.
+Q1 FY27: the 20 July reaction is too recent for a valid five-session comparison; only two subsequent sessions are available in the loaded chart.
+
+For broader context, across 45 measurable results events since February 2015:
+
+Average absolute results-day move: 2.34%
+Ordinary-session average absolute move: 1.20%
+Average five-session move after results: +0.64%
+Positive five-session follow-through: 36%
+
+So results have clearly increased volatility, but the direction has not been consistently bullish. RELIANCE’s latest post-results weakness is more comparable to Q3 FY26 than to the positive Q2/Q4 reactions, though it is still too early to classify the latest reaction.
+
+26.8s
+How often did RELIANCE rise after positive results?
+What were RELIANCE’s quarterly revenue and profit trends?
+Where are RELIANCE’s post-results support levels now?
+==============================================================================
+[6] 33s  cards=[]  chip=None
+PROMPT: Screen the universe for stocks in a confirmed uptrend with volume running above their 20-day average.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Screen criteria: close above the 20-, 50- and 200-day SMAs, with volume above its 20-day average (vol_z20 > 0). Results are ranked by volume strength.
+
+44 stocks matched out of the 500-stock universe, as of 22 Jul 2026.
+
+RANK	STOCK	VOL Z-SCORE	ABOVE 20D	ABOVE 50D	ABOVE 200D
+1	DATAPATTNS	28.43	8.23%	10.62%	43.81%
+2	JUBLINGREA	23.27	7.57%	10.01%	12.07%
+3	CRISIL	10.55	9.24%	10.81%	3.28%
+4	M&MFIN	9.65	15.64%	22.96%	16.41%
+5	NESTLEIND	7.97	4.26%	5.32%	14.29%
+6	ANTHEM	7.16	1.52%	0.91%	10.26%
+7	BAJAJ-AUTO	4.57	8.70%	7.76%	15.44%
+8	HFCL	4.14	1.32%	14.91%	109.11%
+9	SRF	3.28	1.06%	3.00%	1.18%
+10	ANANTRAJ	2.43	9.77%	14.60%	11.98%
+11	TVSMOTOR	2.42	8.10%	12.19%	9.10%
+12	ETERNAL	2.27	2.97%	10.62%	4.82%
+13	MEDANTA	2.21	1.64%	6.54%	13.19%
+14	GABRIEL	2.07	10.00%	21.32%	33.68%
+15	RRKABEL	1.88	4.95%	12.01%	52.23%
+16	INDUSINDBK	1.75	8.10%	13.64%	22.36%
+17	PIDILITIND	1.74	1.35%	4.89%	9.64%
+18	AIIL	1.52	3.45%	6.40%	2.71%
+19	NAVINFLUOR	1.41	2.40%	6.65%	24.40%
+20	HSCL	1.16	10.96%	16.87%	47.42%
+21	CHENNPETRO	1.08	12.90%	16.74%	35.19%
+22	HAL	1.05	2.93%	4.09%	4.41%
+23	ABBOTINDIA	1.03	7.47%	7.78%	4.79%
+24	SPLPETRO	1.03	1.29%	3.65%	6.69%
+25	IIFL	1.00	6.34%	11.78%	10.04%
+26	PETRONET	0.80	0.57%	1.33%	0.50%
+27	INDIACEM	0.64	5.73%	5.06%	0.72%
+28	JSWENERGY	0.59	0.54%	0.22%	8.32%
+29	KARURVYSYA	0.51	10.83%	14.26%	21.45%
+30	CASTROLIND	0.49	0.68%	1.04%	0.95%
+31	JKCEMENT	0.49	5.08%	7.69%	2.43%
+32	AEGISVOPAK	0.37	10.25%	27.13%	27.36%
+33	CIEINDIA	0.29	1.06%	2.64%	6.73%
+34	GLAXO	0.27	4.83%	9.98%	5.84%
+35	CEMPRO	0.26	7.77%	30.74%	89.78%
+36	MANAPPURAM	0.23	6.19%	9.55%	19.41%
+37	GODREJPROP	0.21	2.73%	12.40%	9.99%
+38	THELEELA	0.20	1.51%	9.85%	14.87%
+39	3MINDIA	0.15	2.70%	7.44%	7.00%
+40	TITAN	0.12	4.05%	9.13%	14.90%
+41	FLUOROCHEM	0.11	13.72%	19.65%	29.60%
+42	PAYTM	0.11	0.88%	9.22%	6.49%
+43	ULTRACEMCO	0.07	2.14%	3.66%	0.46%
+44	JINDALSAW	0.03	0.69%	6.53%	31.41%
+
+The strongest volume outliers are DATAPATTNS, JUBLINGREA, CRISIL, M&MFIN and NESTLEIND. The screen is a price-and-volume filter, not a recommendation; all figures are end-of-day and stocks lacking the required history were excluded.
+
+33.0s
+==============================================================================
+[7] 26.8s  cards=[]  chip=None
+PROMPT: Screen the universe for stocks in a confirmed uptrend with volume running above their 20-day average. [SAME PROMPT REPEATED — harness resend, kept as a consistency check]
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Screen criteria: price above the 20-, 50- and 200-day SMAs, with volume above its 20-day average (vol_z20 > 0). Results are ranked by volume strength.
+
+44 stocks matched out of the 500-stock universe, as of 22 Jul 2026.
+
+RANK	STOCK	VOL Z	>20D SMA	>50D SMA	>200D SMA
+1	DATAPATTNS	28.43	8.23%	10.62%	43.81%
+2	JUBLINGREA	23.27	7.57%	10.01%	12.07%
+3	CRISIL	10.55	9.24%	10.81%	3.28%
+4	M&MFIN	9.65	15.64%	22.96%	16.41%
+5	NESTLEIND	7.97	4.26%	5.32%	14.29%
+6	ANTHEM	7.16	1.52%	0.91%	10.26%
+7	BAJAJ-AUTO	4.57	8.70%	7.76%	15.44%
+8	HFCL	4.14	1.32%	14.91%	109.11%
+9	SRF	3.28	1.06%	3.00%	1.18%
+10	ANANTRAJ	2.43	9.77%	14.60%	11.98%
+11	TVSMOTOR	2.42	8.10%	12.19%	9.10%
+12	ETERNAL	2.27	2.97%	10.62%	4.82%
+13	MEDANTA	2.21	1.64%	6.54%	13.19%
+14	GABRIEL	2.07	10.00%	21.32%	33.68%
+15	RRKABEL	1.88	4.95%	12.01%	52.23%
+16	INDUSINDBK	1.75	8.10%	13.64%	22.36%
+17	PIDILITIND	1.74	1.35%	4.89%	9.64%
+18	AIIL	1.52	3.45%	6.40%	2.71%
+19	NAVINFLUOR	1.41	2.40%	6.65%	24.40%
+20	HSCL	1.16	10.96%	16.87%	47.42%
+21	CHENNPETRO	1.08	12.90%	16.74%	35.19%
+22	HAL	1.05	2.93%	4.09%	4.41%
+23	ABBOTINDIA	1.03	7.47%	7.78%	4.79%
+24	SPLPETRO	1.03	1.29%	3.65%	6.69%
+25	IIFL	1.00	6.34%	11.78%	10.04%
+26	PETRONET	0.80	0.57%	1.33%	0.50%
+27	INDIACEM	0.64	5.73%	5.06%	0.72%
+28	JSWENERGY	0.59	0.54%	0.22%	8.32%
+29	KARURVYSYA	0.51	10.83%	14.26%	21.45%
+30	CASTROLIND	0.49	0.68%	1.04%	0.95%
+31	JKCEMENT	0.49	5.08%	7.69%	2.43%
+32	AEGISVOPAK	0.37	10.25%	27.13%	27.36%
+33	CIEINDIA	0.29	1.06%	2.64%	6.73%
+34	GLAXO	0.27	4.83%	9.98%	5.84%
+35	CEMPRO	0.26	7.77%	30.74%	89.78%
+36	MANAPPURAM	0.23	6.19%	9.55%	19.41%
+37	GODREJPROP	0.21	2.73%	12.40%	9.99%
+38	THELEELA	0.20	1.51%	9.85%	14.87%
+39	3MINDIA	0.15	2.70%	7.44%	7.00%
+40	TITAN	0.12	4.05%	9.13%	14.90%
+41	FLUOROCHEM	0.11	13.72%	19.65%	29.60%
+42	PAYTM	0.11	0.88%	9.22%	6.49%
+43	ULTRACEMCO	0.07	2.14%	3.66%	0.46%
+44	JINDALSAW	0.03	0.69%	6.53%	31.41%
+
+The largest volume outliers are DATAPATTNS, JUBLINGREA, CRISIL, M&MFIN and NESTLEIND. This is an end-of-day price-and-volume screen, not a recommendation.
+
+26.8s
+==============================================================================
+[8] 25.8s  cards=[]  chip=None
+PROMPT: Which of those are large caps sitting within 3% of their 52-week high?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Among the previously screened 44 stocks, these are the clear large-cap names within 3% of their 52-week highs:
+
+STOCK	DISTANCE FROM 52-WEEK HIGH
+BAJAJ-AUTO	−0.11%
+TITAN	−0.50%
+INDUSINDBK	−0.54%
+NESTLEIND	−0.66%
+PIDILITIND	−1.09%
+TVSMOTOR	−1.39%
+
+The screen was run against the 500-stock universe, as of 22 July 2026. “Large cap” here is a conventional classification; the universe screen itself filters the previously identified names by their 52-week-high distance, not by a market-cap field.
+
+Analysis only, not advice.
+
+25.8s
+How strong is the volume behind BAJAJ-AUTO near its high?
+What are the resistance levels for TITAN and NESTLEIND?
+How did INDUSINDBK react at prior 52-week highs?
+==============================================================================
+[9] 18.8s  cards=['timeframes']  chip=None
+PROMPT: Is the daily and the weekly picture telling me the same thing here?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Price
+₹1,283.60
+Timeframes
+2
+Direction
+Bearish
+2 of 2 agree
+Each timeframe
+RSI · MACD · ADX · EMA 50
+Daily
+RSI 43.19
+MACD hist 1.16
+ADX 12.73
+−DI>+DI
+below EMA 50
+Leaning bearish
+Weekly
+RSI 39.81
+MACD hist -2.23
+ADX 23.62
+−DI>+DI
+below EMA 50
+Bearish
+ADX by timeframe
+25 marks a trending phase
+Daily
+12.73
+Weekly
+23.62
+RSI by timeframe
+50 is the midline
+Daily
+43.19
+Weekly
+39.81
+Levels several timeframes share
+₹1,461.4–1,473.4
+Resistance
+Daily
+₹1,345.4–1,375.15
+Resistance
+Weekly, Daily
+₹1,311.07–1,344.9
+Resistance
+Weekly, Daily
+₹1,283.60
+Current price
+₹1,265.6–1,277.6
+Support
+Daily
+₹1,247.2–1,259.2
+Support
+Daily
+₹1,197.67–1,227.43
+Support
+Weekly
+
+Broadly yes: both timeframes are bearish, but the weekly picture is more decisive.
+
+Daily: *leaning bearish*—3 of 4 readings bearish. RSI is weak, price is below its 50-EMA, and −DI is above +DI. However, ADX is only 12.73, so the daily move lacks strong directional trend strength; MACD histogram is still slightly positive.
+Weekly: bearish across all 4 readings. RSI is weak, MACD histogram is negative, price is below the 50-EMA, and −DI leads +DI. Weekly ADX is 23.62, indicating developing—not yet strong—directional movement.
+
+The timeframes also share a resistance zone around 1,311–1,344, found on both daily and weekly data. It has 4 touches on each timeframe; the weekly record shows 2 holds and 1 break, while the daily record shows 1 hold and no breaks.
+
+Read-through: the daily chart is showing a weaker, possibly ranging bearish phase inside a broader weekly bearish structure. They agree on direction; they differ mainly on how established the trend is.
+
+18.8s
+What levels would confirm the daily trend is improving?
+How has volume behaved during the weekly decline?
+Where are the key daily and weekly support levels?
+==============================================================================
+[10] 16s  cards=[]  chip=2 on chart
+PROMPT: Has price been diverging from momentum at all recently? Mark it if so.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Yes—there is a recent bullish RSI divergence, but it is not current:
+
+Price: lower low from 1,335.0 on 1 Feb 2026 to 1,307.0 on 4 Mar 2026.
+RSI(14): higher low from 25.39 to 33.93.
+Outcome: resolved with a subsequent +5.11% move.
+It completed 93 daily bars ago, so it is historical rather than an active signal.
+
+The tool marked the divergence’s price leg and RSI leg on the daily chart.
+
+There are no newer unresolved divergences in the scanned window. Historical reliability is limited: bullish divergences resolved 2 of 2 graded cases; bearish divergences also resolved 2 of 2, but both samples are too small to treat as a dependable rate.
+
+16.0s
+2 on chart
+Is INDUSINDBK showing divergence on the weekly chart?
+Which momentum indicator confirms the RSI divergence?
+Where are INDUSINDBK’s current support and resistance levels?
+==============================================================================
+[11] 20.1s  cards=[]  chip=1 on chart
+PROMPT: Where has most of the volume actually traded over the last year — show me the value area.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+The one-year volume profile is drawn on the daily RELIANCE chart.
+
+It covers 17 Jul 2025–22 Jul 2026 and is built from 93,432 one-minute bars:
+
+Value area: ₹1,295.04–₹1,432.50 — the zone containing approximately 70% of traded volume
+Point of control: ₹1,381.70 — the price with the most volume
+Profile range: ₹1,253.20–₹1,611.80
+
+RELIANCE closed at ₹1,283.60, below the value-area low of ₹1,295.04. That places the latest close below the range where most volume was accepted over the past year. The nearest high-volume areas inside value are clustered around roughly ₹1,360–₹1,415, with the strongest row at ₹1,378.71–₹1,384.69.
+
+This is volume at price, not order-flow or delivery data; it does not identify whether buyers or sellers were the aggressors.
+
+20.1s
+1 on chart
+Where are RELIANCE’s high-volume support zones?
+Did RELIANCE exit value on expanding volume?
+How does RELIANCE’s weekly profile compare?
+==============================================================================
+[12] 17.3s  cards=[]  chip=None
+PROMPT: Have FIIs and DIIs been net buyers lately, and were there any bulk or block deals in this name?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+FII/DII flow data is unavailable for RELIANCE because the flows tables are not synced. So I can’t establish whether FIIs or DIIs were net buyers over the recent 10 sessions.
+
+A bulk/block-deal disclosure was recorded:
+
+DATE	TYPE	DISCLOSED ENTITY	SIDE	QUANTITY	PRICE	VALUE
+24 Jun 2026	Block	The MTBJ Ltd. as trustee for Government Pension Investment Fund	Sell	719,579	₹1,309.50	₹94.23 crore
+24 Jun 2026	Block	Same trustee, separate account	Buy	719,579	₹1,309.50	₹94.23 crore
+
+The matching buy and sell legs appear to represent the same disclosed block transaction; I’m reporting them as published rather than treating them as net buying or selling.
+
+The deal-session adjusted close was ₹1,313.40. RELIANCE’s close on 22 July 2026 was 2.3% lower than that deal-session close. This is a disclosure record, not evidence of the entity’s investment intent or future positioning. The local deal copy is incomplete, so undisclosed or below-threshold activity is not included.
+
+17.3s
+How did RELIANCE trade around the 24 Jun block deal?
+Were there other RELIANCE bulk or block deals recently?
+Can you compare RELIANCE volume with its one-year average?
+==============================================================================
+[13] 39.3s  cards=[]  chip=1 on chart
+PROMPT: If I bought here, where would the stop go and what is the reward to risk?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+For a hypothetical long from ₹1,283.60, the plan is drawn on the daily chart:
+
+Stop: ₹1,271.05 — below the Strong ₹1,277.26 support zone (₹1,271.05–₹1,284.50)
+Risk: ₹12.55 per share, or 0.52 ATR
+Target 1: ₹1,290.47 resistance → 0.55R
+Target 2: ₹1,328.30 resistance → 3.56R
+
+The historical entry-to-first-target outcome was 13 wins, 11 losses and 1 unresolved, a 54% hit rate. Target 1 requires about 65% to break even at its 0.55R reward-to-risk, so that historical result does not clear its breakeven hurdle. Target 2 offers the better payoff but is less frequently reached.
+
+A sustained move below ₹1,271.05 would invalidate this support-based setup. This is chart analysis, not a recommendation.
+
+39.3s
+1 on chart
+How often has RELIANCE held the ₹1,271 stop level?
+What would confirm a RELIANCE move toward ₹1,328?
+How does this RELIANCE setup look on the weekly chart?
+==============================================================================
+[14] 20.3s  cards=['trend']  chip=None
+PROMPT: Has this actually reversed, or is it just a bounce inside a downtrend?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Trend
+Down
+Bias
+Bearish
+ADX 14
+12.73
+absent
+Range
+₹851.45–1,611.8
+56.8% of range
+DI comparison
++DI
+20.16
+−DI
+24.77
+Structure events
+01 Feb
+Bearish change of character
+₹1,335.00
+04 Mar
+Bearish break of structure
+₹1,307.00
+06 Apr
+Bearish break of structure
+₹1,290.00
+05 May
+Bullish change of character
+₹1,473.40
+11 Jun
+Bearish change of character
+₹1,253.20
+08 Jul
+Bearish break of structure
+₹1,271.60
+Trendlines
+Intact
+Rising resistance
+9 touches
+Projects near ₹1,640.79
+Broken
+Rising support
+13 touches
+Was near ₹1,320.79
+1500 1d bars · 08 Jul 2020 → 22 Jul 2026 IST
+
+It still looks like a bounce inside a broader downtrend, not a confirmed reversal.
+
+Structure remains down: the recent sequence is lower highs and lower lows. The latest bearish break of structure occurred on 8 July at ₹1,271.60.
+The latest close, ₹1,283.60, is only ₹12.00 above that swing low, so the recovery has not yet repaired the bearish structure.
+Directional pressure remains bearish: −DI is above +DI.
+But the trend is weak rather than forceful: ADX is 12.73, below the 20 threshold. That makes a range-bound bounce plausible and reduces confidence in a strong continuation move.
+The long-term rising support trendline is already broken. The intact rising resistance line is well above current price and is not guiding this immediate rebound.
+
+Read-through: the chart is bearish in structure, but currently lacks strong trend momentum. I would describe the move as a weak bearish structure with a countertrend bounce, not a completed reversal. A higher high followed by a break above the latest opposing swing high would be needed before the daily structure could be called reversed.
+
+20.3s
+What level would confirm a reversal in RELIANCE?
+Is RELIANCE's bounce supported by rising volume?
+How does RELIANCE's weekly trend compare with daily?
+==============================================================================
+[15] 15.5s  cards=[]  chip=None
+PROMPT: What is the news around this stock right now?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+RELIANCE news currently in focus
+17 Jul 2026 — Q1 FY27 results and analyst meet: management highlighted Middle East supply-chain disruption and energy-market volatility. This is the most relevant recent company event and fits the post-results weakness.
+20 Jul 2026 — Jefferies: maintained its Buy rating.
+21 Jul 2026 — Postal-ballot filing: Reliance filed the notice and explanatory statement for shareholder approvals. This appears procedural, not a clear earnings catalyst.
+Ongoing overhang: a KG-D6 profit-petroleum dispute with the government remains in arbitration; a 2026 tribunal verdict is still awaited. This is a background risk, not an explanation for a single-day move.
+
+Read-through: the news flow is mixed rather than uniformly negative. The Q1 results and management commentary are the main recent drivers; the postal-ballot filing is routine, while the KG-D6 matter remains an unresolved longer-term overhang. There is no fresh major adverse headline in the 15–22 July window that obviously explains the latest daily decline.
+
+15.5s
+How did RELIANCE react to the Q1 FY27 results?
+What are RELIANCE’s nearest support and resistance levels?
+How does RELIANCE compare with its sector peers?
+==============================================================================
+[16] 18.5s  cards=[]  chip=None
+PROMPT: What do RSI and MACD say on this chart right now?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+On the daily RELIANCE chart, RSI and MACD are giving a mixed but still cautious reading:
+
+RSI(14): 43.19, down from 48.61 on 21 July. This shows weakening momentum, but it is not conventionally oversold (the usual reference is 30).
+MACD: −3.91
+Signal: −5.07
+Histogram: +1.16, down from +3.10 the previous day.
+Interpretation
+
+MACD remains below zero, which keeps the broader momentum backdrop bearish. However, the MACD line is still above its signal line and the histogram is positive—so bearish momentum has not fully reasserted itself. The sharp histogram contraction and RSI decline show that the recent bounce is losing momentum.
+
+Bottom line: momentum is weakening, but this is not yet an oversold flush or a clean bearish MACD confirmation. It supports the earlier reading of a fragile bounce within a weak bearish structure.
+
+18.5s
+==============================================================================
+[17] 11.6s  cards=[]  chip=None
+PROMPT: Are there any unfilled gaps left on this chart?
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate']
+------------------------------------------------------------------------------
+Yes. On the daily RELIANCE chart, one unfilled gap remains:
+
+Up gap: ₹1,222.65–₹1,237.10
+Date: 15 Apr 2025
+Size: ₹14.45, or 1.17%
+Status: still open
+
+In the scanned history, 3 of 4 qualifying gaps filled; the sample is too small to quote a reliable fill percentage. The open status describes what has happened historically—not a prediction that the gap will fill.
+
+11.6s
+Where is RELIANCE relative to the open gap?
+Are there unfilled gaps on RELIANCE's weekly chart?
+How often did RELIANCE's past gaps fill?
+==============================================================================
+[18] 17.2s  cards=['patterns']  chip=6 on chart
+PROMPT: Show me every chart pattern you can find on what I am looking at.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30', 'segment:Falling Wedge · Moderate', 'poly:Double Top · Moderate']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate', 'poly:Head And Shoulders · Moderate', 'poly:Double Bottom · Moderate', 'poly:Double Top · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Moderate', 'poly:Inverse Head And Shoulders · Moderate', 'poly:Double Top · Moderate', 'segment:Bear Flag · Moderate', 'segment:Bull Flag · Moderate', 'segment:Bull Pennant · Moderate', 'poly:Double Bottom · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Strong', 'poly:Double Top · Moderate', 'poly:Double Top · Moderate', 'segment:Bull Flag · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Strong', 'candle:Evening Star', 'candle:Bearish Harami', 'candle:Morning Star · Three Inside Up', 'candle:Inverted Hammer', 'candle:Bullish Harami · Tweezer Bottom', 'candle:Tweezer Top', 'candle:Bullish Engulfing · Tweezer Bottom', 'candle:Tweezer Top', 'candle:Spinning Top', 'candle:Spinning Top', 'candle:Bearish Engulfing', 'candle:Shooting Star', 'candle:Bullish Harami', 'candle:Doji', 'candle:Doji · Dragonfly Doji', 'candle:Tweezer Top']
+------------------------------------------------------------------------------
+I swept the daily RELIANCE chart across 1,500 bars (8 Jul 2020–22 Jul 2026) and marked every detected formation.
+
+Timeframe
+1d
+Structure
+Down
+Bars scanned
+1,500
+Chart patterns
+20
+Candle signals
+16
+Structure events
+01 Feb
+Bearish change of character
+₹1,335.00
+04 Mar
+Bearish break of structure
+₹1,307.00
+06 Apr
+Bearish break of structure
+₹1,290.00
+05 May
+Bullish change of character
+₹1,473.40
+11 Jun
+Bearish change of character
+₹1,253.20
+08 Jul
+Bearish break of structure
+₹1,271.60
+Chart patterns
+Strong
+Double Bottom
+05 Aug – 12 Sep · bullish bias
+Neckline ₹1,539.70 broke 07 Jul
+Strong
+Double Bottom
+24 Jul – 03 Aug · bullish bias
+Neckline ₹1,279.50 broke 14 Aug
+Moderate
+Double Top
+22 Jun – 07 Jul · bearish bias
+Neckline ₹1,290.00 broke 08 Jul
+Moderate
+Head And Shoulders
+20 Apr – 25 May · bearish bias
+Neckline ₹1,311.80 broke 04 Jun
+Moderate
+Double Top
+11–25 Mar · bearish bias
+Neckline ₹1,363.50 broke 27 Mar
+Moderate
+Double Top
+28 Nov – 23 Dec · bearish bias
+Neckline ₹1,517.60 broke 06 Jan
+14 more
+Candlestick patterns
+21 Jul
+Evening star
+Bearish
+13 Jul
+Bearish harami
+Bearish
+10 Jul
+Morning star, three inside up
+Bullish
+09 Jul
+Inverted hammer
+Bullish
+09 Jul
+Bullish harami, tweezer bottom
+Bullish
+07 Jul
+Tweezer top
+Bearish
+06 Jul
+Bullish engulfing, tweezer bottom
+Bullish
+02 Jul
+Tweezer top
+Bearish
+8 more
+1500 1d bars · 08 Jul 2020 → 22 Jul 2026 IST
+What the sweep shows
+
+The most relevant current structures are:
+
+Falling wedge — 27 Apr–22 Jul 2026: bullish-shaped but unresolved. Its two candidate breakout edges mean there is no single confirmation level yet.
+Confirmed double top — 22 Jun–7 Jul 2026: neckline at ₹1,290; it broke on 8 Jul. Its textbook measured move is ₹1,243.55, which is geometry—not a forecast or target.
+Confirmed head-and-shoulders — 20 Apr–25 May 2026: neckline at ₹1,311.80, broken on 4 Jun. Its textbook measured move is ₹1,150.20, also only a geometric projection.
+
+The broader structure is currently down, with lower highs and lower lows. The falling wedge is the main pattern that could interrupt that structure, but it has not confirmed.
+
+Recent candlestick markings include:
+
+21 Jul: evening star — bearish
+13 Jul: bearish harami
+10 Jul: morning star and three-inside-up — bullish
+9 Jul: inverted hammer, bullish harami and tweezer bottom
+7 Jul: tweezer top — bearish
+6 Jul: bullish engulfing and tweezer bottom
+
+The sweep found 20 candlestick pattern instances across 16 bars. The remaining chart-pattern and candlestick marks are available in the chart’s Layers panel; they are measurements of historical shapes, not forecasts or trading signals.
+
+17.2s
+6 on chart
+Where are RELIANCE’s falling-wedge edges now?
+How reliable were RELIANCE’s past wedge breakouts?
+Do RELIANCE’s weekly patterns confirm the daily setup?
+==============================================================================
+[19] 17.9s  cards=['compare']  chip=None
+PROMPT: Compare RELIANCE with TCS over the last year and tell me which one I would rather have owned.
+DRAWN: ['level:R 1,328.30 · Strong', 'level:R 1,290.47 · Moderate', 'level:S 1,122.36 · Strong', 'segment:R trendline · 9 touches · intact', 'segment:S trendline · 13 touches · broken', 'segment:bullish divergence · resolved 2/2', 'vprofile:POC ₹1381.7 · VA ₹1295.04–₹1432.5', 'position:long · R:R 0.55 · support 1,277.26 zone 1,271.05–1,284.50; resistance 1,290.47 and 1,328.30', 'segment:Falling Wedge · Moderate', 'poly:Double Top · Moderate']
+PARKED: ['level:S 1,277.26 · Strong', 'level:S 978.06 · Moderate', 'level:S 1,153.09 · Moderate', 'level:R 1,365.40 · Strong', 'level:R 1,393.77 · Moderate', 'poly:Head And Shoulders · Moderate', 'poly:Double Bottom · Moderate', 'poly:Double Top · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Moderate', 'poly:Inverse Head And Shoulders · Moderate', 'poly:Double Top · Moderate', 'segment:Bear Flag · Moderate', 'segment:Bull Flag · Moderate', 'segment:Bull Pennant · Moderate', 'poly:Double Bottom · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Strong', 'poly:Double Top · Moderate', 'poly:Double Top · Moderate', 'segment:Bull Flag · Moderate', 'poly:Double Top · Moderate', 'poly:Double Bottom · Strong', 'candle:Evening Star', 'candle:Bearish Harami', 'candle:Morning Star · Three Inside Up', 'candle:Inverted Hammer', 'candle:Bullish Harami · Tweezer Bottom', 'candle:Tweezer Top', 'candle:Bullish Engulfing · Tweezer Bottom', 'candle:Tweezer Top', 'candle:Spinning Top', 'candle:Spinning Top', 'candle:Bearish Engulfing', 'candle:Shooting Star', 'candle:Bullish Harami', 'candle:Doji', 'candle:Doji · Dragonfly Doji', 'candle:Tweezer Top']
+------------------------------------------------------------------------------
+For the common one-year daily window, 17 Jul 2025–22 Jul 2026, I would have preferred to own RELIANCE rather than TCS—descriptively, because it lost substantially less and carried less downside volatility.
+
+Daily return gap
++18.01 pp
+RELIANCE − TCS
+Weekly return gap
++38.65 pp
+RELIANCE − TCS
+Daily correlation
+0.18
+daily returns
+Weekly correlation
+0.34
+daily returns
+Return
+per bar window, against the index
+Daily
+17 Jul 2025 → 22 Jul 2026 IST
+RELIANCE
+-13.19%
+TCS
+-31.20%
+NIFTY 50
+-4.44%
+Weekly
+11 Oct 2021 → 20 Jul 2026 IST
+RELIANCE
+-0.29%
+TCS
+-38.94%
+NIFTY 50
++33.71%
+Maximum drawdown
+peak to trough, inside the window
+Daily
+17 Jul 2025 → 22 Jul 2026 IST
+RELIANCE
+-21.00%
+TCS
+-40.41%
+Weekly
+11 Oct 2021 → 20 Jul 2026 IST
+RELIANCE
+-25.01%
+TCS
+-54.68%
+ATR volatility
+average true range as % of price
+Daily
+17 Jul 2025 → 22 Jul 2026 IST
+RELIANCE
++1.84%
+TCS
++2.65%
+Weekly
+11 Oct 2021 → 20 Jul 2026 IST
+RELIANCE
++4.59%
+TCS
++6.63%
+Average turnover per bar
+Daily
+Weekly
+RELIANCE
+1,874.9 cr
+7,992.9 cr
+TCS
+985.1 cr
+4,053 cr
+RELIANCE: −13.19% return; maximum drawdown −21.00%; ATR 1.84% of price.
+TCS: −31.20% return; maximum drawdown −40.41%; ATR 2.65% of price.
+RELIANCE outperformed TCS by 18.01 percentage points.
+Both underperformed the NIFTY 50, which returned −4.44% over the same window.
+Their daily-return correlation was only 0.18, so they did not move especially closely together.
+
+The weekly comparison also favours RELIANCE, but it covers a different, much longer window—11 Oct 2021–20 Jul 2026—where RELIANCE returned −0.29% versus TCS at −38.94%.
+
+That is a backward-looking performance comparison, not a recommendation.
+
+17.9s
+How did RELIANCE and TCS compare month by month?
+Which had stronger relative strength versus NIFTY 50?
+What drove the gap between RELIANCE and TCS returns?
