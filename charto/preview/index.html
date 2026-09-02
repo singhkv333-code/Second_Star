@@ -7859,6 +7859,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
          third named thing this header opens, and a separator between Alerts
          and Journal claimed a difference in kind that is not there. -->
     <button class="btn outline" id="chatToggle"></button>
+    <!-- The paper book. Beside the account rather than with the chart
+         controls, because like the account it is about YOU and not about what
+         is drawn — it opens a different surface entirely. Filled by main.js so
+         the glyph comes from the one icon set. -->
+    <button class="btn icon" id="paperBtn" type="button"
+            title="Paper book — your simulated portfolio"
+            aria-label="Paper book"></button>
     <!-- The account, last — TradingView's place for it, and the only control
          in this header that is not about the chart. Filled by main.js. -->
     <div class="menu-wrap">
@@ -8055,7 +8062,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=15"></script>
   <script src="./js/theme.js?v=8"></script>
   <script src="./js/universe.js?v=3"></script>
-  <script src="./js/icons.js?v=30"></script>
+  <script src="./js/icons.js?v=31"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=8"></script>
@@ -8088,7 +8095,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=34"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=19"></script>
-  <script src="./js/main.js?v=136"></script>
+  <script src="./js/main.js?v=137"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>

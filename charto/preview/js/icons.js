@@ -147,6 +147,19 @@ const Icons = (() => {
     arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
     layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+    // The paper book: a bound ledger with its own performance inside it.
+    //
+    // Drawn rather than borrowed because nothing in Lucide says this — a
+    // wallet says cash, a briefcase says work, a chart says chart, and this
+    // surface is specifically a RECORD of simulated trading. The spine is
+    // what makes it a book rather than another framed chart, and it is the
+    // part that has to survive 16px, so it sits a full stroke clear of the
+    // frame. The endpoint dot is the family's one licensed fill and it is
+    // load-bearing at small sizes: without it the curve reads as a scribble.
+    paperBook: '<rect x="3" y="3.5" width="18" height="17" rx="2.5"/>'
+      + '<path d="M7.5 3.5v17"/>'
+      + '<path d="M10 15.8l2.3-3 2 1.7 3.2-4.6"/>'
+      + '<circle cx="17.5" cy="9.9" r="1.15" fill="currentColor" stroke="none"/>',
     camera: '<path d="M14.5 4h-5L7.2 6.8H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8.8a2 2 0 0 0-2-2h-3.2L14.5 4z"/><circle cx="12" cy="13" r="3.2"/>',
     // voice input, and the same glyph struck through for the failure flash —
     // the pair Pivot's composer uses, so the two products say it the same way

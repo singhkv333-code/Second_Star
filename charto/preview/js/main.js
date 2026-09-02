@@ -3945,7 +3945,7 @@
         // a company page is, and pretending otherwise would mean rebuilding
         // six charts that already exist.
         + `<div class="item" data-acct="paper"><span class="lead">`
-        + Icons.svg("planTrade", "xs") + `Paper book</span></div>`
+        + Icons.svg("paperBook", "xs") + `Paper book</span></div>`
         + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
@@ -3962,6 +3962,40 @@
         + `<div class="sep"></div>`
         + `<div class="acct-note">Your charts, drawings and chats stay in this `
         + `browser until you sign in.</div>`;
+  }
+
+  /* The paper book, one click from the chart.
+   *
+   * Deliberately visible SIGNED OUT too. The book itself needs an account —
+   * a portfolio that dies with localStorage is worse than none — but hiding
+   * the control means the only people who discover paper trading are the ones
+   * who already knew to look in a menu. So it shows, and a signed-out press
+   * opens the sign-in it actually needs rather than a page whose whole content
+   * is an apology.
+   *
+   * A new TAB, not a navigation: leaving the chart would drop the live feed,
+   * the drawing layer and the conversation, and the book is something you
+   * glance at beside the chart rather than instead of it. */
+  const paperBtn = el("paperBtn");
+  if (paperBtn) {
+    paperBtn.innerHTML = Icons.svg("paperBook");
+    const openPaper = () => {
+      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      // Same origin behind nginx; in local dev the Next app is its own port,
+      // so the link has to name it or it 404s against :5173.
+      const base = ["localhost", "127.0.0.1"].includes(location.hostname)
+        ? "http://127.0.0.1:5175" : "";
+      window.open(base + "/paper", "_blank", "noopener");
+    };
+    paperBtn.addEventListener("click", openPaper);
+    // The title carries the state, so a signed-out press is not a surprise.
+    const paintPaper = (u) => {
+      paperBtn.title = u
+        ? "Paper book — your simulated portfolio"
+        : "Paper book — sign in to open your simulated portfolio";
+    };
+    Auth.onChange(paintPaper);
+    paintPaper(Auth.user);
   }
 
   acctBtn.addEventListener("click", (e) => {
