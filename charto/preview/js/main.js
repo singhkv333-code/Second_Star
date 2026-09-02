@@ -2128,6 +2128,12 @@
   function onLayersOutside(e) {
     if (!layersPop) return;
     if (layersPop.contains(e.target)) return;
+    // A node the panel already REPLACED is not "outside" it. The layer list
+    // re-renders its own innerHTML on every keystroke of the search box, so a
+    // press can resolve against an element that was detached a frame earlier —
+    // and `contains()` is false for anything not currently in the tree, which
+    // read as a click on the chart and closed the sheet mid-search.
+    if (e.target instanceof Node && !e.target.isConnected) return;
     // The button owns its own toggle; letting this handler close first would
     // make the second press re-open rather than close.
     if (e.target.closest && e.target.closest(".scene-layers")) return;
