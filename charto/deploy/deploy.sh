@@ -111,5 +111,36 @@ if grep -qE '^(charto/data/|pivot/)' <<<"$changed"; then
     && echo "deploy: charto.service active" \
     || { echo "deploy: FAILED to come back up"; exit 1; }
 else
-  echo "deploy: frontend only, already live (no restart)"
+  echo "deploy: chart frontend only, already live (no restart)"
+fi
+
+# charto/web is a BUILT app, not files nginx can serve straight off disk.
+#
+# The chart (charto/preview) is plain static files, so a change to it is live
+# the moment the checkout moves. The Next app is not: nginx proxies /stock,
+# /paper and /_next to a node process serving a PRODUCTION BUILD, so a page
+# added to app/ exists on disk and 404s in the browser until something runs
+# `next build`. That is the same failure the nginx allowlist used to produce —
+# a route added here reading exactly like a route nobody added — and it gets
+# the same fix: the deploy does it.
+#
+# Build BEFORE restarting, and only swap if the build succeeded: a failed build
+# must leave the previous version serving rather than take the company page and
+# the paper book down together.
+if grep -qE '^charto/web/' <<<"$changed"; then
+  echo "deploy: web app changed, rebuilding"
+  # This script already RUNS as azureuser (charto-deploy.service), which is
+  # also charto-web.service's user and the owner of node_modules — so the
+  # build needs no sudo at all. Only the restart does.
+  if (cd "$REPO/charto/web" && npx --no-install next build) \
+      >/tmp/charto_web_build.log 2>&1; then
+    sudo -n /usr/bin/systemctl restart charto-web.service
+    sleep 3
+    systemctl is-active --quiet charto-web.service \
+      && echo "deploy: charto-web.service active" \
+      || echo "deploy: WARNING — charto-web.service did not come back"
+  else
+    echo "deploy: WARNING — next build FAILED, keeping the running build"
+    tail -20 /tmp/charto_web_build.log
+  fi
 fi
