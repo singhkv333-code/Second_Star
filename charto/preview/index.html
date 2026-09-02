@@ -1699,6 +1699,15 @@ body > header {
   letter-spacing: -.01em; font-variant-numeric: tabular-nums;
 }
 .iv-pill.open { background: var(--accent); }
+/* A secondary pane holding the selection puts its ticker in front of the
+   interval, because the symbol pill beside it still names the page's own
+   instrument and cannot follow (choosing there reloads the session). Muted
+   and lighter than the interval: the interval is still what this control
+   sets — the ticker only says which chart it sets it on. */
+.iv-pill[data-pane]::before {
+  content: attr(data-pane) " · ";
+  font-weight: var(--weight-med); opacity: .6; letter-spacing: 0;
+}
 
 /* The menu is Groww's: sections in the micro-label and the interval SPELLED
    OUT ("15 minutes", not "15m"). The current one is marked the way every
@@ -8027,7 +8036,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
-  <script src="./js/history.js?v=2"></script>
+  <script src="./js/history.js?v=3"></script>
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
@@ -8053,10 +8062,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=27"></script>
   <script src="./js/scene.js?v=44"></script>
   <script src="./js/panes.js?v=19"></script>
-  <script src="./js/main.js?v=129"></script>
+  <script src="./js/main.js?v=130"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=9"></script>
+  <script src="./js/layouts.js?v=10"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the

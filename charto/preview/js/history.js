@@ -46,7 +46,48 @@ const Undo = (() => {
 
   let read = null, write = null;
   let past = [], future = [], present = null;
-  let restoring = false, queued = 0;
+  let restoring = false, queued = null;
+
+  /* SCHEDULING, and why it is not just requestAnimationFrame.
+   *
+   * rAF is a RENDERING callback: the spec does not deliver it to a document
+   * that is not being painted, and Chrome marks a tab hidden not only when it
+   * is in the background but when another window simply covers it. This
+   * module used rAF for two things that are not rendering — coalescing
+   * touch(), and clearing `restoring` once a restore has finished — so on a
+   * hidden tab both stalled:
+   *
+   *   · touch() left `queued` holding a callback id that could never clear,
+   *     and every later touch returned early on it. The edits were not lost,
+   *     they COALESCED — and the single step that finally landed when the tab
+   *     came back rewound a whole session's worth of annotations at once,
+   *     which is what "one Ctrl+Z ate four answers" actually was.
+   *   · apply()'s promise never settled, so `restoring` stayed true and the
+   *     serialising `chain` wedged behind it — undo looked dead rather than
+   *     slow.
+   *
+   * Aligning to a frame is an optimisation. RECORDING THE EDIT is the
+   * feature, so when there are no frames a timer takes the job. The pair is
+   * kept together — the id tells you nothing about which pool it came from,
+   * and cancelling a timeout id through cancelAnimationFrame is a silent
+   * no-op that leaves the callback to fire anyway. */
+  const schedule = (fn) => (document.hidden
+    ? { id: setTimeout(fn, 16), timer: true }
+    : { id: requestAnimationFrame(fn), timer: false });
+  const unschedule = (q) => {
+    if (!q) return;
+    if (q.timer) clearTimeout(q.id); else cancelAnimationFrame(q.id);
+  };
+  /* The one case the check above cannot catch: scheduled while visible, then
+   * covered before the frame arrives. That callback is now un-runnable, and
+   * because it still owns `queued` it blocks every edit made from here on.
+   * So a page going hidden re-arms whatever it was holding onto a timer. */
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden || !queued || queued.timer) return;
+    cancelAnimationFrame(queued.id);
+    queued = { id: setTimeout(pending, 16), timer: true };
+  });
+  let pending = () => {};
   // Writes are SERIALISED, not refused. Undo is a key you hold down: a
   // restore takes a frame or two (an indicator has to be recomputed), and
   // rejecting presses for that long silently swallowed every second Ctrl+Z.
@@ -65,11 +106,11 @@ const Undo = (() => {
   function apply(snap) {
     inflight++;
     restoring = true;
-    if (queued) { cancelAnimationFrame(queued); queued = 0; }
+    if (queued) { unschedule(queued); queued = null; }
     chain = chain
       .then(() => write(clone(snap)))
       .catch((e) => console.warn("[charto] undo write failed", e))
-      .then(() => new Promise((r) => requestAnimationFrame(() => {
+      .then(() => new Promise((r) => schedule(() => {
         // One frame past the last event this write fired — a touch queued
         // inside it would otherwise land after the flag cleared. Only the
         // LAST write in a burst re-opens the ear; an earlier one finishing
@@ -101,8 +142,8 @@ const Undo = (() => {
      *  before bind() or during a restore — both are no-ops. */
     touch() {
       if (!read || restoring || queued) return;
-      queued = requestAnimationFrame(() => {
-        queued = 0;
+      pending = () => {
+        queued = null;
         const next = clone(read());
         if (same(next, present)) return;   // a save that changed nothing
         past.push(present);
@@ -112,7 +153,8 @@ const Undo = (() => {
         // reachable, which is the one rule every undo stack shares.
         future.length = 0;
         emit();
-      });
+      };
+      queued = schedule(pending);
     },
 
     /** @returns true when there was something to undo. */

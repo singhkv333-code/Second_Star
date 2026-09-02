@@ -3515,17 +3515,65 @@
   //
   // The SECOND argument stays false: that one keeps the live crosshair, and
   // a screenshot should not carry the mouse.
+  /* EVERY pane, not just this one.
+   *
+   * The header above says "the chart (all panes)" and meant LWC's own stacked
+   * panes — price, ATR, ADX, RSI — all of which live inside this file's one
+   * chart instance. A workspace pane is a different thing: `open_chart` gives
+   * it its OWN LWC instance under Panes, which this function had never heard
+   * of. So the moment the chat opened a second instrument, the camera
+   * silently returned the left half of the screen, and the reply attached to
+   * it discussed a chart that was not in the picture.
+   *
+   * Composited by real screen rectangles, the way layouts.js already builds
+   * its thumbnail — same geometry, same background fill for the gutters
+   * between panes — so the two capture paths finally agree about what "the
+   * chart" is. Device scale comes from the primary, the one pane whose CSS
+   * size this file knows.
+   */
+  function paneShots() {
+    const out = [[chart.takeScreenshot(true), chartEl.getBoundingClientRect()]];
+    for (let i = 1; ; i++) {
+      const s = Panes.paneAt(i);
+      if (!s) break;
+      if (s.chart && s.root) out.push([s.chart.takeScreenshot(true),
+                                       s.root.getBoundingClientRect()]);
+    }
+    return out;
+  }
+
   function captureChart(rect) {
-    const full = chart.takeScreenshot(true);
-    const sx = full.width / chartEl.clientWidth;
-    const sy = full.height / chartEl.clientHeight;
+    const shots = paneShots();
+    const x0 = Math.min(...shots.map(([, r]) => r.left));
+    const y0 = Math.min(...shots.map(([, r]) => r.top));
+    const x1 = Math.max(...shots.map(([, r]) => r.right));
+    const y1 = Math.max(...shots.map(([, r]) => r.bottom));
+    const sx = shots[0][0].width / Math.max(1, chartEl.clientWidth);
+    const sy = shots[0][0].height / Math.max(1, chartEl.clientHeight);
+    const full = document.createElement("canvas");
+    full.width = Math.max(1, Math.round((x1 - x0) * sx));
+    full.height = Math.max(1, Math.round((y1 - y0) * sy));
+    const fx = full.getContext("2d");
+    fx.fillStyle = getComputedStyle(document.body)
+      .getPropertyValue("--chart-bg").trim() || "#000";
+    fx.fillRect(0, 0, full.width, full.height);
+    for (const [cv, r] of shots) {
+      fx.drawImage(cv, Math.round((r.left - x0) * sx), Math.round((r.top - y0) * sy),
+                   Math.round(r.width * sx), Math.round(r.height * sy));
+    }
     let c = full;
     if (rect) {
+      // The marquee lives on the primary chart's element, so its coordinates
+      // are relative to THAT pane — offset them into the composite before
+      // cropping, or a region selected on a two-pane screen comes back
+      // shifted by the primary's own origin.
+      const dx = chartEl.getBoundingClientRect().left - x0;
+      const dy = chartEl.getBoundingClientRect().top - y0;
       c = document.createElement("canvas");
       c.width = Math.max(1, Math.round(rect.w * sx));
       c.height = Math.max(1, Math.round(rect.h * sy));
       c.getContext("2d").drawImage(
-        full, rect.x * sx, rect.y * sy, rect.w * sx, rect.h * sy,
+        full, (rect.x + dx) * sx, (rect.y + dy) * sy, rect.w * sx, rect.h * sy,
         0, 0, c.width, c.height);
     }
     const MAX_W = 1280;
@@ -3635,9 +3683,7 @@
     const it = e.target.closest("[data-layout]");
     if (!it) return;
     layoutMenu.classList.remove("open");
-    Panes.apply(it.dataset.layout);
-    paintLayoutBtn();
-    Store.set("layout", Panes.layout);
+    Panes.apply(it.dataset.layout);   // paint + persist ride on onChange below
   });
   // Selecting a pane re-aims the WHOLE toolbar: the segmented control shows
   // that pane's interval and the indicator menu shows what that pane is
@@ -3647,6 +3693,18 @@
   // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
     markInterval(iv || state.interval);
+    // …but only HALF the toolbar can re-aim, and that was the bug. The
+    // interval pill follows the selection; the symbol pill cannot, because
+    // picking a company there navigates to ?symbol= and reloads — it is a
+    // statement about the SESSION, not about the selected pane. The two sit
+    // side by side and read as one control, so a chat that opened DATAPATTNS
+    // in a second pane left the header saying "RELIANCE · 1h": one chart's
+    // ticker beside another chart's interval, a state no pane was ever in.
+    // So when a secondary holds the selection the interval pill names the
+    // chart it is driving, and the pair stops disagreeing. Back on the
+    // primary the attribute goes away and the pill is bare, as before.
+    if (i === 0 || !sym) delete ivBtn.dataset.pane;
+    else ivBtn.dataset.pane = sym;
     if (menu.classList.contains("open")) renderIndMenu();
     document.dispatchEvent(new CustomEvent("charto:pane-active", {
       detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
@@ -3657,7 +3715,20 @@
   // A layout change creates and destroys charts, so anything holding a pane
   // index — the chat's chosen set above all — has to be told the screen is
   // different now.
-  Panes.onChange(() => document.dispatchEvent(new CustomEvent("charto:panes-changed")));
+  //
+  // The trigger is repainted and the choice persisted HERE rather than beside
+  // the menu click, because the menu is not the only thing that changes the
+  // layout: `open_chart` grows the grid from inside Panes when the chat opens
+  // a second instrument. Hung off the click alone, a chat-grown layout left
+  // the button wearing the single-chart glyph beside two charts, the menu
+  // ticking a row the screen was no longer in, and nothing in the store — so
+  // a reload silently threw the second chart away. onChange fires for every
+  // apply(), whoever called it, which is the whole point of putting it here.
+  Panes.onChange(() => {
+    paintLayoutBtn();
+    Store.set("layout", Panes.layout);
+    document.dispatchEvent(new CustomEvent("charto:panes-changed"));
+  });
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
 

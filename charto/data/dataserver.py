@@ -1464,10 +1464,30 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int | None = None,
     picked: list[dict] = []
     parked: list[dict] = []
     missing: list[str] = []
+    _nearest_skipped: list[str] = []
     if draw_ids:
         wanted = {str(i).upper() for i in draw_ids}
         picked = [x for x in lv if x["id"].upper() in wanted]
         missing = sorted(wanted - {x["id"].upper() for x in picked})
+        # A HAND-PICKED SET STILL HAS TO ANSWER THE QUESTION. This branch used
+        # to skip the ranker, the per-side cap and everything else, and it
+        # showed: asked for "the levels that actually matter", the model drew
+        # a Strong support 12.6% below spot, parked the Strong support 0.49%
+        # below it, and left its second support slot empty. Nothing checked,
+        # so nothing said. The nearest level either side of price is the one
+        # a chart is read against; if a chosen set leaves it out, say so here
+        # rather than letting the reply invent a reason it was left off.
+        for role in ("resistance", "support"):
+            side = [x for x in lv if x["role"] == role]
+            if not side:
+                continue
+            near = min(side, key=lambda x: abs(x["distance_pct"]))
+            if near["id"].upper() in wanted:
+                continue
+            _nearest_skipped.append(
+                f"{near['id']} ({role} at {near['price']}, "
+                f"{abs(near['distance_pct']):.2f}% from price, "
+                f"{near.get('strength', '?')})")
     elif draw and lv:
         # TWO PER SIDE, and the cap is the feature.
         #
@@ -1592,6 +1612,21 @@ def tool_get_levels(interval: str = "1d", lookback_bars: int | None = None,
                 f"telling the user the other {len(parked)} "
                 f"level{'s are' if len(parked) != 1 else ' is'} in the Layers "
                 f"panel and can be switched on there."
+            )
+        if _nearest_skipped:
+            # The chosen set left out the level closest to price on a side
+            # that has one. Say it plainly and give the reply the true
+            # reason, because the alternative is a reply inventing one:
+            # "left off the chart to keep it readable" was written about a
+            # level graded Strong, on a chart carrying three lines.
+            note.append(
+                "WARNING — the set you drew skips the nearest level to price: "
+                + "; ".join(_nearest_skipped)
+                + ". That is the level this chart is read against, so either "
+                  "draw it too or say in one sentence that it is parked and "
+                  "why. Never explain a parked level as 'kept off for "
+                  "readability' — the only true reason is the one this tool "
+                  "gives you."
             )
         result["_drawn_note"] = " ".join(note)
         result["parked_levels"] = parked
@@ -5078,6 +5113,37 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
                          "pair": f"{a} − {b}",
                          "gap_pp": round(m[a]["return_pct"] - m[b]["return_pct"], 2)})
 
+    # RANK, COMPUTED HERE. `metrics` is a dict keyed by symbol — no order, and
+    # no answer to the question every comparison is actually asking. Left to
+    # derive it, the model ordered eight signed returns by eye and reported
+    # that RELIANCE at −13.04% "outperformed only" BPCL (−10.35), IOC (−10.10)
+    # and HINDPETRO (−12.36) — the three it had just, correctly, said it
+    # finished behind. Comparing negatives is the classic place this goes
+    # wrong, and it is arithmetic, which means it belongs in Python.
+    #
+    # So the ordering ships as data: the rank of every symbol, and for the
+    # subject (the first one asked for, which is the one the question is
+    # about) the explicit beat / lost_to lists. A reply that quotes these
+    # cannot contradict itself the way a derived one did.
+    for r in runs:
+        m = r.get("metrics") or {}
+        have = [(k, v.get("return_pct")) for k, v in m.items()
+                if isinstance(v, dict) and v.get("return_pct") is not None]
+        if len(have) < 2:
+            continue
+        order = sorted(have, key=lambda kv: -kv[1])
+        r["ranking"] = [{"rank": i + 1, "symbol": k, "return_pct": v}
+                        for i, (k, v) in enumerate(order)]
+        subj = syms[0]
+        sv = m.get(subj, {}).get("return_pct")
+        if sv is not None:
+            r["subject_rank"] = {
+                "symbol": subj,
+                "rank": next(x["rank"] for x in r["ranking"] if x["symbol"] == subj),
+                "of": len(order),
+                "beat": [k for k, v in order if k != subj and v < sv],
+                "lost_to": [k for k, v in order if k != subj and v > sv]}
+
     # The primary interval stays at the top level in the shape it has always
     # had, so nothing that reads this result has to learn a new one.
     res: dict = dict(runs[0])
@@ -5121,8 +5187,13 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
         "Different intervals are different WINDOWS, not different views of "
         "one: 250 daily bars is about a year and 250 weekly bars about five, "
         "so a wider gap on the weekly is a longer race and not a stronger "
-        "signal. Quote these numbers exactly. This is descriptive comparison, "
-        "not a ranking of what to buy — close as analysis, not advice.")
+        "signal. Quote these numbers exactly. Take the ORDER from `ranking` "
+        "and `subject_rank` — never work it out yourself. `beat` and "
+        "`lost_to` are already correct for negative returns, where ordering "
+        "by eye goes wrong; if you write a sentence naming who the subject "
+        "finished ahead of, every name in it must come from `beat`. This is "
+        "descriptive comparison, not a ranking of what to buy — close as "
+        "analysis, not advice.")
     return res
 
 
@@ -6652,7 +6723,21 @@ def tool_get_trend(interval: str = "1d", lookback_bars: int | None = None,
                             if hi > lo else None)}
 
     window = f"{ist(rows[0][0])} → {ist(rows[-1][0])} {_tzl()}"
-    clean = [{k: v for k, v in x.items() if not k.startswith("_")} for x in best]
+    # DIRECTION AS A WORD, not as a slope the model has to read the sign of.
+    # `_trendline_name` already turns slope into Rising/Descending — but only
+    # on the card path, so the panel said "Rising resistance" while the reply
+    # above it opened "the relevant line is a descending resistance
+    # trendline". The model had `slope_per_bar: 0.3765` and the word
+    # "resistance", and resistance colloquially reads as a falling line. Give
+    # it the same word the user is looking at and the two cannot part company.
+    clean = []
+    for x in best:
+        c = {k: v for k, v in x.items() if not k.startswith("_")}
+        sl = x.get("slope_per_bar")
+        if sl is not None:
+            c["direction"] = ("rising" if sl > 0 else
+                              "descending" if sl < 0 else "flat")
+        clean.append(c)
     res: dict = {
         "market_structure": struct,
         "adx": adx,
@@ -6690,6 +6775,11 @@ def tool_get_trend(interval: str = "1d", lookback_bars: int | None = None,
                    "3+ real swings"),
     }
     res["_note"] = (
+        "Call a trendline by its `direction` field and no other word — the "
+        "panel beside your reply uses that same word, and a line described "
+        "as descending while the chart shows it rising is the reply losing "
+        "to its own widget. `role` is which side it acts as, not which way "
+        "it points; the two are independent. "
         "These are four SEPARATE measurements of one chart and they are not "
         "required to agree. `market_structure.trend` is the swing sequence "
         "(HH/HL vs LH/LL) and nothing else; `directional_bias` is which DI leg "
@@ -8269,10 +8359,28 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     if run:
         res["run_up_before"] = {"avg_move_pct": avg(run),
                                 "what": f"the {h} sessions into the announcement"}
+    # `recent` is a WINDOW ONTO the sample, never the sample. Every aggregate
+    # above is over all `studied` events; this list is the six newest. Ship
+    # the two counts side by side and say which is which, because without
+    # that the model printed four of these rows and quoted the twelve-quarter
+    # averages beneath them under the sentence "I measured the last four
+    # quarters" — two numbers that cannot be reconciled with the table above
+    # them, in a reply whose whole value is that its numbers can be checked.
     res["recent"] = [{"quarter": s["quarter"], "date": s["date"],
                       "gap_pct": round(s["gap"], 2), "day_pct": round(s["day"], 2),
                       f"next_{h}_bars_pct": round(s["after"], 2)}
                      for s in studied[:6]]
+    res["recent_shown"] = len(res["recent"])
+    res["aggregate_sample_n"] = len(studied)
+    res["_sample_note"] = (
+        f"Every average and rate here is over ALL {len(studied)} measured "
+        f"results, while `recent` lists only the {len(res['recent'])} newest. "
+        "They are different samples. If you show rows and quote an average in "
+        "the same reply, name the aggregate's sample in the sentence that "
+        "carries it — 'across the last "
+        f"{len(studied)} quarters' — or the reader will check it against the "
+        "rows and find it wrong. Never compute your own average from the rows "
+        "you happened to print and present it as this tool's figure.")
     res["provenance"] = {
         "window": f"{_ist(rows[0][0], False)} → {_ist(rows[-1][0], False)} {_tzl()}",
         "bars_scanned": n,
@@ -8632,8 +8740,22 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
     direction = 1 if ret >= 0 else -1
 
     # ── per-session rows, with intraday anatomy where 1-min bars exist ──
+    #
+    # HEAD AND TAIL, and the tail is the half that mattered. This used to take
+    # the first ten sessions of the window and stop — so an eleven-session
+    # window handed the model every day EXCEPT the newest one, and a question
+    # about "the last big down day" was answered from a list the last day was
+    # not in. The reply named the second-largest fall and was right about
+    # everything it could see; the payload was what was wrong.
+    #
+    # The note under this block says the omission is in the MIDDLE. Keeping
+    # both ends is what makes that sentence true, as well as what keeps the
+    # newest session — the one nearly every causal question is actually about
+    # — in front of the model.
+    span = list(range(i0, i1 + 1))
+    keep = span if len(span) <= 10 else span[:5] + span[-5:]
     sessions = []
-    for i in range(i0, min(i1, i0 + 9) + 1):
+    for i in keep:
         pc = closes[i - 1]
         t, o, h, l, c, v = rows[i]
         v20 = [rows[j][5] for j in range(max(0, i - 20), i)]
@@ -8646,7 +8768,7 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
         if anatomy:
             s["anatomy_pct"] = anatomy
         sessions.append(s)
-    omitted = n - len(sessions)
+    omitted = len(span) - len(keep)
 
     out: dict = {
         "window": {"from": _ist(rows[i0][0], False), "to": _ist(rows[i1][0], False),

@@ -83,12 +83,19 @@ const Layouts = (() => {
     try {
       const shots = [];
       const primary = document.getElementById("chart");
-      if (primary && c.chart) shots.push([c.chart.takeScreenshot(),
+      // takeScreenshot(TRUE) on every pane. LWC gives each pane two canvases
+      // and composites the second only when asked; that second one is where
+      // every series primitive lands — the user's drawings, get_levels'
+      // bands, the volume profile. Called bare, this returned bare candles,
+      // so a layout saved with nine annotations previewed as an empty chart:
+      // exactly the "picture of a layout the user does not have" this
+      // function's own header sets out to avoid.
+      if (primary && c.chart) shots.push([c.chart.takeScreenshot(true),
                                           primary.getBoundingClientRect()]);
       for (let i = 1; ; i++) {
         const s = c.panes.paneAt(i);
         if (!s) break;
-        if (s.chart && s.root) shots.push([s.chart.takeScreenshot(),
+        if (s.chart && s.root) shots.push([s.chart.takeScreenshot(true),
                                            s.root.getBoundingClientRect()]);
       }
       if (!shots.length) return "";

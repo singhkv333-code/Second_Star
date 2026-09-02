@@ -416,3 +416,126 @@ def test_panel_density_follows_the_chart_not_the_wording() -> None:
     assert server._panel_density(marked, "brief") == "brief"
     # An unknown value is not a third mode — it falls back to the chart.
     assert server._panel_density(marked, "enormous") == "full"
+
+
+# ── the payload is the answer: five facts the model must never have to derive ─
+#
+# Every wrong number in the 02 Sep research-mode session traced to the same
+# shape of bug — a fact this file already knew, handed over in a form that
+# made the model work it out. None of them was the model inventing anything.
+# So each one is pinned here as a property OF THE PAYLOAD, which is the layer
+# that can actually be tested.
+
+def test_explain_move_keeps_the_windows_last_session(monkeypatch) -> None:
+    """The newest bar is what a causal question is usually about.
+
+    The session list used to be `range(i0, min(i1, i0 + 9) + 1)` — the FIRST
+    ten of the window — so an eleven-session window handed over every day but
+    the newest. Asked what drove the last big down day, the model named the
+    second-biggest fall and was right about everything it could see.
+    """
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    out = server.tool_explain_move(frm="2026-06-01", to="2026-07-22")
+    assert not out.get("error"), out.get("error")
+    sess = out["sessions"]
+    assert sess, "no sessions — the assertions below would be vacuous"
+    assert sess[-1]["date"] == out["window"]["to"], (
+        "the window's last session is missing from the rows the model reads")
+    # and the note under it only tells the truth if the hole is in the middle
+    if out.get("sessions_omitted"):
+        assert sess[0]["date"] == out["window"]["from"]
+
+
+def test_compare_ranks_the_peers_instead_of_leaving_it_to_the_model(monkeypatch) -> None:
+    """Ordering signed returns is arithmetic, so it happens in Python.
+
+    `metrics` is keyed by symbol and carries no order. Asked to rank eight
+    peers the model reported that a −13.04% subject "outperformed only" three
+    names at −10.35, −10.10 and −12.36 — the three it had just said it
+    finished behind. Comparing negatives is exactly where this goes wrong.
+    """
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    out = server.tool_compare_symbols(
+        symbols=["RELIANCE", "BPCL", "IOC", "HINDPETRO", "MRPL"],
+        interval="1d", lookback_bars=130)
+    assert not out.get("error"), out.get("error")
+    rank = out["ranking"]
+    rets = [r["return_pct"] for r in rank]
+    assert rets == sorted(rets, reverse=True), rank
+    assert [r["rank"] for r in rank] == list(range(1, len(rank) + 1))
+    sr, m = out["subject_rank"], out["metrics"]
+    mine = m[sr["symbol"]]["return_pct"]
+    # the two lists are the whole point: a name may appear in exactly one
+    assert set(sr["beat"]) & set(sr["lost_to"]) == set()
+    assert all(m[k]["return_pct"] < mine for k in sr["beat"]), sr
+    assert all(m[k]["return_pct"] > mine for k in sr["lost_to"]), sr
+    assert sr["rank"] == 1 + len(sr["lost_to"])
+
+
+def test_trendlines_carry_a_direction_word(monkeypatch) -> None:
+    """The card said "Rising resistance"; the reply said "descending".
+
+    `_trendline_name` computed the word for the panel and the model got only
+    `slope_per_bar`. Resistance colloquially reads as a falling line, so it
+    guessed, and the reply lost to its own widget.
+    """
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    out = server.tool_get_trend(interval="1d", lookback_bars=1500)
+    lines = out.get("trendlines") or out.get("drawn_trendlines") or []
+    assert lines, "no trendlines fitted — the assertions below would be vacuous"
+    for x in lines:
+        assert x.get("direction") in ("rising", "descending", "flat"), x
+        slope = x.get("slope_per_bar")
+        if slope:
+            assert x["direction"] == ("rising" if slope > 0 else "descending"), x
+
+
+def test_results_aggregates_declare_their_sample(monkeypatch) -> None:
+    """`recent` is a window onto the sample, never the sample.
+
+    Every average is over all measured results; `recent` is the six newest.
+    The model printed four rows and quoted the full-sample averages under
+    them, so two of three headline numbers could not be reconciled with the
+    table they sat on.
+    """
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    out = server.tool_evaluate_results(horizon_bars=5)
+    assert not out.get("error"), out.get("error")
+    assert out["aggregate_sample_n"] == out["events_evaluated"]
+    assert out["recent_shown"] == len(out["recent"])
+    assert out["_sample_note"], "nothing tells the model the samples differ"
+    # the bug only bites when they DIFFER, which is the ordinary case
+    if out["recent_shown"] != out["aggregate_sample_n"]:
+        assert str(out["aggregate_sample_n"]) in out["_sample_note"]
+
+
+def test_hand_picked_levels_are_checked_against_the_nearest(monkeypatch) -> None:
+    """`draw_ids` skipped the ranker, the cap and proximity, unchecked.
+
+    Asked for "the levels that actually matter" the model drew a Strong
+    support 12.6% below spot, parked the Strong support 0.49% below it, left
+    its second support slot empty, and then explained the omission as keeping
+    the chart readable — a reason the tool never gave it.
+    """
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    monkeypatch.setattr(server, "_scene_add", lambda *a, **k: None)
+    base = server.tool_get_levels(interval="1d", lookback_bars=1500)
+    lv = base.get("levels") or []
+    sup = [x for x in lv if x["role"] == "support"]
+    res = [x for x in lv if x["role"] == "resistance"]
+    assert len(sup) >= 2 and res, "not enough levels — assertions would be vacuous"
+    near = min(sup, key=lambda z: abs(z["distance_pct"]))
+    far = max(sup, key=lambda z: abs(z["distance_pct"]))
+
+    skipped = server.tool_get_levels(
+        interval="1d", lookback_bars=1500, draw=True,
+        draw_ids=[min(res, key=lambda z: abs(z["distance_pct"]))["id"], far["id"]])
+    note = skipped.get("_drawn_note", "")
+    assert "WARNING" in note and near["id"] in note, note
+    assert "readab" in note, "the invented rationale is not ruled out"
+
+    # and a set that DOES include the nearest each side raises nothing
+    ok = server.tool_get_levels(
+        interval="1d", lookback_bars=1500, draw=True,
+        draw_ids=[min(res, key=lambda z: abs(z["distance_pct"]))["id"], near["id"]])
+    assert "WARNING" not in ok.get("_drawn_note", "")
