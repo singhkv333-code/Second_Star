@@ -7340,9 +7340,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .jq-note svg { width: 13px; height: 13px; }
 
 @media (max-width: 820px) {
-  .stage.journal-pane-open #chart { bottom: min(var(--journal-pane-h, 260px), 190px); }
-  .stage.journal-pane-open .prov { bottom: 200px; }
-  .jq { height: min(var(--journal-pane-h, 260px), 190px); max-height: 55%; }
+  /* The header, metric strip and empty state need just over 200px once the
+     metric strip gains its horizontal scrollbar. At 190px the default view
+     therefore opened with a second, unnecessary vertical scrollbar. Keep
+     the chart offset in lockstep with the taller compact pane. */
+  .stage.journal-pane-open #chart { bottom: min(var(--journal-pane-h, 260px), 220px); }
+  .stage.journal-pane-open .prov { bottom: 230px; }
+  .jq { height: min(var(--journal-pane-h, 260px), 220px); max-height: 55%; }
   .jq-title { min-width: 0; }
   .jq-title span { display: none; }
   .jq-head { padding-inline: 7px; gap: 6px; }
