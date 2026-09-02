@@ -595,6 +595,15 @@ window.LayersPanel = (() => {
     const search = host.querySelector("#layerSearch");
     if (search) {
       search.addEventListener("input", (e) => { query = e.target.value; render(); });
+      // Escape clears the filter without closing the sheet — the panel's own
+      // Escape (js/main.js) closes it, so this stops first when there is a
+      // query to clear.
+      search.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape" || !query) return;
+        e.stopPropagation();
+        query = "";
+        render();
+      });
       if (typing) {
         search.focus();
         try { search.setSelectionRange(caret, caret); } catch { /* not text */ }
