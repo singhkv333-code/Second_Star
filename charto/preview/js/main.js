@@ -1039,6 +1039,19 @@
     setStatus: (m) => setText("drawStatus", m),
     onToolDone: () => selectTool("cursor"),
     onChange: () => syncDrawToggle(),
+    // The touch bridge lives in drawings.js but has to decide for BOTH
+    // layers: a finger landing on a chat-drawn level or pattern must arm it
+    // just as one landing on the user's own shape does. Lazy, because
+    // `scene` is created a few hundred lines below this and the bridge only
+    // ever asks during a gesture.
+    // try/catch, not a truthiness test: `scene` is a `const` declared below,
+    // so touching it before that line runs is a TDZ ReferenceError rather
+    // than undefined. Boot is synchronous through both, so this can only
+    // matter if a gesture ever lands mid-init — and then panning is the
+    // right answer anyway.
+    sceneGrabbable: (x, y) => {
+      try { return scene.grabbableAt(x, y); } catch { return false; }
+    },
   });
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());

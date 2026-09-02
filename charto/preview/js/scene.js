@@ -1176,19 +1176,36 @@ const Scene = (() => {
       a.label = `${a.side} · R:R ${a.rr ?? "—"}` + (a.qty ? ` · qty ${a.qty}` : "");
     }
 
+    /* What a press is allowed to MOVE.
+     *
+     * A computed profile has no geometry the user owns — dragging it would
+     * mean nothing and would stamp it "adjusted", so it is hoverable but not
+     * movable, like markers. A candle mark is the same: its geometry IS a
+     * particular bar, so dragging it off that bar destroys its only claim.
+     *
+     * Factored out because the touch layer has to ask the same question
+     * BEFORE it decides whether to swallow a gesture, and a second copy of
+     * this list would drift from this one the first time a kind was added. */
+    const draggableKind = (a) => !!a && a.kind !== "markers"
+      && a.kind !== "vprofile" && a.kind !== "candle";
+
+    /** Is there something here a drag would move? Client coordinates, because
+     *  the caller is a touch handler that has a Touch and not an event. */
+    function grabbableAt(clientX, clientY) {
+      if (!env.isCursorMode()) return false;
+      const e = { clientX, clientY };
+      if (!inPlot(e)) return false;
+      const p = pointIn(e);
+      return draggableKind(hitAt(p.y, p.key, p.x));
+    }
+
     env.container.addEventListener("mousedown", (e) => {
       if (e.button !== 0 || !env.isCursorMode()) return;
       if (env.userBusy && env.userBusy()) return;  // a user drawing took this press
       if (!inPlot(e)) return;      // an axis drag is a rescale, not a move
       const p = pointIn(e);
       const a = hitAt(p.y, p.key, p.x);
-      // A computed profile has no geometry the user owns — dragging it would
-      // mean nothing and would stamp it "adjusted", so it is hoverable but
-      // not movable, like markers. A candle mark is the same: its geometry
-      // IS a particular bar, so dragging it off that bar destroys its only
-      // claim.
-      if (!a || a.kind === "markers" || a.kind === "vprofile"
-          || a.kind === "candle") return;
+      if (!draggableKind(a)) return;
       const l0 = chart.timeScale().coordinateToLogical(p.x);
       /* A linked set moves as ONE RIGID BODY, never a part of one.
        *
@@ -1288,6 +1305,10 @@ const Scene = (() => {
     return {
       state,
       hitAt: (y, key, x) => hitAt(y, key, x),
+      /** For the touch bridge in drawings.js: may a finger here drag one of
+       *  the chat's annotations? Asked before the gesture is swallowed, so a
+       *  finger that lands on empty chart still pans. */
+      grabbableAt,
       /** Drive the hover highlight from outside the canvas — the chat pane
        *  hovers a mention, the annotation lights up. Presentation only: it
        *  moves no meaning, it just points at what is already drawn. */

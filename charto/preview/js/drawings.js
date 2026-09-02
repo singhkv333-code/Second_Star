@@ -418,6 +418,31 @@ const Drawings = (() => {
     const setScroll = (on) => chart.applyOptions({ handleScroll: on, handleScale: on });
     const newId = () => "d" + Date.now().toString(36) + Math.floor(Math.random() * 999);
 
+    /** Is there a shape of OURS here that a press would grab? Same three
+     *  tests the cursor-mode branch of mousedown runs, in the same order —
+     *  a handle of the selected shape, then any visible shape — asked in
+     *  client coordinates because the caller is holding a Touch. Locked
+     *  shapes answer false: they select but never move, and a gesture that
+     *  cannot move anything must be left to the chart to pan with. */
+    function ownGrabbableAt(clientX, clientY) {
+      if (state.tool !== "cursor" || state.hidden) return false;
+      const e2 = { clientX, clientY };
+      if (!inPlot(e2)) return false;
+      const a = anchorAt(e2);
+      if (!a) return false;
+      const r = el.getBoundingClientRect();
+      const mx = clientX - r.left, my = yInPane(clientY, a.key);
+      if (state.selId) {
+        const d = state.drawings.find((q) => q.id === state.selId);
+        if (d && !d.locked && (d.pane || "price") === a.key
+            && handleAt(d, mx, my, a.key) >= 0) return true;
+      }
+      const hit = hitTest(mx, my, a.key);
+      if (!hit) return false;
+      const d = state.drawings.find((q) => q.id === hit);
+      return !!d && !d.locked;
+    }
+
     el.addEventListener("mousedown", (e2) => {
       if (e2.button !== 0) return;
       state.consumedDown = false;
@@ -607,17 +632,43 @@ const Drawings = (() => {
      */
     (function touchToMouse() {
       let live = false;
-      const armed = () => state.tool !== "cursor" || !!state.draft;
+      /* WHEN TO TAKE THE GESTURE, and it is not only while a tool is armed.
+       *
+       * This used to be `state.tool !== "cursor" || !!state.draft` — armed
+       * for drawing, transparent otherwise — so that a finger could pan and
+       * pinch normally. What it actually meant was that MOVING anything was
+       * impossible on a touchscreen: dragging a shape happens in cursor
+       * mode, so no mouse event was ever synthesised and nothing moved. On a
+       * desktop the same build worked, which is why device-mode testing kept
+       * passing: emulation drives a real mouse, and a real finger never
+       * sends a mousemove.
+       *
+       * So cursor mode arms too — but only when the finger comes down on
+       * something a drag would actually move, ours or the chat's. On empty
+       * chart it stays out of the way and the pan is untouched. That is why
+       * the probes answer BEFORE the first preventDefault: once a gesture is
+       * swallowed there is no giving it back.
+       */
+      const grabbable = (t) => ownGrabbableAt(t.clientX, t.clientY)
+        || !!(env.sceneGrabbable && env.sceneGrabbable(t.clientX, t.clientY));
+      const armed = (t) => state.tool !== "cursor" || !!state.draft
+        || (!!t && grabbable(t));
+      /* BUBBLES, because scene.js ends its drag on a WINDOW mouseup. A
+       * non-bubbling event dispatched on the container still runs the
+       * capture phase down from window — which is why the click-outside
+       * menus have always seen these — but it never reaches a listener
+       * bound for the bubble phase, so a relayed drag moved the geometry and
+       * then never committed it. */
       const relay = (type, touch) => {
         if (!touch) return;
         el.dispatchEvent(new MouseEvent(type, {
           clientX: touch.clientX, clientY: touch.clientY,
-          bubbles: false, cancelable: true, button: 0,
+          bubbles: true, cancelable: true, button: 0,
         }));
       };
       const opts = { capture: true, passive: false };
       el.addEventListener("touchstart", (e2) => {
-        live = armed() && e2.touches.length === 1;   // a pinch is never a draw
+        live = e2.touches.length === 1 && armed(e2.touches[0]);  // a pinch is never a draw
         if (!live) return;
         e2.preventDefault(); e2.stopPropagation();
         relay("mousedown", e2.touches[0]);
