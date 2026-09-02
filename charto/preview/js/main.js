@@ -3979,13 +3979,16 @@
   const paperBtn = el("paperBtn");
   if (paperBtn) {
     paperBtn.innerHTML = Icons.svg("paperBook");
+    /* COMPANY_PAGE, for the reason written where it is defined — and this is
+     * the second time that reason has had to be learned. An absolute
+     * http://127.0.0.1:5175/paper is a different ORIGIN, and localStorage is
+     * per origin: the token the chart signed you in with does not exist over
+     * there, so a signed-in user arrived at the paper book signed OUT and was
+     * shown a page asking them to sign in. serve.py proxies /paper to the
+     * Next app in dev exactly as nginx does on the VM. */
     const openPaper = () => {
       if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
-      // Same origin behind nginx; in local dev the Next app is its own port,
-      // so the link has to name it or it 404s against :5173.
-      const base = ["localhost", "127.0.0.1"].includes(location.hostname)
-        ? "http://127.0.0.1:5175" : "";
-      window.open(base + "/paper", "_blank", "noopener");
+      window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");
     };
     paperBtn.addEventListener("click", openPaper);
     // The title carries the state, so a signed-out press is not a surprise.
@@ -4010,12 +4013,8 @@
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
-    // Same origin behind nginx in production; in local dev the Next app is a
-    // separate port, so the link has to name it or it 404s against :5173.
     if (it.dataset.acct === "paper") {
-      const base = ["localhost", "127.0.0.1"].includes(location.hostname)
-        ? "http://127.0.0.1:5175" : "";
-      window.open(base + "/paper", "_blank", "noopener");
+      window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");  // see openPaper
       return;
     }
     if (it.dataset.acct === "logout") {
