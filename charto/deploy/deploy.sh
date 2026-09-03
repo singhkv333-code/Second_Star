@@ -54,6 +54,23 @@ record_web_failure() {
   printf '%s\n' "$web_attempt" > "$web_failed_file"
 }
 
+failure_kind() {
+  log_file="$1"
+  if grep -Eqi 'ENOSPC|no space left on device' "$log_file"; then
+    printf disk
+  elif grep -Eqi 'heap out of memory|allocation failed|(^|[^0-9])137([^0-9]|$)|(^|[[:space:]])killed([[:space:]]|$)' "$log_file"; then
+    printf memory
+  elif grep -Eqi 'EACCES|EPERM|permission denied' "$log_file"; then
+    printf permissions
+  elif grep -Eqi 'cannot find module|module not found|ERESOLVE' "$log_file"; then
+    printf dependency
+  elif grep -Eqi 'type error|failed to compile|build error occurred' "$log_file"; then
+    printf compile
+  else
+    printf unknown
+  fi
+}
+
 rebuild_web() {
   echo "deploy: company frontend changed, rebuilding charto/web"
   printf 'building %s\n' "$web_tree" > "$web_status_file"
@@ -67,7 +84,7 @@ rebuild_web() {
     printf 'installing %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
       && npm ci --no-audit --no-fund > /tmp/charto_web_install.log 2>&1); then
-      record_web_failure install
+      record_web_failure "install-$(failure_kind /tmp/charto_web_install.log)"
       echo "deploy: company frontend dependency install FAILED"
       tail -20 /tmp/charto_web_install.log
       return 1
@@ -76,7 +93,7 @@ rebuild_web() {
     if ! (cd "$REPO/charto/web" \
       && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 \
         npx next build > /tmp/charto_web_build.log 2>&1); then
-      record_web_failure build
+      record_web_failure "build-$(failure_kind /tmp/charto_web_build.log)"
       echo "deploy: company frontend build FAILED"
       tail -20 /tmp/charto_web_build.log
       return 1
