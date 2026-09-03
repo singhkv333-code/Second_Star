@@ -35,6 +35,7 @@ local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 # while a missed restart self-heals on the next 30-second poll.
 web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
 web_revision_file="$REPO/charto/web/.next/charto-git-tree"
+web_status_file="$REPO/charto/preview/deploy-runtime.txt"
 
 web_needs_build() {
   [ "$web_tree" != missing ] \
@@ -44,8 +45,40 @@ web_needs_build() {
 
 rebuild_web() {
   echo "deploy: company frontend changed, rebuilding charto/web"
-  "$REPO/charto/web/start.sh"
+  printf 'building %s\n' "$web_tree" > "$web_status_file"
+
+  # Production normally owns :5175 through charto-web.service. The old helper
+  # tried to SIGKILL that process as azureuser, ignored EPERM, then launched a
+  # second server which could never bind. Build while the current service is
+  # still available, then let systemd replace it atomically. Keep start.sh as
+  # the fallback for older/manual installations without the unit.
+  if systemctl cat charto-web.service >/dev/null 2>&1; then
+    if ! (cd "$REPO/charto/web" \
+      && npx next build > /tmp/charto_web_build.log 2>&1); then
+      printf 'failed build %s\n' "$web_tree" > "$web_status_file"
+      echo "deploy: company frontend build FAILED"
+      tail -20 /tmp/charto_web_build.log
+      return 1
+    fi
+    printf 'restarting %s\n' "$web_tree" > "$web_status_file"
+    if ! sudo -n /usr/bin/systemctl restart charto-web.service; then
+      printf 'failed restart %s\n' "$web_tree" > "$web_status_file"
+      echo "deploy: charto-web.service restart FAILED"
+      return 1
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet charto-web.service; then
+      printf 'failed inactive %s\n' "$web_tree" > "$web_status_file"
+      echo "deploy: charto-web.service is not active"
+      return 1
+    fi
+  elif ! "$REPO/charto/web/start.sh"; then
+    printf 'failed legacy-start %s\n' "$web_tree" > "$web_status_file"
+    return 1
+  fi
+
   printf '%s\n' "$web_tree" > "$web_revision_file"
+  printf 'ready %s\n' "$web_tree" > "$web_status_file"
   echo "deploy: company frontend active ($web_tree)"
 }
 
