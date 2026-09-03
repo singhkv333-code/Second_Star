@@ -28,6 +28,27 @@ git fetch --quiet origin "$BRANCH"
 remote="$(git rev-parse "origin/$BRANCH")"
 local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
+# nginx serves charto/preview directly, but /stock and /_next are a compiled
+# Next.js app on :5175. A git reset updates its source without updating the
+# running bundle. Track the web TREE (not the repository commit) beside the
+# build so backend/chart-only commits do not trigger unnecessary Next builds,
+# while a missed restart self-heals on the next 30-second poll.
+web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
+web_revision_file="$REPO/charto/web/.next/charto-git-tree"
+
+web_needs_build() {
+  [ "$web_tree" != missing ] \
+    && { [ ! -f "$web_revision_file" ] \
+      || [ "$(cat "$web_revision_file" 2>/dev/null || true)" != "$web_tree" ]; }
+}
+
+rebuild_web() {
+  echo "deploy: company frontend changed, rebuilding charto/web"
+  "$REPO/charto/web/start.sh"
+  printf '%s\n' "$web_tree" > "$web_revision_file"
+  echo "deploy: company frontend active ($web_tree)"
+}
+
 # nginx's config is IN this repo and used to be applied by hand, which meant it
 # was applied roughly never — the box drifted from the record for weeks, and a
 # route added here read exactly like a route nobody added. apply_nginx.sh does
@@ -59,6 +80,9 @@ patch_vendor() {
 if [ "$local_" = "$remote" ]; then
   patch_vendor
   apply_nginx
+  if web_needs_build; then
+    rebuild_web
+  fi
   exit 0
 fi
 
@@ -93,6 +117,10 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 patch_vendor
 apply_nginx
 
+if web_needs_build; then
+  rebuild_web
+fi
+
 # `pivot/` counts as backend too, now that it is IN the checkout.
 #
 # It used to be filtered out of the sparse rules entirely, so the only thing
@@ -111,5 +139,5 @@ if grep -qE '^(charto/data/|pivot/)' <<<"$changed"; then
     && echo "deploy: charto.service active" \
     || { echo "deploy: FAILED to come back up"; exit 1; }
 else
-  echo "deploy: frontend only, already live (no restart)"
+  echo "deploy: static frontend already live; company frontend checked separately"
 fi
