@@ -34,13 +34,24 @@ local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 # build so backend/chart-only commits do not trigger unnecessary Next builds,
 # while a missed restart self-heals on the next 30-second poll.
 web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
+deploy_blob="$(git rev-parse "$remote:charto/deploy/deploy.sh" 2>/dev/null || echo missing)"
+web_attempt="$web_tree-$deploy_blob"
 web_revision_file="$REPO/charto/web/.next/charto-git-tree"
+web_failed_file="$REPO/charto/web/.next/charto-git-failed-attempt"
 web_status_file="$REPO/charto/preview/deploy-runtime.txt"
 
 web_needs_build() {
   [ "$web_tree" != missing ] \
     && { [ ! -f "$web_revision_file" ] \
-      || [ "$(cat "$web_revision_file" 2>/dev/null || true)" != "$web_tree" ]; }
+      || [ "$(cat "$web_revision_file" 2>/dev/null || true)" != "$web_tree" ]; } \
+    && { [ ! -f "$web_failed_file" ] \
+      || [ "$(cat "$web_failed_file" 2>/dev/null || true)" != "$web_attempt" ]; }
+}
+
+record_web_failure() {
+  stage="$1"
+  printf 'failed %s %s\n' "$stage" "$web_tree" > "$web_status_file"
+  printf '%s\n' "$web_attempt" > "$web_failed_file"
 }
 
 rebuild_web() {
@@ -56,37 +67,39 @@ rebuild_web() {
     printf 'installing %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
       && npm ci --no-audit --no-fund > /tmp/charto_web_install.log 2>&1); then
-      printf 'failed install %s\n' "$web_tree" > "$web_status_file"
+      record_web_failure install
       echo "deploy: company frontend dependency install FAILED"
       tail -20 /tmp/charto_web_install.log
       return 1
     fi
     printf 'building %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
-      && npx next build > /tmp/charto_web_build.log 2>&1); then
-      printf 'failed build %s\n' "$web_tree" > "$web_status_file"
+      && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=3072 \
+        npx next build > /tmp/charto_web_build.log 2>&1); then
+      record_web_failure build
       echo "deploy: company frontend build FAILED"
       tail -20 /tmp/charto_web_build.log
       return 1
     fi
     printf 'restarting %s\n' "$web_tree" > "$web_status_file"
     if ! sudo -n /usr/bin/systemctl restart charto-web.service; then
-      printf 'failed restart %s\n' "$web_tree" > "$web_status_file"
+      record_web_failure restart
       echo "deploy: charto-web.service restart FAILED"
       return 1
     fi
     sleep 2
     if ! systemctl is-active --quiet charto-web.service; then
-      printf 'failed inactive %s\n' "$web_tree" > "$web_status_file"
+      record_web_failure inactive
       echo "deploy: charto-web.service is not active"
       return 1
     fi
   elif ! "$REPO/charto/web/start.sh"; then
-    printf 'failed legacy-start %s\n' "$web_tree" > "$web_status_file"
+    record_web_failure legacy-start
     return 1
   fi
 
   printf '%s\n' "$web_tree" > "$web_revision_file"
+  rm -f "$web_failed_file"
   printf 'ready %s\n' "$web_tree" > "$web_status_file"
   echo "deploy: company frontend active ($web_tree)"
 }
