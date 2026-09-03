@@ -53,6 +53,15 @@ rebuild_web() {
   # still available, then let systemd replace it atomically. Keep start.sh as
   # the fallback for older/manual installations without the unit.
   if systemctl cat charto-web.service >/dev/null 2>&1; then
+    printf 'installing %s\n' "$web_tree" > "$web_status_file"
+    if ! (cd "$REPO/charto/web" \
+      && npm ci --no-audit --no-fund > /tmp/charto_web_install.log 2>&1); then
+      printf 'failed install %s\n' "$web_tree" > "$web_status_file"
+      echo "deploy: company frontend dependency install FAILED"
+      tail -20 /tmp/charto_web_install.log
+      return 1
+    fi
+    printf 'building %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
       && npx next build > /tmp/charto_web_build.log 2>&1); then
       printf 'failed build %s\n' "$web_tree" > "$web_status_file"
