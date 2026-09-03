@@ -40,8 +40,10 @@ web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
 # attempt before that new script ever executes.
 deploy_blob="$(git hash-object "$0" 2>/dev/null || echo missing)"
 web_attempt="$web_tree-$deploy_blob"
-web_revision_file="$REPO/charto/web/.next/charto-git-tree"
-web_failed_file="$REPO/charto/web/.next/charto-git-failed-attempt"
+# Keep deploy bookkeeping OUTSIDE .next: that directory is generated output
+# and must be replaceable as a unit for a genuinely clean production build.
+web_revision_file="/tmp/charto_web_git_tree"
+web_failed_file="/tmp/charto_web_git_failed_attempt"
 web_status_file="$REPO/charto/preview/deploy-runtime.txt"
 
 web_needs_build() {
@@ -99,6 +101,10 @@ rebuild_web() {
       tail -20 /tmp/charto_web_install.log
       return 1
     fi
+    # Reusing an old production directory preserves generated route/type files
+    # from the previous source tree. The VM then fails type checking even when
+    # the same locked source passes a clean local `next build`.
+    rm -rf "$REPO/charto/web/.next"
     printf 'building %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
       && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 \
