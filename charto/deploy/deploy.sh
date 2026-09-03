@@ -62,13 +62,19 @@ failure_kind() {
   log_file="$1"
   if grep -Eqi 'ENOSPC|no space left on device' "$log_file"; then
     printf disk
-  elif grep -Eqi 'heap out of memory|allocation failed|(^|[^0-9])137([^0-9]|$)|(^|[[:space:]])killed([[:space:]]|$)' "$log_file"; then
+  elif grep -Eqi 'heap out of memory|allocation failed|SIGKILL|signal[^[:alnum:]]+9|worker (process )?(exited|terminated) unexpectedly|(^|[^0-9])137([^0-9]|$)|(^|[[:space:]])killed([[:space:]]|$)' "$log_file"; then
     printf memory
   elif grep -Eqi 'EACCES|EPERM|permission denied' "$log_file"; then
     printf permissions
   elif grep -Eqi 'cannot find module|module not found|ERESOLVE' "$log_file"; then
     printf dependency
-  elif grep -Eqi 'type error|failed to compile|build error occurred' "$log_file"; then
+  elif grep -Eqi 'type error' "$log_file"; then
+    printf typecheck
+  elif grep -Eqi 'failed to collect page data' "$log_file"; then
+    printf page-data
+  elif grep -Eqi 'error occurred prerendering|prerender-error' "$log_file"; then
+    printf prerender
+  elif grep -Eqi 'failed to compile|build error occurred' "$log_file"; then
     printf compile
   else
     printf unknown
