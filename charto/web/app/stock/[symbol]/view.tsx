@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { StockDetailPage } from "@/components/StockDetailPage";
+import { StockAskBar } from "@/components/stock/StockAskBar";
 
 /**
  * Client wrapper that mounts the stock detail page under charto's own chrome
@@ -104,10 +105,23 @@ export function CompanyChrome({
   );
 }
 
+/**
+ * The overview, with the ask bar over it.
+ *
+ * The bar is mounted on the ROUTE rather than inside StockDetailPage: the
+ * page draws two layouts (desktop and phone) and there must be exactly one
+ * bar whichever is on screen. It floats, so the spacer reserves the height it
+ * would otherwise cover at the end of the scroll.
+ *
+ * Only the overview gets it. The statements page is a table the reader is
+ * scanning, and a floating pill sits on top of the last row of it.
+ */
 export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElement {
   return (
     <CompanyChrome symbol={symbol}>
       <StockDetailPage symbol={symbol} />
+      <div aria-hidden style={{ height: 96 }} />
+      <StockAskBar symbol={symbol} />
     </CompanyChrome>
   );
 }

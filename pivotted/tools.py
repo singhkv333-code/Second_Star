@@ -65,10 +65,39 @@ import dataserver as ds  # noqa: E402  — path must be set first
 
 
 # Ink or trade construction. Neither survives the move off the chart.
+#
+# The second group was not here when this file was written, and did not need
+# to be: Charto's chat could only read. It has since grown an alerts engine, a
+# journal, a strategy store and a paper book, and because this table is built
+# by SUBTRACTION from `ds.TOOLS`, every one of them arrived here silently — a
+# research chat that could arm a rule and fill a mock order. Measured at the
+# time of writing: 46 tools, ~33.2k input tokens on a one-tool turn.
+#
+# They come out for two reasons, and either alone would be enough:
+#
+#   * A commit surface is exactly what this build is defined by not having.
+#     `plan_position` was dropped on that principle when sizing a trade was
+#     the closest thing to committing one; saving a strategy is not close to
+#     it, it IS it.
+#   * They are account-scoped, and this server has no account. Charto reads
+#     the user off its session; a call arriving here carries no session at
+#     all, so "my alerts" and "my book" are questions this process cannot
+#     answer for anyone in particular.
+#
+# The chart's own chat still has all of them, which is where a user who wants
+# to arm something is already standing.
 DROPPED = frozenset({
-    "open_chart", "get_anchors", "draw_shape",
+    # Ink, and the trade construction that follows it.
+    "open_chart", "get_anchors", "draw_shape", "mark", "read_drawing",
     "evaluate_line", "evaluate_fib", "evaluate_drawing",
     "plan_position",
+    # Writes: alerts, the journal, the strategy store.
+    "set_alert", "update_alert", "cancel_alert",
+    "log_trade", "update_trade", "update_journal_trade",
+    "save_strategy", "pause_strategy", "delete_strategy",
+    # Account-scoped reads. Real data, belonging to nobody here.
+    "check_alert", "list_alerts", "list_trades", "list_strategies",
+    "paper_portfolio", "recall_conversations",
 })
 
 # Symbols the technical tools can reach. Every price tool is bounded by this;

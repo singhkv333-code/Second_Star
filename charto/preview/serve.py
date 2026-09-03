@@ -29,8 +29,14 @@ COMPANY_ORIGIN = os.environ.get("CHARTO_COMPANY_ORIGIN", "http://127.0.0.1:5175"
 # browser can reach in every deployment — which means a relative "/api", which
 # means this origin has to serve it. nginx already does exactly this on the VM.
 DATA_ORIGIN = os.environ.get("CHARTO_DATA_ORIGIN", "http://127.0.0.1:5174")
+# …and the research chat (`pivotted/`), which the company page's ask bar posts
+# to. Same argument a third time: it must be one origin, so the markup that
+# works here works on the VM with no build-time switch. It is NOT :5175 —
+# that is the company app — so the port is spelled out rather than inherited.
+RESEARCH_ORIGIN = os.environ.get("CHARTO_RESEARCH_ORIGIN", "http://127.0.0.1:5176")
 PROXY_PREFIXES = ("/stock/", "/_next/", "/__nextjs", "/api/",
-                  "/paper", "/strategies", "/portfolio/", "/users/")
+                  "/paper", "/strategies", "/portfolio/", "/users/",
+                  "/research/")
 
 
 def _upstream(path: str) -> str | None:
@@ -53,6 +59,8 @@ def _upstream(path: str) -> str | None:
         return DATA_ORIGIN
     if head.startswith(("/portfolio/", "/users/")):
         return DATA_ORIGIN
+    if head.startswith("/research/"):
+        return RESEARCH_ORIGIN
     if head.startswith(("/stock/", "/_next/", "/__nextjs")):
         return COMPANY_ORIGIN
     return None
@@ -104,7 +112,12 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
         origin production has; nginx does the real job on the VM.
         """
         target = _upstream(self.path) or COMPANY_ORIGIN
-        url = target + self.path
+        # /research/chat/stream → /chat/stream. The prefix exists to name a
+        # route on THIS origin; the server behind it has never heard of it.
+        path = self.path
+        if target == RESEARCH_ORIGIN:
+            path = path[len("/research"):] or "/"
+        url = target + path
         self._relaying = True
         # A POST carries a body and a content type, and an Authorization header
         # is what makes the paper book the user's rather than nobody's — it was
@@ -118,8 +131,15 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
             v = self.headers.get(h)
             if v:
                 req.add_header(h, v)
+        # A research turn is a model turn: 15-40s of thinking with tool calls
+        # in the middle, and the first token can be most of that away. Thirty
+        # seconds is the right patience for a JSON endpoint and the wrong one
+        # here — it would abort perfectly healthy answers.
+        timeout = 300 if target == RESEARCH_ORIGIN else 30
         try:
-            with urllib.request.urlopen(req, timeout=30) as up:
+            with urllib.request.urlopen(req, timeout=timeout) as up:
+                if (up.headers.get_content_type() or "") == "text/event-stream":
+                    return self._relay_stream(up)
                 body, status, headers = up.read(), up.status, up.headers
         except urllib.error.HTTPError as e:        # 404s and friends still render
             body, status, headers = e.read(), e.code, e.headers
@@ -145,6 +165,38 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _relay_stream(self, up) -> None:
+        """Relay an SSE response as it arrives, rather than after it ends.
+
+        Everything else this server proxies is one JSON object, so `_proxy`
+        reads the whole body, measures it and sends it — which for a stream
+        means the answer materialises in one lump once the model has finished,
+        with no tool line, no tokens appearing, and a bar that looks hung for
+        half a minute. The streaming half of the wire is the entire reason the
+        ask bar streams.
+
+        Content-Length is deliberately absent (the length is not known and the
+        connection close is the end), and the buffering headers are the ones
+        nginx will need for the same route on the VM.
+        """
+        self.send_response(up.status)
+        for k, v in up.headers.items():
+            if k.lower() in ("connection", "keep-alive", "transfer-encoding",
+                             "content-encoding", "content-length"):
+                continue
+            self.send_header(k, v)
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            while True:
+                chunk = up.read1(4096) if hasattr(up, "read1") else up.read(1)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass          # the reader navigated away mid-answer
 
 
 if __name__ == "__main__":

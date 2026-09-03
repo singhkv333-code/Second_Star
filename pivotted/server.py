@@ -121,6 +121,65 @@ def _post_stream(wire: list[dict], allow_tools: bool = True):
                 continue
 
 
+# The composer's tagged context, as Pivot writes it into the prompt.
+#
+# Pivot's chat takes an `attachments` array beside `messages` and renders one
+# line per item ahead of the user's own words (`_fmt_attachment` in
+# `backend/routers/chat.py`); its stock-page ask bar sends exactly one, the
+# company whose page is open. Reading only `messages` meant that array arrived
+# and was discarded, so "is it expensive?" typed on 3M India's page reached
+# the model as a question about nothing and the first tool call had to guess a
+# symbol — which, on a research build whose whole risk is answering for the
+# wrong company, is the one failure that looks like an answer.
+#
+# Only `security` is understood here. Positions, baskets and agents are
+# Pivot's commit-side context and this build has no use for them; an
+# attachment it cannot read is skipped rather than half-rendered.
+_MAX_ATTACH_FIELD = 120
+
+
+def _attachment_line(att: dict) -> str | None:
+    """One human-readable line for a tagged security, or None."""
+    if not isinstance(att, dict) or str(att.get("kind", "")).lower() != "security":
+        return None
+    sym = str(att.get("symbol") or "")[:_MAX_ATTACH_FIELD].strip().upper()
+    if not sym:
+        return None
+    name = str(att.get("name") or "")[:_MAX_ATTACH_FIELD].strip()
+    return f"- Security: {sym}" + (f" ({name})" if name else "")
+
+
+def _apply_attachments(messages: list[dict], attachments) -> list[dict]:
+    """Prefix the LAST user turn with the tagged context, verbatim Pivot.
+
+    The wording is Pivot's, not a paraphrase: it is what its model has been
+    answering against, and two builds describing the same envelope in two
+    voices is how they start behaving differently on the same input. Only the
+    last user message is wrapped — an earlier turn's context is already in
+    what the assistant replied.
+    """
+    if not isinstance(attachments, list) or not attachments:
+        return messages
+    lines = [ln for ln in (_attachment_line(a) for a in attachments) if ln]
+    if not lines:
+        return messages
+    out = list(messages)
+    for i in range(len(out) - 1, -1, -1):
+        if out[i].get("role") == "user":
+            block = "\n".join(lines)
+            out[i] = dict(out[i], content=(
+                "The user attached the following context to this message "
+                "(tagged via the composer). Treat these as the specific "
+                "subject(s) being discussed — resolve pronouns like "
+                "'it'/'this' to them, and use their exact symbols/ids when "
+                "calling tools:\n"
+                f"{block}\n\n"
+                f"User message:\n{out[i].get('content') or ''}"
+            ))
+            break
+    return out
+
+
 def _wire_messages(messages: list[dict]) -> list[dict]:
     """History → Responses-API input items."""
     out = []
@@ -369,6 +428,7 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(m, dict)]
         if not messages:
             return self._send(400, {"error": "messages[] required"})
+        messages = _apply_attachments(messages, body.get("attachments"))
         try:
             if path == "/chat/stream":
                 return self._stream(messages, dialect="pivot")

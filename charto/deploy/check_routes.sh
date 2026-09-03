@@ -74,8 +74,14 @@ echo "2. the blocks that are not the fall-through"
 # editing this file. Alternations expand to one probe each; `@named` locations
 # are internal and cannot be requested directly, so they are skipped — the
 # fall-through check above is what exercises @backend.
+# Three shapes of location, because the config has three: the regex
+# alternations, the exact `=` matches, and PREFIX blocks like `/research/`
+# (the research chat's upstream). The prefix pattern requires at least one
+# letter so it cannot match `location / {`, which is the fall-through and is
+# already probe 1.
 routes="$(sed -n 's/.*location ~ \^\/(\([^)]*\)).*/\1/p' "$CONF" | tr '|' '\n')
-$(sed -n 's/.*location = \(\/[a-z_]*\).*/\1/p' "$CONF")"
+$(sed -n 's/.*location = \(\/[a-z_]*\).*/\1/p' "$CONF")
+$(sed -n 's/^[[:space:]]*location \(\/[a-z_][a-z_]*\/\) {.*/\1/p' "$CONF")"
 
 while read -r p; do
   [ -n "$p" ] || continue
