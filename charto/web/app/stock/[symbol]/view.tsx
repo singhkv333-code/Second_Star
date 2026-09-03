@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { BarChart2, ChevronRight, LogOut } from "lucide-react";
 import { StockDetailPage } from "@/components/StockDetailPage";
+import { PivotLogo } from "@/components/brand/PivotLogo";
+import { getMe, logoutUser, type UserProfile } from "@/lib/api";
+import { isError } from "@/lib/types";
 
 /**
  * Client wrapper that mounts the stock detail page under charto's own chrome
@@ -23,6 +27,84 @@ import { StockDetailPage } from "@/components/StockDetailPage";
 // back to whichever machine happened to be reading the page.
 const CHART = "/index.html";
 const KEY = "charto_theme";
+
+function venueFor(symbol: string): string {
+  const normalized = symbol.toUpperCase();
+  if (/USDT$/.test(normalized)) return "BYBIT";
+  if (/-USD$/.test(normalized)) return "COINBASE";
+  if (["GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"].includes(normalized)) return "MCX";
+  if (["USDINR", "EURINR", "GBPINR", "JPYINR"].includes(normalized)) return "NSE CDS";
+  if (["SENSEX", "BANKEX"].includes(normalized)) return "BSE";
+  return "NSE";
+}
+
+function StockAccountMenu(): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    void getMe().then((result) => {
+      if (!isError(result)) setProfile(result.data);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const displayName = profile?.full_name?.trim() || profile?.email || "Account";
+  const initial = displayName.trim()[0]?.toUpperCase() || "U";
+
+  const signOut = async (): Promise<void> => {
+    await logoutUser();
+    window.location.assign("/login");
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="Open account menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1597b6] text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#1186a2]"
+      >
+        {initial}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-border bg-background p-1.5 shadow-xl">
+          <div className="border-b border-border/70 px-3 py-2.5">
+            <div className="truncate text-[13px] font-semibold text-foreground">{displayName}</div>
+            {profile?.email && profile.email !== displayName && (
+              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{profile.email}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+          >
+            <LogOut size={15} aria-hidden="true" />
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** The whole company surface under charto's chrome. `StockSymbolView` is the
  *  overview; the statements page is the same chrome around a different body,
@@ -58,12 +140,8 @@ export function CompanyChrome({
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const toggle = (): void => {
-    const next = !dark;
-    try { localStorage.setItem(KEY, next ? "dark" : "light"); } catch { /* ok */ }
-    setDark(next);
-  };
   const chart = (path: string): string => `${CHART}${path}`;
+  const chartHref = chart(`?symbol=${encodeURIComponent(symbol)}`);
 
   // globals.css locks the DOCUMENT scroll (`html, body { overflow: hidden }`)
   // because Pivot scrolls inside AppShell's main pane. Dropping AppShell
@@ -71,26 +149,28 @@ export function CompanyChrome({
   // lost its gutters. This is AppShell's own children container, verbatim.
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
-      <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border/40 px-6">
-        <a href={chart("")} className="text-[15px] font-semibold tracking-tight">
-          Charto<span style={{ color: "#2962ff" }}>.</span>
+      <div className="flex h-[56px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 sm:px-5">
+        <a href={chart("")} aria-label="Back to chart" className="flex shrink-0 items-center text-foreground">
+          <PivotLogo fontSize={20} />
+        </a>
+        <div className="h-6 w-px bg-border" aria-hidden="true" />
+        <a
+          href={chartHref}
+          className="flex min-w-0 items-baseline gap-1.5 rounded-full bg-muted px-3 py-2 text-[12px] font-semibold text-foreground transition hover:bg-muted/80"
+        >
+          <span className="max-w-[100px] truncate sm:max-w-none">{symbol}</span>
+          <span className="hidden text-[10px] font-medium text-muted-foreground min-[390px]:inline">{venueFor(symbol)}</span>
         </a>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={toggle}
-          className="rounded-md border border-border/60 px-3 py-1.5 text-[13px] font-medium"
-          title="Toggle theme"
-        >
-          Theme
-        </button>
         <a
-          href={chart(`?symbol=${encodeURIComponent(symbol)}`)}
-          className="rounded-md px-3 py-1.5 text-[13px] font-medium text-white"
-          style={{ background: "#2962ff" }}
+          href={chartHref}
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#1597b6]/30 bg-[#1597b6]/10 px-3 text-[13px] font-semibold text-[#087f9c] transition hover:bg-[#1597b6]/15 dark:text-[#58c7df]"
         >
-          Open chart →
+          <BarChart2 size={16} aria-hidden="true" />
+          <span className="hidden min-[360px]:inline">Launch chart</span>
+          <ChevronRight className="hidden sm:block" size={14} aria-hidden="true" />
         </a>
+        <StockAccountMenu />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-6 pb-8 sm:px-5 lg:px-8">
         {/* In Pivot the sidebar eats ~260px of a wide screen. Without it the
