@@ -34,7 +34,11 @@ local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 # build so backend/chart-only commits do not trigger unnecessary Next builds,
 # while a missed restart self-heals on the next 30-second poll.
 web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
-deploy_blob="$(git rev-parse "$remote:charto/deploy/deploy.sh" 2>/dev/null || echo missing)"
+# Hash the script that is ACTUALLY executing. During a pull, `remote` already
+# points at the incoming version while this process still runs the old one; a
+# remote-derived key would let an old failure suppress the new deployer's first
+# attempt before that new script ever executes.
+deploy_blob="$(git hash-object "$0" 2>/dev/null || echo missing)"
 web_attempt="$web_tree-$deploy_blob"
 web_revision_file="$REPO/charto/web/.next/charto-git-tree"
 web_failed_file="$REPO/charto/web/.next/charto-git-failed-attempt"
