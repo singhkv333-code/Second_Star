@@ -74,7 +74,7 @@ rebuild_web() {
     fi
     printf 'building %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
-      && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=3072 \
+      && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 \
         npx next build > /tmp/charto_web_build.log 2>&1); then
       record_web_failure build
       echo "deploy: company frontend build FAILED"
