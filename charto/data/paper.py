@@ -1002,3 +1002,136 @@ def start() -> dict:
     """Called once from dataserver's boot block, after the module alias."""
     init_db()
     return load_index()
+
+
+# ── the Portfolio page's own two reads ───────────────────────────────
+#
+# Pivot's PortfolioTab is reused here unchanged, so these two answer the paths
+# it already calls. Everything else it needs — the summary, the holdings, the
+# fills, the resting orders — it gets through `lib/api`'s paper branch, which
+# reads the endpoints above. These are the two with no paper equivalent.
+
+_PERIOD_DAYS = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "5Y": 1825}
+
+
+def api_performance(uid: int, period: str = "1Y") -> tuple[int, dict]:
+    """The equity curve, as the chart's own shape.
+
+    Built from `api_nav`, which already carries the opening point, every
+    end-of-day snapshot and today's live NAV — so the curve here and the NAV
+    figure above it are the same numbers, and cannot drift into disagreeing on
+    one screen.
+    """
+    period = (period or "1Y").upper()
+    days = _PERIOD_DAYS.get(period, 365)
+    start = (datetime.now(IST) - timedelta(days=days)).date().isoformat()
+    _code, rows = api_nav(uid, start, "")
+    points = [{"t": r["as_of_date"], "v": r["nav"]} for r in rows
+              if r.get("as_of_date")]
+    if not points:
+        return 200, {"period": period, "points": [], "starting_value": 0.0,
+                     "ending_value": 0.0, "total_return": 0.0,
+                     "total_return_pct": 0.0}
+    first, last = points[0]["v"], points[-1]["v"]
+    ret = to_money(last) - to_money(first)
+    return 200, {
+        "period": period, "points": points,
+        "starting_value": f(first), "ending_value": f(last),
+        "total_return": f(ret),
+        "total_return_pct": float(ret / to_money(first) * 100) if first else 0.0,
+    }
+
+
+def api_scores(uid: int) -> tuple[int, dict]:
+    """Diversification, and a portfolio score built out of it.
+
+    Real arithmetic over the real book: how many names, how many sectors, what
+    the largest single position and largest sector are as a share of market
+    value, and the Herfindahl index of the weights.
+
+    `community_score` is NULL and stays null. It is a percentile against other
+    users' portfolios, and Charto has no such population to rank against — a
+    number here would be invented, and the panel is built to render its absence.
+    """
+    acct = account_of(uid)
+    empty = {"diversification_score": None, "portfolio_score": None,
+             "community_score": None, "reason": "no_holdings"}
+    if acct is None:
+        return 200, empty
+
+    rows = []
+    for p in _positions(acct[0]):
+        if _qty(p["quantity"]) == 0:
+            continue
+        v = _value(p, mark_price(p["symbol"]))
+        rows.append((p["symbol"], v["mv"], _sector(p["symbol"])))
+    if not rows:
+        return 200, empty
+
+    total = sum((r[1] for r in rows), to_money(0))
+    if total <= 0:
+        return 200, empty
+    weights = [float(r[1] / total) for r in rows]
+    by_sector: dict[str, Decimal] = {}
+    for _s, mv, sector in rows:
+        by_sector[sector] = by_sector.get(sector, to_money(0)) + mv
+
+    n_holdings = len(rows)
+    n_sectors = len(by_sector)
+    top_holding = max(weights) * 100
+    top_sector = float(max(by_sector.values()) / total) * 100
+    hhi = sum(w * w for w in weights)
+
+    # A concentrated book scores badly and should say so. The shape: an even
+    # split across many names approaches 100, everything in one name is 0.
+    div = max(0.0, min(100.0, (1.0 - hhi) * 100))
+    spread = min(100.0, n_sectors / 8 * 100)
+    div = round(div * 0.7 + spread * 0.3, 1)
+    concentration_penalty = round(max(0.0, top_holding - 25.0), 1)
+
+    _c, summary = api_summary(uid)
+    total_ret = summary.get("total_pnl_pct") if summary.get("exists") else None
+    perf_available = total_ret is not None
+    subscores = {"diversification": div,
+                 "concentration_penalty": concentration_penalty}
+    weights_used = {"diversification": 0.6, "concentration_penalty": 0.4}
+    if perf_available:
+        subscores["performance"] = round(max(0.0, min(100.0, 50 + total_ret)), 1)
+        weights_used = {"diversification": 0.45,
+                        "concentration_penalty": 0.25, "performance": 0.30}
+    score = round(sum(subscores[k] * weights_used[k] for k in weights_used
+                      if k != "concentration_penalty")
+                  - concentration_penalty * weights_used["concentration_penalty"], 1)
+    score = max(0.0, min(100.0, score))
+
+    top_name = max(rows, key=lambda r: r[1])[0]
+    top_sec_name = max(by_sector, key=lambda k: by_sector[k])
+    return 200, {
+        "diversification_score": {
+            "score": div,
+            "components": {
+                "n_holdings": n_holdings, "n_sectors": n_sectors,
+                "top_holding_pct": round(top_holding, 1),
+                "top_sector_pct": round(top_sector, 1),
+                "hhi": round(hhi, 4),
+            },
+            "explainer": (
+                f"{n_holdings} holding{'s' if n_holdings != 1 else ''} across "
+                f"{n_sectors} sector{'s' if n_sectors != 1 else ''}. "
+                f"{top_name} is {top_holding:.1f}% of the book and "
+                f"{top_sec_name} is {top_sector:.1f}%."),
+        },
+        "portfolio_score": {
+            "score": score,
+            "components": {
+                "subscores": subscores, "weights": weights_used,
+                "performance_available": perf_available,
+                "total_return_pct": total_ret,
+            },
+            "explainer": (
+                "Diversification and concentration, plus return where there is "
+                "enough history to read one. Simulated book."),
+        },
+        "community_score": None,
+        "reason": None,
+    }

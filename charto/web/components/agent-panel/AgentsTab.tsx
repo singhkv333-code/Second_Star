@@ -139,7 +139,7 @@ function deriveCategory(wf: WorkflowSummary): Category {
 
 function categoryLabel(cat: Category): string {
   const MAP: Record<Category, string> = {
-    STRATEGY: "Agent",
+    STRATEGY: "Strategy",
     INCOME: "Income",
     RISK: "Risk",
     RESEARCH: "Research",
@@ -175,10 +175,19 @@ function deriveUniverse(wf: WorkflowSummary): string {
     "AT", "ON", "IF", "THE", "AND", "FOR", "BUY", "SELL", "SIP",
     "LIMIT", "ORDER", "QUANTITY", "AMOUNT",
     "AM", "PM", "IST", "UTC",
+    // Newly reachable now that two-letter words are candidates.
+    "OVERSOLD", "OVERBOUGHT", "IS", "IN", "OF", "TO", "BY", "OR", "AS",
+    "AN", "AT", "AND", "AGENT", "STRATEGY", "DIP", "TREND", "ENTRY", "EXIT",
+    "PEAK", "HIGH", "LOW", "OPEN", "CLOSE", "RSI", "SMA", "EMA", "MACD",
   ]);
   for (const m of nseMatch ?? []) {
     if (knownIndices.includes(m)) return "NIFTY 50";
-    if (m.length >= 3 && m.length <= 10 && !NON_TICKER_WORDS.has(m)) {
+    // 2 characters, not 3. LT and MM are real NSE tickers — LT is one of the
+    // largest companies on the exchange — and the 3-character floor made
+    // "LT oversold dip" report its universe as OVERSOLD. The stop-list above
+    // is what keeps short English words out, so the length floor was doing no
+    // work the list was not already doing better.
+    if (m.length >= 2 && m.length <= 10 && !NON_TICKER_WORDS.has(m)) {
       return m;
     }
   }
@@ -187,8 +196,14 @@ function deriveUniverse(wf: WorkflowSummary): string {
 
 function deriveCadence(wf: WorkflowSummary): string {
   if (wf.next_run_at) return "scheduled";
-  if (wf.last_run_at) return "manual";
   const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
+  // A condition on a price or an indicator is watched, not run by hand — and
+  // this has to be read BEFORE last_run_at, because having fired once is not
+  // what makes something manual. Charto's strategies are all of this kind.
+  if (text.includes("real-time") || text.includes("price") ||
+      text.includes("rsi") || text.includes("sma") || text.includes("ema") ||
+      text.includes("indicator")) return "real-time";
+  if (wf.last_run_at) return "manual";
   if (text.includes("weekday") || text.includes("daily")) return "weekday";
   if (text.includes("weekly") || text.includes("monday")) return "weekly";
   if (text.includes("monthly")) return "monthly";
@@ -468,8 +483,10 @@ export function AgentsTab({
       };
     }
     return {
-      pageTitle: "Active Agents",
-      label: "Active agents",
+      // Charto's word for these is "strategy" — the chat builds them, the
+      // paper book fills them. Pivot calls the same object an agent.
+      pageTitle: "Strategies",
+      label: "Active strategies",
       count: summary?.active_count ?? 0,
       rows: summary?.strategy_returns ?? [],
       loading: summaryLoading,
@@ -624,7 +641,7 @@ function SurfaceToggle({
   onChange: (s: Surface) => void;
 }): React.ReactElement {
   const OPTIONS: { key: Surface; label: string }[] = [
-    { key: "equity", label: "Equity agents" },
+    { key: "equity", label: "Strategies" },
     { key: "options", label: "Options" },
     { key: "baskets", label: "Baskets" },
   ];

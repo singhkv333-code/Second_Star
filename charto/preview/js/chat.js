@@ -2704,5 +2704,37 @@
       autoGrow();
       send();
     },
+    /* Put a question in the box and STOP. `ask` sends; this one hands the
+     * user a draft to edit first.
+     *
+     * The difference matters for where it is called from: the Strategies page
+     * "Edit with chat" arrives as a page LOAD, and a page load that spends an
+     * LLM turn before the reader has read anything is a side effect nobody
+     * asked for. Composing costs nothing and the send is still one Enter. */
+    compose(text) {
+      const q = String(text || "").trim();
+      if (!q) return;
+      if (panel.classList.contains("hidden")) chatToggle.click();
+      input.value = q;
+      autoGrow();
+      input.focus();
+      try { input.setSelectionRange(q.length, q.length); } catch { }
+    },
   };
+
+  /* ?ask= — the way the portfolio and strategy pages come back to the chart.
+   *
+   * They are a different app on the same origin, so they cannot call into this
+   * one; a query parameter is the whole interface, and it lands as a draft
+   * rather than a sent turn for the reason above. Stripped from the address
+   * bar once read, so a refresh does not re-open it. */
+  try {
+    const q = new URLSearchParams(location.search).get("ask");
+    if (q) {
+      window.Chat.compose(q);
+      const url = new URL(location.href);
+      url.searchParams.delete("ask");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  } catch { }
 })();

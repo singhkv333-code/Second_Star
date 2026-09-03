@@ -14630,6 +14630,10 @@ _HEAVY_HTTP_PATHS = frozenset({
     "/profile", "/financials", "/results", "/deals", "/delivery",
     "/fut_oi", "/classification", "/benchmark", "/live", "/replay",
 })
+# Account-scoped reads served under /api/ — cheap, and exempt from the data
+# gate for the reason written at `_is_heavy_http_path`.
+_LIGHT_API_PATHS = ("/api/workflows", "/api/strategies", "/api/portfolio/")
+
 _BACKUP_MARKER = Path(environ.get("CHARTO_BACKUP_MARKER")
                       or "/data/backup/charto_users.last_success.json")
 _BACKUP_MAX_AGE_S = _env_int("CHARTO_BACKUP_MAX_AGE_S", 9000)
@@ -14641,6 +14645,17 @@ _DISK_MIN_FREE_PCT = _env_float("CHARTO_DISK_MIN_FREE_PCT", 10.0)
 
 
 def _is_heavy_http_path(path: str) -> bool:
+    # The account reads are NOT heavy. The gate below exists to keep a burst of
+    # bar scans off a 29 GB store; the portfolio and strategy endpoints read a
+    # few rows of SQLite and answer in milliseconds. They live under /api/ only
+    # because that is where Pivot's client expects them.
+    #
+    # This matters because the Portfolio page fans out on load — summary,
+    # holdings, scores, performance, orders, fills, a live quote per holding —
+    # and with ten slots shared with the chart, one page could saturate the gate
+    # and 503 its own equity curve. It did.
+    if path.startswith(_LIGHT_API_PATHS):
+        return False
     return path.startswith("/api/") or path in _HEAVY_HTTP_PATHS
 
 
@@ -15086,6 +15101,62 @@ class Handler(BaseHTTPRequestHandler):
                 deep = q.get("deep", "").lower() in ("1", "true", "yes")
                 return self._send(*_health_report(deep=deep),
                                   headers={"Cache-Control": "no-store"})
+            # The Portfolio and Strategies pages, which are Pivot's own
+            # components reused unchanged. They read the Agent System's paths,
+            # so the mapping is served HERE rather than forked into a 3,000-line
+            # component: a Charto strategy is a workflow, and the two
+            # vocabularies differ only in their words for it.
+            #
+            # Ahead of the /api/ company shim below, which would otherwise
+            # swallow every one of these.
+            if u.path.startswith("/api/workflows") or \
+                    u.path == "/api/strategies" or \
+                    u.path == "/api/portfolio/performance" or \
+                    u.path == "/portfolio/scores" or \
+                    u.path == "/strategies/baskets" or \
+                    u.path == "/users/option-strategies":
+                if _paper is None or _strategies is None:
+                    return self._send(501, {"error": "the paper book is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to open your "
+                                                     "portfolio"})
+                q = parse_qs(u.query)
+                if u.path == "/portfolio/scores":
+                    return self._send(*_paper.api_scores(me[0]))
+                if u.path == "/api/portfolio/performance":
+                    return self._send(*_paper.api_performance(
+                        me[0], (q.get("period") or ["1Y"])[0]))
+                # Charto has neither options nor equity baskets on this
+                # surface. An empty list is the honest answer and the tabs are
+                # built to render it; a 404 would read as a fault.
+                if u.path == "/strategies/baskets":
+                    return self._send(200, {"baskets": []})
+                if u.path == "/users/option-strategies":
+                    return self._send(200, {"strategies": []})
+                if u.path == "/api/strategies":
+                    return self._send(*_strategies.api_list(
+                        me[0], (q.get("state") or [""])[0]))
+                tail = u.path[len("/api/workflows"):].strip("/")
+                if not tail:
+                    code, items = _strategies.api_workflows(me[0])
+                    return self._send(code, {"items": items,
+                                             "next_cursor": None})
+                if tail == "summary":
+                    return self._send(*_strategies.api_workflows_summary(me[0]))
+                parts = tail.split("/")
+                if parts[0].isdigit():
+                    if len(parts) == 2 and parts[1] == "performance":
+                        return self._send(*_strategies.api_workflow_performance(
+                            me[0], int(parts[0])))
+                    if len(parts) == 1:
+                        return self._send(*_strategies.api_workflow(
+                            me[0], int(parts[0])))
+                # Runs, positions, approvals — the parts of the Agent System
+                # Charto's runtime has no equivalent of. Empty, not missing.
+                return self._send(200, {"items": [], "next_cursor": None})
+
             if u.path.startswith("/api/"):
                 # The company page's own routes, served from charto's store.
                 age = _api_max_age(u.path)
@@ -15492,10 +15563,38 @@ class Handler(BaseHTTPRequestHandler):
             if data_slot:
                 _data_slot_release()
 
+    def do_DELETE(self) -> None:                  # noqa: N802
+        """One verb, one route: retiring a strategy from the Strategies page.
+
+        The page is Pivot's AgentsTab, whose delete is a DELETE — and this
+        server spoke GET and POST only. Rather than fork the component to make
+        it POST, the verb is added and pointed at the retire that already
+        exists: a strategy is never erased, because it is the provenance of
+        every fill it made.
+        """
+        u = urlparse(self.path)
+        if _strategies is None:
+            return self._send(501, {"error": "the strategy runtime is not "
+                                             "loaded on this server"})
+        me = _auth_user(self.headers)
+        if not me:
+            return self._send(401, {"error": "sign in to change a strategy"})
+        for prefix in ("/api/workflows/", "/strategies/"):
+            if u.path.startswith(prefix):
+                sid = u.path[len(prefix):].strip("/").split("/")[0]
+                if not sid.isdigit():
+                    break
+                code, out = _strategies.api_delete(me[0], int(sid))
+                if code != 200:
+                    return self._send(code, out)
+                return self._send(200, {"deleted": True, "id": sid})
+        return self._send(404, {"error": f"nothing to delete at {u.path}"})
+
     def do_OPTIONS(self) -> None:  # noqa: N802 — CORS preflight for POST /chat
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods",
+                         "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers",
                          "Content-Type, Authorization")
         self.end_headers()
@@ -15537,7 +15636,8 @@ class Handler(BaseHTTPRequestHandler):
         # POST for all of it because this server speaks GET and POST — the
         # journal router made the same call for the same reason.
         if u.path.startswith("/paper/") or u.path == "/strategies" \
-                or u.path.startswith("/strategies/"):
+                or u.path.startswith("/strategies/") \
+                or u.path.startswith("/api/strategies"):
             if _paper is None or _strategies is None:
                 return self._send(501, {"error": "the paper book is not "
                                                  "loaded on this server"})
@@ -15559,7 +15659,9 @@ class Handler(BaseHTTPRequestHandler):
                 if tail == "snapshot":
                     return self._send(200, _paper.snapshot_nav(me[0]))
                 return self._send(404, {"error": f"no paper route '{tail}'"})
-            tail = u.path[len("/strategies"):].strip("/")
+            tail = u.path[len("/api/strategies"):].strip("/") \
+                if u.path.startswith("/api/strategies") \
+                else u.path[len("/strategies"):].strip("/")
             if not tail:
                 # Saving from the CARD: the draft travels in the body exactly
                 # as the card holds it, so what is armed is what was shown.

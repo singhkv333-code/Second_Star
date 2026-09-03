@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 PORT=5174
 PY="$(cd ../../pivot && pwd)/.venv/bin/python"
 [ -x "$PY" ] || PY=python3
-OLD=$(lsof -ti tcp:$PORT || true)
+OLD=$(lsof -ti tcp:$PORT -sTCP:LISTEN || true)
 [ -n "$OLD" ] && kill -9 $OLD 2>/dev/null && sleep 1
 # -u is load-bearing, not a nicety: stdout is a FILE here, so Python
 # block-buffers it and every print the server makes — driver start-up,
@@ -29,7 +29,7 @@ OLD=$(lsof -ti tcp:$PORT || true)
 # which is indistinguishable from "the code never ran".
 nohup "$PY" -u dataserver.py > /tmp/charto_ds.log 2>&1 &
 sleep 3
-NEW=$(lsof -ti tcp:$PORT || true)
+NEW=$(lsof -ti tcp:$PORT -sTCP:LISTEN || true)
 if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
   echo "RESTART FAILED — port $PORT still held by '${NEW:-nothing}' (was '$OLD')"
   cat /tmp/charto_ds.log

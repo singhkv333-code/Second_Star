@@ -21,18 +21,18 @@ set -e
 cd "$(dirname "$0")"
 PORT="${CHARTO_PREVIEW_PORT:-5173}"
 
-OLD=$(lsof -ti tcp:"$PORT" 2>/dev/null | head -1 || true)
+OLD=$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)
 if [ -n "$OLD" ]; then
   kill "$OLD" 2>/dev/null || true
   sleep 1
   # A handler mid-relay can hold the port past a TERM.
-  lsof -ti tcp:"$PORT" >/dev/null 2>&1 && { kill -9 "$OLD" 2>/dev/null || true; sleep 1; }
+  lsof -ti tcp:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && { kill -9 "$OLD" 2>/dev/null || true; sleep 1; }
 fi
 
 CHARTO_PREVIEW_PORT="$PORT" nohup python3 serve.py > /tmp/charto_preview_$PORT.log 2>&1 &
 sleep 2
 
-NEW=$(lsof -ti tcp:"$PORT" 2>/dev/null | head -1 || true)
+NEW=$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)
 if [ -z "$NEW" ]; then
   echo "preview FAILED to start on :$PORT"
   tail -20 /tmp/charto_preview_$PORT.log

@@ -30,7 +30,7 @@ COMPANY_ORIGIN = os.environ.get("CHARTO_COMPANY_ORIGIN", "http://127.0.0.1:5175"
 # means this origin has to serve it. nginx already does exactly this on the VM.
 DATA_ORIGIN = os.environ.get("CHARTO_DATA_ORIGIN", "http://127.0.0.1:5174")
 PROXY_PREFIXES = ("/stock/", "/_next/", "/__nextjs", "/api/",
-                  "/paper", "/strategies")
+                  "/paper", "/strategies", "/portfolio/", "/users/")
 
 
 def _upstream(path: str) -> str | None:
@@ -44,10 +44,14 @@ def _upstream(path: str) -> str | None:
     about nothing.
     """
     head = path.split("?", 1)[0]
-    if head in ("/paper", "/paper/"):
+    # The two book PAGES. Both split the same way and for the same reason: the
+    # page is the bare path and its data is everything under it.
+    if head in ("/paper", "/paper/", "/strategies", "/strategies/"):
         return COMPANY_ORIGIN
-    if head.startswith("/paper/") or head == "/strategies" \
-            or head.startswith("/strategies/") or head.startswith("/api/"):
+    if head.startswith("/paper/") or head.startswith("/strategies/") \
+            or head.startswith("/api/"):
+        return DATA_ORIGIN
+    if head.startswith(("/portfolio/", "/users/")):
         return DATA_ORIGIN
     if head.startswith(("/stock/", "/_next/", "/__nextjs")):
         return COMPANY_ORIGIN

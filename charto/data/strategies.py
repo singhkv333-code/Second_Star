@@ -1160,3 +1160,244 @@ def tool_paper_portfolio(user_id: int = 0) -> dict:
     return {**summary, "holdings": holdings,
             "_note": "Every figure here is simulated. Quote them as the paper "
                      "book's, never as a real account's."}
+
+
+# ══ the Strategies page ════════════════════════════════════════════════════
+#
+# Pivot's AgentsTab is reused unchanged, and it reads the Agent System's
+# workflow contract. Rather than fork a 1,558-line component, the mapping lives
+# here: a Charto strategy IS a workflow — a name, a state, a step list, a run
+# history — and the two vocabularies differ only in their words for it.
+#
+# Everything below is computed from what actually happened: the fills carry
+# their strategy_id, so a card's return, run count and sparkline are the book's
+# own arithmetic rather than a figure kept beside it and allowed to drift.
+
+_STATE_TO_WF = {"draft": "draft", "armed": "active", "paused": "paused",
+                "retired": "archived"}
+
+
+def _wf_steps(spec: dict) -> list[dict]:
+    """The draft's own steps, given the ids the editor's contract expects."""
+    out = []
+    for i, s in enumerate(spec.get("steps") or []):
+        if not isinstance(s, dict):
+            continue
+        out.append({
+            "id": f"{i}", "step_index": i,
+            "step_type": s.get("step_type") or "",
+            "label": s.get("label") or s.get("readback") or None,
+            "config": s.get("config") or {},
+        })
+    return out
+
+
+def _workflow(d: dict, *, steps: bool = False) -> dict:
+    try:
+        spec = json.loads(d["spec"]) or {}
+    except (TypeError, ValueError):
+        spec = {}
+    rb = _readback(d)
+    # The description is what the card prints as "Method", and it is also what
+    # `deriveUniverse`/`deriveCadence` read to label the other two rows — so it
+    # leads with the instrument and says the rule in the card's own English.
+    desc = rb["entry"] or spec.get("description") or ""
+    method = (f"{d['side'].title()} {paper._qty_out(d['quantity'])} "
+              f"{d['symbol']} when {desc}" if desc else
+              f"{d['side'].title()} {paper._qty_out(d['quantity'])} {d['symbol']}")
+    wf = {
+        "id": str(d["id"]),
+        "name": d["name"],
+        "description": method,
+        "status": _STATE_TO_WF.get(d["state"], "draft"),
+        "version": 1,
+        "single_instance": True,
+        "created_at": paper._iso(d["created"]),
+        "updated_at": paper._iso(d["updated"]),
+        "activated_at": paper._iso(d["created"]) if d["state"] == "armed" else None,
+        # The last run that ACTED, not the last evaluation. Every armed rule is
+        # evaluated on every tick, so reporting that made each card read "just
+        # now" forever and said nothing about the strategy.
+        "last_run_at": _last_fire(int(d["id"])),
+        # Charto evaluates on the tick rather than on a clock, so there is no
+        # next run to name. Null is the honest answer and `deriveCadence` reads
+        # it as "real-time" off the description, which is what this is.
+        "next_run_at": None,
+    }
+    if steps:
+        wf["steps"] = _wf_steps(spec)
+    return wf
+
+
+def _last_fire(sid: int) -> Optional[str]:
+    """When this strategy last did something — its newest entry or exit."""
+    with ds._users_lock:
+        row = _db().execute(
+            "SELECT MAX(ts) FROM strategy_log WHERE strategy_id=? AND "
+            "kind IN ('entry','exit')", (int(sid),)).fetchone()
+    return paper._iso(row[0]) if row and row[0] else None
+
+
+def _fills_of(uid: int, sid: Optional[int] = None) -> list[tuple]:
+    acct = paper.account_of(uid)
+    if acct is None:
+        return []
+    q = ("SELECT strategy_id, side, quantity, fill_price, net_cashflow, "
+         "realized_pnl, filled_at FROM paper_fills WHERE account_id=? "
+         "AND strategy_id IS NOT NULL")
+    args: list = [acct[0]]
+    if sid is not None:
+        q += " AND strategy_id=?"; args.append(int(sid))
+    q += " ORDER BY filled_at ASC"
+    with ds._users_lock:
+        return _db().execute(q, args).fetchall()
+
+
+def _perf(uid: int, d: dict) -> dict:
+    """One strategy's card numbers, from its own fills.
+
+    The series is cumulative P&L per day — realised on the closes, plus what
+    the open lot is worth right now. A strategy that has bought and not sold
+    has a real curve, not an empty one, which is the ordinary case for
+    something armed this week.
+    """
+    sid = int(d["id"])
+    rows = _fills_of(uid, sid)
+    with ds._users_lock:
+        fires = _db().execute(
+            "SELECT kind, COUNT(*) FROM strategy_log WHERE strategy_id=? "
+            "GROUP BY kind", (sid,)).fetchall()
+    counts = {k: n for k, n in fires}
+    runs = sum(counts.values())
+    acted = counts.get("entry", 0) + counts.get("exit", 0)
+    success = (acted / runs * 100) if runs else None
+
+    if not rows:
+        return {"series": [], "return_pct": None,
+                "last_run_at": _last_fire(sid),
+                "run_count": runs, "success_rate": success, "held": 0,
+                "invested": paper.to_money(0), "pnl": paper.to_money(0),
+                "has_data": False}
+
+    invested = paper.to_money(0)
+    realized = paper.to_money(0)
+    held = 0
+    series: dict[str, float] = {}
+    for _s, side, qty, px, cash, rpnl, ts in rows:
+        day = paper._iso(ts)[:10] if ts else paper._today()
+        if side == "BUY":
+            invested += paper.to_money(-paper.to_money(cash))
+            held += int(float(qty))
+        else:
+            held -= int(float(qty))
+            if rpnl is not None:
+                realized += paper.to_money(rpnl)
+        series[day] = paper.f(realized)
+
+    pnl = realized
+    if held > 0 and d["entry_price"]:
+        mark = paper.mark_price(d["symbol"])
+        if mark is not None:
+            pnl = realized + paper.to_money(
+                (mark - paper.to_money(d["entry_price"])) * held)
+            series[paper._today()] = paper.f(pnl)
+    return {
+        "series": [{"date": k, "nav": v} for k, v in sorted(series.items())],
+        "return_pct": (float(pnl / invested * 100) if invested else None),
+        "last_run_at": _last_fire(sid),
+        "run_count": runs, "success_rate": success, "held": held,
+        "invested": invested, "pnl": pnl, "has_data": True,
+    }
+
+
+def _rows_for(uid: int, sid: Optional[int] = None) -> list[dict]:
+    q = "SELECT %s FROM strategies WHERE user_id=?" % ", ".join(_COLS)
+    args: list = [int(uid)]
+    if sid is not None:
+        q += " AND id=?"; args.append(int(sid))
+    q += " ORDER BY id DESC"
+    with ds._users_lock:
+        return [_row(r) for r in _db().execute(q, args).fetchall()]
+
+
+def api_workflows(uid: int) -> tuple[int, list]:
+    return 200, [_workflow(d) for d in _rows_for(uid)]
+
+
+def api_workflow(uid: int, sid: int) -> tuple[int, dict]:
+    got = _rows_for(uid, sid)
+    if not got:
+        return 404, {"error": "no such strategy"}
+    return 200, _workflow(got[0], steps=True)
+
+
+def api_workflow_performance(uid: int, sid: int) -> tuple[int, dict]:
+    got = _rows_for(uid, sid)
+    if not got:
+        return 404, {"error": "no such strategy"}
+    p = _perf(uid, got[0])
+    return 200, {k: p[k] for k in ("series", "return_pct", "last_run_at",
+                                   "run_count", "success_rate", "has_data")}
+
+
+def api_workflows_summary(uid: int) -> tuple[int, dict]:
+    """The three cards over the roster: counts, the six-month scorecard, and
+    the daily P&L the heatmap paints.
+
+    A win is a CLOSED round trip that made money — an open position is not a
+    win yet, and counting it as one is how a losing book looks green.
+    """
+    rows = _rows_for(uid)
+    counts = {"active": 0, "paused": 0, "draft": 0}
+    returns, total_pnl, total_inv = [], paper.to_money(0), paper.to_money(0)
+    for d in rows:
+        st = _STATE_TO_WF.get(d["state"], "draft")
+        if st in counts:
+            counts[st] += 1
+        p = _perf(uid, d)
+        total_pnl += p["pnl"]
+        total_inv += p["invested"]
+        returns.append({
+            "workflow_id": str(d["id"]), "name": d["name"],
+            "return_pct": p["return_pct"], "series": p["series"],
+            "run_count": p["run_count"], "success_rate": p["success_rate"],
+            "last_run_at": p["last_run_at"], "has_data": p["has_data"],
+        })
+
+    cutoff = int(time.time()) - 180 * 86400
+    # `account_of` takes the users lock itself, and that lock is NOT reentrant:
+    # calling it from inside a `with ds._users_lock` deadlocked the thread while
+    # holding the lock, which hung every other request in the process — the
+    # whole server, from one portfolio read. Resolve the account first, then
+    # take the lock for the query alone.
+    acct = paper.account_of(uid)
+    closed = []
+    if acct is not None:
+        with ds._users_lock:
+            closed = _db().execute(
+                "SELECT realized_pnl, filled_at FROM paper_fills WHERE "
+                "account_id=? AND strategy_id IS NOT NULL AND "
+                "realized_pnl IS NOT NULL AND filled_at >= ?",
+                (acct[0], cutoff)).fetchall()
+    wins = sum(1 for r in closed if (r[0] or 0) > 0)
+    losses = sum(1 for r in closed if (r[0] or 0) <= 0)
+    daily: dict[str, float] = {}
+    for rpnl, ts in closed:
+        day = paper._iso(ts)[:10]
+        daily[day] = round(daily.get(day, 0.0) + float(rpnl or 0), 4)
+
+    return 200, {
+        "active_count": counts["active"], "paused_count": counts["paused"],
+        "draft_count": counts["draft"],
+        "trades_6mo": {
+            "total": len(closed), "wins": wins, "losses": losses,
+            "win_rate_pct": (round(wins / len(closed) * 100, 1)
+                             if closed else None),
+        },
+        "daily_pnl": [{"date": k, "pnl": v} for k, v in sorted(daily.items())],
+        "strategy_returns": sorted(
+            returns, key=lambda r: (r["return_pct"] is None, -(r["return_pct"] or 0))),
+        "total_pnl": paper.f(total_pnl),
+        "total_pnl_pct": (float(total_pnl / total_inv * 100) if total_inv else 0.0),
+        "has_data": bool(rows),
+    }
