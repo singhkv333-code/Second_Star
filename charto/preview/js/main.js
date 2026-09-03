@@ -1465,9 +1465,21 @@
    The plate is roughly 100px wide at the chart's 12px font. The small guard
    accounts for its horizontal padding and rounded ends. */
   const CROSSHAIR_TIME_HALF_WIDTH = 58;
+  const phoneAxis = window.matchMedia("(max-width: 560px) and (orientation: portrait)");
   chart.subscribeCrosshairMove((p) => {
     const x = p && p.point && Number.isFinite(p.point.x) ? p.point.x : null;
     if (x == null) return tzNote.classList.remove("under-crosshair");
+    /* At phone width lightweight-charts clamps its date plate back inside
+       the canvas when the crosshair approaches either edge. That means its
+       painted position is no longer centred on `p.point.x`, so a geometric
+       estimate can miss the collision and the HTML clock cuts through the
+       black plate. The clock is secondary while a date is being inspected:
+       hide it for the lifetime of any phone crosshair, then restore it on
+       the null event above. */
+    if (phoneAxis.matches) {
+      tzNote.classList.add("under-crosshair");
+      return;
+    }
     const chartBox = chartEl.getBoundingClientRect();
     const noteBox = tzNote.getBoundingClientRect();
     const noteLeft = noteBox.left - chartBox.left;

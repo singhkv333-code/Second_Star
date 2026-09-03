@@ -1963,6 +1963,10 @@
   });
   el("chatNew").innerHTML = Icons.svg("plus", "sm");
   el("chatHistoryBtn").innerHTML = Icons.svg("clock", "sm");
+  const mobileMenuBtn = el("mobileChatMenuBtn");
+  const mobileMenu = el("mobileChatMenu");
+  const mobileModeItems = [...mobileMenu.querySelectorAll("[data-mobile-chat-mode]")];
+  mobileMenuBtn.innerHTML = Icons.svg("plus", "sm");
   /* The mode switch. Both halves are always visible and always the same size,
    * so the state is the position of the lift, not a label you have to read.
    * `aria-checked` carries the state for assistive tech AND is what the CSS
@@ -1980,6 +1984,9 @@
       // and the arrows move within it, so Tab doesn't have to walk past a
       // control the user isn't changing.
       seg.tabIndex = on ? 0 : -1;
+    }
+    for (const item of mobileModeItems) {
+      item.setAttribute("aria-checked", String(item.dataset.mobileChatMode === chatMode));
     }
     showTray(!turns.length);
   }
@@ -2002,6 +2009,25 @@
         && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     setChatMode(chatMode === "execution" ? "chat" : "execution", { focus: true });
+  });
+  function closeMobileMenu() {
+    mobileMenu.classList.remove("open");
+    mobileMenuBtn.setAttribute("aria-expanded", "false");
+  }
+  mobileMenuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = mobileMenu.classList.toggle("open");
+    mobileMenuBtn.setAttribute("aria-expanded", String(open));
+  });
+  mobileMenu.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-mobile-chat-mode]");
+    if (!item) return;
+    setChatMode(item.dataset.mobileChatMode);
+    closeMobileMenu();
+    input.focus();
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".mobile-chat-menu-wrap")) closeMobileMenu();
   });
   paintChatMode();
   // Voice: the transcript is APPENDED to the draft and never sent. Speaking
@@ -2440,6 +2466,14 @@
 
   el("chatNew").addEventListener("click", newConversation);
   el("chatHistoryBtn").addEventListener("click", openHistory);
+  el("mobileChatNew").addEventListener("click", () => {
+    closeMobileMenu();
+    newConversation();
+  });
+  el("mobileChatHistory").addEventListener("click", () => {
+    closeMobileMenu();
+    openHistory();
+  });
   // The chip chooses which visible chart or charts the model reads.
   ctxFlag.addEventListener("click", (e) => { e.stopPropagation(); openSubjectMenu(); });
   paintCtxFlag();

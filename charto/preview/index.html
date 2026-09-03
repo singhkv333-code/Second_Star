@@ -4489,6 +4489,7 @@ body.two-columns .readout .row { display: none; }
 /* composer */
 .composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
 .composer-inner { max-width: 720px; margin: 0 auto; }
+.mobile-chat-menu-wrap { display: none; }
 .composer {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 10px 10px 8px 14px;
@@ -5655,6 +5656,12 @@ body.two-columns .readout .row { display: none; }
    the chart is clutter — the row of tools and the right-click menu are the
    paths there instead. */
 @media (hover: none) { .alert-plus { display: none; } }
+/* Some Android browsers advertise emulated hover while a long-press context
+   menu is active. Width is the reliable phone signal here: the long-press
+   menu already offers "Alert here", so the duplicate axis + must stay gone. */
+@media (max-width: 560px) and (orientation: portrait) {
+  .alert-plus { display: none !important; }
+}
 
 /* A reason a rule is paused, printed under it. The engine pauses a rule whose
    address stopped resolving rather than leaving it armed and silently never
@@ -6297,36 +6304,71 @@ svg.icon.op {
   .ind-act { width: 24px; height: 24px; }
   .ind-act svg { width: 14px; height: 14px; }
 
+  /* On a phone the actions live in the composer's + menu. Removing this
+     whole desktop row gives its complete height back to the response. */
+  .chat-actions { display: none; }
+  .thread { padding-block: 6px; }
+  .thread-inner { padding-inline: 12px; gap: 20px; }
+  /* The desktop offset assumes a two-row composer. On the one-row phone
+     composer it left the jump control floating through the middle of short
+     replies, exactly where the little pane has the least spare room. */
+  .to-bottom { bottom: 58px; }
+
   /* ── the composer, on one line ──────────────────────────────────────────
      Two stacked rows — textarea, then a control row — cost roughly a fifth of
      the viewport before a single word was typed. On a phone it collapses to
-     one: the instrument's MARK, the field, send.
+     one: options, the instrument's MARK, the field, send.
      `display: contents` flattens the control row into the composer's own flex
      line rather than nesting a second one.
      The ticker text goes because the logo already says which instrument this
      is, and it is the same mark the chart header and the search rows use. */
-  .composer-wrap { padding: 4px 10px 8px; }
+  .composer-wrap { padding: 4px 10px 6px; }
+  .composer-inner, .ask-shell, .ask-group { width: 100%; min-width: 0; }
   .composer {
-    display: flex; align-items: center; gap: 6px;
-    padding: 5px 6px 5px 12px; border-radius: var(--radius-pill);
+    display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0;
+    min-height: 42px; padding: 4px 5px 4px 10px;
+    border-radius: var(--radius-pill);
   }
   .composer-row { display: contents; }
+  .mobile-chat-menu-wrap {
+    position: relative; order: 1; flex: 0 0 28px; display: block;
+  }
+  .mobile-chat-menu-btn {
+    width: 28px; height: 28px; padding: 0; border: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: transparent;
+    color: var(--muted-foreground); cursor: pointer;
+  }
+  .mobile-chat-menu-btn[aria-expanded="true"] {
+    background: var(--accent); color: var(--foreground);
+  }
+  .mobile-chat-menu-btn svg { width: 18px; height: 18px; }
+  .mobile-chat-menu {
+    left: -6px; right: auto; bottom: calc(100% + 10px);
+    min-width: 210px; max-height: none;
+  }
+  .mobile-chat-menu .item {
+    width: 100%; border: 0; background: transparent; font: inherit;
+    text-align: left;
+  }
+  .mobile-chat-menu .item[aria-checked="true"] { color: var(--primary); }
   .composer textarea {
-    order: 3; flex: 1 1 auto; width: auto;
+    order: 3; flex: 1 1 0; width: 0; min-width: 0;
     font-size: var(--text-base); line-height: 1.35;
-    min-height: 22px; max-height: 92px; padding: 0;
+    min-height: 22px; max-height: 92px; padding: 2px 0 0;
   }
   .composer-row .spacer { display: none; }
   .cbtn { width: 26px; height: 26px; }
   /* mark only: the chip keeps its tap target and loses its words */
   .ctx-flag {
-    order: 2; padding: 2px; gap: 0; background: transparent;
-    max-width: 26px; overflow: hidden;
+    order: 2; flex: 0 0 26px; width: 26px; height: 26px;
+    padding: 2px; gap: 0; background: transparent;
+    max-width: 26px; overflow: hidden; justify-content: center;
   }
   .ctx-flag > *:not(img) { display: none; }
   .ctx-flag img { width: 18px; height: 18px; }
   .mic-btn { order: 4; width: 26px; height: 26px; }
-  .send { order: 5; width: 32px; height: 32px; }
+  .send { order: 5; flex: 0 0 32px; width: 32px; height: 32px; }
 
   /* Annotation labels are written INTO the chart. On a desktop pane there is
      room beside the candles; on a phone three pattern labels covered the
@@ -8047,6 +8089,20 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           <div class="ask-glow" aria-hidden="true"></div>
           <div class="ask-group" id="askGroup">
           <form class="composer" id="chatForm">
+            <div class="mobile-chat-menu-wrap">
+              <button type="button" class="mobile-chat-menu-btn" id="mobileChatMenuBtn"
+                      aria-label="Chat options" aria-haspopup="menu" aria-expanded="false"></button>
+              <div class="dropdown up mobile-chat-menu" id="mobileChatMenu" role="menu">
+                <div class="head">Chat mode</div>
+                <button type="button" class="item" data-mobile-chat-mode="chat"
+                        role="menuitemradio" aria-checked="true">Research</button>
+                <button type="button" class="item" data-mobile-chat-mode="execution"
+                        role="menuitemradio" aria-checked="false">Execution</button>
+                <div class="sep"></div>
+                <button type="button" class="item" id="mobileChatNew" role="menuitem">New conversation</button>
+                <button type="button" class="item" id="mobileChatHistory" role="menuitem">Conversation history</button>
+              </div>
+            </div>
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>
