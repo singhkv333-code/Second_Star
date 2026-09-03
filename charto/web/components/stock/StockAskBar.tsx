@@ -316,11 +316,20 @@ export function StockAskBar({
               {turns.map((t, i) => (
                 <div key={i} className="stock-ask-turn">
                   <div className="stock-ask-q">{t.question}</div>
-                  {t.error ? (
-                    <div className="stock-ask-err">{t.error}</div>
-                  ) : t.answer ? (
+                  {/* A failure does not delete what already arrived. A model
+                      turn that stalls mid-stream had usually said something
+                      useful first, and replacing three paragraphs of read
+                      financials with one line of error is the reader losing
+                      work they watched appear. The answer stays; the failure
+                      is a note under it saying where it stopped. */}
+                  {t.answer ? (
                     <AssistantMessage text={t.answer} className="stock-ask-a" />
-                  ) : (
+                  ) : null}
+                  {t.error ? (
+                    <div className="stock-ask-err">
+                      {t.answer ? `Stopped mid-answer — ${t.error}` : t.error}
+                    </div>
+                  ) : t.answer ? null : (
                     <div className="stock-ask-wait">
                       <span className="stock-ask-dot" />
                       {t.tool ? `${toolLine(t.tool)}…` : "Thinking…"}

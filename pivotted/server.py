@@ -105,9 +105,17 @@ def _post(wire: list[dict], allow_tools: bool = True) -> dict:
         return json.loads(r.read())
 
 
+# Idle deadline on the model's own stream, not a budget for the turn: it is a
+# socket timeout, so it fires only after this long with NOTHING arriving. A
+# turn that streams steadily for ten minutes is fine; one that goes quiet is
+# the failure worth reporting, and it has happened (Azure stalled mid-answer
+# on a two-turn transcript).
+_LLM_STREAM_IDLE = 180
+
+
 def _post_stream(wire: list[dict], allow_tools: bool = True):
     with urllib.request.urlopen(_request(wire, allow_tools, True),
-                                timeout=180, context=_ssl_ctx()) as resp:
+                                timeout=_LLM_STREAM_IDLE, context=_ssl_ctx()) as resp:
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -364,7 +372,14 @@ def chat_stream_pivot(messages: list[dict]):
                 return
     except Exception as exc:                        # noqa: BLE001
         logging.exception("pivotted: pivot-dialect stream failed")
-        yield {"type": "error", "message": str(exc)}
+        # Name what failed. "The read operation timed out" is a socket's
+        # phrase, and a reader looking at half an answer cannot tell from it
+        # whether the data was wrong, the server died, or the model went
+        # quiet — which is the only one of the three that actually happened.
+        detail = (f"the model sent nothing for {_LLM_STREAM_IDLE}s"
+                  if isinstance(exc, TimeoutError)
+                  else str(exc) or exc.__class__.__name__)
+        yield {"type": "error", "message": f"the answer was cut off — {detail}"}
 
 
 class Handler(BaseHTTPRequestHandler):
