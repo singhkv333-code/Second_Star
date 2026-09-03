@@ -4130,9 +4130,17 @@ def _api_patterns(sym: str, interval: str, horizon: int,
 # What the peer table asks for -> the column charto actually stores. Anything
 # absent stays absent: the response type is nullable everywhere precisely so a
 # missing metric can print an em-dash instead of a fabricated zero.
-# id -> (stored column, label, unit). The unit is not decoration: the table
-# formats by it, so a multiple labelled as a percentage renders 6.35 as
+# id -> (profile column or None, label, unit). The unit is not decoration: the
+# table formats by it, so a multiple labelled as a percentage renders 6.35 as
 # "6.35%" — a wrong number rather than an ugly one.
+#
+# The second group has no profile column and is read from `financials.latest`
+# instead. It is not new data: the panel has drawn a ROCE column since it was
+# built and asks for all seventeen of these ids on every load, and the store
+# has held every one of them per symbol all along — they were simply not in
+# this map, so the request was filtered down to ten and ROCE printed an
+# em-dash for every company on every page. An empty column reads as "nobody
+# reports this", which was never true.
 _PEER_FIELDS = {
     "market_cap":           ("market_cap",     "Market cap",     "crore"),
     "roe":                  ("roe",            "ROE",            "percent"),
@@ -4144,7 +4152,51 @@ _PEER_FIELDS = {
     "current_ratio":        ("current_ratio",  "Current ratio",  "multiple"),
     "eps_basic":            ("eps",            "EPS",            "rupee"),
     "book_value_per_share": ("book_value_ps",  "Book value / sh", "rupee"),
+    # Filed ratios, from the financials payload.
+    "roce":                 (None, "ROCE",                "percent"),
+    "revenue":              (None, "Revenue",             "crore"),
+    "net_profit":           (None, "Net profit",          "crore"),
+    "interest_coverage":    (None, "Interest cover",      "multiple"),
+    "dividend_payout":      (None, "Dividend payout",     "percent"),
+    # Banks and NBFCs. Absent for everyone else, which is correct rather
+    # than missing — a manufacturer has no gross NPA.
+    "gross_npa_pct":        (None, "Gross NPA",           "percent"),
+    "net_npa_pct":          (None, "Net NPA",             "percent"),
+    "net_interest_margin":  (None, "Net interest margin", "percent"),
 }
+
+
+def _peer_filed(sym: str) -> tuple[dict, dict]:
+    """One peer's filed ratios out of `financials.latest`: values, periods.
+
+    The profile table carries ten of these as plain columns and the filings
+    payload carries all of them as {value, period_end, period_label, basis}.
+    The period travels with the number because these are not one column of one
+    statement: `latest` picks each field independently, so a company with a
+    patchy history can hand back a Mar-26 ROCE beside a Mar-24 payout. The
+    panel prints the number; anything reading this API can see the date it
+    belongs to rather than assuming the row is one period.
+    """
+    try:
+        row = _con.execute("SELECT payload FROM financials WHERE symbol=?",
+                           (sym,)).fetchone()
+    except sqlite3.Error:
+        return {}, {}
+    if not row:
+        return {}, {}
+    try:
+        latest = (json.loads(row[0]) or {}).get("latest") or {}
+    except (ValueError, TypeError):
+        return {}, {}
+    values, periods = {}, {}
+    for key, item in latest.items():
+        val = item.get("value") if isinstance(item, dict) else item
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            continue
+        values[key] = val
+        if isinstance(item, dict):
+            periods[key] = item.get("period_label")
+    return values, periods
 
 
 def _peer_group(sym: str, want: int = 6) -> list[tuple[str, str]]:
@@ -4203,10 +4255,8 @@ def _peer_metric(fid: str) -> dict:
 
 def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
     """The symbol beside the peers charto already keeps for it."""
-    # Only fields charto can actually fill. The panel is handed a catalog of
-    # seventeen; asking for the other seven would render seven columns of
-    # em-dashes, which says "this company reports nothing" rather than "this
-    # store does not carry it".
+    # Only fields charto can actually fill — which is now every id the panel
+    # asks for, the seven filed ratios included.
     want = [f for f in fields if f in _PEER_FIELDS] or list(_PEER_FIELDS)
     base = company_page(sym, "1D")
     peers = [{"symbol": sym, "name": base.get("long_name") or base.get("name") or sym,
@@ -4218,11 +4268,25 @@ def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
         prof = company_page(row["symbol"], "1D") if not row["is_current"] else base
         m = prof.get("metrics") or {}
         quote = prof.get("price") if isinstance(prof.get("price"), dict) else None
+        filed, filed_periods = _peer_filed(row["symbol"])
+        # Profile first for the ten it carries, so no existing column changes
+        # its number here; the filings payload fills the rest, and only where
+        # the profile has nothing.
+        vals, pers = {}, {}
+        for f in want:
+            col = _PEER_FIELDS[f][0]
+            v = prof.get(col) if col else None
+            if v is None:
+                v = filed.get(f)
+                pers[f] = filed_periods.get(f) if v is not None else None
+            else:
+                pers[f] = None
+            vals[f] = v
         out.append({
             "sc_id": prof.get("sc_id") or "", "symbol": row["symbol"],
             "name": row["name"], "is_current": row["is_current"],
-            "values": {f: prof.get(_PEER_FIELDS[f][0]) for f in want},
-            "periods": {f: None for f in want},
+            "values": vals,
+            "periods": pers,
             # `company_page` returns the whole quote under "price" — last,
             # open, high, low, volume, change. The panel's column is a single
             # number, so handing it the dict rendered "[object Object]" in

@@ -100,6 +100,14 @@ def main() -> None:
     db.close()
     print(f"statements: {done} synced · {miss} with no grid · "
           f"{time.time() - t0:.0f}s")
+    # A table this script CREATES is invisible to a dataserver that was
+    # already running: its per-thread connections were opened before the
+    # table existed, the read raises "no such table", and the route reports
+    # `available: false` — which looks exactly like a company that files
+    # nothing. Restarting is the whole fix, and it is not obvious from the
+    # outside, so it is said here.
+    print("restart the dataserver (./restart.sh) — a new table is invisible "
+          "to its open connections")
 
 
 if __name__ == "__main__":
