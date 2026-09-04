@@ -1,5 +1,8 @@
 node_modules
+# npm's interrupted-install leftovers; see tsconfig.json's exclude.
+node_modules.rollback
 .next
+.next.prev
 .vercel
 .env*
 !.env.example

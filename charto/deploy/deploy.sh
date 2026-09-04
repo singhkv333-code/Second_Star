@@ -94,8 +94,17 @@ rebuild_web() {
   # the fallback for older/manual installations without the unit.
   if systemctl cat charto-web.service >/dev/null 2>&1; then
     printf 'installing %s\n' "$web_tree" > "$web_status_file"
+    # An `npm ci` that dies partway (an OOM kill, a reboot) leaves the tree it
+    # was replacing behind as node_modules.rollback/ — 590 MB of a vendor's own
+    # TypeScript sitting inside the project root, which `next build` then type
+    # checks. The result is a "Type error" in a file nobody here has touched,
+    # on a source tree that builds cleanly on any machine whose install never
+    # broke; that asymmetry is what made it read as a VM-only failure. The
+    # tsconfig excludes the name too, so neither guard alone has to hold.
+    rm -rf "$REPO/charto/web/node_modules.rollback"
     if ! (cd "$REPO/charto/web" \
       && npm ci --no-audit --no-fund > /tmp/charto_web_install.log 2>&1); then
+      rm -rf "$REPO/charto/web/node_modules.rollback"
       record_web_failure "install-$(failure_kind /tmp/charto_web_install.log)"
       echo "deploy: company frontend dependency install FAILED"
       tail -20 /tmp/charto_web_install.log
@@ -104,16 +113,30 @@ rebuild_web() {
     # Reusing an old production directory preserves generated route/type files
     # from the previous source tree. The VM then fails type checking even when
     # the same locked source passes a clean local `next build`.
-    rm -rf "$REPO/charto/web/.next"
+    #
+    # But deleting .next up front means a failed build leaves `next start` with
+    # nothing to serve: the unit restart-loops and /stock/ 502s until a human
+    # notices. Move the last good build aside instead and put it back if the
+    # new one does not arrive, so a broken commit costs a stale page, not the
+    # page. (A leading dot keeps .next.prev out of tsconfig's wildcards.)
+    rm -rf "$REPO/charto/web/.next.prev"
+    if [ -d "$REPO/charto/web/.next" ]; then
+      mv "$REPO/charto/web/.next" "$REPO/charto/web/.next.prev"
+    fi
     printf 'building %s\n' "$web_tree" > "$web_status_file"
     if ! (cd "$REPO/charto/web" \
       && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 \
         npx next build > /tmp/charto_web_build.log 2>&1); then
+      rm -rf "$REPO/charto/web/.next"
+      if [ -d "$REPO/charto/web/.next.prev" ]; then
+        mv "$REPO/charto/web/.next.prev" "$REPO/charto/web/.next"
+      fi
       record_web_failure "build-$(failure_kind /tmp/charto_web_build.log)"
-      echo "deploy: company frontend build FAILED"
+      echo "deploy: company frontend build FAILED (previous build left serving)"
       tail -20 /tmp/charto_web_build.log
       return 1
     fi
+    rm -rf "$REPO/charto/web/.next.prev"
     printf 'restarting %s\n' "$web_tree" > "$web_status_file"
     if ! sudo -n /usr/bin/systemctl restart charto-web.service; then
       record_web_failure restart
