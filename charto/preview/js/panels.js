@@ -910,6 +910,9 @@ const Panels = (() => {
 
 
   let openId = null;
+  // A phone panel temporarily replaces an open conversation. Remember that
+  // fact so closing the panel restores the conversation the user was reading.
+  let restoreChatAfterPanel = false;
 
   /* One subscription, three jobs: keep the bell honest, keep an open panel
    * current, and keep a watchlist row's bell in step with being signed in.
@@ -955,6 +958,7 @@ const Panels = (() => {
   /** show(id) — open that widget, or null to close whatever is open. One at
    *  a time: two 304px columns plus the conversation leaves no chart. */
   function show(id) {
+    const closing = !id;
     openId = id;
     for (const w of WIDGETS) {
       const on = w.id === id;
@@ -978,14 +982,20 @@ const Panels = (() => {
     // Stacked, there is room for the chart and ONE panel. The conversation
     // goes away through its own toggle rather than by being hidden here, so
     // the chat button's state stays true.
-    if (id && stacked() && chatOpen()) el("chatToggle").click();
+    if (id && stacked() && chatOpen()) {
+      restoreChatAfterPanel = true;
+      el("chatToggle").click();
+    } else if (closing && stacked() && restoreChatAfterPanel) {
+      restoreChatAfterPanel = false;
+      if (!chatOpen()) el("chatToggle").click();
+    }
     // last, so it reads the state the line above may just have changed
     syncDense();
     // the charts are autoSize — they re-measure themselves off the layout
   }
 
   const toggle = (id) => {
-    if (id === "journal") {
+    if (id === "journal" && !stacked()) {
       show(null);
       Journal.toggleQuick();
       return;

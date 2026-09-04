@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { BarChart2, ChevronRight, LogOut, User } from "lucide-react";
 import { StockDetailPage } from "@/components/StockDetailPage";
 import { StockAskBar } from "@/components/stock/StockAskBar";
+import { PivotLogo } from "@/components/brand/PivotLogo";
+import { logoutCharto, useChartoUser } from "@/lib/charto-auth";
 
 /**
  * Client wrapper that mounts the stock detail page under charto's own chrome
@@ -24,6 +27,113 @@ import { StockAskBar } from "@/components/stock/StockAskBar";
 // back to whichever machine happened to be reading the page.
 const CHART = "/index.html";
 const KEY = "charto_theme";
+
+function venueFor(symbol: string): string {
+  const normalized = symbol.toUpperCase();
+  if (/USDT$/.test(normalized)) return "BYBIT";
+  if (/-USD$/.test(normalized)) return "COINBASE";
+  if (["GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"].includes(normalized)) return "MCX";
+  if (["USDINR", "EURINR", "GBPINR", "JPYINR"].includes(normalized)) return "NSE CDS";
+  if (["SENSEX", "BANKEX"].includes(normalized)) return "BSE";
+  return "NSE";
+}
+
+/** The account control, mirroring the chart's own `#acctBtn`.
+ *
+ *  It reads charto's session, not Pivot's: the two apps issue separate tokens
+ *  and `/auth/me` answers in charto's shape (`{ user }`), so Pivot's `getMe()`
+ *  found nobody here even for someone signed in on the chart, and its
+ *  `logoutUser()` cleared a token charto had not issued. See lib/charto-auth.
+ *
+ *  Signed out is a first-class state, as it is on the chart: charto works
+ *  without an account and this page is deliberately ungated, so the control
+ *  says who you are not and offers the way in rather than pretending. */
+function StockAccountMenu({ symbol }: { symbol: string }): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const user = useChartoUser();
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const displayName = user?.name?.trim() || user?.email || "";
+  const initial = displayName.trim()[0]?.toUpperCase() || "";
+  const label = user ? `Account \u2014 ${displayName}` : "Sign in to Charto";
+
+  const signOut = async (): Promise<void> => {
+    await logoutCharto();
+    // Signing out changes WHOSE work this page is showing, and the components
+    // holding it are already mounted — the same reason the chart reloads.
+    window.location.reload();
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={
+          user
+            ? "flex h-9 w-9 items-center justify-center rounded-full bg-[#1597b6] text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#1186a2]"
+            : "flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground transition hover:bg-muted/70"
+        }
+      >
+        {user ? initial : <User size={16} aria-hidden="true" />}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 overflow-hidden rounded-xl border border-border bg-background p-1.5 shadow-xl">
+          <div className="border-b border-border/70 px-3 py-2.5">
+            <div className="truncate text-[13px] font-semibold text-foreground">
+              {user ? displayName : "Not signed in"}
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {user
+                ? (user.name?.trim() ? user.email : "Signed in to Charto")
+                : "Working in this browser"}
+            </div>
+          </div>
+          {user ? (
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+            >
+              <LogOut size={15} aria-hidden="true" />
+              Log out
+            </button>
+          ) : (
+            // Charto's sign-in dialog lives on the chart, so this hands the
+            // visitor to it rather than to Pivot's /login, which authenticates
+            // against a different backend entirely.
+            <a
+              href={`${CHART}?symbol=${encodeURIComponent(symbol)}`}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+            >
+              <User size={15} aria-hidden="true" />
+              Sign in on the chart
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** The whole company surface under charto's chrome. `StockSymbolView` is the
  *  overview; the statements page is the same chrome around a different body,
@@ -59,12 +169,8 @@ export function CompanyChrome({
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const toggle = (): void => {
-    const next = !dark;
-    try { localStorage.setItem(KEY, next ? "dark" : "light"); } catch { /* ok */ }
-    setDark(next);
-  };
   const chart = (path: string): string => `${CHART}${path}`;
+  const chartHref = chart(`?symbol=${encodeURIComponent(symbol)}`);
 
   // globals.css locks the DOCUMENT scroll (`html, body { overflow: hidden }`)
   // because Pivot scrolls inside AppShell's main pane. Dropping AppShell
@@ -72,26 +178,35 @@ export function CompanyChrome({
   // lost its gutters. This is AppShell's own children container, verbatim.
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
-      <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border/40 px-6">
-        <a href={chart("")} className="text-[15px] font-semibold tracking-tight">
-          Charto<span style={{ color: "#2962ff" }}>.</span>
+      {/* Tighter gaps on a phone. At 390px the row was exactly full and the
+          only child that can give — the symbol pill, which carries min-w-0 —
+          was the one paying for it: 360ONE rendered as "3…", the one thing on
+          the bar that says which company this is. */}
+      <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
+        <a href={chart("")} aria-label="Back to chart" className="flex shrink-0 items-center text-foreground">
+          <PivotLogo fontSize={20} />
+        </a>
+        <div className="h-6 w-px bg-border" aria-hidden="true" />
+        <a
+          href={chartHref}
+          className="flex min-w-0 items-baseline gap-1.5 rounded-full bg-muted px-3 py-2 text-[12px] font-semibold text-foreground transition hover:bg-muted/80"
+        >
+          <span className="truncate">{symbol}</span>
+          <span className="hidden text-[10px] font-medium text-muted-foreground min-[390px]:inline">{venueFor(symbol)}</span>
         </a>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={toggle}
-          className="rounded-md border border-border/60 px-3 py-1.5 text-[13px] font-medium"
-          title="Toggle theme"
-        >
-          Theme
-        </button>
         <a
-          href={chart(`?symbol=${encodeURIComponent(symbol)}`)}
-          className="rounded-md px-3 py-1.5 text-[13px] font-medium text-white"
-          style={{ background: "#2962ff" }}
+          href={chartHref}
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#1597b6]/30 bg-[#1597b6]/10 px-3 text-[13px] font-semibold text-[#087f9c] transition hover:bg-[#1597b6]/15 dark:text-[#58c7df]"
         >
-          Open chart →
+          <BarChart2 size={16} aria-hidden="true" />
+          {/* The label goes before the symbol does. A chart button that is
+              only an icon is still a chart button; a company page that will
+              not say which company is not a company page. */}
+          <span className="hidden min-[400px]:inline">Launch chart</span>
+          <ChevronRight className="hidden sm:block" size={14} aria-hidden="true" />
         </a>
+        <StockAccountMenu symbol={symbol} />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-6 pb-8 sm:px-5 lg:px-8">
         {/* In Pivot the sidebar eats ~260px of a wide screen. Without it the
@@ -105,22 +220,20 @@ export function CompanyChrome({
   );
 }
 
-/**
- * The overview, with the ask bar over it.
- *
- * The bar is mounted on the ROUTE rather than inside StockDetailPage: the
- * page draws two layouts (desktop and phone) and there must be exactly one
- * bar whichever is on screen. It floats, so the spacer reserves the height it
- * would otherwise cover at the end of the scroll.
- *
- * Only the overview gets it. The statements page is a table the reader is
- * scanning, and a floating pill sits on top of the last row of it.
- */
 export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElement {
   return (
     <CompanyChrome symbol={symbol}>
       <StockDetailPage symbol={symbol} />
-      <div aria-hidden style={{ height: 96 }} />
+      {/* The ask bar belongs to the ROUTE, not to StockDetailPage: that
+          component draws two layouts (desktop and phone) and the bar should be
+          one instance present whichever is drawn. It floats over the content,
+          so the spacer reserves the height it would otherwise cover at the end
+          of the scroll — plus the phone's home-indicator inset, which the bar
+          itself also clears. */}
+      <div
+        aria-hidden
+        style={{ height: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+      />
       <StockAskBar symbol={symbol} />
     </CompanyChrome>
   );

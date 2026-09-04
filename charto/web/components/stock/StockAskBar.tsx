@@ -209,6 +209,32 @@ export function StockAskBar({
     return () => { ro.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
 
+  /* The phone keyboard, which a bar pinned to the bottom of the page cannot
+     ignore. iOS does not shrink the LAYOUT viewport when the keyboard opens,
+     so `position: fixed; bottom: 20px` stays measured against the full screen
+     and the composer someone is typing into sits behind the keys. The visual
+     viewport does move, and the difference between the two is exactly how far
+     up the bar has to come. Zero on every desktop, and zero on Android, where
+     the layout viewport resizes and `bottom` was already right. */
+  const [keyboard, setKeyboard] = React.useState(0);
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const track = (): void => {
+      const covered = window.innerHeight - vv.height - vv.offsetTop;
+      // Under a few pixels this is a URL bar collapsing, not a keyboard, and
+      // reacting to it would make the bar twitch on every scroll.
+      setKeyboard(covered > 24 ? Math.round(covered) : 0);
+    };
+    track();
+    vv.addEventListener("resize", track);
+    vv.addEventListener("scroll", track);
+    return () => {
+      vv.removeEventListener("resize", track);
+      vv.removeEventListener("scroll", track);
+    };
+  }, []);
+
   // One conversation per symbol. Switching companies starts a fresh thread
   // rather than carrying the last one's subject into this one — "it" must not
   // mean the previous company. (Pivotted holds no server-side state for the
@@ -405,13 +431,16 @@ export function StockAskBar({
         className={`stock-ask${expanded ? " is-expanded" : ""}`}
         role="complementary"
         aria-label="Ask about this company"
-        style={column
-          ? ({
-            "--ask-cx": `${column.cx}px`,
-            // Never wider than the column it is centred on.
-            "--ask-max": `${Math.max(240, column.w - 28)}px`,
-          } as React.CSSProperties)
-          : undefined}
+        style={{
+          ...(column
+            ? {
+              "--ask-cx": `${column.cx}px`,
+              // Never wider than the column it is centred on.
+              "--ask-max": `${Math.max(240, column.w - 28)}px`,
+            }
+            : {}),
+          "--ask-kb": `${keyboard}px`,
+        } as React.CSSProperties}
       >
         {showPanel ? (
           <section
@@ -640,7 +669,11 @@ export function StockAskBar({
 
           position: fixed;
           left: var(--ask-cx);
-          bottom: 20px;
+          /* 20px from the bottom, plus the phone's home-indicator inset (the
+             root layout sets viewport-fit=cover, so this resolves to a real
+             number there and 0 everywhere else), plus however much of the
+             screen the keyboard is currently covering. */
+          bottom: calc(20px + env(safe-area-inset-bottom, 0px) + var(--ask-kb, 0px));
           transform: translateX(-50%);
           z-index: 60;
           width: min(340px, var(--ask-max));
@@ -713,6 +746,12 @@ export function StockAskBar({
           font-size: 14px;
           line-height: 1.5;
           letter-spacing: -0.006em;
+        }
+        /* iOS Safari zooms the page when a field it focuses is under 16px, and
+           it does not zoom back out. 14px is the design on a pointer device;
+           on a touch screen the field is 16px and the zoom never fires. */
+        @media (pointer: coarse) {
+          .stock-ask-input { font-size: 16px; }
         }
         .stock-ask-input::placeholder { color: var(--text-tertiary); }
 

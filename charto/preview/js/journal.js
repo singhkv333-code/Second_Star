@@ -141,8 +141,13 @@ const Journal = (() => {
     const time=new Intl.DateTimeFormat("en-IN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(d);
     return `<span class="jq-date"><b>${day}</b><small>${time}</small></span>`;
   }
-  function quickMetrics(){const o=data.overview||{};return `<div class="jq-metrics">
-    <div class="jq-metric"><span>Net P&amp;L</span><b class="${(o.net_pnl||0)>=0?"j-pnl up":"j-pnl down"}">${money(o.net_pnl||0)}</b></div>
+  /* An empty book has no statistics. Six labelled cells reading 0 and five
+   * em-dashes is a full performance band asserting nothing — it says the
+   * numbers exist and are all blank, when the truth is there is nothing to
+   * measure yet. The strip appears with the first trade. */
+  function quickMetrics(){const o=data.overview||{};if(!data.trades.length)return "";
+    const pnl=o.net_pnl||0;return `<div class="jq-metrics">
+    <div class="jq-metric"><span>Net P&amp;L</span><b class="${pnl===0?"":pnl>0?"j-pnl up":"j-pnl down"}">${money(pnl)}</b></div>
     <div class="jq-metric"><span>Expectancy</span><b>${o.expectancy_r==null?"—":`${o.expectancy_r}R`}</b></div>
     <div class="jq-metric"><span>Profit factor</span><b>${o.profit_factor==null?"—":o.profit_factor}</b></div>
     <div class="jq-metric"><span>Win rate</span><b>${o.win_rate==null?"—":`${o.win_rate}%`}</b></div>
@@ -150,13 +155,13 @@ const Journal = (() => {
     <div class="jq-metric"><span>Reviewed</span><b>${o.reviewed||0} / ${o.count||0}</b></div></div>`}
   function quickRows(){
     const dir=quickSort.dir,key=quickSort.key,rows=[...data.trades].sort((a,b)=>{const av=a[key],bv=b[key];if(av==null)return 1;if(bv==null)return-1;return (av>bv?1:av<bv?-1:0)*dir});
-    if(!rows.length)return `<div class="jq-empty">No trades journalled yet.<br>Capture the first one without leaving your chart.</div>`;
+    if(!rows.length)return `<div class="jq-empty"><div><strong>No trades yet</strong>Capture one without leaving your chart.<button type="button" class="btn cta" data-qtab="new">Add a trade</button></div></div>`;
     const book=(id)=>data.playbooks.find(b=>b.id===id)?.name||"—";
     const th=(label,k,cls="")=>`<th class="${cls}" data-qsort="${k}" aria-sort="${quickSort.key===k?(quickSort.dir>0?"ascending":"descending"):"none"}">${label}${quickSort.key===k?(quickSort.dir>0?" ↑":" ↓"):""}</th>`;
     return `<div class="jq-table-wrap"><table class="jq-table"><colgroup>${["symbol","side","date","date","qty","money","money","fees","risk","pnl","r","playbook","tags","review"].map(c=>`<col class="jq-col-${c}">`).join("")}</colgroup><thead><tr>${th("Instrument","symbol")}${th("Side","side")}${th("Opened","opened_at")}${th("Closed","closed_at")}${th("Qty","quantity")}${th("Entry","entry_price")}${th("Exit","exit_price")}${th("Fees","fees")}${th("Initial risk","initial_risk")}${th("Net P&L","net_pnl")}${th("R multiple","r_multiple")}${th("Playbook","playbook_id","jq-review")}${th("Tags","tags","jq-review")}${th("Review","reviewed","jq-review")}</tr></thead><tbody>${rows.map(t=>`<tr data-quick-trade="${t.id}"><td class="jq-symbol">${esc(t.symbol)}</td><td><span class="j-side-pill">${t.side}</span></td><td>${quickDate(t.opened_at)}</td><td>${quickDate(t.closed_at)}</td><td>${t.quantity}</td><td>${money(t.entry_price,t.currency)}</td><td>${money(t.exit_price,t.currency)}</td><td>${money(t.fees,t.currency)}</td><td>${money(t.initial_risk,t.currency)}</td><td class="j-pnl ${t.net_pnl>0?"up":t.net_pnl<0?"down":""}">${money(t.net_pnl,t.currency)}</td><td>${t.r_multiple==null?"—":`${t.r_multiple}R`}</td><td class="jq-review">${esc(book(t.playbook_id))}</td><td class="jq-review">${t.tags.map(x=>esc(x)).join(" · ")||"—"}</td><td class="jq-review"><span class="j-review-dot ${t.reviewed?"done":""}"></span>${t.reviewed?"Reviewed":"Pending"}</td></tr>`).join("")}</tbody></table></div>`}
   function quickForm(){const sym=window.__charto?.symbol||"";return `<form class="jq-form" id="journalQuickForm">
     <div class="jq-field"><label for="jq-symbol">Instrument *</label><input id="jq-symbol" name="symbol" value="${esc(sym)}" autocomplete="off" required></div>
-    <div class="jq-field"><label for="jq-side">Side *</label><select id="jq-side" name="side"><option value="long">Long</option><option value="short">Short</option></select></div>
+    <div class="jq-field"><label for="jq-side">Side *</label><select id="jq-side" class="dlg-select" name="side"><option value="long">Long</option><option value="short">Short</option></select></div>
     <div class="jq-field"><label for="jq-qty">Quantity *</label><input id="jq-qty" name="quantity" type="number" min="0" step="any" inputmode="decimal" required></div>
     <div class="jq-field"><label for="jq-entry">Entry price *</label><input id="jq-entry" name="entry_price" type="number" min="0" step="any" inputmode="decimal" required></div>
     <div class="jq-field"><label for="jq-exit">Exit price</label><input id="jq-exit" name="exit_price" type="number" min="0" step="any" inputmode="decimal"></div>
@@ -165,10 +170,11 @@ const Journal = (() => {
     <button class="btn cta jq-submit" type="submit" ${quickBusy?"disabled":""}>${quickBusy?"Saving…":"Add trade"}</button></form>
     <div class="jq-note">${ico("fileText","xs")}Exit is optional for an open trade. Add thesis, playbook and review in Full journal.</div>`}
   const grip=()=>`<div class="jq-grip" data-jq-grip aria-label="Resize journal pane"></div>`;
-  function renderQuick(){const q=el("journalQuick");q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>${data.overview?.count||0} trades · process over outcome</span></div><div class="jq-tabs" role="tablist"><button class="jq-tab ${quickTab==="summary"?"active":""}" data-qtab="summary" role="tab">Trade log</button><button class="jq-tab ${quickTab==="new"?"active":""}" data-qtab="new" role="tab">New trade</button></div><span class="spacer"></span><button class="jq-full" data-full-journal>${ico("externalLink")}<span>Full journal</span></button><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body">${quickTab==="summary"?quickMetrics()+quickRows():quickForm()}</div>`}
-  async function loadQuick(){const q=el("journalQuick");if(!Auth.user){q.innerHTML=grip()+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong><span>Your private trading record</span></div><span class="spacer"></span><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body"><div class="jq-empty"><div>Sign in to keep trades private and durable.<button type="button" class="btn cta" data-signin>Sign in</button></div></div></div>`;return}q.innerHTML=grip()+`<div class="jq-empty">Opening journal…</div>`;try{data=await call("/journal/bootstrap");renderQuick()}catch(e){q.innerHTML=grip()+`<div class="jq-empty"><div>${esc(e.message)}<button type="button" class="btn outline" data-quick-retry>Try again</button></div></div>`}}
+  function renderQuick(q=el("journalQuick")){const inPanel=q.id==="journalPanel";q.innerHTML=(inPanel?"":grip())+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong></div><div class="jq-tabs" role="tablist"><button class="jq-tab ${quickTab==="summary"?"active":""}" data-qtab="summary" role="tab">Trade log</button><button class="jq-tab ${quickTab==="new"?"active":""}" data-qtab="new" role="tab">New trade</button></div><span class="spacer"></span><button class="jq-full" data-full-journal>${ico("externalLink")}<span>Full journal</span></button><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body">${quickTab==="summary"?quickMetrics()+quickRows():quickForm()}</div>`;
+    if(typeof DlgKit!=="undefined")DlgKit.dressSelects(q)}
+  async function loadQuick(q=el("journalQuick")){const prefix=q.id==="journalPanel"?"":grip();if(!Auth.user){q.innerHTML=prefix+`<div class="jq-head"><div class="jq-title"><strong>Journal</strong></div><span class="spacer"></span><button class="jq-close" data-close-quick aria-label="Close journal">${ico("x")}</button></div><div class="jq-body"><div class="jq-empty"><div>Sign in to keep trades private and durable.<button type="button" class="btn cta" data-signin>Sign in</button></div></div></div>`;return}q.innerHTML=prefix+`<div class="jq-empty">Opening journal…</div>`;try{data=await call("/journal/bootstrap");renderQuick(q)}catch(e){q.innerHTML=prefix+`<div class="jq-empty"><div>${esc(e.message)}<button type="button" class="btn outline" data-quick-retry>Try again</button></div></div>`}}
   function toggleQuick(force){const q=el("journalQuick"),stage=el("stage"),on=force===undefined?!q.classList.contains("open"):force;q.classList.toggle("open",on);stage.classList.toggle("journal-pane-open",on);q.setAttribute("aria-hidden",String(!on));const b=el("wb-journal");if(b){b.classList.toggle("active",on);b.setAttribute("aria-expanded",String(on))}if(on)loadQuick()}
-  async function saveQuick(form){if(quickBusy)return;const f=new FormData(form),v=(k)=>String(f.get(k)||"").trim(),n=(k)=>v(k)===""?null:Number(v(k));if(!v("symbol")||!n("quantity")||!n("entry_price")){toast("Instrument, quantity and entry price are required");return}quickBusy=true;renderQuick();try{await call("/journal/trades",{symbol:v("symbol"),side:v("side"),opened_at:Math.floor(Date.now()/1000),closed_at:n("exit_price")==null?null:Math.floor(Date.now()/1000),quantity:n("quantity"),entry_price:n("entry_price"),exit_price:n("exit_price"),fees:n("fees")||0,initial_risk:n("initial_risk"),status:n("exit_price")==null?"open":"closed",source:"manual"});quickTab="summary";await loadQuick();toast("Trade added to journal")}catch(e){toast(e.message)}finally{quickBusy=false}}
+  async function saveQuick(form){if(quickBusy)return;const q=form.closest("#journalPanel")||el("journalQuick"),f=new FormData(form),v=(k)=>String(f.get(k)||"").trim(),n=(k)=>v(k)===""?null:Number(v(k));if(!v("symbol")||!n("quantity")||!n("entry_price")){toast("Instrument, quantity and entry price are required");return}quickBusy=true;renderQuick(q);try{await call("/journal/trades",{symbol:v("symbol"),side:v("side"),opened_at:Math.floor(Date.now()/1000),closed_at:n("exit_price")==null?null:Math.floor(Date.now()/1000),quantity:n("quantity"),entry_price:n("entry_price"),exit_price:n("exit_price"),fees:n("fees")||0,initial_risk:n("initial_risk"),status:n("exit_price")==null?"open":"closed",source:"manual"});quickTab="summary";await loadQuick(q);toast("Trade added to journal")}catch(e){toast(e.message)}finally{quickBusy=false}}
   async function quickTrade(id){toggleQuick(false);open();await load();const t=data.trades.find(x=>x.id===Number(id));if(t)openTrade(t)}
   function field(label,name,value,type="text",wide=false){return `<div class="j-field ${wide?"wide":""}"><label for="jf-${name}">${label}</label><input id="jf-${name}" name="${name}" type="${type}" value="${esc(value)}"></div>`;}
   function openTrade(t) {
@@ -217,14 +223,15 @@ const Journal = (() => {
    * named data-new — opened the New trade drawer over the layout dialog.
    * Nothing about that was the layouts module's mistake; a listener bound to
    * the whole document owns names it did not choose. */
-  const ROOTS = "#journal, #journalQuick, #journalDrawer";
+  const ROOTS = "#journal, #journalQuick, #journalPanel, #journalDrawer";
   document.addEventListener("click",(e)=>{
     if(!e.target.closest(ROOTS))return;
-    const qt=e.target.closest("[data-qtab]");if(qt){quickTab=qt.dataset.qtab;renderQuick();return}
-    const qs=e.target.closest("[data-qsort]");if(qs){const k=qs.dataset.qsort;quickSort={key:k,dir:quickSort.key===k?-quickSort.dir:-1};renderQuick();return}
-    if(e.target.closest("[data-close-quick]")){toggleQuick(false);return}
-    if(e.target.closest("[data-full-journal]")){toggleQuick(false);open();return}
-    if(e.target.closest("[data-quick-retry]")){loadQuick();return}
+    const qroot=e.target.closest("#journalPanel")||el("journalQuick");
+    const qt=e.target.closest("[data-qtab]");if(qt){quickTab=qt.dataset.qtab;renderQuick(qroot);return}
+    const qs=e.target.closest("[data-qsort]");if(qs){const k=qs.dataset.qsort;quickSort={key:k,dir:quickSort.key===k?-quickSort.dir:-1};renderQuick(qroot);return}
+    if(e.target.closest("[data-close-quick]")){qroot.id==="journalPanel"?el("wb-journal").click():toggleQuick(false);return}
+    if(e.target.closest("[data-full-journal]")){if(qroot.id==="journalPanel")el("wb-journal").click();else toggleQuick(false);open();return}
+    if(e.target.closest("[data-quick-retry]")){loadQuick(qroot);return}
     const qtrade=e.target.closest("[data-quick-trade]");if(qtrade){quickTrade(qtrade.dataset.quickTrade);return}
     const v=e.target.closest("[data-view]");if(v){view=v.dataset.view;render();return}
     if(e.target.closest("[data-new]")){openTrade();return}
@@ -254,8 +261,7 @@ const Journal = (() => {
   Auth.onChange(()=>{if(document.body.classList.contains("journal-open"))load();if(el("journalQuick").classList.contains("open"))loadQuick()});
   nav();
   function renderSidebar(host) {
-    host.innerHTML=`<div class="side-head"><div><strong>Journal</strong><span>Process over outcome</span></div><button class="side-act" data-journal-full title="Open full journal">${ico("externalLink")}</button></div><div class="side-body"><div class="j-empty"><div>${ico("fileText","")}<strong>Your trading journal</strong>Review trades, capture a new entry, and keep decisions beside outcomes.<button class="btn cta" data-journal-full>Open journal</button></div></div></div>`;
-    host.querySelectorAll("[data-journal-full]").forEach((b)=>b.addEventListener("click",open));
+    loadQuick(host);
   }
   return {open,close,load,toggleQuick,renderSidebar,getTrade:(id)=>data.trades.find(t=>t.id===Number(id))};
 })();

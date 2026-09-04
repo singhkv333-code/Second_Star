@@ -232,7 +232,13 @@
   --hover-fill: rgba(15, 18, 22, .075);
   --border: #e6e6e6;
   --border-soft: #ececee;
-  --input: #fbfbfc;
+  /* A field on light is WHITE, held by its border. #fbfbfc is a 1.5% grey:
+     against the near-white card it never reads as "you may type here", only
+     as a slab of tinted paper — so a row of them (the journal's capture line,
+     the alert dialog's stack) reads as a wall of grey boxes rather than as
+     fields. The hairline already says where the box is. Dark keeps its fill:
+     there #1c1c1d against the card is a real, readable lift. */
+  --input: #ffffff;
   --primary: #219ebc;
   --primary-foreground: #ffffff;
   --ring: rgba(33, 158, 188, .35);
@@ -4483,6 +4489,7 @@ body.two-columns .readout .row { display: none; }
 /* composer */
 .composer-wrap { padding: 6px clamp(16px, 4%, 34px) 14px; flex: none; }
 .composer-inner { max-width: 720px; margin: 0 auto; }
+.mobile-chat-menu-wrap { display: none; }
 .composer {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 10px 10px 8px 14px;
@@ -5030,19 +5037,42 @@ body.two-columns .readout .row { display: none; }
    room for three controls or one control and a field, never both. */
 .lyr-search {
   position: relative; height: 26px; width: 26px; display: flex; align-items: center;
-  border-radius: 6px; overflow: hidden; color: var(--foreground);
+  border-radius: 6px; color: var(--foreground);
   transition: width 180ms var(--ease-quartr), background var(--dur-fast);
 }
 .lyr-search:focus-within, .lyr-search:has(input:not(:placeholder-shown)) {
   width: 128px; background: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
-.lyr-search > span { position: absolute; left: 6px; top: 6px; width: 14px; height: 14px; pointer-events: none; }
+/* The GLYPH is the hit target while collapsed, and it does not move when the
+   field opens — so the press that opens the search and the press that follows
+   it land on the same 26px square.
+   It used to be a `pointer-events: none` span over an input whose 26px left
+   padding pushed its content box clear of the 26px box that held it: the only
+   thing you could press was an input that then animated 102px wider under the
+   pointer. The press after that landed on the chart BEHIND the panel, and the
+   panel's outside-pointerdown handler read that as "clicked away" and closed
+   the whole sheet. Searching a layer list should not be able to dismiss it. */
+.lyr-search > span {
+  position: absolute; left: 0; top: 0; width: 26px; height: 26px;
+  display: grid; place-items: center; z-index: 1; cursor: text;
+}
 .lyr-search svg { width: 14px; height: 14px; }
+/* `width: 0` collapsed rather than `overflow: hidden` on the parent: a clipped
+   but full-width input still takes the press through the glyph sitting over it.
+   At zero width there is nothing under the icon to take it. */
 .lyr-search input {
-  width: 100%; height: 100%; padding: 0 6px 0 26px; border: 0; outline: 0;
+  width: 0; height: 100%; padding: 0; border: 0; outline: 0; min-width: 0;
   background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-xs);
+  transition: width 180ms var(--ease-quartr), padding 180ms var(--ease-quartr);
+}
+.lyr-search:focus-within input,
+.lyr-search:has(input:not(:placeholder-shown)) input {
+  width: 100%; padding: 0 6px 0 26px;
 }
 .lyr-search input::placeholder { color: transparent; }
+/* the native clear affordance re-renders the list from under the pointer for
+   the same reason; Escape and deleting the text both already clear it */
+.lyr-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 
 .lyr-body {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -5626,6 +5656,12 @@ body.two-columns .readout .row { display: none; }
    the chart is clutter — the row of tools and the right-click menu are the
    paths there instead. */
 @media (hover: none) { .alert-plus { display: none; } }
+/* Some Android browsers advertise emulated hover while a long-press context
+   menu is active. Width is the reliable phone signal here: the long-press
+   menu already offers "Alert here", so the duplicate axis + must stay gone. */
+@media (max-width: 560px) and (orientation: portrait) {
+  .alert-plus { display: none !important; }
+}
 
 /* A reason a rule is paused, printed under it. The engine pauses a rule whose
    address stopped resolving rather than leaving it armed and silently never
@@ -6268,36 +6304,71 @@ svg.icon.op {
   .ind-act { width: 24px; height: 24px; }
   .ind-act svg { width: 14px; height: 14px; }
 
+  /* On a phone the actions live in the composer's + menu. Removing this
+     whole desktop row gives its complete height back to the response. */
+  .chat-actions { display: none; }
+  .thread { padding-block: 6px; }
+  .thread-inner { padding-inline: 12px; gap: 20px; }
+  /* The desktop offset assumes a two-row composer. On the one-row phone
+     composer it left the jump control floating through the middle of short
+     replies, exactly where the little pane has the least spare room. */
+  .to-bottom { bottom: 58px; }
+
   /* ── the composer, on one line ──────────────────────────────────────────
      Two stacked rows — textarea, then a control row — cost roughly a fifth of
      the viewport before a single word was typed. On a phone it collapses to
-     one: the instrument's MARK, the field, send.
+     one: options, the instrument's MARK, the field, send.
      `display: contents` flattens the control row into the composer's own flex
      line rather than nesting a second one.
      The ticker text goes because the logo already says which instrument this
      is, and it is the same mark the chart header and the search rows use. */
-  .composer-wrap { padding: 4px 10px 8px; }
+  .composer-wrap { padding: 4px 10px 6px; }
+  .composer-inner, .ask-shell, .ask-group { width: 100%; min-width: 0; }
   .composer {
-    display: flex; align-items: center; gap: 6px;
-    padding: 5px 6px 5px 12px; border-radius: var(--radius-pill);
+    display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0;
+    min-height: 42px; padding: 4px 5px 4px 10px;
+    border-radius: var(--radius-pill);
   }
   .composer-row { display: contents; }
+  .mobile-chat-menu-wrap {
+    position: relative; order: 1; flex: 0 0 28px; display: block;
+  }
+  .mobile-chat-menu-btn {
+    width: 28px; height: 28px; padding: 0; border: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: transparent;
+    color: var(--muted-foreground); cursor: pointer;
+  }
+  .mobile-chat-menu-btn[aria-expanded="true"] {
+    background: var(--accent); color: var(--foreground);
+  }
+  .mobile-chat-menu-btn svg { width: 18px; height: 18px; }
+  .mobile-chat-menu {
+    left: -6px; right: auto; bottom: calc(100% + 10px);
+    min-width: 210px; max-height: none;
+  }
+  .mobile-chat-menu .item {
+    width: 100%; border: 0; background: transparent; font: inherit;
+    text-align: left;
+  }
+  .mobile-chat-menu .item[aria-checked="true"] { color: var(--primary); }
   .composer textarea {
-    order: 3; flex: 1 1 auto; width: auto;
+    order: 3; flex: 1 1 0; width: 0; min-width: 0;
     font-size: var(--text-base); line-height: 1.35;
-    min-height: 22px; max-height: 92px; padding: 0;
+    min-height: 22px; max-height: 92px; padding: 2px 0 0;
   }
   .composer-row .spacer { display: none; }
   .cbtn { width: 26px; height: 26px; }
   /* mark only: the chip keeps its tap target and loses its words */
   .ctx-flag {
-    order: 2; padding: 2px; gap: 0; background: transparent;
-    max-width: 26px; overflow: hidden;
+    order: 2; flex: 0 0 26px; width: 26px; height: 26px;
+    padding: 2px; gap: 0; background: transparent;
+    max-width: 26px; overflow: hidden; justify-content: center;
   }
   .ctx-flag > *:not(img) { display: none; }
   .ctx-flag img { width: 18px; height: 18px; }
   .mic-btn { order: 4; width: 26px; height: 26px; }
-  .send { order: 5; width: 32px; height: 32px; }
+  .send { order: 5; flex: 0 0 32px; width: 32px; height: 32px; }
 
   /* Annotation labels are written INTO the chart. On a desktop pane there is
      room beside the candles; on a phone three pattern labels covered the
@@ -7185,45 +7256,52 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .jq-grip { position: absolute; z-index: 3; left: 0; right: 0; top: -5px; height: 10px; cursor: row-resize; background: transparent; }
 .jq-grip:hover, .jq-grip.dragging { background: color-mix(in srgb, var(--primary) 45%, transparent); }
 .jq-head {
-  flex: none; height: 42px; padding: 0 8px 0 14px;
-  display: flex; align-items: center; gap: 14px;
+  flex: none; height: 44px; padding: 0 10px 0 14px;
+  display: flex; align-items: center; gap: 16px;
   border-bottom: 1px solid var(--border); background: var(--background);
 }
-.jq-title { min-width: 118px; }
-.jq-title strong { display: block; font-size: var(--text-md); font-weight: var(--weight-semi); letter-spacing: -.01em; line-height: 1.2; }
-.jq-title span { display: block; margin-top: 1px; color: var(--faint); font-size: var(--text-3xs); }
+.jq-title {
+  flex: none; align-self: stretch; display: flex; align-items: center;
+  padding-right: 16px; border-right: 1px solid var(--border);
+}
+.jq-title strong { font-size: var(--text-md); font-weight: var(--weight-semi); letter-spacing: -.01em; }
 /* The pane's two views are the dialog's tab strip at the pane's scale: a
    rounded RAIL under the whole strip with the active tab painting its own
    segment over it in ink. It used to be a bare 2px teal underline — a rule
    the app draws nowhere else, and it spent the accent on a tab. See
    .dlg-tabs, which this is the small version of. */
-.jq-tabs { position: relative; display: flex; align-items: stretch; gap: 16px; height: 26px; flex: none; }
-.jq-tabs::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
-  height: 3px; border-radius: 2px; background: var(--rail);
-}
+/* The strip is the header's own baseline, so it runs the full height of the
+   bar and its rail sits ON the header's bottom border rather than floating a
+   few pixels above it. As a 26px box mid-bar the rail read as a stray grey
+   dash under two words — a mark the eye cannot place, because it belonged to
+   neither the title beside it nor the border below it. */
+.jq-tabs { position: relative; display: flex; align-items: center; gap: 18px; align-self: stretch; flex: none; }
 .jq-tab {
-  position: relative; z-index: 1;
-  border: 0; background: none; cursor: pointer; padding: 0 0 6px;
+  position: relative; z-index: 1; align-self: stretch;
+  border: 0; background: none; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center;
   font: inherit; font-size: var(--text-md); color: var(--muted-foreground);
   transition: color var(--dur) var(--ease-quartr);
 }
 .jq-tab:focus { outline: none; }
 .jq-tab:hover { color: var(--foreground); }
 .jq-tab.active { color: var(--foreground); font-weight: var(--weight-medium); }
+/* -1px so the marker lands on the header's border, replacing that segment of
+   it, instead of stacking a second line just above it. */
 .jq-tab.active::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
-  height: 3px; border-radius: 2px; background: var(--foreground);
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; background: var(--foreground);
 }
 :root[data-nav="kbd"] .jq-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .jq-head .spacer { flex: 1; }
 .jq-full {
-  height: 28px; border: 1px solid var(--border); border-radius: 6px; padding: 0 9px;
+  height: 28px; border: 0; border-radius: 6px; padding: 0 8px;
   display: flex; align-items: center; gap: 6px; flex: none;
-  color: var(--foreground); background: transparent; font: inherit; font-size: var(--text-xs);
-  cursor: pointer; transition: border-color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
+  color: var(--muted-foreground); background: transparent;
+  font: inherit; font-size: var(--text-md);
+  cursor: pointer; transition: color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
 }
-.jq-full:hover { border-color: var(--faint); background: var(--accent); }
+.jq-full:hover { color: var(--foreground); background: var(--accent); }
 .jq-full svg, .jq-close svg { width: 14px; height: 14px; }
 .jq-close {
   width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px;
@@ -7234,7 +7312,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .jq-close:hover { background: var(--accent); color: var(--foreground); }
 :root[data-nav="kbd"] .jq-full:focus-visible,
 :root[data-nav="kbd"] .jq-close:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.jq-body { flex: 1; overflow: auto; min-height: 0; background: var(--background); }
+.jq-body { flex: 1; display: flex; flex-direction: column; overflow: auto; min-height: 0; background: var(--background); }
 
 /* Six figures on one strip. The teal bar that used to sit on the first cell
    marked nothing — the first column of six is not a selection. */
@@ -7242,8 +7320,12 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   display: grid; grid-template-columns: repeat(6, minmax(134px, 1fr));
   border-bottom: 1px solid var(--border); background: var(--card); overflow: auto;
 }
-.jq-metric { min-height: 54px; padding: 9px 14px 8px; border-right: 1px solid var(--border-soft); }
-.jq-metric:last-child { border-right: 0; }
+/* No rule between the cells. Six figures on one strip are read straight
+   across; ruling each one turns a line of numbers into a six-box table and
+   competes with the real table's grid ten pixels below. Space separates
+   them. */
+.jq-metric { min-height: 54px; padding: 9px 14px 8px; }
+.jq-metric:first-child { padding-left: 14px; }
 /* One line, always. "Rule adherence" wrapping to two pushed its own figure a
    line lower than the five beside it, and a strip of six numbers on two
    different baselines is not a strip. */
@@ -7255,7 +7337,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 }
 .jq-metric b { font-size: var(--text-h3); line-height: 1; font-weight: var(--weight-semi); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 
-.jq-table-wrap { overflow: auto; background: var(--card); height: calc(100% - 55px); scrollbar-gutter: stable; }
+/* The strip is not always there (an empty book has no statistics), so the
+   table cannot subtract a fixed 55px for it — the body is a column and the
+   table takes what the strip leaves. */
+.jq-metrics { flex: none; }
+.jq-table-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--card); scrollbar-gutter: stable; }
 .jq-table { width: max(100%, 1590px); border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: var(--text-sm); }
 .jq-table col.jq-col-symbol { width: 124px; } .jq-table col.jq-col-side { width: 76px; }
 .jq-table col.jq-col-date { width: 132px; } .jq-table col.jq-col-qty { width: 74px; }
@@ -7310,8 +7396,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
    and a translucent sticky cell shows the columns sliding under it */
 .jq-table tbody tr:hover td:first-child,
 .jq-table tbody tr:hover td:nth-child(2) { background: color-mix(in srgb, var(--foreground) 5%, var(--card)); }
-.jq-empty { min-height: 92px; display: grid; place-items: center; text-align: center; color: var(--muted-foreground); font-size: var(--text-md); line-height: 1.55; padding: 22px; }
-.jq-empty .btn { display: flex; width: max-content; margin: 12px auto 0; }
+.jq-empty { min-height: 100%; display: grid; place-items: center; text-align: center; color: var(--muted-foreground); font-size: var(--text-md); line-height: 1.55; padding: 22px; }
+.jq-empty strong { display: block; margin-bottom: 3px; color: var(--foreground); font-weight: var(--weight-semi); }
+.jq-empty .btn { display: flex; width: max-content; margin: 14px auto 0; }
 
 /* Capture, on one line. The fields were welded into a single segmented bar
    by cancelling every inner border — a control the app builds nowhere else,
@@ -7328,6 +7415,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   outline: none; transition: border-color var(--dur) var(--ease-quartr);
 }
 .jq-field select { padding-right: 24px; cursor: pointer; appearance: none; -webkit-appearance: none; background: var(--input) var(--chevron) no-repeat right 7px center; }
+/* The Side field is a DRESSED select (js/dlgkit.js): the app's own menu rather
+   than the OS list, which paints a black panel no stylesheet here can reach —
+   the one control in the pane that used to open something the app did not
+   draw. .select-btn is built for the 34px dialog field, so it is resized to
+   the pane's 30px line here. */
+.jq-field .select-btn {
+  width: 100%; min-width: 0; height: 30px; padding: 0 8px;
+  border-radius: var(--radius-xs); font-size: var(--text-base);
+}
 .jq-field input:focus, .jq-field select:focus { border-color: var(--faint); }
 :root[data-nav="kbd"] .jq-field input:focus-visible,
 :root[data-nav="kbd"] .jq-field select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -7347,8 +7443,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   .stage.journal-pane-open #chart { bottom: min(var(--journal-pane-h, 260px), 220px); }
   .stage.journal-pane-open .prov { bottom: 230px; }
   .jq { height: min(var(--journal-pane-h, 260px), 220px); max-height: 55%; }
-  .jq-title { min-width: 0; }
-  .jq-title span { display: none; }
   .jq-head { padding-inline: 7px; gap: 6px; }
   .jq-full span { display: none; }
   .jq-full { width: 30px; padding: 0; justify-content: center; }
@@ -8002,6 +8096,20 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
           <div class="ask-glow" aria-hidden="true"></div>
           <div class="ask-group" id="askGroup">
           <form class="composer" id="chatForm">
+            <div class="mobile-chat-menu-wrap">
+              <button type="button" class="mobile-chat-menu-btn" id="mobileChatMenuBtn"
+                      aria-label="Chat options" aria-haspopup="menu" aria-expanded="false"></button>
+              <div class="dropdown up mobile-chat-menu" id="mobileChatMenu" role="menu">
+                <div class="head">Chat mode</div>
+                <button type="button" class="item" data-mobile-chat-mode="chat"
+                        role="menuitemradio" aria-checked="true">Research</button>
+                <button type="button" class="item" data-mobile-chat-mode="execution"
+                        role="menuitemradio" aria-checked="false">Execution</button>
+                <div class="sep"></div>
+                <button type="button" class="item" id="mobileChatNew" role="menuitem">New conversation</button>
+                <button type="button" class="item" id="mobileChatHistory" role="menuitem">Conversation history</button>
+              </div>
+            </div>
             <textarea id="chatInput" placeholder="Ask about this chart…" rows="1"></textarea>
             <div class="composer-row">
               <button type="button" class="ctx-flag" id="ctxFlag" title="What the conversation is about"></button>

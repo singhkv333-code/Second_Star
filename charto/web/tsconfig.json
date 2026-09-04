@@ -29,5 +29,12 @@
     "**/*.tsx",
     ".next/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  // `node_modules` alone is not enough. An `npm ci` that is interrupted (an
+  // OOM kill, a timer firing mid-deploy) leaves the previous tree behind as
+  // `node_modules.rollback/`, and that name is not excluded — so `next build`
+  // type-checks a vendored package's own sources and fails with a "Type error"
+  // in a file nobody edited. The same source builds cleanly on a workstation
+  // that never had a broken install, which is what made it look VM-specific.
+  // The glob covers rollback dirs and any other `node_modules.*` npm leaves.
+  "exclude": ["node_modules", "node_modules*"]
 }

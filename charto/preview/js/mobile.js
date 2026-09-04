@@ -267,9 +267,11 @@
         tile('data-more="shotFull"', Icons.svg("camera"), "Screenshot") +
         tile('data-more="shotRegion"', Icons.svg("rect"), "Select area") +
       "</div>" +
-      // No Panels section: the watchlist and alerts are buttons ON the bar
-      // now, one tap away. A door in here to the same two would be a second
-      // path to a control that is already visible.
+      // Journal is less frequently used than Watchlist and Alerts, so it
+      // lives behind More instead of consuming a permanent toolbar slot.
+      '<div class="sheet-sec">Panels</div><div class="sheet-grid">' +
+        tile('data-more="journal"', Icons.svg("fileText"), "Journal") +
+      "</div>" +
       '<div class="sheet-sec">Conversation</div><div class="sheet-grid">' +
         tile('data-more="chat"', Icons.svg("chat"), chatOn ? "Hide chat" : "Show chat",
              chatOn ? "on" : "") +
@@ -349,6 +351,7 @@
       case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
+      case "journal": return act(el("wb-journal"));
       case "chat": return act(el("chatToggle"));
       case "scene": return act(el("sceneClear"));
     }
@@ -362,7 +365,8 @@
    * else in this file, each one CLICKS the real button rather than owning a
    * state of its own. Read off #wbar, so a widget added there arrives here
    * with no edit to this file. */
-  const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")];
+  const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")]
+    .filter((b) => b.dataset.widget !== "journal");
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +

@@ -3,18 +3,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Bookmark, Check } from "lucide-react";
 import {
-  useWatchlists,
-  isInAnyWatchlist,
-  addToWatchlist,
-  removeFromWatchlist,
-} from "@/lib/watchlists";
+  useChartWatchlists,
+  isInAnyChartWatchlist,
+  addToChartWatchlist,
+  removeFromChartWatchlist,
+} from "@/lib/chart-watchlists";
 
 /**
  * WatchlistBookmark — the bookmark control on the stock page. The icon is
  * filled when the symbol is saved in ANY watchlist; clicking it opens a small
- * popover to pick WHICH of the five numbered lists to add it to (toggle each
- * on/off). Backed by the shared watchlist store, so it stays in sync with the
- * screener's WatchlistStrip.
+ * popover to pick which of charto's named lists to add it to. It reads and
+ * writes the same `charto:watchlists` record as the chart's watchlist panel.
  */
 export function WatchlistBookmark({
   symbol,
@@ -25,8 +24,8 @@ export function WatchlistBookmark({
   size?: number;
   buttonSize?: number;
 }): React.ReactElement {
-  const state = useWatchlists();
-  const saved = isInAnyWatchlist(state, symbol);
+  const state = useChartWatchlists();
+  const saved = isInAnyChartWatchlist(state, symbol);
   const sym = symbol.trim().toUpperCase();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -118,7 +117,7 @@ export function WatchlistBookmark({
             Add to watchlist
           </div>
           {state.lists.map((l) => {
-            const inList = l.tickers.includes(sym);
+            const inList = l.syms.includes(sym);
             return (
               <button
                 key={l.id}
@@ -127,8 +126,8 @@ export function WatchlistBookmark({
                 aria-checked={inList}
                 onClick={() =>
                   inList
-                    ? removeFromWatchlist(symbol, l.id)
-                    : addToWatchlist(symbol, l.id)
+                    ? removeFromChartWatchlist(symbol, l.id)
+                    : addToChartWatchlist(symbol, l.id)
                 }
                 style={{
                   display: "flex",
@@ -160,7 +159,7 @@ export function WatchlistBookmark({
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontWeight: 500 }}>Watchlist {l.id}</span>
+                  <span style={{ fontWeight: 500 }}>{l.name}</span>
                   <span
                     style={{
                       fontSize: 11,
@@ -168,8 +167,8 @@ export function WatchlistBookmark({
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {l.tickers.length
-                      ? `${l.tickers.length} stock${l.tickers.length === 1 ? "" : "s"}`
+                    {l.syms.length
+                      ? `${l.syms.length} stock${l.syms.length === 1 ? "" : "s"}`
                       : "empty"}
                   </span>
                 </span>

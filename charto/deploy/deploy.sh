@@ -28,6 +28,138 @@ git fetch --quiet origin "$BRANCH"
 remote="$(git rev-parse "origin/$BRANCH")"
 local_="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
+# nginx serves charto/preview directly, but /stock and /_next are a compiled
+# Next.js app on :5175. A git reset updates its source without updating the
+# running bundle. Track the web TREE (not the repository commit) beside the
+# build so backend/chart-only commits do not trigger unnecessary Next builds,
+# while a missed restart self-heals on the next 30-second poll.
+web_tree="$(git rev-parse "$remote:charto/web" 2>/dev/null || echo missing)"
+# Hash the script that is ACTUALLY executing. During a pull, `remote` already
+# points at the incoming version while this process still runs the old one; a
+# remote-derived key would let an old failure suppress the new deployer's first
+# attempt before that new script ever executes.
+deploy_blob="$(git hash-object "$0" 2>/dev/null || echo missing)"
+web_attempt="$web_tree-$deploy_blob"
+# Keep deploy bookkeeping OUTSIDE .next: that directory is generated output
+# and must be replaceable as a unit for a genuinely clean production build.
+web_revision_file="/tmp/charto_web_git_tree"
+web_failed_file="/tmp/charto_web_git_failed_attempt"
+web_status_file="$REPO/charto/preview/deploy-runtime.txt"
+
+web_needs_build() {
+  [ "$web_tree" != missing ] \
+    && { [ ! -f "$web_revision_file" ] \
+      || [ "$(cat "$web_revision_file" 2>/dev/null || true)" != "$web_tree" ]; } \
+    && { [ ! -f "$web_failed_file" ] \
+      || [ "$(cat "$web_failed_file" 2>/dev/null || true)" != "$web_attempt" ]; }
+}
+
+record_web_failure() {
+  stage="$1"
+  printf 'failed %s %s\n' "$stage" "$web_tree" > "$web_status_file"
+  printf '%s\n' "$web_attempt" > "$web_failed_file"
+}
+
+failure_kind() {
+  log_file="$1"
+  if grep -Eqi 'ENOSPC|no space left on device' "$log_file"; then
+    printf disk
+  elif grep -Eqi 'heap out of memory|allocation failed|SIGKILL|signal[^[:alnum:]]+9|worker (process )?(exited|terminated) unexpectedly|(^|[^0-9])137([^0-9]|$)|(^|[[:space:]])killed([[:space:]]|$)' "$log_file"; then
+    printf memory
+  elif grep -Eqi 'EACCES|EPERM|permission denied' "$log_file"; then
+    printf permissions
+  elif grep -Eqi 'cannot find module|module not found|ERESOLVE' "$log_file"; then
+    printf dependency
+  elif grep -Eqi 'type error' "$log_file"; then
+    printf typecheck
+  elif grep -Eqi 'failed to collect page data' "$log_file"; then
+    printf page-data
+  elif grep -Eqi 'error occurred prerendering|prerender-error' "$log_file"; then
+    printf prerender
+  elif grep -Eqi 'failed to compile|build error occurred' "$log_file"; then
+    printf compile
+  else
+    printf unknown
+  fi
+}
+
+rebuild_web() {
+  echo "deploy: company frontend changed, rebuilding charto/web"
+  printf 'building %s\n' "$web_tree" > "$web_status_file"
+
+  # Production normally owns :5175 through charto-web.service. The old helper
+  # tried to SIGKILL that process as azureuser, ignored EPERM, then launched a
+  # second server which could never bind. Build while the current service is
+  # still available, then let systemd replace it atomically. Keep start.sh as
+  # the fallback for older/manual installations without the unit.
+  if systemctl cat charto-web.service >/dev/null 2>&1; then
+    printf 'installing %s\n' "$web_tree" > "$web_status_file"
+    # An `npm ci` that dies partway (an OOM kill, a reboot) leaves the tree it
+    # was replacing behind as node_modules.rollback/ — 590 MB of a vendor's own
+    # TypeScript sitting inside the project root, which `next build` then type
+    # checks. The result is a "Type error" in a file nobody here has touched,
+    # on a source tree that builds cleanly on any machine whose install never
+    # broke; that asymmetry is what made it read as a VM-only failure. The
+    # tsconfig excludes the name too, so neither guard alone has to hold.
+    rm -rf "$REPO/charto/web/node_modules.rollback"
+    if ! (cd "$REPO/charto/web" \
+      && npm ci --no-audit --no-fund > /tmp/charto_web_install.log 2>&1); then
+      rm -rf "$REPO/charto/web/node_modules.rollback"
+      record_web_failure "install-$(failure_kind /tmp/charto_web_install.log)"
+      echo "deploy: company frontend dependency install FAILED"
+      tail -20 /tmp/charto_web_install.log
+      return 1
+    fi
+    # Reusing an old production directory preserves generated route/type files
+    # from the previous source tree. The VM then fails type checking even when
+    # the same locked source passes a clean local `next build`.
+    #
+    # But deleting .next up front means a failed build leaves `next start` with
+    # nothing to serve: the unit restart-loops and /stock/ 502s until a human
+    # notices. Move the last good build aside instead and put it back if the
+    # new one does not arrive, so a broken commit costs a stale page, not the
+    # page. (A leading dot keeps .next.prev out of tsconfig's wildcards.)
+    rm -rf "$REPO/charto/web/.next.prev"
+    if [ -d "$REPO/charto/web/.next" ]; then
+      mv "$REPO/charto/web/.next" "$REPO/charto/web/.next.prev"
+    fi
+    printf 'building %s\n' "$web_tree" > "$web_status_file"
+    if ! (cd "$REPO/charto/web" \
+      && NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=1536 \
+        npx next build > /tmp/charto_web_build.log 2>&1); then
+      rm -rf "$REPO/charto/web/.next"
+      if [ -d "$REPO/charto/web/.next.prev" ]; then
+        mv "$REPO/charto/web/.next.prev" "$REPO/charto/web/.next"
+      fi
+      record_web_failure "build-$(failure_kind /tmp/charto_web_build.log)"
+      echo "deploy: company frontend build FAILED (previous build left serving)"
+      tail -20 /tmp/charto_web_build.log
+      return 1
+    fi
+    rm -rf "$REPO/charto/web/.next.prev"
+    printf 'restarting %s\n' "$web_tree" > "$web_status_file"
+    if ! sudo -n /usr/bin/systemctl restart charto-web.service; then
+      record_web_failure restart
+      echo "deploy: charto-web.service restart FAILED"
+      return 1
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet charto-web.service; then
+      record_web_failure inactive
+      echo "deploy: charto-web.service is not active"
+      return 1
+    fi
+  elif ! "$REPO/charto/web/start.sh"; then
+    record_web_failure legacy-start
+    return 1
+  fi
+
+  printf '%s\n' "$web_tree" > "$web_revision_file"
+  rm -f "$web_failed_file"
+  printf 'ready %s\n' "$web_tree" > "$web_status_file"
+  echo "deploy: company frontend active ($web_tree)"
+}
+
 # nginx's config is IN this repo and used to be applied by hand, which meant it
 # was applied roughly never — the box drifted from the record for weeks, and a
 # route added here read exactly like a route nobody added. apply_nginx.sh does
@@ -59,6 +191,9 @@ patch_vendor() {
 if [ "$local_" = "$remote" ]; then
   patch_vendor
   apply_nginx
+  if web_needs_build; then
+    rebuild_web
+  fi
   exit 0
 fi
 
@@ -93,6 +228,10 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 patch_vendor
 apply_nginx
 
+if web_needs_build; then
+  rebuild_web
+fi
+
 # `pivot/` counts as backend too, now that it is IN the checkout.
 #
 # It used to be filtered out of the sparse rules entirely, so the only thing
@@ -111,36 +250,29 @@ if grep -qE '^(charto/data/|pivot/)' <<<"$changed"; then
     && echo "deploy: charto.service active" \
     || { echo "deploy: FAILED to come back up"; exit 1; }
 else
-  echo "deploy: chart frontend only, already live (no restart)"
+  echo "deploy: static frontend already live; company frontend checked separately"
 fi
 
-# charto/web is a BUILT app, not files nginx can serve straight off disk.
+# The research chat behind the company page's ask bar (pivotted on :5176).
 #
-# The chart (charto/preview) is plain static files, so a change to it is live
-# the moment the checkout moves. The Next app is not: nginx proxies /stock,
-# /paper and /_next to a node process serving a PRODUCTION BUILD, so a page
-# added to app/ exists on disk and 404s in the browser until something runs
-# `next build`. That is the same failure the nginx allowlist used to produce —
-# a route added here reading exactly like a route nobody added — and it gets
-# the same fix: the deploy does it.
+# `charto/data/` is in the trigger as well as `pivotted/`, and deliberately:
+# pivotted/tools.py builds its tool table by SUBTRACTION from `ds.TOOLS` and
+# reads its credentials off the same module, so a dataserver change is a
+# pivotted change even when nothing under pivotted/ moved.
 #
-# Build BEFORE restarting, and only swap if the build succeeded: a failed build
-# must leave the previous version serving rather than take the company page and
-# the paper book down together.
-if grep -qE '^charto/web/' <<<"$changed"; then
-  echo "deploy: web app changed, rebuilding"
-  # This script already RUNS as azureuser (charto-deploy.service), which is
-  # also charto-web.service's user and the owner of node_modules — so the
-  # build needs no sudo at all. Only the restart does.
-  if (cd "$REPO/charto/web" && npx --no-install next build) \
-      >/tmp/charto_web_build.log 2>&1; then
-    sudo -n /usr/bin/systemctl restart charto-web.service
-    sleep 3
-    systemctl is-active --quiet charto-web.service \
-      && echo "deploy: charto-web.service active" \
-      || echo "deploy: WARNING — charto-web.service did not come back"
+# Never fatal, and guarded on the unit existing: a box that has not run
+# provision_research.sh yet is not broken, it simply has no ask bar, and a
+# deploy that aborted here would leave the chart's own deploy unfinished over
+# a surface that is not live on that box anyway.
+if systemctl cat charto-research.service >/dev/null 2>&1 \
+  && grep -qE '^(pivotted/|charto/data/)' <<<"$changed"; then
+  echo "deploy: research chat source changed, restarting charto-research.service"
+  if sudo -n /usr/bin/systemctl restart charto-research.service; then
+    sleep 2
+    systemctl is-active --quiet charto-research.service \
+      && echo "deploy: charto-research.service active" \
+      || echo "deploy: WARNING — charto-research.service did not come back; the"
   else
-    echo "deploy: WARNING — next build FAILED, keeping the running build"
-    tail -20 /tmp/charto_web_build.log
+    echo "deploy: WARNING — could not restart charto-research.service (sudoers?)"
   fi
 fi

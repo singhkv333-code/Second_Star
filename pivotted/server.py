@@ -39,6 +39,7 @@ import tools as T                      # noqa: E402
 from prompt import system_prompt       # noqa: E402
 
 PORT = int(os.environ.get("PIVOTTED_PORT", "5175"))
+HOST = os.environ.get("PIVOTTED_HOST", "0.0.0.0")
 
 # Same Azure deployment Charto talks to; credentials come from the same place
 # so there is one key to rotate, not two.
@@ -500,4 +501,8 @@ if __name__ == "__main__":
     # Resolve the price-service import here, single-threaded, so the first
     # concurrent tool round does not race the circular import and lose.
     logging.info("price service warm: %s", T.bars.warm())
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    # All interfaces on a laptop, where reaching it from a phone on the same
+    # wifi is the point. On the VM the unit pins this to 127.0.0.1: nginx is
+    # the only thing that should reach a model turn, because nginx is where the
+    # rate limit lives, and an open port here is somebody else's LLM bill.
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

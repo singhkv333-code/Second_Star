@@ -18,6 +18,13 @@ const BACKEND =
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // The Charto VM also holds the 29 GB mmap-backed market store and the live
+  // data service. Parallel Next compiler workers can push the box into an OOM
+  // kill during deployment even though the same source builds successfully on
+  // a workstation. One worker is slower but keeps peak build memory bounded.
+  experimental: {
+    cpus: 1,
+  },
   // Standalone output bundles a minimal server + only the deps actually used
   // into .next/standalone — the standard shape for a containerized deploy
   // (small image, no full node_modules copy). Purely a build-output change,
