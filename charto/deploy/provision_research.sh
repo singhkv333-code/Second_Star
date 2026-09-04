@@ -133,8 +133,20 @@ fi
 # box is exactly the drift that script exists to end.
 say "nginx /research/"
 bash "$REPO/charto/deploy/apply_nginx.sh" || echo "   (apply_nginx reported a problem — see above)"
-curl -fsS --max-time 5 http://127.0.0.1/research/health >/dev/null 2>&1 \
-  && echo "   /research/health answering through nginx" \
-  || echo "   WARNING: /research/ not routed — check nginx-charto.conf landed"
+# Through the REAL server block, the way apply_nginx.sh probes: --resolve pins
+# the public name to the loopback so TLS and server_name both match what a
+# visitor gets, and the request never leaves the box. Plain
+# `http://127.0.0.1/...` does not match the server_name and answers from the
+# default block, which is how this reported "not routed" for a route that was
+# already live.
+HOSTNAME_="$(grep -m1 -oE 'server_name[[:space:]]+[^;]+' \
+  "$REPO/charto/deploy/nginx-charto.conf" | awk '{print $2}')"
+code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 8 \
+  --resolve "$HOSTNAME_:443:127.0.0.1" "https://$HOSTNAME_/research/health" 2>/dev/null)"
+if [ "$code" = 200 ]; then
+  echo "   /research/health answering through nginx"
+else
+  echo "   WARNING: /research/health returned '$code' through nginx"
+fi
 
 say "done"

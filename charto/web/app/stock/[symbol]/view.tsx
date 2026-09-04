@@ -178,7 +178,11 @@ export function CompanyChrome({
   // lost its gutters. This is AppShell's own children container, verbatim.
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
-      <div className="flex h-[56px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 sm:px-5">
+      {/* Tighter gaps on a phone. At 390px the row was exactly full and the
+          only child that can give — the symbol pill, which carries min-w-0 —
+          was the one paying for it: 360ONE rendered as "3…", the one thing on
+          the bar that says which company this is. */}
+      <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
         <a href={chart("")} aria-label="Back to chart" className="flex shrink-0 items-center text-foreground">
           <PivotLogo fontSize={20} />
         </a>
@@ -187,7 +191,7 @@ export function CompanyChrome({
           href={chartHref}
           className="flex min-w-0 items-baseline gap-1.5 rounded-full bg-muted px-3 py-2 text-[12px] font-semibold text-foreground transition hover:bg-muted/80"
         >
-          <span className="max-w-[100px] truncate sm:max-w-none">{symbol}</span>
+          <span className="truncate">{symbol}</span>
           <span className="hidden text-[10px] font-medium text-muted-foreground min-[390px]:inline">{venueFor(symbol)}</span>
         </a>
         <div className="flex-1" />
@@ -196,7 +200,10 @@ export function CompanyChrome({
           className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#1597b6]/30 bg-[#1597b6]/10 px-3 text-[13px] font-semibold text-[#087f9c] transition hover:bg-[#1597b6]/15 dark:text-[#58c7df]"
         >
           <BarChart2 size={16} aria-hidden="true" />
-          <span className="hidden min-[360px]:inline">Launch chart</span>
+          {/* The label goes before the symbol does. A chart button that is
+              only an icon is still a chart button; a company page that will
+              not say which company is not a company page. */}
+          <span className="hidden min-[400px]:inline">Launch chart</span>
           <ChevronRight className="hidden sm:block" size={14} aria-hidden="true" />
         </a>
         <StockAccountMenu symbol={symbol} />
