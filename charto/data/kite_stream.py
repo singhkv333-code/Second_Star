@@ -93,6 +93,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -1176,7 +1177,28 @@ class KiteStream:
 def _kite_access_token() -> str:
     """The live session pivot already holds — same path backfill_1min.py uses.
     Imported lazily so --dry-run and --self-test need neither the pivot venv
-    nor a database."""
+    nor a database.
+
+    CHARTO_KITE_ACCESS_TOKEN overrides it, and exists for exactly one host:
+    the VM that HOLDS the 30 GB store has no DATABASE_URL and no Kite
+    credentials, so the session this reads from Postgres is unreachable there.
+    That is the same split `catchup_remote.py` was written for — the machine
+    with the data is not the machine with the login — except a websocket
+    cannot be run somewhere else and shipped afterwards. It has to run where
+    the store is, so the token has to reach it.
+
+    The api_key needs no override: `settings.kite_api_key` already reads the
+    environment (verified on the VM), so KITE_API_KEY in the unit env is
+    enough for the ticker and for the gap-fill's REST client.
+
+    The token is a DAY token. It stops working at the next expiry whatever we
+    do, so this is a value pushed each morning, never a secret committed.
+    """
+    tok = (os.environ.get("CHARTO_KITE_ACCESS_TOKEN") or "").strip()
+    if tok:
+        if tok.startswith("mock_") or len(tok) < 20:
+            raise SystemExit("CHARTO_KITE_ACCESS_TOKEN is mock or too short")
+        return tok
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pivot"))
     from backend.database import SessionLocal
     from backend.brokers.sessions import get_active_kite_session
