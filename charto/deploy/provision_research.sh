@@ -15,10 +15,15 @@
 #   3. nginx had no /research/ route. That part travels with the repo now and
 #      apply_nginx.sh installs it; this script just makes sure it took.
 #
-# What it does NOT need is a new environment. pivotted/tools.py imports charto's
+# What it does NOT need is a new interpreter. pivotted/tools.py imports charto's
 # own `dataserver` module for its tool table and its Azure credentials, so it
 # runs on /data/venv — the same interpreter the dataserver runs on, already
 # holding psycopg2 and certifi from provision_execution.sh.
+#
+# What it DOES need is one setting: FINANCIALS_DSN in pivot/.env, the filings
+# Postgres the research half reads. It has a localhost default, so leaving it
+# out fails silently and the bar apologises its way through every question
+# about a business — see step 2b, which now refuses to provision without it.
 #
 # IDEMPOTENT. Re-running it is a few greps, a unit compare and a restart.
 #
@@ -29,6 +34,7 @@ set -euo pipefail
 REPO=/data/app
 VENV=/data/venv
 UNIT=charto-research.service
+ENVF="$REPO/pivot/.env"
 OWNER="$(stat -c %U "$REPO")"
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
@@ -77,6 +83,48 @@ if not T.ds.AZURE_KEY:
 if not T.TOOLS:
     raise SystemExit("empty tool table — the subtraction from ds.TOOLS took everything")
 PY
+
+# ── 2b · the half of the build that is not tools ───────────────────────
+# The tool table above proves the CHART half. The research half reads company
+# filings out of a SECOND Postgres, and pivot resolves that one from
+# FINANCIALS_DSN with a DEFAULT of localhost:5432/financials. So an unset
+# variable is not an error anywhere: it is a connection refused to a server
+# that was never going to be there.
+#
+# That is precisely why it survived the first provision unnoticed. Nothing
+# crashed, nothing logged, the service was active and /health answered — and
+# the model, handling the failure honestly, told every visitor "the
+# fundamentals database is unavailable" for any question about the business.
+# A research build whose research half is down still looks completely up.
+#
+# ENRICH_DSN stays optional (enrich_db.is_enabled() gates it, and it is a
+# late fallback in resolve_symbol). FINANCIALS_DSN is not optional here.
+say "fundamentals database"
+if ! grep -q '^FINANCIALS_DSN=' "$ENVF"; then
+  cat <<'MSG'
+   FAILED: FINANCIALS_DSN is not in pivot/.env
+
+   pivot/backend/config.py then falls back to
+   postgresql://pivot_user:pivot_password@localhost:5432/financials, which is
+   not on this box. The ask bar would start, stream, and answer every question
+   about the business with an apology. Copy FINANCIALS_DSN (and optionally
+   ENRICH_DSN) from the .env this repo is developed against, then re-run.
+MSG
+  exit 1
+fi
+sudo -u "$OWNER" "$VENV/bin/python" - <<'FUND'
+import sys
+sys.path.insert(0, "/data/app/pivotted")
+import fundamentals as F
+fdb, _ = F._pivot()
+# A real row, not a reachability check: the DSN can point at a server that is
+# up and holds none of this, and an empty database answers a ping perfectly.
+company = fdb.get_company("360ONE")
+if company is None:
+    raise SystemExit("   FAILED: connected, but the company table has no 360ONE")
+print(f"   metrics   : {len(fdb.FIELD_MAP)}")
+print(f"   probe     : 360ONE -> {getattr(company, 'name', company)}")
+FUND
 
 # ── 3 · the unit ────────────────────────────────────────────────────────────
 say "$UNIT"
