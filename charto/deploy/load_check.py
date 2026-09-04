@@ -82,7 +82,7 @@ def _run_level(base_url: str, concurrency: int, symbols: list[str],
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default="https://charto-india.centralindia.cloudapp.azure.com")
+    parser.add_argument("--base-url", default="https://pivot-india.centralindia.cloudapp.azure.com")
     parser.add_argument("--levels", default="1,10,20,40")
     parser.add_argument("--symbols", default="RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK")
     parser.add_argument("--timeout", type=float, default=30.0)

@@ -38,7 +38,7 @@ SITE_SRC="$(cd "$(dirname "$0")" && pwd)/nginx-charto.conf"
 RATE_SRC="$(cd "$(dirname "$0")" && pwd)/nginx-ratelimit.conf"
 SITE_DST=/etc/nginx/sites-available/charto
 RATE_DST=/etc/nginx/conf.d/charto-ratelimit.conf
-HOSTNAME_="${CHARTO_NGINX_HOST:-charto-india.centralindia.cloudapp.azure.com}"
+HOSTNAME_="${CHARTO_NGINX_HOST:-pivot-india.centralindia.cloudapp.azure.com}"
 PROBE="${CHARTO_NGINX_PROBE:-/meta}"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1

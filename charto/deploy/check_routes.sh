@@ -35,7 +35,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-HOST="${1:-charto-india.centralindia.cloudapp.azure.com}"
+HOST="${1:-pivot-india.centralindia.cloudapp.azure.com}"
 SCHEME="${2:-https}"
 CONF=nginx-charto.conf
 fail=0
