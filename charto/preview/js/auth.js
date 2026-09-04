@@ -24,6 +24,9 @@ const Auth = (() => {
     ? "http://127.0.0.1:5174" : "";
   let user = null;
   let token = null;
+  // undefined = not asked yet, "" = asked and the server offers no Google.
+  // The three states matter: "" must not re-ask on every screen open.
+  let googleId;
   try { token = localStorage.getItem(KEY); } catch { token = null; }
 
   const listeners = [];
@@ -68,6 +71,7 @@ const Auth = (() => {
       if (!token) return null;
       try {
         const d = await call("/auth/me");
+        googleId = d.google_client_id || "";  // it rides this call too
         user = d.user || null;
         if (!user) setSession(null, null);   // token expired or was revoked
         else emit();
@@ -75,6 +79,35 @@ const Auth = (() => {
         user = null;
       }
       return user;
+    },
+
+    /** Is Google sign-in available, and under which client id?
+     *
+     *  The SERVER decides. It is the side holding the credentials, so it is
+     *  the only side that knows whether /auth/google can finish — a client id
+     *  hardcoded here would draw a button on a box that has none.
+     *
+     *  Asked lazily and cached: `resume()` already calls /auth/me when there
+     *  is a token, but the visitor who needs this button is precisely the one
+     *  with no token, so it cannot ride that call. One GET when the sign-in
+     *  screen opens instead, which keeps boot free of it entirely. */
+    async googleClientId() {
+      if (googleId !== undefined) return googleId;
+      try {
+        const d = await call("/auth/me");
+        googleId = d.google_client_id || "";
+      } catch {
+        googleId = "";              // unreachable server: no button, no error
+      }
+      return googleId;
+    },
+
+    /** Exchange a Google access token for one of our sessions. The popup and
+     *  the token belong to the screen below; this owns only the exchange. */
+    async googleLogin(accessToken) {
+      const d = await call("/auth/google", { access_token: accessToken });
+      setSession(d.token, d.user);
+      return d.user;
     },
 
     async login(email, password) {
@@ -116,9 +149,15 @@ const Auth = (() => {
    charto is one page, and the fields that differ are hidden rather than
    rebuilt so switching keeps whatever you have already typed.
 
-   What is NOT carried over from Pivot is the social sign-in block: this
-   server issues its own sessions and speaks no OAuth, and a button that
-   cannot do what it says is the one thing this codebase will not draw.
+   The social sign-in block WAS left out of this screen, and the reason was
+   written here: "this server issues its own sessions and speaks no OAuth,
+   and a button that cannot do what it says is the one thing this codebase
+   will not draw." The first half of that has expired — dataserver.py has an
+   /auth/google that verifies the token with Google and issues one of our own
+   sessions — so the block comes back. The second half has not expired and is
+   now enforced at runtime instead of by omission: the button renders only if
+   the SERVER advertises a client id, so a box with no credentials still
+   draws nothing rather than a door that opens onto an error.
    ────────────────────────────────────────────────────────────────────────── */
 (() => {
   const el = (id) => document.getElementById(id);
@@ -274,8 +313,90 @@ const Auth = (() => {
     err.classList.toggle("show", !!msg);
   }
 
-  function show() { screen.classList.add("open"); setTimeout(() => emailIn.focus(), 40); }
+  function show() {
+    screen.classList.add("open");
+    setTimeout(() => emailIn.focus(), 40);
+    armGoogle();
+  }
   function hide() { screen.classList.remove("open"); }
+
+  /* ── Sign in with Google ───────────────────────────────────────────────
+   * Google Identity Services runs the popup and hands back an ACCESS TOKEN;
+   * the server exchanges it for one of our sessions after checking with
+   * Google that the token was minted for us and the address is verified. The
+   * browser is never believed about who it is — see _verify_google_token in
+   * dataserver.py.
+   *
+   * Everything here is conditional on the server advertising a client id, and
+   * the script tag is only added once it has: a 90KB fetch from Google on
+   * every visit to a chart, for a button that will not be drawn, is a cost
+   * paid by people who never sign in.
+   *
+   * Loaded when the SCREEN opens rather than at boot, and armed at most once. */
+  const GIS_SRC = "https://accounts.google.com/gsi/client";
+  const social = el("authSocial"), gBtn = el("authGoogle"),
+        gLabel = el("authGoogleLabel");
+  let gArmed = false, gClient = null;
+
+  async function armGoogle() {
+    if (gArmed) return;
+    const clientId = await Auth.googleClientId();
+    if (!clientId) return;            // not configured here — draw nothing
+    gArmed = true;
+    social.hidden = false;
+    // The button exists before the script does. A press in that window says
+    // so rather than doing nothing, which is the failure this whole block is
+    // trying not to reproduce.
+    await new Promise((done) => {
+      if (window.google && window.google.accounts) return done();
+      let s = document.querySelector(`script[src="${GIS_SRC}"]`);
+      if (!s) {
+        s = document.createElement("script");
+        s.src = GIS_SRC; s.async = true; s.defer = true;
+        document.head.appendChild(s);
+      }
+      s.addEventListener("load", done, { once: true });
+      s.addEventListener("error", done, { once: true });
+    });
+    if (!window.google || !window.google.accounts) return;
+    gClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: "openid email profile",
+      callback: (resp) => {
+        // No token means the popup was closed or consent refused. That is a
+        // decision, not a fault: reset and say nothing.
+        if (!resp || !resp.access_token) return gBusy(false);
+        void finishGoogle(resp.access_token);
+      },
+    });
+  }
+
+  function gBusy(on) {
+    gBtn.disabled = on;
+    gLabel.textContent = on ? "Signing in…" : "Continue with Google";
+  }
+
+  async function finishGoogle(accessToken) {
+    try {
+      await Auth.googleLogin(accessToken);
+      try { localStorage.removeItem(SKIPPED); } catch {}
+      hide();
+      location.reload();          // same hand-off as an email sign-in, below
+    } catch (ex) {
+      gBusy(false);
+      fail(String(ex.message || ex));
+    }
+  }
+
+  if (gBtn) {
+    gBtn.addEventListener("click", () => {
+      if (busy) return;
+      if (!gClient) return fail("Google sign-in is still loading. One moment.");
+      fail("");
+      gBusy(true);
+      gClient.requestAccessToken();
+    });
+  }
 
   toggle.addEventListener("click", () => setMode(mode === "login" ? "signup" : "login"));
 

@@ -40,7 +40,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 # BEFORE any sibling that does `import dataserver`. Served as a script this
 # module is named __main__, so that name resolves by loading this file a
@@ -13613,6 +13613,26 @@ def _user_public(row: tuple) -> dict:
     return {"id": row[0], "email": row[1], "name": row[2]}
 
 
+def _strip_api_auth(u):
+    """`/api/auth/x` and `/auth/x` are the same route, spelled twice.
+
+    Two front ends reach these handlers and they disagree about the prefix.
+    The chart app calls `/auth/login` directly; the company page (charto/web)
+    has ONE api base for everything it fetches — "/api", relative so that the
+    same bundle works in dev and on the box — so its calls arrive as
+    `/api/auth/login`. Nothing here answered that, which is why signing in
+    from the company page has been returning 404 while the identical form in
+    the chart worked.
+
+    Stripped once, at the door, rather than teaching each branch below a
+    second spelling. Narrow on purpose: only `/api/auth/`, so the company
+    page's real `/api/...` data routes still reach api_route() untouched.
+    """
+    if u.path.startswith("/api/auth/"):
+        return u._replace(path=u.path[len("/api"):])
+    return u
+
+
 def _auth_user(headers) -> tuple | None:
     """The user behind an Authorization: Bearer token, or None.
 
@@ -13646,6 +13666,25 @@ def _issue_session(user_id: int) -> str:
     return tok
 
 
+def _session_reply(user_id: int, user: dict) -> tuple[int, dict]:
+    """The one shape every successful sign-in answers with.
+
+    The SAME token under two names. The chart app reads `token`; the company
+    page (charto/web) was written against Pivot's backend, which answers
+    `access_token` — so it stored `undefined` and every call after a
+    successful sign-in went out unauthenticated, which reads as "signing in
+    did nothing" rather than as an error. Naming the field twice is cheaper
+    and far less breakable than a second endpoint or a rewrite of either
+    client, and there is only one token, so the two can never disagree.
+
+    No refresh token: sessions here last 30 days and are revoked server-side,
+    so there is nothing to refresh. That field stays absent rather than
+    faked — charto/web's storeToken already treats it as optional.
+    """
+    tok = _issue_session(user_id)
+    return 200, {"token": tok, "access_token": tok, "user": user}
+
+
 def _auth_signup(body: dict) -> tuple[int, dict]:
     email = str(body.get("email") or "").strip().lower()
     pw = str(body.get("password") or "")
@@ -13666,8 +13705,7 @@ def _auth_signup(body: dict) -> tuple[int, dict]:
             uid = cur.lastrowid
     except sqlite3.IntegrityError:
         return 409, {"error": "an account already exists for that email"}
-    return 200, {"token": _issue_session(uid),
-                 "user": {"id": uid, "email": email, "name": name}}
+    return _session_reply(uid, {"id": uid, "email": email, "name": name})
 
 
 def _auth_login(body: dict) -> tuple[int, dict]:
@@ -13684,7 +13722,115 @@ def _auth_login(body: dict) -> tuple[int, dict]:
     want = row[3] if row else b"\0" * 32
     if not hmac.compare_digest(_pw_hash(pw, salt), want):
         return 401, {"error": "email or password is incorrect"}
-    return 200, {"token": _issue_session(row[0]), "user": _user_public(row)}
+    return _session_reply(row[0], _user_public(row))
+
+
+# ── sign in with Google ────────────────────────────────────────────────────
+#
+# The browser runs Google's OAuth popup and hands us the resulting ACCESS
+# TOKEN; this exchanges it for one of our own sessions. The client id is the
+# same one Pivot's backend uses — it is not a secret (it is inlined into every
+# page that offers the button) but it lives with the other config rather than
+# in a file the server hands to browsers.
+#
+# Empty client id = the feature is OFF, and says so. /auth/me stops
+# advertising it, the button never renders, and this route refuses rather than
+# half-verifying — the alternative is a sign-in that skips the audience check,
+# which is the whole security of this exchange.
+GOOGLE_CLIENT_ID = (environ.get("GOOGLE_CLIENT_ID")
+                    or _env_values("GOOGLE_CLIENT_ID")["GOOGLE_CLIENT_ID"])
+
+_GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
+_GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+def _google_get(url: str, *, params: dict | None = None,
+                bearer: str = "") -> dict | None:
+    """One GET at Google, JSON back, None on any failure. urllib, because this
+    server already has it and one endpoint does not earn a dependency."""
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    req = urllib.request.Request(url, headers=(
+        {"Authorization": f"Bearer {bearer}"} if bearer else {}))
+    try:
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except (urllib.error.URLError, ValueError, TimeoutError, OSError) as e:
+        logging.warning("google request failed (%s): %s", url.split("?")[0], e)
+        return None
+
+
+def _verify_google_token(access_token: str) -> dict | None:
+    """Introspect a Google access token; return {email, name} or None.
+
+    The browser's claims are never trusted. tokeninfo answers the only two
+    questions that matter: WHO minted this token — the audience must be our
+    own client id, or a token issued to some other app could be replayed here
+    and would sign its holder in as whoever they claimed — and has Google
+    actually verified the address. An unverified email is somebody's claim to
+    an account, not proof of one, so it is refused.
+    """
+    info = _google_get(_GOOGLE_TOKENINFO, params={"access_token": access_token})
+    if not info:
+        return None
+    # Google puts the client id in `aud`, and in `azp` for the authorised
+    # party. Either matching is the token being ours.
+    if GOOGLE_CLIENT_ID not in (info.get("aud"), info.get("azp")):
+        logging.warning("google audience mismatch: aud=%r azp=%r",
+                        info.get("aud"), info.get("azp"))
+        return None
+    email = str(info.get("email") or "").strip().lower()
+    if not email or str(info.get("email_verified", "")).lower() != "true":
+        return None
+    # The display name is best effort and never blocks the sign-in: a second
+    # call that fails leaves us with the address, which is enough to be an
+    # account. The local part is a decent stand-in until they set one.
+    prof = _google_get(_GOOGLE_USERINFO, bearer=access_token) or {}
+    name = str(prof.get("name") or "").strip()
+    return {"email": email,
+            "name": name or email.split("@", 1)[0].replace(".", " ").title()}
+
+
+def _auth_google(body: dict) -> tuple[int, dict]:
+    if not GOOGLE_CLIENT_ID:
+        return 503, {"error": "Google sign-in is not configured on this server"}
+    tok = str(body.get("access_token") or "").strip()
+    if not tok:
+        return 400, {"error": "access_token required"}
+    who = _verify_google_token(tok)
+    if not who:
+        return 401, {"error": "could not verify that Google sign-in"}
+
+    now = int(time.time())
+    with _users_lock:
+        row = _users.execute(
+            "SELECT id, email, name FROM users WHERE email=?",
+            (who["email"],)).fetchone()
+        if row is None:
+            # A Google account has no password, and the column is NOT NULL. It
+            # gets random bytes rather than a nullable column or a sentinel:
+            # _auth_login hashes whatever is typed and compares, so a hash no
+            # input can produce means password sign-in for this account fails
+            # exactly as it should — no branch, no special case, nothing to
+            # forget. (Google having verified the address is what makes
+            # find-or-create safe: an existing password account for the same
+            # email is the same person, so this signs them in rather than
+            # refusing or creating a duplicate.)
+            cur = _users.execute(
+                "INSERT INTO users (email, name, pw_hash, pw_salt, created) "
+                "VALUES (?,?,?,?,?)",
+                (who["email"], who["name"], secrets.token_bytes(32),
+                 secrets.token_bytes(16), now))
+            _users.commit()
+            uid, name = cur.lastrowid, who["name"]
+        else:
+            uid, name = row[0], row[2]
+            if not name and who["name"]:      # an account that never had one
+                _users.execute("UPDATE users SET name=? WHERE id=?",
+                               (who["name"], uid))
+                _users.commit()
+                name = who["name"]
+    return _session_reply(uid, {"id": uid, "email": who["email"], "name": name})
 
 
 # ── saved work: per-symbol workspace state, and named layouts ──────────────
@@ -14950,6 +15096,8 @@ class Handler(BaseHTTPRequestHandler):
             return _auth_signup(body)
         if path == "/auth/login":
             return _auth_login(body)
+        if path == "/auth/google":
+            return _auth_google(body)
         if path == "/auth/logout":
             raw = self.headers.get("Authorization") or ""
             if raw.startswith("Bearer "):
@@ -15147,6 +15295,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        u = _strip_api_auth(u)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         symbol = q.get("symbol", "RELIANCE").upper()
         _req.symbol = symbol
@@ -15583,10 +15732,20 @@ class Handler(BaseHTTPRequestHandler):
                     # it on boot to decide which UI to paint, and a 401 there is
                     # an answer, not a fault.
                     return self._send(200 if u.path == "/auth/me" else 401,
-                                      {"user": None} if u.path == "/auth/me"
+                                      {"user": None,
+                                       "google_client_id": GOOGLE_CLIENT_ID}
+                                      if u.path == "/auth/me"
                                       else {"error": "sign in to load your work"})
                 if u.path == "/auth/me":
-                    return self._send(200, {"user": _user_public(me)})
+                    # The client id rides the call the FE already makes on
+                    # boot. It decides whether the Google button is drawn at
+                    # all, and that answer belongs to the SERVER: it is the
+                    # side that knows whether /auth/google can actually
+                    # complete. A button drawn from a hardcoded front-end
+                    # constant is one that can promise a sign-in this box has
+                    # no credentials to finish.
+                    return self._send(200, {"user": _user_public(me),
+                                            "google_client_id": GOOGLE_CLIENT_ID})
                 if u.path == "/layouts":
                     q = parse_qs(u.query)
                     lid = (q.get("id") or [""])[0]
@@ -15665,6 +15824,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        u = _strip_api_auth(u)
         # Voice, before the JSON routes: the body is an audio blob, so it must
         # never reach a json.loads. Posted RAW rather than as multipart —
         # there is one file and no other field, and a hand-rolled multipart
