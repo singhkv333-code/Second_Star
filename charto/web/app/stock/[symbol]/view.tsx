@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { BarChart2, ChevronRight, LogOut, User } from "lucide-react";
 import { StockDetailPage } from "@/components/StockDetailPage";
 import { StockAskBar } from "@/components/stock/StockAskBar";
-import { PivotLogo } from "@/components/brand/PivotLogo";
+import { PivotLockup } from "@/components/brand/PivotLockup";
 import { logoutCharto, useChartoUser } from "@/lib/charto-auth";
 
 /**
@@ -184,7 +184,7 @@ export function CompanyChrome({
           the bar that says which company this is. */}
       <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
         <a href={chart("")} aria-label="Back to chart" className="flex shrink-0 items-center text-foreground">
-          <PivotLogo fontSize={20} />
+          <PivotLockup fontSize={20} />
         </a>
         <div className="h-6 w-px bg-border" aria-hidden="true" />
         <a

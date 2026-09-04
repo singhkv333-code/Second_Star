@@ -43,6 +43,7 @@
  */
 
 import * as React from "react";
+import { PivotDisc } from "@/components/brand/PivotLockup";
 import {
   ArrowDown,
   ArrowUp,
@@ -115,39 +116,10 @@ const toolLine = (name: string): string =>
 /** How long the "new answer" chip stays before it settles to a dot. */
 const NOTICE_MS = 4000;
 
-/**
- * Charto's mark, inline.
- *
- * This is `app/icon.svg` — the disc with the bar and the slash cut out of it,
- * the same mark the tab and the chart carry. It replaces a PNG mask of the
- * older wordmark glyph, which was a different logo AND a network request that
- * could 404 (it did, on the chart's origin) and leave a blank square.
- *
- * As an inline SVG it takes `currentColor`, so it follows the header's text
- * colour into both themes with no second asset and nothing to fetch. The
- * cutouts are a mask rather than drawn strokes: strokes would have to be
- * re-tuned at every size, a mask stays exact.
- */
-function ChartoMark({ size = 15 }: { size?: number }): React.ReactElement {
-  const id = React.useId();
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 652 652"
-      aria-hidden="true"
-      focusable="false"
-      style={{ display: "block", flex: "none" }}
-    >
-      <mask id={id}>
-        <circle cx="326" cy="326" r="326" fill="#fff" />
-        <rect x="460.5" y="0" width="37" height="652" fill="#000" />
-        <path d="M567.4 18.1 595.4 42.4 83.6 632.9 55.6 608.6Z" fill="#000" />
-      </mask>
-      <circle cx="326" cy="326" r="326" fill="currentColor" mask={`url(#${id})`} />
-    </svg>
-  );
-}
+/* The mark now comes from components/brand/PivotLockup — the same disc the
+ * page header, the favicon and the chart all draw. It was inlined here
+ * first and then copied into the header, which is two places to change a
+ * logo and one of them to forget. */
 
 export function StockAskBar({
   symbol,
@@ -452,7 +424,7 @@ export function StockAskBar({
                 every well-behaved panel uses, because a reader looking for
                 "how do I close this" looks top-right first. */}
             <header className="stock-ask-head">
-              <span className="stock-ask-brand"><ChartoMark size={15} /></span>
+              <span className="stock-ask-brand"><PivotDisc size={15} /></span>
               <span className="stock-ask-sym">{sym}</span>
               <span className="stock-ask-count">
                 {turns.length} {turns.length === 1 ? "question" : "questions"}
@@ -555,7 +527,7 @@ export function StockAskBar({
 
         <form className="stock-ask-pill" onSubmit={submit}>
           <span className="stock-ask-mark" aria-hidden="true">
-            <ChartoMark size={17} />
+            <PivotDisc size={17} />
           </span>
           <textarea
             ref={inputRef}
