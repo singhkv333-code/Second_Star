@@ -43,6 +43,16 @@
  */
 
 import * as React from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  Maximize2,
+  Minimize2,
+  Trash2,
+} from "lucide-react";
 
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
@@ -102,6 +112,43 @@ const MAX_FIELD_PX = 96;
 const toolLine = (name: string): string =>
   TOOL_WORD[name] ?? name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
+/** How long the "new answer" chip stays before it settles to a dot. */
+const NOTICE_MS = 4000;
+
+/**
+ * Charto's mark, inline.
+ *
+ * This is `app/icon.svg` — the disc with the bar and the slash cut out of it,
+ * the same mark the tab and the chart carry. It replaces a PNG mask of the
+ * older wordmark glyph, which was a different logo AND a network request that
+ * could 404 (it did, on the chart's origin) and leave a blank square.
+ *
+ * As an inline SVG it takes `currentColor`, so it follows the header's text
+ * colour into both themes with no second asset and nothing to fetch. The
+ * cutouts are a mask rather than drawn strokes: strokes would have to be
+ * re-tuned at every size, a mask stays exact.
+ */
+function ChartoMark({ size = 15 }: { size?: number }): React.ReactElement {
+  const id = React.useId();
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 652 652"
+      aria-hidden="true"
+      focusable="false"
+      style={{ display: "block", flex: "none" }}
+    >
+      <mask id={id}>
+        <circle cx="326" cy="326" r="326" fill="#fff" />
+        <rect x="460.5" y="0" width="37" height="652" fill="#000" />
+        <path d="M567.4 18.1 595.4 42.4 83.6 632.9 55.6 608.6Z" fill="#000" />
+      </mask>
+      <circle cx="326" cy="326" r="326" fill="currentColor" mask={`url(#${id})`} />
+    </svg>
+  );
+}
+
 export function StockAskBar({
   symbol,
   name,
@@ -115,6 +162,24 @@ export function StockAskBar({
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [focused, setFocused] = React.useState(false);
+  /* An answer that finished while the transcript was collapsed. The pill says
+     so once, quietly, and then keeps a dot — a panel that reopens itself over
+     the page the reader is using is the rudest possible way to deliver news. */
+  const [unseen, setUnseen] = React.useState(0);
+  const [notice, setNotice] = React.useState(false);
+  /* Taller, for an answer that is mostly table. Not a drag handle: two
+     heights the reader can name beat a pixel value they have to maintain. */
+  const [tall, setTall] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  /* Whether the transcript is scrolled to the end. Following the stream is
+     right until the reader scrolls up to re-read something, at which point
+     yanking them back down is the bug. */
+  const [pinned, setPinned] = React.useState(true);
+
+  // The stream finishes in a closure that captured `open` at send time; a ref
+  // is what lets it ask whether the transcript is on screen NOW.
+  const openRef = React.useRef(open);
+  React.useEffect(() => { openRef.current = open; }, [open]);
 
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -156,6 +221,7 @@ export function StockAskBar({
 
   React.useEffect(() => {
     setTurns([]); setValue(""); setOpen(false);
+    setUnseen(0); setNotice(false); setTall(false); setPinned(true);
     abortRef.current?.abort();
   }, [symbol]);
 
@@ -177,11 +243,23 @@ export function StockAskBar({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Follow the answer as it streams.
+  // Follow the answer as it streams — unless the reader has scrolled up.
   React.useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [turns]);
+    if (el && pinned) el.scrollTop = el.scrollHeight;
+  }, [turns, pinned]);
+
+  // Re-arm the notice each time an answer lands while collapsed.
+  React.useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(false), NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  // Opening the transcript is what marks it read.
+  React.useEffect(() => {
+    if (open) { setUnseen(0); setNotice(false); }
+  }, [open, turns.length]);
 
   /* Autosize the field. A bare <textarea rows="1"> is whatever height the
      browser thinks a textarea should be — which was making the resting pill
@@ -238,6 +316,7 @@ export function StockAskBar({
         else if (ev.type === "error") patch((t) => ({ ...t, error: ev.message, done: true }));
         else if (ev.type === "done") {
           patch((t) => ({ ...t, answer: ev.response || t.answer, tool: null, done: true }));
+          if (!openRef.current) { setUnseen((n) => n + 1); setNotice(true); }
         }
       }
       patch((t) => ({ ...t, done: true }));
@@ -269,13 +348,52 @@ export function StockAskBar({
   };
 
   const sym = symbol.toUpperCase();
+  const last = turns.length ? turns[turns.length - 1] : null;
+  const streaming = busy && !!last && !last.done;
+  const lastAnswer = React.useMemo(
+    () => [...turns].reverse().find((t) => t.answer && t.done)?.answer ?? "",
+    [turns],
+  );
 
   /* Small until it is being used. At rest the bar is a narrow pill that says
-     what it is and takes almost no room over the page; clicking it widens the
+     what it is and takes almost no room over the page; using it widens the
      pill and brings up the transcript. Anything mid-flight (a live stream, an
      open answer) counts as "in use" and holds it open, so the bar never
      shrinks away from an answer the reader is still reading. */
   const expanded = focused || busy || (open && turns.length > 0);
+  const showPanel = open && turns.length > 0;
+
+  const copyLast = React.useCallback(async (): Promise<void> => {
+    if (!lastAnswer) return;
+    try {
+      await navigator.clipboard.writeText(lastAnswer);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* denied clipboard permission — nothing to say, the button just
+         does not confirm */
+    }
+  }, [lastAnswer]);
+
+  const clearThread = React.useCallback((): void => {
+    abortRef.current?.abort();
+    setTurns([]); setOpen(false); setUnseen(0); setNotice(false); setPinned(true);
+    inputRef.current?.focus();
+  }, []);
+
+  /* Pinned means "the reader is at the end". Measured with a 24px tolerance
+     because a streaming answer grows under the scroll position and an exact
+     comparison flickers between pinned and not on every frame. */
+  const onScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget;
+    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+  }, []);
+
+  const jumpToLatest = React.useCallback((): void => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setPinned(true);
+  }, []);
 
   return (
     <>
@@ -295,60 +413,121 @@ export function StockAskBar({
           } as React.CSSProperties)
           : undefined}
       >
-        {open && turns.length ? (
-          <div className="stock-ask-panel">
-            <div className="stock-ask-panel-head">
-              <span className="stock-ask-panel-title">{sym}</span>
-              <span className="stock-ask-panel-note">
-                {turns.length === 1 ? "Latest turn" : `${turns.length} turns`}
+        {showPanel ? (
+          <section
+            className={`stock-ask-panel${tall ? " is-tall" : ""}`}
+            aria-label={`Answers about ${sym}`}
+          >
+            {/* Header. Identity on the left, controls on the right, one
+                hairline between it and the reading area — the arrangement
+                every well-behaved panel uses, because a reader looking for
+                "how do I close this" looks top-right first. */}
+            <header className="stock-ask-head">
+              <span className="stock-ask-brand"><ChartoMark size={15} /></span>
+              <span className="stock-ask-sym">{sym}</span>
+              <span className="stock-ask-count">
+                {turns.length} {turns.length === 1 ? "question" : "questions"}
               </span>
+              <span className="stock-ask-grow" />
               <button
                 type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Hide answers"
-                className="stock-ask-x"
+                className="stock-ask-icon"
+                onClick={() => void copyLast()}
+                disabled={!lastAnswer}
+                aria-label={copied ? "Answer copied" : "Copy the last answer"}
+                title={copied ? "Copied" : "Copy answer"}
               >
-                ✕
+                {copied ? <Check size={14} /> : <Copy size={14} />}
               </button>
-            </div>
+              <button
+                type="button"
+                className="stock-ask-icon"
+                onClick={() => setTall((v) => !v)}
+                aria-pressed={tall}
+                aria-label={tall ? "Shrink the panel" : "Grow the panel"}
+                title={tall ? "Shrink" : "Grow"}
+              >
+                {tall ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                type="button"
+                className="stock-ask-icon"
+                onClick={clearThread}
+                aria-label="Clear this thread"
+                title="Clear thread"
+              >
+                <Trash2 size={14} />
+              </button>
+              <button
+                type="button"
+                className="stock-ask-icon"
+                onClick={() => setOpen(false)}
+                aria-label="Hide the answers"
+                title="Hide (Esc)"
+              >
+                <ChevronDown size={15} />
+              </button>
+            </header>
 
-            <div className="stock-ask-scroll" ref={scrollRef} aria-live="polite">
+            {/* One hairline that travels while a turn is in flight. It sits on
+                the header's own border, so nothing moves when it appears —
+                a spinner that adds a row makes the whole panel jump. */}
+            <div
+              className={`stock-ask-rail${streaming ? " is-live" : ""}`}
+              aria-hidden="true"
+            />
+
+            <div
+              className="stock-ask-scroll"
+              ref={scrollRef}
+              onScroll={onScroll}
+              aria-live="polite"
+            >
               {turns.map((t, i) => (
-                <div key={i} className="stock-ask-turn">
-                  <div className="stock-ask-q">{t.question}</div>
+                <article className="stock-ask-turn" key={i}>
+                  {/* The question, as a quiet heading rather than a chat
+                      bubble on the right. Two opposing bubble colours is a
+                      messaging app; this is a document with a question at the
+                      top of each section, which is what it actually is. */}
+                  <p className="stock-ask-q">{t.question}</p>
+
+                  {t.answer ? (
+                    <AssistantMessage text={t.answer} className="stock-ask-a" />
+                  ) : null}
+
                   {/* A failure does not delete what already arrived. A model
                       turn that stalls mid-stream had usually said something
                       useful first, and replacing three paragraphs of read
                       financials with one line of error is the reader losing
-                      work they watched appear. The answer stays; the failure
-                      is a note under it saying where it stopped. */}
-                  {t.answer ? (
-                    <AssistantMessage text={t.answer} className="stock-ask-a" />
-                  ) : null}
+                      work they watched appear. */}
                   {t.error ? (
-                    <div className="stock-ask-err">
+                    <p className="stock-ask-err">
                       {t.answer ? `Stopped mid-answer — ${t.error}` : t.error}
-                    </div>
+                    </p>
                   ) : t.answer ? null : (
-                    <div className="stock-ask-wait">
-                      <span className="stock-ask-dot" />
+                    <p className="stock-ask-wait">
+                      <span className="stock-ask-spark" aria-hidden="true" />
                       {t.tool ? `${toolLine(t.tool)}…` : "Thinking…"}
-                    </div>
+                    </p>
                   )}
-                </div>
+                </article>
               ))}
             </div>
-          </div>
+
+            {/* Only while the reader is somewhere above the end. */}
+            {!pinned ? (
+              <button type="button" className="stock-ask-jump" onClick={jumpToLatest}>
+                <ArrowDown size={13} aria-hidden="true" />
+                Latest
+              </button>
+            ) : null}
+          </section>
         ) : null}
 
         <form className="stock-ask-pill" onSubmit={submit}>
-          {/* Charto's glyph — the same asset the chart signs itself with,
-              copied from charto/preview/assets. Painted as a MASK over
-              currentColor rather than dropped in as an <img>, which is
-              charto's own reason for doing it that way: the file is a
-              single-colour alpha, and an image of it would be black-on-black
-              the moment the theme goes dark. One file, both themes. */}
-          <span className="stock-ask-mark" aria-hidden />
+          <span className="stock-ask-mark" aria-hidden="true">
+            <ChartoMark size={17} />
+          </span>
           <textarea
             ref={inputRef}
             rows={1}
@@ -365,15 +544,35 @@ export function StockAskBar({
             aria-label={`Ask about ${sym}`}
             className="stock-ask-input"
           />
+
+          {/* The collapsed thread, and any news from it. A finished answer
+              nobody has seen shows its count once and then settles to a dot:
+              the reader is told, and never interrupted. */}
           {turns.length && !open ? (
             <button
               type="button"
-              className="stock-ask-reopen"
+              className={`stock-ask-recall${unseen ? " has-unseen" : ""}`}
               onClick={() => setOpen(true)}
+              aria-label={
+                unseen
+                  ? `${unseen} new answer${unseen === 1 ? "" : "s"} — show them`
+                  : "Show the answers"
+              }
+              title="Show answers"
             >
-              {turns.length} answer{turns.length === 1 ? "" : "s"}
+              {unseen && notice ? (
+                <span className="stock-ask-recall-text">
+                  {unseen} new
+                </span>
+              ) : (
+                <>
+                  <span className="stock-ask-recall-n">{turns.length}</span>
+                  {unseen ? <span className="stock-ask-pip" aria-hidden="true" /> : null}
+                </>
+              )}
             </button>
           ) : null}
+
           {/* The same mic the chat composer uses, not a second one: it already
               records through MediaRecorder, posts the blob to
               /audio/transcribe, and comes back with ENGLISH text even when the
@@ -402,33 +601,39 @@ export function StockAskBar({
             aria-label={busy ? "Stop" : "Ask"}
             className="stock-ask-send"
           >
-            {busy ? <span className="stock-ask-stop" /> : "↑"}
+            {busy ? <span className="stock-ask-stop" /> : <ArrowUp size={16} strokeWidth={2.4} />}
           </button>
         </form>
 
         {/* The disclaimer belongs to the open bar, not the resting one — at
             rest the pill is meant to be nearly invisible. */}
         {expanded && !turns.length ? (
-          <div className="stock-ask-hint" aria-hidden>
+          <p className="stock-ask-hint">
             Answered from this company&apos;s own filings and bars. Not financial advice.
-          </div>
+          </p>
         ) : null}
       </div>
 
       <style>{`
-        /* ── the glass ──────────────────────────────────────────────────
-           One set of tokens, two themes. The fill carries a real alpha so
-           the blur behind it has something to tint; the inset highlight is
-           what stops a translucent panel reading as a flat grey rectangle. */
+        /* ── surface ────────────────────────────────────────────────────
+           Two surfaces, one system. The PILL stays glass: it floats over the
+           page, it is small, and the blur is what keeps it from reading as a
+           box dropped on top. The PANEL is nearly opaque, and that is the
+           whole correction here — a 58%-translucent reading surface let the
+           page's own tables and headings show through the answer, which is
+           what made a long reply look like a mess rather than a document.
+           Glass is right for chrome and wrong for prose. */
         .stock-ask {
-          --ask-fill: rgba(255, 255, 255, 0.58);
-          --ask-fill-solid: #ffffff;
-          --ask-edge: rgba(15, 18, 22, 0.09);
-          --ask-gloss: rgba(255, 255, 255, 0.92);
+          --ask-glass: color-mix(in srgb, var(--bg-base) 62%, transparent);
+          --ask-solid: color-mix(in srgb, var(--bg-base) 97%, transparent);
+          --ask-edge: var(--glass-border);
+          --ask-edge-strong: var(--glass-border-hover);
           --ask-sheen: rgba(255, 255, 255, 0.5);
-          --ask-drop: 0 16px 48px rgba(15, 18, 22, 0.16), 0 3px 10px rgba(15, 18, 22, 0.07);
+          --ask-lift: 0 18px 44px -12px rgba(15, 18, 22, 0.22),
+                      0 2px 8px rgba(15, 18, 22, 0.06);
           --ask-ink: #0f1216;
           --ask-ink-fg: #ffffff;
+          --ask-hover: color-mix(in srgb, var(--text-primary) 7%, transparent);
 
           --ask-cx: 50vw;
           --ask-max: calc(100vw - 28px);
@@ -438,23 +643,18 @@ export function StockAskBar({
           bottom: 20px;
           transform: translateX(-50%);
           z-index: 60;
-          /* Small at rest — a pill that names itself and little else. */
           width: min(340px, var(--ask-max));
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 10px;
           font-family: var(--font-ui);
-          transition: width 220ms cubic-bezier(0.32, 0.72, 0, 1);
+          transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
         }
-        /* …and only as big as it needs to be once someone is using it. */
-        .stock-ask.is-expanded { width: min(640px, var(--ask-max)); }
+        .stock-ask.is-expanded { width: min(680px, var(--ask-max)); }
         .dark .stock-ask {
-          --ask-fill: rgba(28, 28, 29, 0.58);
-          --ask-fill-solid: #1c1c1d;
-          --ask-edge: rgba(255, 255, 255, 0.16);
-          --ask-gloss: rgba(255, 255, 255, 0.14);
-          --ask-sheen: rgba(255, 255, 255, 0.07);
-          --ask-drop: 0 18px 54px rgba(0, 0, 0, 0.6), 0 3px 10px rgba(0, 0, 0, 0.45);
+          --ask-sheen: rgba(255, 255, 255, 0.06);
+          --ask-lift: 0 20px 50px -12px rgba(0, 0, 0, 0.68),
+                      0 2px 8px rgba(0, 0, 0, 0.5);
           /* Black-on-black is not a button. In dark the "black" button is the
              one solid ink surface available — white — reading as the same
              high-contrast affordance. */
@@ -462,80 +662,39 @@ export function StockAskBar({
           --ask-ink-fg: #0f1216;
         }
 
-        .stock-ask-pill,
-        .stock-ask-panel {
+        /* ── the pill ───────────────────────────────────────────────── */
+        .stock-ask-pill {
           position: relative;
-          background: var(--ask-fill);
-          -webkit-backdrop-filter: blur(40px) saturate(200%);
-          backdrop-filter: blur(40px) saturate(200%);
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          /* min-height, not height: the field grows to two lines for a long
+             question and the pill has to grow with it. */
+          min-height: 54px;
+          padding: 7px 8px 7px 15px;
+          border-radius: var(--radius-pill);
+          background: var(--ask-glass);
+          -webkit-backdrop-filter: blur(28px) saturate(180%);
+          backdrop-filter: blur(28px) saturate(180%);
           border: 1px solid var(--ask-edge);
-          /* Three shadows doing three jobs: the drop lifts it off the page,
-             the top inset is the lit edge where glass catches light, the
-             bottom inset is the thin shadow the far edge throws back. */
-          box-shadow:
-            var(--ask-drop),
-            inset 0 1px 0 var(--ask-gloss),
-            inset 0 -1px 0 rgba(15, 18, 22, 0.05);
+          box-shadow: var(--ask-lift), inset 0 1px 0 var(--ask-sheen);
+          transition: min-height 260ms cubic-bezier(0.32, 0.72, 0, 1),
+                      border-color 160ms ease;
         }
-        /* The sheen. Real glass is brighter at the top than the bottom, and
-           without this gradient a blurred panel reads as flat frosted plastic.
-           Non-interactive and clipped to the same radius as its host. */
-        .stock-ask-pill::before,
-        .stock-ask-panel::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          pointer-events: none;
-          background: linear-gradient(
-            180deg,
-            var(--ask-sheen) 0%,
-            rgba(255, 255, 255, 0) 42%,
-            rgba(255, 255, 255, 0) 100%
-          );
-        }
-        .stock-ask-pill > *,
-        .stock-ask-panel > * { position: relative; z-index: 1; }
+        .stock-ask.is-expanded .stock-ask-pill { min-height: 58px; }
+        .stock-ask-pill:focus-within { border-color: var(--ask-edge-strong); }
         /* Where the browser cannot blur, a translucent fill would leave the
            page's own text showing through this one. Go opaque instead. */
         @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-          .stock-ask-pill,
-          .stock-ask-panel { background: var(--ask-fill-solid); }
+          .stock-ask-pill { background: var(--ask-solid); }
         }
-
-        /* ── the pill ───────────────────────────────────────────────── */
-        .stock-ask-pill {
-          display: flex;
-          align-items: center;
-          gap: 11px;
-          /* min-height, not height: the field grows to two lines for a long
-             question and the pill has to grow with it. */
-          min-height: 56px;
-          padding: 8px 10px 8px 16px;
-          border-radius: 28px;
-          transition: min-height 220ms cubic-bezier(0.32, 0.72, 0, 1);
-        }
-        .stock-ask.is-expanded .stock-ask-pill { min-height: 60px; }
-        /* At rest there is nothing to send and nothing to stop, so the button
-           is not there to be aimed at. The MIC stays — speaking instead of
-           typing is a reason to reach for the bar in the first place, and
-           hiding it behind a click would cost the gesture it saves. */
-        .stock-ask:not(.is-expanded) .stock-ask-send { display: none; }
-        .stock-ask-mic { flex: none; align-self: center; }
 
         .stock-ask-mark {
           flex: none;
-          width: 22px;
-          height: 22px;
-          background: var(--text-primary);
-          /* The chart's own file, at the chart's own address. Pivot kept a
-             copy in its /public; here that copy would 404, because this page
-             is proxied onto the chart's origin and /charto-mark.png is a
-             route the chart has never heard of. /assets/pivot-mark.png is
-             the same bytes (identical checksum) already served there — one
-             file, and no second copy to drift. */
-          -webkit-mask: url("/assets/pivot-mark.png") center / contain no-repeat;
-                  mask: url("/assets/pivot-mark.png") center / contain no-repeat;
+          display: grid;
+          place-items: center;
+          color: var(--text-primary);
+          opacity: 0.9;
         }
         .stock-ask-input {
           flex: 1 1 auto;
@@ -553,128 +712,280 @@ export function StockAskBar({
           font-family: inherit;
           font-size: 14px;
           line-height: 1.5;
-          padding: 0;
+          letter-spacing: -0.006em;
         }
         .stock-ask-input::placeholder { color: var(--text-tertiary); }
 
-        .stock-ask-reopen {
+        /* The collapsed thread. A count, quiet, with a dot when something in
+           it is unread — and the word "new" only for the first few seconds. */
+        .stock-ask-recall {
           flex: none;
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          height: 26px;
+          min-width: 26px;
+          padding: 0 8px;
           border: 1px solid var(--ask-edge);
-          background: transparent;
-          color: var(--text-tertiary);
           border-radius: var(--radius-pill);
-          padding: 3px 9px;
-          font-size: 11px;
+          background: transparent;
+          color: var(--text-secondary);
+          font-family: inherit;
+          font-size: 11.5px;
+          font-variant-numeric: tabular-nums;
           cursor: pointer;
+          transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
         }
-
+        .stock-ask-recall:hover {
+          background: var(--ask-hover);
+          color: var(--text-primary);
+          border-color: var(--ask-edge-strong);
+        }
+        .stock-ask-recall.has-unseen { color: var(--text-primary); }
+        .stock-ask-recall-text { animation: stock-ask-fade 180ms ease both; }
+        .stock-ask-pip {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--accent);
+        }
         .stock-ask-send {
           flex: none;
-          width: 40px;
-          height: 40px;
+          width: 38px;
+          height: 38px;
           display: grid;
           place-items: center;
           border: 0;
           border-radius: 50%;
           background: var(--ask-ink);
           color: var(--ask-ink-fg);
-          font-size: 16px;
-          line-height: 1;
           cursor: pointer;
-          transition: opacity 120ms ease;
+          transition: opacity 140ms ease, transform 140ms ease;
         }
-        .stock-ask-send:disabled { opacity: 0.28; cursor: default; }
+        .stock-ask-send:disabled { opacity: 0.22; cursor: default; }
+        .stock-ask-send:not(:disabled):active { transform: scale(0.94); }
         .stock-ask-stop {
-          width: 11px; height: 11px; border-radius: 2px; background: var(--ask-ink-fg);
+          width: 10px; height: 10px; border-radius: 2px; background: var(--ask-ink-fg);
         }
 
         /* ── the transcript ─────────────────────────────────────────── */
         .stock-ask-panel {
-          border-radius: 18px;
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          border-radius: var(--radius-lg);
           overflow: hidden;
+          background: var(--ask-solid);
+          -webkit-backdrop-filter: blur(28px) saturate(160%);
+          backdrop-filter: blur(28px) saturate(160%);
+          border: 1px solid var(--ask-edge);
+          box-shadow: var(--ask-lift);
+          animation: stock-ask-rise 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
         }
-        .stock-ask-panel-head {
+        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+          .stock-ask-panel { background: var(--bg-base); }
+        }
+
+        .stock-ask-head {
           display: flex;
           align-items: center;
           gap: 8px;
-          padding: 9px 12px;
+          height: 40px;
+          padding: 0 8px 0 13px;
           border-bottom: 1px solid var(--ask-edge);
         }
-        .stock-ask-panel-title {
-          font-size: 11.5px;
-          font-weight: 650;
-          letter-spacing: 0.02em;
+        .stock-ask-brand {
+          display: grid;
+          place-items: center;
+          color: var(--text-primary);
+          opacity: 0.85;
+        }
+        .stock-ask-sym {
+          font-size: 12.5px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
           color: var(--text-primary);
         }
-        .stock-ask-panel-note {
-          flex: 1 1 auto;
-          font-size: 11px;
+        .stock-ask-count {
+          font-size: 11.5px;
           color: var(--text-tertiary);
+          font-variant-numeric: tabular-nums;
         }
-        .stock-ask-x {
+        .stock-ask-grow { flex: 1 1 auto; }
+        /* One button shape for every control in the header. Icon-only, 28px
+           of hit area around a 14px glyph, and colour is the only thing that
+           changes on hover — a header where each control has its own border
+           reads as a toolbar of unrelated parts. */
+        .stock-ask-icon {
+          flex: none;
+          width: 28px;
+          height: 28px;
+          display: grid;
+          place-items: center;
           border: 0;
+          border-radius: var(--radius-sm);
           background: transparent;
           color: var(--text-tertiary);
-          font-size: 12px;
           cursor: pointer;
-          line-height: 1;
-          padding: 2px 4px;
+          transition: background 140ms ease, color 140ms ease;
+        }
+        .stock-ask-icon:hover:not(:disabled) {
+          background: var(--ask-hover);
+          color: var(--text-primary);
+        }
+        .stock-ask-icon:disabled { opacity: 0.35; cursor: default; }
+        .stock-ask-icon:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: -2px;
+        }
+
+        /* The in-flight rail. Zero height when idle, so nothing reflows when
+           it appears; it draws ON the header's border rather than beside it. */
+        .stock-ask-rail {
+          position: relative;
+          height: 0;
+          overflow: hidden;
+        }
+        .stock-ask-rail.is-live { height: 1px; margin-top: -1px; }
+        .stock-ask-rail.is-live::after {
+          content: "";
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 38%;
+          background: linear-gradient(
+            90deg,
+            transparent,
+            var(--accent),
+            transparent
+          );
+          animation: stock-ask-sweep 1.5s ease-in-out infinite;
         }
 
         .stock-ask-scroll {
-          max-height: min(46vh, 420px);
+          flex: 1 1 auto;
+          min-height: 0;
+          max-height: min(42vh, 380px);
           overflow-y: auto;
-          padding: 12px;
+          overscroll-behavior: contain;
+          padding: 14px 16px 16px;
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 18px;
+          scrollbar-width: thin;
         }
-        .stock-ask-turn { display: flex; flex-direction: column; gap: 7px; }
+        .stock-ask-panel.is-tall .stock-ask-scroll { max-height: min(72vh, 720px); }
+
+        /* A turn is a section of a document: the question, then the answer.
+           Divided by a hairline rather than by opposing bubbles. */
+        .stock-ask-turn {
+          display: flex;
+          flex-direction: column;
+          gap: 9px;
+        }
+        .stock-ask-turn + .stock-ask-turn {
+          border-top: 1px solid var(--ask-edge);
+          padding-top: 18px;
+        }
         .stock-ask-q {
-          align-self: flex-end;
-          max-width: 88%;
-          padding: 6px 11px;
-          border-radius: 14px 14px 4px 14px;
-          background: var(--accent-wash);
-          color: var(--text-primary);
-          font-size: 12.5px;
-          line-height: 1.5;
+          margin: 0;
+          font-size: 13px;
+          font-weight: 550;
+          line-height: 1.45;
+          letter-spacing: -0.008em;
+          color: var(--text-secondary);
         }
         .stock-ask-a {
-          font-size: 13px;
-          line-height: 1.62;
+          font-size: 13.5px;
+          line-height: 1.65;
           color: var(--text-primary);
         }
+        /* A research answer is mostly tables, and a table wider than the panel
+           used to push the whole page sideways. It scrolls inside its own box
+           instead — the one thing that must never scroll is the document. */
+        .stock-ask-a table { font-size: 12px; }
+        .stock-ask-a pre,
+        .stock-ask-a .overflow-x-auto { max-width: 100%; overflow-x: auto; }
+
         .stock-ask-err {
+          margin: 0;
           font-size: 12px;
+          line-height: 1.5;
           color: var(--color-loss);
         }
         .stock-ask-wait {
           display: flex;
           align-items: center;
-          gap: 7px;
-          font-size: 12px;
+          gap: 8px;
+          margin: 0;
+          font-size: 12.5px;
           color: var(--text-tertiary);
         }
-        .stock-ask-dot {
-          width: 6px; height: 6px; border-radius: 50%;
-          background: var(--pivot-blue);
-          animation: stock-ask-pulse 1.1s ease-in-out infinite;
-        }
-        @keyframes stock-ask-pulse {
-          0%, 100% { opacity: 0.25; }
-          50%      { opacity: 1; }
+        /* Not a spinner. A spinner says "busy"; this says "still arriving",
+           which is the honest description of a stream that has already told
+           you which tool it is running. */
+        .stock-ask-spark {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--accent);
+          animation: stock-ask-breathe 1.4s ease-in-out infinite;
         }
 
+        .stock-ask-jump {
+          position: absolute;
+          left: 50%;
+          bottom: 14px;
+          transform: translateX(-50%);
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          height: 26px;
+          padding: 0 11px;
+          border: 1px solid var(--ask-edge);
+          border-radius: var(--radius-pill);
+          background: var(--ask-solid);
+          -webkit-backdrop-filter: blur(20px);
+          backdrop-filter: blur(20px);
+          color: var(--text-secondary);
+          font-family: inherit;
+          font-size: 11.5px;
+          cursor: pointer;
+          box-shadow: 0 6px 18px -6px rgba(15, 18, 22, 0.28);
+          animation: stock-ask-fade 160ms ease both;
+        }
+        .stock-ask-jump:hover { color: var(--text-primary); }
+
         .stock-ask-hint {
+          margin: 0;
           text-align: center;
           font-size: 10.5px;
           color: var(--text-tertiary);
           opacity: 0.85;
         }
 
+        @keyframes stock-ask-rise {
+          from { opacity: 0; transform: translateY(6px) scale(0.994); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes stock-ask-fade {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes stock-ask-breathe {
+          0%, 100% { opacity: 0.25; }
+          50%      { opacity: 1; }
+        }
+        @keyframes stock-ask-sweep {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(360%); }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          .stock-ask-dot { animation: none; opacity: 0.7; }
+          .stock-ask-spark,
+          .stock-ask-rail.is-live::after { animation: none; opacity: 0.7; }
+          .stock-ask-panel { animation: none; }
           .stock-ask,
           .stock-ask-pill,
           .stock-ask-send { transition: none; }
