@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BarChart2, ChevronRight, LogOut } from "lucide-react";
+import { BarChart2, ChevronRight, LogOut, User } from "lucide-react";
 import { StockDetailPage } from "@/components/StockDetailPage";
 import { PivotLogo } from "@/components/brand/PivotLogo";
-import { getMe, logoutUser, type UserProfile } from "@/lib/api";
-import { isError } from "@/lib/types";
+import { logoutCharto, useChartoUser } from "@/lib/charto-auth";
 
 /**
  * Client wrapper that mounts the stock detail page under charto's own chrome
@@ -38,16 +37,20 @@ function venueFor(symbol: string): string {
   return "NSE";
 }
 
-function StockAccountMenu(): React.ReactElement {
+/** The account control, mirroring the chart's own `#acctBtn`.
+ *
+ *  It reads charto's session, not Pivot's: the two apps issue separate tokens
+ *  and `/auth/me` answers in charto's shape (`{ user }`), so Pivot's `getMe()`
+ *  found nobody here even for someone signed in on the chart, and its
+ *  `logoutUser()` cleared a token charto had not issued. See lib/charto-auth.
+ *
+ *  Signed out is a first-class state, as it is on the chart: charto works
+ *  without an account and this page is deliberately ungated, so the control
+ *  says who you are not and offers the way in rather than pretending. */
+function StockAccountMenu({ symbol }: { symbol: string }): React.ReactElement {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const user = useChartoUser();
   const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    void getMe().then((result) => {
-      if (!isError(result)) setProfile(result.data);
-    });
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -65,41 +68,66 @@ function StockAccountMenu(): React.ReactElement {
     };
   }, [open]);
 
-  const displayName = profile?.full_name?.trim() || profile?.email || "Account";
-  const initial = displayName.trim()[0]?.toUpperCase() || "U";
+  const displayName = user?.name?.trim() || user?.email || "";
+  const initial = displayName.trim()[0]?.toUpperCase() || "";
+  const label = user ? `Account \u2014 ${displayName}` : "Sign in to Charto";
 
   const signOut = async (): Promise<void> => {
-    await logoutUser();
-    window.location.assign("/login");
+    await logoutCharto();
+    // Signing out changes WHOSE work this page is showing, and the components
+    // holding it are already mounted — the same reason the chart reloads.
+    window.location.reload();
   };
 
   return (
     <div ref={ref} className="relative shrink-0">
       <button
         type="button"
-        aria-label="Open account menu"
+        aria-label={label}
+        title={label}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1597b6] text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#1186a2]"
+        className={
+          user
+            ? "flex h-9 w-9 items-center justify-center rounded-full bg-[#1597b6] text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#1186a2]"
+            : "flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground transition hover:bg-muted/70"
+        }
       >
-        {initial}
+        {user ? initial : <User size={16} aria-hidden="true" />}
       </button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-xl border border-border bg-background p-1.5 shadow-xl">
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 overflow-hidden rounded-xl border border-border bg-background p-1.5 shadow-xl">
           <div className="border-b border-border/70 px-3 py-2.5">
-            <div className="truncate text-[13px] font-semibold text-foreground">{displayName}</div>
-            {profile?.email && profile.email !== displayName && (
-              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{profile.email}</div>
-            )}
+            <div className="truncate text-[13px] font-semibold text-foreground">
+              {user ? displayName : "Not signed in"}
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {user
+                ? (user.name?.trim() ? user.email : "Signed in to Charto")
+                : "Working in this browser"}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
-          >
-            <LogOut size={15} aria-hidden="true" />
-            Log out
-          </button>
+          {user ? (
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+            >
+              <LogOut size={15} aria-hidden="true" />
+              Log out
+            </button>
+          ) : (
+            // Charto's sign-in dialog lives on the chart, so this hands the
+            // visitor to it rather than to Pivot's /login, which authenticates
+            // against a different backend entirely.
+            <a
+              href={`${CHART}?symbol=${encodeURIComponent(symbol)}`}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted"
+            >
+              <User size={15} aria-hidden="true" />
+              Sign in on the chart
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -170,7 +198,7 @@ export function CompanyChrome({
           <span className="hidden min-[360px]:inline">Launch chart</span>
           <ChevronRight className="hidden sm:block" size={14} aria-hidden="true" />
         </a>
-        <StockAccountMenu />
+        <StockAccountMenu symbol={symbol} />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-6 pb-8 sm:px-5 lg:px-8">
         {/* In Pivot the sidebar eats ~260px of a wide screen. Without it the
