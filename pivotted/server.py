@@ -39,6 +39,7 @@ import tools as T                      # noqa: E402
 from prompt import system_prompt       # noqa: E402
 
 PORT = int(os.environ.get("PIVOTTED_PORT", "5175"))
+HOST = os.environ.get("PIVOTTED_HOST", "0.0.0.0")
 
 # Same Azure deployment Charto talks to; credentials come from the same place
 # so there is one key to rotate, not two.
@@ -105,9 +106,17 @@ def _post(wire: list[dict], allow_tools: bool = True) -> dict:
         return json.loads(r.read())
 
 
+# Idle deadline on the model's own stream, not a budget for the turn: it is a
+# socket timeout, so it fires only after this long with NOTHING arriving. A
+# turn that streams steadily for ten minutes is fine; one that goes quiet is
+# the failure worth reporting, and it has happened (Azure stalled mid-answer
+# on a two-turn transcript).
+_LLM_STREAM_IDLE = 180
+
+
 def _post_stream(wire: list[dict], allow_tools: bool = True):
     with urllib.request.urlopen(_request(wire, allow_tools, True),
-                                timeout=180, context=_ssl_ctx()) as resp:
+                                timeout=_LLM_STREAM_IDLE, context=_ssl_ctx()) as resp:
         for raw in resp:
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -119,6 +128,65 @@ def _post_stream(wire: list[dict], allow_tools: bool = True):
                 yield json.loads(body)
             except json.JSONDecodeError:
                 continue
+
+
+# The composer's tagged context, as Pivot writes it into the prompt.
+#
+# Pivot's chat takes an `attachments` array beside `messages` and renders one
+# line per item ahead of the user's own words (`_fmt_attachment` in
+# `backend/routers/chat.py`); its stock-page ask bar sends exactly one, the
+# company whose page is open. Reading only `messages` meant that array arrived
+# and was discarded, so "is it expensive?" typed on 3M India's page reached
+# the model as a question about nothing and the first tool call had to guess a
+# symbol — which, on a research build whose whole risk is answering for the
+# wrong company, is the one failure that looks like an answer.
+#
+# Only `security` is understood here. Positions, baskets and agents are
+# Pivot's commit-side context and this build has no use for them; an
+# attachment it cannot read is skipped rather than half-rendered.
+_MAX_ATTACH_FIELD = 120
+
+
+def _attachment_line(att: dict) -> str | None:
+    """One human-readable line for a tagged security, or None."""
+    if not isinstance(att, dict) or str(att.get("kind", "")).lower() != "security":
+        return None
+    sym = str(att.get("symbol") or "")[:_MAX_ATTACH_FIELD].strip().upper()
+    if not sym:
+        return None
+    name = str(att.get("name") or "")[:_MAX_ATTACH_FIELD].strip()
+    return f"- Security: {sym}" + (f" ({name})" if name else "")
+
+
+def _apply_attachments(messages: list[dict], attachments) -> list[dict]:
+    """Prefix the LAST user turn with the tagged context, verbatim Pivot.
+
+    The wording is Pivot's, not a paraphrase: it is what its model has been
+    answering against, and two builds describing the same envelope in two
+    voices is how they start behaving differently on the same input. Only the
+    last user message is wrapped — an earlier turn's context is already in
+    what the assistant replied.
+    """
+    if not isinstance(attachments, list) or not attachments:
+        return messages
+    lines = [ln for ln in (_attachment_line(a) for a in attachments) if ln]
+    if not lines:
+        return messages
+    out = list(messages)
+    for i in range(len(out) - 1, -1, -1):
+        if out[i].get("role") == "user":
+            block = "\n".join(lines)
+            out[i] = dict(out[i], content=(
+                "The user attached the following context to this message "
+                "(tagged via the composer). Treat these as the specific "
+                "subject(s) being discussed — resolve pronouns like "
+                "'it'/'this' to them, and use their exact symbols/ids when "
+                "calling tools:\n"
+                f"{block}\n\n"
+                f"User message:\n{out[i].get('content') or ''}"
+            ))
+            break
+    return out
 
 
 def _wire_messages(messages: list[dict]) -> list[dict]:
@@ -305,7 +373,14 @@ def chat_stream_pivot(messages: list[dict]):
                 return
     except Exception as exc:                        # noqa: BLE001
         logging.exception("pivotted: pivot-dialect stream failed")
-        yield {"type": "error", "message": str(exc)}
+        # Name what failed. "The read operation timed out" is a socket's
+        # phrase, and a reader looking at half an answer cannot tell from it
+        # whether the data was wrong, the server died, or the model went
+        # quiet — which is the only one of the three that actually happened.
+        detail = (f"the model sent nothing for {_LLM_STREAM_IDLE}s"
+                  if isinstance(exc, TimeoutError)
+                  else str(exc) or exc.__class__.__name__)
+        yield {"type": "error", "message": f"the answer was cut off — {detail}"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -369,6 +444,7 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(m, dict)]
         if not messages:
             return self._send(400, {"error": "messages[] required"})
+        messages = _apply_attachments(messages, body.get("attachments"))
         try:
             if path == "/chat/stream":
                 return self._stream(messages, dialect="pivot")
@@ -425,4 +501,8 @@ if __name__ == "__main__":
     # Resolve the price-service import here, single-threaded, so the first
     # concurrent tool round does not race the circular import and lose.
     logging.info("price service warm: %s", T.bars.warm())
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    # All interfaces on a laptop, where reaching it from a phone on the same
+    # wifi is the point. On the VM the unit pins this to 127.0.0.1: nginx is
+    # the only thing that should reach a model turn, because nginx is where the
+    # rate limit lives, and an open port here is somebody else's LLM bill.
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

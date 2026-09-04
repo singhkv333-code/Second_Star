@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BarChart2, ChevronRight, LogOut, User } from "lucide-react";
 import { StockDetailPage } from "@/components/StockDetailPage";
+import { StockAskBar } from "@/components/stock/StockAskBar";
 import { PivotLogo } from "@/components/brand/PivotLogo";
 import { logoutCharto, useChartoUser } from "@/lib/charto-auth";
 
@@ -216,6 +217,17 @@ export function StockSymbolView({ symbol }: { symbol: string }): React.ReactElem
   return (
     <CompanyChrome symbol={symbol}>
       <StockDetailPage symbol={symbol} />
+      {/* The ask bar belongs to the ROUTE, not to StockDetailPage: that
+          component draws two layouts (desktop and phone) and the bar should be
+          one instance present whichever is drawn. It floats over the content,
+          so the spacer reserves the height it would otherwise cover at the end
+          of the scroll — plus the phone's home-indicator inset, which the bar
+          itself also clears. */}
+      <div
+        aria-hidden
+        style={{ height: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+      />
+      <StockAskBar symbol={symbol} />
     </CompanyChrome>
   );
 }

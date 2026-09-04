@@ -24,6 +24,21 @@
 const TOKEN_KEY = "pivot_jwt";
 const REFRESH_KEY = "pivot_refresh";
 
+// Charto's chart signs the user in and keeps its bearer under its own key, on
+// the same origin. Everything below — expiry decoding, rotation, the refresh
+// poller — was written for Pivot's JWT pair, and Charto's token is neither a
+// JWT nor refreshable: it is an opaque 30-day session the server validates.
+//
+// So it is read FIRST and returned untouched. Without this, every module that
+// authenticates through here (the portfolio scores and performance reads) sent
+// no header at all and the page rendered "Couldn't load performance — 401"
+// beside a portfolio that had loaded perfectly through the other client.
+const CHARTO_TOKEN_KEY = "charto:auth:token";
+
+function readChartoToken(): string | null {
+  return readLS(CHARTO_TOKEN_KEY);
+}
+
 // Refresh when the access token has this many seconds (or fewer) of life
 // left — covers clock skew and requests in flight at the boundary.
 const EXP_SKEW_SECONDS = 120;
@@ -132,6 +147,8 @@ export function refreshAccessToken(): Promise<string | null> {
  * straight from localStorage.
  */
 export async function getAccessToken(): Promise<string | null> {
+  const charto = readChartoToken();
+  if (charto) return charto;
   const current = readLS(TOKEN_KEY);
   const ttl = secondsUntilExpiry(current);
   // Fresh enough (or un-decodable → assume usable): return as-is.
@@ -144,7 +161,7 @@ export async function getAccessToken(): Promise<string | null> {
 /** Best-effort synchronous read (no refresh). For call sites that can't be
  *  async; pair with scheduleAutoRefresh() so the value stays fresh. */
 export function getAccessTokenSync(): string | null {
-  return readLS(TOKEN_KEY);
+  return readChartoToken() ?? readLS(TOKEN_KEY);
 }
 
 let _autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -153,6 +170,7 @@ let _visibilityHandler: (() => void) | null = null;
 /** Refresh now if the token is expired/near-expiry — used by the poller and
  *  the tab-focus handler. No-op when comfortably fresh. */
 async function refreshIfStale(): Promise<void> {
+  if (readChartoToken()) return;   // opaque session, nothing to refresh
   const ttl = secondsUntilExpiry(readLS(TOKEN_KEY));
   if (readLS(REFRESH_KEY) && (ttl === null || ttl <= EXP_SKEW_SECONDS)) {
     await refreshAccessToken();
