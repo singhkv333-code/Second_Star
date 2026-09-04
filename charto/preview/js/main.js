@@ -3953,7 +3953,7 @@
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);
     acctBtn.innerHTML = u ? initialOf(u) : Icons.svg("user");
-    acctBtn.title = u ? `Account — ${u.name || u.email}` : "Sign in to Charto";
+    acctBtn.title = u ? `Account — ${u.name || u.email}` : "Sign in to Pivot";
     acctBtn.setAttribute("aria-label", acctBtn.title);
     acctMenu.innerHTML = u
       ? `<div class="acct-id in"><span class="disc">${initialOf(u)}</span>`
@@ -4234,7 +4234,11 @@
     el("symbolVenue").textContent = Sym.venue;
     setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
-    document.title = `${SYMBOL} — Charto`;
+    // PIVOT, which is what the header lockup, the static <title> and the
+    // company page have all said for a while. "Charto" is the repository's
+    // name for this surface, not the product's, and the tab was the last
+    // place it was still leaking out to a reader.
+    document.title = `${SYMBOL} — Pivot`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
     let all = null, hyd = new Set(), names = {}, shortNames = {}, logos = {};

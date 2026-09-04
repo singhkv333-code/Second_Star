@@ -358,7 +358,7 @@ const Alerts = (() => {
     if (document.visibilityState === "visible" && Panels && Panels.openWidget
         && Panels.openWidget() === "alerts") return;
     try {
-      const n = new Notification("Charto alert", {
+      const n = new Notification("Pivot alert", {
         body: `${line}\n${l.meta || ""} · saw ${l.value}`,
         tag: `charto-alert-${l.id}`, silent: false,
       });

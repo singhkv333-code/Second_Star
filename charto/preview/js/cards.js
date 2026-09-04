@@ -277,7 +277,7 @@ const Cards = (() => {
           ? `<p class="wf-note">${esc(blockers[0])}</p>` : "")
       + `<div class="wf-cta">`
       + `<button type="button" class="wf-primary" data-wf-activate`
-      + ` title="Connect a Pivot account to arm agents from Charto">`
+      + ` title="Connect an account to arm agents from this chart">`
       + `Save &amp; activate</button>`
       + `<div class="wf-ghosts">`
       + (blockers.length ? ""

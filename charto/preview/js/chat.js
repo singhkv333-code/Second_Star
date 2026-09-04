@@ -1995,19 +1995,41 @@
   /* The switched-off half says so where the hand already is.
    *
    * `aria-disabled`, never the `disabled` attribute: a disabled button takes
-   * no pointer events at all, which means no hover, which means the browser
-   * never shows the title — the control would go quiet and grey and never
-   * explain itself. This marks it for assistive tech and for the stylesheet,
-   * and the gate in setChatMode is what actually refuses the switch. */
+   * no pointer events at all, so it could not be hovered and would have no
+   * way to explain itself — it would go quiet and grey and nothing more. This
+   * marks it for assistive tech and for the stylesheet, and the gate in
+   * setChatMode is what actually refuses the switch.
+   *
+   * NOT `title`. The browser's own tooltip waits about a second, arrives in
+   * the OS's styling rather than the app's, and appears at the cursor instead
+   * of under the control — on a switch you are actively trying to press, a
+   * second of nothing reads as a dead button, not as an explanation. This is
+   * the rail's tooltip (.tool .tip) with its --tip-delay taken off, so the
+   * answer is on screen the instant the pointer lands.
+   *
+   * It is a SIBLING of the segments, not a child: the segment clips its own
+   * overflow to ellipsis its label, which would cut the tip off, and it is
+   * absolutely positioned so the switch stays a two-column grid rather than
+   * growing a third. The `~` needs it after both halves. */
   if (!EXECUTION_ENABLED) {
-    const soon = (n) => {
+    const soon = (n, label) => {
       n.setAttribute("aria-disabled", "true");
-      n.title = "Coming soon";
+      // The markup's own title has to GO, not be rewritten. Left in place it
+      // describes a mode you cannot enter, and the browser would print it in
+      // its own tooltip a second after ours — two answers to one hover, the
+      // slower one wrong.
+      n.removeAttribute("title");
+      // The reason travels with the NAME, so a screen reader hears it in the
+      // same breath as the label — the visible word stays the prefix, so what
+      // is said and what is shown still match.
+      n.setAttribute("aria-label", `${label} — coming soon`);
     };
-    for (const seg of modeSegs) if (seg.dataset.chatMode === "execution") soon(seg);
+    for (const seg of modeSegs) if (seg.dataset.chatMode === "execution") soon(seg, "Execution");
     for (const it of mobileModeItems) {
-      if (it.dataset.mobileChatMode === "execution") soon(it);
+      if (it.dataset.mobileChatMode === "execution") soon(it, "Execution");
     }
+    modeSwitch.insertAdjacentHTML("beforeend",
+      '<span class="mode-tip" aria-hidden="true">Coming soon</span>');
   }
   function paintChatMode() {
     const execution = chatMode === "execution";
