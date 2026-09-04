@@ -4,6 +4,18 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Pivot</title>
+<!-- The tab icon. There was none, so every tab wore the browser's generic
+     globe and the app was unfindable in a row of them — the one place a
+     product's mark does the most work for the least ink.
+
+     SVG first, and the PNG behind it for browsers that will not take one
+     (Safari before 16). Order matters: a browser picks the LAST icon link it
+     understands, so the fallback has to come first or it wins everywhere.
+     Same file the touch icon uses — a home-screen shortcut is the same mark
+     at a different size, and the vector has every size. -->
+<link rel="icon" href="./assets/pivot-mark.png" type="image/png" sizes="128x128" />
+<link rel="icon" href="./assets/charto-mark.svg?v=1" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="./assets/charto-mark.svg?v=1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
