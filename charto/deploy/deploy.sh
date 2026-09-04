@@ -252,3 +252,27 @@ if grep -qE '^(charto/data/|pivot/)' <<<"$changed"; then
 else
   echo "deploy: static frontend already live; company frontend checked separately"
 fi
+
+# The research chat behind the company page's ask bar (pivotted on :5176).
+#
+# `charto/data/` is in the trigger as well as `pivotted/`, and deliberately:
+# pivotted/tools.py builds its tool table by SUBTRACTION from `ds.TOOLS` and
+# reads its credentials off the same module, so a dataserver change is a
+# pivotted change even when nothing under pivotted/ moved.
+#
+# Never fatal, and guarded on the unit existing: a box that has not run
+# provision_research.sh yet is not broken, it simply has no ask bar, and a
+# deploy that aborted here would leave the chart's own deploy unfinished over
+# a surface that is not live on that box anyway.
+if systemctl cat charto-research.service >/dev/null 2>&1 \
+  && grep -qE '^(pivotted/|charto/data/)' <<<"$changed"; then
+  echo "deploy: research chat source changed, restarting charto-research.service"
+  if sudo -n /usr/bin/systemctl restart charto-research.service; then
+    sleep 2
+    systemctl is-active --quiet charto-research.service \
+      && echo "deploy: charto-research.service active" \
+      || echo "deploy: WARNING — charto-research.service did not come back; the"
+  else
+    echo "deploy: WARNING — could not restart charto-research.service (sudoers?)"
+  fi
+fi
