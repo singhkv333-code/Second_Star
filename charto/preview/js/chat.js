@@ -12,8 +12,23 @@
 
 (function () {
   // same-origin behind a proxy, explicit port in local dev (see main.js)
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
-    ? "http://127.0.0.1:5174" : "";
+  const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
+  const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
+  /* Execution mode is a LAPTOP-ONLY surface for now.
+   *
+   * It builds and simulates a strategy well and then forgets it: there is no
+   * saved-strategy list behind the deployed box, so a visitor can compose a
+   * rule, be told it was saved, and find nothing afterwards. Shipping that to
+   * anyone who opens the site is worse than not offering it yet.
+   *
+   * The half that is finished — Research — is what the site answers with, so
+   * the switch STAYS, both halves visible and the same size. A control that
+   * vanished in production would make the mode itself undiscoverable and
+   * leave the remaining half looking like a lone unexplained label. It is
+   * inert and says why on hover instead, which is the honest version of the
+   * same screen. One flag, read in setChatMode below, so the click, the
+   * arrow keys and the phone menu are all governed by a single rule. */
+  const EXECUTION_ENABLED = LOCAL_DEV;
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -25,7 +40,11 @@
   // Mutated in PLACE, never rebound: every closure below holds this one array,
   // so opening a past conversation refills it rather than replacing it.
   const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
-  let chatMode = Store.get("chatmode", "chat") === "execution" ? "execution" : "chat";
+  // A stored "execution" must not survive into a build that cannot run it:
+  // the mode is remembered per browser, so anyone who used it on a laptop and
+  // then opened the deployed site would land in the half that is switched off.
+  let chatMode = EXECUTION_ENABLED
+    && Store.get("chatmode", "chat") === "execution" ? "execution" : "chat";
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
     // The chart this turn was asked on. A conversation survives a symbol
@@ -1973,6 +1992,23 @@
    * paints off, so there is exactly one place the truth lives. */
   const modeSwitch = el("chatModeSwitch");
   const modeSegs = [...modeSwitch.querySelectorAll("[data-chat-mode]")];
+  /* The switched-off half says so where the hand already is.
+   *
+   * `aria-disabled`, never the `disabled` attribute: a disabled button takes
+   * no pointer events at all, which means no hover, which means the browser
+   * never shows the title — the control would go quiet and grey and never
+   * explain itself. This marks it for assistive tech and for the stylesheet,
+   * and the gate in setChatMode is what actually refuses the switch. */
+  if (!EXECUTION_ENABLED) {
+    const soon = (n) => {
+      n.setAttribute("aria-disabled", "true");
+      n.title = "Coming soon";
+    };
+    for (const seg of modeSegs) if (seg.dataset.chatMode === "execution") soon(seg);
+    for (const it of mobileModeItems) {
+      if (it.dataset.mobileChatMode === "execution") soon(it);
+    }
+  }
   function paintChatMode() {
     const execution = chatMode === "execution";
     input.placeholder = execution ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
@@ -1992,6 +2028,10 @@
   }
   function setChatMode(next, { focus = false } = {}) {
     next = next === "execution" ? "execution" : "chat";
+    // The one gate. Every path into the mode — the segment, the arrow keys,
+    // the phone menu — comes through here, so switching it off is one line
+    // rather than three that have to agree.
+    if (next === "execution" && !EXECUTION_ENABLED) return;
     if (next === chatMode) return;
     chatMode = next;
     Store.set("chatmode", chatMode);
@@ -2008,7 +2048,19 @@
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight"
         && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
-    setChatMode(chatMode === "execution" ? "chat" : "execution", { focus: true });
+    const next = chatMode === "execution" ? "chat" : "execution";
+    // An unavailable half still TAKES FOCUS. Refusing the key outright would
+    // leave a keyboard reader with a group that appears to hold one option:
+    // the arrow would do nothing, nothing would be announced, and the mode
+    // would be invisible rather than merely off. Focus moves, the label and
+    // its disabled state are read, and only the switch itself is declined —
+    // which is what a radio group with an unavailable option is supposed to
+    // do. (Roving tabindex, so `.focus()` on the -1 segment is the point.)
+    if (next === "execution" && !EXECUTION_ENABLED) {
+      modeSegs.find((s) => s.dataset.chatMode === "execution")?.focus();
+      return;
+    }
+    setChatMode(next, { focus: true });
   });
   function closeMobileMenu() {
     mobileMenu.classList.remove("open");

@@ -944,8 +944,16 @@
     // Hidden until something IS selected: a button that deletes "the
     // selection" is a lie on a chart that has none, and the rail is short
     // enough that a permanent disabled slot costs more than it explains.
+    //
+    // An ERASER, not a second trash. This was added for touch and it landed
+    // directly under the trash that had always been there, wearing the same
+    // glyph — so on the one screen that never needed it, a selected shape
+    // grew a duplicate bin and the pair became a guess. Different job,
+    // different mark: the bin removes whole layers, the eraser removes the
+    // one thing you are pointing at. The stylesheet takes the eraser back off
+    // any mouse-and-keyboard screen, where Del already does this.
     `<button class="tool" id="tool-del" data-tool="del" data-kind="action" hidden>` +
-    `${Icons.svg("trash")}<span class="tip">Delete selected (Del)</span></button>`);
+    `${Icons.svg("eraser")}<span class="tip">Delete selected (Del)</span></button>`);
 
   /* The delete button follows BOTH selections — the user's own shapes and the
    * chat's annotations — because from the chart's side they are one idea:
@@ -3962,8 +3970,10 @@
         // than a panel: it is a full page on the app's other surface, the way
         // a company page is, and pretending otherwise would mean rebuilding
         // six charts that already exist.
-        + `<div class="item" data-acct="paper"><span class="lead">`
-        + Icons.svg("paperBook", "xs") + `Paper book</span></div>`
+        + (LOCAL_DEV                                  // see the header button
+          ? `<div class="item" data-acct="paper"><span class="lead">`
+            + Icons.svg("paperBook", "xs") + `Paper book</span></div>`
+          : "")
         + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
@@ -3994,8 +4004,16 @@
    * A new TAB, not a navigation: leaving the chart would drop the live feed,
    * the drawing layer and the conversation, and the book is something you
    * glance at beside the chart rather than instead of it. */
+  /* …and NOT on the deployed box, where the book is not ready to be found.
+   *
+   * Removed rather than disabled, and removed from the account menu with it:
+   * a door is either there or it is not, and half of one — a glyph that
+   * explains why it cannot be opened — is worse than a header that never
+   * promised the room. The whole feature stays in the build and comes back
+   * the moment the box can serve it; this is the one line that decides. */
   const paperBtn = el("paperBtn");
-  if (paperBtn) {
+  if (paperBtn && !LOCAL_DEV) paperBtn.remove();
+  else if (paperBtn) {
     paperBtn.innerHTML = Icons.svg("paperBook");
     /* COMPANY_PAGE, for the reason written where it is defined — and this is
      * the second time that reason has had to be learned. An absolute

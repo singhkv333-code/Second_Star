@@ -1864,6 +1864,20 @@ header > .btn, header > .badge { flex: none; }
 .tool.toggled { color: var(--primary); }
 .rail-sep { width: 22px; height: 1px; background: var(--border); margin: 5px 0; }
 .rail-spacer { flex: 1; }
+/* THE SELECTION-DELETE IS A TOUCH CONTROL, and only that.
+   It was built for a phone — a shape could be drawn and selected there and
+   never removed, because the only way to remove one was the Delete key. On a
+   machine that HAS that key it is a third path to a job already covered
+   twice, and it appears directly beneath "Remove objects…", so the rail grew
+   two adjacent bins that a reader had to hover to tell apart.
+   Here it goes; the key and the layer menu remain. Everywhere else — phones,
+   where the rail is replaced by .mbar's own eraser, and touch tablets, where
+   the rail is all there is — it stays, because it is the only way to delete
+   a selected shape with a finger. The element is never removed: it owns the
+   click handler and the `hidden` flag that .mbar reads its own state from. */
+@media (hover: hover) and (pointer: fine) {
+  #tool-del { display: none; }
+}
 /* ── a group's flyout ─────────────────────────────────────────────────────
    TradingView's tool menu, measured off the real one (2026-08-05, light
    theme, Chrome via CDP): a 263px card at 6px radius under a tight
@@ -3053,6 +3067,21 @@ body.two-columns .readout .row { display: none; }
   background: var(--background); color: var(--foreground);
   font-weight: var(--weight-semi);
   box-shadow: 0 0 6px 0 var(--border);
+}
+/* The half that is not built yet. Still there, still the same size — the
+   switch has to keep saying that this app has two modes — but wearing the
+   flattest state in the sheet and refusing the hover lift, so the eye reads
+   it as unavailable before the cursor ever reaches it. Pointer events stay
+   ON: the title is the whole explanation and a disabled button never shows
+   one. `cursor: default`, not `not-allowed` — this is a thing that is coming,
+   not a thing you are being refused. */
+.chat-mode-seg[aria-disabled="true"],
+.mobile-chat-menu .item[aria-disabled="true"] {
+  color: var(--muted-foreground); opacity: .5; cursor: default;
+}
+.chat-mode-seg[aria-disabled="true"]:hover,
+.mobile-chat-menu .item[aria-disabled="true"]:hover {
+  color: var(--muted-foreground); background: transparent;
 }
 /* A guaranteed gap where the auto margin has none left to give — at the
    narrowest splitter position the switch would otherwise sit 2px from the
@@ -8203,7 +8232,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=34"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=19"></script>
-  <script src="./js/main.js?v=138"></script>
+  <script src="./js/main.js?v=139"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>
@@ -8214,7 +8243,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=40"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=162"></script>
+  <script src="./js/chat.js?v=164"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
@@ -8225,6 +8254,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=13"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=12"></script>
+  <script src="./js/mobile.js?v=13"></script>
 </body>
 </html>

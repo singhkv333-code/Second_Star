@@ -388,8 +388,10 @@
      * It CLICKS #tool-del rather than deleting anything itself: same rule as
      * every other slot in this file. One button, one behaviour, two places
      * to reach it. */
+    // The eraser, the same mark the rail's own selection-delete now wears —
+    // one behaviour reads as one control wherever it surfaces.
     '<button type="button" class="mbtn mb-del" data-act="del" ' +
-      'aria-label="Delete selected" hidden>' + Icons.svg("trash") + "</button>" +
+      'aria-label="Delete selected" hidden>' + Icons.svg("eraser") + "</button>" +
     '<span class="mspace"></span>' +
     widgetBtns.map((b) => {
       const label = b.querySelector(".tip").textContent;
