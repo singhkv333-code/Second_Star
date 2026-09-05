@@ -12,6 +12,8 @@ pushed to any remote, and nothing has been applied to the VM.**
 | `restore/phase0-truth` | `40c8eeba` | CLAUDE.md/AGENTS.md rewritten, `docs/DATA_MAP.md` added, four false statements corrected, two dead files removed. |
 | `restore/phase1-excision` | `35db45ec` | Opinion markets gone from code, schema models, UI and prose. |
 | `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the Charto-session seam. Built, **not installed**. |
+| `restore/phase3-shell` | `12a4132a` | The Chart tab in the shell + `js/embed.js`. Production untouched. |
+| `restore/phase4-tools` | `4286f6cb` | The tool-name collision guard + `docs/TOOL_SURFACE.md`. |
 | `wip/pre-phase2-2026-09-05` | branch | The 56 pre-existing uncommitted files (execution mode, stock research panels, chat/backtest work), snapshotted verbatim. Not merged into anything. |
 
 ## How to undo
@@ -25,6 +27,8 @@ The commits stay in the reflog and under their tags; nothing is lost.
 **Undo one phase only** (they are independent — Phase 2 does not depend on
 Phase 1's deletions, and Phase 1 does not depend on Phase 0's prose):
 
+    git revert 4286f6cb      # drop the collision guard
+    git revert 12a4132a      # drop the Chart tab (removes js/embed.js too)
     git revert 02fc6de0      # drop the pivot-api unit + session seam
     git revert 35db45ec      # bring the opinion-markets branch back
     git revert 40c8eeba      # restore the old CLAUDE.md
@@ -51,6 +55,12 @@ These are the deliberate, separate acts still outstanding. None has run:
    sudoers file, no nginx change. Production is exactly as it was.
 3. **The nginx `/api/pivot/` block** — in the repo, not on the box.
    `apply_nginx.sh` installs it with a syntax check, a backup and a rollback.
+4. **The Chart tab** — `pivot-next` is not deployed, so nothing serves it.
+   `charto/preview/js/embed.js` IS live-on-disk once deployed, but it returns
+   immediately when the page is not in a frame, so the standalone chart at `/`
+   is unaffected either way.
+5. **Phase 5 (the verification loop)** — not built. It needs a migration and
+   agent-loop changes; see the plan file.
 
 ## Rolling back a VM change, if one is ever applied
 
