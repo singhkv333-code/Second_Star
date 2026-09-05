@@ -2521,8 +2521,7 @@ _WATCH_IDEAS_RE = re.compile(
 
 
 def _classify_reply_class(message: str, intent_kind: str) -> str:
-    """Return one of {'draft', 'automation', 'backtest', 'explainer',
-    'capability', 'small_talk', 'analysis', 'analytical_short'}.
+    """Choose only the render contract; the model owns prose sizing.
 
     NOTE: the high-cap 'strategy' class is NOT returned here — a
     strategy/basket build classifies as intent_kind='agent' → 'draft'.
@@ -2531,11 +2530,11 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
     (see the STRATEGY budget override in handle() / the stream path).
 
     The first three mirror intent_kind (with 'agent' renamed to 'draft'
-    for clarity at the reply-budget layer); the rest sub-classify the
-    'other' bucket so each shape gets a fitting length + format budget.
+    for clarity at the reply-budget layer). Ordinary conversation is one
+    adaptive class: the model chooses the smallest complete shape.
 
-    Under `llm_owned_interpretation` returns 'model_owned' — one generous
-    budget + a sizing DIRECTION; the model decides length and shape.
+    Under `llm_owned_interpretation` returns 'model_owned'. Both paths use
+    the shared response ceiling; only the model decides length and shape.
     """
     if _settings.llm_owned_interpretation:
         return "model_owned"
@@ -2551,30 +2550,11 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
         return "automation"
     if intent_kind == "backtest":
         return "backtest"
-    msg = (message or "").strip()
-    if not msg:
-        return "small_talk"
-    if _SMALLTALK_INTENT_RE.match(msg):
-        return "small_talk"
-    if _CAPABILITY_INTENT_RE.match(msg):
-        return "capability"
-    # ANALYSIS class must fire BEFORE explainer — "analyse HDFC" is analysis
-    # (apply-the-data-and-reason), not an explain-concept ask.
-    if _ANALYSIS_INTENT_RE.search(msg):
-        return "analysis"
-    # Market-overview reads (indices + movers together) outrank the bare
-    # movers table — check BEFORE list_read, which their text also matches.
-    if _MARKET_PULSE_RE.search(msg):
-        return "market_pulse"
-    # Ranked-list reads (movers / gainers-losers / most-active) need a table,
-    # not the ≤120-word prose cap — check BEFORE the analytical_short fallback.
-    if _LIST_READ_RE.search(msg):
-        return "list_read"
-    if _WATCH_IDEAS_RE.search(msg):
-        return "watch_ideas"
-    if _EXPLAINER_INTENT_RE.search(msg):
-        return "explainer"
-    return "analytical_short"
+    # Do not infer response length from keyword buckets (e.g. every “what is”
+    # becoming a 500-word explainer). The same completion reads the question,
+    # tool result and conversation, then chooses the smallest complete shape.
+    # Intent routing above remains untouched: this only governs visible prose.
+    return "adaptive"
 
 
 # Per-reply-class budget: (max_output_tokens, system hint).
@@ -2587,15 +2567,29 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
 # max_output_tokens from 1500 → 4000 so any caller that doesn't pass an
 # explicit budget also gets the headroom.
 _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
-    "model_owned": (3800, (
+    "adaptive": (500, (
+        "REPLY POLICY — decide the answer shape from the user's actual ask, "
+        "not a keyword. Answer the requested unit first and stop when it is "
+        "complete. A greeting, acknowledgement, simple definition, one fact, "
+        "price, status, or yes/no gets 1–3 direct sentences. A comparison, "
+        "analysis, or explanation earns only the structure and detail needed "
+        "to make it useful; use a table only for genuinely side-by-side data. "
+        "Honor an explicit requested length or format exactly: when the user "
+        "asks for N bullets, emit exactly N bullets and no introduction or "
+        "closing commentary. For greetings or thanks, acknowledge in one short "
+        "sentence with no capabilities, suggestions, or question. Do not offer "
+        "a product tour, append extra metrics to a one-metric question, or "
+        "restate a card below your answer. No unrequested charts, drawings, "
+        "tables, or follow-up prompts. You have a hard 500-token ceiling for "
+        "this visible reply."
+    )),
+    "model_owned": (500, (
         "REPLY SIZING — you decide. Size and structure the reply to the "
-        "ask itself: a quick fact gets 1-3 direct sentences; a comparison "
-        "or analysis gets 250-450 words with ## sections and markdown "
-        "tables for any multi-name numbers; a concept explainer up to 500 "
-        "words with headers/bullets; when a CARD renders below your text, "
-        "one plain-English summary sentence and let the card speak. Never "
-        "pad a simple answer, never compress a data-rich answer into a "
-        "blurb, and never restate a card's full field list in prose."
+        "ask itself, lead with the requested answer, and stop when complete. "
+        "A quick fact gets 1-3 direct sentences; use structure only where the "
+        "information genuinely needs it. When a CARD renders below your text, "
+        "one plain-English summary sentence and let the card speak. Never pad "
+        "a simple answer, restate a card, or exceed 500 output tokens."
     )),
     "draft": (3500, (
         "REPLY-CLASS: DRAFT. A workflow/agent CARD is being rendered "
@@ -7267,17 +7261,6 @@ class ChatService:
         # tighter caps. The class also drives a system hint injected
         # below so the model knows the target shape, not just the size.
         reply_class = _classify_reply_class(message, intent_kind)
-        # GAN R4: thematic / vague / idle / unrealistic need the full
-        # structured-reply budget (table + thesis + card readback ≈
-        # 300-500 words). Force the analysis class so they don't get the
-        # 120-word analytical_short cap that produced the 22-89-word
-        # baseline blurbs.
-        if (not _settings.llm_owned_interpretation
-                and (detect_thematic_scenario(message) is not None
-                     or is_vague_onboarding(message)
-                     or is_scared_idle_cash(message)
-                     or is_unrealistic_return(message))):
-            reply_class = "analysis"
         # STRATEGY budget override: a strategy/basket/portfolio build
         # (build_strategy / propose_basket_allocation) classifies as
         # intent_kind='agent' → 'draft' (1500-token cap), which strangled
@@ -7298,13 +7281,18 @@ class ChatService:
             _sub = _analysis_subhint(message)
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
-        max_output = _budget_tokens
+        # The ceiling is deliberately shared by every response shape. It is a
+        # ceiling, not a target; the adaptive policy above prevents simple
+        # asks from expanding merely because room is available.
+        max_output = min(_budget_tokens, 500)
         # A ranked-list read just formats the tool's rows into a table — no deep
         # reasoning is needed, and on a reasoning model 'medium' effort spends
         # most of max_output on reasoning, starving (and truncating) the visible
         # table. Drop to 'minimal' — formatting rows needs no reasoning, and any
         # reasoning here just eats the budget and truncates the table.
-        if reply_class == "list_read":
+        if reply_class == "adaptive":
+            effort = "low"
+        elif reply_class == "list_read":
             effort = "minimal"
         elif reply_class == "market_pulse":
             # Pulse turns must actually READ the four-tool payload — a
@@ -7918,11 +7906,11 @@ class ChatService:
             # On the forced-no-tools reprompt (empty-narration recovery),
             # the model has one job: WRITE prose. Reasoning here just eats
             # the budget and re-produces the empty output we're recovering
-            # from — so drop effort to 'minimal' and guarantee headroom.
+            # from — so drop effort to 'minimal' while retaining the cap.
             hop_effort: ReasoningEffort = effort
             if hop_tool_choice == "none":
                 hop_effort = "minimal"
-                hop_max_output = max(hop_max_output, 1500)
+                hop_max_output = 500
             trace.event("llm.call", hop=hop_index, reasoning_effort=hop_effort,
                         tools_offered=len(tooldefs),
                         tool_choice=hop_tool_choice,
@@ -8098,6 +8086,11 @@ class ChatService:
                 if (
                     not ask_user_retry_used
                     and not _confusion_menu
+                    # A social acknowledgement is not a missing-field
+                    # clarification. Let the single model completion stand
+                    # rather than converting a polite question into an
+                    # ASK_USER card.
+                    and not _SMALLTALK_INTENT_RE.match(message)
                     and _looks_like_unstructured_clarification(
                         text, tools_called, raw_data,
                     )
@@ -9540,14 +9533,6 @@ class ChatService:
         max_output: int = 1500
         # R5: mirror of non-streaming reply-class budget.
         reply_class = _classify_reply_class(message, intent_kind)
-        # GAN R4: force the structured analysis budget on the scenario
-        # classes (mirror of handle()).
-        if (not _settings.llm_owned_interpretation
-                and (detect_thematic_scenario(message) is not None
-                     or is_vague_onboarding(message)
-                     or is_scared_idle_cash(message)
-                     or is_unrealistic_return(message))):
-            reply_class = "analysis"
         # STRATEGY budget override (mirror of handle()): route a
         # strategy/basket build to the high-cap 'strategy' class so the
         # connection + rationale + alternatives + table reply isn't
@@ -9563,11 +9548,13 @@ class ChatService:
             _sub = _analysis_subhint(message)
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
-        max_output = _budget_tokens
+        max_output = min(_budget_tokens, 500)
         # List reads only format a table — drop reasoning effort to 'low' so
         # reasoning tokens don't eat the output budget and truncate the table
         # (mirror of the non-streaming path).
-        if reply_class == "list_read":
+        if reply_class == "adaptive":
+            effort = "low"
+        elif reply_class == "list_read":
             effort = "minimal"
         elif reply_class == "market_pulse":
             # Pulse turns must actually READ the four-tool payload — a
@@ -10009,12 +9996,13 @@ class ChatService:
                 if (_COMPACT_DRAFTS and last_was_macro_draft)
                 else max_output
             )
-            # Forced-no-tools reprompt: drop effort to 'minimal' + guarantee
-            # headroom so the model writes prose instead of re-emitting empty.
+            # Forced-no-tools reprompt: drop effort to 'minimal' without
+            # exceeding the shared ceiling, so it writes prose instead of
+            # re-emitting empty.
             hop_effort: ReasoningEffort = effort
             if hop_tool_choice == "none":
                 hop_effort = "minimal"
-                hop_max_output = max(hop_max_output, 1500)
+                hop_max_output = 500
             trace.event(
                 "llm.stream", hop=hop_index,
                 reasoning_effort=hop_effort, tools_offered=len(tooldefs),
