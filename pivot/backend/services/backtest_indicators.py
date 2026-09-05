@@ -43,7 +43,7 @@ downstream callers that fetch from Kite call it before computing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 import pandas as pd  # type: ignore[import-untyped]
 import pandas_ta_classic as ta  # type: ignore[import-untyped]
@@ -478,6 +478,84 @@ def supported_indicators() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY.keys()))
 
 
+# Optional parameters accepted by indicators whose conventional definition
+# has more than one meaningful input. ``period`` remains the primary/lookback
+# input for backwards compatibility; these settings preserve the rest of the
+# user's requested configuration instead of forcing hidden defaults.
+_INDICATOR_SETTING_RULES: dict[str, dict[str, tuple[type, float, float]]] = {
+    "macd": {
+        "fast": (int, 1, 5000), "slow": (int, 2, 5000),
+        "signal": (int, 1, 5000),
+    },
+    "bb": {"std": (float, 0.1, 20.0)},
+    "bollinger": {"std": (float, 0.1, 20.0)},
+    "supertrend": {"multiplier": (float, 0.1, 50.0)},
+    "stoch": {
+        "d": (int, 1, 5000), "smooth_k": (int, 1, 5000),
+    },
+    "stoch_rsi": {
+        "rsi_length": (int, 1, 5000), "k": (int, 1, 5000),
+        "d": (int, 1, 5000),
+    },
+    "donchian": {
+        "lower_length": (int, 1, 5000),
+        "upper_length": (int, 1, 5000),
+    },
+    "keltner": {"scalar": (float, 0.1, 50.0)},
+    "psar": {"af": (float, 0.001, 1.0), "max_af": (float, 0.001, 5.0)},
+}
+
+
+def indicator_setting_schema(indicator: str) -> dict[str, dict[str, Any]]:
+    """Compact model/UI contract for optional settings of one indicator."""
+    rules = _INDICATOR_SETTING_RULES.get((indicator or "").strip().lower(), {})
+    return {
+        key: {"type": "integer" if typ is int else "number", "minimum": lo,
+              "maximum": hi}
+        for key, (typ, lo, hi) in rules.items()
+    }
+
+
+def validate_indicator_settings(
+    indicator: str, settings: Optional[dict[str, Any]],
+) -> dict[str, int | float]:
+    """Validate and normalize custom settings; never drop unknown keys."""
+    raw = settings or {}
+    key = (indicator or "").strip().lower()
+    rules = _INDICATOR_SETTING_RULES.get(key, {})
+    unknown = sorted(set(raw) - set(rules))
+    if unknown:
+        allowed = ", ".join(sorted(rules)) or "none"
+        raise ValueError(
+            f"Indicator '{indicator}' does not support setting(s): "
+            f"{', '.join(unknown)}. Allowed custom settings: {allowed}."
+        )
+    out: dict[str, int | float] = {}
+    for name, value in raw.items():
+        typ, lo, hi = rules[name]
+        if isinstance(value, bool):
+            raise ValueError(f"Indicator setting '{name}' must be numeric")
+        try:
+            number = typ(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Indicator setting '{name}' must be {typ.__name__}"
+            ) from exc
+        if not lo <= float(number) <= hi:
+            raise ValueError(
+                f"Indicator setting '{name}' must be between {lo:g} and {hi:g}"
+            )
+        out[name] = number
+    if key == "macd":
+        fast = int(out.get("fast", 12))
+        slow = int(out.get("slow", 26))
+        if fast >= slow:
+            raise ValueError("MACD setting 'fast' must be smaller than 'slow'")
+    if key == "psar" and float(out.get("af", 0.02)) > float(out.get("max_af", 0.2)):
+        raise ValueError("PSAR setting 'af' must not exceed 'max_af'")
+    return out
+
+
 # ── Multi-output components ─────────────────────────────────────────
 #
 # A handful of indicators emit more than one series (bands, MACD lines,
@@ -520,6 +598,7 @@ def allowed_components(indicator: str) -> tuple[str, ...]:
 
 def _multi_output_series(
     bars: pd.DataFrame, indicator: str, period: int, component: str,
+    settings: Optional[dict[str, Any]] = None,
 ) -> Optional[pd.Series]:
     """Call the underlying ``ta.*`` for a multi-output indicator and
     return the column matching ``component``. Returns None when the
@@ -535,27 +614,44 @@ def _multi_output_series(
 
     bars_norm = normalise_bars(bars)
     n = int(period) if period and period > 0 else 0
+    cfg = validate_indicator_settings(key, settings)
 
     if key in ("bb", "bollinger"):
-        df = ta.bbands(_close(bars_norm), length=n or 20, std=2.0)
+        df = ta.bbands(
+            _close(bars_norm), length=n or 20, std=float(cfg.get("std", 2.0)),
+        )
     elif key == "macd":
         df = ta.macd(
-            _close(bars_norm), fast=12, slow=max(n or 26, 13), signal=9,
+            _close(bars_norm), fast=int(cfg.get("fast", 12)),
+            slow=int(cfg.get("slow", n or 26)),
+            signal=int(cfg.get("signal", 9)),
         )
     elif key == "stoch":
         h, l, c = _hlc(bars_norm)
-        df = ta.stoch(h, l, c, k=n or 14, d=3)
+        df = ta.stoch(
+            h, l, c, k=n or 14, d=int(cfg.get("d", 3)),
+            smooth_k=int(cfg.get("smooth_k", 3)),
+        )
     elif key == "stoch_rsi":
-        df = ta.stochrsi(_close(bars_norm), length=n or 14)
+        df = ta.stochrsi(
+            _close(bars_norm), length=n or 14,
+            rsi_length=int(cfg.get("rsi_length", n or 14)),
+            k=int(cfg.get("k", 3)), d=int(cfg.get("d", 3)),
+        )
     elif key == "aroon":
         h, l, _c = _hlc(bars_norm)
         df = ta.aroon(h, l, length=n or 14)
     elif key == "donchian":
         h, l, _c = _hlc(bars_norm)
-        df = ta.donchian(h, l, lower_length=n or 20, upper_length=n or 20)
+        df = ta.donchian(
+            h, l, lower_length=int(cfg.get("lower_length", n or 20)),
+            upper_length=int(cfg.get("upper_length", n or 20)),
+        )
     elif key == "keltner":
         h, l, c = _hlc(bars_norm)
-        df = ta.kc(h, l, c, length=n or 20)
+        df = ta.kc(
+            h, l, c, length=n or 20, scalar=float(cfg.get("scalar", 2.0)),
+        )
     else:
         return None
 
@@ -576,6 +672,7 @@ def compute_series_component(
     period: Optional[int] = None,
     *,
     component: Optional[str] = None,
+    settings: Optional[dict[str, Any]] = None,
 ) -> Optional[pd.Series]:
     """Like ``compute_series`` but selects a named component for
     multi-output indicators (Bollinger upper/lower, MACD line/signal,
@@ -587,9 +684,53 @@ def compute_series_component(
     isn't recognised, on the assumption the validator rejected it
     upstream.
     """
-    if not component:
+    cfg = validate_indicator_settings(indicator, settings)
+    if not component and not cfg:
         return compute_series(bars, indicator, period)
-    series = _multi_output_series(bars, indicator, int(period or 0), component)
+    if not component:
+        component = {
+            "macd": "hist", "bb": "pctb", "bollinger": "pctb",
+            "stoch": "k", "stoch_rsi": "k", "aroon": "osc",
+            "donchian": "middle", "keltner": "middle",
+        }.get((indicator or "").strip().lower())
+    if component:
+        series = _multi_output_series(
+            bars, indicator, int(period or 0), component, settings=cfg,
+        )
+    else:
+        # Custom settings on a single-output indicator.
+        key = (indicator or "").strip().lower()
+        norm = normalise_bars(bars)
+        n = int(period or 0)
+        if key == "supertrend":
+            h, l, c = _hlc(norm)
+            df = ta.supertrend(
+                h, l, c, length=n or 10,
+                multiplier=float(cfg.get("multiplier", 3.0)),
+            )
+            col = next((x for x in df.columns if x.startswith("SUPERTd_")), None) \
+                if df is not None else None
+            series = df[col] if col else None
+        elif key == "psar":
+            h, l, c = _hlc(norm)
+            df = ta.psar(
+                h, l, c, af=float(cfg.get("af", 0.02)),
+                max_af=float(cfg.get("max_af", 0.2)),
+            )
+            long_col = next((x for x in df.columns if x.startswith("PSARl_")), None) \
+                if df is not None else None
+            short_col = next((x for x in df.columns if x.startswith("PSARs_")), None) \
+                if df is not None else None
+            series = (
+                df[long_col].combine_first(df[short_col])
+                if long_col and short_col else None
+            )
+        else:
+            series = None
+    if series is None and cfg:
+        # A requested custom configuration must never silently fall back to
+        # the registry default; that would backtest a different strategy.
+        return None
     if series is None:
         return compute_series(bars, indicator, period)
     return series

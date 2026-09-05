@@ -121,6 +121,7 @@ class BacktestDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
         timeframe: str = "daily",
     ) -> Optional[float]:
@@ -152,6 +153,7 @@ class BacktestDataAccessor:
             indicator.lower(),
             int(period),
             comp_key,
+            tuple(sorted((settings or {}).items())),
         )
         series = self._indicator_cache.get(key)
         if series is None:
@@ -162,6 +164,7 @@ class BacktestDataAccessor:
             try:
                 series = compute_series_component(
                     df, indicator, period, component=comp_key,
+                    settings=settings,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.info(
@@ -186,6 +189,7 @@ class BacktestDataAccessor:
         if _strict_mode() and offset == 0:
             self._shadow_check_indicator(
                 df, indicator, period, val, component=comp_key,
+                settings=settings,
             )
         return float(val)
 
@@ -296,6 +300,7 @@ class BacktestDataAccessor:
         expected: float,
         *,
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
     ) -> None:
         """Paranoid recheck — recompute the indicator over the
         truncated slice and assert the result matches the cached
@@ -312,6 +317,7 @@ class BacktestDataAccessor:
         try:
             truncated = compute_series_component(
                 truncated_df, indicator, period, component=component,
+                settings=settings,
             )
         except Exception:  # noqa: BLE001
             return  # if the truncated compute fails, can't compare; skip

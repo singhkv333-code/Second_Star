@@ -182,6 +182,26 @@ def normalize_tree_aliases(node: object) -> object:
 # ── Leaf nodes ───────────────────────────────────────────────────────
 
 
+# The exchange a market-data leaf is read on. It carried no description at
+# all, so the translator had no reason to ever emit anything but the default —
+# "buy ONGC when crude oil goes above 80" became a price leaf on NSE:CRUDEOIL,
+# a symbol that does not exist. The tree validated, the card rendered, and the
+# rule could never fire. Commodities are MCX; saying so is what makes the leaf
+# resolvable.
+_EXCHANGE_DESC = (
+    "Exchange the symbol trades on. 'NSE' (default) or 'BSE' for equities and "
+    "indices; 'MCX' for commodities — CRUDEOIL, NATURALGAS, GOLD, SILVER, "
+    "COPPER, ZINC, ALUMINIUM, LEAD, NICKEL; 'NFO' for NSE derivatives. A "
+    "commodity left on NSE names a symbol that does not exist, so set MCX "
+    "whenever the leaf is a commodity."
+)
+
+
+def _exchange_field():
+    return Field(default="NSE", min_length=1, max_length=8,
+                 description=_EXCHANGE_DESC)
+
+
 class IndicatorNode(_Strict):
     """A registry-backed technical indicator value.
 
@@ -205,7 +225,7 @@ class IndicatorNode(_Strict):
     indicator: str = Field(..., min_length=1, max_length=32)
     symbol: str = Field(..., min_length=1, max_length=32)
     period: int = Field(..., ge=1, le=5000)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = Field(
         default="1d",
         description=(
@@ -232,6 +252,16 @@ class IndicatorNode(_Strict):
             "this field unset."
         ),
     )
+    settings: dict[str, Union[int, float, bool, str]] = Field(
+        default_factory=dict,
+        description=(
+            "Indicator-specific parameters beyond the primary period. "
+            "Examples: MACD fast/slow/signal, Bollinger deviation, or "
+            "Supertrend multiplier. Keys are validated against the shared "
+            "indicator registry; unknown settings are rejected rather than "
+            "silently ignored."
+        ),
+    )
     offset: int = Field(
         default=0, ge=0, le=500,
         description=(
@@ -254,6 +284,27 @@ class IndicatorNode(_Strict):
         s = v.strip().lower()
         return s or None
 
+    @field_validator("settings")
+    @classmethod
+    def _bound_settings(
+        cls, v: dict[str, Union[int, float, bool, str]],
+    ) -> dict[str, Union[int, float, bool, str]]:
+        if len(v) > 12:
+            raise ValueError("indicator settings are limited to 12 keys")
+        out: dict[str, Union[int, float, bool, str]] = {}
+        for raw_key, value in v.items():
+            key = str(raw_key).strip().lower()
+            if not key or len(key) > 32:
+                raise ValueError("indicator setting names must be 1-32 characters")
+            if isinstance(value, str):
+                value = value.strip()
+                if len(value) > 64:
+                    raise ValueError(
+                        f"indicator setting {key!r} exceeds 64 characters"
+                    )
+            out[key] = value
+        return out
+
 
 class PriceNode(_Strict):
     """Last traded close for a symbol, or any other OHLC bar component
@@ -261,7 +312,7 @@ class PriceNode(_Strict):
 
     type: Literal["price"] = "price"
     symbol: str = Field(..., min_length=1, max_length=32)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     basis: Literal["open", "high", "low", "close"] = Field(
         default="close",
         description=(
@@ -302,7 +353,7 @@ class VolumeNode(_Strict):
     type: Literal["volume"] = "volume"
     symbol: str = Field(..., min_length=1, max_length=32)
     bars: int = Field(default=1, ge=1, le=500)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     offset: int = Field(
         default=0, ge=0, le=500,
         description=(
@@ -459,7 +510,7 @@ class GapNode(_Strict):
 
     type: Literal["gap"] = "gap"
     symbol: str = Field(..., min_length=1, max_length=32)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class PctChangeNode(_Strict):
@@ -469,7 +520,7 @@ class PctChangeNode(_Strict):
     type: Literal["pct_change"] = "pct_change"
     symbol: str = Field(..., min_length=1, max_length=32)
     bars: int = Field(..., ge=1, le=500)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class SpreadNode(_Strict):
@@ -483,7 +534,7 @@ class SpreadNode(_Strict):
                    description="Numerator symbol")
     b: str = Field(..., min_length=1, max_length=32,
                    description="Denominator symbol")
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class MathNode(_Strict):
@@ -580,7 +631,7 @@ class AggregateNode(_Strict):
 
     type: Literal["aggregate"] = "aggregate"
     op: Literal[
-        "highest", "lowest", "sum", "avg", "std",
+        "highest", "lowest", "sum", "avg", "ema", "wma", "std",
         "count_when", "any_when",
         "percentrank", "zscore",
         "barssince", "valuewhen", "correlation",

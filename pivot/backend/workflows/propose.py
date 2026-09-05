@@ -323,10 +323,22 @@ _WORLD_CLAIM_TRIGGERS: dict[str, str] = {
 def _unavailable_triggers() -> dict[str, str]:
     """The world-claim triggers that are off RIGHT NOW. Earnings drops out of
     the list the moment its watcher is switched on, so the boundary tracks the
-    real capability instead of hard-coding today's answer."""
+    real capability instead of hard-coding today's answer.
+
+    ``trigger.global_price`` joins them for the same reason and by the same
+    test: it is registered, so "buy 20 ONGC when crude oil goes above $80"
+    validated and activated cleanly while ``_poll_global_price_triggers`` sat
+    behind a flag that is off by default and never polled. An agent that
+    cannot fire is indistinguishable from one still waiting — which is the
+    failure this whole function exists to refuse early and out loud.
+    """
     out = dict(_WORLD_CLAIM_TRIGGERS)
     if getattr(settings, "earnings_events_enabled", False):
         out.pop("trigger.earnings", None)
+    if not getattr(settings, "global_price_triggers_enabled", False):
+        out["trigger.global_price"] = (
+            "global crypto / forex / USD-commodity price level"
+        )
     return out
 
 
@@ -772,6 +784,16 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
         if hasattr(validated_cfg, "exchange"):
             step.config["exchange"] = validated_cfg.exchange
         prev_was_trigger = is_trigger
+
+    # Triggers whose watcher is switched OFF right now. This lived only on
+    # the `propose_workflow_async` path, which the chat has not used since the
+    # hop started emitting steps[] directly — so the whole flag-gated boundary
+    # (prediction markets, macro outcomes, news, earnings, global price) was
+    # unenforced on the path that actually runs. A "buy ONGC when crude goes
+    # above $80" draft validated and activated cleanly against a poll loop
+    # that is off by default: an agent that can never fire looks exactly like
+    # one still waiting. Enforced HERE so both paths share one answer.
+    _reject_unavailable_triggers(draft)
 
     # Conservative-beta event-trigger allow-list. Runs after per-step
     # registry validation (so configs are already Pydantic-valid) and

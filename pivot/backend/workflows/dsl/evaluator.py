@@ -150,6 +150,8 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             component=node.component,
             offset=node.offset + _additional_offset(),
         )
+        if node.settings:
+            _ind_kw["settings"] = node.settings
         # ``timeframe`` is normalised at the schema layer to a canonical
         # interval string (``'1d'`` / ``'1wk'`` / ``'15m'`` / ...).
         # Treat the daily default as silent so legacy accessors whose
@@ -169,7 +171,14 @@ def _walk(node, *, accessor: DataAccessor, state: dict[str, float]):
             # Legacy accessor without ``timeframe`` kwarg — fall back to
             # the original signature. Safe only for the daily default,
             # which is what callers were getting before the refactor.
-            return accessor.get_indicator(**_ind_kw)
+            try:
+                return accessor.get_indicator(**_ind_kw)
+            except TypeError:
+                # A legacy accessor cannot honestly evaluate custom settings.
+                # Empty/default settings took the compatibility path above.
+                if node.settings:
+                    return None
+                raise
     if isinstance(node, VolumeNode):
         return accessor.get_volume(
             symbol=node.symbol,
@@ -417,7 +426,10 @@ def _reduce_aggregate(
     # propagated, so percentile / count / highest etc. work on whatever
     # the source could resolve. The exception: barssince / valuewhen
     # which treat None as "condition not observed".
-    if op in ("highest", "lowest", "sum", "avg", "std", "percentrank", "zscore"):
+    if op in (
+        "highest", "lowest", "sum", "avg", "ema", "wma", "std",
+        "percentrank", "zscore",
+    ):
         clean = [v for v in src if v is not None]
         if not clean:
             return None
@@ -429,6 +441,21 @@ def _reduce_aggregate(
             return float(sum(clean))
         if op == "avg":
             return float(sum(clean) / len(clean))
+        if op == "wma":
+            # ``src`` is newest-first. Give the newest observation the
+            # greatest weight while preserving gaps honestly.
+            ordered = [v for v in reversed(src) if v is not None]
+            weights = range(1, len(ordered) + 1)
+            denom = sum(weights)
+            return float(sum(v * w for v, w in zip(ordered, weights)) / denom)
+        if op == "ema":
+            # Seed with the oldest available value, then walk toward now.
+            ordered = [v for v in reversed(src) if v is not None]
+            alpha = 2.0 / (float(node.bars) + 1.0)
+            value = float(ordered[0])
+            for observation in ordered[1:]:
+                value = alpha * float(observation) + (1.0 - alpha) * value
+            return value
         if op == "std":
             if len(clean) < 2:
                 return None
