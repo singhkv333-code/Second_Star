@@ -64,6 +64,7 @@ from backend.routers.option_strategies import router as option_strategies_router
 from backend.routers.feedback import router as feedback_router
 from backend.routers.screener import router as screener_router
 from backend.routers.audio import router as audio_router
+from backend.routers.execution import router as execution_router
 
 # Interactive API docs (Swagger/ReDoc/OpenAPI schema) disclose the full route
 # + schema surface, so disable them in production — dev/beta keep them for
@@ -180,6 +181,9 @@ app.include_router(feedback_router)
 app.include_router(screener_router)
 # Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
 app.include_router(audio_router)
+# Strategy Builder / execution mode. The surface only validates and compiles
+# drafts; activation remains behind the existing user-confirmed workflow API.
+app.include_router(execution_router)
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
 #
