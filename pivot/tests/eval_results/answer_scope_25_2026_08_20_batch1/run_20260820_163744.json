@@ -1,0 +1,139 @@
+{
+ "ts": "20260820_163744",
+ "elapsed_s": 34.7,
+ "base": "http://localhost:8000",
+ "user_id": 720,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": null,
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "greeting",
+   "why": "Should be social, not a product tour.",
+   "conv": "s_2e1a3c13f0",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Hi",
+     "response": "Hi! Tell me what you'd like to do \u2014 check a price, build an agent, look at your portfolio, or run a backtest.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 543,
+     "latency_server_ms": 92,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "thanks",
+   "why": "Acknowledgement should not reopen the task.",
+   "conv": "s_115da830a0",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Thanks",
+     "response": "Anytime.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 723,
+     "latency_server_ms": 92,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "yes_no_capability",
+   "why": "A direct capability question should be answered plainly.",
+   "conv": "s_035168685c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Can you compare two stocks?",
+     "response": "Which two NSE-listed stocks would you like me to compare?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 14063,
+     "latency_server_ms": 13313,
+     "input_tokens": 195993,
+     "output_tokens": 335,
+     "cost_usd": 0.0,
+     "llm_calls": 7
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "definition",
+   "why": "Simple definition should not become a tutorial.",
+   "conv": "s_be0431836b",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is an ETF?",
+     "response": "## What Is an ETF?\n\nAn **ETF (exchange-traded fund)** is a basket of investments\u2014such as stocks, bonds, commodities, or a market index\u2014that trades on a stock exchange like an individual share.\n\nFor example, a Nifty 50 ETF aims to track the Nifty 50 Index by holding shares of its constituent companies. Buying one unit gives you indirect exposure to that basket rather than requiring you to purchase every stock separately.\n\n## How ETFs Work\n\n- **Diversification:** One ETF can provide exposure to many securities.\n- **Exchange-traded:** You can buy or sell units during market hours through a broker.\n- **Market-linked price:** The unit price changes throughout the trading day.\n- **Passive or active management:** Many ETFs track an index, while some follow a specific sector, commodity, or investment strategy.\n- **Expense ratio:** The fund deducts a small annual management fee from its assets.\n\n## Simple Example\n\nInstead of buying shares of all 50 companies in the Nifty 50 individually, you could buy a Nifty 50 ETF. Its performance should broadly follow the index, minus expenses and tracking differences.\n\nOther common Indian ETF categories include:\n\n- **Broad-market ETFs:** Nifty 50 or Nifty Next 50\n- **Sector ETFs:** Banking, IT, or pharmaceutical companies\n- **Gold ETFs:** Exposure to gold prices without storing physical gold\n- **International ETFs:** Exposure to selected overseas markets, where available\n\n## ETF vs Mutual Fund\n\n| Feature | ETF | Mutual Fund |\n|---|---|---|\n| Trading | During market hours | Usually processed at end-of-day NAV |\n| Purchase method | Stock exchange | AMC or mutual-fund platform |\n| Pricing | Live market price | NAV-based |\n| Demat account | Generally required | Not always required |\n| Minimum investment | Usually one unit | Depends on the fund or SIP |\n\nETFs can be useful for low-cost, diversified exposure, but they still carry market risk, tracking error, liquidity risk, and\u2014in international ETFs or commodity-linked products\u2014additional currency or underlying-asset risk.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10257,
+     "latency_server_ms": 9866,
+     "input_tokens": 146390,
+     "output_tokens": 525,
+     "cost_usd": 0.0,
+     "llm_calls": 4
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "one_line_math",
+   "why": "Arithmetic should remain one line.",
+   "conv": "s_5699345209",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is 7 times 8?",
+     "response": "56",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 5492,
+     "latency_server_ms": 5102,
+     "input_tokens": 97971,
+     "output_tokens": 218,
+     "cost_usd": 0.0,
+     "llm_calls": 4
+    }
+   ]
+  }
+ ]
+}

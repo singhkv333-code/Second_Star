@@ -1,0 +1,147 @@
+{
+ "ts": "20260820_194137",
+ "elapsed_s": 74.9,
+ "base": "http://localhost:8000",
+ "user_id": 723,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": "greeting,definition,latest_price_brief,one_metric,brief_news",
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "greeting",
+   "why": "Should be social, not a product tour.",
+   "conv": "s_d95f857b9d",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Hi",
+     "response": "How can I help?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 11593,
+     "latency_server_ms": 11150,
+     "input_tokens": 97781,
+     "output_tokens": 68,
+     "cost_usd": 0.0,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "definition",
+   "why": "Simple definition should not become a tutorial.",
+   "conv": "s_d01a521c57",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is an ETF?",
+     "response": "An **ETF (Exchange-Traded Fund)** is a basket of investments\u2014such as stocks, bonds, or commodities\u2014that trades on a stock exchange like a regular share.\n\nFor example, a NIFTY 50 ETF aims to track the NIFTY 50 index, giving you exposure to many companies through one instrument.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 7941,
+     "latency_server_ms": 7549,
+     "input_tokens": 49009,
+     "output_tokens": 132,
+     "cost_usd": 0.0,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "latest_price_brief",
+   "why": "Explicit brevity should be honored without losing the live value.",
+   "conv": "s_ededeed056",
+   "turns": [
+    {
+     "i": 0,
+     "say": "TCS price, just the number and source",
+     "response": "\u20b92,298 \u2014 yfinance.",
+     "tools_called": [
+      "get_market_data"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_market_data"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 11295,
+     "latency_server_ms": 10910,
+     "input_tokens": 97995,
+     "output_tokens": 97,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "one_metric",
+   "why": "A single financial metric request is a concise read.",
+   "conv": "s_bf470d9886",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is TCS PE?",
+     "response": "**Tata Consultancy Services** (`TCS`) has a **P/E ratio of 16.82**.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 13750,
+     "latency_server_ms": 13328,
+     "input_tokens": 98245,
+     "output_tokens": 89,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "brief_news",
+   "why": "Brief must constrain an otherwise broad news answer.",
+   "conv": "s_ee5cd73393",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Any Reliance news today? Keep it to 2 bullets.",
+     "response": "- **\u20b92.73 lakh crore Andhra Pradesh coal-gasification proposal:** Reliance reportedly plans a decades-long underground coal-gasification project in Eluru, supporting early gains in `RELIANCE`. [Reliance Shares Rise In Early Trade On Rs 2.73 Lakh Crore ... - Times Now](https://www.timesnownews.com/business-economy/companies/reliance-shares-rise-in-early-trade-on-rs-2-73-lakh-crore-andhra-coal-plant-reports-article-155803556)\n- **Rolls-Royce defence-engine partnership:** The proposed AMCA combat-engine partnership continues to support positive broker sentiment toward `RELIANCE`; Morgan Stanley reiterated its positive view. [reliance industries ril: Latest News & Videos, Photos about reliance ...](https://economictimes.indiatimes.com/topic/reliance-industries-ril)",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 13119,
+     "latency_server_ms": 12727,
+     "input_tokens": 151841,
+     "output_tokens": 418,
+     "cost_usd": 0.0,
+     "llm_calls": 4
+    }
+   ]
+  }
+ ]
+}

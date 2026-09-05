@@ -1,0 +1,64 @@
+{
+ "ts": "20260820_193718",
+ "elapsed_s": 38.4,
+ "base": "http://localhost:8000",
+ "user_id": 723,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": "greeting,brief_news",
+ "n_sessions": 2,
+ "n_turns": 2,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "greeting",
+   "why": "Should be social, not a product tour.",
+   "conv": "s_1e2f0096e8",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Hi",
+     "response": "Hi! Tell me what you'd like to do \u2014 check a price, build an agent, look at your portfolio, or run a backtest.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 935,
+     "latency_server_ms": 94,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "brief_news",
+   "why": "Brief must constrain an otherwise broad news answer.",
+   "conv": "s_b0d8c01ab5",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Any Reliance news today? Keep it to 2 bullets.",
+     "response": "No usable Reliance headlines dated **August 20, 2026** were returned.\n\n- **No current company-specific headline found** \u2014 the feed returned unrelated or older items.\n- **Feed appears stale/unreliable today** \u2014 latest returned item was dated August 17, 2026.",
+     "tools_called": [
+      "get_symbol_news"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_symbol_news"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 13560,
+     "latency_server_ms": 12873,
+     "input_tokens": 99949,
+     "output_tokens": 220,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  }
+ ]
+}
