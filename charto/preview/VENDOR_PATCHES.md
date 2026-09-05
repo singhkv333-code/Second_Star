@@ -11,7 +11,8 @@ bundle:
 2. Put price-pill text on that same edge.
 3. Right-align the pill text.
 4. Give every price pill the full width of the price-scale column.
-5. Reserve a 24px strip at the pill's left for Charto's alert mark and gap.
+5. Leave an 8px gutter between the price scale's left edge and its digits
+   (was 24px, reserved for an alert mark that no longer sits in the scale).
 6. Give every series and crosshair pill the same height, using each
    minification's numeric font-height field.
 

@@ -6078,7 +6078,7 @@ svg.icon.op {
   }
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
-  #symbolMenu { width: 270px; }
+  #symbolMenu { width: 360px; }
   /* Look and focus come from the shared search-field rule up in the chat
      section — this field is the conversation search in a different menu, and
      the two are a pane apart in the same app. Only what is local to sitting
@@ -6126,19 +6126,76 @@ svg.icon.op {
   .sym-picker .item.on { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 5%, transparent); }
   .sym-picker .item > svg { width: 14px; height: 14px; color: var(--foreground); flex: none; }
   .sym-picker .pick-list .item .lead { flex: 1; gap: 10px; }
-  .sym-picker .pick-list .item .co-logo, .sym-picker .pick-list .item .co-blank { width: 26px; height: 26px; border-radius: 7px; }
-  .sym-picker .pick-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .sym-picker .pick-copy strong { font-size: var(--text-sm); font-weight: var(--weight-semi); line-height: 1.1; letter-spacing: -.01em; }
-  .sym-picker .item .pick-copy .co-name { max-width: 238px; margin: 0; color: var(--foreground); font-size: 11px; font-weight: var(--weight-normal); line-height: 1.2; }
   .sym-picker .pick-note { margin: 7px -1px -1px; padding: 9px 10px 5px; border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--foreground); font-size: 10.5px; line-height: 1.4; }
-  #symList, .sym-picker .pick-list { max-height: 340px; overflow-y: auto; }
-  #symList .item .dot-h, .sym-picker .item .dot-h { display: none; }
-  #symList .item .cold, .sym-picker .item .cold { font-size: 10.5px; color: var(--faint); }
-  #symList .item .co-name, .sym-picker .item .co-name {
-    font-size: 11px; color: var(--muted-foreground); font-weight: 500;
-    margin-left: 6px; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; max-width: 118px;
+  #symList, .sym-picker .pick-list { max-height: 430px; overflow-y: auto; }
+  /* ── the instrument row ──────────────────────────────────────────────
+     Both instrument lists — the header pill's menu and the floating picker
+     opened from a legend — draw this, from Universe.rowHTML. One company
+     cannot look like two companies depending on which control you opened.
+
+     It is the ordinary shape for the job: a list row with a leading avatar,
+     a two-line title/subtitle stack, and trailing metadata. Left answers
+     WHICH instrument, right answers WHERE IT IS, and the right side stays
+     deliberately thin — a search result is a place you pass through, so it
+     carries the last price and the day's move and nothing else.
+
+     Grid, not flex: the price column has to line up down the list, and with
+     flex it drifted with the length of each company's name. */
+  #symList .inst-row, .sym-picker .inst-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center; gap: 12px;
+    min-height: 58px; padding: 9px 10px; border-radius: 12px;
   }
+  .inst-row .ir-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .inst-row .ir-logo {
+    width: 34px; height: 34px; border-radius: 10px; object-fit: contain;
+    background: var(--card); flex: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+  }
+  /* A logo that 404s is HIDDEN, not removed. Removing it collapsed the 34px
+     slot and every name on that row jumped left — one dead file and the
+     column stopped being a column. */
+  .inst-row .ir-logo.ir-dead { visibility: hidden; }
+  .inst-row .ir-blank {
+    display: grid; place-items: center; background: var(--muted);
+    font-size: 13px; font-weight: var(--weight-semi); color: var(--muted-foreground);
+  }
+  .inst-row .ir-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .inst-row .ir-tick {
+    display: flex; align-items: center; gap: 7px; min-width: 0;
+    font-size: 14px; font-weight: var(--weight-semi);
+    letter-spacing: -.012em; line-height: 1.15;
+  }
+  .inst-row .ir-ex {
+    flex: none; padding: 2px 5px; border-radius: 4px;
+    font-size: 9.5px; font-weight: var(--weight-semi); letter-spacing: .04em;
+    color: var(--muted-foreground);
+    background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  }
+  .inst-row .ir-name {
+    font-size: 11.5px; color: var(--muted-foreground); line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Tabular figures, or the decimal points wander down the list and the
+     column reads as noise however well it is aligned. */
+  .inst-row .ir-quote {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+    min-width: 76px; font-variant-numeric: tabular-nums;
+  }
+  /* The price stays INK on the selected row too. .dropdown .item.on paints
+     the whole row in the accent, which is right for the name — it is the
+     "you are here" mark — and wrong for the number: a column of prices in
+     which one is a different colour reads as that price being special. */
+  .inst-row .ir-last {
+    font-size: 13px; font-weight: var(--weight-semi); line-height: 1.15;
+    color: var(--foreground);
+  }
+  .inst-row .ir-last.ir-none { color: var(--faint); font-weight: var(--weight-normal); }
+  .inst-row .ir-chg { font-size: 11.5px; font-weight: var(--weight-semi); line-height: 1.15; color: var(--muted-foreground); }
+  .inst-row .ir-chg.up { color: var(--up); }
+  .inst-row .ir-chg.dn { color: var(--down); }
+  .inst-row .ir-cold { font-size: 10.5px; color: var(--faint); }
+
   #symList .item .lead, .sym-picker .item .lead,
   .subj-menu .item .lead {
     display: flex; align-items: center; gap: var(--menu-lead-gap); min-width: 0;
@@ -8274,7 +8331,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=8"></script>
-  <script src="./js/universe.js?v=3"></script>
+  <script src="./js/universe.js?v=6"></script>
   <script src="./js/icons.js?v=31"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -8308,7 +8365,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=34"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=20"></script>
-  <script src="./js/main.js?v=143"></script>
+  <script src="./js/main.js?v=144"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>
