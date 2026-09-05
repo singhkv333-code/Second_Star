@@ -4427,7 +4427,7 @@
     document.title = `${SYMBOL} — Pivot`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
-    let all = null, hyd = new Set(), names = {}, shortNames = {}, logos = {};
+    let all = null, hyd = new Set(), names = {}, shortNames = {};
     /** The instrument's own mark, on the pill. It sits BEFORE the ticker, the
      *  same order the search rows and the chat's tables use — one instrument,
      *  one mark, in one position wherever it is named. */
@@ -4462,27 +4462,21 @@
             .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
                             || a.localeCompare(b))
         : pool;
-      list.innerHTML = hits.map((s) =>
-        `<div class="item" data-sym="${s}"><span class="lead">` +
-        (logos[s] ? `<img class="co-logo" src="${logos[s]}" alt="" loading="lazy"
-             onerror="this.remove()"/>` : "") +
-        (hyd.has(s) ? '<span class="dot-h"></span>' : "") +
-        `${s}${names[s] && names[s] !== s
-          ? `<span class="co-name">${names[s]}</span>` : ""}</span>` +
-        (hyd.has(s) ? "" : '<span class="cold">~6s</span>') +
-        // the row opens the chart; this opens the company page, so a search
-        // can end in either surface without a second search
-        // SAME TAB. The href has been same-origin for a while — `/stock/X` is
-        // proxied to the company app by serve.py in dev and nginx on the VM —
-        // but `target="_blank"` was still treating it as somewhere else,
-        // spawning a second tab of the same site for what is a route on it.
-        // A subpage you can come back from with the back button is the whole
-        // point of having put it on this origin.
-        `<a class="open-co" href="${COMPANY_PAGE}/stock/${encodeURIComponent(s)}?theme=${document.documentElement.getAttribute("data-theme") || "dark"}"
-            title="${s} — open company page"
-            aria-label="${s} — open company page">${Icons.svg("externalLink", "sm")}</a>` +
-        "</div>").join("")
+      // One row builder for both instrument lists — see Universe.rowHTML.
+      // The company-page link is this menu's own affordance: the row opens
+      // the CHART, and `/stock/X` is same-origin (serve.py in dev, nginx on
+      // the VM), so it stays in this tab and the back button works.
+      list.innerHTML = hits.map((s) => Universe.rowHTML(s, {
+        current: SYMBOL,
+        cold: !hyd.has(s),
+        link: true,
+        companyBase: COMPANY_PAGE,
+        theme: document.documentElement.getAttribute("data-theme") || "dark",
+      })).join("")
         || '<div class="item" style="color:var(--faint)">no match</div>';
+      // Prices for the rows on screen only, cached across re-renders, so
+      // typing costs no request for a company already priced.
+      Universe.quoteWatch(list);
     };
     pill.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -4502,7 +4496,7 @@
         all = d.symbols; hyd = d.hydrated;
         // show the enrichment long name (the Moneycontrol short name is
         // wrong for a few rows); still search both
-        names = d.names; shortNames = d.short; logos = d.logos;
+        names = d.names; shortNames = d.short;   // the mark comes from Universe.rowHTML
         // re-render against whatever is in the box NOW, not against ""
         if (menu.classList.contains("open")) render(input.value);
       }

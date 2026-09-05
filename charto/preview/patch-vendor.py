@@ -69,16 +69,29 @@ PATCHES = [
         ],
     ),
     (
-        "room at the scale's left edge for the alert mark",
+        # 8, and it used to be 24. The number is a GUTTER — the space between
+        # the scale's left edge and the right-aligned digits — and nothing
+        # else needs it any more. It was named for the alert mark, but the
+        # mark is not in the scale: .alert-plus is `right: 5px` and
+        # `width: axis-w + 17`, so its row starts at chartRight − axis-w − 22
+        # and the 22px button hangs entirely on the CANDLES, to the left of a
+        # plate that begins exactly on the scale's edge. The reserve was
+        # holding open a lane for a mark that had already moved out of it, so
+        # every chart carried 24px of blank axis and 24px less price.
+        "gutter between the scale's left edge and its digits",
         [
             ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l))',
-             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+8))'),
             ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+12))',
-             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))'),
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+8))'),
+            ('const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+24))',
+             'const l=t||34;return Mn(Math.ceil(i.S+i.C+i.V+i.B+5+l+8))'),
             ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l))',
-             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+8))'),
             ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+12))',
-             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))'),
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+8))'),
+            ('const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+24))',
+             'const l=t||34;return us(Math.ceil(i.S+i.C+i.B+i.I+5+l+8))'),
         ],
     ),
     (
