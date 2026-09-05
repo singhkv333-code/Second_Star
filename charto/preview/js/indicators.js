@@ -1062,18 +1062,25 @@ const Indicators = (() => {
         // over the wrong chart.
         let pane = a.pane || 0;
         try { pane = a.series[0].getPane().paneIndex(); } catch { /* torn down */ }
-        /* "Volume · 4.49" is a number without a noun. Which instrument's
-         * unit is a question only the MANAGER can answer — the catalogue is
-         * module-level and shared, so a split showing BTC-USD beside
-         * RELIANCE has one `def` serving two different units, and baking it
-         * into the label would print "shares" on the Bitcoin pane. Resolved
-         * per row, from the symbol this study is actually reading. */
+        /* "Volume · 4.49" is a number without a noun — but only where the
+         * noun is a surprise. Shares are what volume means unless something
+         * says otherwise, so "Volume (shares)" over a stock chart spends a
+         * word to say nothing; coins and contracts are the cases a reader
+         * cannot infer, and 4.49 BTC or 85 GOLD lots genuinely need saying.
+         * So the unit is stated when it is NOT the default, and stays quiet
+         * when it is. (Sym still reports "shares" — it is true, and this is a
+         * display decision, not a fact about the instrument.)
+         *
+         * Which instrument's unit is a question only the MANAGER can answer:
+         * the catalogue is module-level and shared, so a split showing
+         * BTC-USD beside RELIANCE has one `def` serving two different units,
+         * and baking it into the label would print BTC over the stock. */
         let label = st.style.inputsStatusLine === false ? a.def.base : a.def.label;
         if (a.def.name === "volume") {
           const src = st.symbolMode === "another" && st.symbol
             ? st.symbol : (ctx.symbol || SYM);
           const unit = (Sym.of(src) || {}).unit;
-          if (unit) label += ` (${unit})`;
+          if (unit && unit !== "shares") label += ` (${unit})`;
         }
         rows.push({
           id, label,
