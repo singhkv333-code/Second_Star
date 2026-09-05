@@ -267,7 +267,8 @@ export function StockAskBar({
         {open && turns.length ? (
           <div className="stock-ask-panel">
             <div className="stock-ask-panel-head">
-              <span className="stock-ask-panel-title">{sym}</span>
+              <span className="stock-ask-panel-avatar" aria-hidden>p.</span>
+              <span className="stock-ask-panel-title">{sym} <span className="stock-ask-panel-subtitle">Research conversation</span></span>
               <span className="stock-ask-panel-note">
                 {turns.length === 1 ? "Latest turn" : `${turns.length} turns`}
               </span>
@@ -284,7 +285,8 @@ export function StockAskBar({
             <div className="stock-ask-scroll" ref={scrollRef} aria-live="polite">
               {turns.map((t, i) => (
                 <div key={i} className="stock-ask-turn">
-                  <div className="stock-ask-q">{t.question}</div>
+                  <div className="stock-ask-q"><span className="stock-ask-role">You asked</span>{t.question}</div>
+                  <div className="stock-ask-answer-label"><span className="stock-ask-answer-mark" aria-hidden />Pivot</div>
                   {t.error ? (
                     <div className="stock-ask-err">{t.error}</div>
                   ) : t.answer ? (
@@ -627,6 +629,29 @@ export function StockAskBar({
           opacity: 0.85;
         }
 
+        .stock-ask .stock-ask-panel { background: var(--ask-fill-solid); border-radius: 18px; overflow: hidden; backdrop-filter: none; }
+        .stock-ask-panel::before { display: none; }
+        .stock-ask .stock-ask-panel-head { padding: 15px 20px; gap: 10px; }
+        .stock-ask-panel-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--accent-wash); color: var(--text-primary); font: italic 22px Georgia, serif; }
+        .stock-ask .stock-ask-panel-title { font-size: 12px; letter-spacing: 0; }
+        .stock-ask-panel-subtitle { display: block; font-size: 10px; color: var(--text-tertiary); font-weight: 400; margin-top: 2px; }
+        .stock-ask .stock-ask-panel-note { text-align: right; font-size: 10px; }
+        .stock-ask .stock-ask-x { width: 30px; height: 30px; border-radius: 8px; }
+        .stock-ask-x:hover { background: var(--accent-wash); color: var(--text-primary); }
+        .stock-ask .stock-ask-scroll { padding: 22px 24px; max-height: min(54dvh, 540px); gap: 26px; overscroll-behavior: contain; scrollbar-width: thin; }
+        .stock-ask .stock-ask-turn { gap: 14px; min-width: 0; }
+        .stock-ask-turn + .stock-ask-turn { padding-top: 24px; border-top: 1px solid var(--ask-edge); }
+        .stock-ask .stock-ask-q { align-self: stretch; max-width: 100%; border-radius: 0; background: transparent; border-left: 2px solid var(--ask-edge); padding: 0 0 0 13px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+        .stock-ask-role { display: block; font-size: 10px; color: var(--text-tertiary); margin-bottom: 5px; }
+        .stock-ask-answer-label { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
+        .stock-ask-answer-mark { width: 14px; height: 14px; border-radius: 50%; background: var(--text-primary); }
+        .stock-ask .stock-ask-a { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+        .stock-ask-a p { margin: 0 0 12px; }
+        .stock-ask-a h2, .stock-ask-a h3 { font-size: 15px; margin: 22px 0 9px; letter-spacing: -.015em; }
+        .stock-ask-a table { font-size: 12px; font-variant-numeric: tabular-nums; }
+        .stock-ask-a th, .stock-ask-a td { padding: 9px 12px; }
+        .stock-ask-a pre { max-width: 100%; overflow-x: auto; }
+        @media (max-width: 480px) { .stock-ask .stock-ask-scroll { padding: 18px; } .stock-ask .stock-ask-panel-head { padding: 12px 16px; } }
         @media (prefers-reduced-motion: reduce) {
           .stock-ask-dot { animation: none; opacity: 0.7; }
           .stock-ask,
