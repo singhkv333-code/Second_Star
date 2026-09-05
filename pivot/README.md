@@ -1,10 +1,20 @@
 # Pivot
 
-AI-powered investing platform for Indian retail investors — places trades on
-Zerodha, runs structured products (capital protection, covered-call income,
-bear-spread hedge), automates SIPs and conditional orders, runs fundamentals
-screens and backtests over a Moneycontrol-sourced financials database. FastAPI
-+ PostgreSQL + Redis, Sarvam-m as the chat LLM.
+The engine half of Pivot, the holistic trading platform. Builds and backtests
+strategies, runs structured products (capital protection, covered-call income,
+bear-spread hedge), automates SIPs and conditional orders, and runs fundamentals
+screens over a Moneycontrol-sourced financials database. FastAPI + PostgreSQL +
+Redis; **Azure GPT-5.x** as the chat LLM (`config.llm_provider="azure"`).
+
+> **Pivot simulates; it does not place live broker orders.** Strategies fill
+> into a simulated paper book. The Zerodha order rails exist but are dormant —
+> see `../CLAUDE.md` section 4. An earlier version of this paragraph said
+> "places trades on Zerodha"; that has not been true since the paper-only
+> decision, and Sarvam-m was replaced by Azure well before that.
+
+> **In production this package is a library, not a service.** `:8000` is not
+> deployed yet; `charto/data/execution_bridge.py` and `pivotted/fundamentals.py`
+> import it directly. Before touching any database, read `../docs/DATA_MAP.md`.
 
 ## Agent System (Workflows v1) — new in May 2026
 
@@ -55,7 +65,7 @@ User → /chat → ChatService.handle()
                 ├── system prompt (versioned in backend/prompts/system.md)
                 ├── ToolRegistry — full tool schema, LLM picks
                 │      (now includes propose_workflow → opens the Agent panel)
-                ├── Sarvam call (1-2 hops; second hop after a tool result)
+                ├── Azure GPT-5.x call (1-2 hops; second after a tool result)
                 └── post_process (strips any leaked <FOO>, <TOOL_CALL>)
 ```
 

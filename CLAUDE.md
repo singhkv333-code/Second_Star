@@ -1,50 +1,53 @@
 # Pivot — project context for Claude
 
-> The auto-loaded context file for this repo: the essence, the architecture
-> with up-to-date mentions, the non-negotiables, and where we are headed
-> (V2 — View Markets). Build checklist for V2 lives at
-> `Markdowns/VIEW_MARKETS_V2_CHECKLIST.md`. When facts here drift from code,
-> **the code wins** — verify file/flag/tool names before relying on them.
-> (Last meaningful update: 2026-06-29. Branch `Eventtriggers`, pushed `f4d3bed`.)
+> The auto-loaded context file for this repo: what we are, the architecture as
+> it actually runs, the non-negotiables, and where we are going. When facts
+> here drift from code, **the code wins** — verify file/flag/tool names before
+> relying on them. For anything touching a database, read `docs/DATA_MAP.md`
+> first; two of our stores are silently shared and fail without erroring.
+> (Last meaningful update: 2026-09-05. Branch `codex/vercel-waitlist-postgres`.)
 
 ---
 
 ## 1. The one-paragraph essence
 
-Pivot is a **chat-first investing copilot for Indian retail investors**. The
-chat box *is* the product: a user describes what they want in plain English
-(or Hinglish), and Pivot either **answers** it with grounded market data or
-**builds** the thing they asked for — a trading automation, an options
-strategy, a backtest, a paper trade — and renders it as an **editable card**
-inline in the conversation. Everything else (routers, engines, schedulers,
-data feeds) exists to make that single conversational surface feel correct,
-data-rich, and trustworthy.
+**Pivot is a holistic trading platform with AI intelligence** — a hub for
+financial analysis that serves traders and investors alike. You bring a
+question, a chart, or an idea; Pivot answers it with real market data, draws it
+on live candles with evidence you can check, builds the strategy that expresses
+it, tests that strategy honestly, and runs it in a book you can watch.
 
-A user can, in one chat surface:
-- **Ask** — live price, price history + technicals (SMA/RSI/returns/52w),
-  fundamentals (PE/ROE/PB/payout), company/sector news, screens, comparisons,
-  a structured single-stock analysis, index/market overviews.
-- **Automate** — describe a rule ("buy 10 INFY when RSI<30 and sell at 8%
-  profit", "every Friday buy NIFTYBEES", "alert me when TCS crosses 4000")
-  and get a **workflow/agent card** with the trigger + action laid out.
-- **F&O** — real option chains (strikes/OI/IV/greeks/max-pain/PCR/expected
-  move), suggest/build/critique option strategies, and option-metric
-  automations.
-- **Backtest** — simulate a strategy on historical bars with a rigorous
-  trust battery (§8.2).
-- **Paper trade** — a simulated portfolio that fills registered ideas.
+We do not choose between the trader and the investor. The intraday chartist and
+the long-horizon researcher share the same data plane, the same chat, the same
+strategy builder. They come in through different doors and stay for different
+reasons, and that breadth is deliberate.
+
+**Priority order — emphasis, not exclusion:**
+
+1. **Charting is the differentiator.** Evidence per annotation, honest
+   confidence, move attribution, chat-native drawing. Auto-detection is a
+   commodity in 2026; the judgment layer above it is not.
+2. **The strategy and execution system is the other differentiator.** Plain
+   English → a typed DSL tree → a backtest against the trust ladder → armed →
+   filling in the paper book.
+3. **Screening, fundamentals, filings, news, comparison and portfolio are
+   complementary breadth.** They are what makes 1 and 2 credible, and they are
+   why an investor stays. Necessary. Never the headline.
 
 ---
 
-## 2. What kind of startup we are
+## 2. What kind of company we are
 
-Early-stage, fast-moving, **India-first**. The wedge is *chat as the
-interface to investing* — replacing fragmented broker tools, screeners, and
-option calculators with one conversational copilot a non-expert can actually
-use. We ship quickly and iterate on *real prompts*; correctness and output
-quality **are** the product, not a feature. The moat is the accreted
-behavioural contract (`prompts/system.md`) + the backtest rigor — both hard to
-copy because they are accumulated judgement, not any single feature.
+Early-stage, fast-moving, **India-first**. The wedge is a chart that can
+explain itself joined to a strategy builder that refuses to flatter you. We
+ship quickly and iterate on *real prompts*; correctness and output quality
+**are** the product.
+
+The moat is two things a competitor cannot copy by shipping a feature: the
+**canvas** — a stateful chart scene the model addresses semantically and a
+strategy tree it can edit — and the **verification loop**, the trust ladder
+that deflates for multiple testing before we call anything an edge. No Indian
+retail platform does the second at all.
 
 ---
 
@@ -52,32 +55,30 @@ copy because they are accumulated judgement, not any single feature.
 
 Every change should improve at least one of these, without regressing the other:
 
-1. **Execution correctness** — the right *intent classification*, the right
-   *tool call*, the right *widget/card*, and a faithful *parse* of the user's
-   intent into that card's parameters. (Wrong tool, wrong widget, dropped
-   condition, fabricated value, or a buildable agent that loops/refuses = a
-   correctness failure.)
+1. **Execution correctness** — the right *intent*, the right *tool call*, the
+   right *card or drawing*, and a faithful *parse* of the user's intent into
+   its parameters. (Wrong tool, wrong widget, dropped condition, fabricated
+   value, or a buildable strategy that loops/refuses = a correctness failure.)
 2. **Output quality** — given a correct widget + text, is the answer actually
-   *good*? Convincing, **data-rich** (use the real numbers we now have),
-   **structured** (sections/headers, **markdown tables** for comparisons),
-   appropriately long (not a terse blurb), with a defended view where one is
+   *good*? Convincing, **data-rich**, **structured** (sections, markdown tables
+   for comparisons), appropriately long, with a defended view where one is
    warranted. A correct-but-thin answer still fails this bar.
 
 Test before shipping any agent behaviour: *"Did we call the right tool, render
-the right card, parse every parameter, AND say something a sharp retail
+the right thing, parse every parameter, AND say something a sharp retail
 investor would find genuinely useful?"*
 
 ---
 
-## 4. The non-negotiables (scope & integrity boundaries)
+## 4. The non-negotiables
 
 Identity-level. Violating one is never "a small bug."
 
-- **Register-not-execute.** Pivot **registers** orders and **arms**
-  automations; the user confirms/places in their own broker app. **No live
-  broker auto-execution** — aligned with SEBI's Feb-2025 retail-algo posture;
-  a *product principle*, not a temporary gap. Paper trading is fully
-  **simulated**. Single-stock/index **futures execution is not wired**.
+- **Simulate, don't execute.** Pivot builds, backtests and arms strategies, and
+  fills them into a **simulated paper book**. It does not place live broker
+  orders. The broker rails exist but are dormant behind `live_orders_enabled`;
+  re-arming them is a business decision plus a registered-broker partnership
+  under SEBI's April-2026 framework, not a code change.
 - **Not a broker. Not a registered advisor.** We give **data and frameworks**,
   never personalised buy/sell/hold advice (stock/portfolio/trade answers end
   "…this is analysis, not financial advice.").
@@ -85,55 +86,77 @@ Identity-level. Violating one is never "a small bug."
   GMP, levels-by-role (support/resistance/pivot), PE comparators, or
   capabilities. If a tool returns null, **say it's unavailable** — never
   silence, never guess.
+- **The model writes addresses, not coordinates.** A tool never accepts a
+  price, a pixel or a timestamp the model made up. It accepts an *address* —
+  `"09:15 @ high"`, `repeat:"session"` — and a deterministic resolver lands it
+  on real bars. This is `mark.py`'s contract, and it is a platform rule.
+- **Model reads, code computes.** The model chooses and explains; arithmetic is
+  Python. Proven the hard way: `pivotted/filing_llm.py`'s grounding gates
+  caught a 10,000× unit error in the *deterministic* resolver.
+- **A rate without a control is decoration.** Every claimed edge ships with its
+  base rate and its sample size.
 - **Honest boundaries over fake success.** Never narrate "done/running" on a
-  failure path. When something isn't supported, state the boundary in one line
-  and **name the nearest real thing with a concrete number** (US tech →
-  `MON100`; flexi-cap MF → `NIFTYBEES`).
+  failure path. State the boundary in one line and **name the nearest real
+  thing with a concrete number** (US tech → `MON100`; flexi-cap MF →
+  `NIFTYBEES`).
 - **India scope.** NSE & BSE equities, indices (NIFTY/BANKNIFTY/SENSEX), NSE
-  options (NFO), and **MCX commodities** (crude/gold/silver/metals/natgas —
-  **tradeable via register-not-execute**).
-  US/foreign equities and off-exchange mutual funds are out of scope → offer
-  the listed ETF proxy.
-- **Calm, professional voice.** No slang, no emoji. Match the user's
-  *brevity*, not their register. Decline off-domain asks in one line.
+  options (NFO), **MCX commodities**, and crypto on the chart. US/foreign
+  equities and off-exchange mutual funds are out of scope → offer the listed
+  ETF proxy.
+- **No opinion markets. Ever.** Pivot is not a prediction exchange, a
+  binary-contract venue, a community voting market, or a curated-opinion
+  publisher. The "View Markets" / belief-OS direction was retired on
+  2026-09-05 and has no successor. Do not reintroduce it under a new name.
+- **Calm, professional voice.** No slang, no emoji. Match the user's *brevity*,
+  not their register. Decline off-domain asks in one line.
 
 ---
 
-## 5. Architecture at a glance
+## 5. Architecture as it actually runs
 
-### Backend — `pivot/`
-**FastAPI + SQLAlchemy 2 (sync, psycopg2) + Postgres + Redis.**
-- **Postgres** is on **Azure (Central India, PG v18)**; latency is RTT-bound.
-  Creds in gitignored `.env` / `~/.pgpass`. Latest Alembic migration:
-  **`0022_user_auth_beta`** (a new feature's migration starts at 0023).
-- **LLM provider is Azure (GPT-5.x-mini)** — `config.llm_provider="azure"`
-  default, OpenAI as the alt provider. *(USERHELP.md's "Sarvam / GPT-4o mini"
-  is stale — ignore it.)*
-- The chat agent runs an LLM tool-calling loop; `services/tool_router.py`
-  selects the per-turn tool set by intent; `chat_service.py` owns reply-class
-  budgets, routing/redirects, and affirmative/amendment handling;
-  `prompts/system.md` (~2,300 lines) is the agent's behavioural contract.
-  Engines live under `services/`, `workflows/`, `backtester/`,
-  `services/backtest/`, `market/`, `kite/`, `macro_events/`, `news_events/`.
+Four services behind one nginx on
+`pivot-india.centralindia.cloudapp.azure.com` (VM `Claudecodeforpivot`;
+**ssh is closed — use `az vm run-command`**).
 
-### Frontend — `pivot-next/`
-**Next.js 15 (app router) + shadcn/ui + Tailwind, strict TypeScript.**
-- Renders chat + ~24 card types keyed off a backend `_render_hint`
-  (`workflow_draft_card`, `option_chain_card`, `option_strategy_card`,
-  `strategy_builder_card`, `clarify_card`, the IPO cards, backtest charts,
-  `logic_card`, …).
-- Top-level nav today (`AppShell.tsx` `NAV_ITEMS`): **Chat · Portfolio ·
-  Agents · Calendar · Screener**. Plus `/login`, `/signup` (production auth),
-  `/stock/[symbol]`, `/waitlist`, `/design`.
-- Does some local intent shortcuts (e.g. ticker snapshots) — keep those from
-  intercepting real backend intents. *(Legacy Vite `frontend/` is retired.)*
+| Port | Service | Owns |
+|---|---|---|
+| `:5174` | **charto dataserver** (`charto/data/dataserver.py`) | Bars, indicators, patterns, the chart scene, drawings, alerts, live ticks, the paper book, armed strategies, auth |
+| `:5175` | **charto/web** (Next.js) | The company page `/stock/[symbol]`, `/paper`, `/strategies` |
+| `:5176` | **pivotted** (`pivotted/server.py`) | `/research/` — the filings + fundamentals research chat behind the company page's ask bar |
+| `:8000` | **pivot API** (FastAPI) | *Not deployed yet.* Workflows DSL, backtesters, the tool registry, options, screener |
+| `:3000` | **pivot-next** (Next.js) | *Not deployed yet.* The intended one app |
 
-### Data sources (the Kite-primary contract)
-- **Zerodha Kite Connect is PRIMARY** — live quotes, historical OHLCV, and
-  **F&O** (NFO options). **yfinance is the automatic fallback** (indices, gaps,
-  no-session). When `source != "kite"`, **tag the relay** (e.g. "(yfinance,
-  EOD)"). **Fundamentals** come from a **Moneycontrol DB** with a yfinance
-  fallback (PE/ROE/ROCE/D-E/payout/sector/business summary/promoter %).
+`charto/preview` (vanilla JS + a vendored Lightweight Charts v5) is served
+straight off disk by nginx at `/`, so preview edits are live immediately — but
+**every `<script>` carries a `?v=N` stamp that must be bumped on every JS edit.**
+
+**pivot is a library in production, not a service.** `charto/data/execution_bridge.py`
+imports `backend.agents.tools`, `backend.prompts.assembler`,
+`backend.services.tool_registry` and `backend.workflows.*` to borrow the
+strategy engine; `pivotted/fundamentals.py` imports `backend.market.financials_db`
+rather than re-deriving the numbers. Both are deliberate — one derivation, one
+set of numbers.
+
+### Data — read `docs/DATA_MAP.md` before touching any store
+
+One Postgres server (`pivot-db-india`, Central India, PG 18) with three
+databases — `pivot_db`, `financials`, `pivot_enrich` — plus two SQLite files
+on the VM. Two traps that have already cost us:
+
+- **`charto_users.db` is not an auth database.** It is the whole live
+  user-state plane: users (the **11 real accounts**), sessions, workspace,
+  layouts, conversations, alerts, the paper book, armed strategies and the
+  journal — all through one shared connection and lock (`ds._users`). You
+  cannot migrate "just auth" out of it.
+- **`pivot_db` is upstream master and fails silently.** Quarterly data,
+  instrument master and company identity live there and reach the user through
+  `sync_*.py` into `charto_bars.db`. Charto reads the *cache*, so a broken
+  upstream shows up as data that stops advancing, never as an error.
+
+**Market data:** Zerodha Kite is primary (live quotes, historical OHLCV, F&O);
+yfinance is the automatic fallback. When `source != "kite"`, **tag the relay**.
+Fundamentals come from Moneycontrol via the `financials` DB. The daily Kite
+token expires ~6 AM IST.
 
 ---
 
@@ -142,177 +165,136 @@ Identity-level. Violating one is never "a small bug."
 ```
 user message
   → deterministic pre-LLM layer (intent classify, reply-class, special-case
-     detectors: thematic scenario, vague onboarding, idle-cash, unrealistic
-     return, backtest-tweak follow-up …)            services/chat_service.py
-  → tool_router selects the per-turn tool SUBSET by intent (≈90 tools → ~8-12)
-                                                     services/tool_router.py
-  → LLM tool-calling loop with system.md as contract + a per-turn
+     detectors)                                    services/chat_service.py
+  → the FULL tool set + per-intent prompt packs    services/tool_router.py
+  → LLM tool-calling loop with system_core.md as contract + a per-turn
      REPLY-CLASS directive pinning length/structure
-  → tool_executor dispatches the chosen tool        agents/tool_executor.py
-  → tool returns data + a `_render_hint`            services/tool_registry.py
-  → reply text (markdown) + an inline editable CARD
+  → tool_executor dispatches                       agents/tool_executor.py
+  → tool returns data + a `_render_hint`           services/tool_registry.py
+  → reply text (markdown) + an inline card or a drawing on the chart
 ```
 
-- **`system.md` is the product surface.** It encodes the routing rules:
-  automation-vs-agent shape; *alert verbs route to notify-not-order* (hard
-  gate); *no-trade markers override everything*; *time phrasing means schedule,
-  not price*; never-invent-a-level-by-role; never-fabricate-a-disconnect;
-  JUST-DO-IT-for-reads; ASK_USER only when a required arg is genuinely missing
-  (unit/size ambiguity outranks a soft threshold). Changing agent behaviour is
-  almost always editing this file.
-- **REPLY-CLASS** (injected per turn): `ANALYSIS` (250-450w, sectioned
-  Snapshot/Technicals/Fundamentals/News/What-to-watch/View), `EXPLAINER`
-  (250-500w), `SHORT-ANALYTICAL`/`CAPABILITY` (≤120w), `SMALL-TALK` (1-2
-  sentences), plus card-driven `DRAFT`/`AUTOMATION`/`BACKTEST`.
-- **Single-shot tool calls.** The pipeline does **not** retry the LLM's tool
-  call on validation failure — a wrong guess shows the wrong card. Hence the
-  heavy pre-LLM determinism + ASK_USER discipline.
-- **Cards are the commit surface.** For any order verb, *call the tool* — don't
-  write the confirmation in prose. Prose "Confirm: Buy 10 …" is uncommittable.
+- **`prompts/system_core.md` (994 lines) is the contract**, plus 19 per-intent
+  packs in `prompts/modules/*.md` assembled by `prompts/assembler.py`. The old
+  monolithic `system.md` was retired 2026-07-03. Changing agent behaviour is
+  almost always editing one of these.
+- **The model sees every tool, every turn.** `tool_router.py` does *not* narrow
+  the tool set — the ~40-regex keyword router was deleted 2026-07-16 because
+  misroutes (the right tool not being offered) were the second-largest source
+  of failures, and a byte-stable toolset prefix-caches so its marginal cost is
+  near zero. `tool_router`'s remaining job is **prompt-module selection**.
+- **A tool + its prompt module + its evals is one unit.** Change any leg and
+  re-run the others' evals before merging.
+- **Single-shot tool calls.** The pipeline does not retry the LLM's call on
+  validation failure — a wrong guess shows the wrong card. Hence the heavy
+  pre-LLM determinism and ASK_USER discipline.
+- **Cards and drawings are the commit surface.** For any order verb, *call the
+  tool* — prose "Confirm: Buy 10 …" is uncommittable.
+- **REPLY-CLASS** (injected per turn): `ANALYSIS` (250-450w, sectioned),
+  `EXPLAINER` (250-500w), `SHORT-ANALYTICAL`/`CAPABILITY` (≤120w),
+  `SMALL-TALK` (1-2 sentences), plus card-driven `DRAFT`/`AUTOMATION`/`BACKTEST`.
 
 ---
 
-## 7. Subsystem map (with current state)
+## 7. Subsystem map
 
-- **Workflows / "Agent System"** (`workflows/`) — a **linear, ordered list of
-  typed steps** (trigger → fetch → condition → action → notify/control; no
-  branching/loops in v1). Engine invariants: idempotent actions
-  (`client_request_id = sha1(run:step:attempt)`), **persist-to-DB before any
-  external call**, per-step retries+backoff, **approval gating** (pause→resume),
-  single-instance advisory lock, 30-min time budget, schema validation at every
-  boundary. Scheduler: cron poll (30s) + price/indicator watcher (60s in market
-  hours) + event watcher (5m). `propose_workflow` translates NL → a draft card
-  (mock fallback if the draft fails validation). Traces: `docs/ARCHITECTURE.md`
-  + `docs/SYSTEM_WALKTHROUGH.md`.
-- **Backtester** (`backtester/`, `services/backtest/`, `workflow_backtester.py`)
-  — multiple engines (single-symbol tree, expr/cross-sectional, pairs,
-  portfolio). The differentiator is the **"trust ladder"**: Probabilistic /
-  **Deflated Sharpe** / Minimum Track Record Length, Monte-Carlo (block
-  bootstrap), walk-forward, no-skill **permutation test**, a **trial counter**
-  deflating for multiple-testing, and a plain-English **Trust verdict**
-  (`insufficient_data → no_edge → unproven → promising`). Look-ahead fixed
-  (signal fills next-bar open). *No Indian retail platform deflates for trials.*
-  Plan: `docs/BACKTESTING_PLAN.md`.
-- **Options / F&O** (`services/option_strategies.py`, `option_strategy_service.py`,
-  `strategy_builder.py`) — 15+ templates with live greeks/payoff/margin/POP +
-  rule-based critique; chain/suggest/build/critique tools + cards; paper
-  multi-leg fills; portfolio greeks. **GOTCHA: APScheduler jobs must be
-  module-level** (closures kill the scheduler).
-- **Events / macro / prediction markets** (`macro_events/`, `news_events/`,
-  `triggers/`) — a hardcoded **2026 macro calendar** (RBI MPC, CPI, FOMC) + a
-  **verifier** that reads the real outcome (RSS → LLM → prediction-market
-  fallback) before firing (fail-safe, never false-fires); a full news pipeline
-  with **Polymarket + Kalshi** adapters/workers as a "what's priced in"
-  cross-check (`prediction_market.py`). Triggers: `trigger.event`,
-  `trigger.scheduled_macro`, `trigger.polymarket`, `trigger.kalshi`. Flags
-  (`macro_events_enabled`, `kalshi_rest_enabled`, `polymarket_ws_enabled`)
-  default **OFF**.
-- **Themes / sectors** (`services/thematic_map.py`, `sector_universe.py`,
-  `weighting.py`) — **six** frozen macro scenarios (monsoon-drought,
-  conflict/war, INR depreciation, crude spike, RBI rate-cut, slowdown) each
-  with thesis, winners/losers (real NSE tickers + WHY), confirm/invalidate,
-  default basket weights — **the seed for V2 View Markets**. ~19 sectors /
-  ~200 tickers; weighting schemes equal/mcap/risk-parity/min-variance/
-  black-litterman/factor.
-- **IPO** (`services/ipo_feed.py`, `ipo_application_service.py`,
-  `trendlyne_ipo.py`) — chat-native editable IPO widget + reminder automation;
-  NSE feed enriched with Trendlyne; register-not-execute. *(Uncommitted local
-  WIP as of f4d3bed.)*
-- **Paper trading** (`paper/`) — simulated-broker portfolio + forward-testing;
-  registered ideas fill into a paper book, NAV/P&L tracked.
-- **Brokers / auth** — `BrokerConnector` over Kite/Dhan/Fyers (`brokers/`,
-  `/brokers` router) + auto-exec gating + `broker_audit`; production JWT
-  login/signup + per-user chat-state isolation + persisted chat summaries
-  (migration `0022_user_auth_beta`).
+- **Chart engine** (`charto/preview/`, `charto/data/`) — 26k lines of vanilla
+  JS over a vendored Lightweight Charts v5 (see `preview/VENDOR_PATCHES.md`),
+  against a 497M-row minute store. 26 indicators computed **server-side** (the
+  FE fetches, never computes), 34 candle + 22 chart patterns with base-rate
+  controls, a 15-tool fib/Gann ratio rail, volume profile, drawings addressable
+  by never-recycled D-refs, and the universal `mark` tool. **Every fraction of
+  time is measured in BARS, not seconds.**
+- **Workflows / strategies** (`pivot/backend/workflows/`) — a linear, ordered
+  list of typed steps (trigger → fetch → condition → action → notify; no
+  branching in v1). Idempotent actions, persist-before-external-call, per-step
+  retries, approval gating, advisory lock, schema validation at every boundary.
+  The DSL evaluator is driven through a **five-method `DataAccessor` Protocol**,
+  which is why charto needs one accessor (`strategies.py:299`), not a translator.
+- **Backtester** (`backtester/`, `services/backtest/`) — the differentiator is
+  the **trust ladder**: Deflated Sharpe, Minimum Track Record Length, block-
+  bootstrap Monte Carlo, walk-forward, a no-skill permutation test, a trial
+  counter that deflates for multiple testing, and a plain-English verdict
+  (`insufficient_data → no_edge → unproven → promising`). Signals fill next-bar
+  open.
+- **Alerts** (`charto/data/alerts.py`) — composed-expression rules with **no
+  `kind` column**; crossing side is persisted per condition; boot catch-up
+  fires `late=1`; the tick hook swallows every exception, because an exception
+  in `_live_on_tick` loses the minute.
+- **Paper trading** (`charto/data/paper.py`, `pivot/backend/paper/`) — the
+  simulated book that armed strategies fill into. Charto's tables in
+  `charto_users.db` hold the live positions.
+- **Options / F&O** (`services/option_strategies.py`, `strategy_builder.py`) —
+  15+ templates with live greeks/payoff/margin/POP + rule-based critique.
+  **APScheduler jobs must be module-level** (closures kill the scheduler).
+- **Research** (`pivotted/`) — filings (577,952 grounded facts over 3,892
+  companies), Moneycontrol quarterly, shareholding. Model READS, code COMPUTES,
+  three grounding gates.
+- **Events** (`macro_events/`, `triggers/`) — a hardcoded 2026 macro calendar
+  (RBI MPC, CPI, FOMC) plus a verifier that reads the real outcome before
+  firing. Fail-safe: never false-fires.
+- **Screener, themes, baskets** (`services/thematic_map.py`,
+  `sector_universe.py`, `weighting.py`) — ~19 sectors, ~200 tickers, weighting
+  schemes equal/mcap/risk-parity/min-variance/black-litterman/factor.
 
-The **card system**: a new chat-rendered capability = a new `_render_hint` + a
-new FE card + (usually) a deploy path (`createWorkflow` → `activate` → `run`).
-Every V2 surface follows this template.
+A new chat-rendered capability = a new `_render_hint` + a new card + (usually)
+a deploy path. Every new surface follows that template.
 
 ---
 
 ## 8. Working conventions
 
-- Kite is primary for market data; never present yfinance/real-world dates as
-  live when a Kite path exists — tag the relay when `source != "kite"`.
-- Never fabricate numbers — quote the card/tool values.
-- Honest boundaries over fake success; never narrate "done/running" on a
-  failure path.
-- Run the app on `:8000` (backend) and `:3000` (frontend). The daily Kite
-  token expires ~6 AM IST — re-login (FE button or `scripts/kite_connect.py`)
-  and re-run `refresh_instrument_master` to keep F&O fresh.
-- **Commit freely; ask before pushing** unless explicitly told to push.
+- **Commit freely; ask before pushing** — any branch, any remote.
+- Kite is primary for market data; tag the relay when `source != "kite"`.
+- Ports: `3000` pivot-next · `8000` pivot API · `5174` charto · `5175`
+  charto/web · `5176` pivotted.
+- **The VM's ssh is closed** — use `az vm run-command`, which runs as **root**,
+  so `git` needs `sudo -u azureuser`. Deploy polls the `charto-deploy` branch
+  every 30s. `deploy.sh` does `git reset --hard` (wipes unpushed VM edits).
+- **nginx has a route allowlist.** Unlisted routes silently return 200 with
+  `index.html` — they never 404. Apply with `deploy/apply_nginx.sh` (self-
+  applies with rollback) and gate with `deploy/check_routes.sh`.
+- Bump `?v=N` on every edited `charto/preview` JS file.
 - Evals: **one instrumented multi-turn live run**, fix, retest at most once —
   no restart-and-rerun loops. Every eval/quality report carries the **triad**:
   tokens + latency + quality verdict per item.
+- Plain `grep` is broken in this zsh — use `/usr/bin/grep`.
 
 ---
 
-## 9. V2 direction — **View Markets** (the next big bet)
+## 9. Where we're going
 
-> Full spec: `Markdowns/Version2.md`. Build checklist:
-> `Markdowns/VIEW_MARKETS_V2_CHECKLIST.md`.
+One platform, reached by small reversible infrastructure moves rather than a
+rewrite. Full plan and per-deletion evidence in the current plan file; the
+sequence is:
 
-**The idea — Belief → Expression → Deployment.** Most investors think in
-*opinions*, not instruments: "RBI cuts rates", "Gold beats equities", "India
-enters a manufacturing upcycle", "IT beats the market over six months." They do
-**not** naturally think "buy a call spread" or "build a pair trade." **View
-Markets is the belief operating system** that bridges that gap — a curation +
-presentation layer *on top of* the existing automation/options/backtest
-engines. Success metric: *"I may not know which instrument to buy, but I know
-what I believe"* — and Pivot turns the belief into an evidence-backed,
-deployable expression.
+0. **Truth** — this file, `docs/DATA_MAP.md`, and the removal of retired files.
+1. **Excise opinion markets** — ~43k lines across backend, frontend, schema and
+   prose. Two generic utilities (`security_meta`, `commodities`) are rescued to
+   `backend/market/` first, because the portfolio and paper book import them.
+2. **Deploy the pivot API beside charto** on `:8000`, additive, nothing moves.
+   **Share the session, not the store** — pivot reads charto's session; the 11
+   real accounts never migrate.
+3. **One shell** — `pivot-next` gains `/chart`, mounting `charto/preview`;
+   `NAV_ITEMS` becomes Chart · Chat · Screener · Strategies · Portfolio · Paper.
+4. **One tool surface by deletion** — charto's 47 tools and pivot's 99 overlap;
+   dedupe rather than wrap. Charto owns anything chart- or bar-shaped; pivot
+   owns anything workflow-, backtest- or fundamentals-shaped.
+5. **Close the verification loop** — the agent runs its own backtest, reads the
+   trust verdict, and revises or reports honestly. A `no_edge` strategy cannot
+   be armed without a recorded override.
+6. **Execution means the paper book** — order verbs route to the simulated
+   book; broker rails stay dormant.
 
-- **IS:** a belief OS, a strategy-discovery engine, a capital-expression layer.
-  **IS NOT:** a prediction exchange, a betting/binary YES-NO market, a community
-  voting market, an advisory product claiming certainty. *(We may *read*
-  Polymarket/Kalshi to show "what's priced in" — we never *become* one.)*
-- **Three view types:** **Event** (objective outcome + resolution date — "RBI
-  cuts at the next MPC"), **Relative** (A beats B over T — "IT beats Nifty 6m"),
-  **Theme** (long-duration structural narrative — "defence supercycle"; express
-  as baskets, never binary contracts). A belief without a measurable outcome +
-  defined benchmark + time horizon is not actionable.
-- **Differentiated components:** a **transmission map** (visual cause→effect
-  chain — "US strikes Iran → oil up → inflation up → rates up → energy benefits,
-  airlines weaken"); **market-expectations & surprise** (markets move on
-  surprise, not outcome — Expected vs User-View vs Difference); **expressions**
-  in **Conservative/Balanced/Aggressive** tiers (baskets, option structures,
-  relative/pair trades, hedges) each with why/risk/capital-intensity/historical-
-  strength/horizon; **two confidence dimensions** (outcome vs expression);
-  **timing modes** Pre-position / Confirmation / Hybrid; a **lifecycle**
-  Open→Developing→Consensus→Resolved→Archived; **backend-generated, evidence-
-  backed** views (never hand-typed opinions).
-- **V1 scope = curated views only.** OUT: user-created beliefs, custom belief
-  builders, prediction exchanges, binary contracts, community voting, trading
-  outcome contracts (user-authored beliefs are a *future* direction only).
-- **Design language:** visual, guided, calm, trustworthy — cards, timelines,
-  confidence dials, small charts, transmission diagrams, progressive disclosure.
-  Avoid dense tables / terminal vibes / data overload.
-
-**Why it's mostly *assembly*, not green-field** — the engine largely exists:
-- Event resolution → `macro_events/` (calendar + verifier) + `news_events/`.
-- "What's priced in" → Polymarket/Kalshi (`prediction_market.py`).
-- Transmission + theme→winners/losers → `thematic_map.py` + `sector_universe.py`.
-- Relative/pair views → `get_correlation_matrix`, `compare_performance`,
-  `services/backtest/pairs/`.
-- Expressions → option templates, `propose_basket_allocation` + `weighting.py`,
-  workflow allocate actions.
-- Deploy/automate/backtest → the workflow card→create/activate/run pattern +
-  the trust-verdict backtest battery.
-- **Net-new:** the `market_views` / `view_expressions` / `view_transmission` /
-  `view_confidence` / `view_expectations` data model (migration **0023**), a
-  view-generation/curation pipeline, the surprise/expectations aggregator, the
-  transmission DAG (move `thematic_map` thesis prose → machine-readable nodes),
-  a new **"Views" FE tab** + View cards, and the chat tools/routing/render-hints
-  to expose it. Reuse `thematic_map.detect_thematic_scenario` + `_POSITIONING_RE`
-  as the chat routing seed. Ship behind `view_markets_enabled` (default OFF).
+The codebase should be **smaller** when this is done, not larger.
 
 ---
 
 ## 10. North star
 
-Pivot wins when a non-expert can hold a belief, see it explained with evidence
-and a causal map, choose a risk-appropriate expression, sanity-check it with a
-*rigorous* backtest, and deploy it as a register-not-execute automation — all
-inside one calm conversation. **Correctness and output quality are the
-product.** Build toward that; keep the boundaries honest; never fabricate.
+Pivot wins when someone — trader or investor — can bring a question to a chart,
+see it answered with evidence rather than assertion, turn it into a strategy
+without knowing what a DSL is, find out honestly whether that strategy has an
+edge, and watch it run — all inside one calm platform. **Correctness and output
+quality are the product.** Build toward that; keep the boundaries honest; never
+fabricate.
