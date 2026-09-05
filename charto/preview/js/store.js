@@ -33,6 +33,10 @@ const Sym = (() => {
   function of(name) {
     const S = String(name || "RELIANCE").toUpperCase();
     const crypto = /(USDT|-USD)$/.test(S);
+    // The BASE asset of a crypto pair — what a volume figure on it counts.
+    // BTC-USD and BTCUSDT both trade BTC; the suffix is the money, not the
+    // thing bought.
+    const base = crypto ? S.replace(/USDT$/, "").replace(/-USD$/, "") : "";
     // The venue is not decoration: it rides into the chat context envelope, so
     // a hardcoded "NSE" told the model that BTCUSDT trades on the NSE.
     const venue = /USDT$/.test(S) ? "BYBIT" : /-USD$/.test(S) ? "COINBASE"
@@ -56,6 +60,18 @@ const Sym = (() => {
       // this reads the clock the bars are actually on rather than claiming
       // IST for everything.
       tzLabel: crypto ? "UTC" : "UTC+5:30",
+      /* What one unit of VOLUME is on this instrument. Stated, because the
+       * number alone is not readable: a 5-minute BTC bar trading 4.49 and a
+       * 5-minute RELIANCE bar trading 435,659 are the same kind of figure
+       * only if you already know one is coins and the other is shares.
+       *
+       * Derived, never guessed. A crypto pair's base asset is in its own
+       * name. MCX and the currency segment are FUTURES and their volume is
+       * quoted in contracts — checked against the live feed rather than
+       * assumed: MCX GOLD prints ~10-11k a day and USDINR ~1M, which are lot
+       * counts; grams and dollars would be orders of magnitude larger. */
+      unit: crypto ? base
+        : (venue === "MCX" || venue === "NSE CDS") ? "contracts" : "shares",
       locale: crypto ? "en-US" : "en-IN",
       num(n, opts) {
         return Number(n).toLocaleString(this.locale,

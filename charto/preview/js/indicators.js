@@ -625,13 +625,24 @@ const Indicators = (() => {
     // a Bitcoin legend has to read 1,234,567.5.
     /* Volume is quoted in units nobody reads digit by digit: "1,23,45,678"
      * is noise where "12.35M" is a number. Only at "default" precision — a
-     * user who asked for 4 decimals asked for the digits. */
+     * user who asked for 4 decimals asked for the digits.
+     *
+     * The small end is not symmetrical with the large end, and getting that
+     * wrong is what this function did first. Rounding 12,345,678 shares to
+     * "12.35M" throws away digits nobody was reading. Rounding 4.491388 BTC
+     * to "4" throws away the ENTIRE number: a five-minute Bitcoin bar trades
+     * single-digit coins, so a Coinbase chart read "Volume · 12  5" where the
+     * two figures were 12.34 and 5.51. Below a thousand the decimals are the
+     * measurement, so they stay — and under 1, where every digit is
+     * significant, three significant figures rather than a fixed 2 dp keeps
+     * 0.00087 from printing as "0.00". */
     const compactVolume = (n) => {
       const a = Math.abs(n);
       if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
       if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
       if (a >= 1e3) return (n / 1e3).toFixed(2) + "K";
-      return Sym.num(n, { maximumFractionDigits: 0 });
+      if (a >= 1) return Number.isInteger(n) ? String(n) : n.toFixed(2);
+      return a > 0 ? String(Number(n.toPrecision(3))) : "0";
     };
 
     function formatter(st, def) {
@@ -1051,8 +1062,21 @@ const Indicators = (() => {
         // over the wrong chart.
         let pane = a.pane || 0;
         try { pane = a.series[0].getPane().paneIndex(); } catch { /* torn down */ }
+        /* "Volume · 4.49" is a number without a noun. Which instrument's
+         * unit is a question only the MANAGER can answer — the catalogue is
+         * module-level and shared, so a split showing BTC-USD beside
+         * RELIANCE has one `def` serving two different units, and baking it
+         * into the label would print "shares" on the Bitcoin pane. Resolved
+         * per row, from the symbol this study is actually reading. */
+        let label = st.style.inputsStatusLine === false ? a.def.base : a.def.label;
+        if (a.def.name === "volume") {
+          const src = st.symbolMode === "another" && st.symbol
+            ? st.symbol : (ctx.symbol || SYM);
+          const unit = (Sym.of(src) || {}).unit;
+          if (unit) label += ` (${unit})`;
+        }
         rows.push({
-          id, label: st.style.inputsStatusLine === false ? a.def.base : a.def.label,
+          id, label,
           kind: a.def.kind, pane,
           color: color || Theme.c("legend"), values, hidden, off,
         });
