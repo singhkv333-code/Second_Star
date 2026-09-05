@@ -14,6 +14,7 @@ pushed to any remote, and nothing has been applied to the VM.**
 | `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the Charto-session seam. Built, **not installed**. |
 | `restore/phase3-shell` | `12a4132a` | The Chart tab in the shell + `js/embed.js`. Production untouched. |
 | `restore/phase4-tools` | `4286f6cb` | The tool-name collision guard + `docs/TOOL_SURFACE.md`. |
+| `restore/wip-landed` | `57c896a8` | The 52 pre-existing uncommitted files, landed as seven commits (see below). The working tree is clean for the first time in this work. |
 | `wip/pre-phase2-2026-09-05` | branch | The 56 pre-existing uncommitted files (execution mode, stock research panels, chat/backtest work), snapshotted verbatim. Not merged into anything. |
 
 ## How to undo
@@ -27,11 +28,35 @@ The commits stay in the reflog and under their tags; nothing is lost.
 **Undo one phase only** (they are independent — Phase 2 does not depend on
 Phase 1's deletions, and Phase 1 does not depend on Phase 0's prose):
 
+    git revert 57c896a8      # re-track tsconfig.tsbuildinfo + package-lock.json
+    git revert 5c4d6f08      # drop the answer-scope eval records
+    git revert 3d72077c      # restore the keyword reply ladder + the fast path
+    git revert 9048743f      # drop the company-page research refactor
+    git revert 96663d23      # drop price_basis=unadjusted on /ohlc
+    git revert 095e1aa0      # unmount /api/execution (revert BEFORE 0efe5772)
+    git revert 0efe5772      # drop indicator settings + the MCX exchange fix
     git revert 4286f6cb      # drop the collision guard
     git revert 12a4132a      # drop the Chart tab (removes js/embed.js too)
     git revert 02fc6de0      # drop the pivot-api unit + session seam
     git revert 35db45ec      # bring the opinion-markets branch back
     git revert 40c8eeba      # restore the old CLAUDE.md
+
+## The landed WIP, and the one commit to look at twice
+
+The 52 files that sat uncommitted through Phases 0-4 are now seven commits.
+Six are self-contained and green. The seventh is not a fix:
+
+**`3d72077c` — one adaptive reply class and a 500-token ceiling.** It collapses
+the eight-way reply-class ladder into one model-chosen shape, drops the visible
+reply ceiling from 3800 tokens to 500, and deletes `fast_path`'s canned
+greeting/thanks replies so those turns now cost an LLM hop. That is a product
+decision with a real trade — it is tighter than the ANALYSIS shape CLAUDE.md §6
+documents — and it is isolated in its own commit precisely so it can be
+reverted alone, without losing the DSL fixes it arrived beside.
+
+`095e1aa0` (execution mode) depends on `0efe5772` (the indicator-settings
+registry): `/api/execution/capabilities` describes settings the registry
+validates. Revert them in that order or the app will not boot.
 
 **Recover one file from the WIP snapshot:**
 
