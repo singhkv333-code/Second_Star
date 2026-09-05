@@ -11404,6 +11404,29 @@ def _pivot_tool(name: str):
     return call
 
 
+# Borrowed Pivot tools join the dispatch table. This loop ASSIGNS, so a name
+# Charto already owns would be silently replaced — and four of them collide
+# today: get_indicator, list_strategies, pause_strategy and delete_strategy
+# exist on both sides and all four are in _EXECUTION_CHARTO_TOOLS below.
+#
+# None is in PIVOT_TOOLS right now, so nothing is broken. But the failure is
+# invisible if it ever happens: adding `get_indicator` to that tuple would
+# hand the name to Pivot's implementation, and execution mode would start
+# answering it from Pivot's data path instead of the 497M-row bar store the
+# chart is drawn from. Same tool name, same schema, different numbers, no
+# error anywhere.
+#
+# So the collision is refused instead of resolved. Whoever adds the name has
+# to decide which engine owns it, which is a decision and not a merge order.
+_collisions = sorted(set(execution_bridge.PIVOT_TOOLS) & set(_DISPATCH))
+if _collisions:
+    raise RuntimeError(
+        "execution_bridge.PIVOT_TOOLS would overwrite Charto's own "
+        f"implementation of: {', '.join(_collisions)}. Charto owns anything "
+        "read off the bar store; Pivot owns the workflow/backtest surface. "
+        "Rename one side or drop the name from PIVOT_TOOLS — do not rely on "
+        "assignment order."
+    )
 for _n in execution_bridge.PIVOT_TOOLS:
     _DISPATCH[_n] = _pivot_tool(_n)
 
