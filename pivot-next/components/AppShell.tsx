@@ -24,6 +24,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   BarChart2,
+  CandlestickChart,
   Bug,
   Compass,
   ChevronDown,
@@ -65,6 +66,7 @@ import {
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
+import { ChartFrame } from "@/components/chart/ChartFrame";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
@@ -108,7 +110,8 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener";
+  | "screener"
+  | "chart";
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -116,6 +119,7 @@ const NAV_ITEMS: {
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
   { key: "home", label: "Home", Icon: Home },
+  { key: "chart", label: "Chart", Icon: CandlestickChart },
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
@@ -261,6 +265,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   } | null>(null);
   const [metrics, setMetrics] = useState<MetricState>({ kind: "loading" });
   const [theme, setTheme] = useState<Theme>("system");
+  // The concrete mode the chart iframe is told to wear. `theme` is three-state
+  // — "system" defers to the OS — and the chart cannot defer to anything, so
+  // it is resolved here. Starts "dark" so the first server/client paint agree;
+  // the effect below corrects it before the frame is ever told anything.
+  const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
   // the toggle + banner re-render; the data layer reads the store directly.
   // Default 'paper' matches lib/trading-mode.ts DEFAULT_MODE so the first
@@ -322,6 +331,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     const initial = readStoredTheme() ?? "system";
     setTheme(initial);
     applyTheme(initial);
+    setResolvedTheme(
+      initial === "dark" || (initial === "system" && osPrefersDark())
+        ? "dark" : "light",
+    );
 
     // Trading mode: adopt the persisted choice (default 'real') and reconcile
     // the backend account mode to match, so order routing (`should_use_paper`)
@@ -435,7 +448,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     if (theme !== "system") return;
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (): void => applyTheme("system");
+    const onChange = (): void => {
+      applyTheme("system");
+      setResolvedTheme(osPrefersDark() ? "dark" : "light");
+    };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, [theme]);
@@ -443,6 +459,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const chooseTheme = useCallback((next: Theme): void => {
     setTheme(next);
     applyTheme(next);
+    setResolvedTheme(
+      next === "dark" || (next === "system" && osPrefersDark())
+        ? "dark" : "light",
+    );
     try {
       localStorage.setItem(LS_KEY, next);
     } catch { /* ignore */ }
@@ -1006,6 +1026,22 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               style={{ background: "var(--bg-inset)" }}
             >
               <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} onOpenAgent={openAgentFromHome} onOpenStrategies={openAgentsStrategies} />
+            </div>
+          )}
+          {visitedTabs.has("chart") && (
+            // The charting engine, in a same-origin iframe. Kept MOUNTED once
+            // visited (the visitedTabs pattern) rather than unmounted on tab
+            // switch: remounting would reload the chart and throw away the
+            // user's drawings, indicators and scroll position every time they
+            // glanced at Portfolio.
+            <div
+              className={
+                !children && active === "chart"
+                  ? "flex-1 min-h-0 flex flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
+              <ChartFrame theme={resolvedTheme} />
             </div>
           )}
           {visitedTabs.has("screener") && (

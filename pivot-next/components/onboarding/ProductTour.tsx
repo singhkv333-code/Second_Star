@@ -31,7 +31,8 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener";
+  | "screener"
+  | "chart";
 
 /** Bump when the flow changes enough that existing users should see it again. */
 const DONE_KEY = "pivot-tour-v1";
