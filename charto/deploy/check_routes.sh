@@ -78,10 +78,13 @@ echo "2. the blocks that are not the fall-through"
 # alternations, the exact `=` matches, and PREFIX blocks like `/research/`
 # (the research chat's upstream). The prefix pattern requires at least one
 # letter so it cannot match `location / {`, which is the fall-through and is
-# already probe 1.
+# already probe 1. It allows an inner slash so MULTI-SEGMENT prefixes are seen
+# too: `/api/pivot/` was invisible to the single-segment version, which would
+# have shipped exactly the silent-200-with-index.html bug this file exists to
+# catch.
 routes="$(sed -n 's/.*location ~ \^\/(\([^)]*\)).*/\1/p' "$CONF" | tr '|' '\n')
 $(sed -n 's/.*location = \(\/[a-z_]*\).*/\1/p' "$CONF")
-$(sed -n 's/^[[:space:]]*location \(\/[a-z_][a-z_]*\/\) {.*/\1/p' "$CONF")"
+$(sed -n 's/^[[:space:]]*location \(\/[a-z_][a-z_/]*\/\) {.*/\1/p' "$CONF")"
 
 while read -r p; do
   [ -n "$p" ] || continue

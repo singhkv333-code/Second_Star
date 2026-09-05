@@ -276,3 +276,27 @@ if systemctl cat charto-research.service >/dev/null 2>&1 \
     echo "deploy: WARNING — could not restart charto-research.service (sudoers?)"
   fi
 fi
+
+
+# Pivot's API on :8000, same shape and the same reasoning as the block above.
+#
+# `pivot/` ALREADY restarts charto.service, because the dataserver imports the
+# package through execution_bridge. It has to restart this too now, for the
+# same reason: a running process holds the old module in memory, and a box
+# serving code it no longer has on disk is the drift the whole polling deploy
+# exists to prevent.
+#
+# Guarded on the unit existing so a box that has not run
+# provision_pivot_api.sh is simply a box without the API, not a broken deploy.
+if systemctl cat pivot-api.service >/dev/null 2>&1 \
+  && grep -qE '^pivot/' <<<"$changed"; then
+  echo "deploy: pivot source changed, restarting pivot-api.service"
+  if sudo -n /usr/bin/systemctl restart pivot-api.service; then
+    sleep 2
+    systemctl is-active --quiet pivot-api.service \
+      && echo "deploy: pivot-api.service active" \
+      || echo "deploy: WARNING — pivot-api.service did not come back"
+  else
+    echo "deploy: WARNING — could not restart pivot-api.service (sudoers?)"
+  fi
+fi

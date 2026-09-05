@@ -329,6 +329,17 @@ async def startup():
     from backend.scheduler import init_scheduler
     from backend.utils.time_utils import format_ist, now_ist
 
+    # See config.background_jobs_enabled: on the shared VM these belong to
+    # Charto, and a second scheduler there costs a core the live tick engine
+    # needs. Announced rather than silent, so a box that is missing its jobs
+    # says so in its own log instead of looking healthy and doing nothing.
+    if not getattr(settings, "background_jobs_enabled", True):
+        logger.info(
+            "Background jobs disabled (background_jobs_enabled=false): no "
+            "scheduler, no workflow poll, no cache warmup. Serving HTTP only."
+        )
+        return
+
     try:
         init_scheduler(database_url=settings.database_url)
         # Plug the workflows poll job into the same AsyncIOScheduler.
@@ -358,10 +369,16 @@ async def startup():
     # Phase 2: auto-start the Kite ticker if a real access token exists
     # in DB. Wrapped — startup must never fail because the ticker
     # can't reach upstream Kite WS.
-    try:
-        _maybe_autostart_kite_ticker()
-    except Exception as e:
-        logger.info(f"Kite ticker autostart skipped: {e}")
+    if getattr(settings, "kite_ticker_autostart", True):
+        try:
+            _maybe_autostart_kite_ticker()
+        except Exception as e:
+            logger.info(f"Kite ticker autostart skipped: {e}")
+    else:
+        logger.info(
+            "Kite ticker autostart disabled (kite_ticker_autostart=false) — "
+            "another process on this host owns the socket."
+        )
 
 
 def _maybe_autostart_kite_ticker() -> None:
