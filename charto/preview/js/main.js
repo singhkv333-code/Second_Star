@@ -1369,6 +1369,150 @@
     } catch {}
   }
 
+  /* ── the price axis scales PRICE — the wheel too, not only a drag ────────
+   * TradingView's price scale answers two gestures and they mean the same
+   * thing: DRAG it and the scale stretches or compresses, WHEEL over it and
+   * it does the same a notch at a time.
+   *
+   * lightweight-charts ships only the drag. Its wheel handler zooms the TIME
+   * scale wherever the pointer happens to be — measured here, a scroll over
+   * the price axis moved bar spacing by exactly the factor a scroll over the
+   * DATE axis did (1.611 vs 1.611), so the candles widened sideways when the
+   * gesture asked for them to flatten. Two different strips, one behaviour:
+   * the axis you were pointing at had stopped meaning anything.
+   * (Open upstream as tradingview/lightweight-charts#1237.)
+   *
+   * So the wheel over that strip is claimed here and turned into a price
+   * zoom. CAPTURE phase on the document, because the listener being overruled
+   * is the library's own and capture reaches us first; everywhere else on the
+   * chart the event is not touched and still zooms time. */
+  // A notch is 120 units. 1.1 per notch is the rate LWC's own time zoom uses
+  // (measured: five notches → 1.61×), so both axes answer the wheel at the
+  // same speed and a trackpad flick doesn't feel like two different charts.
+  const PRICE_ZOOM_PER_NOTCH = 1.1;
+
+  /** The chart a DOM node belongs to — the primary, or one of Panes' subs.
+   *  Read off the live pane list rather than a registry of our own, so a
+   *  layout change adds and drops charts here for free. */
+  function chartUnder(node) {
+    if (chartEl.contains(node)) return chart;
+    if (typeof Panes === "undefined") return null;
+    for (let i = 1; Panes.hasPane(i); i++) {
+      const p = Panes.paneAt(i);
+      if (p && p.root && p.root.contains(node)) return p.chart;
+    }
+    return null;
+  }
+
+  /** The INDEX of the pane whose PRICE AXIS is under this event, or -1.
+   *
+   *  An index, not the pane: `panes()` and `priceScale()` both mint a FRESH
+   *  wrapper object on every call — measured, `pane.priceScale("right") !==
+   *  pane.priceScale("right")` — so anything holding one as an identity (a
+   *  Map key, an equality test) silently treats one scale as many. The index
+   *  is the stable name for "which scale", and it is resolved back to an
+   *  object only at the moment of use.
+   *
+   *  The axis is the right-hand strip and only ABOVE the time axis: the
+   *  corner cell below it belongs to neither scale, and a wheel there keeps
+   *  whatever the library already does with it. */
+  function priceAxisPaneAt(t, e) {
+    let host, axisW, axisH;
+    try {
+      host = t.chartElement().getBoundingClientRect();
+      axisW = t.priceScale("right").width();
+      axisH = t.timeScale().height();
+    } catch { return -1; }
+    if (!axisW) return -1;
+    if (e.clientX < host.right - axisW || e.clientX > host.right) return -1;
+    if (e.clientY > host.bottom - axisH) return -1;
+    const panes = t.panes();
+    for (let i = 0; i < panes.length; i++) {
+      // A pane can report no element at all — the indicator pane does, before
+      // its first layout — and a null here must skip that pane rather than
+      // throw the whole gesture away.
+      const node = panes[i].getHTMLElement();
+      if (!node) continue;
+      const r = node.getBoundingClientRect();
+      if (e.clientY >= r.top && e.clientY <= r.bottom) return i;
+    }
+    return -1;
+  }
+
+  /* ONE REDRAW PER FRAME, not one per event.
+   *
+   * A mouse sends a wheel event per notch; a trackpad sends a stream of small
+   * ones, easily faster than the display refreshes. Rescaling inside each of
+   * those means several full chart redraws between two painted frames — the
+   * work is thrown away and the gesture stutters exactly when the hand is
+   * moving fastest. The deltas are summed instead and spent once per frame,
+   * so a flick is one smooth ramp and a single notch still lands immediately
+   * on the next frame.
+   *
+   * Deltas are normalised first: `deltaMode` is 0 in Chrome and Safari but 1
+   * (LINES) in Firefox, where a raw deltaY of 3 would otherwise read as a
+   * fortieth of a notch and the axis would barely move. */
+  // [{ t, i, delta }] — the chart, the pane index, and what is owed to it.
+  // Keyed by index rather than by scale object, for the reason written above
+  // priceAxisPaneAt: a fresh wrapper per call would put every event in its own
+  // slot and coalesce nothing, which is the whole point of this queue.
+  const wheelPending = [];
+  let wheelFrame = 0;
+
+  function flushPriceWheel() {
+    wheelFrame = 0;
+    for (const { t, i, delta } of wheelPending) {
+      let ps, r;
+      try {
+        const pane = t.panes()[i];
+        if (!pane) continue;                 // a layout change dropped it
+        ps = pane.priceScale("right");
+        r = ps.getVisibleRange();
+      } catch { continue; }
+      if (!r || !(r.to > r.from)) continue;
+      // Down (deltaY > 0) COMPRESSES — more price in the same height, so the
+      // candles flatten. The same direction dragging the axis downward goes,
+      // which is the point: one strip, one meaning, however you touch it.
+      //
+      // Anchored on the MIDDLE of the range rather than the price under the
+      // pointer, because that is what dragging this strip already does. Two
+      // gestures on one control disagreeing about their pivot is worse than
+      // either pivot is on its own.
+      const mid = (r.from + r.to) / 2;
+      const half = (r.to - r.from) / 2 * Math.pow(PRICE_ZOOM_PER_NOTCH, delta / 120);
+      // A range collapsed to a point cannot be zoomed back out of — the next
+      // notch multiplies zero — and one that has swallowed the whole history
+      // is a view of nothing. Both ends refuse the gesture rather than
+      // clamping, so the scale stops where it is instead of drifting
+      // somewhere with no way back but the reset button.
+      if (!isFinite(half) || half <= 1e-8) continue;
+      try { ps.setVisibleRange({ from: mid - half, to: mid + half }); } catch {}
+    }
+    wheelPending.length = 0;
+  }
+
+  document.addEventListener("wheel", (e) => {
+    const t = chartUnder(e.target);
+    if (!t) return;
+    const i = priceAxisPaneAt(t, e);
+    if (i < 0) return;              // not the price axis — leave it to LWC
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    // LINES and PAGES to pixels. 16 is a line at this app's type size; a page
+    // is one pane tall, which is what the key of the same name scrolls. Firefox
+    // reports LINES, where a raw deltaY of 3 would otherwise read as a fortieth
+    // of a notch and the axis would barely answer at all.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    // One frame of flick is capped at four notches. Some trackpads emit a
+    // single enormous delta at the end of a fast swipe, and without this the
+    // scale jumps a decade in one frame and reads as a glitch, not a zoom.
+    const step = Math.max(-480, Math.min(480, e.deltaY * unit));
+    const slot = wheelPending.find((p) => p.t === t && p.i === i);
+    if (slot) slot.delta += step;
+    else wheelPending.push({ t, i, delta: step });
+    if (!wheelFrame) wheelFrame = requestAnimationFrame(flushPriceWheel);
+  }, { capture: true, passive: false });
+
   /* ── the view, and the one way back to it ────────────────────────────────
    * THE DEFAULT VIEW is what a chart opens on: the last VIEW_SPAN bars with a
    * little room past the newest one, and a price scale free to fit them. One
