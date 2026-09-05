@@ -1,0 +1,50 @@
+[
+  {
+    "id": "29788cd3-e10d-4c92-94c7-3d2cb740aa4b",
+    "view_id": "4f40f896-0953-4d66-bf6f-1932667b531e",
+    "dimension": "outcome",
+    "score": 0.61,
+    "evidence": "Outcome B (61/100): analog hit-rate 75%; relationship strength 17%; N=8.",
+    "updated_at": "2026-06-30T08:42:08.460577+00:00"
+  },
+  {
+    "id": "d10e0bc6-2c14-466f-bf87-88b7c502f720",
+    "view_id": "4f40f896-0953-4d66-bf6f-1932667b531e",
+    "dimension": "expression",
+    "score": 0.71,
+    "evidence": "Expression B (71/100): CAAR/BHAR alignment 100%; significance p=0.157; net-of-cost survival 100%.",
+    "updated_at": "2026-06-30T08:42:08.460577+00:00"
+  },
+  {
+    "id": "1e1859b4-42c0-4be1-9232-fcb633b7b07b",
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "dimension": "expression",
+    "score": 0.79,
+    "evidence": "Expression B (79/100): CAAR/BHAR alignment 100%; significance p=0.001; net-of-cost survival 60% \u2014 capped at 79 by Trust verdict 'unproven'.",
+    "updated_at": "2026-06-30T08:42:08.460577+00:00"
+  },
+  {
+    "id": "dc56f16e-30f1-4546-b8a0-6332fe2e0ab8",
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "dimension": "outcome",
+    "score": 0.79,
+    "evidence": "Outcome B (79/100): analog hit-rate 100%; N=4 \u2014 capped at 79 by Trust verdict 'unproven'.",
+    "updated_at": "2026-06-30T08:42:08.460577+00:00"
+  },
+  {
+    "id": "fd748994-aecc-4fa3-a619-1552561d432d",
+    "view_id": "19f04e99-b704-4166-b99a-697049885d44",
+    "dimension": "outcome",
+    "score": 0.76,
+    "evidence": "Outcome B (76/100): analog hit-rate 67%; N=12.",
+    "updated_at": "2026-06-30T08:42:08.460577+00:00"
+  },
+  {
+    "id": "c2251388-a7c9-4edb-a3a8-72171ace3e7e",
+    "view_id": "19f04e99-b704-4166-b99a-697049885d44",
+    "dimension": "expression",
+    "score": null,
+    "evidence": "Need at least two symbols to backtest the basket; the expression structure carries fewer.",
+    "updated_at": "2026-06-30T11:01:45.006797+00:00"
+  }
+]

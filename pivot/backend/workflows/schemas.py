@@ -141,7 +141,7 @@ class _Strict(BaseModel):
         (paired with `symbol` or, for pair-trade fetches, `symbol_a`)
         gets this for free — no per-class patch needed. Reuses the
         single source of truth for MCX symbol classification
-        (`view_markets.expressions.commodities`) rather than
+        (`backend.market.commodities`) rather than
         reinventing a commodity list here.
 
         Gated on the field's own Literal actually allowing "MCX" (checked
@@ -159,7 +159,7 @@ class _Strict(BaseModel):
         allowed = getattr(field.annotation, "__args__", ()) if field is not None else ()
         if "MCX" not in allowed:
             return self
-        from backend.view_markets.expressions.commodities import is_commodity
+        from backend.market.commodities import is_commodity
         if is_commodity(symbol):
             self.exchange = "MCX"
         return self

@@ -46,7 +46,6 @@ import {
   Settings,
   ShieldCheck,
   Sun,
-  Telescope,
   Trash2,
   X,
 } from "lucide-react";
@@ -65,7 +64,6 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
-import { ViewsTab } from "@/components/views/ViewsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
@@ -110,8 +108,7 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener"
-  | "views";
+  | "screener";
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -122,7 +119,6 @@ const NAV_ITEMS: {
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Agents", Icon: Settings },
-  { key: "views", label: "Opinions", Icon: Telescope },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
@@ -478,7 +474,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   // Immediate refetch when any trade-affecting mutation fires the global
   // `pivot:portfolio-dirty` event (dispatched by lib/api.ts after orders /
-  // paper fills / workflow / basket / views / IPO POSTs succeed). This makes
+  // paper fills / workflow / basket / IPO POSTs succeed). This makes
   // the header value/P&L update right away instead of waiting for the next
   // 30-second poll tick.
   useEffect(() => {
@@ -638,7 +634,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const openAgentFromHome = useCallback(
     (spec: { matchName: string; draft: Workflow }): void => {
       // A prebuilt AUTOMATION is a workflow agent — land on the "Equity agents"
-      // surface (not whatever surface, e.g. My Opinions, was last open) so the
+      // surface (not whatever surface was last open) so the
       // editor opens over the agents list it belongs to.
       setAgentsSurfaceReq((prev) => ({ surface: "equity", nonce: (prev?.nonce ?? 0) + 1 }));
       goTab("agents");
@@ -1036,18 +1032,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               }
             >
               <PortfolioTab />
-            </div>
-          )}
-          {visitedTabs.has("views") && (
-            // Views tab — curated market beliefs grid + detail page.
-            <div
-              className={
-                !children && active === "views"
-                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
-                  : "hidden"
-              }
-            >
-              <ViewsTab onOpenWorkflowById={openWorkflowById} />
             </div>
           )}
           {visitedTabs.has("agents") && (

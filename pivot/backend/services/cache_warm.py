@@ -147,22 +147,6 @@ def warm_user_cache(user_id: int) -> None:
                 user_id, e,
             )
 
-        # ── (b) Views (GLOBAL list) ───────────────────────────────────
-        # Call the route function directly with default filters — this
-        # is the same code path the FE hits on the Views tab mount, and
-        # it writes the same views:list:v1:… key. Silently 404s when
-        # the view_markets_enabled flag is off; broad except catches it.
-        try:
-            from backend.routers.views import list_views
-
-            list_views(
-                status=None, view_type=None, category=None,
-                db=db, user_id=None,
-            )
-        except Exception as e:  # noqa: BLE001
-            # 404 when the flag is disabled is EXPECTED, not an error.
-            logger.debug("cache_warm: views list skipped: %s", e)
-
         # ── (b2) Screener market metrics (GLOBAL) ─────────────────────
         # Kick the universe price / day-change / 1-year-return warm so the
         # Screener grid is populated by the time the user opens it. Fires a

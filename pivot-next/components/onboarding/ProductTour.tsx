@@ -31,8 +31,7 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener"
-  | "views";
+  | "screener";
 
 /** Bump when the flow changes enough that existing users should see it again. */
 const DONE_KEY = "pivot-tour-v1";
@@ -101,18 +100,7 @@ const STEPS: TourStep[] = [
     align: "start",
     title: "Everything else",
     description:
-      "<strong>Home</strong> gives you the market at a glance, <strong>Chat</strong> is where you ask questions, and <strong>Portfolio</strong> holds your positions. We'll walk through the next three — starting with Opinions.",
-  },
-  {
-    tab: "views",
-    element:
-      '[data-testid="views-grid"] [data-testid^="view-card"], [data-testid="views-grid"]',
-    waitFor:
-      '[data-testid="views-grid"], [data-testid="views-empty"], [data-testid="views-error"]',
-    side: "right",
-    title: "Trade what you believe",
-    description:
-      "You don't think in strike prices — you think “RBI will cut rates” or “defence has a decade ahead”. Each card is one such belief, researched and scored, with ready-made ways to put money behind it at your kind of risk. Open one and look around.",
+      "<strong>Home</strong> gives you the market at a glance, <strong>Chat</strong> is where you ask questions, and <strong>Portfolio</strong> holds your positions. We'll walk through the last two.",
   },
   {
     tab: "agents",

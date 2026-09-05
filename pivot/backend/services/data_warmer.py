@@ -68,21 +68,7 @@ def warm_global_data_caches() -> None:
     except Exception as e:  # noqa: BLE001
         logger.debug("data_warmer: fundamentals warm failed: %s", e)
 
-    # ── 3. Views list (global) ─────────────────────────────────────────────
-    try:
-        from backend.database import SessionLocal
-        from backend.routers.views import list_views
-
-        db = SessionLocal()
-        try:
-            list_views(status=None, view_type=None, category=None,
-                       db=db, user_id=None)
-        finally:
-            db.close()
-    except Exception as e:  # noqa: BLE001
-        logger.debug("data_warmer: views warm skipped: %s", e)
-
-    # ── 4. Financials seed for the top-mcap universe (every ~4h) ──────────
+    # ── 3. Financials seed for the top-mcap universe (every ~4h) ──────────
     try:
         last = redis_client.get(_FINANCIALS_SEED_MARKER)
         last_ts = float(last) if last else 0.0

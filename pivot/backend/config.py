@@ -275,16 +275,6 @@ class Settings(BaseSettings):
     # money.SEED_CAPITAL fallback + the test suite's expectations).
     paper_seed_capital: float = 150000.0
 
-    # --- View Markets (V2: belief -> expression -> deployment) -----------------
-    # Master flag for the View Markets layer (backend/view_markets/, the /api/
-    # views router, the FE "Views" tab). With it FALSE (the default), the router
-    # is not mounted, no curated-view generation/lifecycle jobs are registered,
-    # and the chat View-Markets tool subset stays inert — the 0023 migration may
-    # still run so the tables exist, but they stay empty. V1 is CURATED-ONLY
-    # (backend-generated + human-reviewed views; no user-authored beliefs) and
-    # register-not-execute; we READ Polymarket/Kalshi for "what's priced in" and
-    # never become a prediction exchange. Flip on for internal -> beta -> GA.
-    view_markets_enabled: bool = True  # V2 beta: Views tab live
 
     @property
     def allowed_origins_list(self) -> list[str]:

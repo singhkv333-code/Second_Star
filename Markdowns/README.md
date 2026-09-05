@@ -20,13 +20,16 @@ Moneycontrol-sourced financials DB.
 | **`pivot/`** | The backend. FastAPI app under `pivot/backend/` (package `backend.*`), Alembic migrations, tests, infra. This is where chat, orders, paper trading, the workflow/agent engine, and market data live. |
 | **`pivot-next/`** | The frontend (the one we use). Next.js app — chat, Portfolio, **Paper** (positions / orders / journal / **Ideas** forward-test scorecards), Agents, Calendar, Screener. |
 | **`pivot-backtester/`** | The expression/indicator backtest engine. Installed editable into the backend venv (`import backtester`) and mounted as the `/api/.../expr_backtest` router — powers the indicator-backtest cards in chat. **Not optional.** |
-| **`docs/`** | System documentation (architecture, API contract, DSL grammar, paper-trading plan, walkthrough). |
-| `STATUS.md`, `BACKLOG.md`, `USERHELP.md` | Running status, backlog, and end-user help. |
+| **`docs/`** | System documentation — start with **`DATA_MAP.md`** (which store holds what, and which two fail silently), then architecture, API contract, DSL grammar, walkthrough. |
+| `Markdowns/` | Running status (`STATUS.md`) and end-user help (`USERHELP.md`, stale). `BACKLOG.md` was referenced here for months and has never existed. |
 
 > The backend Python package (`pivot/backend/`) is organised by concern:
 > `routers/` (HTTP) · `services/` · `core/` · `paper/` (paper-trading book) ·
 > `workflows/` (agent/DSL engine + backtest) · `agents/` (chat tools) ·
 > `market/` · `kite/` (broker) · `news_events/` · `llm/` · `triggers/`.
+>
+> The `view_markets/` package listed here until 2026-09-05 is gone; the
+> opinion-markets direction is retired. See the root `CLAUDE.md` section 4.
 
 ---
 

@@ -148,7 +148,7 @@ def resolve_sector(symbol: str, urow: Optional[dict] = None) -> str:
     # bucket them by asset class instead of dumping them into "Other". Gate the
     # heavier classify() behind the fast check so Indian names skip it.
     try:
-        from backend.view_markets.security_meta import (
+        from backend.market.security_meta import (
             classify,
             is_us_or_crypto_fast,
         )

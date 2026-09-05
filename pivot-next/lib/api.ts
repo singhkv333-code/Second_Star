@@ -29,11 +29,9 @@ import type {
   BrokerLoginUrl,
   BrokersResponse,
   BrokerStatus,
-  CompareResult,
   CreateWorkflowRequest,
   Diagnostic,
   ErrorBody,
-  ExpressionScores,
   IpoApplicationsListResponse,
   IpoCalendarResponse,
   IpoRegisterRequest,
@@ -51,9 +49,6 @@ import type {
   RunSummary,
   StepTypeCatalog,
   UpdateWorkflowRequest,
-  ViewDetail,
-  ViewPositionItem,
-  ViewSummary,
   Workflow,
   WorkflowStatus,
   WorkflowSummary,
@@ -1082,6 +1077,11 @@ export type ScoreAxis = {
   scaled: number | null;
 };
 
+export type AnalystConsensus = { symbol: string; available: boolean; score: number | null; target: number | null; analysts: number | null; source: string; retrieved_at: string };
+export function getAnalystConsensus(symbol: string): Promise<ApiResult<AnalystConsensus>> {
+  return request<AnalystConsensus>(`/financials/${encodeURIComponent(symbol)}/analyst-consensus`);
+}
+
 export type CompanyScores = {
   available: boolean;
   symbol: string;
@@ -1474,6 +1474,7 @@ export type OhlcResponse = {
   interval: string;
   source: "kite" | "yfinance";
   bars: OhlcBar[];
+  price_basis?: "provider" | "unadjusted";
 };
 
 /** `GET /api/markets/ohlc/{symbol}?range=...&exchange=NSE|BSE` — OHLCV bars for candlesticks. */
@@ -1485,6 +1486,15 @@ export function getOhlc(
   return request<OhlcResponse>(
     `/markets/ohlc/${encodeURIComponent(symbol)}`,
     { query: exchange ? { range, exchange } : { range } },
+  );
+}
+
+/** Daily closes on a consistent, explicit price basis for research comparisons. */
+export function getResearchPrices(symbol: string, exchange: "NSE" | "BSE" = "NSE", provider: "auto" | "yfinance" = "auto"): Promise<ApiResult<OhlcResponse>> {
+  return cached(`research-prices:${provider}:${exchange}:${symbol}`, 5 * 60_000, () =>
+    request<OhlcResponse>(`/markets/ohlc/${encodeURIComponent(symbol)}`, {
+      query: { range: "5Y", exchange, provider, price_basis: "unadjusted" },
+    }),
   );
 }
 
@@ -2584,336 +2594,6 @@ export function listOptionStrategies(): Promise<
   return requestLegacy<{ items: OptionStrategyRegisterResponse["strategy"][] }>(
     "/users/option-strategies",
   );
-}
-
-// ---------------------------------------------------------------------------
-// Views — View Markets V2  (GET /api/views, GET /api/views/{id}, …)
-//
-// All reads are GLOBAL (curated content; no per-user filtering). Follow is
-// per-user best-effort. Endpoints are flag-gated on settings.view_markets_enabled
-// on the backend — the FE receives a 404 { error } when the flag is off.
-// ---------------------------------------------------------------------------
-
-/**
- * `GET /api/views` — list curated views (newest first, non-archived by default).
- *
- * @param params - optional filters mirroring the query params the backend accepts.
- */
-export function listViews(params?: {
-  status?: string;
-  view_type?: string;
-  category?: string;
-}): Promise<ApiResult<{ items: ViewSummary[] }>> {
-  return request<{ items: ViewSummary[] }>("/views", { query: params });
-}
-
-/**
- * `GET /api/views/{view_id}` — full view detail including transmission,
- * expectations, confidence evidence, and expression ladder.
- */
-export function getView(id: string): Promise<ApiResult<ViewDetail>> {
-  return request<ViewDetail>(`/views/${encodeURIComponent(id)}`);
-}
-
-/**
- * `POST /api/views/expressions/{expression_id}/deploy`
- *
- * Links (or creates) a workflow draft from the expression. If the expression
- * already has a `workflow_id` and re-arming isn't requested, returns the
- * existing workflow id. The caller then opens the AgentPanel draft editor
- * via `onOpenWorkflowById` — no order fires until the user approves.
- */
-export function deployExpression(
-  expressionId: string,
-  body?: { activate?: boolean; timing_mode?: string; capital_inr?: number },
-): Promise<
-  ApiResult<{
-    workflow_id: string;
-    status: string;
-    steps_count: number;
-    activated: boolean;
-  }>
-> {
-  return request<{
-    workflow_id: string;
-    status: string;
-    steps_count: number;
-    activated: boolean;
-  }>(`/views/expressions/${encodeURIComponent(expressionId)}/deploy`, {
-    method: "POST",
-    body: body ?? {},
-  });
-}
-
-/** One placed leg reported by POST /api/views/expressions/{id}/place. */
-export type ViewPlacedLeg = {
-  id: number;
-  symbol: string;
-  exchange: string;
-  transaction_type: string;
-  order_type: string;
-  quantity: number;
-  price: number | null;
-  status: string;
-  placed_at: string;
-};
-
-export type ViewPlaceResponse = {
-  registered: ViewPlacedLeg[];
-  count: number;
-  /** "broker" (live, placed through the connected broker) or "paper". */
-  routed_to: "broker" | "paper";
-};
-
-/**
- * `POST /api/views/expressions/{expression_id}/place`
- *
- * Places the strategy's concrete, affordable whole-share basket through the
- * user's CONNECTED BROKER (live account) or the paper book — the same routing
- * seam the chat order-confirm uses. User-initiated (register-not-execute): a
- * live account with no broker session gets a 409 asking to connect one. Only
- * equity/ETF baskets are placeable; option/unaffordable strategies return a
- * 422 and the caller falls back to the automation `deployExpression`.
- */
-export function placeExpression(
-  expressionId: string,
-  body?: {
-    capital_inr?: number;
-    conversation_id?: string;
-    /** Per-company share counts from the deploy confirmation modal. Each
-     *  symbol must be one of the strategy's own entry names; qty 0 drops it. */
-    legs?: { symbol: string; quantity: number }[];
-  },
-): Promise<ApiResult<ViewPlaceResponse>> {
-  return request<ViewPlaceResponse>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/place`,
-    { method: "POST", body: body ?? {} },
-  );
-}
-
-// ── immediate multi-asset basket placement (Deploy = execute now, paper) ─────
-
-/** One computed leg of a basket placement (preview + skipped). */
-export type BasketFillLeg = {
-  symbol: string;
-  /** Display name + logo (best-effort; logo_url null → FE renders a monogram). */
-  name: string | null;
-  logo_url: string | null;
-  asset_class: string;
-  exchange: string;
-  weight: number;
-  slice_inr: number;
-  mark_inr: number | null;
-  quantity: number;
-  /** ok | no_price | slice_too_small | short_unsupported | market_closed
-   *  | insufficient_buying_power | rejected. */
-  status: string;
-};
-
-export type BasketPreviewResponse = {
-  placeable: boolean;
-  routed_to: "paper" | "broker";
-  total_inr: number;
-  legs: BasketFillLeg[];
-  skipped: BasketFillLeg[];
-  /** Set (shown as the pop-up reason) only when NOT placeable. */
-  reason: string | null;
-};
-
-export type BasketPlacedLeg = {
-  symbol: string;
-  exchange: string;
-  quantity: number;
-  fill_price: number | null;
-  status: string;
-  order_id: string | null;
-};
-
-export type BasketPlaceResponse = {
-  placed: BasketPlacedLeg[];
-  count: number;
-  routed_to: "paper" | "broker";
-  total_inr: number;
-  skipped: BasketFillLeg[];
-};
-
-/**
- * `POST /api/views/expressions/{id}/place-basket/preview`
- *
- * Computes the exact per-leg whole-share/unit breakdown for a basket
- * expression at `capital_inr`, WITHOUT placing anything. Feeds the deploy
- * confirmation modal. A 422 (with a plain reason) means the expression isn't a
- * placeable basket (option/hedge/pair) — surface that reason in the pop-up.
- */
-export function previewPlaceBasket(
-  expressionId: string,
-  capitalInr: number,
-): Promise<ApiResult<BasketPreviewResponse>> {
-  return request<BasketPreviewResponse>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/place-basket/preview`,
-    { method: "POST", body: { capital_inr: capitalInr } },
-  );
-}
-
-/**
- * `POST /api/views/expressions/{id}/place-basket`
- *
- * Places the basket (multi-asset: Indian equities / US shares / crypto) into
- * the paper book (or the connected broker for a live account) synchronously —
- * NO workflow/agent is created. The user pressed Deploy, so it stays inside
- * register-not-execute. A 422/409 carries the exact reason for the pop-up.
- */
-export function placeBasket(
-  expressionId: string,
-  capitalInr: number,
-  conversationId?: string,
-): Promise<ApiResult<BasketPlaceResponse>> {
-  return request<BasketPlaceResponse>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/place-basket`,
-    {
-      method: "POST",
-      body: { capital_inr: capitalInr, conversation_id: conversationId },
-    },
-  );
-}
-
-/**
- * `POST /api/views/{view_id}/compare`
- *
- * Ranks the three tiers and returns a `recommended_tier` with rationale.
- * The FE highlights the recommended ExpressionCard.
- */
-export function compareViewTiers(
-  viewId: string,
-): Promise<ApiResult<CompareResult>> {
-  return request<CompareResult>(
-    `/views/${encodeURIComponent(viewId)}/compare`,
-    { method: "POST", body: {} },
-  );
-}
-
-/**
- * `POST /api/views/expressions/{expression_id}/backtest`
- *
- * Triggers a backtest run for the expression and persists the result.
- * The returned `ExpressionScores` can be merged into local component state
- * so the `RiskReturnPanel` refreshes without a full page reload.
- */
-export function backtestExpression(
-  expressionId: string,
-): Promise<ApiResult<ExpressionScores>> {
-  return request<ExpressionScores>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/backtest`,
-    { method: "POST", body: {} },
-  );
-}
-
-// ── My Views — the per-user position ledger ─────────────────────────────────
-
-/**
- * `GET /api/views/positions` — every view the user has put a position behind
- * (open first, newest first), each with its live return since entry.
- */
-export function listViewPositions(): Promise<
-  ApiResult<{ items: ViewPositionItem[] }>
-> {
-  return request<{ items: ViewPositionItem[] }>("/views/positions");
-}
-
-/**
- * `PATCH /api/views/positions/{position_id}` — edit the exit plan
- * (take-profit / stop-loss %) or the declared position size. Send an explicit
- * `null` to clear a level. Ledger levels only — nothing is auto-executed.
- */
-export function updateViewPosition(
-  positionId: string,
-  body: {
-    take_profit_pct?: number | null;
-    stop_loss_pct?: number | null;
-    capital_inr?: number | null;
-  },
-): Promise<ApiResult<ViewPositionItem>> {
-  return request<ViewPositionItem>(
-    `/views/positions/${encodeURIComponent(positionId)}`,
-    { method: "PATCH", body },
-  );
-}
-
-/**
- * `POST /api/views/positions/{position_id}/exit` — record a partial
- * (pct < 100) or full exit of the OPEN fraction at current marks.
- * Register-not-execute: the response's `note` reminds the user to place the
- * actual exit orders in their own broker app.
- */
-export function exitViewPosition(
-  positionId: string,
-  pct: number,
-): Promise<
-  ApiResult<{ position: ViewPositionItem; exited_pct: number; note: string }>
-> {
-  return request<{
-    position: ViewPositionItem;
-    exited_pct: number;
-    note: string;
-  }>(`/views/positions/${encodeURIComponent(positionId)}/exit`, {
-    method: "POST",
-    body: { pct },
-  });
-}
-
-/**
- * `POST /api/views/{view_id}/follow` — follow a view (per-user, best-effort).
- *
- * Callers should apply the result optimistically and silently revert on error.
- */
-export function followView(
-  viewId: string,
-): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
-  return request<{ is_following: boolean; follower_count: number }>(
-    `/views/${encodeURIComponent(viewId)}/follow`,
-    { method: "POST", body: {} },
-  );
-}
-
-/**
- * `DELETE /api/views/{view_id}/follow` — unfollow a view (per-user, best-effort).
- *
- * Callers should apply the result optimistically and silently revert on error.
- */
-export function unfollowView(
-  viewId: string,
-): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
-  return request<{ is_following: boolean; follower_count: number }>(
-    `/views/${encodeURIComponent(viewId)}/follow`,
-    { method: "DELETE" },
-  );
-}
-
-/** One resolved security record from POST /api/views/security-meta. */
-export type SecurityMeta = {
-  symbol: string;
-  name: string;
-  logo_url: string | null;
-  /** in_equity | in_etf | us_equity | us_etf | crypto */
-  asset_class: string | null;
-  /** INR | USD */
-  currency: string | null;
-};
-
-/**
- * `POST /api/views/security-meta` — batch-resolve display metadata for any
- * mix of Indian, US, ETF, or crypto symbols (max 200 per call).
- *
- * Returns one row per recognised symbol.  Unresolved symbols are simply
- * absent from the result array — callers must handle missing entries.
- */
-export function fetchSecurityMeta(
-  symbols: string[],
-): Promise<ApiResult<SecurityMeta[]>> {
-  return request<SecurityMeta[]>("/views/security-meta", {
-    method: "POST",
-    body: { symbols },
-  });
 }
 
 // ---------------------------------------------------------------------------
