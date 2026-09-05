@@ -55,7 +55,7 @@ const ChartSettings = (() => {
       prevClose: false,          // colour bars against the previous CLOSE
       precision: "default",
     },
-    volume: { visible: true, up: null, down: null },
+
     status: {
       symbol: true, ohlc: true, change: true, volume: true,
       indName: true, indValues: true, indButtons: true,
@@ -132,8 +132,6 @@ const ChartSettings = (() => {
     borderDown: cfg.candles.borderDown || downC(),
     wickUp: cfg.candles.wickUp || upC(),
     wickDown: cfg.candles.wickDown || downC(),
-    volUp: cfg.volume.up || Theme.c("volUp"),
-    volDown: cfg.volume.down || Theme.c("volDown"),
     grid: cfg.scales.gridColor || Theme.c("grid"),
     cross: cfg.scales.crosshairColor || Theme.c("crosshair"),
     bg: cfg.canvas.bg || Theme.c("chartBg"),
@@ -152,7 +150,6 @@ const ChartSettings = (() => {
       "candles.up": E.up, "candles.down": E.down,
       "candles.borderUp": E.borderUp, "candles.borderDown": E.borderDown,
       "candles.wickUp": E.wickUp, "candles.wickDown": E.wickDown,
-      "volume.up": E.volUp, "volume.down": E.volDown,
       "scales.gridColor": E.grid, "scales.crosshairColor": E.cross,
       "canvas.bg": E.bg, "canvas.bgBottom": E.bgBottom,
       "canvas.separator": E.sep, "canvas.watermarkColor": E.mark,
@@ -225,9 +222,10 @@ const ChartSettings = (() => {
   /* ── per-bar colour ──────────────────────────────────────────────────────
    * "Colour bars based on previous close" cannot be a series option: it is a
    * statement about each bar's relationship to the one before it, so the
-   * colour has to ride on the POINT. Both chart owners build their series
-   * data through these two, which is also why the volume histogram and the
-   * candles can never disagree about which way a bar went. */
+   * colour has to ride on the POINT. Both chart owners build their candle
+   * data through these, and the volume indicator asks `up()` the same
+   * question through the exported barUp() — one rule, so the strip and the
+   * candles above it can never disagree about which way a bar went. */
   function up(bar, prev) {
     return cfg.candles.prevClose && prev
       ? bar.close >= prev.close
@@ -248,8 +246,7 @@ const ChartSettings = (() => {
   }
 
   /** The live edge: one bar, and the bar before it for the previous-close
-   *  rule. Returns null when volume is switched off so the caller can skip
-   *  the update entirely rather than push a point at a hidden series. */
+   *  rule. */
   function candlePoint(bar, prev) {
     const E = eff();
     const pt = { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
@@ -261,18 +258,6 @@ const ChartSettings = (() => {
     return pt;
   }
 
-  function volumePoints(bars) {
-    const E = eff();
-    return bars.map((b, i) => ({
-      time: b.time, value: b.volume,
-      color: up(b, i > 0 ? bars[i - 1] : null) ? E.volUp : E.volDown,
-    }));
-  }
-  function volumePoint(bar, prev) {
-    const E = eff();
-    return { time: bar.time, value: bar.volume,
-             color: up(bar, prev) ? E.volUp : E.volDown };
-  }
 
   // ── the status line ─────────────────────────────────────
   /* The legend written ON the chart is HTML, not canvas, so what it shows is
@@ -299,9 +284,12 @@ const ChartSettings = (() => {
   }
 
   // ── applying to the charts ──────────────────────────────
-  /* A target is one chart and its two built-in series:
-   *   { chart, candle, volume, defaults, label(), repaint() }
-   * `repaint` re-sets the series data through candlePoints/volumePoints —
+  /* A target is one chart and its ONE built-in series:
+   *   { chart, candle, defaults, label(), repaint() }
+   * (volume used to be the second; it is an indicator now and belongs to the
+   * indicator manager, which paints it through barUp() below so the strip and
+   * the candles can still never disagree about direction.)
+   * `repaint` re-sets the series data through candlePoints —
    * cheap, local, and never a refetch. It is called only when a change can
    * move a per-point colour, because setData on four thousand bars for a
    * grid-colour edit would be work nobody asked for. */
@@ -309,7 +297,6 @@ const ChartSettings = (() => {
     try {
       t.chart.applyOptions(chartOptions(t));
       t.candle.applyOptions(candleOptions());
-      if (t.volume) t.volume.applyOptions({ visible: !!cfg.volume.visible });
       if (repaint && t.repaint) t.repaint();
     } catch (e) {
       // A pane is unregistered when it is destroyed (js/panes.js), so
@@ -421,9 +408,14 @@ const ChartSettings = (() => {
       `<p class="dlg-note">A bar is green when it closed above the PREVIOUS
         bar's close rather than above its own open — the same rule the change
         figure in the legend already uses.</p>` +
-      group("Volume") +
-      checkRow("volume.visible", "Volume",
-               swatch("volume.up", "Up") + swatch("volume.down", "Down")) +
+      /* No "Volume" group here any more. Volume became an ordinary indicator
+       * (Indicators ▸ Volume), so its colours, its MA and its on/off live in
+       * that indicator's own settings dialog — which is where TradingView
+       * keeps them too, and the only place they can sit now that a chart can
+       * carry the study more than once or not at all.
+       *
+       * The status line's V figure is NOT this and stays below: that is the
+       * raw bar readout, which exists whether or not the study is on. */
       group("Data modification") +
       row("Precision", select("candles.precision",
         [{ value: "default", label: "Default" },
@@ -515,7 +507,10 @@ const ChartSettings = (() => {
     save();
     // Only a colour or the previous-close rule can change a per-POINT
     // colour; everything else is a series or chart option.
-    apply({ repaint: g === "candles" || g === "volume" });
+    // Only a candle colour or the previous-close rule can move a per-POINT
+    // colour. The volume strip repaints too, but through the indicator
+    // manager's retheme path, not from here.
+    apply({ repaint: g === "candles" });
   }
 
   /* Selects and numbers arrive as strings. Each control that is not a plain
@@ -645,10 +640,12 @@ const ChartSettings = (() => {
     /** Re-assert every setting on ONE chart — for an owner that has just
      *  written the theme's palette over the user's on its own chart. */
     applyTo: (t) => applyOne(t, true),
-    candlePoints, candlePoint, volumePoints, volumePoint,
-    /** Volume can be switched off; the owners skip the update rather than
-     *  feeding a hidden series. */
-    get volumeVisible() { return !!cfg.volume.visible; },
+    candlePoints, candlePoint,
+    /** "Which way did this bar go" — the one rule, so the candles and the
+     *  volume indicator's bars can never disagree. Honours "colour bars based
+     *  on previous close"; the volume study reads it through here rather than
+     *  deciding again. */
+    barUp: (bar, prev) => up(bar, prev),
     onChange(fn) { subs.push(fn); },
     open, close,
     isOpen: () => !!(wrap && wrap.classList.contains("open")),

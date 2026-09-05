@@ -9,7 +9,8 @@
  * the thing a second chart is actually for: seeing the same symbol on another
  * timeframe without giving up the one you are working on.
  *
- * Secondary charts are deliberately plain: candles, volume, pan and zoom.
+ * Secondary charts are deliberately plain: candles, the volume study, pan
+ * and zoom.
  * They are not annotated and chat does not read them. Making every pane a
  * fully-annotated peer means the scene layer needs a pane identity in its
  * addressing, chat needs to know which chart "this chart" means, and the
@@ -262,20 +263,17 @@ const Panes = (() => {
       upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
       wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
     });
-    const volume = chart.addSeries(LWC.HistogramSeries, {
-      priceFormat: { type: "volume" }, priceScaleId: "vol",
-      priceLineVisible: false, lastValueVisible: false,
-    });
-    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
-
-    const sub = { root, chart, candle, volume, interval, destroyed: false,
+    // No volume series here either — it is an indicator now, added below
+    // through this pane's OWN manager so it wears the same eye, gear and ×
+    // as every other study on the pane. See js/indicators.js seriesFor().
+    const sub = { root, chart, candle, interval, destroyed: false,
                   bars: [], symbol: (symbol || Sym.name).toUpperCase() };
     /* A secondary pane is a chart like any other, so the gear reaches it too:
      * one edit lands on every chart on screen, which is the whole point of a
      * split showing the same instrument twice. `label` is read at paint time
      * because this pane's symbol can change under it. */
     sub.settings = {
-      chart, candle, volume,
+      chart, candle,
       // a secondary pane is built smaller than the primary on purpose, and
       // "Default" in the dialog has to mean THESE, not the primary's
       defaults: { fontSize: 11, rightOffset: 4 },
@@ -283,7 +281,9 @@ const Panes = (() => {
       repaint() {
         if (!sub.bars.length) return;
         candle.setData(ChartSettings.candlePoints(sub.bars));
-        volume.setData(ChartSettings.volumePoints(sub.bars));
+        // the strip's colours are the study's, but the direction rule is the
+        // dialog's — same coupling the primary chart documents
+        if (sub.ind) sub.ind.retheme(sub.bars);
       },
     };
     ChartSettings.register(sub.settings);
@@ -349,7 +349,6 @@ const Panes = (() => {
         // the settings module builds both series — see the note beside
         // main.js's paint(): one place decides what a green bar is
         candle.setData(ChartSettings.candlePoints(bars));
-        volume.setData(ChartSettings.volumePoints(bars));
         chart.applyOptions({
           timeScale: { timeVisible: !["D", "W", "M"].includes(iv) },
         });
@@ -360,6 +359,18 @@ const Panes = (() => {
         sub.ind.recomputeAll(bars, {
           interval: WIRE[iv] || iv, limit: bars.length, symbol: sub.symbol,
         }).catch(() => {});
+        // A pane opens with the volume strip, the way it always did — the
+        // difference is that it is a study now and can be taken off. Added
+        // after the first load, not at construction, because it needs bars
+        // and this pane's context; the guard makes a symbol switch (which
+        // re-enters load()) leave whatever the user has since chosen alone.
+        if (!sub.volumeSeeded) {
+          sub.volumeSeeded = true;
+          Promise.resolve(sub.ind.toggle("volume", bars))
+            // an index prints no volume and the backend says so; a pane on
+            // one simply opens without the strip
+            .catch(() => {});
+        }
       } catch (e) {
         if (!sub.destroyed) titleEl.textContent = String(e.message || e);
       }
@@ -395,7 +406,7 @@ const Panes = (() => {
       // back over the palette this line just wrote
       ChartSettings.applyTo(sub.settings);
       sub.ind.retheme(sub.bars);
-      load(sub.interval);   // volume bar colours are per-point, so repaint
+      load(sub.interval);   // candle colours are per-point, so repaint
     };
     sub.destroy = () => {
       sub.destroyed = true;

@@ -163,6 +163,27 @@ const IndSettings = (() => {
     const plots = (d.lines || []).map((n) => {
       const p = s.style.plots[n] || {};
       const isHist = p.plotType === "columns";
+      /* Volume's bars are a TWO-colour histogram — up bar, down bar — not the
+       * four-colour kind. The four slots exist for oscillator histograms,
+       * where the pair (sign, growing-or-shrinking) is genuinely four states
+       * worth colouring; a volume bar has one question behind it, which way
+       * its candle went, and offering "Color 0..3" for it asks the user to
+       * answer a question the plot never poses. */
+      if (n === "volume" && d.name === "volume") {
+        const sw = (key, title) =>
+          `<button type="button" class="dlg-colour-line" data-swatch="${n}" data-key="${key}"
+             title="${title}" style="--sw:${p[key] || p.color}"><span class="colour"></span><i></i></button>`;
+        return `<div class="dlg-row plot">
+          <label class="dlg-check">
+            <input type="checkbox" data-plot="${n}" data-key="visible"${p.visible !== false ? " checked" : ""}>
+            <span>${esc(Indicators.lineLabel(n))}</span>
+          </label>
+          <!-- Two swatches and no plot-type button. A volume bar is a bar:
+               TradingView offers no line/area/circles choice here either, and
+               the third control did not fit the row without clipping. -->
+          <div class="dlg-ctl">${sw("color", "Up bar colour")}${sw("colorDown", "Down bar colour")}</div>
+        </div>`;
+      }
       if (isHist) {
         const colors = p.colors || [p.color, p.color,
           p.colorDown || p.color, p.colorDown || p.color];

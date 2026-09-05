@@ -492,6 +492,32 @@ def _f_roc(rows, n, src):
                     for i in range(len(v))]}
 
 
+def _f_volume(rows, n, src, show_ma: bool = True, ma_length: int = 20):
+    """The bar's traded quantity, plus TradingView's optional average of it.
+
+    Volume was a fixed histogram wired into the chart itself for as long as
+    this file has existed, which meant it was the one study nobody could turn
+    off, restyle or reason about — and the only reason for that was that it
+    had never been asked to be an indicator. It is one: a series with inputs,
+    a pane, and a row in the legend like everything else here.
+
+    What is deliberately NOT computed here is the bar COLOUR. Green-or-red is
+    a statement about the CANDLE (close against open, or against the previous
+    close when that chart setting is on), the chart already owns that rule for
+    the candles themselves, and a second implementation of it is exactly how a
+    histogram comes to disagree with the candle sitting above it. The chart
+    colours these points; this returns the numbers.
+    """
+    vol = [float(r[5]) for r in rows]
+    out = {"volume": vol}
+    if show_ma:
+        # SMA, not the source-configurable family: TradingView's Volume MA is
+        # a plain average of the volume column, and offering a "source" here
+        # would let someone average CLOSE and label it volume.
+        out["ma"] = sma(vol, max(1, int(ma_length)))
+    return out
+
+
 def _f_obv(rows, n, src):
     out, cum = [], 0.0
     for i, r in enumerate(rows):
@@ -926,6 +952,13 @@ SPECS: dict = {
                       formula="100 * (P - P n bars ago) / P n bars ago"),
     "atr":       dict(fn=_f_atr, period=14, pane="own", group="volatility",
                       formula="Wilder(n) of true range, TR = max(H-L, |H-C_prev|, |L-C_prev|)"),
+    # pane="overlay" with scale="vol": the price pane, pinned to the bottom on
+    # its own scale — where volume has always been drawn here and where
+    # TradingView puts it by default. "own" would hand it a full oscillator
+    # pane and shrink the candles for a study that is read as a strip.
+    "volume":    dict(fn=_f_volume, period=0, pane="overlay", group="volume",
+                      scale="vol",
+                      formula="the bar's traded quantity, with an optional n-bar SMA of it"),
     "obv":       dict(fn=_f_obv, period=0, pane="own", group="volume",
                       formula="running sum of +volume when close rises, -volume when it falls"),
     "ad":        dict(fn=_f_ad, period=0, pane="own", group="volume",
@@ -1059,6 +1092,7 @@ _PARAM_LABEL = {
     ("connors_rsi", "rank_length"): "ROC Rank Length",
     ("kama", "fast"): "Fast Length", ("kama", "slow"): "Slow Length",
     ("alma", "offset"): "Offset", ("alma", "sigma"): "Sigma",
+    ("volume", "show_ma"): "Show MA", ("volume", "ma_length"): "MA Length",
 }
 _PARAM_RANGE = {                       # key -> (min, max, step)
     "mult": (0.1, 50.0, 0.1),

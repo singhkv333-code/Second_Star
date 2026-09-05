@@ -231,27 +231,35 @@
     upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
     wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
   });
-  const volume = chart.addSeries(LWC.HistogramSeries, {
-    priceFormat: { type: "volume" }, priceScaleId: "vol",
-    priceLineVisible: false, lastValueVisible: false,
-  });
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-
-  /* The header's gear edits THIS chart too. Registering hands the settings
-   * module the two series it paints and a cheap way to re-colour the bars —
+  /* No volume series here. Volume was the one study welded into the chart —
+   * always on, unstyleable, impossible to remove — and it is an ordinary
+   * indicator now: Indicators ▸ Volume, with its own colours, its own MA and
+   * its own eye. The bottom-pinned "vol" price scale moved into
+   * js/indicators.js with it (seriesFor / mountScale).
+   *
+   * The header's gear edits THIS chart too. Registering hands the settings
+   * module the candle series it paints and a cheap way to re-colour it —
    * `repaint` re-sets the data it already has, so a colour change is never a
    * refetch and never touches the indicators. The theme still supplies every
    * default; see js/chartsettings.js. */
   ChartSettings.register({
-    chart, candle, volume,
+    chart, candle,
     // what "Default" means for this chart's two sized knobs — the values it
     // was built with, twelve lines up
     defaults: { fontSize: 12, rightOffset: 5 },
     label: () => SYMBOL,
     repaint() {
+      // LOAD-BEARING GUARD, not just an optimisation. register() calls this
+      // synchronously, and `ind` is a const declared further down this
+      // function — reaching it here at registration time would be a TDZ
+      // ReferenceError. Bars arrive only from loadInterval(), which runs
+      // after the manager exists, so "there are bars" IS "ind is built".
       if (!state.bars.length) return;
       candle.setData(ChartSettings.candlePoints(state.bars));
-      volume.setData(ChartSettings.volumePoints(state.bars));
+      // The volume strip's colours belong to the indicator now, but the
+      // DIRECTION rule is still this dialog's — so a change to "colour bars
+      // based on previous close" has to reach the study too.
+      ind.retheme(state.bars);
     },
   });
 
@@ -276,7 +284,6 @@
     // close", a per-POINT one), and a second place deciding what green means
     // is a second place to get it wrong.
     candle.setData(ChartSettings.candlePoints(state.bars));
-    volume.setData(ChartSettings.volumePoints(state.bars));
     // A new interval can move an indicator in or out of the timeframes its
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
@@ -407,7 +414,9 @@
       // needs it, and on a replaced last bar that is two back
       const prev = state.bars[state.bars.length - 2] || null;
       candle.update(ChartSettings.candlePoint(bar, prev));
-      volume.update(ChartSettings.volumePoint(bar, prev));
+      // volume is a study now, so the strip is patched through the manager —
+      // see Indicators updateEdge(). A no-op when the user has it switched off.
+      ind.updateEdge(state.bars);
       lastBar = bar;
       paintReadout(lastBar);
       // Anything else on the page showing this instrument's PRICE. The event
@@ -554,8 +563,12 @@
     const b = p && p.seriesData ? p.seriesData.get(candle) : null;
     chartEl.classList.toggle("on-bar", yOnBar(p && p.point ? p.point.y : null, b, 2));
     if (b) {
+      // The V figure comes from the BARS, not from a volume series: the
+      // study can be switched off now, and the status line's volume is the
+      // instrument's, not the indicator's.
       const src = state.bars[state.bars.length - 1];
-      paintReadout({ ...b, volume: (p.seriesData.get(volume) || {}).value ?? src.volume });
+      const at = state.bars.find((x) => x.time === p.time);
+      paintReadout({ ...b, volume: at ? at.volume : (src ? src.volume : 0) });
     } else paintReadout(lastBar);
   });
 
@@ -567,6 +580,10 @@
   }
 
   // ── indicators UI ─────────────────────────────────────
+  /* Set once, the first time a chart loads after Volume stopped being a
+   * built-in. Its whole job is to distinguish "this user has never had the
+   * Volume study seeded" from "this user removed it on purpose". */
+  const VOL_MIGRATED = "volume_indicator_seeded";
   const ind = Indicators.createManager(chart);
   const menu = el("indMenu");
 
@@ -635,8 +652,16 @@
    *  secondary pane is created by the layout and dies with it: restoring
    *  indicators onto one would be restoring them onto a different chart than
    *  the one they were added to. */
-  function saveIndicators() {
-    Store.set("indicators", [...ind.active.keys()]);
+  function saveIndicators(alsoKeep) {
+    // `alsoKeep` is for studies the CURRENT instrument refused but the user
+    // still wants. A volume study on an index cannot draw — the backend says
+    // so rather than plotting a row of zeros — and charto reloads the page on
+    // a symbol switch, so without this, opening NIFTY once would quietly
+    // delete Volume from the saved list and it would not come back on the
+    // next stock. A refusal is about the instrument, not about the choice.
+    const ids = [...ind.active.keys()];
+    for (const id of alsoKeep || []) if (!ids.includes(id)) ids.push(id);
+    Store.set("indicators", ids);
     // The one choke point every path to the active set passes through — the
     // menu, the legend's ×, the chat, the restore — so it is where the undo
     // stack listens. NOT the charto:indicators-changed event: the menu's own
@@ -4218,7 +4243,17 @@
     // Read the restore list BEFORE the first load: saveIndicators() runs on
     // every indicator change, and at boot that would fire against an empty
     // active map and write the session away before it had been read back.
-    const wanted = Store.get("indicators", []);
+    /* Volume was welded to the chart until it became an indicator, so every
+     * existing chart had it without it ever being in this list. Seed it once
+     * — after that the list is the only truth, and a user who removes Volume
+     * keeps it removed. New charts land here too: `indicators` is unset, so
+     * they get the strip TradingView also shows by default. */
+    let wanted = Store.get("indicators", null) || [];
+    if (!Store.get(VOL_MIGRATED, false)) {
+      if (!wanted.includes("volume")) wanted = ["volume", ...wanted];
+      Store.set(VOL_MIGRATED, true);
+    }
+    const refused = [];          // wanted, but this instrument cannot carry it
     const saved = Store.get("interval", "5m");
     const iv = IV_SEC[saved] ? saved : "5m";
     selectInterval(iv);
@@ -4235,9 +4270,16 @@
       // never swallow: a restore that fails silently leaves a legend row on
       // screen with no series under it, which looks like a render bug
       await Promise.resolve(ind.toggle(rid, state.bars))
-        .catch((err) => { console.error("[charto] indicator restore failed", rid, err); });
+        .catch((err) => {
+          // ...except a study this INSTRUMENT cannot carry, which is an
+          // answer and not a fault. An index prints no volume; saying so in
+          // the console on every NIFTY load would be noise, and dropping the
+          // id would lose the setting (see saveIndicators).
+          if (def.group === "volume") { refused.push(rid); return; }
+          console.error("[charto] indicator restore failed", rid, err);
+        });
     }
-    saveIndicators();
+    saveIndicators(refused);
     // panes created during restore need every layer's primitives attached —
     // the same signal a live indicator change sends
     document.dispatchEvent(new CustomEvent("charto:indicators-changed"));

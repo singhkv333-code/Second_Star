@@ -9975,6 +9975,7 @@ _INDICATOR_LINES = {
     "stoch": ["k", "d"], "stochrsi": ["k", "d"],
     "adx": ["adx", "plus_di", "minus_di"], "cci": ["cci"],
     "williams_r": ["williams_r"], "roc": ["roc"], "atr": ["atr"],
+    "volume": ["volume", "ma"],
     "obv": ["obv"], "ad": ["ad"], "cmf": ["cmf"], "mfi": ["mfi"],
     "aroon": ["aroon_up", "aroon_down"],
     "percent_b": ["percent_b"], "bandwidth": ["bandwidth"],
@@ -11087,7 +11088,7 @@ TOOLS = [
                   "enum": ["sma", "ema", "wma", "hma", "dema", "tema", "vwma", "rma", "kama", "alma", "lsma", "ichimoku", "pivots", "bbands", "keltner", "donchian",
                            "vwap", "anchored_vwap", "supertrend", "psar", "rsi", "macd",
                            "stoch", "stochrsi", "adx", "cci", "williams_r", "roc", "atr",
-                           "obv", "ad", "cmf", "mfi", "aroon", "percent_b", "bandwidth",
+                           "volume", "obv", "ad", "cmf", "mfi", "aroon", "percent_b", "bandwidth",
                            "awesome", "chaikin_osc", "vortex", "ultimate", "trix", "kst", "dpo",
                            "force", "eom", "choppiness", "fisher", "rvi", "connors_rsi"]},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
@@ -15447,6 +15448,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"indicators": [
                     {"name": k, "period": v["period"], "pane": v["pane"],
                      "group": v["group"], "formula": v["formula"],
+                     # only volume sets this today: "draw on the price pane,
+                     # but on your own scale pinned to the bottom"
+                     **({"scale": v["scale"]} if "scale" in v else {}),
                      "lines": _INDICATOR_LINES.get(k, ["value"]),
                      # the settings dialog's Inputs tab is built from this, so
                      # the knobs on screen are exactly the knobs the math has

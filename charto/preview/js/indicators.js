@@ -45,6 +45,11 @@ const Indicators = (() => {
   // numbers — the numbers are re-rendered from the live params, so a chip
   // reading "BOLL 20 2" still reads truthfully after the StdDev is changed.
   const PRESETS = [
+    // First in the list because it is the study every chart starts with. It
+    // used to be welded into the chart itself and could not be switched off;
+    // it is an ordinary indicator now, on by default and removable like any
+    // other. See seriesFor() for the one thing still special about it.
+    { id: "volume", name: "volume", period: 0, base: "Volume" },
     { id: "sma20", name: "sma", period: 20, base: "SMA" },
     { id: "sma50", name: "sma", period: 50, base: "SMA" },
     { id: "sma200", name: "sma", period: 200, base: "SMA" },
@@ -108,12 +113,20 @@ const Indicators = (() => {
    *  dropdowns (Basis MA Type, Bands Style, Anchor Period…) stay out of it:
    *  TradingView's own legend is numbers, and "BOLL 20 2 sma ema" is a chip
    *  nobody can scan. The dialog is where the words live. */
+  /* Numeric inputs that belong to a SUB-PLOT rather than to the study's own
+   * identity. Volume's MA length reads as "Volume 20", which promises a
+   * 20-something volume; the number belongs on the MA's own legend value and
+   * in the dialog, not in the chip. */
+  const LABEL_SKIP = { volume: new Set(["ma_length"]) };
+
   function formatLabel(def, params) {
     const nums = [];
+    const skip = LABEL_SKIP[def.name];
     if (def.period) nums.push(def.period);
     for (const f of def.inputs || []) {
       if (f.key === "period" || f.type === "source"
           || f.type === "enum" || f.type === "bool") continue;
+      if (skip && skip.has(f.key)) continue;
       const v = params && params[f.key] != null ? params[f.key] : f.default;
       if (v != null) nums.push(trimNum(v));
     }
@@ -127,6 +140,8 @@ const Indicators = (() => {
       group: (k || {}).group || "trend",
       lines: (k || {}).lines || ["value"],
       bounds: (k || {}).bounds,
+      // "draw on the price pane but on your own axis" — volume alone today
+      scale: (k || {}).scale || null,
       formula: (k || {}).formula || "",
       inputs: (k || {}).inputs || [],
     };
@@ -298,6 +313,7 @@ const Indicators = (() => {
     rsi: "RSI", atr: "ATR", cci: "CCI", mfi: "MFI", cmf: "CMF", obv: "OBV",
     ad: "A/D", roc: "ROC", williams_r: "%R", psar: "SAR",
     vwap: "VWAP", anchored_vwap: "Anchored VWAP",
+    volume: "Volume", ma: "Volume MA",
     sma: "Plot", ema: "Plot", wma: "Plot", hma: "Plot", dema: "Plot",
     tema: "Plot", vwma: "Plot", rma: "Plot", kama: "Plot", alma: "Plot", lsma: "Plot",
     conversion: "Conversion Line", base: "Base Line", senkou_a: "Leading Span A",
@@ -408,12 +424,20 @@ const Indicators = (() => {
     const off = Number.isInteger(slot) ? slot : 0;
     const out = {};
     (def.lines || []).forEach((n, i) => {
-      const hist = n === "histogram" || PLOT_DEFAULT[n] === "columns";
+      // The volume strip is a histogram, but not the four-colour kind: an
+      // oscillator histogram is read by sign and by whether it is growing,
+      // while a volume bar is read by which way its CANDLE went. Two colours,
+      // and the direction comes from the candle — see toSpecs().
+      const volBars = def.name === "volume" && n === "volume";
+      const hist = volBars || n === "histogram" || PLOT_DEFAULT[n] === "columns";
       out[n] = {
         visible: true,
-        color: hist ? Theme.c("histUp") : roleColor(n, i + off),
-        colorDown: hist ? Theme.c("histDown") : undefined,
-        colors: hist ? ["#22ab94", "#ace5dc", "#ffb1b5", "#ff5252"] : undefined,
+        color: volBars ? Theme.c("volUp")
+          : hist ? Theme.c("histUp") : roleColor(n, i + off),
+        colorDown: volBars ? Theme.c("volDown")
+          : hist ? Theme.c("histDown") : undefined,
+        colors: (hist && !volBars)
+          ? ["#22ab94", "#ace5dc", "#ffb1b5", "#ff5252"] : undefined,
         custom: false,          // a theme switch repaints only untouched plots
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
@@ -442,7 +466,12 @@ const Indicators = (() => {
         precision: "default",
         statusLine: true,
         inputsStatusLine: true,
-        priceLabel: true,
+        // Volume rides an invisible scale of its own, so a "last value" tag
+        // would be stamped over the PRICE axis at whatever height a share
+        // count happens to land — two five-figure labels sitting among the
+        // rupee ticks, belonging to neither scale. Off, like TradingView's.
+        // Still a setting: the Style tab can turn it back on.
+        priceLabel: def.name !== "volume",
         priceLine: false,
       },
       visibility,
@@ -475,7 +504,12 @@ const Indicators = (() => {
     (def.lines || []).forEach((n, i) => {
       const plot = s.style.plots[n];
       if (!plot || plot.custom) return;
-      if (n === "histogram") {
+      if (def.name === "volume" && n === "volume") {
+        // Not on the rotating palette. A volume bar's colour means UP or
+        // DOWN; handing it slot 3's teal would make the strip say nothing.
+        plot.color = Theme.c("volUp");
+        plot.colorDown = Theme.c("volDown");
+      } else if (n === "histogram") {
         plot.color = Theme.c("histUp");
         plot.colorDown = Theme.c("histDown");
       } else {
@@ -589,9 +623,23 @@ const Indicators = (() => {
     // Both matter and they are independent: a user can ask for 4 decimals on
     // any instrument, but "12,34,567.5" is only right for an INR-quoted one —
     // a Bitcoin legend has to read 1,234,567.5.
-    function formatter(st) {
+    /* Volume is quoted in units nobody reads digit by digit: "1,23,45,678"
+     * is noise where "12.35M" is a number. Only at "default" precision — a
+     * user who asked for 4 decimals asked for the digits. */
+    const compactVolume = (n) => {
+      const a = Math.abs(n);
+      if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
+      if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
+      if (a >= 1e3) return (n / 1e3).toFixed(2) + "K";
+      return Sym.num(n, { maximumFractionDigits: 0 });
+    };
+
+    function formatter(st, def) {
       const p = st.style.precision;
       if (p === "default") {
+        if (def && def.name === "volume") {
+          return (n) => n == null ? "—" : compactVolume(n);
+        }
         return (n) => n == null ? "—"
           : Math.abs(n) >= 1000 ? Sym.num(n, { maximumFractionDigits: 2 })
           : n.toFixed(2);
@@ -600,9 +648,14 @@ const Indicators = (() => {
         : Sym.num(n, { minimumFractionDigits: p, maximumFractionDigits: p });
     }
 
-    function priceFormat(st) {
+    function priceFormat(st, def) {
       const p = st.style.precision;
-      if (p === "default") return {};
+      // Volume keeps LWC's own volume format at default precision — the same
+      // "12.35M" the axis label carried when this was a hardwired histogram.
+      if (p === "default") {
+        return def && def.name === "volume"
+          ? { priceFormat: { type: "volume" } } : {};
+      }
       return { priceFormat: { type: "price", precision: p, minMove: Math.pow(10, -p) } };
     }
 
@@ -787,16 +840,43 @@ const Indicators = (() => {
     }
 
     /** One fetched line-set -> the specs the series layer consumes. */
+    /** Volume bars take their colour from the CANDLE, not from whether the
+     *  volume rose — that is what every chart does and what the eye expects,
+     *  and it is why a red bar can be taller than the green one beside it.
+     *
+     *  The direction rule itself is ChartSettings' (close vs open, or vs the
+     *  previous close when "colour bars based on previous close" is on), so
+     *  the strip and the candles above it cannot disagree. Index-aligned
+     *  against the manager's own bars; if the study has been pointed at
+     *  ANOTHER symbol those candles are not this series' candles, so it falls
+     *  back to the series' own rise and fall rather than colouring one
+     *  instrument by another's direction. */
+    function volumePoints(points, plot) {
+      const up = plot.color;
+      const down = plot.colorDown || plot.color;
+      const aligned = BARS.length === points.length
+        && window.ChartSettings && ChartSettings.barUp;
+      return points.map((p, i, all) => {
+        const rising = aligned
+          ? ChartSettings.barUp(BARS[i], i ? BARS[i - 1] : null)
+          : (i === 0 || p.value >= all[i - 1].value);
+        return { ...p, color: rising ? up : down };
+      });
+    }
+
     function toSpecs(def, lines, pane, st) {
       const names = (def.lines || []).filter((n) => lines[n]);
       return names.map((n) => {
         const plot = st.style.plots[n] || {};
-        const hist = plot.plotType === "columns" || n === "histogram";
+        const volBars = def.name === "volume" && n === "volume";
+        const hist = volBars || plot.plotType === "columns" || n === "histogram";
         return {
           line: n,
           pane,
           hist,
-          data: hist
+          data: volBars
+            ? volumePoints(lines[n], plot)
+            : hist
             ? lines[n].map((p, i, all) => {
                 const prev = i ? all[i - 1].value : p.value;
                 const colors = plot.colors || [plot.color, plot.color,
@@ -815,13 +895,36 @@ const Indicators = (() => {
       });
     }
 
+    /* A study that declares `scale` shares the PRICE pane but not the price
+     * AXIS: volume in the tens of millions on the same scale as a ₹1,400
+     * candle flattens the candles into a line. Its own axis, pinned to the
+     * bottom fifth, is what every chart does and what this chart already did
+     * before volume was an indicator — the margins moved here from main.js
+     * with it. Invisible, because a volume axis is read off the bars. */
+    const VOL_MARGINS = { top: 0.85, bottom: 0 };
+    /** MUST be called AFTER the series that names this scale, not before.
+     *  lightweight-charts creates an overlay price scale lazily, when a
+     *  series first asks for it; configuring it earlier configures nothing,
+     *  the margins never land, and the strip takes a third of the chart
+     *  instead of the bottom sixth. (That is exactly what main.js did when
+     *  volume was hardwired — addSeries first, then priceScale().) */
+    function mountScale(def) {
+      if (!def.scale) return;
+      try {
+        chart.priceScale(def.scale).applyOptions({
+          scaleMargins: VOL_MARGINS, visible: false,
+        });
+      } catch { /* a chart torn down mid-add */ }
+    }
+
     function seriesFor(spec, st, def, isFirstOfPane) {
       const plot = st.style.plots[spec.line] || {};
       const common = {
         priceLineVisible: !!st.style.priceLine,
         lastValueVisible: !!st.style.priceLabel,
         visible: shown(st, spec.line),
-        ...priceFormat(st),
+        ...priceFormat(st, def),
+        ...(def.scale ? { priceScaleId: def.scale } : {}),
         ...(def.kind === "pane" && isFirstOfPane
           ? { autoscaleInfoProvider: scaleWithMarks(def) } : {}),
       };
@@ -920,7 +1023,7 @@ const Indicators = (() => {
         if (!st) continue;
         const hidden = !!st.hidden;
         const off = !hidden && !intervalOk(st);
-        const fmt = formatter(st);
+        const fmt = formatter(st, a.def);
         // Nulls are stripped before the series is set, so a line does not
         // necessarily reach the bar under the crosshair. Supertrend draws
         // only the band on the active side; an exact-time lookup is what
@@ -985,6 +1088,7 @@ const Indicators = (() => {
         api.setData(s.data);
         return api;
       });
+      mountScale(def);          // after the series — see mountScale()
       // a fresh oscillator pane defaults to an equal share of the chart;
       // price should stay dominant, so a new pane takes ~1/3 of the price
       // pane's stretch — relative to whatever LWC's default factor is
@@ -1045,7 +1149,7 @@ const Indicators = (() => {
           priceLineVisible: !!st.style.priceLine,
           lastValueVisible: !!st.style.priceLabel,
           visible: shown(st, s.line),
-          ...priceFormat(st),
+          ...priceFormat(st, a.def),
         };
         if (s.hist) {
           old.applyOptions({ ...common, color: plot.color });
@@ -1120,6 +1224,45 @@ const Indicators = (() => {
     /** Light/dark switch: repaint every plot the user has NOT recoloured.
      *  A custom colour is a decision, and a theme toggle is not a reason to
      *  overrule it. */
+    /** The forming bar moved. Patches only the plots that ARE the bar — the
+     *  volume strip — so it tracks the candle tick for tick the way it did
+     *  when it was welded into the chart.
+     *
+     *  Nothing computed is touched here on purpose: an SMA of volume
+     *  recalculated in JavaScript would be the second implementation of a
+     *  formula this module exists to keep in one place. The MA follows the
+     *  ordinary refetch on bar close, a second behind, which is what every
+     *  other study on the chart already does. */
+    function updateEdge(bars) {
+      if (bars) BARS = bars;
+      const last = BARS[BARS.length - 1];
+      if (!last) return;
+      for (const [id, a] of active) {
+        if (a.pending || !a.def || a.def.name !== "volume") continue;
+        const i = (a.specs || []).findIndex((sp) => sp.line === "volume");
+        if (i < 0 || !a.series[i]) continue;
+        const st = settings(id);
+        const plot = st.style.plots.volume || {};
+        const prev = BARS[BARS.length - 2] || null;
+        const up = window.ChartSettings && ChartSettings.barUp
+          ? ChartSettings.barUp(last, prev) : last.close >= last.open;
+        const pt = { time: last.time, value: last.volume,
+                     color: up ? plot.color : (plot.colorDown || plot.color) };
+        // keep the manager's own copy in step, or the legend quotes the
+        // value from before this tick while the bar on screen has moved
+        const data = a.specs[i].data;
+        if (data.length && data[data.length - 1].time === pt.time) data[data.length - 1] = pt;
+        else data.push(pt);
+        if (a.raw && a.raw.volume) {
+          const rv = a.raw.volume;
+          if (rv.length && rv[rv.length - 1].time === pt.time) {
+            rv[rv.length - 1] = { time: pt.time, value: last.volume };
+          }
+        }
+        try { a.series[i].update(pt); } catch { /* series replaced mid-tick */ }
+      }
+    }
+
     function retheme(bars) {
       if (bars) BARS = bars;
       for (const [id, a] of active) {
@@ -1253,7 +1396,7 @@ const Indicators = (() => {
         if (bars) BARS = bars;
         return active.has(id) ? (remove(id), Promise.resolve()) : add(id);
       },
-      remove, recomputeAll, retheme, restyle,
+      remove, recomputeAll, retheme, restyle, updateEdge,
       isActive: (id) => active.has(id),
       /** Current value + value at `fromTime`, for the chat context envelope.
        *
