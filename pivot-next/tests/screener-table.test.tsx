@@ -3,6 +3,7 @@ import { render, screen, within, waitFor } from "@testing-library/react";
 import * as screenerApi from "@/lib/screenerApi";
 import type { ScreenerStock } from "@/lib/screenerApi";
 import { StockTable } from "@/components/screener/StockTable";
+import { __resetSparklineCache } from "@/lib/sparklineStore";
 import { Sparkline } from "@/components/screener/Sparkline";
 
 vi.mock("next/navigation", () => ({
@@ -24,6 +25,7 @@ const noSort = { by: "market_cap_cr", dir: "desc" as const };
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  __resetSparklineCache();
   vi.spyOn(screenerApi, "getScreenerSparklines").mockResolvedValue({
     data: { series: { RELIANCE: [1300, 1310, 1305, 1322.4] }, source: "test" },
   });
@@ -35,7 +37,6 @@ describe("Screener table", () => {
 
     const row = screen.getByText("RELIANCE").closest("tr") as HTMLElement;
     const cells = within(row);
-    expect(cells.getByText("NSE")).toBeInTheDocument();
     expect(cells.getByText(/Reliance Industries Limited/)).toBeInTheDocument();
     expect(cells.getByText("₹1,322.40")).toBeInTheDocument();
     // A real minus sign, an explicit plus, and Indian grouping on volume.
@@ -58,6 +59,44 @@ describe("Screener table", () => {
     );
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     rerender(<StockTable rows={rows} sectorLabel={() => "Energy"} sort={noSort} onSort={vi.fn()} />);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("survives an UNMOUNT — a poll that swaps the table out must not refetch", async () => {
+    const spy = vi.spyOn(screenerApi, "getScreenerSparklines");
+    const rows = [stock()];
+    const props = { rows, sectorLabel: () => "Energy", sort: noSort, onSort: vi.fn() };
+    const { unmount } = render(<StockTable {...props} />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    unmount();                       // exactly what the loading branch did
+    render(<StockTable {...props} />);
+    await waitFor(() => expect(screen.getByText("RELIANCE")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces a whole render pass into one request per twelve symbols", async () => {
+    const spy = vi.spyOn(screenerApi, "getScreenerSparklines").mockResolvedValue({
+      data: { series: {}, source: "test" },
+    });
+    const many = Array.from({ length: 30 }, (_, i) => stock({ symbol: `SYM${i}` }));
+    render(<StockTable rows={many} sectorLabel={() => "X"} sort={noSort} onSort={vi.fn()} />);
+    // 30 rows → 3 batches of ≤12, not 30 requests and not one oversized one.
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
+    for (const call of spy.mock.calls) {
+      expect((call[0] as string[]).length).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it("does not re-ask for a symbol the source could not serve", async () => {
+    const spy = vi.spyOn(screenerApi, "getScreenerSparklines").mockResolvedValue({
+      data: { series: {}, source: "test" },   // asked for, not returned
+    });
+    const props = { rows: [stock()], sectorLabel: () => "E", sort: noSort, onSort: vi.fn() };
+    const { unmount } = render(<StockTable {...props} />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    unmount();
+    render(<StockTable {...props} />);
+    await waitFor(() => expect(screen.getByText("RELIANCE")).toBeInTheDocument());
     expect(spy).toHaveBeenCalledTimes(1);
   });
 

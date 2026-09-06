@@ -1997,11 +1997,17 @@ function StockResultsTable({
         borderRadius: "var(--radius-md)",
       }}
     >
-      {loading ? (
+      {/* The table stays MOUNTED once it has rows, even while a refresh is in
+          flight. Swapping it for a "Loading…" div on every metrics-warming
+          poll destroyed the component — and with it the sparkline
+          subscription and the scroll position — so the charts flickered back
+          to empty on a cadence nobody asked for. A refresh replaces values;
+          it should not replace the table. */}
+      {loading && rows.length === 0 ? (
         <div style={{ padding: "44px 18px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
           Loading…
         </div>
-      ) : error ? (
+      ) : error && rows.length === 0 ? (
         <div style={{ padding: "44px 18px", textAlign: "center", color: "var(--color-loss)", fontSize: 13 }}>
           {error}
         </div>

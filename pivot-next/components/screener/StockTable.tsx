@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   flexRender,
@@ -12,10 +12,12 @@ import {
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { StockHoverActions } from "@/components/StockHoverActions";
 import { Sparkline } from "@/components/screener/Sparkline";
+import { type ScreenerStock } from "@/lib/screenerApi";
 import {
-  getScreenerSparklines,
-  type ScreenerStock,
-} from "@/lib/screenerApi";
+  getSparkline,
+  requestSparklines,
+  subscribeSparklines,
+} from "@/lib/sparklineStore";
 
 /**
  * The screener grid.
@@ -103,33 +105,17 @@ function Identity({ row, sectorLabel }: { row: ScreenerStock; sectorLabel: (k: s
         size={40}
       />
       <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <span
-            style={{
-              fontSize: 15,
-              fontWeight: 500,
-              letterSpacing: "-0.012em",
-              lineHeight: 1.15,
-              whiteSpace: "nowrap",
-              color: "var(--text-primary)",
-            }}
-          >
-            {row.symbol}
-          </span>
-          <span
-            style={{
-              flex: "none",
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.04em",
-              padding: "2px 6px",
-              borderRadius: 4,
-              color: "var(--text-tertiary)",
-              background: "color-mix(in srgb, var(--text-primary) 7%, transparent)",
-            }}
-          >
-            NSE
-          </span>
+        <span
+          style={{
+            fontSize: 15,
+            fontWeight: 500,
+            letterSpacing: "-0.012em",
+            lineHeight: 1.15,
+            whiteSpace: "nowrap",
+            color: "var(--text-primary)",
+          }}
+        >
+          {row.symbol}
         </span>
         <span
           style={{
@@ -180,7 +166,13 @@ export function StockTable({
   offset?: number;
 }): React.ReactElement {
   const router = useRouter();
-  const [spark, setSpark] = useState<Record<string, number[]>>({});
+  // The sparkline cache is module state (lib/sparklineStore), not component
+  // state. The screener swaps this table out for a loading branch on every
+  // metrics-warming poll, which unmounts it — so a cache held here was thrown
+  // away and re-fetched on a cadence nobody asked for, and the charts
+  // flickered back to empty each time. This component only subscribes.
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => subscribeSparklines(rerender), []);
   // The Kite-style quick-action bar target. It lives in its own trailing
   // column rather than covering a value: the old table hid MKT CAP behind it,
   // which meant the one number you were reaching for vanished as you reached.
@@ -189,42 +181,12 @@ export function StockTable({
   // Sparklines for the rows on screen, in one call, once per new set of
   // symbols. Symbols already fetched are never re-requested — a load-more asks
   // only for what it added.
-  const fetched = useRef<Set<string>>(new Set());
+  // Cheap to call on every render: the store drops anything cached, in
+  // flight, or already queued, and coalesces what is left into one batch per
+  // tick. Twelve symbols a request, so the first rows paint while the rest
+  // are still in the air.
   useEffect(() => {
-    const want = rows.map((r) => r.symbol).filter((s) => !fetched.current.has(s));
-    if (!want.length) return;
-    // Claimed BEFORE the request so two renders in the same tick cannot ask
-    // for the same symbols twice — and released again on failure, or the
-    // symbol is poisoned for the life of the page.
-    want.forEach((s) => fetched.current.add(s));
-
-    // No AbortController, and no `alive` flag either — both are the same trap
-    // wearing different clothes. Under StrictMode the effect runs, cleans up,
-    // and runs again: the first pass claims these symbols and fires the
-    // request, and the second pass finds nothing left to ask for. So whatever
-    // the cleanup disarms — an abort, or an `if (!alive) return` before the
-    // setState — throws away the ONLY response that will ever arrive, in dev
-    // only, silently. Nothing here needs cancelling: the response fills a
-    // cache, and a setState on an unmounted component is a no-op in React 18.
-    // In CHUNKS, and each chunk paints as it lands. One request for all sixty
-    // rows made the whole column appear at once several seconds in; twelve at
-    // a time puts a chart under the rows you are actually looking at in a few
-    // hundred milliseconds, and the rest fill downward as you scroll to them.
-    const CHUNK = 12;
-    for (let i = 0; i < want.length; i += CHUNK) {
-      const batch = want.slice(i, i + CHUNK);
-      getScreenerSparklines(batch)
-        .then((res) => {
-          if ("data" in res && res.data) {
-            setSpark((prev) => ({ ...prev, ...res.data.series }));
-          } else {
-            batch.forEach((s) => fetched.current.delete(s));
-          }
-        })
-        .catch(() => {
-          batch.forEach((s) => fetched.current.delete(s));
-        });
-    }
+    requestSparklines(rows.map((r) => r.symbol));
   }, [rows]);
 
   const columns = useMemo<ColumnDef<ScreenerStock>[]>(() => [
@@ -247,7 +209,7 @@ export function StockTable({
       header: "1D chart",
       meta: { align: "left", width: 96 } satisfies Meta,
       cell: ({ row }) => (
-        <Sparkline points={spark[row.original.symbol]} baseline={row.original.prev_close} />
+        <Sparkline points={getSparkline(row.original.symbol)} baseline={row.original.prev_close} />
       ),
     },
     {
@@ -350,7 +312,7 @@ export function StockTable({
         </span>
       ),
     },
-  ], [sectorLabel, spark, offset, hoverSym]);
+  ], [sectorLabel, offset, hoverSym]);
 
   const table = useReactTable({
     data: rows,
