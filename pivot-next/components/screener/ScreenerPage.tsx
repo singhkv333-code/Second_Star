@@ -5,7 +5,6 @@
 // look — no live endpoints back them yet, so they stay client-filtered.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   SlidersHorizontal,
@@ -27,9 +26,8 @@ import {
   MUTUAL_FUNDS,
   FUND_CATEGORIES,
 } from "./screenerData";
-import { CompanyLogo } from "@/components/CompanyLogo";
+import { StockTable } from "@/components/screener/StockTable";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
-import { StockHoverActions } from "@/components/StockHoverActions";
 import {
   useWatchlists,
   setActiveWatchlist,
@@ -834,7 +832,6 @@ function sortValue(row: ScreenerStock, key: StockSortKey): number | string | nul
 // An empty slot shows just the Add tile. State lives in the shared watchlist
 // store (lib/watchlists) so it stays in sync with the stock-page bookmark;
 // card numbers come from the static STOCKS universe.
-type WatchStock = (typeof STOCKS)[number];
 
 const WEIGHT_MEDIUM = "var(--weight-medium)" as React.CSSProperties["fontWeight"];
 const WEIGHT_DISPLAY = "var(--weight-display)" as React.CSSProperties["fontWeight"];
@@ -1309,22 +1306,6 @@ function AddStockMenu({
 }
 
 // ── Stock filter rail (single-select sector + mcap tier + valuation) ──
-type StockColumn = {
-  id: StockSortKey;
-  label: string;
-  align: Align;
-  sortable: boolean;
-};
-
-// Column order per product spec: Symbol · Mkt Cap · Price · Change · P/E · 1-Y.
-const STOCK_COLUMNS: StockColumn[] = [
-  { id: "symbol", label: "Symbol", align: "left", sortable: true },
-  { id: "market_cap_cr", label: "Mkt Cap", align: "right", sortable: true },
-  { id: "price", label: "Price", align: "right", sortable: true },
-  { id: "change_pct", label: "Change", align: "right", sortable: true },
-  { id: "pe", label: "P/E", align: "right", sortable: true },
-  { id: "one_year_pct", label: "1-Y Return", align: "right", sortable: true },
-];
 
 // ─────────────────────────────────────────────────────────
 // Horizontal filter toolbar (desktop) — replaces the left rail for Stocks.
@@ -1988,9 +1969,6 @@ function StockResultsTable({
   loadingMore: boolean;
   onLoadMore: () => void;
 }): React.ReactElement {
-  const router = useRouter();
-  // Kite-style quick-action bar target — the symbol of the hovered row.
-  const [hoverSym, setHoverSym] = useState<string | null>(null);
   // Infinite scroll — when the sentinel below the table enters the scroll
   // viewport, pull the next page. Depends on onLoadMore identity so a
   // filter change re-arms with the fresh closure.
@@ -2019,186 +1997,46 @@ function StockResultsTable({
         borderRadius: "var(--radius-md)",
       }}
     >
-      <table
-        className="screener-table"
-        style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}
-      >
-        <thead style={{ position: "sticky", top: 0, background: "var(--bg-secondary)", zIndex: 1 }}>
-          <tr>
-            {STOCK_COLUMNS.map((c) => {
-              const active = c.sortable && sort.key === c.id;
-              return (
-                <th
-                  key={c.id}
-                  onClick={() => c.sortable && onSort(c.id)}
-                  style={{
-                    ...th,
-                    textAlign: c.align,
-                    color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-                    cursor: c.sortable ? "pointer" : "default",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (c.sortable && !active) e.currentTarget.style.color = "var(--text-secondary)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (c.sortable && !active) e.currentTarget.style.color = "var(--text-tertiary)";
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      flexDirection: c.align === "right" ? "row-reverse" : "row",
-                    }}
-                  >
-                    {c.sortable && (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          lineHeight: 0,
-                          opacity: active ? 1 : 0.45,
-                          transition: "opacity 0.15s var(--ease-quartr)",
-                        }}
-                      >
-                        {!active ? (
-                          <ChevronsUpDown size={13} strokeWidth={2.5} aria-hidden="true" />
-                        ) : sort.dir < 0 ? (
-                          <ChevronDown size={13} strokeWidth={2.75} aria-hidden="true" />
-                        ) : (
-                          <ChevronUp size={13} strokeWidth={2.75} aria-hidden="true" />
-                        )}
-                      </span>
-                    )}
-                    {c.label}
-                  </span>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <SkeletonRows cols={STOCK_COLUMNS.length} />
-          ) : error ? (
-            <tr>
-              <td
-                colSpan={STOCK_COLUMNS.length}
-                style={{ padding: "44px 18px", textAlign: "center" }}
-              >
-                <div style={{ color: "var(--color-loss)", fontSize: 13, marginBottom: 6 }}>
-                  {error}
-                </div>
-                <div style={{ color: "var(--text-tertiary)", fontSize: 12 }}>
-                  Check your connection and try again.
-                </div>
-              </td>
-            </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td
-                colSpan={STOCK_COLUMNS.length}
-                style={{ padding: "44px 18px", textAlign: "center" }}
-              >
-                <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 8 }}>
-                  Nothing matches your filters.
-                </div>
-                {hasFilters && (
-                  <button
-                    type="button"
-                    onClick={onResetFilters}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--glass-border)",
-                      borderRadius: "var(--radius-pill)",
-                      padding: "5px 14px",
-                      color: "var(--text-secondary)",
-                      fontFamily: "var(--font-ui)",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => (
-              <tr
-                key={row.symbol}
-                onClick={() => router.push(`/stock/${encodeURIComponent(row.symbol)}`)}
-                style={{
-                  background: "transparent",
-                  cursor: "pointer",
-                  transition: "background-color 0.15s var(--ease-quartr)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-secondary)";
-                  setHoverSym(row.symbol);
-                  // Warm the stock-page route (RSC payload + the Recharts chart
-                  // bundle) on hover so the click→chart transition is instant
-                  // instead of cold-loading the whole page + chart lib.
-                  router.prefetch(`/stock/${encodeURIComponent(row.symbol)}`);
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                  setHoverSym((s) => (s === row.symbol ? null : s));
-                }}
-              >
-                {STOCK_COLUMNS.map((c) => (
-                  <td
-                    key={c.id}
-                    style={{
-                      ...td,
-                      textAlign: c.align,
-                      color: "var(--text-primary)",
-                      fontFamily: c.align === "right" ? "var(--font-mono)" : "var(--font-ui)",
-                    }}
-                  >
-                    {c.id === "market_cap_cr" ? (
-                      // Kite's actual hover behaviour: on the hovered row
-                      // the MKT CAP value is hidden and the quick-action
-                      // bar takes its place, right-aligned on the value's
-                      // own axis. Name/number overlap is impossible at any
-                      // window width because bar and value never coexist.
-                      // `visibility` (not display) keeps the cell width —
-                      // zero layout shift.
-                      <div style={{ position: "relative" }}>
-                        <span
-                          style={{
-                            visibility:
-                              hoverSym === row.symbol ? "hidden" : "visible",
-                          }}
-                        >
-                          {renderStockCell(row, c, sectorLabel)}
-                        </span>
-                        {hoverSym === row.symbol && (
-                          <StockHoverActions
-                            symbol={row.symbol}
-                            name={row.name}
-                            logoUrl={row.logo_url}
-                            className="absolute"
-                            style={{
-                              right: 0,
-                              top: "50%",
-                              marginTop: -14,
-                              zIndex: 5,
-                            }}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      renderStockCell(row, c, sectorLabel)
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))
+      {loading ? (
+        <div style={{ padding: "44px 18px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
+          Loading…
+        </div>
+      ) : error ? (
+        <div style={{ padding: "44px 18px", textAlign: "center", color: "var(--color-loss)", fontSize: 13 }}>
+          {error}
+        </div>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: "44px 18px", textAlign: "center" }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 8 }}>
+            Nothing matches your filters.
+          </div>
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={onResetFilters}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--glass-border)",
+                borderRadius: "var(--radius-pill)",
+                padding: "5px 14px",
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Clear filters
+            </button>
           )}
-        </tbody>
-      </table>
+        </div>
+      ) : (
+        <StockTable
+          rows={rows}
+          sectorLabel={sectorLabel}
+          sort={{ by: sort.key, dir: sort.dir === 1 ? "asc" : "desc" }}
+          onSort={(k) => onSort(k as StockSortKey)}
+        />
+      )}
 
       {/* Infinite-scroll sentinel + progress footer. The observer pulls the
           next page ~400px before this becomes visible, so scrolling feels
@@ -2262,103 +2100,8 @@ function StockResultsTable({
   );
 }
 
-function renderStockCell(
-  row: ScreenerStock,
-  c: StockColumn,
-  sectorLabel: (key: string) => string,
-): React.ReactNode {
-  switch (c.id) {
-    case "symbol":
-      return (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-          <CompanyLogo
-            logoUrl={row.logo_url}
-            name={row.name}
-            symbol={row.symbol}
-            hue={sectorHue(row.sector)}
-            size={34}
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-            <span
-              style={{
-                fontWeight: "var(--weight-medium)" as React.CSSProperties["fontWeight"],
-                whiteSpace: "nowrap",
-              }}
-            >
-              {row.symbol}
-            </span>
-            <span
-              style={{
-                fontSize: 10.5,
-                color: "var(--text-tertiary)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                maxWidth: 220,
-              }}
-            >
-              {sectorLabel(row.sector)}
-            </span>
-          </div>
-        </div>
-      );
-    case "market_cap_cr":
-      return fmtCr(row.market_cap_cr);
-    case "price":
-      return fmtINR(row.price);
-    case "change_pct":
-      return <SignedPct v={row.change_pct} />;
-    case "pe":
-      return fmtNum1(row.pe);
-    case "one_year_pct":
-      return <SignedPct v={row.one_year_pct} />;
-    default:
-      return "—";
-  }
-}
 
-/** Signed, profit/loss-coloured percent (em-dash when null). Used for the
- *  Change and 1-Y Return columns. */
-function SignedPct({ v }: { v: number | null | undefined }): React.ReactNode {
-  if (v == null || !Number.isFinite(v)) return "—";
-  const pos = v >= 0;
-  return (
-    <span
-      style={{
-        color: pos ? "var(--color-profit)" : "var(--color-loss)",
-        fontVariantNumeric: "tabular-nums",
-      }}
-    >
-      {pos ? "+" : ""}
-      {v.toFixed(2)}%
-    </span>
-  );
-}
 
-function SkeletonRows({ cols }: { cols: number }): React.ReactElement {
-  return (
-    <>
-      {Array.from({ length: 10 }).map((_, i) => (
-        <tr key={i}>
-          {Array.from({ length: cols }).map((__, j) => (
-            <td key={j} style={{ ...td }}>
-              <div
-                className="screener-skeleton"
-                style={{
-                  height: j === 0 ? 34 : 12,
-                  width: j === 0 ? "70%" : "55%",
-                  marginLeft: j === 0 ? 0 : "auto",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--bg-secondary)",
-                }}
-              />
-            </td>
-          ))}
-        </tr>
-      ))}
-    </>
-  );
-}
 
 // ─────────────────────────────────────────────────────────
 // MOCK screen view (ETFs / Indices / Funds) — preserved behaviour

@@ -42,8 +42,22 @@ export type ScreenerStock = {
   price: number | null;
   /** Day change (%), signed. Same source/nullability as `price`. */
   change_pct: number | null;
+  /** The same move in rupees, from the same quote as `change_pct`. */
+  change_abs: number | null;
+  /** The session, straight off the batch quote — no extra round trip. */
+  day_open: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  prev_close: number | null;
+  /** Shares traded today. An integer count, never a rounded float. */
+  volume: number | null;
   pe: number | null;
   roe: number | null;
+  /** Return on capital employed (%) and debt/equity (x). Both come from the
+   *  same single statement as roe/pe — the backend was already fetching and
+   *  discarding them. */
+  roce: number | null;
+  de: number | null;
   /** 1-year price return (%), signed. Same source/nullability as `price`. */
   one_year_pct: number | null;
   /** No source on this path — always null (kept for contract stability). */
@@ -265,4 +279,29 @@ export function getScreenerSectors(
   signal?: AbortSignal,
 ): Promise<ApiResult<ScreenerSectorsResponse>> {
   return getJson<ScreenerSectorsResponse>("/screener/sectors", undefined, signal);
+}
+
+
+// ── 1-day sparklines ─────────────────────────────────────────────────
+
+export type ScreenerSparklines = {
+  /** `{SYMBOL: [close, ...]}`, oldest first. A symbol the source cannot serve
+   *  is ABSENT, not an empty array — "no data" and "a flat session" are
+   *  different facts and must not render the same. */
+  series: Record<string, number[]>;
+  source: string;
+};
+
+/** Intraday closes for the rows currently on screen. Deliberately a second
+ *  request: the grid must render before these land, and a sort or a filter
+ *  change must not pay for them. Cap is 60 symbols per call, server-side. */
+export function getScreenerSparklines(
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerSparklines>> {
+  return getJson<ScreenerSparklines>(
+    "/screener/sparklines",
+    { symbols: symbols.join(",") },
+    signal,
+  );
 }
