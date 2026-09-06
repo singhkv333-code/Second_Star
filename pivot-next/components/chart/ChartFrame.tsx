@@ -17,11 +17,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *
  * WHAT CROSSES THE BOUNDARY, AND WHAT DOES NOT
  *
- *   Auth   — nothing crosses. Production serves the shell and the chart from
- *            ONE origin through nginx, and the chart reads its token from
- *            localStorage. Same origin, same localStorage: a user signed in
- *            here is already signed in there. This is the whole reason the
- *            iframe is same-origin rather than a separate host.
+ *   Auth   — nothing crosses, and today nothing is shared either. The frame
+ *            is same-origin so the two CAN see one localStorage, but they
+ *            keep different keys issued by different servers: the shell holds
+ *            `pivot_jwt` from Pivot's API, the chart holds
+ *            `charto:auth:token` from Charto's dataserver. So the chart asks
+ *            for its own sign-in the first time and remembers it after that.
+ *            Same origin is the precondition for ever fixing that — a chart
+ *            on a second port could not share a token even in principle — but
+ *            it is not the fix. That is a login that mints both.
  *   Symbol — the `src`. The chart already switches symbol by assigning
  *            `location.search` and reloading; setting `src` is that same door.
  *            A postMessage that swapped it in place would be a second, weaker
@@ -31,14 +35,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *            wrong.
  */
 
-/** Where the chart app is served from.
+/** Where the chart app is served from — a PATH on this origin, not a host.
  *
- *  Empty string = same origin, which is the production topology and the only
- *  one where the localStorage hand-off works. Set NEXT_PUBLIC_CHART_ORIGIN in
- *  development, where the shell is on :3000 and the chart on :5173 — auth will
- *  not carry across that gap, which is expected: sign in on the chart itself.
+ *  next.config.ts proxies /chart-app to the chart's own server (:5173 in
+ *  development, nginx in production), so the browser only ever sees one
+ *  origin. Pointing the frame at a second port instead would work for exactly
+ *  one thing — showing candles — and break the rest: the chart keeps its auth
+ *  token, workspace and saved layouts in localStorage, which is per-origin, so
+ *  a chart on :5173 is a chart the user signed into the shell is signed out
+ *  of. Same origin is the whole design, not a deployment detail.
  */
-const CHART_ORIGIN = process.env.NEXT_PUBLIC_CHART_ORIGIN ?? "";
+const CHART_BASE = "/chart-app";
 
 type Props = {
   /** Symbol to open. Changing it reloads the frame, by design. */
@@ -54,21 +61,31 @@ export function ChartFrame({ symbol, theme }: Props): React.ReactElement {
   // Built once per symbol. Deliberately NOT dependent on `theme`: rebuilding
   // the URL on a theme flip would reload the chart and throw away the user's
   // drawings, indicators and scroll position to change a colour.
-  const src = `${CHART_ORIGIN}/${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`;
+  // `/chart-app/index.html`, and both halves of that are deliberate.
+  //
+  // The chart's HTML loads its 30-odd scripts by RELATIVE path, so what they
+  // resolve against is decided by the frame's URL. At `/chart-app` the base is
+  // `/`, every `js/*.js` became `/js/*.js`, and the shell answered its own 404
+  // page — which the browser then refused to execute as script, so the frame
+  // rendered chrome with no chart in it.
+  //
+  // `/chart-app/` would fix the base, but Next 308-redirects a trailing slash
+  // away before the rewrite runs and we are back at the first case. Naming the
+  // file gives the same base with no redirect and no global config change.
+  const src = `${CHART_BASE}/index.html${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`;
 
   const post = useCallback((msg: Record<string, unknown>) => {
     const win = ref.current?.contentWindow;
     if (!win) return;
-    // Target the frame's own origin, never "*": a wildcard would deliver the
+    // Target a concrete origin, never "*": a wildcard would deliver the
     // message to whatever happens to be loaded there if the src ever changes
-    // under us.
-    win.postMessage(msg, CHART_ORIGIN || window.location.origin);
+    // under us. The frame is same-origin by construction, so this is ours.
+    win.postMessage(msg, window.location.origin);
   }, []);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      const expected = CHART_ORIGIN || window.location.origin;
-      if (e.origin !== expected) return;
+      if (e.origin !== window.location.origin) return;
       const d = e.data as { type?: string } | null;
       if (d && d.type === "chart:ready") setReady(true);
     };
