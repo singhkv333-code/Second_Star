@@ -89,16 +89,15 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
   }, [symbol]);
 
   const available = React.useMemo<SectionId[]>(() => {
-    if (!sections) return [];
-    const c = sections.coverage;
+    const c = sections?.coverage;
     return SECTION_ORDER.filter((t) => {
-      if (t === "peers") return true;
+      if (t === "peers") return !!sections;
       // Self-reporting sections: drawn once their own fetch says it has data.
       if (t === "scores") return scores?.available ?? false;
       if (t === "shareholding") return shp?.available ?? false;
       if (t === "flows") return flows?.available ?? false;
       if (t === "deals") return deals?.available ?? false;
-      return (c[t]?.count ?? 0) > 0;
+      return (c?.[t]?.count ?? 0) > 0;
     });
   }, [sections, scores, shp, flows, deals]);
 
@@ -132,7 +131,7 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
 
   // A company with none of this data gets nothing rather than an empty shell —
   // the page above still stands on its own.
-  if (failed || (sections && available.length === 0)) return null;
+  if ((failed || sections) && available.length === 0) return null;
 
   return (
     <section
@@ -149,15 +148,15 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
         padding: "0 20px",
       }}
     >
-      {sections === null ? <PanelSkeleton rows={7} /> : null}
+      {sections === null && !failed ? <PanelSkeleton rows={7} /> : null}
 
       {available.includes("revenue_mix") ? <ResearchSection id="revenue_mix" label="Segment mix">
         {mix ? <MixPanel data={mix} /> : <PanelSkeleton rows={6} />}
       </ResearchSection> : null}
 
-      <ResearchSection id="peers" label="Peer comparison">
+      {available.includes("peers") && <ResearchSection id="peers" label="Peer comparison">
         <PeerComparisonPanel symbol={symbol} />
-      </ResearchSection>
+      </ResearchSection>}
 
       {available.includes("scores") && scores ? (
         <ResearchSection id="scores" label="Solvency and value">
